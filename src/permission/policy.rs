@@ -403,6 +403,11 @@ pub struct PermissionSession {
     grants: Vec<Grant>,
     prompter: Option<Box<dyn ApprovalPrompter>>,
     ledger: AuthorityLedger,
+    /// The durable session id an "always" answer will outlive this process in.
+    ///
+    /// `None` for a turn nothing is recording, where "always" really does mean
+    /// "until this command exits".
+    durable_session: Option<String>,
 }
 
 impl PermissionSession {
@@ -417,6 +422,7 @@ impl PermissionSession {
             grants: Vec::new(),
             prompter: None,
             ledger: AuthorityLedger::new(),
+            durable_session: None,
         }
     }
 
@@ -430,6 +436,32 @@ impl PermissionSession {
     pub fn with_rules(mut self, rules: PermissionRules) -> Self {
         self.rules = rules;
         self
+    }
+
+    /// The same session, recording its approvals into the durable session `id`.
+    ///
+    /// This changes what the word "always" is worth, so it changes what the
+    /// prompt says. An approval that survives the process is a different
+    /// question from one that does not, and the user has to be asked the
+    /// question they are actually answering -- including the id, because that is
+    /// the exact thing a later `fxr ask --resume-id <id>` will reuse it for.
+    pub fn with_durable_session(mut self, id: impl Into<String>) -> Self {
+        self.durable_session = Some(id.into());
+        self
+    }
+
+    /// What an "always" answer buys, in this session's terms.
+    fn always_scope_for(&self, action: ProposedAction<'_>) -> String {
+        match &self.durable_session {
+            Some(id) => format!(
+                "{}, and in every later `fxr ask --resume-id {id}` of this saved session",
+                action.always_scope()
+            ),
+            None => format!(
+                "{}; this turn is not being recorded, so the approval ends with this command",
+                action.always_scope()
+            ),
+        }
     }
 
     pub fn mode(&self) -> PermissionMode {
@@ -534,6 +566,14 @@ impl PermissionSession {
     fn ask(&mut self, action: ProposedAction<'_>) -> PolicyDecision {
         let tool = action.tool();
         let target = action.target();
+        // Built before the prompter is borrowed: the question depends on the
+        // session's durable scope, and the answer is what mutates the session.
+        let request = ApprovalRequest {
+            tool,
+            target: target.clone(),
+            summary: action.summary(),
+            always_scope: self.always_scope_for(action),
+        };
         let Some(prompter) = self.prompter.as_mut() else {
             return PolicyDecision::Deny {
                 cause: DenyCause::NoApprovalChannel,
@@ -541,12 +581,6 @@ impl PermissionSession {
                     "`ask` mode needs an interactive approval for `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or use --auto for bounded workspace changes"
                 ),
             };
-        };
-        let request = ApprovalRequest {
-            tool,
-            target: target.clone(),
-            summary: action.summary(),
-            always_scope: action.always_scope(),
         };
         match prompter.request(&request) {
             Ok(ApprovalAnswer::Once) => PolicyDecision::Allow {
@@ -602,6 +636,7 @@ impl fmt::Debug for PermissionSession {
             .field("grants", &self.grants)
             .field("has_prompter", &self.prompter.is_some())
             .field("ledger", &self.ledger)
+            .field("durable_session", &self.durable_session)
             .finish()
     }
 }
@@ -720,6 +755,94 @@ mod tests {
             "{scope}"
         );
         assert!(scope.contains("whatever its contents"), "{scope}");
+    }
+
+    /// A prompter that answers "no" and keeps the question it was asked.
+    struct RecordingPrompter {
+        asked: std::sync::Arc<std::sync::Mutex<Vec<ApprovalRequest>>>,
+    }
+
+    impl ApprovalPrompter for RecordingPrompter {
+        fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer> {
+            self.asked.lock().expect("lock").push(request.clone());
+            Ok(ApprovalAnswer::Deny)
+        }
+    }
+
+    #[test]
+    fn the_question_the_user_is_actually_asked_names_the_durable_scope() {
+        // The one that matters: not that the helper can produce the sentence,
+        // but that the sentence reaches the prompt. A prompt that understated
+        // what "always" buys would be the whole defect.
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = PermissionSession::new(PermissionMode::Ask)
+            .with_durable_session("2026-abc")
+            .with_prompter(Box::new(RecordingPrompter {
+                asked: std::sync::Arc::clone(&asked),
+            }));
+
+        session.decide(ProposedAction::Mutation(&plan));
+
+        let asked = asked.lock().expect("lock");
+        assert_eq!(asked.len(), 1);
+        assert!(
+            asked[0]
+                .always_scope
+                .contains("fxr ask --resume-id 2026-abc"),
+            "the prompt must disclose the durable scope: {}",
+            asked[0].always_scope
+        );
+    }
+
+    #[test]
+    fn an_unrecorded_turn_is_not_asked_a_durable_question() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_prompter(Box::new(
+            RecordingPrompter {
+                asked: std::sync::Arc::clone(&asked),
+            },
+        ));
+
+        session.decide(ProposedAction::Mutation(&plan));
+
+        let asked = asked.lock().expect("lock");
+        assert!(
+            asked[0].always_scope.contains("ends with this command"),
+            "{}",
+            asked[0].always_scope
+        );
+        assert!(!asked[0].always_scope.contains("--resume-id"));
+    }
+
+    #[test]
+    fn a_recorded_session_says_that_always_outlives_the_command() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let action = ProposedAction::Mutation(&plan);
+
+        // Recorded: the approval survives, so the prompt names the exact thing
+        // that will reuse it.
+        let durable = PermissionSession::new(PermissionMode::Ask).with_durable_session("2026-abc");
+        let scope = durable.always_scope_for(action);
+        assert!(
+            scope.contains("every future write_file to `a.txt`"),
+            "{scope}"
+        );
+        assert!(
+            scope.contains("fxr ask --resume-id 2026-abc"),
+            "the prompt must name the durable scope it is buying: {scope}"
+        );
+
+        // Not recorded: "always" really does end with the process, and the
+        // prompt must not imply otherwise.
+        let ephemeral = PermissionSession::new(PermissionMode::Ask);
+        let scope = ephemeral.always_scope_for(action);
+        assert!(
+            scope.contains("ends with this command"),
+            "an unrecorded turn must not promise durability: {scope}"
+        );
+        assert!(!scope.contains("--resume-id"), "{scope}");
     }
 
     #[test]

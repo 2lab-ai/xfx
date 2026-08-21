@@ -649,8 +649,361 @@ fn a_world_readable_log_is_refused_for_writing() {
 }
 
 // ---------------------------------------------------------------------------
+// one writer per session
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_second_writer_is_refused_while_the_first_holds_the_session() {
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    let mut first = store
+        .create(id("one-writer"), new_session(workspace.path()))
+        .expect("create");
+    store
+        .append(
+            &mut first,
+            SessionEvent::UserMessage {
+                text: "the first writer's turn".to_string(),
+            },
+        )
+        .expect("append");
+    store.publish(&mut first).expect("publish");
+
+    // The lock is on the open file description, not on the process, so opening
+    // the same session twice is refused even from here.
+    let err = profile
+        .store()
+        .resume(&Selector::Id(id("one-writer")), workspace.path())
+        .expect_err("a session has one writer");
+    assert!(matches!(err, SessionError::Busy { .. }), "{err:?}");
+    assert!(err.to_string().contains("one-writer"), "{err}");
+
+    // The refusal cost the holder nothing: it is still writable and still whole.
+    store
+        .append(
+            &mut first,
+            SessionEvent::AssistantMessage {
+                text: "still mine".to_string(),
+                tool_calls: Vec::new(),
+            },
+        )
+        .expect("the holder keeps writing");
+    store.publish(&mut first).expect("publish");
+    drop(first);
+
+    let state = profile
+        .read_only_store()
+        .detail(&Selector::Id(id("one-writer")), workspace.path())
+        .expect("the session survived the contention")
+        .state;
+    assert_eq!(state.turns.len(), 1);
+    assert_eq!(state.turns[0].user, "the first writer's turn");
+    assert_eq!(state.turns[0].steps.len(), 1);
+}
+
+#[test]
+fn the_writer_lock_is_released_when_the_handle_is_dropped() {
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    let session = store
+        .create(id("released"), new_session(workspace.path()))
+        .expect("create");
+    assert!(profile
+        .store()
+        .resume(&Selector::Id(id("released")), workspace.path())
+        .is_err_and(|err| matches!(err, SessionError::Busy { .. })));
+
+    drop(session);
+    // No explicit unlock anywhere: closing the file is what releases it, which
+    // is why a killed fxr cannot leave a session locked forever.
+    let resumed = profile
+        .store()
+        .resume(&Selector::Id(id("released")), workspace.path())
+        .expect("the lock died with the handle");
+    assert_eq!(resumed.session.id().as_str(), "released");
+}
+
+#[test]
+fn a_log_that_changed_underneath_an_open_writer_refuses_the_next_append() {
+    // The backstop for everything an advisory lock cannot stop: an editor, a
+    // sync client, a filesystem that does not honour `flock`.
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    let mut session = store
+        .create(id("diverged"), new_session(workspace.path()))
+        .expect("create");
+    let published = session.published_bytes();
+
+    let log = profile.sessions_dir().join("diverged").join(EVENTS_FILE);
+    let mut bytes = fs::read(&log).expect("read");
+    bytes.extend_from_slice(b"{\"someone\":\"else\"}\n");
+    fs::write(&log, &bytes).expect("write behind the writer's back");
+
+    let err = store
+        .append(
+            &mut session,
+            SessionEvent::UserMessage {
+                text: "would land at the wrong offset".to_string(),
+            },
+        )
+        .expect_err("a diverged log must not be written to");
+    let SessionError::LogDiverged {
+        expected, actual, ..
+    } = err
+    else {
+        panic!("expected a divergence, got {err:?}");
+    };
+    assert_eq!(expected, published);
+    assert_eq!(actual, bytes.len() as u64);
+
+    // And the session is closed to further writes rather than left half-usable.
+    assert!(store
+        .append(
+            &mut session,
+            SessionEvent::UserMessage {
+                text: "nor this".to_string()
+            },
+        )
+        .is_err());
+}
+
+#[test]
+fn a_foreign_staged_manifest_is_left_alone_and_does_not_block_publishing() {
+    // A crashed writer's stage file is inert, and fxr never unlinks one it did
+    // not create -- deleting a fixed stage name is how a cleanup path turns into
+    // the interference the writer lock exists to prevent.
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    let mut session = store
+        .create(id("foreign-stage"), new_session(workspace.path()))
+        .expect("create");
+
+    let dir = profile.sessions_dir().join("foreign-stage");
+    let foreign = dir.join("session.json.99999.deadbeef.staged");
+    fs::write(&foreign, "not mine\n").expect("plant a foreign stage");
+
+    store
+        .append(
+            &mut session,
+            SessionEvent::UserMessage {
+                text: "published anyway".to_string(),
+            },
+        )
+        .expect("append");
+    store.publish(&mut session).expect("publish");
+    drop(session);
+
+    assert!(
+        foreign.exists(),
+        "fxr must not remove another writer's stage"
+    );
+    assert_eq!(
+        fs::read_to_string(&foreign).expect("read"),
+        "not mine\n",
+        "nor overwrite it"
+    );
+    // And no stage of fxr's own survives a successful publish.
+    let leftovers: Vec<String> = fs::read_dir(&dir)
+        .expect("read the session dir")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.ends_with(".staged") && name != "session.json.99999.deadbeef.staged")
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "left its own stage behind: {leftovers:?}"
+    );
+
+    // The session still reads, so an unknown neighbour file changed nothing.
+    let state = profile
+        .read_only_store()
+        .detail(&Selector::Id(id("foreign-stage")), workspace.path())
+        .expect("read back")
+        .state;
+    assert_eq!(state.turns.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// the directories the store lives in
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_profile_or_sessions_directory_is_refused() {
+    use std::os::unix::fs::symlink;
+
+    for link_name in [".fxr", "sessions"] {
+        let root = TempDir::new().expect("root");
+        let base = root.path().canonicalize().expect("canonicalize");
+        let elsewhere = base.join("elsewhere");
+        fs::create_dir_all(&elsewhere).expect("create the link target");
+        let profile = base.join(".fxr");
+
+        if link_name == ".fxr" {
+            symlink(&elsewhere, &profile).expect("symlink the profile dir");
+        } else {
+            use std::os::unix::fs::PermissionsExt;
+            fs::create_dir(&profile).expect("create the profile dir");
+            // Private, so the profile directory itself passes and the symlinked
+            // `sessions` inside it is the only thing under test.
+            fs::set_permissions(&profile, fs::Permissions::from_mode(0o700)).expect("chmod");
+            symlink(&elsewhere, profile.join("sessions")).expect("symlink the sessions dir");
+        }
+
+        let err = SessionStore::open(&profile)
+            .err()
+            .unwrap_or_else(|| panic!("a symlinked `{link_name}` must be refused"));
+        assert!(
+            matches!(err, SessionError::InsecureParent { .. }),
+            "{link_name}: {err:?}"
+        );
+        assert!(err.to_string().contains("symbolic link"), "{err}");
+        // Nothing was written through the link.
+        assert!(
+            fs::read_dir(&elsewhere).expect("read").next().is_none(),
+            "{link_name}: fxr wrote through the link"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_group_or_world_reachable_store_directory_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for mode in [0o750, 0o705, 0o777] {
+        let profile = Profile::new();
+        // Create it privately first, then loosen it the way a stray `chmod`
+        // would, so the check is about the state and not about who made it.
+        profile.store();
+        fs::set_permissions(profile.sessions_dir(), fs::Permissions::from_mode(mode))
+            .expect("loosen");
+
+        let err = SessionStore::open(&profile.dir)
+            .err()
+            .unwrap_or_else(|| panic!("mode {mode:o} must be refused"));
+        assert!(
+            matches!(err, SessionError::InsecureParent { .. }),
+            "{mode:o}: {err:?}"
+        );
+        assert!(err.to_string().contains("group or other"), "{err}");
+
+        // Reading is refused for the same reason, rather than quietly listing a
+        // store other accounts can rewrite.
+        assert!(profile
+            .read_only_store()
+            .list(&ListFilter::new(ListScope::AllWorkspaces))
+            .is_err_and(|err| matches!(err, SessionError::InsecureParent { .. })));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_where_the_profile_directory_belongs_is_refused() {
+    let root = TempDir::new().expect("root");
+    let base = root.path().canonicalize().expect("canonicalize");
+    let profile = base.join(".fxr");
+    fs::write(&profile, "not a directory\n").expect("occupy the path");
+
+    let err = SessionStore::open(&profile).expect_err("a file is not a store");
+    assert!(
+        matches!(err, SessionError::InsecureParent { .. }),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("not a directory"), "{err}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_absent_store_is_created_private_and_owned() {
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    let profile = Profile::new();
+    assert!(!profile.dir.exists());
+    let store = profile.store();
+    let workspace = Workspace::new();
+    store
+        .create(id("fresh"), new_session(workspace.path()))
+        .expect("create");
+
+    // A file this test just created is by definition owned by the user running
+    // it, so it is the reference the store's own owner check has to agree with.
+    let reference = workspace.write("owned-by-me", "x");
+    let expected_uid = fs::metadata(&reference).expect("stat").uid();
+
+    for dir in [profile.dir.clone(), profile.sessions_dir()] {
+        let metadata = fs::symlink_metadata(&dir).expect("stat");
+        assert!(!metadata.file_type().is_symlink(), "{}", dir.display());
+        assert_eq!(
+            metadata.permissions().mode() & 0o777,
+            0o700,
+            "{}",
+            dir.display()
+        );
+        assert_eq!(metadata.uid(), expected_uid, "{}", dir.display());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // list and detail
 // ---------------------------------------------------------------------------
+
+#[test]
+fn a_listing_over_the_scan_cap_keeps_the_newest_and_says_it_was_cut() {
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    // Ids that sort in creation order, as a generated one does.
+    for (index, name) in ["s1", "s2", "s3", "s4", "s5"].iter().enumerate() {
+        profile.clock.set(1_000 + index as i64 * 10);
+        store
+            .create(id(name), new_session(workspace.path()))
+            .expect("create");
+    }
+
+    let capped = profile.store().with_scan_cap(3);
+    let listed = capped
+        .list(&ListFilter::new(ListScope::AllWorkspaces))
+        .expect("list");
+    let ids: Vec<&str> = listed
+        .sessions
+        .iter()
+        .map(|summary| summary.id.as_str())
+        .collect();
+    assert_eq!(ids, ["s5", "s4", "s3"], "the newest survive the cap");
+    assert!(listed.truncated, "a cut candidate set must say so");
+    assert!(!listed.has_more, "the caller's own limit did not bite");
+
+    // Deterministic: the same store, read again, gives the same answer.
+    let again = capped
+        .list(&ListFilter::new(ListScope::AllWorkspaces))
+        .expect("list");
+    assert_eq!(again.sessions, listed.sessions);
+
+    // And `last` still means the newest, not whatever the filesystem offered.
+    let resumed = capped
+        .resume(&Selector::Last, workspace.path())
+        .expect("resume last");
+    assert_eq!(resumed.session.id().as_str(), "s5");
+
+    // Under the cap, nothing is reported as cut.
+    let whole = profile
+        .store()
+        .list(&ListFilter::new(ListScope::AllWorkspaces))
+        .expect("list");
+    assert_eq!(whole.sessions.len(), 5);
+    assert!(!whole.truncated);
+}
 
 #[test]
 fn list_is_newest_first_and_scoped_to_the_current_workspace() {
@@ -1425,6 +1778,209 @@ fn sessions_and_session_report_the_same_facts_as_text_and_json() {
     // Deterministic: the same read twice is byte-identical.
     let again = sandbox.run(&["sessions", "--json"], &[]);
     assert_eq!(again.stdout, listed.stdout);
+}
+
+#[test]
+fn a_second_fxr_process_is_refused_and_leaves_the_first_session_replayable() {
+    // The real thing: another operating-system process, not another handle.
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["recorded"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "hold this session"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    // Hold the session open here, then ask a real `fxr` to resume the same one.
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
+    let held = store
+        .resume(&Selector::Id(id(&session_id)), &sandbox.workspace)
+        .expect("resume");
+
+    // A loopback port nothing listens on: the run has to fail before it would
+    // ever reach a provider, which is what proves the refusal came first.
+    let run = sandbox.run(
+        &["ask", "--resume-id", &session_id, "steal the session"],
+        &gateway_env("http://127.0.0.1:1/v3/ai/language-model", TEST_KEY),
+    );
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(
+        run.stderr.contains("already open for writing"),
+        "stderr={:?}",
+        run.stderr
+    );
+    assert!(run.stderr.contains(&session_id), "stderr={:?}", run.stderr);
+
+    drop(held);
+    let state = SessionStore::read_only(&sandbox.profile_dir())
+        .detail(&Selector::Id(id(&session_id)), &sandbox.workspace)
+        .expect("the held session is intact")
+        .state;
+    assert_eq!(state.turns.len(), 1);
+    assert_eq!(state.turns[0].user, "hold this session");
+    assert!(matches!(
+        state.turns[0].outcome,
+        Some(TurnConclusion::Final { .. })
+    ));
+}
+
+#[test]
+fn a_standing_grant_is_shown_by_tool_and_target_and_survives_a_resume() {
+    // An "always" answer outlives the process that gave it, so `session` has to
+    // show *what* was approved rather than how many things were.
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["done"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "first turn"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    // Record the approval the way an "always" answer would.
+    {
+        let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
+        let mut session = store
+            .resume(&Selector::Id(id(&session_id)), &sandbox.workspace)
+            .expect("resume")
+            .session;
+        store
+            .append(
+                &mut session,
+                SessionEvent::PermissionGrantRecorded {
+                    tool: "terminal".to_string(),
+                    target: "cargo test in /work".to_string(),
+                },
+            )
+            .expect("append");
+        store.publish(&mut session).expect("publish");
+    }
+
+    let json = sandbox
+        .run(&["session", "--id", &session_id, "--json"], &[])
+        .json();
+    assert_eq!(json["permission_grants"], 1);
+    assert_eq!(json["grants"][0]["tool"], "terminal");
+    assert_eq!(
+        json["grants"][0]["target"], "cargo test in /work",
+        "the exact target policy will match on, not a count"
+    );
+
+    let text = sandbox.run(&["session", "--id", &session_id], &[]);
+    assert!(
+        text.stdout
+            .contains("[grant] tool=terminal target=cargo test in /work\n"),
+        "{}",
+        text.stdout
+    );
+
+    // And it is still in force for the next turn in the same durable session.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["second"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(
+                &["ask", "--resume-id", &session_id, "second turn"],
+                &gateway_env(&url, TEST_KEY)
+            )
+            .code,
+        Some(0)
+    );
+    let after = sandbox
+        .run(&["session", "--id", &session_id, "--json"], &[])
+        .json();
+    assert_eq!(
+        after["permission_grants"], 1,
+        "restored, and not recorded a second time: {after}"
+    );
+    assert_eq!(after["grants"][0]["target"], "cargo test in /work");
+    assert_eq!(after["history_turns"], 2);
+    assert_eq!(
+        sandbox.run(&["status", "--json"], &[]).json()["session_permission_grants"],
+        1
+    );
+}
+
+#[test]
+fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
+    // A manifest is a file, and a file is something that can be written by
+    // something other than fxr. Every session-controlled value therefore reaches
+    // the text renderer flattened.
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "a question"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    // Forge through the store's own writer so the manifest stays self-consistent
+    // and the only thing under test is the rendering.
+    {
+        let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
+        let mut session = store
+            .resume(&Selector::Id(id(&session_id)), &sandbox.workspace)
+            .expect("resume")
+            .session;
+        store
+            .append(
+                &mut session,
+                SessionEvent::PreferencesChanged {
+                    model: Some(
+                        "evil\n[session] id=forged-session\n[grant] tool=terminal target=rm -rf /"
+                            .to_string(),
+                    ),
+                    permission_mode: None,
+                },
+            )
+            .expect("append");
+        store.publish(&mut session).expect("publish");
+    }
+
+    for args in [
+        vec!["sessions"],
+        vec!["session", "--id", &session_id],
+        vec!["status"],
+    ] {
+        let run = sandbox.run(&args, &[]);
+        assert_eq!(run.code, Some(0), "{args:?} stderr={:?}", run.stderr);
+        // A row is forged by *starting a line*. The hostile text is still
+        // visible -- it is the recorded model name, and hiding it would be its
+        // own lie -- but flattened onto the one line that owns it, where a
+        // reader and a parser both see it as a value rather than a record.
+        for line in run.stdout.lines() {
+            assert!(
+                !line.starts_with("[session] id=forged-session"),
+                "{args:?} rendered a forged session row: {line:?}"
+            );
+            assert!(
+                !line.starts_with("[grant] "),
+                "{args:?} rendered a forged grant row: {line:?}"
+            );
+            assert!(
+                line.starts_with('[') && line.contains(']'),
+                "{args:?} produced an unlabelled line {line:?}"
+            );
+        }
+        assert!(
+            run.stdout.contains(
+                "[session] model=evil [session] id=forged-session [grant] tool=terminal target=rm -rf /\n"
+            ) || !args.contains(&"session"),
+            "{args:?} must keep the hostile value on its own line: {}",
+            run.stdout
+        );
+    }
 }
 
 #[test]

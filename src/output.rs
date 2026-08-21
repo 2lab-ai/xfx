@@ -313,14 +313,27 @@ const MAX_DETAIL_TURNS: usize = 50;
 const MAX_DETAIL_TEXT_BYTES: usize = 2_000;
 
 /// What `fxr sessions` reports.
+///
+/// # Every session-controlled value is flattened
+///
+/// A manifest is a file, and a file is something an attacker or a mistake can
+/// write. The text renderer promises one labelled fact per line, so a workspace
+/// path or a model name containing a newline would let a session forge a row --
+/// a second `[session] id=...` line naming a session that does not exist, or a
+/// `[turn]` line claiming an outcome nobody recorded. Every value that comes
+/// from a session therefore goes through [`one_line`] on its way to text, not
+/// only the ones that obviously carry prose.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionsSnapshot {
     pub kind: &'static str,
     /// `workspace` or `all`.
     pub scope: &'static str,
     pub count: usize,
-    /// Whether the bound cut the list short.
+    /// Whether the caller's limit cut the list short.
     pub has_more: bool,
+    /// Whether the store holds more sessions than one scan considers, so there
+    /// are rows this listing never looked at.
+    pub truncated: bool,
     /// Session directories that could not be trusted and were skipped.
     pub skipped_invalid: usize,
     pub sessions: Vec<SessionRow>,
@@ -346,16 +359,17 @@ impl SessionsSnapshot {
             scope: list.scope,
             count: list.sessions.len(),
             has_more: list.has_more,
+            truncated: list.truncated,
             skipped_invalid: list.skipped_invalid,
             sessions: list
                 .sessions
                 .iter()
                 .map(|summary| SessionRow {
-                    id: summary.id.clone(),
+                    id: one_line(&summary.id),
                     created_at_ms: summary.created_at_ms,
                     updated_at_ms: summary.updated_at_ms,
-                    workspace: summary.workspace_root.clone(),
-                    origin_workspace: summary.origin_workspace_root.clone(),
+                    workspace: one_line(&summary.workspace_root),
+                    origin_workspace: one_line(&summary.origin_workspace_root),
                     history_turns: summary.history_turns,
                     title: summary.title.as_deref().map(one_line),
                 })
@@ -366,10 +380,12 @@ impl SessionsSnapshot {
     /// A header line, then one line per session, in the same order as the JSON.
     pub fn render_text(&self) -> String {
         let mut out = format!(
-            "[sessions] scope={} count={} has_more={} skipped_invalid={}\n",
-            self.scope, self.count, self.has_more, self.skipped_invalid
+            "[sessions] scope={} count={} has_more={} truncated={} skipped_invalid={}\n",
+            self.scope, self.count, self.has_more, self.truncated, self.skipped_invalid
         );
         for row in &self.sessions {
+            // Every field here was flattened when the row was built, so a
+            // recorded newline cannot end this line early and start a forged one.
             out.push_str(&format!(
                 "[session] id={} updated_at_ms={} turns={} workspace={} title={}\n",
                 row.id,
@@ -422,6 +438,13 @@ pub struct SessionTurnRow {
     pub outcome: Option<crate::session::TurnConclusion>,
 }
 
+/// One standing approval, exactly as it will be reused.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionGrantRow {
+    pub tool: String,
+    pub target: String,
+}
+
 /// What `fxr session` reports.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionDetailSnapshot {
@@ -435,6 +458,14 @@ pub struct SessionDetailSnapshot {
     pub permission_mode: String,
     pub history_turns: u64,
     pub permission_grants: u64,
+    /// Every standing approval, by tool and exact target.
+    ///
+    /// A count is not enough. These are approvals that outlive the process that
+    /// gave them: the next `ask --resume-id` will act on them without asking
+    /// again, so the only honest way to show them is the same `tool` + `target`
+    /// pair the policy will match on. "3 grants" tells a user they have lost
+    /// track of something without telling them what.
+    pub grants: Vec<SessionGrantRow>,
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     /// The project-instruction files in force at the last recorded turn. Kept
@@ -469,8 +500,8 @@ impl SessionDetailSnapshot {
                             ok,
                             output,
                         } => SessionStepRow::Tool {
-                            call_id: call_id.clone(),
-                            tool: tool.clone(),
+                            call_id: one_line(call_id),
+                            tool: one_line(tool),
                             ok: *ok,
                             output: clip_text(output),
                         },
@@ -482,18 +513,30 @@ impl SessionDetailSnapshot {
 
         Self {
             kind: "session",
-            id: state.id.clone(),
+            id: one_line(&state.id),
             created_at_ms: state.created_at_ms,
             updated_at_ms: state.updated_at_ms,
-            workspace: state.workspace_root.clone(),
-            origin_workspace: state.origin_workspace_root.clone(),
-            model: state.model.clone(),
+            workspace: one_line(&state.workspace_root),
+            origin_workspace: one_line(&state.origin_workspace_root),
+            model: one_line(&state.model),
             permission_mode: state.permission_mode.label().to_string(),
             history_turns: state.turns.len() as u64,
             permission_grants: state.grants.len() as u64,
+            grants: state
+                .grants
+                .iter()
+                .map(|grant| SessionGrantRow {
+                    tool: one_line(&grant.tool),
+                    target: clip_text(&one_line(&grant.target)),
+                })
+                .collect(),
             total_input_tokens: state.total_input_tokens,
             total_output_tokens: state.total_output_tokens,
-            context_sources: state.context_sources.clone(),
+            context_sources: state
+                .context_sources
+                .iter()
+                .map(|source| clip_text(&one_line(source)))
+                .collect(),
             truncated: skipped > 0,
             turns,
         }
@@ -523,6 +566,14 @@ impl SessionDetailSnapshot {
         line("truncated", &self.truncated.to_string());
         for source in &self.context_sources {
             line("context_source", source);
+        }
+        // The exact standing approvals, not just how many. Each one is what a
+        // later resume will act on without asking.
+        for grant in &self.grants {
+            out.push_str(&format!(
+                "[grant] tool={} target={}\n",
+                grant.tool, grant.target
+            ));
         }
 
         for (index, turn) in self.turns.iter().enumerate() {
@@ -1002,13 +1053,14 @@ mod tests {
                 title: Some("a question".to_string()),
             }],
             has_more: true,
+            truncated: false,
             skipped_invalid: 1,
         };
         let snapshot = SessionsSnapshot::new(&list);
         let text = snapshot.render_text();
         assert!(
             text.starts_with(
-                "[sessions] scope=workspace count=1 has_more=true skipped_invalid=1\n"
+                "[sessions] scope=workspace count=1 has_more=true truncated=false skipped_invalid=1\n"
             ),
             "{text}"
         );
@@ -1040,6 +1092,7 @@ mod tests {
                 title: None,
             }],
             has_more: false,
+            truncated: false,
             skipped_invalid: 0,
         };
         let json = SessionsSnapshot::new(&list).render_json();

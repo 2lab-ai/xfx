@@ -342,6 +342,13 @@ async fn run_ask(
     };
 
     let mut permissions = permission_session(mode);
+    // The prompt has to state the scope it is actually selling. When this turn
+    // is being recorded, an "always" answer outlives the process and will be
+    // reused by any later `ask --resume-id <id>`, so the id goes into the
+    // question rather than being discovered afterwards.
+    if let Some(recorder) = opened.recorder.as_ref() {
+        permissions = permissions.with_durable_session(recorder.id().as_str());
+    }
     for grant in &opened.restored_grants {
         permissions.grant(grant.clone());
     }

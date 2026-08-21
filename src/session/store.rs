@@ -91,6 +91,10 @@ const MAX_SCANNED_SESSIONS: usize = 5_000;
 /// The most bytes of a user message kept as a session's title.
 const MAX_TITLE_BYTES: usize = 80;
 
+/// The tail every staged manifest name ends in, so a leftover one is
+/// recognizable as fxr's and never mistaken for session state.
+pub const STAGE_SUFFIX: &str = ".staged";
+
 // ---------------------------------------------------------------------------
 // identity
 // ---------------------------------------------------------------------------
@@ -200,8 +204,29 @@ pub enum SessionError {
     NoSession { detail: String },
     /// The session exists and cannot be trusted.
     Corrupt { id: String, detail: String },
+    /// Another process holds this session open for writing.
+    ///
+    /// Distinct from [`Self::Corrupt`] on purpose: nothing is wrong with the
+    /// session, and the right thing to do is wait or use another one.
+    Busy { id: String },
+    /// The log is not the length the open session believes it is, so someone
+    /// else changed it underneath this writer.
+    ///
+    /// Refused rather than reconciled: writing at an offset that no longer means
+    /// what it meant would interleave two conversations into one log.
+    LogDiverged {
+        id: String,
+        expected: u64,
+        actual: u64,
+    },
     /// A file that must be private to its owner is not.
     InsecurePermissions { path: PathBuf, mode: u32 },
+    /// A directory the store lives in is not a plain, private, owned directory.
+    ///
+    /// Separate from [`Self::InsecurePermissions`] because the consequence is
+    /// different: a symlinked or foreign-owned `~/.fxr` does not leak one file,
+    /// it redirects or exposes the whole store.
+    InsecureParent { path: PathBuf, detail: String },
     /// The store cannot be used at all: no home directory, or a read-only store
     /// asked to write.
     Unavailable { detail: String },
@@ -221,12 +246,29 @@ impl fmt::Display for SessionError {
                 f,
                 "session `{id}` cannot be trusted and was not read: {detail}"
             ),
+            Self::Busy { id } => write!(
+                f,
+                "session `{id}` is already open for writing by another fxr process; \
+                 finish or stop that turn first, or start a new session"
+            ),
+            Self::LogDiverged {
+                id,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "session `{id}` was {expected} bytes when fxr opened it and is {actual} now, \
+                 so something else is writing to it; this turn was not recorded"
+            ),
             Self::InsecurePermissions { path, mode } => write!(
                 f,
                 "{} is mode {mode:o}, but session state must be private to its owner; \
                  fxr will not write through a file other accounts can read",
                 path.display()
             ),
+            Self::InsecureParent { path, detail } => {
+                write!(f, "{} cannot hold session state: {detail}", path.display())
+            }
             Self::Unavailable { detail } => write!(f, "{detail}"),
             Self::Io { path, source } => write!(f, "cannot use {}: {source}", path.display()),
         }
@@ -711,8 +753,15 @@ impl ListFilter {
 pub struct SessionList {
     pub scope: &'static str,
     pub sessions: Vec<SessionSummary>,
-    /// Whether the bound cut the list short.
+    /// Whether the caller's limit cut the list short.
     pub has_more: bool,
+    /// Whether the store's own scan cap cut the *candidate set* short, so there
+    /// are sessions this listing did not even consider.
+    ///
+    /// Separate from `has_more` because the two mean different things to a user:
+    /// one says "ask for more", the other says "this store is bigger than fxr
+    /// will look at in one go".
+    pub truncated: bool,
     /// How many session directories were skipped because they could not be
     /// trusted. Reported rather than hidden: a store that is quietly losing
     /// sessions should say so.
@@ -756,10 +805,16 @@ pub struct SessionStore {
     sessions_dir: PathBuf,
     writable: bool,
     clock: Clock,
+    scan_cap: usize,
 }
 
 impl SessionStore {
     /// Opens the store for writing, creating the private directories it needs.
+    ///
+    /// Both directories are checked before they are used, not only when they are
+    /// created: a `~/.fxr` that has become a symlink, or that someone else owns,
+    /// or that the group can write, redirects or exposes the entire store rather
+    /// than one file, so it is refused instead of repaired.
     pub fn open(profile_dir: &Path) -> Result<Self, SessionError> {
         let store = Self::read_only(profile_dir);
         ensure_private_dir(&store.profile_dir)?;
@@ -780,12 +835,23 @@ impl SessionStore {
             sessions_dir: profile_dir.join(SESSIONS_DIR_NAME),
             writable: false,
             clock: Clock::system(),
+            scan_cap: MAX_SCANNED_SESSIONS,
         }
     }
 
     /// The same store, timestamping events from `clock`.
     pub fn with_clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
+        self
+    }
+
+    /// The same store, considering at most `cap` session directories at once.
+    ///
+    /// A test seam. Proving the cap's behaviour with the shipped 5000 would mean
+    /// building 5001 sessions, so the number is injectable and the *behaviour* --
+    /// sort everything, keep the newest, say so -- is what gets tested.
+    pub fn with_scan_cap(mut self, cap: usize) -> Self {
+        self.scan_cap = cap.max(1);
         self
     }
 
@@ -821,6 +887,11 @@ impl SessionStore {
 
         let log_path = dir.join(EVENTS_FILE);
         let file = create_private_file(&log_path)?;
+        // Held for the whole life of the handle. A fresh id cannot already be
+        // open, but taking the lock here rather than only in `resume` means
+        // "a `WritableSession` owns its log" is a property of the type instead
+        // of a property of one of its two constructors.
+        lock_exclusive(&file, &log_path, &id)?;
 
         let mut session = WritableSession {
             id: id.clone(),
@@ -891,6 +962,28 @@ impl SessionStore {
         }
 
         let log_path = session.dir.join(EVENTS_FILE);
+        // The offset this append is about to claim has to still mean what it
+        // meant when the handle was opened. The advisory lock keeps another
+        // *fxr* out; this keeps anything else -- an editor, a sync client, a
+        // second writer on a filesystem that does not honor `flock` -- from
+        // being written over in silence. Refusing here is what makes the log's
+        // "one writer per session" claim a checked fact rather than a hope.
+        let actual = session
+            .file
+            .metadata()
+            .map_err(|err| io_error(&log_path, err))?
+            .len();
+        if actual != session.written_bytes {
+            session.poisoned = Some(format!(
+                "the log was {} bytes when this turn started and is {actual} now",
+                session.written_bytes
+            ));
+            return Err(SessionError::LogDiverged {
+                id: session.id.as_str().to_string(),
+                expected: session.written_bytes,
+                actual,
+            });
+        }
         session
             .file
             .seek(SeekFrom::Start(session.written_bytes))
@@ -970,6 +1063,20 @@ impl SessionStore {
     /// A session that cannot be trusted is counted and skipped rather than
     /// failing the listing: one damaged directory must not make the other
     /// twenty unreadable.
+    ///
+    /// # Determinism under the scan cap
+    ///
+    /// The whole directory is read and sorted *before* anything is dropped. A
+    /// cap applied to `read_dir`'s own order would make which sessions exist a
+    /// function of the filesystem's iteration order, which is the worst possible
+    /// answer: `fxr session last` would silently continue an arbitrary old
+    /// conversation on one run and a different one on the next.
+    ///
+    /// When the cap does bite, the *lexicographically greatest* names survive.
+    /// A generated id begins with a zero-padded creation time, so that keeps the
+    /// newest candidates, which is what `last` and a listing both want. The
+    /// caller is told with `truncated` rather than left to infer it from a round
+    /// number of rows.
     pub fn list(&self, filter: &ListFilter) -> Result<SessionList, SessionError> {
         let mut summaries: Vec<SessionSummary> = Vec::new();
         let mut skipped = 0usize;
@@ -981,20 +1088,29 @@ impl SessionStore {
                     scope: filter.scope.label(),
                     sessions: Vec::new(),
                     has_more: false,
+                    truncated: false,
                     skipped_invalid: 0,
                 })
             }
             Err(err) => return Err(io_error(&self.sessions_dir, err)),
         };
+        // A symlinked or shared sessions directory is refused rather than read:
+        // it would be a whole foreign store, not one odd file.
+        verify_store_dir(&self.sessions_dir)?;
 
         let mut names: Vec<String> = Vec::new();
-        for entry in entries.take(MAX_SCANNED_SESSIONS) {
+        for entry in entries {
             let entry = entry.map_err(|err| io_error(&self.sessions_dir, err))?;
             names.push(entry.file_name().to_string_lossy().into_owned());
         }
         // Deterministic before anything else: two runs consider the same
         // directories in the same order, whatever the filesystem felt like.
         names.sort();
+        let truncated = names.len() > self.scan_cap;
+        if truncated {
+            // Keep the tail, which is the newest under the id scheme.
+            names.drain(..names.len() - self.scan_cap);
+        }
 
         for name in names {
             let Ok(id) = SessionId::parse(&name) else {
@@ -1026,6 +1142,7 @@ impl SessionStore {
             scope: filter.scope.label(),
             sessions: summaries,
             has_more,
+            truncated,
             skipped_invalid: skipped,
         })
     }
@@ -1061,15 +1178,21 @@ impl SessionStore {
         verify_private(&dir.join(EVENTS_FILE), 0o600)?;
         verify_private(&dir.join(MANIFEST_FILE), 0o600)?;
 
-        let manifest = self.read_manifest(&id)?;
-        let replay = self.replay(&id, &manifest)?;
-
+        // The lock comes before the manifest is read and long before the log is
+        // truncated. Ordering it the other way would let two writers each read
+        // the same boundary, and then the loser would still have removed the
+        // winner's unpublished bytes on its way to being refused.
         let log_path = dir.join(EVENTS_FILE);
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .open(&log_path)
             .map_err(|err| io_error(&log_path, err))?;
+        lock_exclusive(&file, &log_path, &id)?;
+
+        let manifest = self.read_manifest(&id)?;
+        let replay = self.replay(&id, &manifest)?;
+
         // The tail past the boundary is not part of this session and never will
         // be: the next append has to own the offset it starts at.
         file.set_len(manifest.event_log_bytes)
@@ -1580,9 +1703,19 @@ pub fn workspace_key(path: &Path) -> String {
     }
 }
 
+/// Ensures `path` is a real, private, owned directory, creating it if absent.
+///
+/// The existing case is checked rather than trusted. `~/.fxr` and
+/// `~/.fxr/sessions` are the two directories every session's privacy rests on:
+/// if one is a symlink, every later `0600` file is created wherever the link
+/// points; if another account owns it or can write it, that account chooses what
+/// fxr resumes. Neither is repaired -- silently `chmod`ing a directory fxr does
+/// not own would be a worse answer than stopping.
 fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
-    if path.is_dir() {
-        return Ok(());
+    match fs::symlink_metadata(path) {
+        Ok(_) => return verify_store_dir(path),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(io_error(path, err)),
     }
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() && !parent.is_dir() {
@@ -1590,8 +1723,69 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
         }
     }
     match fs::create_dir(path) {
-        Ok(()) => set_private_dir_mode(path),
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        Ok(()) => {
+            set_private_dir_mode(path)?;
+            verify_store_dir(path)
+        }
+        // Lost a race with another fxr creating the same directory. It still
+        // has to pass the same check.
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => verify_store_dir(path),
+        Err(err) => Err(io_error(path, err)),
+    }
+}
+
+/// Requires an existing store directory to be a plain directory, owned by this
+/// user, with nothing granted to group or other.
+#[cfg(unix)]
+fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    let insecure = |detail: String| {
+        Err(SessionError::InsecureParent {
+            path: path.to_path_buf(),
+            detail,
+        })
+    };
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(io_error(path, err)),
+    };
+    if metadata.file_type().is_symlink() {
+        return insecure(
+            "it is a symbolic link, and fxr will not follow one to decide where session state lives"
+                .to_string(),
+        );
+    }
+    if !metadata.is_dir() {
+        return insecure("it is not a directory".to_string());
+    }
+    let owner = metadata.uid();
+    let current = rustix::process::geteuid().as_raw();
+    if owner != current {
+        return insecure(format!(
+            "it is owned by uid {owner}, not by uid {current} running fxr"
+        ));
+    }
+    let mode = metadata.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        return insecure(format!(
+            "it is mode {mode:o}; session state must not be reachable by group or other"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => Ok(()),
+        Ok(_) => Err(SessionError::InsecureParent {
+            path: path.to_path_buf(),
+            detail: "it is not a directory".to_string(),
+        }),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(io_error(path, err)),
     }
 }
@@ -1619,15 +1813,54 @@ fn create_private_file(path: &Path) -> Result<File, SessionError> {
     options.open(path).map_err(|err| io_error(path, err))
 }
 
+/// A staged file that removes itself unless it was renamed into place.
+///
+/// The stage exists for the few microseconds between "written" and "renamed". If
+/// anything in between fails, the partial file must not be left behind to be
+/// mistaken for state -- and equally must not be cleaned up by *deleting a fixed
+/// name*, because a fixed name is something another process might own.
+struct StagedFile {
+    path: PathBuf,
+    committed: bool,
+}
+
+impl StagedFile {
+    fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for StagedFile {
+    fn drop(&mut self) {
+        if !self.committed {
+            // Only ever this process's own uniquely named stage.
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Replaces `name` inside `dir` with `bytes`, atomically and privately.
 ///
 /// Staged in the same directory so the rename cannot cross a filesystem, and the
 /// directory itself is synced afterwards so the *name* is durable and not only
 /// the bytes it points at.
+///
+/// The stage name carries this process's id and a fresh nonce. A fixed
+/// `<name>.new` would have to be deleted before use, and deleting a fixed name
+/// means deleting a file another writer may be in the middle of -- the exact
+/// interference the writer lock exists to prevent, reintroduced by the cleanup
+/// path. fxr therefore never unlinks a stage it did not create; a leftover one
+/// from a killed process is inert (it is not `session.json`, so no reader looks
+/// at it) and is reported by `doctor` rather than silently removed.
 fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), SessionError> {
-    let staged = dir.join(format!("{name}.new"));
-    // A leftover stage file from a crashed run is not a reason to refuse.
-    let _ = fs::remove_file(&staged);
+    let staged = StagedFile {
+        path: dir.join(format!(
+            "{name}.{}.{}{STAGE_SUFFIX}",
+            std::process::id(),
+            &new_identifier()[..16]
+        )),
+        committed: false,
+    };
     {
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
@@ -1637,15 +1870,53 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
             options.mode(0o600);
         }
         let mut file = options
-            .open(&staged)
-            .map_err(|err| io_error(&staged, err))?;
+            .open(&staged.path)
+            .map_err(|err| io_error(&staged.path, err))?;
         file.write_all(bytes)
-            .map_err(|err| io_error(&staged, err))?;
-        file.sync_all().map_err(|err| io_error(&staged, err))?;
+            .map_err(|err| io_error(&staged.path, err))?;
+        file.sync_all().map_err(|err| io_error(&staged.path, err))?;
     }
     let target = dir.join(name);
-    fs::rename(&staged, &target).map_err(|err| io_error(&target, err))?;
+    fs::rename(&staged.path, &target).map_err(|err| io_error(&target, err))?;
+    staged.commit();
     sync_directory(dir)
+}
+
+/// Claims a session's log for this handle, or reports who has it.
+///
+/// `flock(LOCK_EX | LOCK_NB)` on the log's own file description. Two properties
+/// make it the right primitive here:
+///
+/// - **It is released by the kernel**, when the last descriptor for the open
+///   file description closes. A `WritableSession` therefore cannot leak a lock
+///   by panicking, by being forgotten, or by the process being killed -- which
+///   is exactly the situation a crash-safe store has to survive.
+/// - **It is per open file description, not per process.** Opening the same
+///   session twice in one process is refused too, which is what makes the
+///   guarantee testable without spawning anything.
+///
+/// It is advisory: it stops fxr, not `cat`. That is why [`SessionStore::append`]
+/// also verifies the log's length before every write -- the lock is the polite
+/// mechanism, the length check is the one that cannot be talked out of.
+#[cfg(unix)]
+fn lock_exclusive(file: &File, path: &Path, id: &SessionId) -> Result<(), SessionError> {
+    use rustix::fs::{flock, FlockOperation};
+    match flock(file, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Ok(()),
+        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform fxr
+        // builds for, so matching one covers both.
+        Err(rustix::io::Errno::WOULDBLOCK) => Err(SessionError::Busy {
+            id: id.as_str().to_string(),
+        }),
+        Err(err) => Err(io_error(path, io::Error::from(err))),
+    }
+}
+
+/// No advisory locking is available, so concurrent writers are caught by the
+/// length check in [`SessionStore::append`] instead of being prevented.
+#[cfg(not(unix))]
+fn lock_exclusive(_file: &File, _path: &Path, _id: &SessionId) -> Result<(), SessionError> {
+    Ok(())
 }
 
 #[cfg(unix)]
