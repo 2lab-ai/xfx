@@ -19,6 +19,34 @@
 //! implicit root: not the home directory, not the parent of the workspace, not
 //! `/tmp`. Upstream draws the same line
 //! (`workspace_access.zig:53-77`).
+//!
+//! # What the proof does not cover
+//!
+//! [`ResolvedPath`] is a proof about the filesystem *as it was when
+//! `canonicalize` returned*, not a handle to the object it named. Resolution and
+//! the subsequent `open`/`read_dir` are two separate syscall sequences over a
+//! mutable namespace, so between them a component of the path can be replaced --
+//! classically, a directory swapped for a symlink pointing outside the scope.
+//! An attacker who can write inside an authorized root at the same moment a tool
+//! call is running could therefore win that race and have the read follow the
+//! new target. Every check here is correct; the assumption it rests on is **no
+//! hostile concurrent namespace mutation between resolution and I/O**.
+//!
+//! That assumption is reasonable for v0.1, whose threat model is a mistaken or
+//! manipulated *model* rather than a hostile local process: a model can only ask
+//! for a path, and it cannot create the symlink it would need to win the race.
+//! It is not a defence against a local attacker.
+//!
+//! Closing it durably needs the path proof and the I/O to be the same operation
+//! rather than two: resolve component by component from a directory descriptor
+//! with `openat(..., O_NOFOLLOW)` so no component can be substituted after it is
+//! checked, and/or revalidate the identity (`st_dev`/`st_ino`) of the opened
+//! file against the identity the proof recorded before any bytes are used. Both
+//! are real work with real platform differences, and neither belongs in the same
+//! change as the first read tools; they are recorded as a residual in the Task 3
+//! report rather than half-built here. The mutation slice, which opens files for
+//! writing and already needs identity revalidation for its own staged-rename
+//! race, is where this should land.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -93,6 +121,11 @@ impl std::error::Error for PathError {}
 /// It can only be produced by [`AccessScope::resolve_existing`], so a value of
 /// this type is itself the proof; a caller cannot construct one for a path the
 /// scope never approved.
+///
+/// The proof is about the moment it was made. It is not a file handle, and it
+/// does not survive a hostile concurrent rename or symlink swap between
+/// resolution and the read that follows -- see the module docs, "What the proof
+/// does not cover".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPath {
     absolute: PathBuf,
@@ -178,6 +211,10 @@ impl AccessScope {
     /// This is the only way into the filesystem for a tool. The order matters:
     /// trim, anchor, canonicalize, *then* test containment. Testing containment
     /// on the unresolved string would approve a symlink whose target is outside.
+    ///
+    /// The result describes the namespace as of this call. It is not proof
+    /// against a path component being replaced before the caller opens the file;
+    /// see the module docs, "What the proof does not cover".
     pub fn resolve_existing(&self, requested: &str) -> Result<ResolvedPath, PathError> {
         let trimmed = requested.trim();
         if trimmed.is_empty() {

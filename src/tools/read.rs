@@ -49,11 +49,11 @@ const LINE_TRUNCATED_SUFFIX: &str = "... (line truncated)";
 // reads the primary workspace and explicitly added directories and nothing
 // else.
 
-const LIST_FILES_DESCRIPTION: &str = "List the entries of one directory, one level deep, without reading file contents. Paths are relative to the workspace root, or absolute inside an authorized root; anything else is refused. Directories end in /, symlinks in @. When to use: inspect a known folder, confirm a name, or choose the next path to read. When NOT to use: recursive discovery, content search, or a shell ls.";
+const LIST_FILES_DESCRIPTION: &str = "List the entries of one directory, one level deep, without reading file contents. Paths are relative to the workspace root, or absolute inside an authorized root; anything else is refused. Directories end in /, symlinks in @. Entries named .git, node_modules, dist, build, coverage, .next, zig-out, or .zig-cache are always omitted; everything else, including dotfiles, is listed. When to use: inspect a known folder, confirm a name, or choose the next path to read. When NOT to use: recursive discovery, content search, or a shell ls.";
 
-const GLOB_FILES_DESCRIPTION: &str = "Find file paths matching a glob pattern below one directory, with mode=count for an exact count without listing. Paths are relative to the workspace root, or absolute inside an authorized root. Ignored and gitignored directories are skipped and symlinks are not followed. When to use: locate files by name, extension, or directory shape. When NOT to use: search file contents, read a file, or count non-file things.";
+const GLOB_FILES_DESCRIPTION: &str = "Find file paths matching a glob pattern below one directory, with mode=count for an exact count without listing. Paths are relative to the workspace root, or absolute inside an authorized root. The search does not see everything: symlinks are not followed, build directories such as .git and node_modules are pruned, paths excluded by .gitignore are skipped, and hidden dot-paths are skipped unless the pattern itself names one (for example .github/**/*.yml). Results are sorted, and a capped or incomplete search says so on its own ... line. When to use: locate files by name, extension, or directory shape. When NOT to use: search file contents, read a file, or count non-file things.";
 
-const GREP_FILES_DESCRIPTION: &str = "Search text files for a literal substring, optionally narrowed by path and include glob, with modes for matching lines, files with matches, or counts, plus head_limit/offset paging and bounded context_lines. Paths are relative to the workspace root, or absolute inside an authorized root. Regular expressions are not supported: the pattern is matched literally. When to use: find an exact symbol, string, or usage site. When NOT to use: filename lookup, reading a known path, or regex search.";
+const GREP_FILES_DESCRIPTION: &str = "Search text files for a literal substring, optionally narrowed by path and include glob, with modes for matching lines, files with matches, or counts, plus head_limit/offset paging and bounded context_lines. Paths are relative to the workspace root, or absolute inside an authorized root. Regular expressions are not supported: the pattern is matched literally. The search does not see every file: symlinks are not followed, build directories such as .git and node_modules are pruned, paths excluded by .gitignore are skipped, hidden dot-paths are skipped unless the include glob itself names one, and files that are not UTF-8 text or are above the size cap are not searched. Any file skipped for the last two reasons is counted on a ... skipped line, so no matches means no matches among the files actually searched. When to use: find an exact symbol, string, or usage site. When NOT to use: filename lookup, reading a known path, or regex search.";
 
 const READ_FILE_DESCRIPTION: &str = "Read one UTF-8 text file as bounded, line-numbered output, with an optional start_line/line_count range. Paths are relative to the workspace root, or absolute inside an authorized root. Output states how many of the file's lines it showed, so a partial read is never mistaken for the whole file. When to use: inspect an exact known path. When NOT to use: list a directory, search many files, or read binary data.";
 
@@ -493,9 +493,22 @@ fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let mut matches: Vec<GrepMatch> = Vec::new();
     let mut matching_files = 0usize;
     let mut scan_capped = false;
+    let mut skipped = ScanSkips::default();
     'files: for (display, absolute) in &candidates {
-        let Some(text) = read_searchable(absolute, limits.max_grep_file_bytes) else {
-            continue;
+        let text = match read_searchable(absolute, limits.max_grep_file_bytes) {
+            FileText::Text(text) => text,
+            // Counted rather than dropped. A file the search could not read is
+            // the difference between "there is no match" and "there is no match
+            // in what I looked at", and only the caller can tell which one
+            // matters.
+            FileText::Unsearchable => {
+                skipped.unsearchable += 1;
+                continue;
+            }
+            FileText::Unreadable => {
+                skipped.unreadable += 1;
+                continue;
+            }
         };
         let mut file_matched = false;
         for (index, line) in text.lines().enumerate() {
@@ -533,16 +546,64 @@ fn execute_grep_files(input: &ToolInput, context: &ToolContext) -> ToolResult {
         GrepMode::FilesWithMatches => render_files_with_matches(input, &matches, limits),
         GrepMode::Matches => render_matches(input, &matches, limits),
     };
+    // Fixed order, so the same tree always produces the same bytes: what was
+    // cut short, then what was skipped, then what was never reached.
     if scan_capped {
         out.push_str(&format!(
             "... stopped after {} matches; narrow the pattern or the path\n",
             limits.max_grep_scan
         ));
     }
+    out.push_str(&skipped.notes());
     out.push_str(&walk.notes(limits));
 
     let detail = format!("{} matches for {}", matches.len(), input.pattern);
     ToolResult::success(out, detail)
+}
+
+/// Files a grep pass could not search, by reason.
+///
+/// Two counters rather than one: "this file is a JPEG" and "this file could not
+/// be opened" are different facts, and collapsing them would make one of the two
+/// notes a lie.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ScanSkips {
+    /// Above the size cap, or not UTF-8 text.
+    unsearchable: usize,
+    /// Present as a candidate but unreadable.
+    unreadable: usize,
+}
+
+impl ScanSkips {
+    /// The lines that qualify the result. Empty when nothing was skipped, so a
+    /// clean search carries no noise -- and, conversely, an unqualified
+    /// `no matches` means every candidate really was searched.
+    fn notes(self) -> String {
+        let mut notes = String::new();
+        if self.unsearchable > 0 {
+            notes.push_str(&format!(
+                "... skipped {} {} (too large or not text)\n",
+                self.unsearchable,
+                plural_files(self.unsearchable)
+            ));
+        }
+        if self.unreadable > 0 {
+            notes.push_str(&format!(
+                "... skipped {} {} (could not be read)\n",
+                self.unreadable,
+                plural_files(self.unreadable)
+            ));
+        }
+        notes
+    }
+}
+
+fn plural_files(count: usize) -> &'static str {
+    if count == 1 {
+        "file"
+    } else {
+        "files"
+    }
 }
 
 /// The window `head_limit`/`offset` select out of `total` results.
@@ -642,18 +703,20 @@ fn render_files_with_matches(
 
 /// Writes one match and, when asked, the lines around it.
 fn write_match(out: &mut String, entry: &GrepMatch, context_lines: usize, limits: &ToolLimits) {
+    // No accounting here: this file already produced a match, so it was
+    // searchable a moment ago. A failure now costs context, not correctness.
     let surrounding = if context_lines > 0 {
         read_searchable(&entry.absolute, limits.max_grep_file_bytes)
     } else {
-        None
+        FileText::Unsearchable
     };
-    if let Some(text) = &surrounding {
+    if let Some(text) = surrounding.text() {
         let first = entry.line_number.saturating_sub(context_lines).max(1);
         write_context(out, entry, text, first, entry.line_number, limits);
     }
     out.push_str(&format!(" - {}:{}: ", entry.path, entry.line_number));
     push_clipped(out, &entry.line, limits.max_read_line_len);
-    if let Some(text) = &surrounding {
+    if let Some(text) = surrounding.text() {
         write_context(
             out,
             entry,
@@ -697,19 +760,44 @@ fn push_clipped(out: &mut String, line: &str, limit: usize) {
     out.push('\n');
 }
 
-/// The contents of a file that is small enough and textual enough to search.
+/// Whether a candidate file could be turned into searchable text.
+enum FileText {
+    Text(String),
+    /// Above the size cap, or not UTF-8 text.
+    Unsearchable,
+    /// Could not be read at all.
+    Unreadable,
+}
+
+impl FileText {
+    /// The text, when there is any. Used where a skip needs no accounting,
+    /// such as re-reading a file for context lines around a match that was
+    /// already found in it.
+    fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+}
+
+/// Reads a candidate file, saying why it cannot be searched when it cannot.
 ///
-/// `None` means "not searchable", which is a deliberate silence: reporting
-/// every binary file fxr skipped would bury the matches it found.
-fn read_searchable(path: &Path, max_bytes: usize) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
-    if bytes.len() > max_bytes {
-        return None;
+/// The reason is returned rather than swallowed. Silently dropping a file makes
+/// `no matches` ambiguous, which is the one thing a search result must not be.
+fn read_searchable(path: &Path, max_bytes: usize) -> FileText {
+    let Ok(bytes) = fs::read(path) else {
+        return FileText::Unreadable;
+    };
+    if bytes.len() > max_bytes || !is_model_safe(&bytes) {
+        return FileText::Unsearchable;
     }
-    if !is_model_safe(&bytes) {
-        return None;
+    match String::from_utf8(bytes) {
+        Ok(text) => FileText::Text(text),
+        // `is_model_safe` already proved this is UTF-8, so this arm is defensive
+        // rather than expected; it still reports rather than panics.
+        Err(_) => FileText::Unsearchable,
     }
-    String::from_utf8(bytes).ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1273,52 @@ mod tests {
         assert!(wants_hidden("**/.fxr.json"));
         assert!(wants_hidden(".*"));
         assert!(!wants_hidden("src/**/*.rs"));
+    }
+
+    #[test]
+    fn a_search_that_skipped_nothing_says_nothing() {
+        // The load-bearing half: silence has to mean "everything was searched",
+        // so an empty note is the only thing that may follow a clean search.
+        assert_eq!(ScanSkips::default().notes(), "");
+    }
+
+    #[test]
+    fn a_skip_note_agrees_with_itself_about_singular_and_plural() {
+        assert_eq!(
+            ScanSkips {
+                unsearchable: 1,
+                unreadable: 0,
+            }
+            .notes(),
+            "... skipped 1 file (too large or not text)\n"
+        );
+        assert_eq!(
+            ScanSkips {
+                unsearchable: 3,
+                unreadable: 0,
+            }
+            .notes(),
+            "... skipped 3 files (too large or not text)\n"
+        );
+        // Two causes, two lines, always in this order.
+        assert_eq!(
+            ScanSkips {
+                unsearchable: 2,
+                unreadable: 1,
+            }
+            .notes(),
+            "... skipped 2 files (too large or not text)\n\
+             ... skipped 1 file (could not be read)\n"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_candidate_is_not_reported_as_the_wrong_kind_of_skip() {
+        // Reasons are counted separately so neither note can claim something
+        // untrue about the other's files.
+        let missing = read_searchable(Path::new("/nonexistent/fxr/candidate"), 1024);
+        assert!(matches!(missing, FileText::Unreadable));
+        assert!(missing.text().is_none());
     }
 
     #[test]

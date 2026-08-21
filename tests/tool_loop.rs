@@ -29,7 +29,7 @@ use fxr::gateway::protocol::{
 };
 use fxr::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use fxr::output::{Event, RecordingSink};
-use fxr::tools::{Registry, ToolContext, ToolResult, ADVERTISED_TOOLS};
+use fxr::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
 use fxr::workspace::{AccessScope, PathError};
 
 use support::fake_gateway::{
@@ -819,7 +819,7 @@ fn grep_files_emits_bounded_context_lines_around_a_match() {
 }
 
 #[test]
-fn grep_files_does_not_search_binary_files() {
+fn grep_files_does_not_search_binary_files_and_says_it_did_not() {
     let tree = Tree::new();
     tree.write_bytes("blob.bin", b"needle\x00\xffmore");
     tree.write("a.txt", "needle\n");
@@ -828,7 +828,14 @@ fn grep_files_does_not_search_binary_files() {
         "grep_files",
         json!({ "pattern": "needle" }),
     );
-    assert_eq!(output, "[grep] 1 matches for needle\n - a.txt:1: needle\n");
+    // The binary file holds the pattern too. Skipping it is right; skipping it
+    // silently would report one match where there are arguably two.
+    assert_eq!(
+        output,
+        "[grep] 1 matches for needle\n \
+         - a.txt:1: needle\n\
+         ... skipped 1 file (too large or not text)\n"
+    );
 }
 
 #[test]
@@ -841,6 +848,228 @@ fn grep_files_says_so_when_nothing_matches() {
         json!({ "pattern": "needle" }),
     );
     assert_eq!(output, "[grep] no matches for needle\n");
+}
+
+// ---------------------------------------------------------------------------
+// what a search could not see
+// ---------------------------------------------------------------------------
+//
+// A search that silently excludes files makes `no matches` mean two different
+// things -- "there is none" and "there is none in what I looked at" -- and the
+// caller cannot tell which. Every exclusion is therefore either counted in the
+// output or disclosed in the advertised description, and these tests pin both.
+
+#[test]
+fn grep_files_counts_the_files_it_could_not_search() {
+    let tree = Tree::new();
+    tree.write("a.txt", "needle\n");
+    tree.write_bytes("blob.bin", b"needle\x00\xffbinary");
+    tree.write("huge.txt", &"needle padding\n".repeat(200));
+
+    // A cap small enough that `huge.txt` is over it and `a.txt` is not.
+    let context = ToolContext::with_limits(
+        AccessScope::primary_only(tree.root()).expect("scope"),
+        ToolLimits {
+            max_grep_file_bytes: 64,
+            ..ToolLimits::default()
+        },
+    );
+    let output = succeeds(&context, "grep_files", json!({ "pattern": "needle" }));
+    assert_eq!(
+        output,
+        "[grep] 1 matches for needle\n \
+         - a.txt:1: needle\n\
+         ... skipped 2 files (too large or not text)\n"
+    );
+}
+
+#[test]
+fn grep_files_qualifies_no_matches_when_it_skipped_a_file() {
+    let tree = Tree::new();
+    // The only candidate holds the pattern and is unsearchable, so an
+    // unqualified `no matches` here would be an outright false negative.
+    tree.write_bytes("blob.bin", b"needle\x00");
+    let output = succeeds(
+        &context(&tree),
+        "grep_files",
+        json!({ "pattern": "needle" }),
+    );
+    assert_eq!(
+        output,
+        "[grep] no matches for needle\n... skipped 1 file (too large or not text)\n"
+    );
+}
+
+#[test]
+fn grep_files_leaves_a_complete_search_unqualified() {
+    // The contrapositive of the two tests above: no `... skipped` line means
+    // every candidate really was searched, in every mode.
+    let tree = Tree::new();
+    tree.write("a.txt", "needle\n");
+    tree.write("b.txt", "nothing\n");
+    let context = context(&tree);
+    for mode in ["matches", "files_with_matches", "count"] {
+        let output = succeeds(
+            &context,
+            "grep_files",
+            json!({ "pattern": "needle", "mode": mode }),
+        );
+        assert!(!output.contains("... skipped"), "{mode}: {output}");
+        assert!(!output.contains("... candidate list"), "{mode}: {output}");
+    }
+}
+
+#[test]
+fn grep_files_counts_skipped_files_in_every_mode() {
+    let tree = Tree::new();
+    tree.write("a.txt", "needle\n");
+    tree.write_bytes("blob.bin", b"needle\x00");
+    let context = context(&tree);
+    let note = "... skipped 1 file (too large or not text)\n";
+    assert_eq!(
+        succeeds(
+            &context,
+            "grep_files",
+            json!({ "pattern": "needle", "mode": "files_with_matches" })
+        ),
+        format!("[grep] 1 files with matches for needle\n - a.txt\n{note}")
+    );
+    assert_eq!(
+        succeeds(
+            &context,
+            "grep_files",
+            json!({ "pattern": "needle", "mode": "count" })
+        ),
+        format!("[grep] count 1 matching lines in 1 files for needle\n{note}")
+    );
+}
+
+#[test]
+fn the_grep_description_discloses_what_the_search_does_not_see() {
+    let schema = Registry::builtin()
+        .advertisement()
+        .into_iter()
+        .find(|tool| tool["name"] == "grep_files")
+        .expect("grep_files is advertised");
+    let description = schema["description"].as_str().expect("a description");
+    for disclosed in [
+        ".gitignore",
+        "hidden",
+        "symlinks are not followed",
+        "not UTF-8 text",
+        "size cap",
+        "... skipped",
+        "no matches among the files actually searched",
+    ] {
+        assert!(
+            description.contains(disclosed),
+            "the grep description does not disclose `{disclosed}`: {description}"
+        );
+    }
+}
+
+#[test]
+fn the_glob_description_discloses_what_the_search_does_not_see() {
+    let schema = Registry::builtin()
+        .advertisement()
+        .into_iter()
+        .find(|tool| tool["name"] == "glob_files")
+        .expect("glob_files is advertised");
+    let description = schema["description"].as_str().expect("a description");
+    for disclosed in [
+        ".gitignore",
+        "hidden dot-paths",
+        "symlinks are not followed",
+        ".github/**/*.yml",
+    ] {
+        assert!(
+            description.contains(disclosed),
+            "the glob description does not disclose `{disclosed}`: {description}"
+        );
+    }
+}
+
+#[test]
+fn a_gitignore_applies_even_when_the_tree_is_not_a_git_checkout() {
+    // No `.git` directory anywhere: the rules still apply, so results do not
+    // change the moment someone runs `git init`.
+    let tree = Tree::new();
+    tree.write(".gitignore", "ignored/\n*.log\n");
+    tree.write("kept.rs", "needle\n");
+    tree.write("ignored/hidden-by-git.rs", "needle\n");
+    tree.write("noisy.log", "needle\n");
+
+    let context = context(&tree);
+    assert_eq!(
+        succeeds(&context, "glob_files", json!({ "pattern": "**/*" })),
+        "[glob] 1 matches for **/*\n - kept.rs\n"
+    );
+    assert_eq!(
+        succeeds(&context, "grep_files", json!({ "pattern": "needle" })),
+        "[grep] 1 matches for needle\n - kept.rs:1: needle\n"
+    );
+}
+
+#[test]
+fn a_hidden_path_is_reached_only_by_a_pattern_that_names_it() {
+    let tree = Tree::new();
+    tree.write(".github/workflows/ci.yml", "on: push\n");
+    tree.write("visible.yml", "on: push\n");
+    let context = context(&tree);
+
+    // An ordinary pattern does not wander into dot-directories.
+    assert_eq!(
+        succeeds(&context, "glob_files", json!({ "pattern": "**/*.yml" })),
+        "[glob] 1 matches for **/*.yml\n - visible.yml\n"
+    );
+    // A pattern that names one opts in.
+    assert_eq!(
+        succeeds(
+            &context,
+            "glob_files",
+            json!({ "pattern": ".github/**/*.yml" })
+        ),
+        "[glob] 1 matches for .github/**/*.yml\n - .github/workflows/ci.yml\n"
+    );
+    // The same rule governs grep, through its `include` glob.
+    assert_eq!(
+        succeeds(&context, "grep_files", json!({ "pattern": "on: push" })),
+        "[grep] 1 matches for on: push\n - visible.yml:1: on: push\n"
+    );
+    assert_eq!(
+        succeeds(
+            &context,
+            "grep_files",
+            json!({ "pattern": "on: push", "include": ".github/**/*.yml" })
+        ),
+        "[grep] 1 matches for on: push\n - .github/workflows/ci.yml:1: on: push\n"
+    );
+}
+
+#[test]
+fn a_walk_that_hits_the_candidate_cap_says_the_list_may_be_incomplete() {
+    let tree = Tree::new();
+    for index in 0..5 {
+        tree.write(&format!("f{index}.txt"), "needle\n");
+    }
+    let context = ToolContext::with_limits(
+        AccessScope::primary_only(tree.root()).expect("scope"),
+        ToolLimits {
+            max_candidates: 2,
+            ..ToolLimits::default()
+        },
+    );
+    let incomplete = "... candidate list may be incomplete; candidate cap 2 reached before all files were discovered\n";
+    assert_eq!(
+        succeeds(&context, "glob_files", json!({ "pattern": "*.txt" })),
+        format!("[glob] 2 matches for *.txt\n - f0.txt\n - f1.txt\n{incomplete}")
+    );
+    assert_eq!(
+        succeeds(&context, "grep_files", json!({ "pattern": "needle" })),
+        format!(
+            "[grep] 2 matches for needle\n - f0.txt:1: needle\n - f1.txt:1: needle\n{incomplete}"
+        )
+    );
 }
 
 #[test]
