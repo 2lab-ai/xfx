@@ -7,6 +7,8 @@
 //! - [`config`]: settings discovery, precedence, credentials, and diagnostics
 //! - [`output`]: immutable snapshots and the text/JSON/JSONL renderers
 //! - [`gateway`]: the provider contract, the Gateway wire shape, and bounded SSE
+//! - [`workspace`]: the roots a turn may read, and canonical path proofs
+//! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`app`]: composition and dispatch
 //!
@@ -20,6 +22,8 @@ pub mod cli;
 pub mod config;
 pub mod gateway;
 pub mod output;
+pub mod tools;
+pub mod workspace;
 
 /// The product version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

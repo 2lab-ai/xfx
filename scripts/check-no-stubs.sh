@@ -166,8 +166,8 @@ else
 	check_inventory "$cli_source" ADVERTISED_COMMANDS command
 fi
 
-# The tool registry does not exist yet. When it does, it must declare its
-# inventory in the same reconcilable form rather than opting out of the check.
+# The tool registry declares its inventory in the same reconcilable form as the
+# command grammar: a flat `&[&str]` this script can read without building.
 if [ -d src/tools ]; then
 	if [ ! -f "$tools_source" ] || ! grep -q 'pub const ADVERTISED_TOOLS: &\[&str\] = &\[' "$tools_source"; then
 		fail "src/tools exists but $tools_source does not declare ADVERTISED_TOOLS"
@@ -191,7 +191,7 @@ done <<<"$(awk -F' *\\| *' '
 	{
 		name = $2
 		gsub(/`/, "", name)
-		if ($3 !~ /^(command|tool group|provider|persistence|ui|embedding)$/) {
+		if ($3 !~ /^(command|tool|tool group|provider|persistence|ui|embedding)$/) {
 			print "parity row `" name "` has an unrecognized kind \"" $3 "\""
 		}
 		if ($4 !~ /^(implemented|partial|deferred)$/) {

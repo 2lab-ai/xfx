@@ -80,14 +80,13 @@ fn a_request_is_prompt_then_closed_tools_then_tool_choice() {
 }
 
 #[test]
-fn the_tools_list_is_closed_and_empty_until_a_registry_exists() {
+fn a_request_writes_exactly_the_tool_list_it_was_given() {
+    // The transport advertises what it is handed and nothing else, so a request
+    // built with no tools carries none. What a *turn* advertises is the tool
+    // registry's contract, proven in `tests/tool_loop.rs`.
     let parsed: Value =
         serde_json::from_str(&content_only_request("hi").body().expect("serialize")).unwrap();
-    assert_eq!(
-        parsed["tools"],
-        json!([]),
-        "a turn with no registry must advertise no tools"
-    );
+    assert_eq!(parsed["tools"], json!([]));
     assert_eq!(parsed["toolChoice"], json!({ "type": "none" }));
 }
 
@@ -879,6 +878,15 @@ fn turn(prompt: &str) -> TurnRequest {
         max_steps: 4,
         max_attempts: 3,
         cancel: CancelToken::new(),
+        // These tests are about the transport and the turn's terminal states.
+        // No test here reaches a tool executor; the registry, its scope, and
+        // the tool loop are exercised in `tests/tool_loop.rs`.
+        tools: fxr::tools::ToolContext::new(
+            fxr::workspace::AccessScope::primary_only(
+                std::env::current_dir().expect("a current directory"),
+            )
+            .expect("a usable workspace root"),
+        ),
     }
 }
 
@@ -920,7 +928,7 @@ async fn a_content_only_turn_emits_ordered_deltas_then_exactly_one_final() {
 }
 
 #[tokio::test]
-async fn the_turn_sends_the_user_prompt_and_advertises_no_tools() {
+async fn the_turn_sends_the_user_prompt_and_the_configured_model() {
     let provider =
         ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), stopped("done"))]);
     let mut sink = RecordingSink::new();
@@ -931,10 +939,11 @@ async fn the_turn_sends_the_user_prompt_and_advertises_no_tools() {
     let seen = provider.seen.borrow();
     let request = seen.first().expect("one request");
     assert_eq!(request.model, "vendor/model");
-    assert!(request.tools.is_empty(), "no tool may be advertised yet");
-    assert_eq!(request.tool_choice, ToolChoice::None);
     assert_eq!(request.messages.len(), 1);
     assert_eq!(request.messages[0].role, Role::User);
+    // What the turn advertises is the registry's contract; see
+    // `tests/tool_loop.rs`.
+    assert_eq!(request.tool_choice, ToolChoice::Auto);
 }
 
 #[tokio::test]
@@ -1150,12 +1159,14 @@ async fn a_failure_that_may_have_been_delivered_is_never_replayed() {
 }
 
 #[tokio::test]
-async fn a_tool_call_is_rejected_because_no_tool_is_advertised() {
+async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simulated() {
+    // `write_file` is `deferred` in `docs/parity.md`, so the turn never offered
+    // it and will not act as though it had.
     let completion = Completion {
         text: String::new(),
         tool_calls: vec![ToolCall {
             id: "c1".to_string(),
-            name: "read_file".to_string(),
+            name: "write_file".to_string(),
             input: json!({}),
         }],
         finish_reason: FinishReason::ToolCalls,
@@ -1166,11 +1177,11 @@ async fn a_tool_call_is_rejected_because_no_tool_is_advertised() {
     let mut sink = RecordingSink::new();
     let err = run_turn(turn("hi"), &provider, &mut sink)
         .await
-        .expect_err("a tool call cannot be executed yet");
+        .expect_err("an unadvertised tool call cannot be executed");
     assert!(matches!(err, TurnError::ToolCallUnsupported { .. }));
     assert_eq!(kinds(&sink), ["error"]);
     match &sink.events()[0] {
-        Event::Error { message } => assert!(message.contains("read_file"), "got {message}"),
+        Event::Error { message } => assert!(message.contains("write_file"), "got {message}"),
         other => panic!("expected an error event, got {other:?}"),
     }
 }
@@ -1505,16 +1516,27 @@ fn ask_sends_exactly_the_documented_request_body() {
         "got {}",
         request.body
     );
+    let body = request.json();
     assert_eq!(
-        request.json(),
-        json!({
-            "prompt": [{
-                "role": "user",
-                "content": [{ "type": "text", "text": "explain this code" }],
-            }],
-            "tools": [],
-            "toolChoice": { "type": "none" },
-        })
+        body["prompt"],
+        json!([{
+            "role": "user",
+            "content": [{ "type": "text", "text": "explain this code" }],
+        }])
+    );
+    // The advertised schemas are the tool registry's contract, asserted in
+    // `tests/tool_loop.rs`; here the point is that `tools` is what the registry
+    // produced and that the model is allowed to use it.
+    assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
+    assert_eq!(
+        body["tools"],
+        Value::Array(fxr::tools::Registry::builtin().advertisement())
+    );
+    assert_eq!(
+        body.as_object().expect("an object").keys().len(),
+        3,
+        "the body carries exactly prompt, tools, and toolChoice: {}",
+        request.body
     );
 }
 
@@ -1756,13 +1778,15 @@ fn a_done_marker_without_a_finish_event_fails_the_turn() {
 
 #[test]
 fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
+    // `write_file` is `deferred`; the binary must refuse rather than answer as
+    // though a file had been written.
     let gateway = FakeGateway::start(vec![Reply::Sse(sse_body(&[
-        tool_call("c1", "read_file", json!({ "path": "README.md" })),
+        tool_call("c1", "write_file", json!({ "path": "x", "content": "y" })),
         finish("tool-calls"),
     ]))]);
     let sandbox = Sandbox::new();
     let run = sandbox.run(
-        &["ask", "--json", "--no-save", "read it"],
+        &["ask", "--json", "--no-save", "write it"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
             ("FXR_GATEWAY_URL", &gateway.chat_url()),
@@ -1771,7 +1795,7 @@ fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
     assert_eq!(run.kinds(), ["error"]);
     let message = run.error_message();
-    assert!(message.contains("read_file"), "got {message}");
+    assert!(message.contains("write_file"), "got {message}");
 }
 
 #[test]

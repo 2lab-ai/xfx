@@ -30,7 +30,7 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 | `status` | command | implemented | `[--json]`. Model, credential source, permission mode, sandbox, workspace, history turns, step limit. `cli_surface.zig:69`, `output_contracts.zig:489-540`. |
 | `doctor` | command | implemented | `[--json]`. Aggregate counts plus `{name,status,detail}` checks. `cli_surface.zig:73`, `output_contracts.zig:1209-1285`. |
 | `help` | command | implemented | `help`, `--help`, `-h`. Lists only implemented commands. `cli_surface.zig:60`. |
-| `ask` | command | implemented | `[--json] [--no-save] <prompt>`. One streamed Gateway turn: ordered assistant text, then exactly one terminal event. `--no-save` is accepted and honored but is not yet distinguishable from the default; it has its own row under Configuration and persistence. The permission-mode (`--auto`/`--yolo`) and resume flags are not advertised and arrive with the tool and session slices. `cli_surface.zig:61`. |
+| `ask` | command | implemented | `[--json] [--no-save] [--add-dir <PATH>]... <prompt>`. A bounded multi-step Gateway turn: ordered assistant text, read-only tool calls executed locally, then exactly one terminal event. `--no-save` and `--add-dir` have their own rows under Configuration and persistence. The permission-mode (`--auto`/`--yolo`) and resume flags are not advertised and arrive with the mutation and session slices. `cli_surface.zig:61`. |
 | `interactive` | command | deferred | Planned for the shell slice of v0.1; a bare `fxr` is rejected until then. `cli_surface.zig:59`. |
 | `session` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:76`. |
 | `sessions` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:77`. |
@@ -55,12 +55,17 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 ## Tools
 
 Upstream's registry is the 26 entries in `src/builtins/tools.zig:1351-1378`.
-fxr advertises no tools yet; the read and mutation groups land with the tool
-slices of v0.1.
+fxr advertises the four read-only tools below, in that order, and nothing else.
+The registry is a compile-time constant; `scripts/check-no-stubs.sh` reconciles
+it against the `tool` rows here.
 
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|
-| read group (`list_files`, `glob_files`, `grep_files`, `read_file`) | tool group | deferred | Planned for the read-loop slice of v0.1. `tools.zig:1352-1355`. |
+| `list_files` | tool | implemented | One directory level, sorted, ignored names omitted, capped at 100 entries with an explicit `... and more entries` line. `tools.zig:509-532`, `list_files.zig:80-115`. |
+| `glob_files` | tool | implemented | `pattern` plus optional `path` and `mode=matches\|count`. Sorted before it is capped at 100; skips ignored and gitignored directories; does not follow symlinks. `tools.zig:534-562`, `glob_files.zig:88-245`. |
+| `grep_files` | tool | implemented | Literal substring search with `path`, `include`, `case_insensitive`, `mode=matches\|files_with_matches\|count`, `head_limit`, `offset`, and `context_lines` (bounded at 5). Regular expressions are not supported, matching upstream. `tools.zig:564-597`, `grep_files.zig:161-530`. |
+| `read_file` | tool | implemented | Line-numbered UTF-8 output with `start_line`/`line_count`, 400-line default, 2000-byte line clip, 256 KiB output cap, and an explicit sentinel stating how many of the file's lines were shown. Binary files are named, not dumped. `tools.zig:599-627`, `read_file.zig:119-372`. |
+| tool permission modes | tool group | partial | Every advertised tool is read-only, and reads are admitted in every permission mode. The `ask`/`auto`/`yolo` distinction becomes observable with the mutation slice, which brings the approval channel. `permission_gate.zig`. |
 | mutation group (`write_file`, `edit_file`, `create_folder`) | tool group | deferred | Planned for the mutation slice of v0.1. `tools.zig:1356-1361`. |
 | `terminal` (exec action) | tool group | deferred | Planned for the mutation slice of v0.1; durable actions stay out. `tools.zig:1367`. |
 | file management (`delete_file`, `rename_file`, `copy_file`, `file_info`, `open_file`) | tool group | deferred | Post-v0.1. `tools.zig:1358-1364`. |
@@ -102,7 +107,8 @@ slices of v0.1.
 | session manifest and index | persistence | deferred | Lands with the durability slice of v0.1. |
 | permission rules and grants | persistence | deferred | Lands with the mutation slice of v0.1. |
 | `AGENTS.md` project context | persistence | deferred | Lands with the durability slice of v0.1. |
-| additional workspace roots | persistence | deferred | Post-v0.1; tied to the `workspace` command. |
+| `ask --add-dir <PATH>` | persistence | implemented | Repeatable. Authorizes one extra directory for this turn's read tools; a path that is not a usable directory fails the turn before any request is sent. Upstream spells the same authority `--add-dir`. `cli_surface.zig:391-415`, `workspace_access.zig:53-96`. |
+| saved additional workspace roots | persistence | deferred | Upstream persists added directories and manages them from the `workspace` command. fxr authorizes them per invocation only, so nothing is remembered between runs. `cli_surface.zig:83`. |
 | prompt history | persistence | deferred | Post-v0.1. |
 
 ## Output and UI
@@ -111,7 +117,7 @@ slices of v0.1.
 |---|---|---|---|
 | status/doctor text renderer | ui | implemented | One `[surface] key=value` line per fact. `output_contracts.zig:410-446`, `:1209-1236`. |
 | status/doctor JSON renderer | ui | implemented | Exactly one newline-terminated document. `output_contracts.zig:489-540`, `:1240-1285`. |
-| JSONL turn event stream | ui | partial | `assistant_delta`, `final`, and `error` are produced by `ask --json`, with exactly one terminal event per turn. `tool_start` and `tool_result` are defined and rendered but no turn emits them until the tool slice. |
+| JSONL turn event stream | ui | implemented | `assistant_delta`, `tool_start`, `tool_result`, `final`, and `error` are all produced by `ask --json`, with exactly one terminal event per turn. |
 | streamed assistant text | ui | implemented | `ask` without `--json` writes only the answer to stdout, one delta at a time, and puts a failure on stderr. `orchestrator.zig:4650-4655`. |
 | interactive shell | ui | deferred | Line-oriented shell with six slash commands; lands with the shell slice of v0.1. |
 | full-screen TUI | ui | deferred | Not a goal. The shell keeps normal scrollback. |

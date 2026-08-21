@@ -6,6 +6,7 @@
 
 use std::fmt;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::agent::{run_turn, TurnRequest};
@@ -16,6 +17,8 @@ use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     StatusSnapshot, TextSink, MISSING_AUTH_HELP,
 };
+use crate::tools::ToolContext;
+use crate::workspace::AccessScope;
 
 /// The exit code for a rejected invocation.
 ///
@@ -107,9 +110,10 @@ pub async fn run_with(
             // that would make the default meaningful is a later slice
             // (`docs/parity.md`, session event log).
             no_save: _,
+            add_dirs,
         } => {
             let config = load_config()?;
-            ask(&config, prompt, json, stdout, stderr).await
+            ask(&config, prompt, add_dirs, json, stdout, stderr).await
         }
         Command::Status { json } => {
             let config = load_config()?;
@@ -151,6 +155,7 @@ pub async fn run_with(
 async fn ask(
     config: &RuntimeConfig,
     prompt: String,
+    add_dirs: Vec<PathBuf>,
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -159,6 +164,14 @@ async fn ask(
         Box::new(JsonlSink::new(stdout))
     } else {
         Box::new(TextSink::new(stdout, stderr))
+    };
+
+    // The authority the turn's tools will run under, resolved before anything
+    // else. A directory the user named but fxr cannot use is a mistake in the
+    // invocation, and reporting it here costs no credential and no round trip.
+    let scope = match AccessScope::new(&config.workspace_root, &add_dirs) {
+        Ok(scope) => scope,
+        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
     };
 
     // Both preconditions are checked before a request is built, so a missing
@@ -183,6 +196,7 @@ async fn ask(
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         cancel,
+        tools: ToolContext::new(scope),
     };
     // The turn writes its own terminal event, including on failure.
     match run_turn(request, &provider, sink.as_mut()).await {

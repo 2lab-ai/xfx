@@ -20,6 +20,11 @@ path = "src/lib.rs"
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+globset = "0.4"
+# ripgrep's walker: bounded, deterministic when sorted, does not follow
+# symlinks, and applies `.gitignore`, so glob and grep see the files a developer
+# considers part of the project rather than every build artifact.
+ignore = "0.4"
 # rustls only: TLS must never depend on an ambient system OpenSSL.
 reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",

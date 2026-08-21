@@ -7,6 +7,8 @@
 //! union (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:58-84`) is
 //! reconciled row by row in `docs/parity.md`, not mirrored here.
 
+use std::path::PathBuf;
+
 use clap::error::ErrorKind;
 use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 
@@ -43,6 +45,9 @@ pub enum Command {
         json: bool,
         /// Do not record this turn in a session.
         no_save: bool,
+        /// Directories the turn's read tools may reach outside the workspace,
+        /// in the order the user named them. Empty means workspace-only.
+        add_dirs: Vec<PathBuf>,
     },
     /// Report resolved configuration and credentials.
     Status { json: bool },
@@ -133,6 +138,7 @@ impl RawCli {
                 prompt,
                 json,
                 no_save,
+                add_dir,
             }) => {
                 // Words are rejoined with a single space: the shell already
                 // split them, and preserving the original spacing would need
@@ -148,6 +154,7 @@ impl RawCli {
                     prompt,
                     json,
                     no_save,
+                    add_dirs: add_dir,
                 }
             }
             Some(RawCommand::Status { json }) => Command::Status { json },
@@ -181,6 +188,14 @@ enum RawCommand {
         /// Do not record this turn in a session (this release records none either way)
         #[arg(long = "no-save")]
         no_save: bool,
+        // Repeatable, and off by default. Without it the read tools see the
+        // workspace and nothing else; upstream spells the same authority
+        // `--add-dir` (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:391-415`).
+        // It is an `ask` flag rather than a global one because it only means
+        // something for a turn -- `status` and `doctor` read no files.
+        /// Let this turn's read tools also read PATH (repeatable)
+        #[arg(long = "add-dir", value_name = "PATH", action = ArgAction::Append)]
+        add_dir: Vec<PathBuf>,
         /// The question. Everything after `--`, and everything after the first
         /// prompt word, is prompt text rather than a flag. A leading `-` before
         /// the prompt is still an unknown flag, so a typo is reported instead
@@ -270,6 +285,7 @@ mod tests {
                 prompt: "explain this code".to_string(),
                 json: false,
                 no_save: false,
+                add_dirs: Vec::new(),
             }
         );
         assert_eq!(
@@ -278,8 +294,42 @@ mod tests {
                 prompt: "hi".to_string(),
                 json: true,
                 no_save: true,
+                add_dirs: Vec::new(),
             }
         );
+    }
+
+    #[test]
+    fn add_dir_is_repeatable_and_keeps_the_order_it_was_given() {
+        assert_eq!(
+            parse(&["ask", "--add-dir", "/one", "--add-dir=/two", "hi"]),
+            Command::Ask {
+                prompt: "hi".to_string(),
+                json: false,
+                no_save: false,
+                add_dirs: vec![PathBuf::from("/one"), PathBuf::from("/two")],
+            }
+        );
+    }
+
+    #[test]
+    fn add_dir_requires_a_directory_and_belongs_to_ask_alone() {
+        // A missing value is a usage error rather than an empty authority.
+        assert!(matches!(
+            parse(&["ask", "--add-dir"]),
+            Command::Rejected { .. }
+        ));
+        // `status` and `doctor` read no files, so the flag would promise
+        // something they cannot do.
+        for args in [
+            vec!["status", "--add-dir", "/one"],
+            vec!["doctor", "--add-dir", "/one"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
     }
 
     #[test]

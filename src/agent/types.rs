@@ -5,6 +5,7 @@ use std::io;
 
 use crate::gateway::protocol::{FinishReason, Message, Usage};
 use crate::gateway::{CancelToken, ProviderError};
+use crate::tools::ToolContext;
 
 /// One user request, with the bounds it must run inside.
 ///
@@ -25,6 +26,12 @@ pub struct TurnRequest {
     /// The most transport attempts one step may spend.
     pub max_attempts: u32,
     pub cancel: CancelToken,
+    /// Where this turn's tool calls may read, and the bounds they run under.
+    ///
+    /// The registry itself is a compile-time constant, so a turn chooses the
+    /// *scope* of its tools, never their identity: two turns in one process
+    /// cannot advertise different tool sets.
+    pub tools: ToolContext,
 }
 
 /// What a completed turn produced.
@@ -46,9 +53,18 @@ pub struct TurnOutcome {
 pub enum TurnError {
     /// The transport failed and could not be safely replayed.
     Provider(ProviderError),
-    /// The model asked to run a tool. fxr advertises no tools yet, so there is
-    /// nothing to run and nothing to pretend.
+    /// The model asked to run a tool this build does not advertise.
+    ///
+    /// Not a tool result: fxr told the model exactly which tools exist, so a
+    /// call outside that set means the exchange is running on a premise fxr
+    /// cannot correct from inside a result.
     ToolCallUnsupported { tool: String },
+    /// Two tool calls in one step claimed the same identifier, so their results
+    /// could not be told apart.
+    DuplicateToolCallId { call_id: String },
+    /// The model hit its output limit while writing a tool call, so the
+    /// arguments may be cut short. They are not run.
+    ToolCallTruncated { tool: String },
     /// The model said it was calling tools and then named none.
     EmptyToolCallFinish,
     /// The provider reported its own failure as the terminal state.
@@ -71,8 +87,18 @@ impl fmt::Display for TurnError {
             Self::Provider(err) => write!(f, "{err}"),
             Self::ToolCallUnsupported { tool } => write!(
                 f,
-                "the model asked to run the `{tool}` tool, but this build advertises no tools \
-                 and will not pretend to have run one"
+                "the model asked to run the `{tool}` tool, which this build does not advertise; \
+                 fxr will not run a tool it did not offer"
+            ),
+            Self::DuplicateToolCallId { call_id } => write!(
+                f,
+                "the model made two tool calls with the id `{call_id}`, so their results could \
+                 not be told apart; none were run"
+            ),
+            Self::ToolCallTruncated { tool } => write!(
+                f,
+                "the model reached its output limit while calling `{tool}`, so the arguments may \
+                 be incomplete and were not run"
             ),
             Self::EmptyToolCallFinish => write!(
                 f,
@@ -132,6 +158,26 @@ mod tests {
         }
         .to_string();
         assert!(message.contains("write_file"), "{message}");
-        assert!(message.contains("no tools"), "{message}");
+        assert!(message.contains("does not advertise"), "{message}");
+    }
+
+    #[test]
+    fn a_duplicate_call_id_says_that_nothing_ran() {
+        let message = TurnError::DuplicateToolCallId {
+            call_id: "c1".to_string(),
+        }
+        .to_string();
+        assert!(message.contains("c1"), "{message}");
+        assert!(message.contains("none were run"), "{message}");
+    }
+
+    #[test]
+    fn a_truncated_tool_call_is_reported_as_unrun_rather_than_attempted() {
+        let message = TurnError::ToolCallTruncated {
+            tool: "read_file".to_string(),
+        }
+        .to_string();
+        assert!(message.contains("read_file"), "{message}");
+        assert!(message.contains("were not run"), "{message}");
     }
 }

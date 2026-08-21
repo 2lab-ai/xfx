@@ -2,12 +2,13 @@
 //!
 //! A turn is a loop over model steps. Each step builds one request from the
 //! conversation so far, spends at most `max_attempts` transport attempts on it,
-//! and then either finishes the turn or extends the conversation. This release
-//! only implements the finishing half: a content-only completion writes its
-//! deltas and returns. A tool call is refused, not simulated, because no tool is
-//! advertised yet (`docs/parity.md`).
+//! and then either finishes the turn or extends the conversation. A completion
+//! with no tool calls ends the turn; a completion with tool calls is executed
+//! locally, appended to the conversation as one assistant message plus one
+//! correlated result per call, and the loop asks the model what to do next
+//! (`vercel-labs/fx@580a0c5d src/core/agent/runtime/orchestrator.zig:4624-4765`).
 //!
-//! Two rules are structural rather than conventional:
+//! Three rules are structural rather than conventional:
 //!
 //! - **Exactly one terminal event.** [`TurnMachine::drive`] emits only
 //!   `assistant_delta`; the single `match` in [`TurnMachine::run`] emits
@@ -22,13 +23,20 @@
 //!   is not a retry, it is a second request to a server that just said it could
 //!   not take one. The turn waits, preferring the server's own `Retry-After`
 //!   over its own guess, and the wait is interruptible.
+//! - **Exactly once per call.** Every tool call is checked -- unique id, known
+//!   tool -- before any of them runs, and then each runs once and appends
+//!   exactly one correlated result. A call that cannot be checked stops the turn
+//!   before the first execution, so a turn never half-runs a step.
 
 use std::io;
 use std::time::{Duration, Instant};
 
-use crate::gateway::protocol::{Completion, CompletionRequest, FinishReason, Message, ToolChoice};
+use crate::gateway::protocol::{
+    Completion, CompletionRequest, ContentPart, FinishReason, Message, ToolChoice,
+};
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
+use crate::tools::Registry;
 
 use super::types::{TurnError, TurnOutcome, TurnRequest};
 
@@ -107,6 +115,10 @@ pub struct TurnMachine {
     /// The prompt sent to the model: history, then this turn's user message,
     /// then whatever the turn appends as it runs.
     messages: Vec<Message>,
+    /// Every assistant fragment this turn delivered, concatenated. A turn that
+    /// spans several steps answers with all of them, because that is what the
+    /// user watched arrive.
+    output: String,
     steps: u32,
     finalized: bool,
 }
@@ -118,6 +130,7 @@ impl TurnMachine {
         Self {
             request,
             messages,
+            output: String::new(),
             steps: 0,
             finalized: false,
         }
@@ -162,64 +175,157 @@ impl TurnMachine {
 
     /// Runs the turn to a terminal state.
     ///
-    /// Emits `assistant_delta` events only. Never emits a terminal event.
+    /// Emits `assistant_delta`, `tool_start`, and `tool_result` events. Never
+    /// emits a terminal event.
     ///
-    /// This is deliberately straight-line rather than a loop. Every transition a
-    /// content-only build knows about is terminal, so a loop here would be a
-    /// loop that cannot turn over -- a shape that says "multi-step" while
-    /// meaning "one step". The continuation that makes it a real loop is a tool
-    /// result, and it arrives with the tool registry; the budget check below is
-    /// already the place that loop will re-enter.
+    /// The loop turns over on exactly one thing: a completion that named tool
+    /// calls. Everything else -- an answer, a refusal, an exhausted budget --
+    /// returns. Upstream draws the same line: zero tool calls is the terminal
+    /// case and any tool call continues the turn
+    /// (`orchestrator.zig:4624`, `:4761-4765`).
     async fn drive(
         &mut self,
         provider: &dyn Provider,
         events: &mut dyn EventSink,
     ) -> Result<TurnOutcome, TurnError> {
-        if self.request.cancel.is_cancelled() {
-            return Err(TurnError::Cancelled);
+        loop {
+            if self.request.cancel.is_cancelled() {
+                return Err(TurnError::Cancelled);
+            }
+            // The turn's own budget, consulted before spending a model call.
+            // This is where the loop re-enters, so a tool loop that never
+            // finishes stops here rather than running forever.
+            if !allows_step(self.request.max_steps, self.steps) {
+                return Err(TurnError::StepLimit {
+                    limit: self.request.max_steps,
+                });
+            }
+
+            let completion = self.step(provider, events).await?;
+            self.steps += 1;
+            self.output.push_str(&completion.text);
+
+            // A provider failure is terminal whatever else the completion
+            // carried; running tools it named would be acting on a step the
+            // provider says did not finish.
+            if completion.finish_reason == FinishReason::ProviderError {
+                return Err(TurnError::ProviderFailure {
+                    detail: completion
+                        .provider_detail
+                        .unwrap_or_else(|| "the provider gave no detail".to_string()),
+                });
+            }
+
+            if completion.tool_calls.is_empty() {
+                return match completion.finish_reason {
+                    FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
+                    // `stop`, `length`, `content-filter`, and `other` all end
+                    // the turn with whatever text arrived. Only `length` and
+                    // `content-filter` mean the answer is cut short, and the
+                    // finish reason travels in the outcome so a caller can say
+                    // so.
+                    _ => Ok(TurnOutcome {
+                        output: std::mem::take(&mut self.output),
+                        steps: self.steps,
+                        usage: completion.usage,
+                        finish_reason: completion.finish_reason,
+                    }),
+                };
+            }
+
+            // The model ran out of room mid-call, so the arguments it sent may
+            // be a prefix of what it meant. Running a truncated path is worse
+            // than failing (`orchestrator.zig:4581-4586`).
+            if completion.finish_reason == FinishReason::Length {
+                return Err(TurnError::ToolCallTruncated {
+                    tool: completion.tool_calls[0].name.clone(),
+                });
+            }
+
+            self.execute_tool_calls(&completion, events)?;
         }
-        // The turn's own budget, consulted before spending a model call. A
-        // content-only turn spends exactly one, so today this admits every
-        // configured bound; it is the guard, not a formality, and it is where
-        // the step loop re-enters.
-        if !allows_step(self.request.max_steps, self.steps) {
-            return Err(TurnError::StepLimit {
-                limit: self.request.max_steps,
-            });
+    }
+
+    /// Runs one step's tool calls and extends the conversation with the result.
+    ///
+    /// Checks first, executions second. Both checks cover the whole step before
+    /// anything runs, so a step with one bad call does not leave the workspace
+    /// half-read and the conversation half-written.
+    fn execute_tool_calls(
+        &mut self,
+        completion: &Completion,
+        events: &mut dyn EventSink,
+    ) -> Result<(), TurnError> {
+        let registry = Registry::builtin();
+
+        // A result correlates to a call by id, so two calls sharing one id
+        // cannot both be answered. Ids already in the prompt count too: the
+        // Gateway rejects a prompt that reuses one.
+        let mut announced = self.announced_call_ids();
+        for call in &completion.tool_calls {
+            if announced.contains(&call.id) {
+                return Err(TurnError::DuplicateToolCallId {
+                    call_id: call.id.clone(),
+                });
+            }
+            announced.push(call.id.clone());
+        }
+        for call in &completion.tool_calls {
+            if registry.spec(&call.name).is_none() {
+                return Err(TurnError::ToolCallUnsupported {
+                    tool: call.name.clone(),
+                });
+            }
         }
 
-        let completion = self.step(provider, events).await?;
-        self.steps += 1;
+        // The assistant turn goes in exactly as the provider sent it: its text,
+        // then its calls in order. The next request has to show the model what
+        // it asked for, not fxr's paraphrase of it.
+        self.messages.push(Message::assistant(
+            Some(&completion.text),
+            completion.tool_calls.clone(),
+        ));
 
-        // A tool call is refused before anything else is decided: whatever the
-        // finish reason says, fxr cannot honor it and must not answer as if it
-        // had.
-        if let Some(call) = completion.tool_calls.first() {
-            return Err(TurnError::ToolCallUnsupported {
-                tool: call.name.clone(),
-            });
+        for call in &completion.tool_calls {
+            events
+                .emit(&Event::ToolStart {
+                    call_id: call.id.clone(),
+                    tool: call.name.clone(),
+                })
+                .map_err(TurnError::Sink)?;
+
+            // Checked above, so the registry cannot refuse the name here; the
+            // error is still mapped rather than unwrapped, because a panic in a
+            // turn would lose the terminal event the caller is owed.
+            let result = registry
+                .execute(call, &self.request.tools)
+                .map_err(|err| TurnError::ToolCallUnsupported { tool: err.name })?;
+
+            events
+                .emit(&Event::ToolResult {
+                    call_id: call.id.clone(),
+                    tool: call.name.clone(),
+                    ok: result.ok,
+                    detail: result.detail,
+                })
+                .map_err(TurnError::Sink)?;
+
+            self.messages
+                .push(Message::tool_result(&call.id, &call.name, result.output));
         }
-        match completion.finish_reason {
-            FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
-            FinishReason::ProviderError => Err(TurnError::ProviderFailure {
-                detail: completion
-                    .provider_detail
-                    .unwrap_or_else(|| "the provider gave no detail".to_string()),
-            }),
-            // `stop`, `length`, `content-filter`, and `other` all end the turn
-            // with whatever text arrived. Only `length` and `content-filter`
-            // mean the answer is cut short, and the finish reason travels in
-            // the outcome so a caller can say so.
-            FinishReason::Stop
-            | FinishReason::Length
-            | FinishReason::ContentFilter
-            | FinishReason::Other => Ok(TurnOutcome {
-                output: completion.text,
-                steps: self.steps,
-                usage: completion.usage,
-                finish_reason: completion.finish_reason,
-            }),
-        }
+        Ok(())
+    }
+
+    /// Every tool call id already in the prompt.
+    fn announced_call_ids(&self) -> Vec<String> {
+        self.messages
+            .iter()
+            .flat_map(|message| message.content.iter())
+            .filter_map(|part| match part {
+                ContentPart::ToolCall(call) => Some(call.id.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Runs one model step, spending at most `max_attempts` transport attempts.
@@ -292,11 +398,12 @@ impl TurnMachine {
         CompletionRequest {
             model: self.request.model.clone(),
             messages: self.messages.clone(),
-            // No registry exists yet, so no tool is advertised and the model is
-            // told it may not call one. An empty list with `auto` would invite
-            // a call fxr would then have to refuse.
-            tools: Vec::new(),
-            tool_choice: ToolChoice::None,
+            // The registry verbatim, every step. Re-advertising is not
+            // redundant: the Gateway is stateless, so a schema omitted from
+            // step two is a tool the model no longer has.
+            tools: Registry::builtin().advertisement(),
+            // `auto`, because every advertised tool is real and read-only.
+            tool_choice: ToolChoice::Auto,
         }
     }
 }
@@ -334,6 +441,18 @@ impl DeltaSink for StepDeltas<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::ToolContext;
+    use crate::workspace::AccessScope;
+
+    /// A tool context rooted at a real, empty directory.
+    ///
+    /// The `TempDir` is returned so the caller keeps it alive: a scope whose
+    /// root has been deleted is a different test than the one being written.
+    fn tools() -> (tempfile::TempDir, ToolContext) {
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let scope = AccessScope::primary_only(dir.path()).expect("a usable root");
+        (dir, ToolContext::new(scope))
+    }
 
     #[test]
     fn zero_is_unbounded_and_a_bound_stops_at_its_own_count() {
@@ -345,6 +464,7 @@ mod tests {
 
     #[test]
     fn a_new_machine_starts_from_history_plus_the_user_prompt() {
+        let (_dir, tools) = tools();
         let machine = TurnMachine::new(TurnRequest {
             model: "m".to_string(),
             prompt: "now".to_string(),
@@ -352,6 +472,7 @@ mod tests {
             max_steps: 1,
             max_attempts: 1,
             cancel: crate::gateway::CancelToken::new(),
+            tools,
         });
         assert_eq!(machine.messages().len(), 2);
         assert_eq!(machine.messages()[1].text(), "now");
@@ -359,7 +480,8 @@ mod tests {
     }
 
     #[test]
-    fn a_step_request_advertises_no_tools_and_forbids_calling_one() {
+    fn a_step_request_advertises_the_whole_registry_and_lets_the_model_choose() {
+        let (_dir, tools) = tools();
         let machine = TurnMachine::new(TurnRequest {
             model: "m".to_string(),
             prompt: "hi".to_string(),
@@ -367,10 +489,39 @@ mod tests {
             max_steps: 1,
             max_attempts: 1,
             cancel: crate::gateway::CancelToken::new(),
+            tools,
         });
         let request = machine.completion_request();
-        assert!(request.tools.is_empty());
-        assert_eq!(request.tool_choice, ToolChoice::None);
+        assert_eq!(request.tools, Registry::builtin().advertisement());
+        assert_eq!(request.tool_choice, ToolChoice::Auto);
+    }
+
+    #[test]
+    fn the_prompt_reports_every_call_id_it_has_already_announced() {
+        use crate::gateway::protocol::ToolCall;
+        let (_dir, tools) = tools();
+        let mut machine = TurnMachine::new(TurnRequest {
+            model: "m".to_string(),
+            prompt: "hi".to_string(),
+            history: Vec::new(),
+            max_steps: 4,
+            max_attempts: 1,
+            cancel: crate::gateway::CancelToken::new(),
+            tools,
+        });
+        assert!(machine.announced_call_ids().is_empty());
+        machine.messages.push(Message::assistant(
+            None,
+            vec![ToolCall {
+                id: "c1".to_string(),
+                name: "read_file".to_string(),
+                input: serde_json::json!({}),
+            }],
+        ));
+        machine
+            .messages
+            .push(Message::tool_result("c1", "read_file", "x"));
+        assert_eq!(machine.announced_call_ids(), ["c1"]);
     }
 
     #[test]
