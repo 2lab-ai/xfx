@@ -34,6 +34,18 @@ const REJECTED_EXIT_CODE: u8 = 1;
 /// did not do what you asked", and the `error` event carries the difference.
 const TURN_FAILURE_EXIT_CODE: u8 = 1;
 
+/// What fxr prints when the user interrupts a turn.
+///
+/// The first interrupt is a request, not a kill: fxr stops the running command,
+/// lets the turn report itself as cancelled, and exits with a terminal event a
+/// `--json` caller can still parse. Saying so is the difference between "it
+/// ignored me" and "it is stopping".
+pub const INTERRUPT_NOTICE: &str =
+    "fxr: interrupted -- stopping the turn; press Ctrl-C again to exit immediately.";
+
+/// The exit status for a process killed on a second interrupt: 128 + SIGINT.
+const INTERRUPTED_EXIT_CODE: i32 = 130;
+
 /// A failure that stops a command before it can report anything.
 ///
 /// Malformed settings are deliberately not in here: they are facts `status` and
@@ -198,6 +210,10 @@ async fn ask(
         Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
     };
     let cancel = CancelToken::new();
+    // Ctrl-C now means something. Without this the token existed and nothing
+    // ever set it, so every cancellation path in the turn and in `terminal` was
+    // unreachable from the binary.
+    watch_for_interrupt(cancel.clone());
     let provider = match GatewayProvider::new(endpoint, credential, cancel.clone()) {
         Ok(provider) => provider,
         Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
@@ -219,6 +235,46 @@ async fn ask(
         Ok(_) => Ok(ExitCode::SUCCESS),
         Err(_) => Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE)),
     }
+}
+
+/// Turns the next Ctrl-C into a cancellation, and the one after that into an exit.
+///
+/// It runs on its own OS thread with its own small runtime, because the turn's
+/// runtime is single-threaded and `terminal` blocks it for the duration of a
+/// command. A signal that could only be observed by the blocked runtime would
+/// arrive exactly when it is least able to be noticed -- which is when the user
+/// is most likely to send one.
+///
+/// The thread is detached. It has nothing to clean up, and it must outlive
+/// nothing: when the turn ends, the process ends.
+fn watch_for_interrupt(cancel: CancelToken) {
+    let _ = std::thread::Builder::new()
+        .name("fxr-interrupt".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
+                // No runtime means no handler, which means the default SIGINT
+                // disposition stays in place. Ctrl-C then kills fxr outright:
+                // worse, but not silently worse.
+                return;
+            };
+            runtime.block_on(async move {
+                loop {
+                    if tokio::signal::ctrl_c().await.is_err() {
+                        return;
+                    }
+                    if cancel.is_cancelled() {
+                        // Asked twice. The first request is still being honored
+                        // somewhere; the user has decided not to wait for it.
+                        std::process::exit(INTERRUPTED_EXIT_CODE);
+                    }
+                    cancel.cancel();
+                    let _ = writeln!(io::stderr(), "{INTERRUPT_NOTICE}");
+                }
+            });
+        });
 }
 
 /// Builds the permission session one `ask` runs under.
@@ -319,7 +375,7 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
             "permissions",
             CheckStatus::Ok,
             format!(
-                "mode=auto: bounded workspace changes and read-only commands run without asking; sandbox={sandbox}"
+                "mode=auto: bounded workspace changes and reporting commands run without asking, but nothing that compiles or runs project code; sandbox={sandbox}"
             ),
         ),
         PermissionMode::Yolo => DoctorCheck::new(

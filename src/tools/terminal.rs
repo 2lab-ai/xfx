@@ -36,7 +36,7 @@
 
 use std::io::Read;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -53,12 +53,23 @@ use super::spec::{
 /// How often a running command notices a timeout or a cancellation.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
+/// How long fxr will wait for a killed command's pipes to close.
+///
+/// A child that spawns a grandchild and exits leaves the grandchild holding the
+/// inherited stdout. Killing the process group normally closes it; a process
+/// that escaped its group with `setsid` will not. Waiting forever for that pipe
+/// would turn "the command finished" into "fxr hangs", so the wait is bounded
+/// and the shortfall is disclosed in the output.
+const DRAIN_GRACE: Duration = Duration::from_millis(1_500);
+
 /// The only action this build offers.
 const EXEC_ACTION: &str = "exec";
 
 const TERMINAL_DESCRIPTION: &str = "Run one command in the workspace and return its captured result: exit status, standard output, and standard error. \
 Set action to exec. \
 A recognized read-only command runs as an exact argument list with no shell, so quoting, globbing, variable substitution, redirection, and operators such as |, &&, ;, and > are not expanded and take the command off the automatic route. \
+Commands that compile or run project code, including cargo test, build, check, clippy, bench, and run, always need approval even though the automatic mode may have written the files they would compile; cargo --version, cargo metadata --no-deps, and cargo fmt --check do not. \
+Operands must be relative, must not contain .., and must not resolve outside the authorized roots. \
 Anything else needs an explicit approval before it runs. \
 Output is captured, not streamed, and is truncated past a fixed size; the command is killed if it outruns its time limit. \
 There is no sandbox: an approved command runs with the invoking user's privileges. \
@@ -250,11 +261,13 @@ impl Outcome {
     }
 }
 
-/// One captured stream, bounded.
+/// One captured stream, bounded in bytes and in how long fxr waited for it.
 struct Captured {
     bytes: Vec<u8>,
     /// How many bytes were produced past the bound.
     dropped: usize,
+    /// Whether the stream was still open when fxr stopped waiting.
+    stalled: bool,
 }
 
 impl Captured {
@@ -268,6 +281,11 @@ impl Captured {
                 "... [truncated; {} more bytes were not captured]\n",
                 self.dropped
             ));
+        }
+        if self.stalled {
+            out.push_str(
+                "... [stream still open; a process outlived the command and fxr stopped waiting]\n",
+            );
         }
         out
     }
@@ -298,6 +316,15 @@ fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
     command.stdin(Stdio::null());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
+    // Its own process group, so a timeout or a cancellation can reach every
+    // process the command started and not only the one fxr forked. `sh -c 'x &'`
+    // exits immediately while `x` keeps running; without a group kill, `x`
+    // survives the turn and keeps fxr's pipe open.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
 
     let mut child = command
         .spawn()
@@ -313,10 +340,13 @@ fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
         context.cancel(),
     );
 
+    // Bounded: whatever has arrived by the deadline is what the model gets. A
+    // stream still held open is reported as such rather than waited on.
+    let deadline = Instant::now() + DRAIN_GRACE;
     Ok(Outcome {
         ending,
-        stdout: stdout.collect(),
-        stderr: stderr.collect(),
+        stdout: stdout.collect(deadline),
+        stderr: stderr.collect(deadline),
     })
 }
 
@@ -345,8 +375,18 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
     }
 }
 
-/// Kills a child and reaps it, so no zombie outlives the turn.
+/// Kills everything the command started, and reaps the child fxr forked.
+///
+/// The group is signalled first, because the process holding fxr's pipe is very
+/// often not the process fxr forked. The direct kill follows as a backstop for
+/// the case where the group could not be signalled at all.
 fn stop(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+        }
+    }
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -362,18 +402,30 @@ fn ended(status: std::process::ExitStatus) -> Ending {
     Ending::Exited(status.code().unwrap_or(-1))
 }
 
-/// A stream being read on its own thread, up to a bound.
+/// A stream being read on its own thread, up to a byte bound and a deadline.
 struct Drain {
-    handle: Option<std::thread::JoinHandle<()>>,
     state: Arc<Mutex<Vec<u8>>>,
     dropped: Arc<AtomicUsize>,
+    finished: Arc<AtomicBool>,
+    /// True when there was no stream to read at all.
+    absent: bool,
 }
 
 impl Drain {
-    fn collect(self) -> Captured {
-        if let Some(handle) = self.handle {
-            let _ = handle.join();
+    /// Everything read by `deadline`, and whether the stream was still open.
+    ///
+    /// The reader thread is never joined. Joining is exactly the bug: a
+    /// grandchild holding the inherited pipe keeps the thread blocked in `read`,
+    /// and a join would block the turn behind it for as long as that process
+    /// lives. The thread is left to exit on its own; it writes into a mutex
+    /// whose contents have already been taken, so it cannot affect the result.
+    fn collect(self, deadline: Instant) -> Captured {
+        if !self.absent {
+            while !self.finished.load(Ordering::Acquire) && Instant::now() < deadline {
+                std::thread::sleep(POLL_INTERVAL);
+            }
         }
+        let stalled = !self.absent && !self.finished.load(Ordering::Acquire);
         let bytes = std::mem::take(
             &mut *self
                 .state
@@ -383,6 +435,7 @@ impl Drain {
         Captured {
             bytes,
             dropped: self.dropped.load(Ordering::Relaxed),
+            stalled,
         }
     }
 }
@@ -396,17 +449,20 @@ impl Drain {
 fn drain<R: Read + Send + 'static>(source: Option<R>, limit: usize) -> Drain {
     let state = Arc::new(Mutex::new(Vec::new()));
     let dropped = Arc::new(AtomicUsize::new(0));
+    let finished = Arc::new(AtomicBool::new(false));
     let Some(mut source) = source else {
         return Drain {
-            handle: None,
             state,
             dropped,
+            finished,
+            absent: true,
         };
     };
 
     let thread_state = Arc::clone(&state);
     let thread_dropped = Arc::clone(&dropped);
-    let handle = std::thread::spawn(move || {
+    let thread_finished = Arc::clone(&finished);
+    std::thread::spawn(move || {
         let mut buffer = [0u8; 8 * 1024];
         loop {
             match source.read(&mut buffer) {
@@ -424,11 +480,13 @@ fn drain<R: Read + Send + 'static>(source: Option<R>, limit: usize) -> Drain {
                 }
             }
         }
+        thread_finished.store(true, Ordering::Release);
     });
     Drain {
-        handle: Some(handle),
         state,
         dropped,
+        finished,
+        absent: false,
     }
 }
 
@@ -495,6 +553,7 @@ mod tests {
         let captured = Captured {
             bytes: b"kept".to_vec(),
             dropped: 7,
+            stalled: false,
         };
         let rendered = captured.render();
         assert!(rendered.starts_with("kept\n"), "{rendered}");
@@ -506,13 +565,28 @@ mod tests {
         let complete = Captured {
             bytes: b"all\n".to_vec(),
             dropped: 0,
+            stalled: false,
         };
         assert_eq!(complete.render(), "all\n");
+
+        // A stream fxr stopped waiting for says so, so "no more output" is
+        // distinguishable from "output fxr never saw".
+        let stalled = Captured {
+            bytes: b"partial\n".to_vec(),
+            dropped: 0,
+            stalled: true,
+        };
+        assert!(
+            stalled.render().contains("stream still open"),
+            "{stalled:?}",
+            stalled = stalled.render()
+        );
         // Silence stays silent, so "no output" is distinguishable from "output
         // fxr chose not to show".
         let empty = Captured {
             bytes: Vec::new(),
             dropped: 0,
+            stalled: false,
         };
         assert_eq!(empty.render(), "");
     }
@@ -527,6 +601,42 @@ mod tests {
             TERMINAL_DESCRIPTION.contains("approval"),
             "{TERMINAL_DESCRIPTION}"
         );
+        // The one asymmetry a model has to know about: it may write the files
+        // it may not compile.
+        assert!(
+            TERMINAL_DESCRIPTION.contains("cargo test"),
+            "{TERMINAL_DESCRIPTION}"
+        );
+    }
+
+    /// A stream that never ends and never closes, like an inherited pipe held
+    /// by a process that outlived the command.
+    struct NeverCloses;
+
+    impl Read for NeverCloses {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            std::thread::sleep(Duration::from_millis(20));
+            buffer[0] = b'.';
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn a_drain_returns_at_its_deadline_instead_of_waiting_for_the_pipe() {
+        // Joining here is the bug this exists to prevent: the reader thread can
+        // never finish, so a join would hold the turn open for as long as
+        // whatever is holding the pipe lives.
+        let drain = drain(Some(NeverCloses), 16);
+        let started = Instant::now();
+        let captured = drain.collect(started + Duration::from_millis(200));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the drain waited {:?}",
+            started.elapsed()
+        );
+        assert!(captured.stalled, "an open stream must be reported as open");
+        assert!(captured.bytes.len() <= 16, "{}", captured.bytes.len());
+        assert!(captured.render().contains("stream still open"));
     }
 
     #[test]

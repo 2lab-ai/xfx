@@ -121,31 +121,93 @@ impl ProposedAction<'_> {
         }
     }
 
-    /// The exact thing being asked for: a display path, or the command text.
+    /// The exact thing being asked for, and the key a rule or a grant matches.
+    ///
+    /// A command's key includes its working directory. Without it, approving
+    /// `cat notes.md` in the workspace would also approve `cat notes.md` in a
+    /// directory `--add-dir` opened, which is a different file and a different
+    /// question. A mutation's key is its display path, which is already
+    /// workspace-relative inside the workspace and absolute anywhere else, so it
+    /// distinguishes roots on its own.
+    ///
+    /// The rest of a command plan -- the route and the environment -- is a
+    /// function of the command text and the process environment, so (tool,
+    /// command, cwd) determines the whole plan within one run. The fingerprint
+    /// test `a_command_fingerprint_covers_the_command_the_cwd_and_the_environment`
+    /// pins that.
     pub fn target(&self) -> String {
         match self {
             Self::Mutation(plan) => plan.display().to_string(),
-            Self::Command(plan) => plan.command().to_string(),
+            Self::Command(plan) => format!("{} in {}", plan.command(), plan.cwd().display()),
         }
     }
 
     /// One sentence a human can answer yes or no to.
+    ///
+    /// It has to disclose the *content* of the change, not only its shape. "Edit
+    /// notes.md" is not a question anyone can answer: the whole risk is in which
+    /// bytes are going away and which are arriving. So an edit shows a bounded
+    /// before and after, a write shows a bounded preview with its size, and both
+    /// name digests so two similar-looking changes can be told apart.
     pub fn summary(&self) -> String {
         match self {
-            Self::Mutation(plan) => match plan.kind() {
-                super::MutationKind::Write => {
-                    format!(
-                        "write {} bytes to {}",
+            Self::Mutation(plan) => {
+                let target = plan.display();
+                let existing = match plan.preimage() {
+                    super::Preimage::Absent => "which does not exist yet".to_string(),
+                    super::Preimage::Present { identity, hash } => {
+                        format!("now {} bytes, sha256 {}", identity.size, hash.short())
+                    }
+                };
+                match plan.kind() {
+                    super::MutationKind::Write => format!(
+                        "write {} bytes to `{target}` ({existing}), sha256 {}: \"{}\"",
                         plan.staged_bytes().len(),
-                        plan.display()
-                    )
+                        plan.after_hash().short(),
+                        plan.preview()
+                    ),
+                    super::MutationKind::Edit => {
+                        let change = match plan.excerpt() {
+                            Some(excerpt) => {
+                                format!("replace \"{}\" with \"{}\"", excerpt.before, excerpt.after)
+                            }
+                            // Unreachable for `edit_file`, which always supplies
+                            // one; kept honest rather than asserted away.
+                            None => format!("rewrite it as {} bytes", plan.staged_bytes().len()),
+                        };
+                        format!(
+                            "edit `{target}` ({existing}): {change}, leaving {} bytes sha256 {}",
+                            plan.staged_bytes().len(),
+                            plan.after_hash().short()
+                        )
+                    }
+                    super::MutationKind::CreateFolder => {
+                        format!("create the directory `{target}`")
+                    }
                 }
-                super::MutationKind::Edit => format!("edit {}", plan.display()),
-                super::MutationKind::CreateFolder => {
-                    format!("create the directory {}", plan.display())
-                }
-            },
+            }
             Self::Command(plan) => format!("run `{}` in {}", plan.command(), plan.display_cwd()),
+        }
+    }
+
+    /// What answering "always" would additionally allow, in plain words.
+    ///
+    /// A grant is keyed by tool and target, and for a file that means *the path*,
+    /// not this particular content. A prompt that showed one diff and silently
+    /// bought permission for every future diff to the same file would be
+    /// misleading, so the prompt says which of the two it is.
+    pub fn always_scope(&self) -> String {
+        match self {
+            Self::Mutation(plan) => format!(
+                "allow every future {} to `{}` for the rest of this session, whatever its contents",
+                plan.kind().tool(),
+                plan.display()
+            ),
+            Self::Command(plan) => format!(
+                "allow every future run of exactly `{}` in {} for the rest of this session",
+                plan.command(),
+                plan.display_cwd()
+            ),
         }
     }
 
@@ -240,8 +302,11 @@ pub struct ApprovalRequest {
     pub tool: &'static str,
     /// The exact target, which is also what a grant would record.
     pub target: String,
-    /// One sentence describing what would happen.
+    /// One sentence describing what would happen, including a bounded excerpt
+    /// of the content being changed.
     pub summary: String,
+    /// What answering "always" would additionally allow.
+    pub always_scope: String,
 }
 
 /// What the user answered.
@@ -298,8 +363,8 @@ impl ApprovalPrompter for TtyPrompter {
         loop {
             write!(
                 stderr,
-                "\nfxr wants to {}\n  [y] once  [a] always for `{}`  [n] no: ",
-                request.summary, request.target
+                "\nfxr wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
+                request.summary, request.always_scope
             )?;
             stderr.flush()?;
 
@@ -481,6 +546,7 @@ impl PermissionSession {
             tool,
             target: target.clone(),
             summary: action.summary(),
+            always_scope: action.always_scope(),
         };
         match prompter.request(&request) {
             Ok(ApprovalAnswer::Once) => PolicyDecision::Allow {
@@ -628,10 +694,32 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_says_what_would_happen_rather_than_naming_a_policy() {
+    fn a_summary_discloses_the_content_and_not_only_the_shape() {
         let plan = write_plan(TargetScope::PrimaryWorkspace);
         let summary = ProposedAction::Mutation(&plan).summary();
-        assert_eq!(summary, "write 5 bytes to a.txt");
+        // Size, digest, and the bytes themselves. "write to a.txt" is not a
+        // question anyone can answer.
+        assert!(summary.contains("write 5 bytes to `a.txt`"), "{summary}");
+        assert!(summary.contains("does not exist yet"), "{summary}");
+        assert!(summary.contains("\"hello\""), "{summary}");
+        assert!(
+            summary.contains(&crate::permission::ContentHash::of(b"hello").short()),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn the_always_answer_says_what_it_would_buy() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let scope = ProposedAction::Mutation(&plan).always_scope();
+        // The grant is keyed by path, not by content, so the prompt says so
+        // rather than letting one shown diff imply permission for every future
+        // one.
+        assert!(
+            scope.contains("every future write_file to `a.txt`"),
+            "{scope}"
+        );
+        assert!(scope.contains("whatever its contents"), "{scope}");
     }
 
     #[test]

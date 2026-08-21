@@ -37,14 +37,16 @@ serde_json = "1.0"
 # preimage it names, so a preimage is identified by digest as well as by
 # device/inode, and the digest is re-derived immediately before the rename.
 sha2 = "0.10"
-tokio = { version = "1", features = ["rt", "macros", "net", "time", "sync"] }
+tokio = { version = "1", features = ["rt", "macros", "net", "signal", "sync", "time"] }
 
-# Directory-descriptor traversal. A mutation resolves its target component by
-# component with `openat(..., O_NOFOLLOW)`, so no component can be substituted
-# between the check and the write. `std::fs` exposes no path-relative `openat`,
-# and this is the one place fxr needs one.
+# Directory-descriptor traversal, and process-group signalling. A mutation
+# resolves its target component by component with `openat(..., O_NOFOLLOW)`, so
+# no component can be substituted between the check and the write; a timed-out
+# command is killed by process group, so a grandchild cannot outlive it holding
+# the pipe fxr is reading. `std` exposes neither a path-relative `openat` nor a
+# group kill.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 
 [dev-dependencies]
 tempfile = "3.10"

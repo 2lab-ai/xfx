@@ -58,6 +58,18 @@ pub enum DeniedEffect {
     UnknownCommand,
     /// The executable is admitted but these arguments are not.
     UnsupportedArgument,
+    /// It compiles or runs code from the workspace.
+    ///
+    /// Separate from [`Self::UnsupportedArgument`] because it is the one denial
+    /// whose reason a reader most needs: automatic mode may have *written* the
+    /// code this command would execute.
+    ExecutesProjectCode,
+    /// An operand exists and resolves outside every authorized root.
+    ///
+    /// [`classify`] never returns this: it is a fact about the filesystem, not
+    /// about the command text, so only [`crate::permission::CommandPlan::prepare`]
+    /// -- which holds the scope -- can establish it.
+    OperandOutsideWorkspace,
     /// There was no command.
     Empty,
     /// The command is longer than the classifier will consider.
@@ -78,6 +90,12 @@ impl DeniedEffect {
             Self::UnsupportedShell => "its shell syntax could not be parsed",
             Self::UnknownCommand => "the command is not recognized by the admitted grammar",
             Self::UnsupportedArgument => "its arguments are outside the admitted grammar",
+            Self::ExecutesProjectCode => {
+                "it compiles or runs code from the workspace, which automatic mode is allowed to write"
+            }
+            Self::OperandOutsideWorkspace => {
+                "one of its operands resolves outside the authorized workspace roots"
+            }
             Self::Empty => "there is no command",
             Self::TooLong => "it is longer than the classifier will consider",
         }
@@ -335,8 +353,11 @@ fn check(words: &[Word], grammar: &Grammar) -> Result<(), DeniedEffect> {
         let value = word.value.as_str();
 
         if !after_separator && !word.quoted && value == "--" {
-            // Everything past `--` belongs to the program being run, not to the
-            // command line fxr is judging.
+            // `--` stops *flag interpretation*. It does not stop fxr caring
+            // where the remaining words point: `cat notes.md -- /etc/passwd`
+            // still reads `/etc/passwd`. Only the flag grammar is suspended
+            // below; every word past the separator is still vetted as an
+            // operand.
             after_separator = true;
             index += 1;
             continue;
@@ -372,10 +393,15 @@ fn check(words: &[Word], grammar: &Grammar) -> Result<(), DeniedEffect> {
         if !grammar.operands && !after_separator {
             return Err(DeniedEffect::UnsupportedArgument);
         }
-        if !after_separator {
-            operand_is_reachable(value)?;
-            operands += 1;
-        }
+        // Vetted on both sides of the separator. A word past `--` that begins
+        // with `-` is an argument to the program being run rather than a path,
+        // and the reachability test accepts it for the same reason it accepts
+        // any other relative word: it names nothing outside the cwd.
+        operand_is_reachable(value)?;
+        // Counted on both sides too: `grep -n -- -needle file` really does give
+        // grep two operands, and demanding them before the separator would
+        // reject the one spelling that exists to pass a leading dash.
+        operands += 1;
         index += 1;
     }
     if operands < grammar.min_operands {
@@ -667,12 +693,26 @@ fn plan_git(arguments: &[Word]) -> Result<(), DeniedEffect> {
     }
 }
 
-/// The `cargo` subcommands that read or test, each with the flags it may carry.
+/// The `cargo` invocations that cannot execute project code.
 ///
-/// `cargo test` and `cargo build` write into `target/`, which is a build
-/// artifact directory the project already declares disposable, and they do not
-/// publish, install, or fetch credentials. `cargo publish`, `cargo install`, and
-/// `cargo run` are absent for the opposite reasons.
+/// This list is short on purpose, and the reason is the whole point of `auto`.
+/// `auto` may write inside the workspace without asking. `cargo build`, `test`,
+/// `check`, `clippy`, and `bench` compile and run that workspace -- build
+/// scripts, procedural macros, and test harnesses are ordinary Rust programs
+/// that Cargo executes. Admitting both would mean `auto` could write `build.rs`
+/// and then run it, which is arbitrary code execution with no approval anywhere
+/// on the path. So Cargo's automatic surface is limited to invocations that
+/// only *report*:
+///
+/// - `cargo --version` / `-V` / `--list`, which read nothing from the project;
+/// - `cargo metadata --no-deps`, which parses manifests -- `--no-deps` is
+///   required because resolving the dependency graph can reach the network;
+/// - `cargo fmt --check`, which parses and compares -- `--check` is required
+///   because a bare `cargo fmt` rewrites the source files.
+///
+/// Everything else is a review decision. It is still available: an approval or
+/// an explicit rule sends it down the reviewed route, and `--yolo` skips the
+/// question. What is gone is the path where nobody was asked at all.
 fn plan_cargo(arguments: &[Word]) -> Result<(), DeniedEffect> {
     let Some(first) = arguments.first() else {
         return Err(DeniedEffect::UnsupportedArgument);
@@ -681,77 +721,39 @@ fn plan_cargo(arguments: &[Word]) -> Result<(), DeniedEffect> {
         return check(
             arguments,
             &Grammar {
-                flags: &["--version", "-V", "--list", "--offline", "--locked"],
+                flags: &["--version", "-V", "--list"],
                 ..NO_ARGS
             },
         );
     }
 
-    let rest = &arguments[1..];
-    let build_like = Grammar {
-        flags: &[
-            "--all",
-            "--workspace",
-            "--lib",
-            "--bins",
-            "--tests",
-            "--benches",
-            "--examples",
-            "--all-targets",
-            "--all-features",
-            "--no-default-features",
-            "--quiet",
-            "-q",
-            "--verbose",
-            "-v",
-            "--offline",
-            "--locked",
-            "--frozen",
-            "--release",
-            "--no-run",
-            "--no-fail-fast",
-            "--message-format=short",
-        ],
-        valued: &[
-            "-p",
-            "--package",
-            "--test",
-            "--bin",
-            "--example",
-            "--features",
-            "--target",
-            "--jobs",
-            "-j",
-        ],
-        operands: true,
-        min_operands: 0,
-    };
+    // Named rather than defaulted, so the refusal can say what the command
+    // would have done instead of only that the grammar does not list it.
+    const EXECUTES_CODE: &[&str] = &[
+        "test", "build", "check", "clippy", "bench", "run", "rustc", "fix", "doc", "install",
+        "miri",
+    ];
+    if EXECUTES_CODE.contains(&first.value.as_str()) {
+        return Err(DeniedEffect::ExecutesProjectCode);
+    }
 
+    let rest = &arguments[1..];
+    let has = |name: &str| rest.iter().any(|word| word.value == name);
     match first.value.as_str() {
-        "test" | "check" | "build" | "clippy" | "bench" => check(rest, &build_like),
-        "fmt" => check(
+        "metadata" if has("--no-deps") => check(
             rest,
             &Grammar {
-                flags: &["--check", "--all", "--quiet", "-q", "--verbose"],
-                ..NO_ARGS
-            },
-        ),
-        "tree" => check(
-            rest,
-            &Grammar {
-                flags: &["--offline", "--locked", "--no-dedupe", "--all-features"],
-                valued: &["-p", "--package", "--depth"],
-                operands: false,
-                min_operands: 0,
-            },
-        ),
-        "metadata" => check(
-            rest,
-            &Grammar {
-                flags: &["--offline", "--locked", "--no-deps"],
+                flags: &["--offline", "--locked", "--frozen", "--no-deps"],
                 valued: &["--format-version"],
                 operands: false,
                 min_operands: 0,
+            },
+        ),
+        "fmt" if has("--check") => check(
+            rest,
+            &Grammar {
+                flags: &["--check", "--all", "--quiet", "-q"],
+                ..NO_ARGS
             },
         ),
         _ => Err(DeniedEffect::UnsupportedArgument),
@@ -829,11 +831,61 @@ mod tests {
     }
 
     #[test]
-    fn a_double_dash_hands_the_rest_to_the_program_being_run() {
+    fn a_double_dash_hands_flags_to_the_program_but_still_vets_paths() {
+        // `--` means "no more flags". It never meant "no more paths", and a
+        // parser that stopped vetting there would let a trailing absolute path
+        // through the one place nobody was looking.
         assert_eq!(
-            argv("cargo test -- --nocapture"),
-            ["cargo", "test", "--", "--nocapture"]
+            argv("grep -n -- -leading-dash a.txt"),
+            ["grep", "-n", "--", "-leading-dash", "a.txt"]
         );
+        assert_eq!(
+            denied("cat a.txt -- /etc/passwd"),
+            DeniedEffect::UnsupportedArgument
+        );
+        assert_eq!(denied("ls -- /"), DeniedEffect::UnsupportedArgument);
+        assert_eq!(
+            denied("cat -- ../outside.txt"),
+            DeniedEffect::UnsupportedArgument
+        );
+    }
+
+    #[test]
+    fn cargo_may_report_but_may_not_compile_or_run_the_workspace() {
+        // `auto` may write inside the workspace. If it could also compile it,
+        // writing `build.rs` and running `cargo build` would be arbitrary code
+        // execution with no approval anywhere on the path.
+        for command in [
+            "cargo test",
+            "cargo build",
+            "cargo check",
+            "cargo clippy",
+            "cargo bench",
+            "cargo run",
+            "cargo install x",
+            "cargo test -- --nocapture",
+        ] {
+            assert_eq!(
+                denied(command),
+                DeniedEffect::ExecutesProjectCode,
+                "`{command}`"
+            );
+        }
+        // Not reporting either, but for different reasons: one rewrites the
+        // sources, the other can resolve the dependency graph over the network.
+        for command in ["cargo fmt", "cargo metadata"] {
+            assert_eq!(
+                denied(command),
+                DeniedEffect::UnsupportedArgument,
+                "`{command}`"
+            );
+        }
+        assert_eq!(argv("cargo --version"), ["cargo", "--version"]);
+        assert_eq!(
+            argv("cargo metadata --no-deps"),
+            ["cargo", "metadata", "--no-deps"]
+        );
+        assert_eq!(argv("cargo fmt --check"), ["cargo", "fmt", "--check"]);
     }
 
     #[test]
@@ -855,6 +907,8 @@ mod tests {
             DeniedEffect::UnsupportedShell,
             DeniedEffect::UnknownCommand,
             DeniedEffect::UnsupportedArgument,
+            DeniedEffect::ExecutesProjectCode,
+            DeniedEffect::OperandOutsideWorkspace,
             DeniedEffect::Empty,
             DeniedEffect::TooLong,
         ];

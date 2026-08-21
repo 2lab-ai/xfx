@@ -49,9 +49,9 @@ pub mod policy;
 pub use crate::config::PermissionMode;
 
 pub use authority::{
-    AuthorityError, AuthorityLedger, CommandPlan, CommandRoute, ContentHash, ExecutionAuthority,
-    FileIdentity, MutationKind, MutationPlan, Nonce, Preimage, PreparedCommand, PreparedMutation,
-    ReadRecord, ReadTracker, TargetScope,
+    bounded_excerpt, AuthorityError, AuthorityLedger, CommandPlan, CommandRoute, ContentHash,
+    ExecutionAuthority, FileIdentity, MutationExcerpt, MutationKind, MutationPlan, Nonce, Preimage,
+    PreparedCommand, PreparedMutation, ReadRecord, ReadTracker, TargetScope, MAX_EXCERPT_BYTES,
 };
 pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{

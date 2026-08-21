@@ -45,7 +45,8 @@
 use serde_json::Value;
 
 use crate::permission::{
-    ContentHash, MutationKind, MutationPlan, PolicyDecision, Preimage, ProposedAction,
+    bounded_excerpt, ContentHash, MutationExcerpt, MutationKind, MutationPlan, PolicyDecision,
+    Preimage, ProposedAction,
 };
 
 use super::spec::{
@@ -342,6 +343,9 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         return ToolResult::failure(reason);
     }
 
+    // The excerpt is what an approval prompt shows. It is built from the exact
+    // strings the model sent, bounded and escaped, so a human is asked about the
+    // change rather than about the file's name.
     let plan = MutationPlan::new(
         MutationKind::Edit,
         located.full().to_path_buf(),
@@ -349,7 +353,11 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         located.target_scope(),
         preimage.summary(),
         after.into_bytes(),
-    );
+    )
+    .with_excerpt(MutationExcerpt {
+        before: bounded_excerpt(&input.old_string),
+        after: bounded_excerpt(&input.new_string),
+    });
     commit(context, located, plan, |plan| {
         format!("Edited {}", plan.display())
     })

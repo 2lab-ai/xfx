@@ -21,9 +21,10 @@ mod support;
 
 use std::collections::VecDeque;
 use std::fs;
+use std::io::Read;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -116,7 +117,7 @@ impl Tree {
 /// A prompter that answers from a script and records what it was asked.
 #[derive(Debug, Default)]
 struct PrompterLog {
-    requests: Vec<String>,
+    requests: Vec<ApprovalRequest>,
 }
 
 #[derive(Clone)]
@@ -144,17 +145,24 @@ impl ScriptedPrompter {
     }
 
     fn asked(&self) -> Vec<String> {
-        self.log.lock().expect("log").requests.clone()
+        self.log
+            .lock()
+            .expect("log")
+            .requests
+            .iter()
+            .map(|request| format!("{}:{}", request.tool, request.target))
+            .collect()
+    }
+
+    /// The last question put to the user, whole.
+    fn last(&self) -> Option<ApprovalRequest> {
+        self.log.lock().expect("log").requests.last().cloned()
     }
 }
 
 impl ApprovalPrompter for ScriptedPrompter {
     fn request(&mut self, request: &ApprovalRequest) -> std::io::Result<ApprovalAnswer> {
-        self.log
-            .lock()
-            .expect("log")
-            .requests
-            .push(format!("{}:{}", request.tool, request.target));
+        self.log.lock().expect("log").requests.push(request.clone());
         match self.answers.lock().expect("answers").pop_front() {
             Some(Ok(answer)) => Ok(answer),
             Some(Err(detail)) => Err(std::io::Error::other(detail)),
@@ -220,6 +228,11 @@ fn read_whole(context: &ToolContext, path: &str) -> String {
     succeeds(context, "read_file", json!({ "path": path }))
 }
 
+/// The rule/grant key for a command plan: the text *and* the directory.
+fn target_of(plan: &CommandPlan) -> String {
+    ProposedAction::Command(plan).target()
+}
+
 /// A command plan for policy tests: no filesystem effect beyond resolving cwd.
 fn plan(tree: &Tree, command: &str) -> CommandPlan {
     CommandPlan::prepare(
@@ -259,12 +272,11 @@ fn the_admitted_grammar_covers_the_read_and_test_commands_it_claims() {
         "git diff",
         "git log --oneline",
         "git rev-parse HEAD",
-        "cargo test",
-        "cargo check",
-        "cargo build",
-        "cargo fmt --check",
-        "cargo clippy",
         "cargo --version",
+        "cargo -V",
+        "cargo metadata --no-deps",
+        "cargo metadata --no-deps --offline",
+        "cargo fmt --check",
     ] {
         assert!(
             matches!(classify(command), CommandEffect::DirectReadOnly { .. }),
@@ -289,6 +301,17 @@ fn a_destructive_command_is_denied_by_the_effect_it_would_have() {
         ("git push origin main", DeniedEffect::UnsupportedArgument),
         ("git commit -m x", DeniedEffect::UnsupportedArgument),
         ("cargo publish", DeniedEffect::UnsupportedArgument),
+        // The ruling: `auto` may write inside the workspace, so it must not
+        // also be able to compile and run it.
+        ("cargo test", DeniedEffect::ExecutesProjectCode),
+        ("cargo build", DeniedEffect::ExecutesProjectCode),
+        ("cargo check", DeniedEffect::ExecutesProjectCode),
+        ("cargo clippy", DeniedEffect::ExecutesProjectCode),
+        ("cargo bench", DeniedEffect::ExecutesProjectCode),
+        ("cargo run", DeniedEffect::ExecutesProjectCode),
+        // Both of these would do something other than report.
+        ("cargo fmt", DeniedEffect::UnsupportedArgument),
+        ("cargo metadata", DeniedEffect::UnsupportedArgument),
         ("frobnicate --all", DeniedEffect::UnknownCommand),
     ];
     for (command, expected) in cases {
@@ -324,6 +347,135 @@ fn dynamic_shell_syntax_is_never_planned_as_a_direct_argv() {
             "`{command}` must not be direct, got {effect:?}"
         );
     }
+}
+
+#[test]
+fn a_double_dash_stops_flag_parsing_but_not_operand_vetting() {
+    // `--` means "no more flags". It has never meant "no more paths", and a
+    // parser that stopped checking there would let `cat notes.md -- /etc/passwd`
+    // read a file the read tools would refuse.
+    for command in [
+        "cat notes.md -- /etc/passwd",
+        "grep -n needle -- /etc/passwd",
+        "ls -- /",
+        "cat -- ../outside.txt",
+        "wc -l -- /var/log/system.log",
+    ] {
+        assert_eq!(
+            classify(command),
+            CommandEffect::Denied(DeniedEffect::UnsupportedArgument),
+            "`{command}` escaped through the separator"
+        );
+    }
+
+    // The separator still works for what it is for: a relative operand that
+    // begins with `-` reaches the program instead of the flag grammar.
+    assert_eq!(
+        classify("grep -n -- -needle src/lib.rs"),
+        CommandEffect::DirectReadOnly {
+            argv: vec![
+                "grep".to_string(),
+                "-n".to_string(),
+                "--".to_string(),
+                "-needle".to_string(),
+                "src/lib.rs".to_string(),
+            ]
+        }
+    );
+}
+
+#[test]
+fn auto_will_not_compile_or_run_the_workspace_it_can_write_to() {
+    // The whole reason: `auto` may write inside the workspace without asking.
+    // A build script is an ordinary Rust program that `cargo build` executes, so
+    // admitting both would be arbitrary code execution with no approval anywhere
+    // on the path.
+    for command in [
+        "cargo test",
+        "cargo build",
+        "cargo check",
+        "cargo clippy",
+        "cargo bench",
+        "cargo run",
+        "cargo install ripgrep",
+    ] {
+        assert_eq!(
+            classify(command),
+            CommandEffect::Denied(DeniedEffect::ExecutesProjectCode),
+            "`{command}` must not be on the automatic route"
+        );
+    }
+    // What survives only reports.
+    for command in [
+        "cargo --version",
+        "cargo metadata --no-deps",
+        "cargo fmt --check",
+    ] {
+        assert!(
+            matches!(classify(command), CommandEffect::DirectReadOnly { .. }),
+            "`{command}` should still be admitted"
+        );
+    }
+    // ... and only in the form that reports: a bare `cargo fmt` rewrites the
+    // sources, and a bare `cargo metadata` can resolve the graph over the network.
+    for command in ["cargo fmt", "cargo metadata"] {
+        assert_eq!(
+            classify(command),
+            CommandEffect::Denied(DeniedEffect::UnsupportedArgument),
+            "`{command}`"
+        );
+    }
+    // The refusal has to say what the command would have done, because the
+    // model's next move depends on it: "ask the user" and "use another
+    // command" are different repairs.
+    assert!(
+        DeniedEffect::ExecutesProjectCode
+            .describe()
+            .contains("automatic mode is allowed to write"),
+        "{}",
+        DeniedEffect::ExecutesProjectCode.describe()
+    );
+}
+
+#[test]
+fn auto_can_write_a_build_script_but_cannot_make_cargo_run_it() {
+    // The attack in one test. Writing `build.rs` is a bounded, reversible
+    // workspace change, so `auto` allows it. Executing it is not, so `auto`
+    // refuses -- and the refusal names the reason rather than the rule.
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Auto);
+
+    succeeds(
+        &context,
+        "write_file",
+        json!({
+            "path": "build.rs",
+            "content": "fn main() { std::process::Command::new(\"id\").status().unwrap(); }\n",
+        }),
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": ".cargo/config.toml", "content": "[build]\nrustflags = []\n" }),
+    );
+    assert!(tree.root().join("build.rs").is_file());
+    assert!(tree.root().join(".cargo/config.toml").is_file());
+
+    for command in ["cargo test", "cargo build", "cargo check"] {
+        let refusal = fails(
+            &context,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        assert!(refusal.contains("not admitted in auto mode"), "{refusal}");
+    }
+
+    // The reporting invocations still work, so `auto` is not merely broken.
+    succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cargo --version" }),
+    );
 }
 
 #[test]
@@ -383,7 +535,7 @@ fn ask_mode_without_an_approval_channel_fails_closed() {
 #[test]
 fn auto_mode_admits_the_direct_grammar_and_denies_everything_else() {
     let tree = Tree::new();
-    let admitted = plan(&tree, "cargo test");
+    let admitted = plan(&tree, "cargo --version");
     assert_eq!(
         session(PermissionMode::Auto).evaluate(ProposedAction::Command(&admitted)),
         PolicyDecision::Allow {
@@ -434,8 +586,8 @@ fn yolo_mode_admits_what_every_other_mode_refuses_and_says_which_source_did_it()
 #[test]
 fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
     let tree = Tree::new();
-    let plan = plan(&tree, "cargo test");
-    let rules = PermissionRules::new(Vec::new(), vec![Rule::new("terminal", "cargo test")]);
+    let plan = plan(&tree, "cargo --version");
+    let rules = PermissionRules::new(Vec::new(), vec![Rule::new("terminal", target_of(&plan))]);
     let denied = session(PermissionMode::Auto).with_rules(rules);
     let PolicyDecision::Deny { reason, .. } = denied.evaluate(ProposedAction::Command(&plan))
     else {
@@ -448,7 +600,7 @@ fn a_configured_deny_rule_outranks_the_mode_that_would_have_allowed_it() {
 fn a_configured_allow_rule_admits_without_an_approval() {
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
-    let rules = PermissionRules::new(vec![Rule::new("terminal", "cargo publish")], Vec::new());
+    let rules = PermissionRules::new(vec![Rule::new("terminal", target_of(&plan))], Vec::new());
     let allowed = session(PermissionMode::Ask).with_rules(rules);
     assert_eq!(
         allowed.evaluate(ProposedAction::Command(&plan)),
@@ -461,10 +613,10 @@ fn a_configured_allow_rule_admits_without_an_approval() {
 #[test]
 fn a_session_grant_is_exact_and_does_not_spread_to_a_neighbour() {
     let tree = Tree::new();
-    let granted = plan(&tree, "cargo test");
-    let neighbour = plan(&tree, "cargo test --all");
+    let granted = plan(&tree, "cargo --version");
+    let neighbour = plan(&tree, "cargo --version --list");
     let mut with_grant = session(PermissionMode::Ask);
-    with_grant.grant(Grant::new("terminal", "cargo test"));
+    with_grant.grant(Grant::new("terminal", target_of(&granted)));
 
     assert_eq!(
         with_grant.evaluate(ProposedAction::Command(&granted)),
@@ -484,6 +636,60 @@ fn a_session_grant_is_exact_and_does_not_spread_to_a_neighbour() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn a_grant_for_a_command_does_not_follow_it_into_another_directory() {
+    // The same words in a different directory are a different command: `cat
+    // notes.md` in the workspace and in a directory `--add-dir` opened read two
+    // different files. A key that was only the command text would let one
+    // approval buy both.
+    let tree = Tree::new();
+    let shared = TempDir::new().expect("shared");
+    let shared_root = shared.path().canonicalize().expect("canonicalize shared");
+    tree.mkdir("inner");
+    let scope = AccessScope::new(tree.root(), [&shared_root]).expect("usable roots");
+    let limits = ToolLimits::default();
+
+    let here = CommandPlan::prepare("pwd", &scope, None, &limits).expect("plan");
+    let inner = CommandPlan::prepare("pwd", &scope, Some("inner"), &limits).expect("plan");
+    let added = CommandPlan::prepare("pwd", &scope, Some(shared_root.to_str().unwrap()), &limits)
+        .expect("plan");
+
+    // Three different keys for three different questions.
+    let keys = [target_of(&here), target_of(&inner), target_of(&added)];
+    let mut unique = keys.clone().to_vec();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 3, "{keys:?}");
+
+    let mut asking = session(PermissionMode::Ask);
+    asking.grant(Grant::new("terminal", target_of(&here)));
+    assert_eq!(
+        asking.evaluate(ProposedAction::Command(&here)),
+        PolicyDecision::Allow {
+            source: AllowSource::SessionGrant
+        }
+    );
+    for elsewhere in [&inner, &added] {
+        assert_eq!(
+            asking.evaluate(ProposedAction::Command(elsewhere)),
+            PolicyDecision::Prompt,
+            "a grant in one directory covered another: {}",
+            target_of(elsewhere)
+        );
+    }
+
+    // A configured rule is keyed the same way, so writing one for the workspace
+    // does not silently authorize an added root.
+    let ruled = session(PermissionMode::Ask).with_rules(PermissionRules::new(
+        vec![Rule::new("terminal", target_of(&here))],
+        Vec::new(),
+    ));
+    assert_eq!(
+        ruled.evaluate(ProposedAction::Command(&added)),
+        PolicyDecision::Prompt
+    );
+}
+
+#[test]
 fn an_approval_answered_once_covers_this_call_and_not_the_next() {
     let tree = Tree::new();
     let plan = plan(&tree, "cargo publish");
@@ -497,7 +703,7 @@ fn an_approval_answered_once_covers_this_call_and_not_the_next() {
         }
     );
     assert!(asking.grants().is_empty(), "`once` must not persist");
-    assert_eq!(prompter.asked(), ["terminal:cargo publish"]);
+    assert_eq!(prompter.asked(), [format!("terminal:{}", target_of(&plan))]);
 }
 
 #[test]
@@ -513,7 +719,7 @@ fn an_approval_answered_always_records_one_exact_session_grant() {
             source: AllowSource::InteractiveAlways
         }
     );
-    assert_eq!(asking.grants(), [Grant::new("terminal", "cargo publish")]);
+    assert_eq!(asking.grants(), [Grant::new("terminal", target_of(&plan))]);
 
     // The second call is answered from the grant, so the prompter is not asked
     // again.
@@ -524,6 +730,133 @@ fn an_approval_answered_always_records_one_exact_session_grant() {
         }
     );
     assert_eq!(prompter.asked().len(), 1);
+}
+
+#[test]
+fn an_edit_prompt_shows_what_is_being_replaced_and_with_what() {
+    let tree = Tree::new();
+    tree.write("notes.md", "alpha beta gamma\n");
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
+    let context = context_with_prompter(&tree, PermissionMode::Ask, prompter.clone());
+    read_whole(&context, "notes.md");
+
+    fails(
+        &context,
+        "edit_file",
+        json!({ "path": "notes.md", "old_string": "beta", "new_string": "DELTA" }),
+    );
+
+    let request = prompter.last().expect("the edit asked a question");
+    assert_eq!(request.tool, "edit_file");
+    assert_eq!(request.target, "notes.md");
+    // The bytes on both sides, the current size, and both digests. "Edit
+    // notes.md" would not have been a question anyone could answer.
+    assert!(
+        request.summary.contains("replace \"beta\" with \"DELTA\""),
+        "{}",
+        request.summary
+    );
+    assert!(request.summary.contains("17 bytes"), "{}", request.summary);
+    assert!(request.summary.contains("sha256"), "{}", request.summary);
+    // And "always" says it is broader than the change being shown.
+    assert!(
+        request
+            .always_scope
+            .contains("every future edit_file to `notes.md`"),
+        "{}",
+        request.always_scope
+    );
+    assert!(
+        request.always_scope.contains("whatever its contents"),
+        "{}",
+        request.always_scope
+    );
+    assert_eq!(tree.read("notes.md"), "alpha beta gamma\n");
+}
+
+#[test]
+fn a_write_prompt_shows_a_bounded_preview_with_its_size_and_digest() {
+    let tree = Tree::new();
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
+    let context = context_with_prompter(&tree, PermissionMode::Ask, prompter.clone());
+
+    fails(
+        &context,
+        "write_file",
+        json!({ "path": "new.txt", "content": "hello world\n" }),
+    );
+    let request = prompter.last().expect("the write asked a question");
+    assert!(
+        request.summary.contains("write 12 bytes"),
+        "{}",
+        request.summary
+    );
+    assert!(
+        request.summary.contains("does not exist yet"),
+        "{}",
+        request.summary
+    );
+    // Escaped and on one line: a payload must not be able to reflow the prompt
+    // it is being shown in.
+    assert!(
+        request.summary.contains("hello world\\n"),
+        "{}",
+        request.summary
+    );
+    assert!(!request.summary.contains('\n'), "{}", request.summary);
+}
+
+#[test]
+fn a_prompt_bounds_the_excerpt_it_shows() {
+    let tree = Tree::new();
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
+    let context = context_with_prompter(&tree, PermissionMode::Ask, prompter.clone());
+
+    fails(
+        &context,
+        "write_file",
+        json!({ "path": "big.txt", "content": "A".repeat(4000) }),
+    );
+    let request = prompter.last().expect("the write asked a question");
+    assert!(
+        request.summary.contains("write 4000 bytes"),
+        "{}",
+        request.summary
+    );
+    // Bounded, and the clipping is visible rather than silent.
+    assert!(request.summary.contains('\u{2026}'), "{}", request.summary);
+    assert!(
+        request.summary.len() < 400,
+        "the prompt was {} bytes",
+        request.summary.len()
+    );
+}
+
+#[test]
+fn a_command_prompt_names_the_directory_the_command_would_run_in() {
+    let tree = Tree::new();
+    tree.mkdir("inner");
+    let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Deny]);
+    let context = context_with_prompter(&tree, PermissionMode::Ask, prompter.clone());
+
+    fails(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cargo test", "cwd": "inner" }),
+    );
+    let request = prompter.last().expect("the command asked a question");
+    assert!(
+        request.summary.contains("cargo test"),
+        "{}",
+        request.summary
+    );
+    assert!(request.summary.contains("inner"), "{}", request.summary);
+    assert!(request.target.contains("inner"), "{}", request.target);
+    assert!(
+        request.always_scope.contains("every future run of exactly"),
+        "{}",
+        request.always_scope
+    );
 }
 
 #[test]
@@ -560,7 +893,7 @@ fn a_broken_approval_channel_denies_rather_than_defaulting_to_yes() {
 #[test]
 fn an_authority_executes_once_and_a_replay_is_refused() {
     let tree = Tree::new();
-    let plan = plan(&tree, "cargo test");
+    let plan = plan(&tree, "cargo --version");
     let mut owner = session(PermissionMode::Auto);
     let authority = owner.mint_command(plan, AllowSource::AutoMode);
     // The authority records which decision produced it, so an audit can say
@@ -579,7 +912,7 @@ fn an_authority_executes_once_and_a_replay_is_refused() {
 fn an_authority_minted_by_one_session_is_unknown_to_another() {
     let tree = Tree::new();
     let mut minter = session(PermissionMode::Auto);
-    let authority = minter.mint_command(plan(&tree, "cargo test"), AllowSource::AutoMode);
+    let authority = minter.mint_command(plan(&tree, "cargo --version"), AllowSource::AutoMode);
 
     let mut stranger = session(PermissionMode::Auto);
     assert_eq!(stranger.consume(&authority), Err(AuthorityError::Unknown));
@@ -589,8 +922,8 @@ fn an_authority_minted_by_one_session_is_unknown_to_another() {
 fn two_authorities_never_share_a_nonce() {
     let tree = Tree::new();
     let mut owner = session(PermissionMode::Auto);
-    let first = owner.mint_command(plan(&tree, "cargo test"), AllowSource::AutoMode);
-    let second = owner.mint_command(plan(&tree, "cargo test"), AllowSource::AutoMode);
+    let first = owner.mint_command(plan(&tree, "cargo --version"), AllowSource::AutoMode);
+    let second = owner.mint_command(plan(&tree, "cargo --version"), AllowSource::AutoMode);
     assert_ne!(first.nonce(), second.nonce());
     owner.consume(&first).expect("the first is usable");
     owner.consume(&second).expect("the second is independent");
@@ -626,10 +959,10 @@ fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
     let scope = AccessScope::primary_only(tree.root()).expect("root");
     let limits = ToolLimits::default();
 
-    let base = CommandPlan::prepare("cargo test", &scope, None, &limits).expect("plan");
-    let other_command = CommandPlan::prepare("cargo check", &scope, None, &limits).expect("plan");
+    let base = CommandPlan::prepare("cargo --version", &scope, None, &limits).expect("plan");
+    let other_command = CommandPlan::prepare("cargo -V", &scope, None, &limits).expect("plan");
     let other_cwd =
-        CommandPlan::prepare("cargo test", &scope, Some("inner"), &limits).expect("plan");
+        CommandPlan::prepare("cargo --version", &scope, Some("inner"), &limits).expect("plan");
 
     assert_ne!(base.fingerprint(), other_command.fingerprint());
     assert_ne!(base.fingerprint(), other_cwd.fingerprint());
@@ -637,7 +970,7 @@ fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
     // of when it ran.
     assert_eq!(
         base.fingerprint(),
-        CommandPlan::prepare("cargo test", &scope, None, &limits)
+        CommandPlan::prepare("cargo --version", &scope, None, &limits)
             .expect("plan")
             .fingerprint()
     );
@@ -656,11 +989,11 @@ fn a_command_fingerprint_covers_the_command_the_cwd_and_the_environment() {
 fn an_admitted_command_names_its_route_and_a_reviewed_one_names_the_shell() {
     let tree = Tree::new();
     assert!(matches!(
-        plan(&tree, "cargo test").route(),
+        plan(&tree, "cargo --version").route(),
         CommandRoute::Direct { .. }
     ));
     assert!(matches!(
-        plan(&tree, "cargo test && rm -rf /").route(),
+        plan(&tree, "cargo --version && rm -rf /").route(),
         CommandRoute::Shell { .. }
     ));
 }
@@ -1271,6 +1604,154 @@ fn terminal_stops_when_the_turn_is_cancelled() {
 }
 
 #[test]
+fn a_direct_operand_that_resolves_outside_the_workspace_is_refused() {
+    // The text classifier cannot see this: `escape.txt` is a perfectly ordinary
+    // relative name. Only resolving it shows that `cat escape.txt` would read a
+    // file the read tools refuse.
+    let tree = Tree::new();
+    let outside = TempDir::new().expect("outside");
+    let secret = outside.path().join("secret.txt");
+    fs::write(&secret, "SENSITIVE-OUTSIDE-VALUE\n").expect("write the outside file");
+    symlink(&secret, tree.root().join("escape.txt")).expect("plant the symlink");
+
+    let context = context(&tree, PermissionMode::Auto);
+    let refusal = fails(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cat escape.txt" }),
+    );
+    assert!(refusal.contains("outside the authorized"), "{refusal}");
+    assert!(
+        !refusal.contains("SENSITIVE-OUTSIDE-VALUE"),
+        "the refusal leaked the file it refused"
+    );
+}
+
+#[test]
+fn a_direct_operand_that_is_a_symlink_inside_the_workspace_is_allowed() {
+    // The counterpart. Refusing every symlink would make the grammar useless in
+    // a real repository, and an in-workspace link resolves to a file the read
+    // tools would have handed over anyway.
+    let tree = Tree::new();
+    tree.write("real.txt", "inside content\n");
+    symlink(tree.root().join("real.txt"), tree.root().join("link.txt")).expect("plant the symlink");
+
+    let context = context(&tree, PermissionMode::Auto);
+    let output = succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cat link.txt" }),
+    );
+    assert!(output.contains("inside content"), "{output}");
+}
+
+#[test]
+fn an_operand_that_names_nothing_is_not_treated_as_an_escape() {
+    // A grep pattern, a git revision, and a filename that does not exist yet all
+    // look identical to a path. Refusing them would leave the grammar able to
+    // express almost nothing.
+    let tree = Tree::new();
+    tree.write("notes.md", "needle here\n");
+    let context = context(&tree, PermissionMode::Auto);
+    let output = succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "grep -n needle notes.md" }),
+    );
+    assert!(output.contains("needle"), "{output}");
+}
+
+#[test]
+fn a_command_that_leaves_a_process_holding_the_pipe_still_returns() {
+    // `sh -c 'sleep 30 & echo started'` exits at once, but the background sleep
+    // inherited stdout and keeps the pipe open. Joining the reader thread here
+    // would block the whole turn for thirty seconds.
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Yolo);
+    let started = Instant::now();
+    let output = succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "sleep 30 & echo started" }),
+    );
+    assert!(output.contains("started"), "{output}");
+    assert!(output.contains("<exit_code>0</exit_code>"), "{output}");
+    // The wait is bounded and the shortfall is disclosed.
+    assert!(output.contains("stream still open"), "{output}");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the drain blocked for {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
+    // The shell forks, so killing the process fxr spawned leaves the two sleeps
+    // alive and holding the pipe. Only a group kill ends them.
+    let tree = Tree::new();
+    let context = context_with_limits(
+        &tree,
+        PermissionMode::Yolo,
+        ToolLimits {
+            command_timeout_ms: 200,
+            ..ToolLimits::default()
+        },
+    );
+    let started = Instant::now();
+    let refusal = fails(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "sleep 30 & sleep 30" }),
+    );
+    assert!(refusal.contains("timed out"), "{refusal}");
+    // The discriminator. If only the forked shell had been killed, the two
+    // sleeps would still hold the pipe and the drain would report itself
+    // stalled. A closed pipe is the evidence that the group is gone.
+    assert!(
+        !refusal.contains("stream still open"),
+        "a process outlived the group kill: {refusal}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the timeout took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
+fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).expect("root"))
+        .with_permissions(session(PermissionMode::Yolo))
+        .with_cancel(cancel.clone());
+
+    let watcher = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(150));
+        watcher.cancel();
+    });
+
+    let started = Instant::now();
+    let refusal = fails(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "sleep 30 & sleep 30" }),
+    );
+    assert!(refusal.contains("cancelled"), "{refusal}");
+    assert!(
+        !refusal.contains("stream still open"),
+        "a process outlived the group kill: {refusal}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "cancellation took {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn terminal_refuses_a_working_directory_outside_the_workspace() {
     let tree = Tree::new();
     let outside = TempDir::new().expect("outside");
@@ -1575,7 +2056,20 @@ impl Sandbox {
         fs::read_to_string(self.workspace.join(relative)).expect("read the file")
     }
 
+    /// Spawns fxr with its stdout on a pipe, for a test that has to act on the
+    /// process while it is still running.
+    fn spawn(&self, args: &[&str], env: &[(&str, &str)]) -> Child {
+        let mut command = self.command(args, env);
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        command.spawn().expect("spawn fxr")
+    }
+
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
+        Run::of(self.command(args, env).output().expect("spawn fxr"))
+    }
+
+    fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
@@ -1586,7 +2080,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn fxr"))
+        command
     }
 }
 
@@ -1764,6 +2258,106 @@ fn ask_mode_without_a_terminal_refuses_the_edit_and_leaves_the_file_alone() {
 }
 
 #[test]
+fn an_interrupt_stops_a_running_command_and_ends_the_turn_as_cancelled() {
+    // Cancellation existed in the types before this test and was unreachable
+    // from the binary: nothing ever set the token. Here a real SIGINT reaches a
+    // real process that is really blocked in `sleep 30`.
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "c1",
+                "terminal",
+                json!({ "action": "exec", "command": "sleep 30" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            text_delta("a0", "this step must never run"),
+            finish("stop"),
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let mut child = sandbox.spawn(
+        &["ask", "--yolo", "--json", "--no-save", "wait", "for", "me"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+
+    let mut stdout = child.stdout.take().expect("piped stdout");
+    let collected = Arc::new(Mutex::new(String::new()));
+    let sink = Arc::clone(&collected);
+    let reader = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = stdout.read_to_string(&mut text);
+        *sink.lock().expect("stdout") = text;
+    });
+
+    // The first Gateway request proves fxr is past startup, so the interrupt
+    // handler is installed and SIGINT will not fall through to the default
+    // disposition.
+    let ready = Instant::now() + Duration::from_secs(30);
+    while gateway.request_count() < 1 && Instant::now() < ready {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(gateway.request_count(), 1, "fxr never reached the Gateway");
+    std::thread::sleep(Duration::from_millis(500));
+
+    let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a live pid");
+    rustix::process::kill_process(pid, rustix::process::Signal::INT).expect("send SIGINT");
+
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(25);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("wait on fxr") {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "fxr ignored SIGINT and was still running after {:?}",
+            started.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    };
+    let _ = reader.join();
+
+    // Well before `sleep 30` would have ended on its own.
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "the interrupt took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(
+        status.code(),
+        Some(1),
+        "an interrupted turn did not complete"
+    );
+
+    let text = collected.lock().expect("stdout").clone();
+    let events: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|err| panic!("`{line}`: {err}")))
+        .collect();
+    let last = events.last().expect("a terminal event");
+    assert_eq!(last["kind"], "error", "{text}");
+    assert!(
+        last["message"]
+            .as_str()
+            .expect("a message")
+            .contains("cancelled"),
+        "{text}"
+    );
+    // The second model step never happened: the turn stopped rather than
+    // carrying on after the command was killed.
+    assert_eq!(
+        gateway.request_count(),
+        1,
+        "the turn continued past the interrupt"
+    );
+}
+
+#[test]
 fn the_release_loop_reads_a_file_edits_it_runs_a_command_and_answers() {
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
@@ -1787,6 +2381,25 @@ fn the_release_loop_reads_a_file_edits_it_runs_a_command_and_answers() {
                 "c3",
                 "terminal",
                 json!({ "action": "exec", "command": "cat notes.md" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        // The only Cargo invocation `auto` still admits: it reports and it
+        // cannot execute the workspace it was just allowed to write to.
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "c4",
+                "terminal",
+                json!({ "action": "exec", "command": "cargo --version" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        // ... and the one it does not, so the release loop shows both answers.
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "c5",
+                "terminal",
+                json!({ "action": "exec", "command": "cargo test" }),
             ),
             finish("tool-calls"),
         ])),
@@ -1816,39 +2429,52 @@ fn the_release_loop_reads_a_file_edits_it_runs_a_command_and_answers() {
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
 
     // Every tool ran exactly once, in order, each with one correlated result.
-    assert_eq!(
-        run.kinds(),
-        [
-            "tool_start",
-            "tool_result",
-            "tool_start",
-            "tool_result",
-            "tool_start",
-            "tool_result",
-            "assistant_delta",
-            "final",
-        ]
-    );
     let events = run.events();
     let tools: Vec<&str> = events
         .iter()
         .filter(|event| event["kind"] == "tool_start")
         .map(|event| event["tool"].as_str().expect("a tool"))
         .collect();
-    assert_eq!(tools, ["read_file", "edit_file", "terminal"]);
-    for event in &events {
-        if event["kind"] == "tool_result" {
-            assert_eq!(event["ok"], json!(true), "{event}");
-        }
+    assert_eq!(
+        tools,
+        ["read_file", "edit_file", "terminal", "terminal", "terminal"]
+    );
+    assert_eq!(
+        run.kinds().last().map(String::as_str),
+        Some("final"),
+        "{}",
+        run.stdout
+    );
+
+    let result_for = |call: &str| -> Value {
+        events
+            .iter()
+            .find(|event| event["kind"] == "tool_result" && event["call_id"] == call)
+            .unwrap_or_else(|| panic!("no result for {call}"))
+            .clone()
+    };
+    for call in ["c1", "c2", "c3", "c4"] {
+        assert_eq!(result_for(call)["ok"], json!(true), "{call}");
     }
+    // `cargo test` compiles and runs the workspace `auto` may write to, so it is
+    // the one call in this loop that has to be refused.
+    let denied = result_for("c5");
+    assert_eq!(denied["ok"], json!(false));
+    assert!(
+        denied["detail"]
+            .as_str()
+            .expect("a detail")
+            .contains("not admitted in auto mode"),
+        "{denied}"
+    );
 
     // The file changed once, to exactly the requested content.
     assert_eq!(sandbox.read("notes.md"), "the word after is here\n");
 
     // The terminal saw the edited file, so the exec really ran after the write.
     let requests = gateway.requests();
-    assert_eq!(requests.len(), 4, "one request per model step");
-    let last = requests[3].json();
+    assert_eq!(requests.len(), 6, "one request per model step");
+    let last = requests[5].json();
     let exec_result = last["prompt"]
         .as_array()
         .expect("a prompt")

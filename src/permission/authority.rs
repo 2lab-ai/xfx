@@ -33,7 +33,7 @@ use sha2::{Digest, Sha256};
 use crate::tools::ToolLimits;
 use crate::workspace::AccessScope;
 
-use super::command::{classify, CommandEffect};
+use super::command::{classify, CommandEffect, DeniedEffect};
 
 /// The most bytes a prepared command may contain
 /// (`vercel-labs/fx@580a0c5d src/core/terminal/contracts.zig:8` is 64 KiB; fxr
@@ -344,6 +344,50 @@ impl Preimage {
     }
 }
 
+/// The largest excerpt or preview a prompt will show of one side of a change.
+///
+/// Long enough that a human can recognize what is being replaced, short enough
+/// that a hostile model cannot use the approval prompt as a place to print a
+/// screenful of text designed to be scrolled past.
+pub const MAX_EXCERPT_BYTES: usize = 160;
+
+/// What a change replaces, and with what, rendered for a human.
+///
+/// Only `edit_file` produces one: `write_file` replaces everything, so its
+/// "before" is the whole previous file and the digest is the honest summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MutationExcerpt {
+    pub before: String,
+    pub after: String,
+}
+
+/// Renders `text` on one line, bounded, with the clipping made visible.
+///
+/// Newlines and other control characters are escaped rather than printed: an
+/// approval prompt that a payload can reflow is an approval prompt a payload can
+/// disguise.
+pub fn bounded_excerpt(text: &str) -> String {
+    let mut out = String::new();
+    let mut clipped = false;
+    for ch in text.chars() {
+        if out.len() >= MAX_EXCERPT_BYTES {
+            clipped = true;
+            break;
+        }
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push('\u{fffd}'),
+            c => out.push(c),
+        }
+    }
+    if clipped {
+        out.push('\u{2026}');
+    }
+    out
+}
+
 /// One exact filesystem change, decided and not yet made.
 ///
 /// Every field is fixed at preparation time and none is public: a caller cannot
@@ -358,6 +402,9 @@ pub struct MutationPlan {
     preimage: Preimage,
     /// The exact bytes that will replace the preimage. Empty for a directory.
     after: Vec<u8>,
+    /// What an approval prompt shows. Derived from data the fingerprint already
+    /// covers, so it is deliberately not part of the fingerprint itself.
+    excerpt: Option<MutationExcerpt>,
     fingerprint: ContentHash,
 }
 
@@ -394,8 +441,33 @@ impl MutationPlan {
             scope,
             preimage,
             after,
+            excerpt: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, carrying the before/after a prompt will show.
+    pub fn with_excerpt(mut self, excerpt: MutationExcerpt) -> Self {
+        self.excerpt = Some(excerpt);
+        self
+    }
+
+    /// What this change replaces and with what, when the tool could say.
+    pub fn excerpt(&self) -> Option<&MutationExcerpt> {
+        self.excerpt.as_ref()
+    }
+
+    /// A bounded, escaped preview of the bytes that will be written.
+    pub fn preview(&self) -> String {
+        match std::str::from_utf8(&self.after) {
+            Ok(text) => bounded_excerpt(text),
+            Err(_) => format!("<{} bytes of non-UTF-8 data>", self.after.len()),
+        }
+    }
+
+    /// The digest of the bytes that will be written.
+    pub fn after_hash(&self) -> ContentHash {
+        ContentHash::of(&self.after)
     }
 
     pub fn kind(&self) -> MutationKind {
@@ -522,7 +594,20 @@ impl CommandPlan {
         };
         let display_cwd = scope.display_path(&resolved_cwd);
 
-        let effect = classify(trimmed);
+        // The text classifier already refused absolute operands and `..`
+        // components. What it could not know is where a *relative* name
+        // actually points: `notes.md` may be a symbolic link out of the
+        // workspace, and a direct `cat` would follow it. That question needs
+        // the scope, so it is answered here.
+        let effect = match classify(trimmed) {
+            CommandEffect::DirectReadOnly { argv } => {
+                match escaping_operand(&argv, scope, &resolved_cwd) {
+                    None => CommandEffect::DirectReadOnly { argv },
+                    Some(_) => CommandEffect::Denied(DeniedEffect::OperandOutsideWorkspace),
+                }
+            }
+            denied => denied,
+        };
         let route = match &effect {
             CommandEffect::DirectReadOnly { argv } => CommandRoute::Direct { argv: argv.clone() },
             CommandEffect::Denied(_) => CommandRoute::Shell {
@@ -621,6 +706,42 @@ impl PreparedCommand {
     pub fn nonce(&self) -> Nonce {
         self.nonce
     }
+}
+
+/// The first operand of `argv` that exists and resolves outside the scope.
+///
+/// Only *existing* names are resolved. A word that names nothing -- a grep
+/// pattern, a git revision, an argument to a test harness -- cannot be a path
+/// out of the workspace, and refusing it would make the grammar useless. A word
+/// that does exist is resolved with the same canonicalization the read tools
+/// use, so an in-workspace symbolic link is followed and accepted while one that
+/// escapes is refused.
+///
+/// Words beginning with `-` are skipped: the grammar already restricted the
+/// flags a command may carry, and treating `--check` as a candidate path would
+/// resolve whatever a file of that name happened to be.
+///
+/// Residual: this is [`AccessScope::resolve_existing`], so it carries that
+/// function's documented TOCTOU limit. A command is not a mutation -- it does
+/// not hold a descriptor across a decision -- and closing this would mean
+/// resolving operands the child will resolve again for itself anyway.
+fn escaping_operand(argv: &[String], scope: &AccessScope, cwd: &Path) -> Option<String> {
+    for word in argv.iter().skip(1) {
+        if word.starts_with('-') || word.is_empty() {
+            continue;
+        }
+        // Resolved against the command's own working directory, which is what
+        // the child will do, rather than against the workspace root.
+        let candidate = cwd.join(word);
+        match scope.resolve_existing(&candidate.to_string_lossy()) {
+            Ok(_) => {}
+            Err(crate::workspace::PathError::OutsideScope { .. }) => return Some(word.clone()),
+            // Anything else -- absent, unreadable, blank -- is not evidence of
+            // an escape, and the child will produce its own error for it.
+            Err(_) => {}
+        }
+    }
+    None
 }
 
 /// The complete environment a command runs with.
