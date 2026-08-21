@@ -107,6 +107,12 @@ jobs:
       - name: One product name in tracked files
         run: ./scripts/check-xfx-identity.sh
 
+      # The publishing workflow cannot be tested by running it: a merge to main
+      # is what runs it, and by then a broken tag grammar or a missing asset is
+      # a release users can see. Its structure is checked here instead.
+      - name: The preview publication contract holds
+        run: ./scripts/check-preview-contract.sh
+
       - name: Release build
         run: cargo build --locked --release
 

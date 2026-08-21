@@ -80,6 +80,13 @@ jobs:
       - name: One product name in tracked files
         run: ./scripts/check-xfx-identity.sh
 
+      # A tag ships the tracked tree, and the tree includes the workflow that
+      # publishes the other channel. A stable release built from a commit whose
+      # preview workflow is broken would leave `brew install xfx-preview`
+      # pointing at whatever was last pushed, with nothing to say so.
+      - name: The preview publication contract holds
+        run: ./scripts/check-preview-contract.sh
+
       - name: Build
         run: cargo build --locked --release
 

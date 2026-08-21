@@ -55,6 +55,19 @@ slices before it.
 - **CI and release workflows** for Linux and macOS on x86_64 and aarch64, each
   on its own native runner. A tag builds, smoke-tests, archives, and checksums
   four target archives.
+- **A preview channel.** Every push to `main` publishes a prerelease of that
+  exact commit: four native executables and one `SHA256SUMS`, each binary
+  stamped `build_channel=preview` with the twelve-character revision it was
+  compiled from, and each one gated and smoke-tested on the machine it will run
+  on before it is uploaded. The same run renders the Homebrew formula from the
+  assets it just published and pushes it to `2lab-ai/tap` over a repository
+  scoped deploy key, so `brew install xfx-preview` installs that build rather
+  than one from whenever a cron last ran; a run that cannot update the tap fails
+  instead of reporting a release nobody can install. The prerelease is never
+  marked latest, and `0.1.0` stays unreleased: a preview is a provenance claim,
+  not a version. `scripts/check-preview-contract.sh` holds the workflow to all
+  of that, including running its no-downgrade comparator rather than grepping
+  for it.
 - **Documentation**: `README.md`, `CONTRIBUTING.md`, `docs/architecture.md`, and
   this file.
 

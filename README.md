@@ -23,14 +23,15 @@ upstream installation.
 
 ## Status
 
-Experimental. Version 0.1.0, unreleased: nothing has been published yet, so
-today you build it. Linux and macOS, on x86_64 and aarch64. There is no Windows
-build and no installer.
+Experimental. Version 0.1.0, and 0.1.0 is unreleased: there is no tagged
+release and no stable package. Linux and macOS, on x86_64 and aarch64. There is
+no Windows build.
 
-A public `preview` channel -- prerelease builds, each reporting
-`build_channel=preview` and the exact source revision it was compiled from -- is
-planned. The binary already carries the field that will name it; there is
-nothing to install from it yet, and this page will say how when there is.
+What there is instead is a **preview channel**. Every push to `main` publishes a
+prerelease of that exact commit -- four native binaries and their checksums --
+and each binary reports `build_channel=preview` along with the twelve characters
+of the commit it was compiled from, so what you are running can be tied back to
+a source revision. [Install](#install) says how to get it in one command.
 
 ## What it does
 
@@ -95,9 +96,58 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 
 ## Install
 
-There is no package and no published release yet, so the way to get it is to
-build it -- see [Build](#build). When a tagged release exists it carries one
-archive per target, and the archive is verified before it is installed:
+### Homebrew, from the preview channel
+
+```bash
+brew install 2lab-ai/tap/xfx-preview
+```
+
+That one command adds the `2lab-ai/tap` tap and installs the formula from it. If
+the tap is already added, the unqualified name is enough -- and it is what an
+upgrade later looks like:
+
+```bash
+brew install xfx-preview
+brew upgrade xfx-preview
+```
+
+The formula is named `xfx-preview`; **the executable it installs is `xfx`.** The
+name of the formula is the channel, not the command.
+
+Ask the binary which build it is, and it answers with the channel and the commit
+rather than with the version number, which is `0.1.0` on every channel:
+
+```bash
+xfx status --json
+```
+
+```json
+{"build_channel":"preview","build_revision":"52ece6cd8184"}
+```
+
+macOS and Linux, arm64 and x86_64. Homebrew verifies the SHA-256 of the file it
+downloads against the one recorded in the formula, which was taken from the
+release the same workflow published.
+
+### By hand, from a preview release
+
+Each preview is a GitHub prerelease tagged
+`preview-<date>-<time>-<run>-<attempt>-<sha12>`, carrying four flat executables
+-- `xfx-macos-aarch64`, `xfx-macos-x86_64`, `xfx-linux-aarch64`,
+`xfx-linux-x86_64` -- and one `SHA256SUMS` covering exactly those four:
+
+```bash
+curl -LO https://github.com/2lab-ai/xfx/releases/download/<tag>/xfx-macos-aarch64
+curl -LO https://github.com/2lab-ai/xfx/releases/download/<tag>/SHA256SUMS
+shasum -a 256 --ignore-missing -c SHA256SUMS
+install -m 0755 xfx-macos-aarch64 ~/.local/bin/xfx
+```
+
+### From a tagged release
+
+There is not one yet. When there is, it carries one archive per target --
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`,
+`aarch64-apple-darwin` -- and the archive is verified before it is installed:
 
 ```bash
 tar -xzf xfx-<target>.tar.gz
@@ -105,13 +155,9 @@ shasum -a 256 -c xfx-<target>.tar.gz.sha256
 install -m 0755 xfx-<target>/xfx ~/.local/bin/xfx
 ```
 
-Targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
-`x86_64-apple-darwin`, and `aarch64-apple-darwin`. Each archive is built and
-smoke-tested on its own native runner.
-
-The planned `preview` channel is not one of these commands yet. Until it
-publishes something, no install line for it is written down here: an instruction
-that does not work is worse than a missing one.
+Every binary on every channel is built and smoke-tested on its own native
+runner: nothing is cross-compiled, because the tests that decide whether a build
+is publishable open pseudoterminals and run child processes.
 
 ## Build
 
@@ -134,6 +180,7 @@ cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
+./scripts/check-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 

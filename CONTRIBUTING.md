@@ -50,6 +50,7 @@ cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
+./scripts/check-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
 ```
 
@@ -58,6 +59,14 @@ carried before it was `xfx`. Upstream is `fx` and keeps its own name wherever it
 is cited; the retired local name has no valid occurrence left, so the check has
 no allowlist -- prose, an identifier, a fake test literal, and a file name are
 all findings.
+
+`scripts/check-preview-contract.sh` parses `.github/workflows/preview.yml` and
+holds it to what `brew install xfx-preview` needs: the tag and version grammar
+the tap parses, the four native rows and their exact asset names, the gate
+running before the binary it guards, the `preview` stamp, the five published
+files, a prerelease that is not marked latest, and a tap push whose freshness
+comparator it extracts and runs rather than reads. It needs `ruby`, which is on
+every CI image, and uses `actionlint` when it is installed.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence
