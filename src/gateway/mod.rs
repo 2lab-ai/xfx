@@ -1,0 +1,748 @@
+//! The model provider boundary and its Vercel AI Gateway implementation.
+//!
+//! Three things live here:
+//!
+//! - [`Provider`], the trait the agent talks to, so a turn can be driven by a
+//!   scripted stream in a test and by a real socket in the binary without
+//!   either knowing about the other;
+//! - [`Endpoint`], which decides what URL is allowed to receive a bearer
+//!   credential; and
+//! - [`GatewayProvider`], one HTTP attempt over rustls, streamed through the
+//!   bounded decoder in [`sse`].
+//!
+//! **One attempt per call.** `stream` performs exactly one transport attempt and
+//! reports whether the failed attempt provably delivered nothing. Retry policy
+//! belongs to the turn, which is the only layer that knows whether an answer has
+//! already reached the user. Upstream draws the same line: when the agent owns
+//! attempts, the transport's retry count is forced to one
+//! (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1169-1172`).
+
+pub mod protocol;
+pub mod sse;
+
+use std::fmt;
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+use crate::config::Credential;
+use protocol::{Completion, CompletionRequest, ProtocolError};
+use sse::{SseError, SseReader};
+
+/// The Vercel AI Gateway completion endpoint
+/// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:41`).
+pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v3/ai/language-model";
+
+/// The environment variable that overrides the endpoint.
+///
+/// It is read here rather than in `config` because the safety rule that governs
+/// it is a transport rule: the URL receives a bearer token, so only this module
+/// can say which ones are acceptable.
+pub const GATEWAY_URL_ENV: &str = "FXR_GATEWAY_URL";
+
+/// How many transport attempts one model step may spend.
+///
+/// An fxr bound, not an upstream constant. It exists so that a single flaky
+/// connection does not fail a turn, and it is small because every attempt past
+/// the first is a chance to duplicate model intent.
+pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
+
+/// How long a connection may take to establish.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long the stream may stall between chunks before fxr gives up.
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How much of a failed response body is quoted back to the user.
+const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+
+/// The product's own user agent. fxr does not claim to be `fx`.
+const USER_AGENT: &str = concat!("fxr/", env!("CARGO_PKG_VERSION"));
+
+/// Where a turn's assistant text goes as it is decoded.
+///
+/// Separate from [`crate::output::EventSink`] on purpose: the transport must be
+/// able to stream text without knowing what a turn event is.
+pub trait DeltaSink {
+    /// Accepts one assistant text fragment, in arrival order.
+    fn text_delta(&mut self, text: &str) -> io::Result<()>;
+}
+
+/// A cancellation flag shared by a turn, its transport, and its decoder.
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Requests cancellation. Idempotent, and safe from any thread.
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// A model endpoint that is allowed to receive a bearer credential.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoint {
+    url: String,
+}
+
+impl Endpoint {
+    /// Resolves the endpoint, applying an override only when it is safe.
+    ///
+    /// The chat URL carries the bearer token and the whole request payload, so
+    /// an HTTP override is accepted only for a loopback test server
+    /// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:759-765`,
+    /// `src/gateway/client.zig:1787-1803`).
+    ///
+    /// Where upstream silently falls back to the default, fxr fails. A silent
+    /// fallback sends a request the operator did not ask for, to an endpoint
+    /// they did not name, which is the more surprising of the two outcomes.
+    pub fn resolve(override_url: Option<&str>) -> Result<Self, EndpointError> {
+        let Some(candidate) = override_url else {
+            return Ok(Self {
+                url: DEFAULT_CHAT_URL.to_string(),
+            });
+        };
+        let candidate = candidate.trim();
+        let Some(parsed) = ParsedUrl::parse(candidate) else {
+            return Err(EndpointError::Malformed {
+                url: candidate.to_string(),
+            });
+        };
+        if parsed.scheme != "http" && parsed.scheme != "https" {
+            return Err(EndpointError::UnsupportedScheme {
+                url: candidate.to_string(),
+                scheme: parsed.scheme,
+            });
+        }
+        if parsed.has_userinfo {
+            return Err(EndpointError::EmbeddedCredentials {
+                url: candidate.to_string(),
+            });
+        }
+        if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
+            return Err(EndpointError::NonLoopbackHttp {
+                url: candidate.to_string(),
+            });
+        }
+        Ok(Self {
+            url: candidate.to_string(),
+        })
+    }
+
+    /// Resolves the endpoint from the process environment.
+    ///
+    /// A blank value is ignored rather than treated as an override, matching how
+    /// every other fxr environment knob behaves.
+    pub fn from_process() -> Result<Self, EndpointError> {
+        let raw = std::env::var(GATEWAY_URL_ENV).ok();
+        let candidate = raw.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        Self::resolve(candidate)
+    }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+/// Why an endpoint override was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointError {
+    Malformed { url: String },
+    UnsupportedScheme { url: String, scheme: String },
+    EmbeddedCredentials { url: String },
+    NonLoopbackHttp { url: String },
+}
+
+impl fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Malformed { url } => {
+                write!(f, "{GATEWAY_URL_ENV} is not a URL: `{url}`")
+            }
+            Self::UnsupportedScheme { url, scheme } => write!(
+                f,
+                "{GATEWAY_URL_ENV} must use https, or http on loopback; `{url}` uses `{scheme}`"
+            ),
+            Self::EmbeddedCredentials { url } => write!(
+                f,
+                "{GATEWAY_URL_ENV} must not embed credentials in the URL: `{url}`"
+            ),
+            Self::NonLoopbackHttp { url } => write!(
+                f,
+                "{GATEWAY_URL_ENV} may use http only for a loopback address with an \
+                 explicit port, because the request carries a bearer token in cleartext; \
+                 `{url}` is not one"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for EndpointError {}
+
+/// Just enough URL structure to answer the safety question.
+///
+/// A dependency would parse more of RFC 3986 than this decision needs, and the
+/// decision is small enough to read in one screen, which matters more for a rule
+/// that guards a credential.
+struct ParsedUrl {
+    scheme: String,
+    has_userinfo: bool,
+    host: String,
+    has_port: bool,
+}
+
+impl ParsedUrl {
+    fn parse(url: &str) -> Option<Self> {
+        let (scheme, rest) = url.split_once("://")?;
+        if scheme.is_empty()
+            || !scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        {
+            return None;
+        }
+        let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        if authority.is_empty() {
+            return None;
+        }
+        // Split on the last `@`: userinfo may itself contain one.
+        let (has_userinfo, host_port) = match authority.rsplit_once('@') {
+            Some((_, host_port)) => (true, host_port),
+            None => (false, authority),
+        };
+
+        let (host, has_port) = if let Some(rest) = host_port.strip_prefix('[') {
+            // An IPv6 literal keeps its brackets, matching how upstream compares
+            // against `[::1]` (`src/gateway/client.zig:1802`).
+            let end = rest.find(']')?;
+            let remainder = &rest[end + 1..];
+            (
+                format!("[{}]", &rest[..end]),
+                remainder.starts_with(':') && remainder.len() > 1,
+            )
+        } else {
+            match host_port.split_once(':') {
+                Some((host, port)) => (host.to_string(), !port.is_empty()),
+                None => (host_port.to_string(), false),
+            }
+        };
+        if host.is_empty() || host == "[]" {
+            return None;
+        }
+
+        Some(Self {
+            scheme: scheme.to_ascii_lowercase(),
+            has_userinfo,
+            host,
+            has_port,
+        })
+    }
+
+    /// The upstream loopback test, plus upstream's requirement that the port be
+    /// explicit (`src/gateway/client.zig:1789-1803`).
+    fn is_loopback_with_port(&self) -> bool {
+        self.has_port
+            && (self.host == "127.0.0.1"
+                || self.host == "[::1]"
+                || self.host.eq_ignore_ascii_case("localhost"))
+    }
+}
+
+/// A failed transport attempt.
+#[derive(Debug)]
+pub enum ProviderError {
+    /// The endpoint itself was refused, before any credential was sent.
+    Endpoint(EndpointError),
+    /// The request could not be built from the prompt it was given.
+    Request(ProtocolError),
+    /// A header value could not be transmitted.
+    InvalidHeader { name: &'static str },
+    /// The connection could not be established, so the request was never sent.
+    Connect { detail: String },
+    /// The exchange failed at a point where the request may already have been
+    /// processed.
+    Transport { detail: String },
+    /// The Gateway answered with a non-success status.
+    Status {
+        status: u16,
+        body: String,
+        retryable: bool,
+    },
+    /// The response body was not a usable stream.
+    Protocol(SseError),
+    /// The assistant output could not be written.
+    Sink(io::Error),
+    /// The turn was cancelled.
+    Cancelled,
+}
+
+impl ProviderError {
+    /// Whether this failure provably delivered nothing and may be replayed.
+    ///
+    /// Everything ambiguous answers `false`. A retry after an ambiguous delivery
+    /// can duplicate model intent and its cost, which is worse than failing the
+    /// turn (design, "Risks and controls").
+    pub fn is_replayable(&self) -> bool {
+        match self {
+            // The connection never opened, so the payload never left.
+            Self::Connect { .. } => true,
+            // The Gateway rejected the request outright and streamed nothing.
+            Self::Status { retryable, .. } => *retryable,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for ProviderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Endpoint(err) => write!(f, "{err}"),
+            Self::Request(err) => write!(f, "cannot build the Gateway request: {err}"),
+            Self::InvalidHeader { name } => {
+                write!(f, "the `{name}` header value cannot be transmitted")
+            }
+            Self::Connect { detail } => write!(f, "cannot reach the Gateway: {detail}"),
+            Self::Transport { detail } => write!(f, "the Gateway connection failed: {detail}"),
+            Self::Status {
+                status,
+                body,
+                retryable: _,
+            } => {
+                write!(f, "the Gateway returned HTTP {status}")?;
+                if !body.is_empty() {
+                    write!(f, ": {body}")?;
+                }
+                Ok(())
+            }
+            Self::Protocol(err) => write!(f, "{err}"),
+            Self::Sink(err) => write!(f, "cannot write assistant output: {err}"),
+            Self::Cancelled => write!(f, "the turn was cancelled"),
+        }
+    }
+}
+
+impl std::error::Error for ProviderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Endpoint(err) => Some(err),
+            Self::Request(err) => Some(err),
+            Self::Protocol(err) => Some(err),
+            Self::Sink(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<SseError> for ProviderError {
+    fn from(err: SseError) -> Self {
+        match err {
+            // A write failure is the consumer's problem, not the protocol's.
+            SseError::Sink(err) => Self::Sink(err),
+            SseError::Cancelled => Self::Cancelled,
+            other => Self::Protocol(other),
+        }
+    }
+}
+
+/// A source of model completions.
+///
+/// One call is one transport attempt. An implementation must not retry
+/// internally, because only the turn knows whether an answer already reached
+/// the user.
+#[async_trait::async_trait(?Send)]
+pub trait Provider {
+    async fn stream(
+        &self,
+        request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError>;
+}
+
+/// Streams completions from the Vercel AI Gateway over HTTPS.
+pub struct GatewayProvider {
+    client: reqwest::Client,
+    endpoint: Endpoint,
+    credential: Credential,
+    cancel: CancelToken,
+}
+
+impl GatewayProvider {
+    pub fn new(
+        endpoint: Endpoint,
+        credential: Credential,
+        cancel: CancelToken,
+    ) -> Result<Self, ProviderError> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
+            .user_agent(USER_AGENT)
+            .build()
+            .map_err(|err| ProviderError::Transport {
+                detail: err.to_string(),
+            })?;
+        Ok(Self {
+            client,
+            endpoint,
+            credential,
+            cancel,
+        })
+    }
+
+    /// The fixed headers every completion request carries.
+    ///
+    /// The shape follows upstream (`src/gateway/client.zig:1459-1494`), but the
+    /// identity is fxr's own: claiming to be `fx` would misattribute fxr's
+    /// traffic to the product it is a port of.
+    fn headers(&self, model: &str) -> Result<HeaderMap, ProviderError> {
+        let mut headers = HeaderMap::new();
+        let mut authorization =
+            HeaderValue::from_str(&format!("Bearer {}", self.credential.secret())).map_err(
+                |_| ProviderError::InvalidHeader {
+                    name: "authorization",
+                },
+            )?;
+        // Keeps the credential out of reqwest's own diagnostics.
+        authorization.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, authorization);
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+        headers.insert(
+            reqwest::header::ACCEPT,
+            HeaderValue::from_static("text/event-stream"),
+        );
+
+        let model = HeaderValue::from_str(model).map_err(|_| ProviderError::InvalidHeader {
+            name: "ai-language-model-id",
+        })?;
+        for (name, value) in [
+            (
+                "http-referer",
+                HeaderValue::from_static("https://github.com/2lab-ai/fxr"),
+            ),
+            ("x-title", HeaderValue::from_static("fxr")),
+            (
+                "ai-gateway-protocol-version",
+                HeaderValue::from_static("0.0.1"),
+            ),
+            (
+                "ai-language-model-specification-version",
+                HeaderValue::from_static("4"),
+            ),
+            ("ai-language-model-id", model),
+            (
+                "ai-language-model-streaming",
+                HeaderValue::from_static("true"),
+            ),
+        ] {
+            headers.insert(HeaderName::from_static(name), value);
+        }
+        Ok(headers)
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for GatewayProvider {
+    async fn stream(
+        &self,
+        request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        if self.cancel.is_cancelled() {
+            return Err(ProviderError::Cancelled);
+        }
+        // Built and validated before the socket opens, so an invalid prompt
+        // never costs a round trip.
+        let body = request.body().map_err(ProviderError::Request)?;
+        let headers = self.headers(&request.model)?;
+
+        let response = self
+            .client
+            .post(self.endpoint.url())
+            .headers(headers)
+            .body(body)
+            .send()
+            .await
+            .map_err(|err| {
+                let detail = err.to_string();
+                if err.is_connect() {
+                    ProviderError::Connect { detail }
+                } else {
+                    // Anything past connection setup may already have been
+                    // received and acted on.
+                    ProviderError::Transport { detail }
+                }
+            })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ProviderError::Status {
+                status: status.as_u16(),
+                body: read_bounded(response, MAX_ERROR_BODY_BYTES).await,
+                retryable: is_retryable_status(status.as_u16()),
+            });
+        }
+
+        let mut reader = SseReader::with_cancel(self.cancel.clone());
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            if self.cancel.is_cancelled() {
+                return Err(ProviderError::Cancelled);
+            }
+            let chunk = chunk.map_err(|err| ProviderError::Transport {
+                detail: err.to_string(),
+            })?;
+            reader.push(&chunk, deltas)?;
+            if reader.is_complete() {
+                // The model finished; the rest of the body is trailer.
+                break;
+            }
+        }
+        Ok(reader.finish()?)
+    }
+}
+
+/// Statuses the Gateway edge returns without having produced a completion
+/// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1810-1820`).
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504)
+}
+
+/// Reads at most `limit` bytes of a failed response body.
+///
+/// A failing endpoint is exactly the one whose body length cannot be trusted,
+/// so the quote shown to the user is bounded.
+async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
+    let mut collected: Vec<u8> = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(Ok(chunk)) = stream.next().await {
+        let remaining = limit.saturating_sub(collected.len());
+        if remaining == 0 {
+            break;
+        }
+        let take = remaining.min(chunk.len());
+        collected.extend_from_slice(&chunk[..take]);
+    }
+    String::from_utf8_lossy(&collected).trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{Message, ToolChoice};
+
+    #[test]
+    fn the_default_endpoint_is_used_when_nothing_overrides_it() {
+        assert_eq!(Endpoint::resolve(None).unwrap().url(), DEFAULT_CHAT_URL);
+    }
+
+    #[test]
+    fn a_url_parses_into_the_parts_the_safety_rule_needs() {
+        let parsed = ParsedUrl::parse("http://127.0.0.1:8080/v3/ai").expect("parse");
+        assert_eq!(parsed.scheme, "http");
+        assert_eq!(parsed.host, "127.0.0.1");
+        assert!(parsed.has_port && !parsed.has_userinfo);
+
+        let parsed = ParsedUrl::parse("HTTPS://Example.com/v3").expect("parse");
+        assert_eq!(parsed.scheme, "https", "the scheme is compared lowercased");
+        assert!(!parsed.has_port);
+
+        let bracketed = ParsedUrl::parse("http://[::1]:9/v3").expect("parse");
+        assert_eq!(bracketed.host, "[::1]");
+        assert!(bracketed.has_port);
+
+        assert!(!ParsedUrl::parse("http://[::1]/v3").expect("parse").has_port);
+        assert!(ParsedUrl::parse("http:///v3").is_none(), "no host");
+        assert!(ParsedUrl::parse("//127.0.0.1:8080").is_none(), "no scheme");
+    }
+
+    #[test]
+    fn a_loopback_http_url_needs_an_explicit_port() {
+        // Upstream requires the port (`src/gateway/client.zig:1792`), which
+        // keeps a local test endpoint from being named by accident.
+        assert!(matches!(
+            Endpoint::resolve(Some("http://localhost/v3")),
+            Err(EndpointError::NonLoopbackHttp { .. })
+        ));
+        assert!(Endpoint::resolve(Some("http://localhost:1/v3")).is_ok());
+    }
+
+    #[test]
+    fn userinfo_after_an_at_sign_in_the_path_is_not_mistaken_for_credentials() {
+        let endpoint =
+            Endpoint::resolve(Some("https://gateway.example.com/v3/a@b")).expect("accepted");
+        assert_eq!(endpoint.url(), "https://gateway.example.com/v3/a@b");
+    }
+
+    #[test]
+    fn surrounding_whitespace_in_an_override_is_ignored() {
+        let endpoint = Endpoint::resolve(Some("  https://gateway.example.com/v3  ")).unwrap();
+        assert_eq!(endpoint.url(), "https://gateway.example.com/v3");
+    }
+
+    #[test]
+    fn only_edge_statuses_are_replayable() {
+        for status in [429, 500, 502, 503, 504] {
+            assert!(is_retryable_status(status), "{status}");
+        }
+        for status in [400, 401, 403, 404, 409, 422, 501] {
+            assert!(!is_retryable_status(status), "{status}");
+        }
+    }
+
+    #[test]
+    fn only_a_connection_setup_failure_and_an_edge_status_are_replayable() {
+        assert!(ProviderError::Connect {
+            detail: "refused".to_string()
+        }
+        .is_replayable());
+        assert!(ProviderError::Status {
+            status: 503,
+            body: String::new(),
+            retryable: true
+        }
+        .is_replayable());
+        for err in [
+            ProviderError::Transport {
+                detail: "reset".to_string(),
+            },
+            ProviderError::Status {
+                status: 401,
+                body: String::new(),
+                retryable: false,
+            },
+            ProviderError::Protocol(SseError::MissingFinish),
+            ProviderError::Cancelled,
+            ProviderError::Sink(io::Error::other("closed")),
+        ] {
+            assert!(!err.is_replayable(), "{err} must not be replayed");
+        }
+    }
+
+    #[test]
+    fn a_sink_failure_from_the_decoder_is_not_reported_as_a_protocol_failure() {
+        let converted = ProviderError::from(SseError::Sink(io::Error::other("closed")));
+        assert!(matches!(converted, ProviderError::Sink(_)));
+        assert!(matches!(
+            ProviderError::from(SseError::Cancelled),
+            ProviderError::Cancelled
+        ));
+        assert!(matches!(
+            ProviderError::from(SseError::MissingFinish),
+            ProviderError::Protocol(SseError::MissingFinish)
+        ));
+    }
+
+    /// A sink for tests that do not inspect the assistant text.
+    struct NullDeltas;
+
+    impl DeltaSink for NullDeltas {
+        fn text_delta(&mut self, _text: &str) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A credential built through the real configuration path, so the test
+    /// cannot construct one the product could not.
+    fn test_credential() -> Credential {
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let env = crate::config::Environment::new(
+            None,
+            std::collections::BTreeMap::from([(
+                "AI_GATEWAY_API_KEY".to_string(),
+                "test-key".to_string(),
+            )]),
+        );
+        crate::config::RuntimeConfig::load_with(&env, workspace.path())
+            .expect("load config")
+            .credential
+            .expect("credential resolved")
+    }
+
+    #[tokio::test]
+    async fn an_invalid_prompt_fails_before_the_socket_opens() {
+        let provider = GatewayProvider::new(
+            // A URL that would fail loudly if it were ever contacted.
+            Endpoint::resolve(Some("http://127.0.0.1:1/v3")).unwrap(),
+            test_credential(),
+            CancelToken::new(),
+        )
+        .expect("build the provider");
+
+        let request = CompletionRequest {
+            model: "vendor/model".to_string(),
+            messages: vec![Message::tool_result("orphan", "read_file", "x")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::None,
+        };
+        let mut deltas = NullDeltas;
+        let err = provider
+            .stream(&request, &mut deltas)
+            .await
+            .expect_err("an orphan tool result is not sendable");
+        assert!(matches!(
+            err,
+            ProviderError::Request(ProtocolError::UnmatchedToolResult { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_provider_does_not_open_a_socket() {
+        let cancel = CancelToken::new();
+        cancel.cancel();
+        let provider = GatewayProvider::new(
+            Endpoint::resolve(Some("http://127.0.0.1:1/v3")).unwrap(),
+            test_credential(),
+            cancel,
+        )
+        .expect("build the provider");
+        let request = CompletionRequest {
+            model: "vendor/model".to_string(),
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::None,
+        };
+        let mut deltas = NullDeltas;
+        assert!(matches!(
+            provider.stream(&request, &mut deltas).await,
+            Err(ProviderError::Cancelled)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_model_name_that_cannot_be_a_header_is_rejected() {
+        let provider = GatewayProvider::new(
+            Endpoint::resolve(Some("http://127.0.0.1:1/v3")).unwrap(),
+            test_credential(),
+            CancelToken::new(),
+        )
+        .expect("build the provider");
+        let request = CompletionRequest {
+            model: "vendor/\nmodel".to_string(),
+            messages: vec![Message::user("hi")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::None,
+        };
+        let mut deltas = NullDeltas;
+        assert!(matches!(
+            provider.stream(&request, &mut deltas).await,
+            Err(ProviderError::InvalidHeader {
+                name: "ai-language-model-id"
+            })
+        ));
+    }
+}

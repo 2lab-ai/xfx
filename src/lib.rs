@@ -6,15 +6,19 @@
 //! - [`cli`]: the closed command grammar and help metadata
 //! - [`config`]: settings discovery, precedence, credentials, and diagnostics
 //! - [`output`]: immutable snapshots and the text/JSON/JSONL renderers
+//! - [`gateway`]: the provider contract, the Gateway wire shape, and bounded SSE
+//! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`app`]: composition and dispatch
 //!
 //! fxr is not affiliated with Vercel. It is a behavioral port pinned to
 //! `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`; see `UPSTREAM.md`
 //! for the attribution and `docs/parity.md` for what is and is not implemented.
 
+pub mod agent;
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod gateway;
 pub mod output;
 
 /// The product version.

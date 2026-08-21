@@ -14,7 +14,7 @@ use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 ///
 /// `scripts/check-no-stubs.sh` reconciles this list against `docs/parity.md`, and
 /// [`parser_command_names`] proves it cannot drift from the real parser.
-pub const ADVERTISED_COMMANDS: &[&str] = &["doctor", "help", "status"];
+pub const ADVERTISED_COMMANDS: &[&str] = &["ask", "doctor", "help", "status"];
 
 /// A parsed invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +34,16 @@ pub enum Command {
     Help { page: String },
     /// Print the version.
     Version,
+    /// Run one streamed model turn against the configured provider.
+    Ask {
+        /// The already-joined user prompt. Never blank; a blank one is turned
+        /// into [`Command::Rejected`] rather than sent.
+        prompt: String,
+        /// Emit JSONL turn events instead of plain assistant text.
+        json: bool,
+        /// Do not record this turn in a session.
+        no_save: bool,
+    },
     /// Report resolved configuration and credentials.
     Status { json: bool },
     /// Run local diagnostics.
@@ -119,6 +129,27 @@ impl RawCli {
             return Command::Version;
         }
         match self.command {
+            Some(RawCommand::Ask {
+                prompt,
+                json,
+                no_save,
+            }) => {
+                // Words are rejoined with a single space: the shell already
+                // split them, and preserving the original spacing would need
+                // the raw command line, which fxr does not have.
+                let prompt = prompt.join(" ").trim().to_string();
+                if prompt.is_empty() {
+                    return Command::Rejected {
+                        message: "fxr ask: the prompt is empty; give fxr something to ask"
+                            .to_string(),
+                    };
+                }
+                Command::Ask {
+                    prompt,
+                    json,
+                    no_save,
+                }
+            }
             Some(RawCommand::Status { json }) => Command::Status { json },
             Some(RawCommand::Doctor { json }) => Command::Doctor { json },
             // The interactive shell is not part of this release slice, so a bare
@@ -132,6 +163,24 @@ impl RawCli {
 
 #[derive(Debug, Subcommand)]
 enum RawCommand {
+    /// Ask the model one question and stream the answer
+    ///
+    /// The permission-mode and resume flags from upstream's `ask` are not here
+    /// yet; they arrive with the tool and session slices (`docs/parity.md`).
+    Ask {
+        /// Emit one JSON event per line instead of plain text
+        #[arg(long)]
+        json: bool,
+        /// Do not record this turn in a session
+        #[arg(long = "no-save")]
+        no_save: bool,
+        /// The question. Everything after `--`, and everything after the first
+        /// prompt word, is prompt text rather than a flag. A leading `-` before
+        /// the prompt is still an unknown flag, so a typo is reported instead
+        /// of silently becoming part of the question.
+        #[arg(trailing_var_arg = true, num_args = 1..)]
+        prompt: Vec<String>,
+    },
     /// Report the resolved model, credential source, and workspace
     Status {
         /// Emit one JSON document instead of text
@@ -204,6 +253,53 @@ mod tests {
         assert_eq!(parse(&["status", "--json"]), Command::Status { json: true });
         assert_eq!(parse(&["doctor"]), Command::Doctor { json: false });
         assert_eq!(parse(&["doctor", "--json"]), Command::Doctor { json: true });
+    }
+
+    #[test]
+    fn ask_joins_its_prompt_words_and_carries_only_the_implemented_flags() {
+        assert_eq!(
+            parse(&["ask", "explain", "this", "code"]),
+            Command::Ask {
+                prompt: "explain this code".to_string(),
+                json: false,
+                no_save: false,
+            }
+        );
+        assert_eq!(
+            parse(&["ask", "--json", "--no-save", "hi"]),
+            Command::Ask {
+                prompt: "hi".to_string(),
+                json: true,
+                no_save: true,
+            }
+        );
+    }
+
+    #[test]
+    fn ask_rejects_a_missing_or_blank_prompt() {
+        for args in [vec!["ask"], vec!["ask", "--json"], vec!["ask", " \t "]] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn ask_does_not_advertise_a_deferred_flag() {
+        // Advertisement is a promise. `--auto`, `--yolo`, and `--resume` need
+        // permission modes and sessions, which this release does not have.
+        for args in [
+            vec!["ask", "--auto", "hi"],
+            vec!["ask", "--yolo", "hi"],
+            vec!["ask", "--resume", "last", "hi"],
+            vec!["ask", "--quiet", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected while the flag is deferred"
+            );
+        }
     }
 
     #[test]

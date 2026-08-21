@@ -8,9 +8,14 @@ use std::fmt;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+use crate::agent::{run_turn, TurnRequest};
 use crate::cli::{Cli, Command};
 use crate::config::{ConfigError, RuntimeConfig};
-use crate::output::{CheckStatus, DoctorCheck, DoctorSnapshot, OutputFormat, StatusSnapshot};
+use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
+use crate::output::{
+    CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
+    StatusSnapshot, TextSink, MISSING_AUTH_HELP,
+};
 
 /// The exit code for a rejected invocation.
 ///
@@ -18,6 +23,12 @@ use crate::output::{CheckStatus, DoctorCheck, DoctorSnapshot, OutputFormat, Stat
 /// (`vercel-labs/fx@580a0c5d tests/e2e/cli.test.ts:404-412`), and scripts around
 /// fxr should not have to learn a second convention.
 const REJECTED_EXIT_CODE: u8 = 1;
+
+/// The exit code for a turn that did not complete.
+///
+/// The same value as a rejection: from a script's point of view both mean "fxr
+/// did not do what you asked", and the `error` event carries the difference.
+const TURN_FAILURE_EXIT_CODE: u8 = 1;
 
 /// A failure that stops a command before it can report anything.
 ///
@@ -62,17 +73,17 @@ impl From<io::Error> for AppError {
 }
 
 /// Runs one invocation against the real process streams.
-pub fn run(cli: Cli) -> Result<ExitCode, AppError> {
+pub async fn run(cli: Cli) -> Result<ExitCode, AppError> {
     let stdout = io::stdout();
     let stderr = io::stderr();
-    run_with(cli, &mut stdout.lock(), &mut stderr.lock())
+    run_with(cli, &mut stdout.lock(), &mut stderr.lock()).await
 }
 
 /// Runs one invocation against explicit streams.
 ///
 /// Splitting this out keeps the dispatch table testable without a subprocess,
 /// and makes the stdout/stderr split an argument rather than an assumption.
-pub fn run_with(
+pub async fn run_with(
     cli: Cli,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
@@ -87,6 +98,18 @@ pub fn run_with(
             // (`tests/e2e/cli.test.ts:445`).
             writeln!(stdout, "{}", crate::VERSION)?;
             Ok(ExitCode::SUCCESS)
+        }
+        Command::Ask {
+            prompt,
+            json,
+            // Nothing is persisted in this release, so the flag's promise --
+            // "this turn is not recorded" -- already holds. The session store
+            // that would make the default meaningful is a later slice
+            // (`docs/parity.md`, session event log).
+            no_save: _,
+        } => {
+            let config = load_config()?;
+            ask(&config, prompt, json, stdout, stderr).await
         }
         Command::Status { json } => {
             let config = load_config()?;
@@ -118,6 +141,60 @@ pub fn run_with(
             Ok(ExitCode::from(REJECTED_EXIT_CODE))
         }
     }
+}
+
+/// Runs one streamed model turn.
+///
+/// Every failure is reported through the same event sink as a success, so a
+/// `--json` caller gets exactly one terminal JSONL event whatever happened, and
+/// a human gets the answer on stdout and the diagnosis on stderr.
+async fn ask(
+    config: &RuntimeConfig,
+    prompt: String,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExitCode, AppError> {
+    let mut sink: Box<dyn EventSink + '_> = if json {
+        Box::new(JsonlSink::new(stdout))
+    } else {
+        Box::new(TextSink::new(stdout, stderr))
+    };
+
+    // Both preconditions are checked before a request is built, so a missing
+    // credential and an unusable endpoint each cost nothing and leak nothing.
+    let Some(credential) = config.credential.clone() else {
+        return fail_turn(sink.as_mut(), MISSING_AUTH_HELP.to_string());
+    };
+    let endpoint = match Endpoint::from_process() {
+        Ok(endpoint) => endpoint,
+        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
+    };
+    let cancel = CancelToken::new();
+    let provider = match GatewayProvider::new(endpoint, credential, cancel.clone()) {
+        Ok(provider) => provider,
+        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
+    };
+
+    let request = TurnRequest {
+        model: config.model.clone(),
+        prompt,
+        history: Vec::new(),
+        max_steps: config.max_agent_steps,
+        max_attempts: DEFAULT_MAX_ATTEMPTS,
+        cancel,
+    };
+    // The turn writes its own terminal event, including on failure.
+    match run_turn(request, &provider, sink.as_mut()).await {
+        Ok(_) => Ok(ExitCode::SUCCESS),
+        Err(_) => Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE)),
+    }
+}
+
+/// Reports a turn that could not start, in the same shape as one that failed.
+fn fail_turn(sink: &mut dyn EventSink, message: String) -> Result<ExitCode, AppError> {
+    sink.emit(&Event::Error { message })?;
+    Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE))
 }
 
 /// Resolves configuration for the current directory.
@@ -236,10 +313,12 @@ mod tests {
     use super::*;
     use crate::cli::Cli;
 
-    fn run_capture(command: Command) -> (ExitCode, String, String) {
+    async fn run_capture(command: Command) -> (ExitCode, String, String) {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let code = run_with(Cli { command }, &mut stdout, &mut stderr).expect("run succeeds");
+        let code = run_with(Cli { command }, &mut stdout, &mut stderr)
+            .await
+            .expect("run succeeds");
         (
             code,
             String::from_utf8(stdout).unwrap(),
@@ -247,36 +326,51 @@ mod tests {
         )
     }
 
-    #[test]
-    fn version_prints_only_the_version_on_stdout() {
-        let (_, stdout, stderr) = run_capture(Command::Version);
+    #[tokio::test]
+    async fn version_prints_only_the_version_on_stdout() {
+        let (_, stdout, stderr) = run_capture(Command::Version).await;
         assert_eq!(stdout, format!("{}\n", crate::VERSION));
         assert_eq!(stderr, "");
     }
 
-    #[test]
-    fn help_goes_to_stdout_verbatim() {
+    #[tokio::test]
+    async fn help_goes_to_stdout_verbatim() {
         let (_, stdout, stderr) = run_capture(Command::Help {
             page: "PAGE".to_string(),
-        });
+        })
+        .await;
         assert_eq!(stdout, "PAGE");
         assert_eq!(stderr, "");
     }
 
-    #[test]
-    fn a_rejection_goes_to_stderr_and_terminates_its_line() {
+    #[tokio::test]
+    async fn a_rejection_goes_to_stderr_and_terminates_its_line() {
         let (_, stdout, stderr) = run_capture(Command::Rejected {
             message: "nope".to_string(),
-        });
+        })
+        .await;
         assert_eq!(stdout, "");
         assert_eq!(stderr, "nope\n");
     }
 
-    #[test]
-    fn a_rejection_that_already_ends_in_a_newline_is_not_double_spaced() {
+    #[tokio::test]
+    async fn a_rejection_that_already_ends_in_a_newline_is_not_double_spaced() {
         let (_, _, stderr) = run_capture(Command::Rejected {
             message: "nope\n".to_string(),
-        });
+        })
+        .await;
         assert_eq!(stderr, "nope\n");
+    }
+
+    #[test]
+    fn a_turn_that_cannot_start_reports_one_error_event_and_a_failure_code() {
+        let mut sink = crate::output::RecordingSink::new();
+        let code = fail_turn(&mut sink, "no credential".to_string()).expect("reported");
+        assert_eq!(sink.events().len(), 1);
+        assert!(matches!(sink.events()[0], Event::Error { .. }));
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(TURN_FAILURE_EXIT_CODE))
+        );
     }
 }

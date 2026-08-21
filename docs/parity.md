@@ -30,7 +30,7 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 | `status` | command | implemented | `[--json]`. Model, credential source, permission mode, sandbox, workspace, history turns, step limit. `cli_surface.zig:69`, `output_contracts.zig:489-540`. |
 | `doctor` | command | implemented | `[--json]`. Aggregate counts plus `{name,status,detail}` checks. `cli_surface.zig:73`, `output_contracts.zig:1209-1285`. |
 | `help` | command | implemented | `help`, `--help`, `-h`. Lists only implemented commands. `cli_surface.zig:60`. |
-| `ask` | command | deferred | Planned for the Gateway slice of v0.1. `cli_surface.zig:61`. |
+| `ask` | command | implemented | `[--json] [--no-save] <prompt>`. One streamed Gateway turn: ordered assistant text, then exactly one terminal event. The permission-mode (`--auto`/`--yolo`) and resume flags are not advertised and arrive with the tool and session slices. `cli_surface.zig:61`. |
 | `interactive` | command | deferred | Planned for the shell slice of v0.1; a bare `fxr` is rejected until then. `cli_surface.zig:59`. |
 | `session` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:76`. |
 | `sessions` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:77`. |
@@ -78,7 +78,10 @@ slices of v0.1.
 
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|
-| Vercel AI Gateway | provider | deferred | The first provider; lands with the Gateway slice of v0.1. `src/builtins/gateway.zig:40`. |
+| `Vercel AI Gateway` | provider | implemented | Streaming completions over rustls. Request is `prompt`/`tools`/`toolChoice`; the response is a bounded SSE decode that requires a canonical `finish`. An HTTP endpoint override is accepted only for loopback. `src/builtins/gateway.zig:41`, `:759-765`, `src/core/gateway/gateway_json.zig:333-363`, `src/gateway/client.zig:2718-3272`. |
+| prompt caching and provider options | provider | deferred | Upstream sends `providerOptions`, `reasoning`, and Anthropic cache breakpoints. `src/core/gateway/gateway_json.zig:330-378`. |
+| generation usage and billing reconciliation | provider | deferred | Upstream reads `providerMetadata.gateway` cost and generation ids. `src/gateway/client.zig:2496-2560`. |
+| transport-owned retry and team routing | provider | deferred | fxr's turn owns attempts and sends no team header. `src/gateway/client.zig:1459-1494`, `:1810-1825`. |
 | `VERCEL_OIDC_TOKEN` credential | provider | implemented | Resolved when nonblank; highest precedence. Reported by source name only. |
 | `AI_GATEWAY_API_KEY` credential | provider | implemented | Resolved when nonblank; second precedence. Reported by source name only. |
 | `fx login` credential | provider | deferred | OAuth credential store. `src/core/auth/auth_runtime.zig:685-700`. |
@@ -107,7 +110,8 @@ slices of v0.1.
 |---|---|---|---|
 | status/doctor text renderer | ui | implemented | One `[surface] key=value` line per fact. `output_contracts.zig:410-446`, `:1209-1236`. |
 | status/doctor JSON renderer | ui | implemented | Exactly one newline-terminated document. `output_contracts.zig:489-540`, `:1240-1285`. |
-| JSONL turn event stream | ui | partial | `assistant_delta`, `tool_start`, `tool_result`, `final`, `error` are defined and rendered; no turn produces them until the Gateway slice. |
+| JSONL turn event stream | ui | partial | `assistant_delta`, `final`, and `error` are produced by `ask --json`, with exactly one terminal event per turn. `tool_start` and `tool_result` are defined and rendered but no turn emits them until the tool slice. |
+| streamed assistant text | ui | implemented | `ask` without `--json` writes only the answer to stdout, one delta at a time, and puts a failure on stderr. `orchestrator.zig:4650-4655`. |
 | interactive shell | ui | deferred | Line-oriented shell with six slash commands; lands with the shell slice of v0.1. |
 | full-screen TUI | ui | deferred | Not a goal. The shell keeps normal scrollback. |
 | notifications and status line | ui | deferred | Post-v0.1. `config_runtime.zig:139-152`. |

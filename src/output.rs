@@ -362,35 +362,65 @@ impl<W: Write> EventSink for JsonlSink<W> {
 }
 
 /// Streams assistant text for a human reader and drops the machine-only events.
-pub struct TextSink<W: Write> {
+///
+/// Two writers, not one. Assistant text is the command's answer and belongs on
+/// stdout; a failure is a diagnostic and belongs on stderr, so a shell pipeline
+/// that captures the answer never captures an error message as part of it.
+pub struct TextSink<W: Write, D: Write> {
     writer: W,
+    diagnostics: D,
+    /// Whether any assistant text has been written, and whether it ended in a
+    /// newline. A streamed answer rarely ends in one, and a shell prompt landing
+    /// mid-sentence looks like truncated output.
+    pending_newline: bool,
 }
 
-impl<W: Write> TextSink<W> {
-    pub fn new(writer: W) -> Self {
-        Self { writer }
+impl<W: Write, D: Write> TextSink<W, D> {
+    pub fn new(writer: W, diagnostics: D) -> Self {
+        Self {
+            writer,
+            diagnostics,
+            pending_newline: false,
+        }
     }
 
-    pub fn into_inner(self) -> W {
-        self.writer
+    pub fn into_inner(self) -> (W, D) {
+        (self.writer, self.diagnostics)
+    }
+
+    /// Terminates the assistant line, once, if it needs it.
+    fn end_line(&mut self) -> io::Result<()> {
+        if !self.pending_newline {
+            return Ok(());
+        }
+        self.pending_newline = false;
+        self.writer.write_all(b"\n")?;
+        self.writer.flush()
     }
 }
 
-impl<W: Write> EventSink for TextSink<W> {
+impl<W: Write, D: Write> EventSink for TextSink<W, D> {
     fn emit(&mut self, event: &Event) -> io::Result<()> {
         match event {
             Event::AssistantDelta { text } => {
+                if text.is_empty() {
+                    return Ok(());
+                }
                 self.writer.write_all(text.as_bytes())?;
+                self.pending_newline = !text.ends_with('\n');
                 self.writer.flush()
             }
             // The final output is the concatenation of the deltas already
-            // written, so repeating it would duplicate the answer.
-            Event::Final { .. } | Event::ToolStart { .. } | Event::ToolResult { .. } => Ok(()),
+            // written, so repeating it would duplicate the answer. Upstream
+            // likewise emits only a closing newline
+            // (`vercel-labs/fx@580a0c5d src/core/agent/runtime/orchestrator.zig:4654`).
+            Event::Final { .. } => self.end_line(),
+            Event::ToolStart { .. } | Event::ToolResult { .. } => Ok(()),
             Event::Error { message } => {
-                self.writer.write_all(b"\n")?;
-                self.writer.write_all(message.as_bytes())?;
-                self.writer.write_all(b"\n")?;
-                self.writer.flush()
+                self.end_line()?;
+                self.diagnostics.write_all(message.as_bytes())?;
+                self.diagnostics.write_all(b"\n")?;
+                self.diagnostics.flush()
             }
         }
     }
@@ -576,27 +606,73 @@ mod tests {
         assert_eq!(rendered.lines().count(), 1, "got {rendered:?}");
     }
 
+    fn text_sink_output(events: &[Event]) -> (String, String) {
+        let mut sink = TextSink::new(Vec::new(), Vec::new());
+        for event in events {
+            sink.emit(event).unwrap();
+        }
+        let (stdout, stderr) = sink.into_inner();
+        (
+            String::from_utf8(stdout).unwrap(),
+            String::from_utf8(stderr).unwrap(),
+        )
+    }
+
     #[test]
     fn the_text_sink_streams_only_assistant_text() {
-        let mut sink = TextSink::new(Vec::new());
-        sink.emit(&Event::AssistantDelta {
-            text: "one ".to_string(),
-        })
-        .unwrap();
-        sink.emit(&Event::ToolStart {
-            call_id: "c1".to_string(),
-            tool: "read_file".to_string(),
-        })
-        .unwrap();
-        sink.emit(&Event::AssistantDelta {
-            text: "two".to_string(),
-        })
-        .unwrap();
-        sink.emit(&Event::Final {
-            output: "one two".to_string(),
-        })
-        .unwrap();
-        assert_eq!(String::from_utf8(sink.into_inner()).unwrap(), "one two");
+        let (stdout, stderr) = text_sink_output(&[
+            Event::AssistantDelta {
+                text: "one ".to_string(),
+            },
+            Event::ToolStart {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+            },
+            Event::AssistantDelta {
+                text: "two".to_string(),
+            },
+            Event::Final {
+                output: "one two".to_string(),
+            },
+        ]);
+        assert_eq!(stdout, "one two\n");
+        assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn the_text_sink_does_not_double_space_an_answer_that_ends_in_a_newline() {
+        let (stdout, _) = text_sink_output(&[
+            Event::AssistantDelta {
+                text: "done\n".to_string(),
+            },
+            Event::Final {
+                output: "done\n".to_string(),
+            },
+        ]);
+        assert_eq!(stdout, "done\n");
+    }
+
+    #[test]
+    fn the_text_sink_writes_a_failure_to_the_diagnostic_stream() {
+        let (stdout, stderr) = text_sink_output(&[
+            Event::AssistantDelta {
+                text: "half".to_string(),
+            },
+            Event::Error {
+                message: "boom".to_string(),
+            },
+        ]);
+        assert_eq!(stdout, "half\n", "the answer stream keeps only the answer");
+        assert_eq!(stderr, "boom\n");
+    }
+
+    #[test]
+    fn a_failure_before_any_output_writes_no_stray_newline() {
+        let (stdout, stderr) = text_sink_output(&[Event::Error {
+            message: "boom".to_string(),
+        }]);
+        assert_eq!(stdout, "");
+        assert_eq!(stderr, "boom\n");
     }
 
     #[test]
