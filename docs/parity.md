@@ -30,7 +30,7 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 | `status` | command | implemented | `[--json]`. Model, credential source, permission mode, sandbox, workspace, history turns, step limit. `cli_surface.zig:69`, `output_contracts.zig:489-540`. |
 | `doctor` | command | implemented | `[--json]`. Aggregate counts plus `{name,status,detail}` checks. `cli_surface.zig:73`, `output_contracts.zig:1209-1285`. |
 | `help` | command | implemented | `help`, `--help`, `-h`. Lists only implemented commands. `cli_surface.zig:60`. |
-| `ask` | command | implemented | `[--json] [--no-save] <prompt>`. One streamed Gateway turn: ordered assistant text, then exactly one terminal event. The permission-mode (`--auto`/`--yolo`) and resume flags are not advertised and arrive with the tool and session slices. `cli_surface.zig:61`. |
+| `ask` | command | implemented | `[--json] [--no-save] <prompt>`. One streamed Gateway turn: ordered assistant text, then exactly one terminal event. `--no-save` is accepted and honored but is not yet distinguishable from the default; it has its own row under Configuration and persistence. The permission-mode (`--auto`/`--yolo`) and resume flags are not advertised and arrive with the tool and session slices. `cli_surface.zig:61`. |
 | `interactive` | command | deferred | Planned for the shell slice of v0.1; a bare `fxr` is rejected until then. `cli_surface.zig:59`. |
 | `session` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:76`. |
 | `sessions` | command | deferred | Planned for the durability slice of v0.1. `cli_surface.zig:77`. |
@@ -97,7 +97,8 @@ slices of v0.1.
 | exact-workspace settings entry | persistence | implemented | `workspaces["<root>"]`; exact match only. `config_runtime.zig:405-443`. |
 | environment overrides | persistence | implemented | `FXR_MODEL`, `FXR_PERMISSION_MODE`, `FXR_MAX_AGENT_STEPS`. Blank values are ignored. `config_runtime.zig:445-453`. |
 | config diagnostics | persistence | implemented | Non-fatal; surfaced as `doctor` `config` checks. `config_runtime.zig:578-593`. |
-| session event log | persistence | deferred | `~/.fxr/sessions/<id>/events.jsonl`; lands with the durability slice of v0.1. |
+| `ask --no-save` | persistence | partial | Advertised and honored: no turn run with it is written to a session. It is **not yet distinguishable from the default**, because this release persists no turn either way, so the flag currently constrains nothing the default does not already do. Its help says so. It becomes load-bearing when the session event log below lands; its meaning does not change then. |
+| session event log | persistence | deferred | `~/.fxr/sessions/<id>/events.jsonl`; lands with the durability slice of v0.1. Until it does, `ask` records nothing with or without `--no-save`. |
 | session manifest and index | persistence | deferred | Lands with the durability slice of v0.1. |
 | permission rules and grants | persistence | deferred | Lands with the mutation slice of v0.1. |
 | `AGENTS.md` project context | persistence | deferred | Lands with the durability slice of v0.1. |

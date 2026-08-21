@@ -15,6 +15,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -783,11 +784,15 @@ fn an_endpoint_rejection_names_the_url_and_the_rule() {
 struct ScriptedProvider {
     results: std::cell::RefCell<std::collections::VecDeque<ScriptedResult>>,
     seen: std::cell::RefCell<Vec<CompletionRequest>>,
+    cancel_on_attempt: std::cell::RefCell<Option<(usize, CancelToken)>>,
 }
 
 enum ScriptedResult {
     /// Emit these text fragments, then return this completion.
     Streamed(Vec<String>, Completion),
+    /// Emit these fragments and then fail. Proves that a failure after partial
+    /// delivery is not replayed even when the failure itself looks retryable.
+    StreamedThenFailed(Vec<String>, ProviderError),
     Failed(ProviderError),
 }
 
@@ -796,7 +801,15 @@ impl ScriptedProvider {
         Self {
             results: std::cell::RefCell::new(results.into()),
             seen: std::cell::RefCell::new(Vec::new()),
+            cancel_on_attempt: std::cell::RefCell::new(None),
         }
+    }
+
+    /// Cancels `token` at the start of attempt `attempt`, so a test can cancel a
+    /// turn from inside the transport rather than racing it from outside.
+    fn cancelling_on_attempt(self, attempt: usize, token: CancelToken) -> Self {
+        *self.cancel_on_attempt.borrow_mut() = Some((attempt, token));
+        self
     }
 
     fn attempts(&self) -> usize {
@@ -812,16 +825,39 @@ impl Provider for ScriptedProvider {
         deltas: &mut dyn DeltaSink,
     ) -> Result<Completion, ProviderError> {
         self.seen.borrow_mut().push(request.clone());
-        match self.results.borrow_mut().pop_front() {
+        let attempt = self.seen.borrow().len();
+        if let Some((at, token)) = self.cancel_on_attempt.borrow().as_ref() {
+            if *at == attempt {
+                token.cancel();
+            }
+        }
+        let next = self.results.borrow_mut().pop_front();
+        match next {
             Some(ScriptedResult::Streamed(fragments, completion)) => {
                 for fragment in fragments {
                     deltas.text_delta(&fragment).map_err(ProviderError::Sink)?;
                 }
                 Ok(completion)
             }
+            Some(ScriptedResult::StreamedThenFailed(fragments, err)) => {
+                for fragment in fragments {
+                    deltas.text_delta(&fragment).map_err(ProviderError::Sink)?;
+                }
+                Err(err)
+            }
             Some(ScriptedResult::Failed(err)) => Err(err),
             None => panic!("the provider was called more times than the script allows"),
         }
+    }
+}
+
+/// A retryable edge status, optionally carrying the server's own delay.
+fn edge_status(retry_after: Option<Duration>) -> ProviderError {
+    ProviderError::Status {
+        status: 503,
+        body: "try later".to_string(),
+        retryable: true,
+        retry_after,
     }
 }
 
@@ -907,6 +943,7 @@ async fn a_provider_failure_emits_exactly_one_error_and_no_final() {
         status: 401,
         body: "unauthorized".to_string(),
         retryable: false,
+        retry_after: None,
     })]);
     let mut sink = RecordingSink::new();
     let err = run_turn(turn("hi"), &provider, &mut sink)
@@ -969,6 +1006,124 @@ async fn a_replayable_failure_stops_at_max_attempts() {
         .expect_err("every attempt failed");
     assert_eq!(provider.attempts(), 3);
     assert_eq!(kinds(&sink), ["error"]);
+}
+
+#[tokio::test]
+async fn a_retry_waits_for_the_server_requested_delay() {
+    // The server named a delay; the turn obeys it instead of guessing.
+    let provider = ScriptedProvider::new(vec![
+        ScriptedResult::Failed(edge_status(Some(Duration::from_millis(400)))),
+        ScriptedResult::Streamed(vec!["ok".to_string()], stopped("ok")),
+    ]);
+    let mut sink = RecordingSink::new();
+    let started = Instant::now();
+    run_turn(turn("hi"), &provider, &mut sink)
+        .await
+        .expect("the second attempt succeeds");
+    let waited = started.elapsed();
+    assert_eq!(provider.attempts(), 2);
+    assert!(
+        waited >= Duration::from_millis(350),
+        "the turn replayed after only {waited:?}, ignoring Retry-After"
+    );
+    assert!(
+        waited < Duration::from_secs(3),
+        "the turn waited {waited:?}, far past what the server asked for"
+    );
+}
+
+#[tokio::test]
+async fn a_server_delay_beyond_the_cap_does_not_stall_the_turn() {
+    // A server asking for ten minutes must not turn a foreground command into
+    // something indistinguishable from a hang.
+    let provider = ScriptedProvider::new(vec![
+        ScriptedResult::Failed(edge_status(Some(Duration::from_secs(600)))),
+        ScriptedResult::Streamed(vec!["ok".to_string()], stopped("ok")),
+    ]);
+    let mut sink = RecordingSink::new();
+    let started = Instant::now();
+    run_turn(turn("hi"), &provider, &mut sink)
+        .await
+        .expect("the second attempt succeeds");
+    assert_eq!(provider.attempts(), 2);
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "the turn obeyed an unbounded server delay for {:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn a_retry_without_a_server_delay_backs_off_on_its_own() {
+    let provider = ScriptedProvider::new(vec![
+        ScriptedResult::Failed(edge_status(None)),
+        ScriptedResult::Streamed(vec!["ok".to_string()], stopped("ok")),
+    ]);
+    let mut sink = RecordingSink::new();
+    let started = Instant::now();
+    run_turn(turn("hi"), &provider, &mut sink)
+        .await
+        .expect("the second attempt succeeds");
+    let waited = started.elapsed();
+    assert_eq!(provider.attempts(), 2);
+    assert!(
+        waited >= Duration::from_millis(200),
+        "the turn replayed immediately, after only {waited:?}"
+    );
+}
+
+#[tokio::test]
+async fn cancelling_during_a_backoff_ends_the_turn_without_another_attempt() {
+    let request = turn("hi");
+    let cancel = request.cancel.clone();
+    // The first attempt fails with a long server delay and cancels the turn on
+    // its way out, so the turn is cancelled while it is waiting.
+    let provider = ScriptedProvider::new(vec![
+        ScriptedResult::Failed(edge_status(Some(Duration::from_secs(600)))),
+        ScriptedResult::Streamed(vec!["never".to_string()], stopped("never")),
+    ])
+    .cancelling_on_attempt(1, cancel);
+
+    let mut sink = RecordingSink::new();
+    let started = Instant::now();
+    let err = run_turn(request, &provider, &mut sink)
+        .await
+        .expect_err("a cancelled wait ends the turn");
+    assert!(matches!(err, TurnError::Cancelled));
+    assert_eq!(
+        provider.attempts(),
+        1,
+        "a cancelled turn must not spend another attempt"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "cancellation did not interrupt the wait; it took {:?}",
+        started.elapsed()
+    );
+    assert_eq!(kinds(&sink), ["error"]);
+}
+
+#[tokio::test]
+async fn a_retryable_status_is_not_replayed_once_content_has_been_delivered() {
+    // The failure is replayable in isolation, but an answer is already partly
+    // in front of the user, so replaying it would answer one question twice.
+    let provider = ScriptedProvider::new(vec![
+        ScriptedResult::StreamedThenFailed(
+            vec!["half an ans".to_string()],
+            edge_status(Some(Duration::from_millis(1))),
+        ),
+        ScriptedResult::Streamed(vec!["replay".to_string()], stopped("replay")),
+    ]);
+    let mut sink = RecordingSink::new();
+    run_turn(turn("hi"), &provider, &mut sink)
+        .await
+        .expect_err("delivered content is not replayed");
+    assert_eq!(
+        provider.attempts(),
+        1,
+        "an attempt that delivered content must not be replayed"
+    );
+    assert_eq!(kinds(&sink), ["assistant_delta", "error"]);
 }
 
 #[tokio::test]
@@ -1505,6 +1660,38 @@ fn a_retryable_status_is_retried_before_any_answer_was_delivered() {
 }
 
 #[test]
+fn a_retry_after_header_from_the_gateway_is_honored_before_the_next_request() {
+    // End to end through the real transport: the header must survive the
+    // response head, reach the turn, and delay the second request.
+    let gateway = FakeGateway::start(vec![
+        Reply::retry_after(503, 1, "{\"error\":\"try later\"}"),
+        Reply::Sse(content_only(&["recovered"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let started = Instant::now();
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "hello"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    let waited = started.elapsed();
+
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(gateway.request_count(), 2);
+    assert_eq!(run.kinds(), ["assistant_delta", "final"]);
+    assert!(
+        waited >= Duration::from_millis(900),
+        "the second request went out after only {waited:?}, ignoring `Retry-After: 1`"
+    );
+    assert!(
+        waited < Duration::from_secs(15),
+        "the run took {waited:?}, far past the one second the server asked for"
+    );
+}
+
+#[test]
 fn a_truncated_body_is_not_replayed_once_delivery_has_started() {
     // The Gateway sends part of an answer and then drops the connection. The
     // model has already produced output, so a second request would duplicate
@@ -1656,6 +1843,50 @@ fn ask_help_advertises_only_the_implemented_flags() {
             "ask help must not advertise the deferred flag {deferred}"
         );
     }
+}
+
+#[test]
+fn the_no_save_flag_help_does_not_imply_that_the_default_saves() {
+    // `--no-save` is honored, but this release persists nothing either way.
+    // Help that described only the flag would let a reader conclude that the
+    // default records a session, which would be a promise fxr does not keep.
+    let sandbox = Sandbox::new();
+    for alias in ["--help", "-h"] {
+        let run = sandbox.run(&["ask", alias], &[]);
+        assert_eq!(run.code, Some(0), "ask {alias} must exit 0");
+        assert!(
+            run.stdout.contains(
+                "Do not record this turn in a session (this release records none either way)"
+            ),
+            "ask {alias} must state that no session is recorded either way, got {:?}",
+            run.stdout
+        );
+    }
+}
+
+#[test]
+fn the_no_save_flag_has_a_partial_parity_row_that_says_it_is_not_yet_distinguishable() {
+    let parity =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs/parity.md"))
+            .expect("read parity.md");
+    let row = parity
+        .lines()
+        .find(|line| line.starts_with("| `ask --no-save` | persistence |"))
+        .expect("docs/parity.md has an `ask --no-save` persistence row");
+    assert!(row.contains("| partial |"), "got {row}");
+    assert!(
+        row.contains("not yet distinguishable from the default"),
+        "the row must state the exact limitation, got {row}"
+    );
+
+    let session_row = parity
+        .lines()
+        .find(|line| line.starts_with("| session event log | persistence |"))
+        .expect("docs/parity.md has a session event log row");
+    assert!(
+        session_row.contains("| deferred |"),
+        "the flag is only partial because the log is deferred, got {session_row}"
+    );
 }
 
 #[test]

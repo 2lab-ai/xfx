@@ -73,6 +73,24 @@ pub enum Reply {
     SseThenAbort(Vec<String>),
     /// A non-2xx response with a plain body.
     Status(u16, String),
+    /// A non-2xx response carrying extra headers, so a test can drive the
+    /// client's reaction to `Retry-After`.
+    StatusWithHeaders {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: String,
+    },
+}
+
+impl Reply {
+    /// A retryable status that asks the client to wait `seconds`.
+    pub fn retry_after(status: u16, seconds: u64, body: &str) -> Self {
+        Self::StatusWithHeaders {
+            status,
+            headers: vec![("retry-after".to_string(), seconds.to_string())],
+            body: body.to_string(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -212,8 +230,13 @@ fn serve(state: &Arc<State>, stream: TcpStream) {
         Some(Reply::Sse(body)) => write_sse(&mut writer, &[body], true),
         Some(Reply::SsePieces(pieces)) => write_sse(&mut writer, &pieces, true),
         Some(Reply::SseThenAbort(pieces)) => write_sse(&mut writer, &pieces, false),
-        Some(Reply::Status(status, body)) => write_status(&mut writer, status, &body),
-        None => write_status(&mut writer, 500, "fake gateway: unscripted request"),
+        Some(Reply::Status(status, body)) => write_status(&mut writer, status, &[], &body),
+        Some(Reply::StatusWithHeaders {
+            status,
+            headers,
+            body,
+        }) => write_status(&mut writer, status, &headers, &body),
+        None => write_status(&mut writer, 500, &[], "fake gateway: unscripted request"),
     }
     close_cleanly(&mut writer);
 }
@@ -311,16 +334,20 @@ fn write_sse(stream: &mut TcpStream, pieces: &[String], terminate: bool) {
     // body, which is exactly the "delivery already started" failure under test.
 }
 
-fn write_status(stream: &mut TcpStream, status: u16, body: &str) {
-    let response = format!(
+fn write_status(stream: &mut TcpStream, status: u16, extra: &[(String, String)], body: &str) {
+    let mut response = format!(
         "HTTP/1.1 {status} {}\r\n\
          content-type: application/json\r\n\
          content-length: {}\r\n\
-         connection: close\r\n\
-         \r\n{body}",
+         connection: close\r\n",
         reason_phrase(status),
         body.len()
     );
+    for (name, value) in extra {
+        response.push_str(&format!("{name}: {value}\r\n"));
+    }
+    response.push_str("\r\n");
+    response.push_str(body);
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
 }

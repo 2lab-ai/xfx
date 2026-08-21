@@ -171,7 +171,14 @@ enum RawCommand {
         /// Emit one JSON event per line instead of plain text
         #[arg(long)]
         json: bool,
-        /// Do not record this turn in a session
+        // The parenthetical is a fact about this build, not a caveat about the
+        // flag. `ask` has no session store yet, so the flag's guarantee already
+        // holds and the default is not yet different from it; help that said
+        // only "do not record this turn in a session" would let a reader infer
+        // that the default does record one. The flag's meaning does not change
+        // when sessions arrive -- only the parenthetical goes away
+        // (`docs/parity.md`, `ask --no-save`).
+        /// Do not record this turn in a session (this release records none either way)
         #[arg(long = "no-save")]
         no_save: bool,
         /// The question. Everything after `--`, and everything after the first

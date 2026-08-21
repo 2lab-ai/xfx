@@ -280,6 +280,10 @@ pub enum ProviderError {
         status: u16,
         body: String,
         retryable: bool,
+        /// The server's own `Retry-After` delay, when it sent a readable one.
+        /// The turn decides whether and how long to wait; the transport only
+        /// reports what the server asked for.
+        retry_after: Option<Duration>,
     },
     /// The response body was not a usable stream.
     Protocol(SseError),
@@ -304,6 +308,18 @@ impl ProviderError {
             _ => false,
         }
     }
+
+    /// How long the server asked the client to wait before trying again.
+    ///
+    /// `None` means the server said nothing, not that it said zero. Only the
+    /// turn may act on this; ignoring a server's own backoff request is how a
+    /// client turns a rate limit into an outage.
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::Status { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for ProviderError {
@@ -320,8 +336,12 @@ impl fmt::Display for ProviderError {
                 status,
                 body,
                 retryable: _,
+                retry_after,
             } => {
                 write!(f, "the Gateway returned HTTP {status}")?;
+                if let Some(delay) = retry_after {
+                    write!(f, " (retry after {}s)", delay.as_secs())?;
+                }
                 if !body.is_empty() {
                     write!(f, ": {body}")?;
                 }
@@ -490,10 +510,13 @@ impl Provider for GatewayProvider {
 
         let status = response.status();
         if !status.is_success() {
+            // Read the header before the body: consuming the response moves it.
+            let retry_after = parse_retry_after(response.headers());
             return Err(ProviderError::Status {
                 status: status.as_u16(),
                 body: read_bounded(response, MAX_ERROR_BODY_BYTES).await,
                 retryable: is_retryable_status(status.as_u16()),
+                retry_after,
             });
         }
 
@@ -514,6 +537,31 @@ impl Provider for GatewayProvider {
         }
         Ok(reader.finish()?)
     }
+}
+
+/// The server's requested backoff, in `Retry-After` delta-seconds.
+///
+/// Only the delta-seconds form is read, matching upstream, which parses the
+/// header as an integer and treats anything else as absent
+/// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1838-1846`). An HTTP-date
+/// value therefore reads as "the server said nothing" and the turn falls back to
+/// its own backoff, which is slower than obeying the date but never faster --
+/// the failure mode of not parsing dates is politeness, not a thundering herd.
+///
+/// A value too large for `u64` is reported as [`Duration::MAX`]; the turn caps
+/// every delay anyway, so an absurd number cannot become an absurd wait.
+fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(
+        trimmed
+            .parse::<u64>()
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::MAX),
+    )
 }
 
 /// Statuses the Gateway edge returns without having produced a completion
@@ -594,6 +642,84 @@ mod tests {
         assert_eq!(endpoint.url(), "https://gateway.example.com/v3");
     }
 
+    fn retry_after_header(value: &str) -> Option<Duration> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            HeaderValue::from_str(value).expect("a testable header value"),
+        );
+        parse_retry_after(&headers)
+    }
+
+    #[test]
+    fn a_retry_after_delta_seconds_value_is_read() {
+        assert_eq!(retry_after_header("1"), Some(Duration::from_secs(1)));
+        assert_eq!(retry_after_header("  30  "), Some(Duration::from_secs(30)));
+        assert_eq!(retry_after_header("0"), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn a_retry_after_value_that_is_not_delta_seconds_reads_as_absent() {
+        // Upstream parses the header as an integer and ignores anything else
+        // (`src/gateway/client.zig:1838-1846`), so an HTTP-date is not obeyed.
+        for value in [
+            "",
+            "   ",
+            "-5",
+            "1.5",
+            "soon",
+            "Wed, 21 Oct 2026 07:28:00 GMT",
+        ] {
+            assert_eq!(retry_after_header(value), None, "for `{value}`");
+        }
+        assert_eq!(parse_retry_after(&HeaderMap::new()), None);
+    }
+
+    #[test]
+    fn an_unrepresentable_retry_after_is_reported_as_the_longest_possible_wait() {
+        // The caller caps every delay, so an absurd number becomes the cap
+        // rather than an absurd wait or a silently ignored header.
+        assert_eq!(
+            retry_after_header("99999999999999999999999999"),
+            Some(Duration::MAX)
+        );
+    }
+
+    #[test]
+    fn only_a_status_error_carries_a_server_delay() {
+        assert_eq!(
+            ProviderError::Status {
+                status: 429,
+                body: String::new(),
+                retryable: true,
+                retry_after: Some(Duration::from_secs(2)),
+            }
+            .retry_after(),
+            Some(Duration::from_secs(2))
+        );
+        assert_eq!(
+            ProviderError::Connect {
+                detail: "refused".to_string()
+            }
+            .retry_after(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_status_message_names_the_server_delay_it_will_wait_for() {
+        let message = ProviderError::Status {
+            status: 429,
+            body: "slow down".to_string(),
+            retryable: true,
+            retry_after: Some(Duration::from_secs(2)),
+        }
+        .to_string();
+        assert!(message.contains("429"), "{message}");
+        assert!(message.contains("retry after 2s"), "{message}");
+        assert!(message.contains("slow down"), "{message}");
+    }
+
     #[test]
     fn only_edge_statuses_are_replayable() {
         for status in [429, 500, 502, 503, 504] {
@@ -613,7 +739,8 @@ mod tests {
         assert!(ProviderError::Status {
             status: 503,
             body: String::new(),
-            retryable: true
+            retryable: true,
+            retry_after: None,
         }
         .is_replayable());
         for err in [
@@ -624,6 +751,7 @@ mod tests {
                 status: 401,
                 body: String::new(),
                 retryable: false,
+                retry_after: None,
             },
             ProviderError::Protocol(SseError::MissingFinish),
             ProviderError::Cancelled,
