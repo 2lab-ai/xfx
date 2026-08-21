@@ -1,10 +1,10 @@
-# fxr Rust port design
+# xfx Rust port design
 
 Date: 2026-08-21
 
 ## Goal
 
-Create `2lab-ai/fxr`, an unofficial Apache-2.0 Rust port of
+Create `2lab-ai/xfx`, an unofficial Apache-2.0 Rust port of
 [`vercel-labs/fx`](https://github.com/vercel-labs/fx), pinned to upstream commit
 `580a0c5da9386317251968c09c1cee69e763487a`.
 
@@ -59,17 +59,17 @@ runtime registries. This is the smallest release that is both useful and true.
 
 ### CLI
 
-- `fxr`, the lightweight interactive shell
-- `fxr ask [--auto|--yolo] [--json] [--quiet] [--no-save]
+- `xfx`, the lightweight interactive shell
+- `xfx ask [--auto|--yolo] [--json] [--quiet] [--no-save]
   [--resume <last|id>|--resume-id <id>] [--] <prompt>`
-- `fxr status [--json]`
-- `fxr doctor [--json]`
-- `fxr sessions [--json] [--all] [--limit N]`
-- `fxr session <last|id>|--id <id> [--json]`
-- `fxr --help`, `fxr --version`
+- `xfx status [--json]`
+- `xfx doctor [--json]`
+- `xfx sessions [--json] [--all] [--limit N]`
+- `xfx session <last|id>|--id <id> [--json]`
+- `xfx --help`, `xfx --version`
 
-The binary is named `fxr` to avoid impersonating the upstream product. The
-configuration home is `~/.fxr`, with project config `.fxr.json`.
+The binary is named `xfx` to avoid impersonating the upstream product. The
+configuration home is `~/.xfx`, with project config `.xfx.json`.
 
 ### Providers
 
@@ -113,7 +113,7 @@ and execution are separate stages. A decision cannot mutate its target.
 ### Sessions and context
 
 Sessions use an append-only JSONL event log under
-`~/.fxr/sessions/<id>/events.jsonl`, plus an atomically replaced manifest.
+`~/.xfx/sessions/<id>/events.jsonl`, plus an atomically replaced manifest.
 Readers ignore an unpublished or malformed crash tail. Session indexes are
 rebuildable projections.
 
@@ -230,11 +230,11 @@ row with its upstream evidence and status.
 - File namespaces can change between proof and rename. Identity/hash checks and
   same-directory atomic replacement narrow the race; test hooks exercise stale
   authority rejection.
-- fxr's own Gateway credential never enters a snapshot, a log line, or tool
+- xfx's own Gateway credential never enters a snapshot, a log line, or tool
   output. Golden tests scan both stdout and stderr. What the model reads is the
   opposite promise: a `tool_result` session event keeps a file's contents or a
   command's output verbatim, as owner-only plaintext under
-  `~/.fxr/sessions/<id>/events.jsonl`, and `--no-save` is the only way to record
+  `~/.xfx/sessions/<id>/events.jsonl`, and `--no-save` is the only way to record
   nothing -- see "Safety, in plain terms" in `README.md`.
 - Dependencies are pinned in `Cargo.lock`; TLS uses rustls, not ambient OpenSSL.
 

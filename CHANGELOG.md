@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to fxr. The format follows
+Notable changes to xfx. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) -- with one caveat
 worth stating out loud: **a version number here never encodes closeness to
@@ -23,18 +23,18 @@ slices before it.
 
 ### Added
 
-- **The interactive shell.** A bare `fxr` opens a line-oriented append shell on
+- **The interactive shell.** A bare `xfx` opens a line-oriented append shell on
   the terminal. It refuses to start without a terminal on both stdin and stdout,
   or without a place to record the conversation. It never enters raw mode and
   never takes the alternate screen, so scrollback survives and there is no
   terminal state to restore. Six commands: `/help`, `/new`, `/clear`, `/model`,
   `/version`, `/quit`; anything else beginning with `/` gets one deterministic
   refusal. Each prompt runs one ordinary turn through the same provider, tool
-  registry, permission authority, and session store `fxr ask` uses.
+  registry, permission authority, and session store `xfx ask` uses.
 - **Tool notices in the shell.** Each tool call is announced on stderr as it
   starts and finishes, with a refusal's reason flattened to one bounded line.
-  `fxr ask` is unchanged: its output is its answer.
-- **A `sessions` check in `fxr doctor`**, reporting how many sessions are
+  `xfx ask` is unchanged: its output is its answer.
+- **A `sessions` check in `xfx doctor`**, reporting how many sessions are
   recorded, how many session directories could not be trusted, and how many
   staged manifest files an interrupted write left behind. A report, never a
   repair.
@@ -60,7 +60,7 @@ slices before it.
 
 ### Fixed
 
-- **Ctrl-C now reaches the user.** `fxr ask` held locks on stdout and stderr for
+- **Ctrl-C now reaches the user.** `xfx ask` held locks on stdout and stderr for
   the whole command, so the interrupt watcher -- which runs on another thread and
   exists to say "stopping the turn" -- blocked forever on its first write. The
   first interrupt silently cancelled the turn and the second did nothing at all.
@@ -71,7 +71,7 @@ slices before it.
   The read now re-checks cancellation on a short poll.
 - **The interrupt handler is installed before the first prompt.** It is
   registered on the first poll of the signal future, so a Ctrl-C typed in the
-  first milliseconds used to meet the default disposition and kill fxr outright.
+  first milliseconds used to meet the default disposition and kill xfx outright.
   Startup now waits, briefly and boundedly, for the handler to exist.
 
 - **The unknown-command refusal cannot be used to paint on the terminal.** A
@@ -80,6 +80,6 @@ slices before it.
 
 ### Changed
 
-- A bare `fxr` runs the shell instead of exiting 1 with usage. Without a
+- A bare `xfx` runs the shell instead of exiting 1 with usage. Without a
   terminal it still exits 1, now naming the requirement and pointing at
-  `fxr ask`.
+  `xfx ask`.

@@ -1,7 +1,7 @@
 //! The workspace: which real directories a turn may look at, how a requested
 //! path becomes a proven one, and what the project has said about itself.
 //!
-//! This module owns the security boundary for every read fxr performs. It has
+//! This module owns the security boundary for every read xfx performs. It has
 //! no opinion about *what* is read -- that belongs to [`crate::tools`] -- only
 //! about where.
 //!

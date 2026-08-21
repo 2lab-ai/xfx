@@ -1,4 +1,4 @@
-//! Binary-level acceptance tests for the advertised `fxr` command surface, plus
+//! Binary-level acceptance tests for the advertised `xfx` command surface, plus
 //! integration tests for configuration precedence.
 //!
 //! Every assertion here is a product promise: what the executable prints, what it
@@ -9,11 +9,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use fxr::config::{CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource};
 use serde_json::Value;
 use tempfile::TempDir;
+use xfx::config::{CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource};
 
-/// Upstream command names that fxr deliberately does not implement in v0.1.
+/// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
 /// Evidence: `vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:58-84`.
 /// Advertising any of these would promise behavior the binary does not have.
@@ -40,9 +40,9 @@ const DEFERRED_COMMAND_NAMES: &[&str] = &[
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
 ];
 
 struct Sandbox {
@@ -70,7 +70,7 @@ impl Sandbox {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         for key in CONTROLLED_VARS {
@@ -80,7 +80,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str]) -> Run {
-        Run::of(self.command().args(args).output().expect("spawn fxr"))
+        Run::of(self.command().args(args).output().expect("spawn xfx"))
     }
 
     fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
@@ -89,11 +89,11 @@ impl Sandbox {
         for (key, value) in env {
             command.env(key, value);
         }
-        Run::of(command.output().expect("spawn fxr"))
+        Run::of(command.output().expect("spawn xfx"))
     }
 
     fn profile_dir(&self) -> PathBuf {
-        self.home.join(".fxr")
+        self.home.join(".xfx")
     }
 
     fn write_user_settings(&self, body: &str) {
@@ -103,7 +103,7 @@ impl Sandbox {
     }
 
     fn write_project_settings(&self, body: &str) {
-        fs::write(self.workspace.join(".fxr.json"), body).expect("write project settings");
+        fs::write(self.workspace.join(".xfx.json"), body).expect("write project settings");
     }
 }
 
@@ -192,7 +192,7 @@ fn help_aliases_render_the_same_page_on_stdout() {
 fn help_advertises_every_implemented_command() {
     let sandbox = Sandbox::new();
     let run = sandbox.run(&["--help"]);
-    for name in fxr::cli::ADVERTISED_COMMANDS {
+    for name in xfx::cli::ADVERTISED_COMMANDS {
         assert!(
             run.stdout.contains(name),
             "help must advertise the implemented command `{name}`, got {:?}",
@@ -220,7 +220,7 @@ fn help_never_advertises_a_deferred_command() {
         }
         let mut listed = listed;
         listed.sort();
-        let mut expected: Vec<String> = fxr::cli::ADVERTISED_COMMANDS
+        let mut expected: Vec<String> = xfx::cli::ADVERTISED_COMMANDS
             .iter()
             .map(|name| (*name).to_string())
             .collect();
@@ -285,7 +285,7 @@ fn a_deferred_command_is_rejected_like_any_unknown_name() {
 
 #[test]
 fn a_bare_invocation_without_a_terminal_is_refused_with_exit_1() {
-    // A bare `fxr` asks for the shell, and a shell needs a terminal. In a test
+    // A bare `xfx` asks for the shell, and a shell needs a terminal. In a test
     // harness there is none, so this is the refusal path; the shell's own
     // acceptance tests in `tests/interactive.rs` drive the other one on a real
     // pty. Nothing is created under the profile home on the way out.
@@ -299,7 +299,7 @@ fn a_bare_invocation_without_a_terminal_is_refused_with_exit_1() {
         run.stderr
     );
     assert!(
-        run.stderr.contains("fxr ask"),
+        run.stderr.contains("xfx ask"),
         "stderr must name what to use instead, got {:?}",
         run.stderr
     );
@@ -341,7 +341,7 @@ fn status_json_is_a_single_newline_terminated_document() {
     assert_eq!(run.stderr, "");
     let json = run.json();
     assert_eq!(json["kind"], "status");
-    assert_eq!(json["model"], fxr::config::DEFAULT_MODEL);
+    assert_eq!(json["model"], xfx::config::DEFAULT_MODEL);
     assert_eq!(json["permission_mode"], "auto");
     assert_eq!(json["sandbox"], "none");
     assert_eq!(json["workspace"], sandbox.workspace.to_str().unwrap());
@@ -349,8 +349,11 @@ fn status_json_is_a_single_newline_terminated_document() {
     assert_eq!(json["session_permission_grants"], 0);
     assert!(json["agent_step_limit"].is_u64());
     assert!(
-        matches!(json["build_channel"].as_str(), Some("debug" | "release")),
-        "build_channel must be the real compile profile, got {:?}",
+        matches!(
+            json["build_channel"].as_str(),
+            Some("debug" | "release" | "preview")
+        ),
+        "build_channel must be a declared channel, got {:?}",
         json["build_channel"]
     );
     let revision = json["build_revision"].as_str().expect("build_revision");
@@ -497,7 +500,7 @@ fn doctor_reports_an_empty_session_store_as_nothing_wrong() {
 fn doctor_reports_a_session_directory_it_cannot_read() {
     let sandbox = Sandbox::new();
     // A directory with a usable name and nothing inside it is not a session
-    // fxr wrote, and `fxr sessions` will quietly skip it. `doctor` is where
+    // xfx wrote, and `xfx sessions` will quietly skip it. `doctor` is where
     // that becomes visible.
     private_session_dir(&sandbox, "1700000000000-aaaaaaaaaaaaaaaa");
     let (status, detail) = doctor_check(&sandbox, "sessions");
@@ -509,7 +512,7 @@ fn doctor_reports_a_session_directory_it_cannot_read() {
 fn doctor_reports_a_staged_manifest_left_by_an_interrupted_write() {
     let sandbox = Sandbox::new();
     // Exactly what a process killed between staging and rename leaves behind.
-    // fxr never unlinks one, because it cannot know whose it is; the promise
+    // xfx never unlinks one, because it cannot know whose it is; the promise
     // that replaces removal is that `doctor` says it is there.
     let session = private_session_dir(&sandbox, "1700000000000-bbbbbbbbbbbbbbbb");
     fs::write(
@@ -597,7 +600,7 @@ fn read_only_commands_never_create_the_profile_directory() {
 #[test]
 fn snapshots_report_the_credential_source_and_never_its_bytes() {
     let sandbox = Sandbox::new();
-    let secret = "fxr-test-secret-value-must-not-appear";
+    let secret = "xfx-test-secret-value-must-not-appear";
     for (var, label) in [
         ("VERCEL_OIDC_TOKEN", "VERCEL_OIDC_TOKEN"),
         ("AI_GATEWAY_API_KEY", "AI_GATEWAY_API_KEY"),
@@ -697,7 +700,7 @@ fn missing_credentials_are_a_reported_fact_not_a_failure() {
 #[test]
 fn status_and_doctor_apply_an_exact_max_agent_steps_override() {
     let sandbox = Sandbox::new();
-    let env = [("FXR_MAX_AGENT_STEPS", "3")];
+    let env = [("XFX_MAX_AGENT_STEPS", "3")];
     let status = sandbox.run_with_env(&["status", "--json"], &env);
     assert_eq!(status.json()["agent_step_limit"], 3);
 
@@ -725,8 +728,8 @@ fn status_applies_model_and_permission_mode_overrides() {
         .run_with_env(
             &["status", "--json"],
             &[
-                ("FXR_MODEL", "vendor/override-model"),
-                ("FXR_PERMISSION_MODE", "yolo"),
+                ("XFX_MODEL", "vendor/override-model"),
+                ("XFX_PERMISSION_MODE", "yolo"),
             ],
         )
         .json();
@@ -739,14 +742,14 @@ fn an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash() {
     let sandbox = Sandbox::new();
     let status = sandbox.run_with_env(
         &["status", "--json"],
-        &[("FXR_PERMISSION_MODE", "definitely-not-a-mode")],
+        &[("XFX_PERMISSION_MODE", "definitely-not-a-mode")],
     );
     assert_eq!(status.code, Some(0));
     assert_eq!(status.json()["permission_mode"], "auto");
 
     let doctor = sandbox.run_with_env(
         &["doctor", "--json"],
-        &[("FXR_PERMISSION_MODE", "definitely-not-a-mode")],
+        &[("XFX_PERMISSION_MODE", "definitely-not-a-mode")],
     );
     let warned = doctor.json()["checks"]
         .as_array()
@@ -777,7 +780,7 @@ fn a_malformed_settings_file_warns_without_failing_the_command() {
     sandbox.write_user_settings("{ this is not json");
     let status = sandbox.run(&["status", "--json"]);
     assert_eq!(status.code, Some(0));
-    assert_eq!(status.json()["model"], fxr::config::DEFAULT_MODEL);
+    assert_eq!(status.json()["model"], xfx::config::DEFAULT_MODEL);
 
     let doctor = sandbox.run(&["doctor", "--json"]).json();
     let warned = doctor["checks"]
@@ -797,7 +800,7 @@ fn a_malformed_settings_file_warns_without_failing_the_command() {
     assert!(
         details
             .iter()
-            .any(|d| d.contains("found but could not use") && d.contains("~/.fxr/settings.json")),
+            .any(|d| d.contains("found but could not use") && d.contains("~/.xfx/settings.json")),
         "doctor must say the profile settings were found and ignored: {details:?}"
     );
     assert!(
@@ -822,9 +825,9 @@ fn an_unusable_layer_does_not_hide_a_usable_one() {
     assert!(
         details.iter().any(|d| {
             d.contains("found but could not use")
-                && d.contains("~/.fxr/settings.json")
+                && d.contains("~/.xfx/settings.json")
                 && d.contains("loaded settings from")
-                && d.contains(".fxr.json")
+                && d.contains(".xfx.json")
         }),
         "doctor must report both the rejected and the loaded layer: {details:?}"
     );
@@ -854,7 +857,7 @@ fn a_directory_where_a_settings_file_belongs_is_found_but_unusable() {
 #[test]
 fn an_oversized_settings_file_is_found_but_unusable() {
     let sandbox = Sandbox::new();
-    let padding = "x".repeat(fxr::config::MAX_SETTINGS_BYTES + 1);
+    let padding = "x".repeat(xfx::config::MAX_SETTINGS_BYTES + 1);
     sandbox.write_user_settings(&format!("{{\"model\":\"{padding}\"}}"));
 
     let details = config_details(&sandbox.run(&["doctor", "--json"]).json());
@@ -893,8 +896,8 @@ fn doctor_reports_which_settings_layers_were_found() {
     sandbox.write_project_settings("{\"max_agent_steps\":7}");
     let both = sandbox.run(&["doctor", "--json"]).json();
     let detail = config_detail(&both);
-    assert!(detail.contains("~/.fxr/settings.json"), "got {detail}");
-    assert!(detail.contains(".fxr.json"), "got {detail}");
+    assert!(detail.contains("~/.xfx/settings.json"), "got {detail}");
+    assert!(detail.contains(".xfx.json"), "got {detail}");
     assert_eq!(both["model"], "vendor/from-profile");
     assert_eq!(both["agent_step_limit"], 7);
 }
@@ -919,7 +922,7 @@ fn precedence_runs_project_then_profile_then_exact_workspace_then_environment() 
 
     // Compiled default only.
     let config = RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &workspace).unwrap();
-    assert_eq!(config.max_agent_steps, fxr::config::DEFAULT_MAX_AGENT_STEPS);
+    assert_eq!(config.max_agent_steps, xfx::config::DEFAULT_MAX_AGENT_STEPS);
     assert_eq!(
         config.sources.max_agent_steps,
         SettingSource::CompiledDefault
@@ -948,7 +951,7 @@ fn precedence_runs_project_then_profile_then_exact_workspace_then_environment() 
 
     // The process environment wins over every file layer.
     let config = RuntimeConfig::load_with(
-        &environment(&sandbox.home, &[("FXR_MAX_AGENT_STEPS", "9")]),
+        &environment(&sandbox.home, &[("XFX_MAX_AGENT_STEPS", "9")]),
         &workspace,
     )
     .unwrap();
@@ -969,7 +972,7 @@ fn precedence_runs_project_then_profile_then_exact_workspace_then_environment() 
 fn an_environment_zero_selects_an_unbounded_step_limit() {
     let sandbox = Sandbox::new();
     let config = RuntimeConfig::load_with(
-        &environment(&sandbox.home, &[("FXR_MAX_AGENT_STEPS", "0")]),
+        &environment(&sandbox.home, &[("XFX_MAX_AGENT_STEPS", "0")]),
         &sandbox.workspace,
     )
     .unwrap();
@@ -977,7 +980,7 @@ fn an_environment_zero_selects_an_unbounded_step_limit() {
         config.max_agent_steps, 0,
         "explicit 0 must not fall back to the compiled default"
     );
-    assert_ne!(config.max_agent_steps, fxr::config::DEFAULT_MAX_AGENT_STEPS);
+    assert_ne!(config.max_agent_steps, xfx::config::DEFAULT_MAX_AGENT_STEPS);
     assert_eq!(
         config.sources.max_agent_steps,
         SettingSource::ProcessOverride
@@ -1022,7 +1025,7 @@ fn a_zero_step_limit_overrides_a_configured_bound_at_every_layer() {
 
     // And a configured zero is still overridable by a bounded environment value.
     let config = RuntimeConfig::load_with(
-        &environment(&sandbox.home, &[("FXR_MAX_AGENT_STEPS", "4")]),
+        &environment(&sandbox.home, &[("XFX_MAX_AGENT_STEPS", "4")]),
         &sandbox.workspace,
     )
     .unwrap();
@@ -1036,7 +1039,7 @@ fn a_zero_step_limit_overrides_a_configured_bound_at_every_layer() {
 #[test]
 fn status_and_doctor_report_an_unbounded_step_limit_as_zero() {
     let sandbox = Sandbox::new();
-    let env = [("FXR_MAX_AGENT_STEPS", "0")];
+    let env = [("XFX_MAX_AGENT_STEPS", "0")];
 
     let status = sandbox.run_with_env(&["status", "--json"], &env);
     assert_eq!(status.code, Some(0));
@@ -1081,7 +1084,7 @@ fn project_settings_cannot_set_profile_only_keys() {
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
 
-    assert_eq!(config.model, fxr::config::DEFAULT_MODEL);
+    assert_eq!(config.model, xfx::config::DEFAULT_MODEL);
     assert_eq!(config.permission_mode, PermissionMode::Auto);
     assert_eq!(config.max_agent_steps, 3, "project-scoped keys still apply");
 
@@ -1099,7 +1102,7 @@ fn a_blank_environment_override_does_not_displace_a_configured_value() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"model\":\"vendor/from-profile\"}");
     let config = RuntimeConfig::load_with(
-        &environment(&sandbox.home, &[("FXR_MODEL", "   ")]),
+        &environment(&sandbox.home, &[("XFX_MODEL", "   ")]),
         &sandbox.workspace,
     )
     .unwrap();
@@ -1110,11 +1113,11 @@ fn a_blank_environment_override_does_not_displace_a_configured_value() {
 #[test]
 fn an_oversized_settings_file_is_rejected_with_a_diagnostic() {
     let sandbox = Sandbox::new();
-    let padding = "x".repeat(fxr::config::MAX_SETTINGS_BYTES + 1);
+    let padding = "x".repeat(xfx::config::MAX_SETTINGS_BYTES + 1);
     sandbox.write_user_settings(&format!("{{\"model\":\"{padding}\"}}"));
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.model, fxr::config::DEFAULT_MODEL);
+    assert_eq!(config.model, xfx::config::DEFAULT_MODEL);
     assert!(
         config.diagnostics.iter().any(|d| d.is_too_large()),
         "an oversized layer must be reported, got {:?}",
@@ -1161,9 +1164,9 @@ fn config_load_never_creates_the_profile_directory() {
 
 #[test]
 fn the_advertised_command_inventory_matches_the_parser() {
-    let mut parsed = fxr::cli::parser_command_names();
+    let mut parsed = xfx::cli::parser_command_names();
     parsed.sort();
-    let mut advertised: Vec<String> = fxr::cli::ADVERTISED_COMMANDS
+    let mut advertised: Vec<String> = xfx::cli::ADVERTISED_COMMANDS
         .iter()
         .map(|name| (*name).to_string())
         .collect();
@@ -1177,7 +1180,7 @@ fn the_advertised_command_inventory_matches_the_parser() {
 #[test]
 fn every_advertised_command_has_an_implemented_parity_row() {
     let parity = fs::read_to_string(manifest_dir().join("docs/parity.md")).expect("read parity.md");
-    for name in fxr::cli::ADVERTISED_COMMANDS {
+    for name in xfx::cli::ADVERTISED_COMMANDS {
         let row = parity
             .lines()
             .find(|line| line.starts_with(&format!("| `{name}` | command |")))
@@ -1192,7 +1195,7 @@ fn every_advertised_command_has_an_implemented_parity_row() {
 #[test]
 fn every_deferred_command_row_stays_out_of_the_parser() {
     let parity = fs::read_to_string(manifest_dir().join("docs/parity.md")).expect("read parity.md");
-    let advertised = fxr::cli::parser_command_names();
+    let advertised = xfx::cli::parser_command_names();
     for line in parity.lines() {
         if !line.contains("| command |") || !line.contains("| deferred |") {
             continue;

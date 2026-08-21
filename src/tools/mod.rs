@@ -2,7 +2,7 @@
 //!
 //! The registry is a `static` table of four read-only specs. It is not
 //! configurable, not extensible at runtime, and not merged with anything: what
-//! fxr advertises to a model is this list, in this order, and the code that runs
+//! xfx advertises to a model is this list, in this order, and the code that runs
 //! is the same object that was advertised
 //! (`vercel-labs/fx@580a0c5d src/builtins/tools.zig:1351-1380`).
 //!
@@ -59,7 +59,7 @@ static BUILTIN_TOOLS: &[ToolSpec] = &[
     terminal::TERMINAL,
 ];
 
-/// A tool call fxr never offered.
+/// A tool call xfx never offered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnadvertisedTool {
     pub name: String,

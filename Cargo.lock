@@ -378,24 +378,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fxr"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "clap",
- "futures-util",
- "globset",
- "ignore",
- "reqwest",
- "rustix",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1683,6 +1665,24 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "xfx"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "clap",
+ "futures-util",
+ "globset",
+ "ignore",
+ "reqwest",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
 
 [[package]]
 name = "yoke"

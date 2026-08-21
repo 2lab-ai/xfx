@@ -50,7 +50,7 @@
 //! authority is configured rather than where the work is: `.git/config` is
 //! executable input to git, so a bounded workspace write followed by an
 //! admitted `git status` or `git diff` would be an arbitrary command with no
-//! approval anywhere on the path, and `.fxr` is the profile home an approval is
+//! approval anywhere on the path, and `.xfx` is the profile home an approval is
 //! recorded in. `yolo` can still run an explicitly approved terminal command
 //! that touches them -- the claim is about the typed file tools, which never
 //! rewrite their own or git's authority metadata.
@@ -626,7 +626,7 @@ mod namespace {
     //!
     //! 1. The authorized root itself is opened *by path*. A root replaced
     //!    between `AccessScope` construction and this open would be followed.
-    //!    The root is the directory the user pointed fxr at, so this is the same
+    //!    The root is the directory the user pointed xfx at, so this is the same
     //!    trust the invocation already rests on.
     //! 2. Between the final identity/digest revalidation and `renameat` there is
     //!    a window in which the target could be replaced again. `renameat` is
@@ -650,14 +650,14 @@ mod namespace {
     use crate::permission::{FileIdentity, MutationKind, MutationPlan, Preimage, TargetScope};
     use crate::workspace::AccessScope;
 
-    /// Permissions for a directory fxr creates, before the umask. `Mode`'s
+    /// Permissions for a directory xfx creates, before the umask. `Mode`'s
     /// underlying integer type differs by platform, so the bits are named rather
     /// than written as an octal literal.
     fn new_directory_mode() -> Mode {
         Mode::RWXU | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH
     }
 
-    /// Permissions for a file fxr creates, before the umask.
+    /// Permissions for a file xfx creates, before the umask.
     const NEW_FILE_MODE: u32 = 0o644;
 
     /// A target resolved down to a pinned parent directory and a final name.
@@ -743,7 +743,7 @@ mod namespace {
             ));
         }
 
-        // Rebuild the path from the components fxr accepted, so what is walked
+        // Rebuild the path from the components xfx accepted, so what is walked
         // and what is reported are the same string.
         let mut full = PathBuf::from("/");
         for component in &components {
@@ -776,12 +776,12 @@ mod namespace {
         }
 
         // Before policy, in every mode: the file tools do not rewrite the
-        // metadata that decides what fxr and git are allowed to do. This is
+        // metadata that decides what xfx and git are allowed to do. This is
         // structural rather than a rule, so no mode, rule, or standing approval
         // can reach past it.
         if let Some(protected) = protected_component(&relative) {
             return Err(format!(
-                "{tool} refused the path: `{trimmed}` passes through `{protected}`, which holds repository or fxr metadata; \
+                "{tool} refused the path: `{trimmed}` passes through `{protected}`, which holds repository or xfx metadata; \
                  the file tools never change it in any permission mode, because a `{protected}` entry decides what later commands are allowed to run"
             ));
         }
@@ -851,13 +851,13 @@ mod namespace {
         )
     }
 
-    /// Turns a failed `openat` into a sentence that says what fxr found.
+    /// Turns a failed `openat` into a sentence that says what xfx found.
     ///
     /// The entry is inspected rather than the errno translated, because the two
-    /// platforms fxr targets disagree: `openat(..., O_DIRECTORY | O_NOFOLLOW)`
+    /// platforms xfx targets disagree: `openat(..., O_DIRECTORY | O_NOFOLLOW)`
     /// on a symbolic link reports `ELOOP` on Linux and `ENOTDIR` on macOS. A
     /// message derived from the errno alone would therefore call the same link
-    /// two different things depending on where fxr was built.
+    /// two different things depending on where xfx was built.
     fn describe(parent: BorrowedFd<'_>, component: &OsStr, err: Errno) -> String {
         let name = component.to_string_lossy();
         match err {
@@ -892,7 +892,7 @@ mod namespace {
     /// `max_bytes` is checked against the *stat*, before a byte is allocated. A
     /// mutation has to hold the whole preimage in memory -- it is hashed, and an
     /// edit builds its postimage from it -- so an unbounded read here would let
-    /// one `edit_file` on a large file exhaust fxr's memory before policy had
+    /// one `edit_file` on a large file exhaust xfx's memory before policy had
     /// even been asked. The bound is the same ceiling a complete `read_file`
     /// runs under, which is not a coincidence: an existing target needs a
     /// complete read proof, and a file above that ceiling can never have one, so
@@ -1106,12 +1106,12 @@ mod namespace {
         mode: u32,
     ) -> Result<Staged<'a>, ApplyError> {
         let name = OsString::from(format!(
-            ".fxr-stage-{}-{}",
+            ".xfx-stage-{}-{}",
             std::process::id(),
             STAGE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         // `O_EXCL` so a staging name that somehow already exists is an error
-        // rather than something fxr silently overwrites.
+        // rather than something xfx silently overwrites.
         let fd = rustix::fs::openat(
             parent,
             name.as_os_str(),
@@ -1160,7 +1160,7 @@ mod namespace {
     use crate::workspace::AccessScope;
 
     const UNSUPPORTED: &str =
-        "refused the path: fxr changes files only on Unix, where a target can be opened relative to a verified directory";
+        "refused the path: xfx changes files only on Unix, where a target can be opened relative to a verified directory";
 
     pub struct Location {
         full: std::path::PathBuf,

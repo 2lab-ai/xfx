@@ -1,4 +1,4 @@
-//! The `fxr` executable.
+//! The `xfx` executable.
 //!
 //! This file parses arguments, starts the async runtime, and maps an outcome to
 //! an exit code. All behavior lives behind `app::run`, so there is no second
@@ -7,11 +7,11 @@
 use std::io::Write;
 use std::process::ExitCode;
 
-use fxr::app;
-use fxr::cli::Cli;
+use xfx::app;
+use xfx::cli::Cli;
 
 fn main() -> ExitCode {
-    // A current-thread runtime: fxr drives one turn at a time and never spawns
+    // A current-thread runtime: xfx drives one turn at a time and never spawns
     // work that outlives the command, so a worker pool would add threads
     // without adding throughput.
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -32,6 +32,6 @@ fn main() -> ExitCode {
 fn fail(message: &str) -> ExitCode {
     // Written directly rather than through `eprintln!` so a closed stderr
     // cannot panic on the way out.
-    let _ = writeln!(std::io::stderr(), "fxr: {message}");
+    let _ = writeln!(std::io::stderr(), "xfx: {message}");
     ExitCode::FAILURE
 }

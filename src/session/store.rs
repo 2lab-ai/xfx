@@ -92,7 +92,7 @@ const MAX_SCANNED_SESSIONS: usize = 5_000;
 const MAX_TITLE_BYTES: usize = 80;
 
 /// The tail every staged manifest name ends in, so a leftover one is
-/// recognizable as fxr's and never mistaken for session state.
+/// recognizable as xfx's and never mistaken for session state.
 pub const STAGE_SUFFIX: &str = ".staged";
 
 // ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ pub enum SessionError {
     /// A directory the store lives in is not a plain, private, owned directory.
     ///
     /// Separate from [`Self::InsecurePermissions`] because the consequence is
-    /// different: a symlinked or foreign-owned `~/.fxr` does not leak one file,
+    /// different: a symlinked or foreign-owned `~/.xfx` does not leak one file,
     /// it redirects or exposes the whole store.
     InsecureParent { path: PathBuf, detail: String },
     /// The store cannot be used at all: no home directory, or a read-only store
@@ -248,7 +248,7 @@ impl fmt::Display for SessionError {
             ),
             Self::Busy { id } => write!(
                 f,
-                "session `{id}` is already open for writing by another fxr process; \
+                "session `{id}` is already open for writing by another xfx process; \
                  finish or stop that turn first, or start a new session"
             ),
             Self::LogDiverged {
@@ -257,13 +257,13 @@ impl fmt::Display for SessionError {
                 actual,
             } => write!(
                 f,
-                "session `{id}` was {expected} bytes when fxr opened it and is {actual} now, \
+                "session `{id}` was {expected} bytes when xfx opened it and is {actual} now, \
                  so something else is writing to it; this turn was not recorded"
             ),
             Self::InsecurePermissions { path, mode } => write!(
                 f,
                 "{} is mode {mode:o}, but session state must be private to its owner; \
-                 fxr will not write through a file other accounts can read",
+                 xfx will not write through a file other accounts can read",
                 path.display()
             ),
             Self::InsecureParent { path, detail } => {
@@ -759,7 +759,7 @@ pub struct SessionList {
     /// are sessions this listing did not even consider.
     ///
     /// Separate from `has_more` because the two mean different things to a user:
-    /// one says "ask for more", the other says "this store is bigger than fxr
+    /// one says "ask for more", the other says "this store is bigger than xfx
     /// will look at in one go".
     pub truncated: bool,
     /// How many session directories were skipped because they could not be
@@ -798,7 +798,7 @@ pub struct Resumed {
     pub rebound: bool,
 }
 
-/// `~/.fxr/sessions`, and everything that may be done to it.
+/// `~/.xfx/sessions`, and everything that may be done to it.
 #[derive(Debug, Clone)]
 pub struct SessionStore {
     profile_dir: PathBuf,
@@ -812,7 +812,7 @@ impl SessionStore {
     /// Opens the store for writing, creating the private directories it needs.
     ///
     /// Both directories are checked before they are used, not only when they are
-    /// created: a `~/.fxr` that has become a symlink, or that someone else owns,
+    /// created: a `~/.xfx` that has become a symlink, or that someone else owns,
     /// or that the group can write, redirects or exposes the entire store rather
     /// than one file, so it is refused instead of repaired.
     pub fn open(profile_dir: &Path) -> Result<Self, SessionError> {
@@ -964,7 +964,7 @@ impl SessionStore {
         let log_path = session.dir.join(EVENTS_FILE);
         // The offset this append is about to claim has to still mean what it
         // meant when the handle was opened. The advisory lock keeps another
-        // *fxr* out; this keeps anything else -- an editor, a sync client, a
+        // *xfx* out; this keeps anything else -- an editor, a sync client, a
         // second writer on a filesystem that does not honor `flock` -- from
         // being written over in silence. Refusing here is what makes the log's
         // "one writer per session" claim a checked fact rather than a hope.
@@ -1007,7 +1007,7 @@ impl SessionStore {
         session.next_seq += 1;
         session.event_ids.insert(envelope.event_id.clone());
 
-        // The event fxr just wrote is one fxr built, so a reduction failure here
+        // The event xfx just wrote is one xfx built, so a reduction failure here
         // is a defect rather than a bad input. It still fails closed: the
         // session stops accepting writes and the unpublished bytes stay
         // invisible to every reader.
@@ -1069,7 +1069,7 @@ impl SessionStore {
     /// The whole directory is read and sorted *before* anything is dropped. A
     /// cap applied to `read_dir`'s own order would make which sessions exist a
     /// function of the filesystem's iteration order, which is the worst possible
-    /// answer: `fxr session last` would silently continue an arbitrary old
+    /// answer: `xfx session last` would silently continue an arbitrary old
     /// conversation on one run and a different one on the next.
     ///
     /// When the cap does bite, the *lexicographically greatest* names survive.
@@ -1080,7 +1080,7 @@ impl SessionStore {
     pub fn list(&self, filter: &ListFilter) -> Result<SessionList, SessionError> {
         // Before `read_dir`, and on both directories. Checking after the open
         // would mean following the link first and objecting afterwards, and
-        // checking only `sessions` would leave a swapped `~/.fxr` unexamined --
+        // checking only `sessions` would leave a swapped `~/.xfx` unexamined --
         // which redirects `sessions` along with everything else under it.
         self.verify_store_dirs()?;
 
@@ -1158,8 +1158,8 @@ impl SessionStore {
     ) -> Result<SessionDetail, SessionError> {
         // At the entry, for every selector. `Selector::Last` reaches this check
         // through `list`, but an exact id does not go anywhere near a listing --
-        // so relying on that would mean `fxr session --id X` read through a
-        // swapped `~/.fxr` that `fxr sessions` had already refused.
+        // so relying on that would mean `xfx session --id X` read through a
+        // swapped `~/.xfx` that `xfx sessions` had already refused.
         self.verify_store_dirs()?;
         let id = self.resolve(selector, workspace)?;
         let manifest = self.read_manifest(&id)?;
@@ -1255,7 +1255,7 @@ impl SessionStore {
 
     /// Checks both directories the store lives in, outermost first.
     ///
-    /// Both, because they nest: a safe `sessions` inside a symlinked `~/.fxr` is
+    /// Both, because they nest: a safe `sessions` inside a symlinked `~/.xfx` is
     /// not safe, it is somebody else's `sessions`. Outermost first, so the
     /// diagnostic names the outer problem rather than a symptom of it.
     ///
@@ -1277,7 +1277,7 @@ impl SessionStore {
                 let Some(summary) = listed.sessions.first() else {
                     return Err(SessionError::NoSession {
                         detail: format!(
-                            "no saved session belongs to {}; run `fxr ask` here first, \
+                            "no saved session belongs to {}; run `xfx ask` here first, \
                              or name a session id",
                             workspace.display()
                         ),
@@ -1300,7 +1300,7 @@ impl SessionStore {
     /// A listing entry, from the manifest alone.
     ///
     /// The log is stat'ed but not read: a listing is a projection, and paying
-    /// for a full replay per row would make `fxr sessions` cost the whole store.
+    /// for a full replay per row would make `xfx sessions` cost the whole store.
     fn summary_of(&self, id: &SessionId) -> Result<SessionSummary, SessionError> {
         let manifest = self.read_manifest(id)?;
         let log = self.session_dir(id).join(EVENTS_FILE);
@@ -1328,7 +1328,7 @@ impl SessionStore {
             Ok(metadata) if metadata.is_dir() => {}
             Ok(_) => {
                 return Err(corrupt(
-                    "the session path is not a directory; fxr will not follow it".to_string(),
+                    "the session path is not a directory; xfx will not follow it".to_string(),
                 ))
             }
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
@@ -1469,7 +1469,7 @@ pub struct WritableSession {
     event_ids: BTreeSet<String>,
     state: DurableState,
     manifest: Option<SessionManifest>,
-    /// Set when an append produced a state fxr could not reduce. The session
+    /// Set when an append produced a state xfx could not reduce. The session
     /// then accepts nothing more, so the damage cannot be published.
     poisoned: Option<String>,
 }
@@ -1523,7 +1523,7 @@ impl WritableSession {
 /// Persistence is best-effort *from the turn's point of view*: a failure is
 /// remembered here and reported by the caller rather than changing the turn's
 /// outcome. That is the honest split. The user's answer already arrived; the
-/// truthful report is "here is your answer, and fxr could not record it", not a
+/// truthful report is "here is your answer, and xfx could not record it", not a
 /// turn retroactively declared to have failed. Nothing is silently lost either:
 /// unpublished bytes are invisible, so a partial record is never resumed as a
 /// whole one.
@@ -1587,7 +1587,7 @@ impl TurnJournal for SessionRecorder {
 /// Every refusal here is a structural impossibility rather than a taste: an
 /// assistant step with no turn to belong to, a turn that concludes twice, a
 /// rebind that names a binding the session never had. A log that contains one is
-/// not a log fxr wrote.
+/// not a log xfx wrote.
 fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), String> {
     let is_start = matches!(envelope.event, SessionEvent::SessionStarted { .. });
     if (envelope.seq == 1) != is_start {
@@ -1728,11 +1728,11 @@ pub fn workspace_key(path: &Path) -> String {
 
 /// Ensures `path` is a real, private, owned directory, creating it if absent.
 ///
-/// The existing case is checked rather than trusted. `~/.fxr` and
-/// `~/.fxr/sessions` are the two directories every session's privacy rests on:
+/// The existing case is checked rather than trusted. `~/.xfx` and
+/// `~/.xfx/sessions` are the two directories every session's privacy rests on:
 /// if one is a symlink, every later `0600` file is created wherever the link
 /// points; if another account owns it or can write it, that account chooses what
-/// fxr resumes. Neither is repaired -- silently `chmod`ing a directory fxr does
+/// xfx resumes. Neither is repaired -- silently `chmod`ing a directory xfx does
 /// not own would be a worse answer than stopping.
 fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
     match fs::symlink_metadata(path) {
@@ -1750,7 +1750,7 @@ fn ensure_private_dir(path: &Path) -> Result<(), SessionError> {
             set_private_dir_mode(path)?;
             verify_store_dir(path)
         }
-        // Lost a race with another fxr creating the same directory. It still
+        // Lost a race with another xfx creating the same directory. It still
         // has to pass the same check.
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => verify_store_dir(path),
         Err(err) => Err(io_error(path, err)),
@@ -1777,7 +1777,7 @@ fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
     };
     if metadata.file_type().is_symlink() {
         return insecure(
-            "it is a symbolic link, and fxr will not follow one to decide where session state lives"
+            "it is a symbolic link, and xfx will not follow one to decide where session state lives"
                 .to_string(),
         );
     }
@@ -1788,7 +1788,7 @@ fn verify_store_dir(path: &Path) -> Result<(), SessionError> {
     let current = rustix::process::geteuid().as_raw();
     if owner != current {
         return insecure(format!(
-            "it is owned by uid {owner}, not by uid {current} running fxr"
+            "it is owned by uid {owner}, not by uid {current} running xfx"
         ));
     }
     let mode = metadata.permissions().mode() & 0o777;
@@ -1872,7 +1872,7 @@ impl Drop for StagedFile {
 /// `<name>.new` would have to be deleted before use, and deleting a fixed name
 /// means deleting a file another writer may be in the middle of -- the exact
 /// interference the writer lock exists to prevent, reintroduced by the cleanup
-/// path. fxr therefore never unlinks a stage it did not create; a leftover one
+/// path. xfx therefore never unlinks a stage it did not create; a leftover one
 /// from a killed process is inert (it is not `session.json`, so no reader looks
 /// at it) and is reported by `doctor` rather than silently removed.
 fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), SessionError> {
@@ -1918,7 +1918,7 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 ///   session twice in one process is refused too, which is what makes the
 ///   guarantee testable without spawning anything.
 ///
-/// It is advisory: it stops fxr, not `cat`. That is why [`SessionStore::append`]
+/// It is advisory: it stops xfx, not `cat`. That is why [`SessionStore::append`]
 /// also verifies the log's length before every write -- the lock is the polite
 /// mechanism, the length check is the one that cannot be talked out of.
 #[cfg(unix)]
@@ -1926,7 +1926,7 @@ fn lock_exclusive(file: &File, path: &Path, id: &SessionId) -> Result<(), Sessio
     use rustix::fs::{flock, FlockOperation};
     match flock(file, FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => Ok(()),
-        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform fxr
+        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform xfx
         // builds for, so matching one covers both.
         Err(rustix::io::Errno::WOULDBLOCK) => Err(SessionError::Busy {
             id: id.as_str().to_string(),

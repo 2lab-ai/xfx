@@ -28,13 +28,13 @@ use std::process::{Command, Output};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use fxr::config::PermissionMode;
-use fxr::gateway::protocol::Role;
-use fxr::session::{
+use xfx::config::PermissionMode;
+use xfx::gateway::protocol::Role;
+use xfx::session::{
     Clock, ListFilter, ListScope, NewSession, RecordedToolCall, Selector, SessionError,
     SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE, MANIFEST_FILE,
 };
-use fxr::workspace::{AccessScope, ProjectContext};
+use xfx::workspace::{AccessScope, ProjectContext};
 
 use support::fake_gateway::{
     content_only, finish, sse_body, text_delta, tool_call, FakeGateway, Reply,
@@ -44,14 +44,14 @@ use support::fake_gateway::{
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
-    "FXR_GATEWAY_URL",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
 ];
 
 /// A test secret that must never reach a session file, stdout, or stderr.
-const TEST_KEY: &str = "fxr-test-session-key-must-not-appear";
+const TEST_KEY: &str = "xfx-test-session-key-must-not-appear";
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -71,7 +71,7 @@ impl Profile {
             .path()
             .canonicalize()
             .expect("canonicalize")
-            .join(".fxr");
+            .join(".xfx");
         Self {
             _root: root,
             dir,
@@ -717,7 +717,7 @@ fn the_writer_lock_is_released_when_the_handle_is_dropped() {
 
     drop(session);
     // No explicit unlock anywhere: closing the file is what releases it, which
-    // is why a killed fxr cannot leave a session locked forever.
+    // is why a killed xfx cannot leave a session locked forever.
     let resumed = profile
         .store()
         .resume(&Selector::Id(id("released")), workspace.path())
@@ -772,7 +772,7 @@ fn a_log_that_changed_underneath_an_open_writer_refuses_the_next_append() {
 
 #[test]
 fn a_foreign_staged_manifest_is_left_alone_and_does_not_block_publishing() {
-    // A crashed writer's stage file is inert, and fxr never unlinks one it did
+    // A crashed writer's stage file is inert, and xfx never unlinks one it did
     // not create -- deleting a fixed stage name is how a cleanup path turns into
     // the interference the writer lock exists to prevent.
     let profile = Profile::new();
@@ -799,14 +799,14 @@ fn a_foreign_staged_manifest_is_left_alone_and_does_not_block_publishing() {
 
     assert!(
         foreign.exists(),
-        "fxr must not remove another writer's stage"
+        "xfx must not remove another writer's stage"
     );
     assert_eq!(
         fs::read_to_string(&foreign).expect("read"),
         "not mine\n",
         "nor overwrite it"
     );
-    // And no stage of fxr's own survives a successful publish.
+    // And no stage of xfx's own survives a successful publish.
     let leftovers: Vec<String> = fs::read_dir(&dir)
         .expect("read the session dir")
         .map(|entry| {
@@ -841,14 +841,14 @@ fn a_foreign_staged_manifest_is_left_alone_and_does_not_block_publishing() {
 fn a_symlinked_profile_or_sessions_directory_is_refused() {
     use std::os::unix::fs::symlink;
 
-    for link_name in [".fxr", "sessions"] {
+    for link_name in [".xfx", "sessions"] {
         let root = TempDir::new().expect("root");
         let base = root.path().canonicalize().expect("canonicalize");
         let elsewhere = base.join("elsewhere");
         fs::create_dir_all(&elsewhere).expect("create the link target");
-        let profile = base.join(".fxr");
+        let profile = base.join(".xfx");
 
-        if link_name == ".fxr" {
+        if link_name == ".xfx" {
             symlink(&elsewhere, &profile).expect("symlink the profile dir");
         } else {
             use std::os::unix::fs::PermissionsExt;
@@ -870,7 +870,7 @@ fn a_symlinked_profile_or_sessions_directory_is_refused() {
         // Nothing was written through the link.
         assert!(
             fs::read_dir(&elsewhere).expect("read").next().is_none(),
-            "{link_name}: fxr wrote through the link"
+            "{link_name}: xfx wrote through the link"
         );
     }
 }
@@ -911,7 +911,7 @@ fn a_group_or_world_reachable_store_directory_is_refused() {
 fn a_file_where_the_profile_directory_belongs_is_refused() {
     let root = TempDir::new().expect("root");
     let base = root.path().canonicalize().expect("canonicalize");
-    let profile = base.join(".fxr");
+    let profile = base.join(".xfx");
     fs::write(&profile, "not a directory\n").expect("occupy the path");
 
     let err = SessionStore::open(&profile).expect_err("a file is not a store");
@@ -1351,7 +1351,7 @@ fn context_never_reads_an_additional_root_or_a_claude_file() {
     let rendered = context.render();
     assert!(
         !rendered.contains("CLAUDE RULE"),
-        "fxr does not claim to read CLAUDE.md: {rendered}"
+        "xfx does not claim to read CLAUDE.md: {rendered}"
     );
     assert!(!rendered.contains("CLAUDE.md"), "{rendered}");
     assert!(!rendered.contains("ADDED ROOT RULE"), "{rendered}");
@@ -1417,7 +1417,7 @@ impl Sandbox {
     }
 
     fn profile_dir(&self) -> PathBuf {
-        self.home.join(".fxr")
+        self.home.join(".xfx")
     }
 
     fn sessions_dir(&self) -> PathBuf {
@@ -1445,7 +1445,7 @@ impl Sandbox {
         self.run_in(&self.workspace.clone(), args, env)
     }
 
-    /// Every byte fxr wrote under the profile home, file by file.
+    /// Every byte xfx wrote under the profile home, file by file.
     ///
     /// Used for the secret scan: checking only `events.jsonl` would miss a
     /// manifest, a staged temporary, or anything a later change adds.
@@ -1469,7 +1469,7 @@ impl Sandbox {
     }
 
     fn run_in(&self, cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(cwd);
         command.env("HOME", &self.home);
         for key in CONTROLLED_VARS {
@@ -1479,7 +1479,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn fxr"))
+        Run::of(command.output().expect("spawn xfx"))
     }
 }
 
@@ -1515,7 +1515,7 @@ impl Run {
 }
 
 fn gateway_env<'a>(gateway: &'a str, key: &'a str) -> Vec<(&'a str, &'a str)> {
-    vec![("AI_GATEWAY_API_KEY", key), ("FXR_GATEWAY_URL", gateway)]
+    vec![("AI_GATEWAY_API_KEY", key), ("XFX_GATEWAY_URL", gateway)]
 }
 
 #[test]
@@ -1534,7 +1534,7 @@ fn ask_saves_a_turn_by_default_and_no_save_writes_nothing() {
     let log = fs::read_to_string(dir.join(EVENTS_FILE)).expect("read log");
     assert!(log.contains("remember this"), "{log}");
     assert!(log.contains("saved answer"), "{log}");
-    // Not one file: everything fxr wrote under the profile home, so a manifest
+    // Not one file: everything xfx wrote under the profile home, so a manifest
     // or a staged temporary cannot hold what the log does not.
     let written = sandbox.profile_bytes();
     assert!(!written.is_empty(), "the turn must have written something");
@@ -1781,7 +1781,7 @@ fn sessions_and_session_report_the_same_facts_as_text_and_json() {
 }
 
 #[test]
-fn a_second_fxr_process_is_refused_and_leaves_the_first_session_replayable() {
+fn a_second_xfx_process_is_refused_and_leaves_the_first_session_replayable() {
     // The real thing: another operating-system process, not another handle.
     let sandbox = Sandbox::new();
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["recorded"]))]);
@@ -1795,7 +1795,7 @@ fn a_second_fxr_process_is_refused_and_leaves_the_first_session_replayable() {
     let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
     drop(gateway);
 
-    // Hold the session open here, then ask a real `fxr` to resume the same one.
+    // Hold the session open here, then ask a real `xfx` to resume the same one.
     let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
     let held = store
         .resume(&Selector::Id(id(&session_id)), &sandbox.workspace)
@@ -1982,7 +1982,7 @@ fn a_standing_mutation_grant_is_keyed_by_the_file_it_approved() {
     let gateway = FakeGateway::start(write_file_turn("notes.md"));
     let url = gateway.chat_url();
     let mut env = gateway_env(&url, TEST_KEY);
-    env.push(("FXR_PERMISSION_MODE", "ask"));
+    env.push(("XFX_PERMISSION_MODE", "ask"));
     let run = sandbox.run(
         &["ask", "--json", "--resume-id", &session_id, "rewrite it"],
         &env,
@@ -2037,7 +2037,7 @@ fn a_standing_mutation_grant_does_not_follow_an_exact_id_into_another_workspace(
     let gateway = FakeGateway::start(write_file_turn("notes.md"));
     let url = gateway.chat_url();
     let mut env = gateway_env(&url, TEST_KEY);
-    env.push(("FXR_PERMISSION_MODE", "ask"));
+    env.push(("XFX_PERMISSION_MODE", "ask"));
     let run = sandbox.run_in(
         &elsewhere,
         &["ask", "--json", "--resume-id", &session_id, "rewrite it"],
@@ -2065,7 +2065,7 @@ fn a_standing_mutation_grant_does_not_follow_an_exact_id_into_another_workspace(
 #[test]
 fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
     // A manifest is a file, and a file is something that can be written by
-    // something other than fxr. Every session-controlled value therefore reaches
+    // something other than xfx. Every session-controlled value therefore reaches
     // the text renderer flattened.
     let sandbox = Sandbox::new();
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
@@ -2282,8 +2282,8 @@ fn reading_through_a_symlinked_profile_directory_is_refused_by_every_read_comman
 
     let (sandbox, session_id) = sandbox_with_one_session();
     // Move the real store aside and leave a link where it was: the shape a
-    // swapped `~/.fxr` has.
-    let real = sandbox.home.join(".fxr-real");
+    // swapped `~/.xfx` has.
+    let real = sandbox.home.join(".xfx-real");
     fs::rename(sandbox.profile_dir(), &real).expect("move the store aside");
     symlink(&real, sandbox.profile_dir()).expect("symlink the profile dir");
 
@@ -2306,7 +2306,7 @@ fn reading_through_a_symlinked_profile_directory_is_refused_by_every_read_comman
             run.stderr
         );
         assert!(
-            run.stderr.contains(".fxr"),
+            run.stderr.contains(".xfx"),
             "{args:?} must name the directory: {:?}",
             run.stderr
         );
@@ -2323,9 +2323,9 @@ fn reading_through_a_symlinked_profile_directory_is_refused_by_every_read_comman
 fn reading_through_a_group_reachable_store_is_refused_by_every_read_command() {
     use std::os::unix::fs::PermissionsExt;
 
-    for (dir_name, mode) in [(".fxr", 0o750), ("sessions", 0o755), (".fxr", 0o707)] {
+    for (dir_name, mode) in [(".xfx", 0o750), ("sessions", 0o755), (".xfx", 0o707)] {
         let (sandbox, session_id) = sandbox_with_one_session();
-        let target = if dir_name == ".fxr" {
+        let target = if dir_name == ".xfx" {
             sandbox.profile_dir()
         } else {
             sandbox.sessions_dir()

@@ -1,9 +1,9 @@
-//! The interactive shell: what a bare `fxr` runs.
+//! The interactive shell: what a bare `xfx` runs.
 //!
 //! It is deliberately not a full-screen TUI. It never takes the alternate
 //! screen, never puts the terminal in raw mode, and never repaints anything it
 //! has already written, so the transcript above it stays exactly where the user
-//! left it and every line fxr prints is scrollback afterwards. Line editing is
+//! left it and every line xfx prints is scrollback afterwards. Line editing is
 //! the terminal's own: the kernel's canonical mode already provides backspace,
 //! word erase, and line kill, and a shell that took those over would have to
 //! restore a terminal it had changed. This one has nothing to restore
@@ -54,21 +54,21 @@ pub const SLASH_COMMANDS: &[&str] = &[
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
 
-/// Why fxr will not open a shell here.
-pub const NO_TERMINAL: &str = "fxr requires an interactive terminal (TTY); \
-     run `fxr ask <prompt>` when there is not one";
+/// Why xfx will not open a shell here.
+pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
+     run `xfx ask <prompt>` when there is not one";
 
-/// Why fxr will not open a shell it could not record.
-pub const NO_STORE: &str = "fxr cannot record a conversation because no home directory is set; \
-     run `fxr ask --no-save <prompt>` to ask without recording";
+/// Why xfx will not open a shell it could not record.
+pub const NO_STORE: &str = "xfx cannot record a conversation because no home directory is set; \
+     run `xfx ask --no-save <prompt>` to ask without recording";
 
-/// What fxr says on the interrupt that ends it.
-pub const LEAVING_NOTICE: &str = "fxr: interrupted -- leaving.";
+/// What xfx says on the interrupt that ends it.
+pub const LEAVING_NOTICE: &str = "xfx: interrupted -- leaving.";
 
 /// The exit status of a process that stopped because it was interrupted.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
 
-/// The most bytes of a mistyped command fxr quotes back.
+/// The most bytes of a mistyped command xfx quotes back.
 ///
 /// A slash command is a word, and a word that runs past this is not a typo the
 /// user needs to see in full -- it is something pasted, and the part of the
@@ -187,7 +187,7 @@ pub fn classify(line: &str) -> Submitted {
 /// The exact refusal for a slash command that does not exist.
 ///
 /// The token is quoted back so a user can see their typo, and it is the one
-/// thing on this line that fxr did not write. It therefore goes through
+/// thing on this line that xfx did not write. It therefore goes through
 /// [`safe_one_line`] first: a line beginning `/` and continuing with an escape
 /// sequence would otherwise be echoed straight back and *obeyed* by the
 /// terminal -- clearing the screen, retitling the window, moving the cursor --
@@ -196,14 +196,14 @@ pub fn classify(line: &str) -> Submitted {
 /// reader still has to be able to see where the quoted text stops.
 pub fn unknown_command_message(token: &str) -> String {
     format!(
-        "fxr: `{}` is not an fxr command; /help lists the six it has",
+        "xfx: `{}` is not an xfx command; /help lists the six it has",
         safe_one_line(token, MAX_QUOTED_COMMAND_BYTES)
     )
 }
 
 /// The `/help` page.
 pub fn help_text() -> String {
-    let mut out = String::from("fxr shell commands\n");
+    let mut out = String::from("xfx shell commands\n");
     for name in SLASH_COMMANDS {
         let command = Slash::parse(name).expect("every advertised slash command parses");
         let _ = writeln!(out, "  {:<9} {}", command.name(), command.summary());
@@ -391,13 +391,13 @@ pub async fn run(
         writeln!(diagnostics, "{NO_STORE}")?;
         return Ok(ExitCode::from(1));
     };
-    // Opened now rather than at the first prompt: "fxr cannot write here" is a
+    // Opened now rather than at the first prompt: "xfx cannot write here" is a
     // fact about the machine, and the moment to say it is before the user has
     // typed a paragraph they are about to lose.
     let store = match SessionStore::open(&profile_dir) {
         Ok(store) => store,
         Err(err) => {
-            writeln!(diagnostics, "fxr: {err}")?;
+            writeln!(diagnostics, "xfx: {err}")?;
             return Ok(ExitCode::from(1));
         }
     };
@@ -484,7 +484,7 @@ pub async fn run(
                     slot @ None => match open_conversation(&store, config, &model, mode, &cancel) {
                         Ok(opened) => slot.insert(opened),
                         Err(message) => {
-                            report_turn_failure(format!("fxr: {message}"))?;
+                            report_turn_failure(format!("xfx: {message}"))?;
                             continue;
                         }
                     },
@@ -495,7 +495,7 @@ pub async fn run(
     }
 }
 
-/// Runs exactly one turn, the same way `fxr ask` runs its one.
+/// Runs exactly one turn, the same way `xfx ask` runs its one.
 async fn one_turn(
     provider: &GatewayProvider,
     conversation: &mut Conversation,
@@ -547,7 +547,7 @@ async fn one_turn(
     interrupts.end_turn();
 
     // Approvals given during the turn become durable once, after it, so an
-    // "always" answer survives to the next `fxr ask --resume-id <id>`.
+    // "always" answer survives to the next `xfx ask --resume-id <id>`.
     let new_grants: Vec<_> = conversation
         .tools
         .permissions()
@@ -565,7 +565,7 @@ async fn one_turn(
             });
     }
     if let Some(failure) = conversation.recorder.failure() {
-        writeln!(io::stderr(), "fxr: {failure}")?;
+        writeln!(io::stderr(), "xfx: {failure}")?;
     }
     Ok(())
 }
@@ -610,7 +610,7 @@ fn read_line() -> io::Result<Option<String>> {
         // Not fatal: the bytes that were not text are gone, and the shell says
         // so and reads the next line rather than exiting on a stray paste.
         Err(err) if err.kind() == io::ErrorKind::InvalidData => {
-            writeln!(io::stderr(), "fxr: that line was not valid UTF-8; ignored")?;
+            writeln!(io::stderr(), "xfx: that line was not valid UTF-8; ignored")?;
             Ok(Some(String::new()))
         }
         Err(err) => Err(err),
@@ -633,7 +633,7 @@ fn apply_model(
         return Ok(current);
     }
     if let Some(problem) = model_id_problem(argument) {
-        writeln!(io::stderr(), "fxr: {problem}")?;
+        writeln!(io::stderr(), "xfx: {problem}")?;
         return Ok(current);
     }
     if argument == current {
@@ -672,11 +672,11 @@ fn version_line() -> String {
     let build = crate::build_info();
     match build.revision {
         Some(revision) => format!(
-            "fxr {} ({}, revision {revision})",
+            "xfx {} ({}, revision {revision})",
             crate::VERSION,
             build.channel
         ),
-        None => format!("fxr {} ({})", crate::VERSION, build.channel),
+        None => format!("xfx {} ({})", crate::VERSION, build.channel),
     }
 }
 
@@ -793,15 +793,15 @@ mod tests {
         );
         assert_eq!(
             unknown_command_message("/nonesuch"),
-            "fxr: `/nonesuch` is not an fxr command; /help lists the six it has"
+            "xfx: `/nonesuch` is not an xfx command; /help lists the six it has"
         );
     }
 
     #[test]
     fn a_refusal_never_quotes_back_a_control_character() {
-        // A line beginning `/` is echoed by the terminal *and* quoted by fxr.
-        // The echo is the terminal's own business; the quote is fxr's, and it
-        // must not be a way to make fxr clear the screen, retitle the window,
+        // A line beginning `/` is echoed by the terminal *and* quoted by xfx.
+        // The echo is the terminal's own business; the quote is xfx's, and it
+        // must not be a way to make xfx clear the screen, retitle the window,
         // or move the cursor on the user's behalf.
         let hostile = "/\u{1b}[2J\u{1b}]0;pwned\u{7}\u{1b}[H";
         let message = unknown_command_message(hostile);
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn the_refusals_say_what_to_do_instead() {
-        assert!(NO_TERMINAL.contains("fxr ask"));
+        assert!(NO_TERMINAL.contains("xfx ask"));
         assert!(NO_STORE.contains("--no-save"));
     }
 

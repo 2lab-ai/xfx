@@ -63,8 +63,8 @@ use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
 
 /// The first backoff, doubled per failed attempt when the server names no delay.
 ///
-/// An fxr value. Upstream backs off linearly from 150 ms
-/// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:180`, `:1827-1830`); fxr
+/// An xfx value. Upstream backs off linearly from 150 ms
+/// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:180`, `:1827-1830`); xfx
 /// starts a little later and doubles, so a second failure costs the server less.
 const RETRY_BACKOFF_BASE: Duration = Duration::from_millis(250);
 
@@ -421,7 +421,7 @@ impl TurnMachine {
 
         // The assistant turn goes in exactly as the provider sent it: its text,
         // then its calls in order. The next request has to show the model what
-        // it asked for, not fxr's paraphrase of it.
+        // it asked for, not xfx's paraphrase of it.
         self.suffix.push(Message::assistant(
             Some(&completion.text),
             completion.tool_calls.clone(),

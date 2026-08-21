@@ -3,7 +3,7 @@
 //! A [`ToolSpec`] is a `const` value. It owns its name, its description, its
 //! closed JSON schema, its decoder, its validator, its permission kind, and its
 //! executor, and none of them can be replaced at runtime. That is deliberate:
-//! the schema fxr advertises and the code that runs when the model uses it are
+//! the schema xfx advertises and the code that runs when the model uses it are
 //! the same object, so they cannot drift apart, and no caller can add a tool the
 //! parity ledger has not accounted for
 //! (`vercel-labs/fx@580a0c5d src/builtins/tools.zig:509-627`).
@@ -83,7 +83,7 @@ pub struct Property {
 ///
 /// Closed is the point. `additionalProperties: false` is written for every
 /// tool, so a field the model invents is rejected by the provider instead of
-/// being silently dropped by fxr, and the model learns its mistake in the same
+/// being silently dropped by xfx, and the model learns its mistake in the same
 /// turn.
 #[derive(Debug, Clone, Copy)]
 pub struct InputSchema {
@@ -263,9 +263,9 @@ pub struct ToolLimits {
     pub max_command_output_bytes: usize,
     /// How long one command may run before it is killed.
     ///
-    /// An fxr value. Upstream's foreground executor takes an optional timeout
+    /// An xfx value. Upstream's foreground executor takes an optional timeout
     /// and its callers supply their own (`sandbox.zig:152`); a coding agent that
-    /// appears to hang is indistinguishable from a broken one, so fxr always has
+    /// appears to hang is indistinguishable from a broken one, so xfx always has
     /// a ceiling.
     pub command_timeout_ms: u64,
 }
@@ -300,7 +300,7 @@ impl Default for ToolLimits {
 /// leaves it `None`, and `app.rs` never sets it.
 pub type RaceInterlude = Arc<dyn Fn() + Send + Sync>;
 
-/// The mutable state one run of fxr shares across every tool call.
+/// The mutable state one run of xfx shares across every tool call.
 ///
 /// Behind an `Arc` so that cloning a [`ToolContext`] -- which the turn does --
 /// shares one set of read proofs and one permission ledger rather than forking

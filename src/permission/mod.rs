@@ -32,8 +32,8 @@
 //!
 //! # What this is not
 //!
-//! It is not confinement. fxr runs commands as the user, with no OS sandbox, and
-//! `status` reports `sandbox=none` for that reason. `auto` bounds *what fxr
+//! It is not confinement. xfx runs commands as the user, with no OS sandbox, and
+//! `status` reports `sandbox=none` for that reason. `auto` bounds *what xfx
 //! agrees to start*, and nothing bounds what a started process then does
 //! (design, "Risks and controls").
 
@@ -74,7 +74,7 @@ mod tests {
         // Not a conversion: this passes `permission::PermissionMode` values to a
         // function that demands `config::PermissionMode`. Two enums with the
         // same three names would not compile, which is the point -- the most
-        // security-relevant setting fxr has must not have two definitions that
+        // security-relevant setting xfx has must not have two definitions that
         // can drift.
         assert_eq!(configured(PermissionMode::Ask), "ask");
         assert_eq!(configured(PermissionMode::Auto), "auto");

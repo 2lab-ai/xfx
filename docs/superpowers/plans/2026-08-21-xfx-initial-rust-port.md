@@ -1,19 +1,19 @@
-# fxr Initial Rust Port Implementation Plan
+# xfx Initial Rust Port Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish a usable, security-bounded Rust coding agent at `2lab-ai/fxr` that implements the supported v0.1 behavioral contract of `vercel-labs/fx`.
+**Goal:** Publish a usable, security-bounded Rust coding agent at `2lab-ai/xfx` that implements the supported v0.1 behavioral contract of `vercel-labs/fx`.
 
 **Architecture:** One Rust package with focused modules and explicit provider/filesystem/approval/output ports. Implement the vertical path in dependency order: CLI/config/output, Gateway turn, read-only tools, mutating tools and authorities, durable sessions/context, then the interactive shell and distribution. Runtime registries are closed sets whose inventory must reconcile with tests and `docs/parity.md`.
 
 **Tech Stack:** Rust 1.96+, Tokio, reqwest with rustls, serde/serde_json, clap, futures-util, globset/ignore, regex, sha2, uuid, fs2, tempfile, rustyline, crossterm, assert_cmd, predicates, wiremock, insta.
 
-**Spec:** `docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md`
+**Spec:** `docs/superpowers/specs/2026-08-21-xfx-rust-port-design.md`
 
 ## Global Constraints
 
 - Upstream evidence is pinned to `580a0c5da9386317251968c09c1cee69e763487a`.
-- Product and executable name is `fxr`; profile directory is `~/.fxr`; project file is `.fxr.json`.
+- Product and executable name is `xfx`; profile directory is `~/.xfx`; project file is `.xfx.json`.
 - Targets are macOS and Linux on x86_64 and aarch64; no Windows claim.
 - Every advertised command/tool is implemented end to end and tested; no `todo!`, `unimplemented!`, placeholder success, canned assistant output, or unsupported advertised surface.
 - Deferred surfaces appear only in `docs/parity.md`, never in command help or model tool schemas.
@@ -59,7 +59,7 @@
 
 - [ ] **Step 1: Write failing CLI and snapshot tests**
 
-Add binary tests asserting exact `--version`, `help` aliases, unknown command stderr/exit 1, no deferred command names, strict `status [--json]` and `doctor [--json]`, newline-terminated JSON, no secret bytes, and no `~/.fxr` creation for read-only commands. Add config unit tests for project -> profile global -> exact workspace -> env precedence and ignored profile-only project keys.
+Add binary tests asserting exact `--version`, `help` aliases, unknown command stderr/exit 1, no deferred command names, strict `status [--json]` and `doctor [--json]`, newline-terminated JSON, no secret bytes, and no `~/.xfx` creation for read-only commands. Add config unit tests for project -> profile global -> exact workspace -> env precedence and ignored profile-only project keys.
 
 - [ ] **Step 2: Verify RED**
 
@@ -68,7 +68,7 @@ Expected: FAIL because the package/binary does not exist.
 
 - [ ] **Step 3: Implement the minimal foundation**
 
-Create the package and closed Clap command enum. `main.rs` calls only `app::run`. Implement a manual merge of `.fxr.json`, `~/.fxr/settings.json`, exact workspace settings, and `FXR_MODEL`/`FXR_PERMISSION_MODE`/`FXR_MAX_AGENT_STEPS`. Resolve only nonblank `VERCEL_OIDC_TOKEN` and `AI_GATEWAY_API_KEY`, retaining source labels but never values in snapshots. Render status and doctor from typed structs.
+Create the package and closed Clap command enum. `main.rs` calls only `app::run`. Implement a manual merge of `.xfx.json`, `~/.xfx/settings.json`, exact workspace settings, and `XFX_MODEL`/`XFX_PERMISSION_MODE`/`XFX_MAX_AGENT_STEPS`. Resolve only nonblank `VERCEL_OIDC_TOKEN` and `AI_GATEWAY_API_KEY`, retaining source labels but never values in snapshots. Render status and doctor from typed structs.
 
 - [ ] **Step 4: Add the parity and no-stub inventories**
 
@@ -83,7 +83,7 @@ Expected: all commands exit 0.
 
 ```bash
 git add Cargo.toml Cargo.lock build.rs src tests/cli.rs docs/parity.md UPSTREAM.md LICENSE NOTICE scripts/check-no-stubs.sh
-git commit -m $'feat: establish fxr CLI and configuration core\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+git commit -m $'feat: establish xfx CLI and configuration core\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
 ```
 
 ### Task 2: Gateway protocol and content-only turn
@@ -104,7 +104,7 @@ Assert exact Gateway shape: `prompt`, closed `tools`, `toolChoice`; typed user t
 
 - [ ] **Step 2: Write content-only binary RED test**
 
-Start the fake Gateway, run `fxr ask --json --no-save hello`, verify bearer/source headers and request shape, stream two deltas and one stop finish, and expect `assistant_delta` JSONL followed by exactly one `final` event.
+Start the fake Gateway, run `xfx ask --json --no-save hello`, verify bearer/source headers and request shape, stream two deltas and one stop finish, and expect `assistant_delta` JSONL followed by exactly one `final` event.
 
 - [ ] **Step 3: Verify RED**
 
@@ -276,11 +276,11 @@ git commit -m $'feat: persist and resume durable agent sessions\n\nCo-Authored-B
 **Interfaces:**
 - Consumes all prior application services.
 - Produces a line-oriented interactive entrypoint with `/help`, `/new`, `/clear`, `/model`, `/version`, `/quit`.
-- Produces release archives `fxr-<target>.tar.gz` plus SHA-256 checksums.
+- Produces release archives `xfx-<target>.tar.gz` plus SHA-256 checksums.
 
 - [ ] **Step 1: Write interactive RED tests**
 
-Under a PTY, verify non-TTY rejection for bare `fxr`, prompt display, Unicode input, streamed response, Ctrl-C cancellation, `/clear` preserving session identity, `/new` creating a new identity, the six commands, deterministic unknown slash errors, and terminal restoration after normal/error paths.
+Under a PTY, verify non-TTY rejection for bare `xfx`, prompt display, Unicode input, streamed response, Ctrl-C cancellation, `/clear` preserving session identity, `/new` creating a new identity, the six commands, deterministic unknown slash errors, and terminal restoration after normal/error paths.
 
 - [ ] **Step 2: Verify RED**
 
@@ -309,7 +309,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo build --release
 ./scripts/check-no-stubs.sh
-./scripts/smoke.sh target/release/fxr
+./scripts/smoke.sh target/release/xfx
 ```
 
 Expected: every command exits 0; smoke output captures help, status JSON, content-only ask, multi-step mutation, sessions/resume, and interactive PTY.
@@ -322,12 +322,12 @@ Dispatch one external reviewer for correctness/security and one for test complet
 
 ```bash
 git add src tests scripts .github README.md CONTRIBUTING.md CHANGELOG.md docs UPSTREAM.md Cargo.toml Cargo.lock
-git commit -m $'feat: qualify the initial fxr release\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
+git commit -m $'feat: qualify the initial xfx release\n\nCo-Authored-By: Claude <noreply@anthropic.com>'
 ```
 
 - [ ] **Step 9: Publish and verify remote CI**
 
-Create public `2lab-ai/fxr` if still absent, add `origin`, push the feature branch, open a PR, require exact-head CI green, merge, then verify main CI and a fresh clone build. Repository creation/push are outward actions already explicitly requested by the active goal; if the harness classifier denies them, report the exact denied command without bypassing it.
+Create public `2lab-ai/xfx` if still absent, add `origin`, push the feature branch, open a PR, require exact-head CI green, merge, then verify main CI and a fresh clone build. Repository creation/push are outward actions already explicitly requested by the active goal; if the harness classifier denies them, report the exact denied command without bypassing it.
 
 - [ ] **Step 10: Build the mandatory HTML receipt**
 

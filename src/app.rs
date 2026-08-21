@@ -31,31 +31,31 @@ use crate::workspace::{AccessScope, ProjectContext};
 ///
 /// Upstream exits 1 rather than the shell's conventional 2 for a usage error
 /// (`vercel-labs/fx@580a0c5d tests/e2e/cli.test.ts:404-412`), and scripts around
-/// fxr should not have to learn a second convention.
+/// xfx should not have to learn a second convention.
 const REJECTED_EXIT_CODE: u8 = 1;
 
 /// The exit code for a turn that did not complete.
 ///
-/// The same value as a rejection: from a script's point of view both mean "fxr
+/// The same value as a rejection: from a script's point of view both mean "xfx
 /// did not do what you asked", and the `error` event carries the difference.
 const TURN_FAILURE_EXIT_CODE: u8 = 1;
 
-/// What fxr prints when the user interrupts a turn.
+/// What xfx prints when the user interrupts a turn.
 ///
-/// The first interrupt is a request, not a kill: fxr stops the running command,
+/// The first interrupt is a request, not a kill: xfx stops the running command,
 /// lets the turn report itself as cancelled, and exits with a terminal event a
 /// `--json` caller can still parse. Saying so is the difference between "it
 /// ignored me" and "it is stopping".
 pub const INTERRUPT_NOTICE: &str =
-    "fxr: interrupted -- stopping the turn; press Ctrl-C again to exit immediately.";
+    "xfx: interrupted -- stopping the turn; press Ctrl-C again to exit immediately.";
 
 /// The exit status for a process killed on a second interrupt: 128 + SIGINT.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
 
-/// The longest fxr waits for its interrupt handler before starting anyway.
+/// The longest xfx waits for its interrupt handler before starting anyway.
 ///
 /// Installing one takes a fraction of a millisecond. This bound exists so that
-/// a machine where it somehow cannot be installed still gets a working fxr,
+/// a machine where it somehow cannot be installed still gets a working xfx,
 /// with the default Ctrl-C behaviour, rather than a hung one.
 const INTERRUPT_INSTALL_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -104,7 +104,7 @@ impl From<io::Error> for AppError {
 /// Runs one invocation against the real process streams.
 ///
 /// The handles are deliberately *not* locked for the duration of the command.
-/// fxr's interrupt watcher lives on another thread and its whole job is to say
+/// xfx's interrupt watcher lives on another thread and its whole job is to say
 /// something while a command is still running; a lock held across the command
 /// makes that write block forever on the lock the command is holding. That is
 /// the difference between "Ctrl-C says it is stopping" and "Ctrl-C appears to
@@ -180,7 +180,7 @@ pub async fn run_with(
                 ListScope::CurrentWorkspace(config.workspace_root.clone())
             };
             // Read-only: a machine that has never run `ask` still has an empty
-            // home after `fxr sessions`.
+            // home after `xfx sessions`.
             let store = read_only_store(&config);
             let listed = match store.list(&ListFilter::new(scope).with_limit(limit)) {
                 Ok(listed) => listed,
@@ -259,7 +259,7 @@ async fn ask(
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     // The permission mode is deliberately *not* restored from a session. It is
-    // the most dangerous setting fxr has, and a `--yolo` turn recorded last week
+    // the most dangerous setting xfx has, and a `--yolo` turn recorded last week
     // must not become the default of a turn run today without the word being
     // typed again.
     let mode = request.mode.unwrap_or(config.permission_mode);
@@ -294,7 +294,7 @@ async fn run_ask(
     let quiet = |code: Result<ExitCode, AppError>| code.map(|code| (code, None));
 
     // The authority the turn's tools will run under, resolved before anything
-    // else. A directory the user named but fxr cannot use is a mistake in the
+    // else. A directory the user named but xfx cannot use is a mistake in the
     // invocation, and reporting it here costs no credential and no round trip.
     let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
         Ok(scope) => scope,
@@ -416,7 +416,7 @@ async fn run_ask(
         // A turn that could not be recorded is reported next to the answer
         // rather than instead of it: the answer did arrive, and saying the turn
         // failed would be a lie in the other direction.
-        warning = recorder.failure().map(|failure| format!("fxr: {failure}"));
+        warning = recorder.failure().map(|failure| format!("xfx: {failure}"));
     }
 
     Ok((
@@ -457,7 +457,7 @@ fn open_session(
     }
     let Some(profile_dir) = config.profile_dir.as_deref() else {
         return Err(SessionError::Unavailable {
-            detail: "fxr cannot record this turn because no home directory is set; \
+            detail: "xfx cannot record this turn because no home directory is set; \
                      rerun with --no-save to ask without recording"
                 .to_string(),
         });
@@ -511,7 +511,7 @@ fn watch_for_interrupt(cancel: CancelToken) {
 
 /// Calls `on_signal` once for every SIGINT, forever.
 ///
-/// It runs on its own OS thread with its own small runtime, because fxr's
+/// It runs on its own OS thread with its own small runtime, because xfx's
 /// runtime is single-threaded and `terminal` blocks it for the duration of a
 /// command -- and the shell blocks it for as long as a user takes to type. A
 /// signal that could only be observed by the blocked runtime would arrive
@@ -524,8 +524,8 @@ fn watch_for_interrupt(cancel: CancelToken) {
 /// **It returns only once the handler exists.** The OS handler is installed by
 /// the first poll of the signal future, and until then SIGINT keeps its default
 /// disposition -- so a caller that started printing a prompt before this
-/// returned would be offering the user a Ctrl-C that kills fxr outright. The
-/// wait is bounded because a handler fxr cannot install must not stop it from
+/// returned would be offering the user a Ctrl-C that kills xfx outright. The
+/// wait is bounded because a handler xfx cannot install must not stop it from
 /// starting either.
 pub(crate) fn spawn_interrupt_thread<F>(mut on_signal: F)
 where
@@ -533,14 +533,14 @@ where
 {
     let (installed, wait_for_install) = std::sync::mpsc::sync_channel::<()>(1);
     let spawned = std::thread::Builder::new()
-        .name("fxr-interrupt".to_string())
+        .name("xfx-interrupt".to_string())
         .spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
             else {
                 // No runtime means no handler, which means the default SIGINT
-                // disposition stays in place. Ctrl-C then kills fxr outright:
+                // disposition stays in place. Ctrl-C then kills xfx outright:
                 // worse, but not silently worse. Dropping `installed` releases
                 // the caller immediately rather than making it wait for a
                 // handler that is never coming.
@@ -574,7 +574,7 @@ where
 ///
 /// The approval channel is attached only when there is a real terminal on both
 /// ends. Without one, `ask` mode denies every mutation rather than hanging on a
-/// question nobody can see -- so a piped or scripted `fxr ask` fails closed by
+/// question nobody can see -- so a piped or scripted `xfx ask` fails closed by
 /// construction rather than by remembering to check.
 pub(crate) fn permission_session(mode: PermissionMode) -> PermissionSession {
     let session = PermissionSession::new(mode);
@@ -596,7 +596,7 @@ fn fail_turn(sink: &mut dyn EventSink, message: String) -> Result<ExitCode, AppE
 /// failure is a plain diagnostic and stdout stays empty rather than carrying
 /// half a document a caller might try to parse.
 fn fail_command(stderr: &mut dyn Write, message: &str) -> Result<ExitCode, AppError> {
-    writeln!(stderr, "fxr: {message}")?;
+    writeln!(stderr, "xfx: {message}")?;
     Ok(ExitCode::from(REJECTED_EXIT_CODE))
 }
 
@@ -635,7 +635,7 @@ fn load_config() -> Result<RuntimeConfig, AppError> {
     Ok(RuntimeConfig::load(&workspace)?)
 }
 
-/// Builds the diagnostic checks in a fixed order: what fxr is looking at, what
+/// Builds the diagnostic checks in a fixed order: what xfx is looking at, what
 /// it read, whether it can authenticate, and what it resolved.
 fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     let mut checks = vec![DoctorCheck::new(
@@ -719,12 +719,12 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
     }
 }
 
-/// Reports what the session store holds, and what it holds that fxr cannot use.
+/// Reports what the session store holds, and what it holds that xfx cannot use.
 ///
 /// Three facts, in one line, and each of them is something a user can otherwise
 /// only discover by accident:
 ///
-/// - how many sessions are recorded, so `~/.fxr` is not a black box;
+/// - how many sessions are recorded, so `~/.xfx` is not a black box;
 /// - how many session directories could not be trusted -- a store that is
 ///   quietly losing conversations should say so out loud rather than only in the
 ///   `skipped_invalid` field of a listing nobody reads; and
@@ -732,7 +732,7 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
 ///   staging and rename. `session/store.rs` promises exactly this report as the
 ///   reason it never unlinks a stage file it did not create, and until now that
 ///   promise had no reader. They are inert, but they are also the only visible
-///   evidence that fxr was killed mid-write.
+///   evidence that xfx was killed mid-write.
 ///
 /// It is a report, not a repair: nothing here deletes, rebuilds, or compacts
 /// anything. Read-only and bounded, so `doctor` stays a command that is always
@@ -757,7 +757,7 @@ fn sessions_check(config: &RuntimeConfig) -> DoctorCheck {
     // and once by the store's own scan cap.
     let mut detail = if listed.truncated || listed.has_more {
         format!(
-            "at least {} session(s) recorded; the store holds more than fxr reads in one pass",
+            "at least {} session(s) recorded; the store holds more than xfx reads in one pass",
             listed.sessions.len()
         )
     } else {
@@ -768,7 +768,7 @@ fn sessions_check(config: &RuntimeConfig) -> DoctorCheck {
         status = CheckStatus::Warn;
         let _ = write!(
             detail,
-            "; {} session director{} could not be read and {} skipped by `fxr sessions`",
+            "; {} session director{} could not be read and {} skipped by `xfx sessions`",
             listed.skipped_invalid,
             if listed.skipped_invalid == 1 {
                 "y"
@@ -797,7 +797,7 @@ fn sessions_check(config: &RuntimeConfig) -> DoctorCheck {
 /// Counts leftover `*.staged` files under the session store.
 ///
 /// Depth-bounded by construction: exactly one directory level below `sessions`,
-/// which is the only place fxr's own staging writes, and only entries whose name
+/// which is the only place xfx's own staging writes, and only entries whose name
 /// ends in that suffix. `DirEntry::file_type` does not follow symbolic links, so
 /// a link planted in the store cannot make this walk somewhere else. A path it
 /// cannot read contributes nothing rather than failing the check -- why it
@@ -829,12 +829,12 @@ fn leftover_stage_count(sessions_dir: &Path) -> usize {
 /// Reports which settings layers were found, and which were found but ignored.
 ///
 /// A file that exists but could not be parsed is the case that most needs to be
-/// said out loud: the user wrote settings, fxr silently ran without them, and
+/// said out loud: the user wrote settings, xfx silently ran without them, and
 /// reporting "no config files found" would tell them to go looking for a file
 /// that is already there. Presence and usability are therefore reported
 /// separately.
 fn config_presence_check(config: &RuntimeConfig) -> DoctorCheck {
-    // Paths are written in their documented `~/.fxr/...` and `.fxr.json` forms
+    // Paths are written in their documented `~/.xfx/...` and `.xfx.json` forms
     // rather than expanded, so the detail is stable across machines and carries
     // no home directory name into a pasted report.
     let profile = format!("~/{}/settings.json", crate::config::PROFILE_DIR_NAME);
@@ -956,7 +956,7 @@ mod tests {
         );
         assert_eq!(stdout, "");
         assert!(stderr.contains("interactive terminal"), "{stderr}");
-        assert!(stderr.contains("fxr ask"), "{stderr}");
+        assert!(stderr.contains("xfx ask"), "{stderr}");
     }
 
     #[test]

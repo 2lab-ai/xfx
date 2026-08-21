@@ -1,4 +1,4 @@
-//! fxr — an unofficial Rust port of the `fx` terminal coding agent.
+//! xfx — an unofficial Rust port of the `fx` terminal coding agent.
 //!
 //! The crate is organized as CLI -> application services -> domain contracts ->
 //! adapters. Each module owns one concern:
@@ -13,10 +13,10 @@
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
-//! - [`interactive`]: the line-oriented shell a bare `fxr` runs
+//! - [`interactive`]: the line-oriented shell a bare `xfx` runs
 //! - [`app`]: composition and dispatch
 //!
-//! fxr is not affiliated with Vercel. It is a behavioral port pinned to
+//! xfx is not affiliated with Vercel. It is a behavioral port pinned to
 //! `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`; see `UPSTREAM.md`
 //! for the attribution and `docs/parity.md` for what is and is not implemented.
 
@@ -41,8 +41,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// to an exact commit. An unknown revision is absent, never a placeholder value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildInfo {
-    /// The compile profile, `debug` or `release`. fxr has no updater, so this is
-    /// a build fact and not a release-channel promise.
+    /// The channel this build claims: the compile profile, `debug` or
+    /// `release`, unless the build declared `preview`. xfx has no updater, so a
+    /// channel records where a binary came from and never promises that
+    /// anything will be delivered to it.
     pub channel: &'static str,
     /// The abbreviated source revision, when it could be determined.
     pub revision: Option<&'static str>,
@@ -50,21 +52,28 @@ pub struct BuildInfo {
 
 /// Reads the compile-time build metadata.
 pub fn build_info() -> BuildInfo {
-    let revision = env!("FXR_BUILD_REVISION");
+    let revision = env!("XFX_BUILD_REVISION");
     BuildInfo {
-        channel: env!("FXR_BUILD_CHANNEL"),
+        channel: env!("XFX_BUILD_CHANNEL"),
         revision: (!revision.is_empty()).then_some(revision),
     }
 }
+
+/// The rules `build.rs` compiles into the two values above.
+///
+/// The build script `include!`s the same file. Nothing runs a build script's
+/// own tests, so the library carries them.
+#[cfg(test)]
+mod build_meta;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_build_channel_is_a_real_compile_profile() {
+    fn the_build_channel_is_one_of_the_declared_channels() {
         assert!(
-            matches!(build_info().channel, "debug" | "release"),
+            build_meta::CHANNELS.contains(&build_info().channel),
             "got {}",
             build_info().channel
         );

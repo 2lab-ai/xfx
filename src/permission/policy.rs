@@ -33,7 +33,7 @@ use super::command::CommandEffect;
 /// It names all three things that are off, because "yolo mode" alone reads as a
 /// speed setting rather than as the removal of every check.
 pub const YOLO_WARNING: &str =
-    "fxr: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.";
+    "xfx: yolo mode is on -- tool calls run with no permission check, no approval prompt, and no sandbox.";
 
 // ---------------------------------------------------------------------------
 // rules and grants
@@ -43,7 +43,7 @@ pub const YOLO_WARNING: &str =
 ///
 /// Exact, not glob. A pattern language is a second thing to get wrong, and the
 /// failure mode of a too-wide pattern is silent over-authorization. Upstream
-/// carries glob-shaped grants; fxr's first release does not, and `docs/parity.md`
+/// carries glob-shaped grants; xfx's first release does not, and `docs/parity.md`
 /// records the difference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
@@ -130,7 +130,7 @@ impl ProposedAction<'_> {
     ///
     /// A mutation's key is the plan's **canonical absolute target**, never its
     /// display path. The display path is workspace-relative, and a grant
-    /// outlives the process that gave it: `fxr ask --resume-id <id>` may be run
+    /// outlives the process that gave it: `xfx ask --resume-id <id>` may be run
     /// from a different directory, which rebinds the session's workspace, and a
     /// relative key would then silently match a different file with the same
     /// name in the new tree. An approval is an answer about one file, so the key
@@ -353,7 +353,7 @@ pub struct TtyPrompter {
 impl TtyPrompter {
     /// A prompter, but only when there is a real terminal on both ends.
     ///
-    /// Both ends matter: a question fxr cannot show is as useless as an answer
+    /// Both ends matter: a question xfx cannot show is as useless as an answer
     /// it cannot read, and either one alone would let a piped invocation hang
     /// forever waiting for a person who is not there.
     pub fn available() -> Option<Self> {
@@ -371,7 +371,7 @@ impl ApprovalPrompter for TtyPrompter {
         loop {
             write!(
                 stderr,
-                "\nfxr wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
+                "\nxfx wants to {}\n  [y] yes, once\n  [a] always -- {}\n  [n] no\n> ",
                 request.summary, request.always_scope
             )?;
             stderr.flush()?;
@@ -400,7 +400,7 @@ impl ApprovalPrompter for TtyPrompter {
 // the session
 // ---------------------------------------------------------------------------
 
-/// The permission state one run of fxr carries.
+/// The permission state one run of xfx carries.
 ///
 /// Everything that can say yes lives here: the mode, the configured rules, the
 /// approvals given so far, the channel that can ask for more, and the ledger of
@@ -452,7 +452,7 @@ impl PermissionSession {
     /// prompt says. An approval that survives the process is a different
     /// question from one that does not, and the user has to be asked the
     /// question they are actually answering -- including the id, because that is
-    /// the exact thing a later `fxr ask --resume-id <id>` will reuse it for.
+    /// the exact thing a later `xfx ask --resume-id <id>` will reuse it for.
     pub fn with_durable_session(mut self, id: impl Into<String>) -> Self {
         self.durable_session = Some(id.into());
         self
@@ -462,7 +462,7 @@ impl PermissionSession {
     fn always_scope_for(&self, action: ProposedAction<'_>) -> String {
         match &self.durable_session {
             Some(id) => format!(
-                "{}, and in every later `fxr ask --resume-id {id}` of this saved session",
+                "{}, and in every later `xfx ask --resume-id {id}` of this saved session",
                 action.always_scope()
             ),
             None => format!(
@@ -842,7 +842,7 @@ mod tests {
         assert!(
             asked[0]
                 .always_scope
-                .contains("fxr ask --resume-id 2026-abc"),
+                .contains("xfx ask --resume-id 2026-abc"),
             "the prompt must disclose the durable scope: {}",
             asked[0].always_scope
         );
@@ -883,7 +883,7 @@ mod tests {
             "{scope}"
         );
         assert!(
-            scope.contains("fxr ask --resume-id 2026-abc"),
+            scope.contains("xfx ask --resume-id 2026-abc"),
             "the prompt must name the durable scope it is buying: {scope}"
         );
 

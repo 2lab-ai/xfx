@@ -1,14 +1,14 @@
 //! A local stand-in for the Vercel AI Gateway.
 //!
 //! It speaks enough HTTP/1.1 to be indistinguishable from the real endpoint for
-//! the paths fxr exercises: it reads a `Content-Length` request, records the
+//! the paths xfx exercises: it reads a `Content-Length` request, records the
 //! exact method, path, headers, and body, and replays a scripted response as a
 //! chunked `text/event-stream`.
 //!
 //! It is written directly on `std::net::TcpListener` rather than on a framework
 //! so that a test can do things a framework hides: split one SSE event across
 //! several TCP writes, and close a connection in the middle of a response body
-//! without a terminating chunk. Both are protocol facts fxr must survive, and
+//! without a terminating chunk. Both are protocol facts xfx must survive, and
 //! both are how a real stream fails.
 //!
 //! Modeled on upstream's fake Gateway, which serves scripted SSE and captures

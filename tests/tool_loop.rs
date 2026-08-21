@@ -23,14 +23,14 @@ use std::process::{Command, Output};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use fxr::agent::{run_turn, TurnError, TurnRequest};
-use fxr::gateway::protocol::{
+use xfx::agent::{run_turn, TurnError, TurnRequest};
+use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, ToolCall, ToolChoice, Usage,
 };
-use fxr::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
-use fxr::output::{Event, RecordingSink};
-use fxr::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
-use fxr::workspace::{AccessScope, PathError};
+use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
+use xfx::output::{Event, RecordingSink};
+use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
+use xfx::workspace::{AccessScope, PathError};
 
 use support::fake_gateway::{
     content_only, finish, sse_body, text_delta, tool_call, FakeGateway, Reply,
@@ -40,14 +40,14 @@ use support::fake_gateway::{
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
-    "FXR_GATEWAY_URL",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
 ];
 
 /// A test secret that must never appear on stdout or stderr.
-const TEST_KEY: &str = "fxr-test-tool-key-must-not-appear";
+const TEST_KEY: &str = "xfx-test-tool-key-must-not-appear";
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -158,7 +158,7 @@ fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
         let input = &schema["inputSchema"];
         assert_eq!(input["type"], "object", "{schema}");
         // Closed: the model may not invent a field, so a typo is reported by
-        // the Gateway rather than silently ignored by fxr.
+        // the Gateway rather than silently ignored by xfx.
         assert_eq!(input["additionalProperties"], json!(false), "{schema}");
 
         let properties = input["properties"]
@@ -1357,7 +1357,7 @@ async fn a_call_naming_an_unadvertised_tool_fails_the_turn() {
     let mut sink = RecordingSink::new();
     let err = run_turn(turn("delete", context(&tree)), &provider, &mut sink)
         .await
-        .expect_err("fxr does not advertise delete_file");
+        .expect_err("xfx does not advertise delete_file");
     assert!(
         matches!(err, TurnError::ToolCallUnsupported { .. }),
         "{err}"
@@ -1457,7 +1457,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         for key in CONTROLLED_VARS {
@@ -1467,7 +1467,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn fxr"))
+        Run::of(command.output().expect("spawn xfx"))
     }
 }
 
@@ -1530,7 +1530,7 @@ fn ask_advertises_the_whole_registry_in_its_first_request() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1562,7 +1562,7 @@ fn ask_reads_a_workspace_file_and_reports_the_call_between_the_deltas() {
         &["ask", "--json", "--no-save", "read", "the", "note"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1605,7 +1605,7 @@ fn ask_refuses_a_path_outside_the_workspace_when_no_directory_was_added() {
         &["ask", "--json", "--no-save", "read", "it"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1648,7 +1648,7 @@ fn ask_reads_a_file_from_an_explicitly_added_directory() {
         ],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1677,7 +1677,7 @@ fn add_dir_rejects_a_path_that_is_not_a_usable_directory() {
         ],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);

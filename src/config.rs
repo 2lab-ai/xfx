@@ -3,17 +3,17 @@
 //! Four layers contribute, lowest precedence first:
 //!
 //! 1. compiled defaults
-//! 2. the project file `<workspace>/.fxr.json`
-//! 3. the profile global file `~/.fxr/settings.json`
+//! 2. the project file `<workspace>/.xfx.json`
+//! 3. the profile global file `~/.xfx/settings.json`
 //! 4. the exact-workspace entry `workspaces["<workspace>"]` inside that same file
-//! 5. the process environment (`FXR_MODEL`, `FXR_PERMISSION_MODE`, `FXR_MAX_AGENT_STEPS`)
+//! 5. the process environment (`XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`)
 //!
 //! This mirrors the upstream merge order in
 //! `vercel-labs/fx@580a0c5d src/core/config/config_runtime.zig:341-455`, where a
 //! later layer overwrites an earlier one only for the keys it actually sets.
 //!
 //! Loading is strictly read-only. `status` and `doctor` must work on a machine
-//! that has never run fxr, so nothing here creates `~/.fxr`.
+//! that has never run xfx, so nothing here creates `~/.xfx`.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-/// The model fxr requests when nothing selects one.
+/// The model xfx requests when nothing selects one.
 ///
 /// Matches upstream's Gateway default
 /// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:40`).
@@ -32,26 +32,26 @@ pub const DEFAULT_MODEL: &str = "zai/glm-5.2";
 /// The compiled ceiling on model steps within one turn.
 ///
 /// Upstream compiles in `0`, meaning unbounded
-/// (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3`). fxr deliberately
+/// (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3`). xfx deliberately
 /// ships a bound instead; `0` remains the explicit unbounded opt-out so the
 /// configured semantics still match upstream.
 pub const DEFAULT_MAX_AGENT_STEPS: u32 = 25;
 
-/// The largest settings file fxr will read, matching upstream's 64 KiB ceiling
+/// The largest settings file xfx will read, matching upstream's 64 KiB ceiling
 /// (`vercel-labs/fx@580a0c5d src/core/config/config_runtime.zig:17`).
 pub const MAX_SETTINGS_BYTES: usize = 64 * 1024;
 
 /// Directory name of the profile home under `$HOME`.
-pub const PROFILE_DIR_NAME: &str = ".fxr";
+pub const PROFILE_DIR_NAME: &str = ".xfx";
 
 /// File name of the project-scoped settings file.
-pub const PROJECT_SETTINGS_FILE: &str = ".fxr.json";
+pub const PROJECT_SETTINGS_FILE: &str = ".xfx.json";
 
 const USER_SETTINGS_FILE: &str = "settings.json";
 
-const ENV_MODEL: &str = "FXR_MODEL";
-const ENV_PERMISSION_MODE: &str = "FXR_PERMISSION_MODE";
-const ENV_MAX_AGENT_STEPS: &str = "FXR_MAX_AGENT_STEPS";
+const ENV_MODEL: &str = "XFX_MODEL";
+const ENV_PERMISSION_MODE: &str = "XFX_PERMISSION_MODE";
+const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
@@ -59,7 +59,7 @@ const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 ///
 /// A repository is shared, so it must not be able to choose the model, the
 /// permission mode, or the credential for whoever clones it. Upstream draws the
-/// same line in `src/core/config/config_runtime.zig:548-576`; fxr keeps the
+/// same line in `src/core/config/config_runtime.zig:548-576`; xfx keeps the
 /// subset that its own settings surface actually supports.
 const PROFILE_ONLY_KEYS: &[&str] = &[
     "model",
@@ -135,7 +135,7 @@ impl SettingSource {
     }
 }
 
-/// The provenance of every setting fxr resolves.
+/// The provenance of every setting xfx resolves.
 #[derive(Debug, Clone, Copy)]
 pub struct Sources {
     pub model: SettingSource,
@@ -156,9 +156,9 @@ impl Default for Sources {
 /// Which file a diagnostic came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigLayer {
-    /// `~/.fxr/settings.json`, including its `workspaces` entries.
+    /// `~/.xfx/settings.json`, including its `workspaces` entries.
     User,
-    /// `<workspace>/.fxr.json`.
+    /// `<workspace>/.xfx.json`.
     Project,
     /// The process environment.
     Process,
@@ -185,7 +185,7 @@ pub enum DiagnosticCause {
     UnreadableSettings,
     /// A profile-only key appeared in the project file and was dropped.
     IgnoredProjectProfileSetting,
-    /// A key was present with a value fxr cannot interpret.
+    /// A key was present with a value xfx cannot interpret.
     InvalidValue,
 }
 
@@ -309,7 +309,7 @@ impl fmt::Debug for Credential {
     }
 }
 
-/// The variables and home directory fxr is allowed to observe.
+/// The variables and home directory xfx is allowed to observe.
 ///
 /// Passing this explicitly keeps configuration a pure function of its inputs, so
 /// tests never mutate the process environment and never race each other.
@@ -324,7 +324,7 @@ impl Environment {
         Self { home, vars }
     }
 
-    /// Reads the real process environment, taking only the variables fxr uses.
+    /// Reads the real process environment, taking only the variables xfx uses.
     pub fn from_process() -> Self {
         let mut vars = BTreeMap::new();
         for key in [
@@ -392,17 +392,17 @@ impl std::error::Error for ConfigError {
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub workspace_root: PathBuf,
-    /// `~/.fxr`, whether or not it exists. Loading never creates it.
+    /// `~/.xfx`, whether or not it exists. Loading never creates it.
     pub profile_dir: Option<PathBuf>,
-    /// `~/.fxr/settings.json`, whether or not it exists.
+    /// `~/.xfx/settings.json`, whether or not it exists.
     pub user_settings_path: Option<PathBuf>,
-    /// `<workspace>/.fxr.json`, whether or not it exists.
+    /// `<workspace>/.xfx.json`, whether or not it exists.
     pub project_settings_path: PathBuf,
-    /// A `~/.fxr/settings.json` entry exists on disk, whether or not it was
+    /// A `~/.xfx/settings.json` entry exists on disk, whether or not it was
     /// usable. Presence and usability are separate facts: a file that exists but
     /// cannot be parsed must never be reported as "no config files found".
     pub user_settings_present: bool,
-    /// A `<workspace>/.fxr.json` entry exists on disk, whether or not it was
+    /// A `<workspace>/.xfx.json` entry exists on disk, whether or not it was
     /// usable.
     pub project_settings_present: bool,
     /// The profile settings file was parsed and merged.
@@ -511,10 +511,10 @@ impl RuntimeConfig {
         self.user_settings_present || self.project_settings_present
     }
 
-    /// Whether a settings file exists that fxr could not use.
+    /// Whether a settings file exists that xfx could not use.
     ///
     /// This is the case `doctor` must not describe as "no config files found":
-    /// the user wrote a file, fxr ignored it, and silence would read as consent.
+    /// the user wrote a file, xfx ignored it, and silence would read as consent.
     pub fn has_unusable_settings_file(&self) -> bool {
         (self.user_settings_present && !self.user_settings_loaded)
             || (self.project_settings_present && !self.project_settings_loaded)
@@ -687,12 +687,12 @@ fn exact_workspace_entry<'a>(
 ///
 /// Presence and usability are kept apart deliberately. Collapsing them into a
 /// single `Option` loses the difference between "the user has no settings" and
-/// "the user has settings fxr threw away", and only the second one needs to be
+/// "the user has settings xfx threw away", and only the second one needs to be
 /// shouted about.
 struct LayerRead {
     /// Something exists at the path, whatever its content.
     ///
-    /// Set for every outcome that produced a diagnostic, so a layer fxr has
+    /// Set for every outcome that produced a diagnostic, so a layer xfx has
     /// something to say about can never be reported as absent.
     present: bool,
     /// The parsed object, when the file was usable.
@@ -731,7 +731,7 @@ fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>
         Err(err) if err.kind() == io::ErrorKind::NotFound => return LayerRead::absent(),
         Err(_) => {
             // The entry could not be stat'ed. Something is there, or something
-            // is wrong with the path; either way fxr owes the user a report.
+            // is wrong with the path; either way xfx owes the user a report.
             diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
             return LayerRead::rejected();
         }
@@ -828,7 +828,7 @@ mod tests {
         );
         assert_eq!(env.nonblank(ENV_MODEL), None);
         assert_eq!(env.nonblank(ENV_GATEWAY_KEY), Some("value"));
-        assert_eq!(env.nonblank("FXR_ABSENT"), None);
+        assert_eq!(env.nonblank("XFX_ABSENT"), None);
     }
 
     #[test]

@@ -36,7 +36,7 @@ use crate::workspace::AccessScope;
 use super::command::{classify, CommandEffect, DeniedEffect};
 
 /// The most bytes a prepared command may contain
-/// (`vercel-labs/fx@580a0c5d src/core/terminal/contracts.zig:8` is 64 KiB; fxr
+/// (`vercel-labs/fx@580a0c5d src/core/terminal/contracts.zig:8` is 64 KiB; xfx
 /// uses upstream's *planning* bound instead, `command_effect.zig:5`).
 const MAX_COMMAND_BYTES: usize = 8 * 1024;
 
@@ -166,7 +166,7 @@ pub struct ReadRecord {
     pub identity: FileIdentity,
     /// The digest of the whole file on disk at read time.
     pub hash: ContentHash,
-    /// Whether the *model* saw the whole file, as opposed to fxr having hashed
+    /// Whether the *model* saw the whole file, as opposed to xfx having hashed
     /// it. A windowed or clipped read hashes the whole file but shows part of
     /// it, and only the second fact can authorize a rewrite.
     pub complete_view: bool,
@@ -744,7 +744,7 @@ const GIT_DIFF_SUBCOMMANDS: &[&str] = &["diff", "log", "show"];
 /// shell command, and `git diff` runs it on a worktree file. Git offers no
 /// single switch for it, and enumerating drivers is not a boundary. The real
 /// control for that is the other half of this change: the typed file tools
-/// refuse to write `.git` at all, so fxr cannot be the thing that installs one.
+/// refuse to write `.git` at all, so xfx cannot be the thing that installs one.
 /// A repository that already carries a hostile `.gitattributes` and a matching
 /// `.git/config` is a repository whose contents the user has already chosen to
 /// open.
@@ -815,7 +815,7 @@ fn escaping_operand(argv: &[String], scope: &AccessScope, cwd: &Path) -> Option<
 
 /// The complete environment a command runs with.
 ///
-/// Built rather than inherited. fxr's own process holds a Gateway bearer token,
+/// Built rather than inherited. xfx's own process holds a Gateway bearer token,
 /// and a child that inherited it could exfiltrate it; a child that never sees it
 /// cannot. `PATH` is carried because a direct plan names programs rather than
 /// absolute paths, and locale is pinned so command output is stable across
