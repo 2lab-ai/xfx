@@ -230,8 +230,12 @@ row with its upstream evidence and status.
 - File namespaces can change between proof and rename. Identity/hash checks and
   same-directory atomic replacement narrow the race; test hooks exercise stale
   authority rejection.
-- Secrets never enter snapshots, logs, or tool output. Golden tests scan both
-  stdout and stderr.
+- fxr's own Gateway credential never enters a snapshot, a log line, or tool
+  output. Golden tests scan both stdout and stderr. What the model reads is the
+  opposite promise: a `tool_result` session event keeps a file's contents or a
+  command's output verbatim, as owner-only plaintext under
+  `~/.fxr/sessions/<id>/events.jsonl`, and `--no-save` is the only way to record
+  nothing -- see "Safety, in plain terms" in `README.md`.
 - Dependencies are pinned in `Cargo.lock`; TLS uses rustls, not ambient OpenSSL.
 
 ## Definition of done

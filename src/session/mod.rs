@@ -7,7 +7,11 @@
 //! be rebuilt and are never preferred over the log when the two disagree.
 //!
 //! - [`event`] owns the wire format of one frame and the closed set of things a
-//!   session may remember. No variant of [`SessionEvent`] can hold a credential.
+//!   session may remember. No variant of [`SessionEvent`] holds fxr's own
+//!   Gateway credential; [`SessionEvent::ToolResult`] does hold what a tool
+//!   read, verbatim, which is where a user's own secret can end up -- [`event`]
+//!   says what that means and README's "Safety, in plain terms" says what to do
+//!   about it.
 //! - [`store`] owns the directory layout, the append/publish protocol, the
 //!   replay that rebuilds state, and the read-only projections `sessions` and
 //!   `session` render.

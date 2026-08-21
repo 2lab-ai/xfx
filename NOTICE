@@ -1,21 +1,22 @@
 fxr
 Copyright 2026 2lab.ai
 
-This product includes software developed by Vercel, Inc.
+No fx source is bundled in this product. What follows is attribution for the
+upstream work fxr was specified from, not a notice of included software.
 
-fxr is an unofficial, independent Rust port of fx
+fxr is an unofficial, independent Rust reimplementation of part of fx
 (https://github.com/vercel-labs/fx), Copyright 2025 Vercel, Inc., licensed
 under the Apache License, Version 2.0.
 
 fxr is not affiliated with, endorsed by, or supported by Vercel, Inc. The
-names "fx" and "Vercel" are used only to identify the upstream project this
-work is derived from. The executable is named "fxr" and its configuration
-lives in "~/.fxr" so that fxr cannot be mistaken for, or interfere with, an
+names "fx" and "Vercel" are used only to identify the upstream project fxr
+reimplements. The executable is named "fxr" and its configuration lives in
+"~/.fxr" so that fxr cannot be mistaken for, or interfere with, an
 installation of the upstream product.
 
-Portions of this work are derived from fx at commit
-580a0c5da9386317251968c09c1cee69e763487a: its command surface, configuration
-precedence, output contracts, and credential resolution behavior were used as
-the specification for a reimplementation in Rust. No Zig source is copied.
-See UPSTREAM.md for the evidence trail and docs/parity.md for the exact scope
-of what has and has not been reimplemented.
+fx at commit 580a0c5da9386317251968c09c1cee69e763487a is the specification
+this work was written against: its command surface, configuration precedence,
+output contracts, and credential resolution behavior were observed and
+reimplemented in Rust. No Zig source is copied. See UPSTREAM.md for the
+evidence trail and docs/parity.md for the exact scope of what has and has not
+been reimplemented.

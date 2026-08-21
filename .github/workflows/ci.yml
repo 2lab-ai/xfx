@@ -24,6 +24,16 @@ jobs:
     name: gate (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      # The commit this run is a receipt for. On `pull_request` the default
+      # checkout is GitHub's synthetic merge commit, which exists in no branch,
+      # is recomputed whenever the base moves, and is what `build.rs` would then
+      # stamp into the binary -- so a green run would name a revision nobody can
+      # check out. The gate has to be the pull request's head.
+      COMMIT_UNDER_TEST: >-
+        ${{ github.event_name == 'pull_request'
+        && github.event.pull_request.head.sha
+        || github.sha }}
     strategy:
       fail-fast: false
       # Every supported target has a native GitHub-hosted runner, so this
@@ -47,6 +57,22 @@ jobs:
     steps:
       - name: Check out the exact commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT_UNDER_TEST }}
+
+      # `build.rs` resolves the revision with `git rev-parse HEAD`, so the
+      # checkout above is also what ends up in `fxr status`. Asserting it here
+      # rather than trusting the `ref:` means a checkout that silently landed
+      # somewhere else fails before any gate can pass on the wrong source.
+      - name: Confirm the checkout is the commit under test
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "$COMMIT_UNDER_TEST" ]; then
+            echo "checked out $actual, expected $COMMIT_UNDER_TEST" >&2
+            exit 1
+          fi
+          echo "gate is running on $actual"
 
       - name: Install the pinned toolchain
         run: |

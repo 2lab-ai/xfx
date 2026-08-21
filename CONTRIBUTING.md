@@ -27,10 +27,15 @@ something the binary does not actually advertise fails too.
 Do not write "full parity", "feature complete", or a version number that implies
 either.
 
-**5. Secrets never enter output.** No snapshot, session event, log line, or tool
-result may carry a credential. Tests assert this by planting a key-shaped
-literal and scanning both streams; `scripts/check-no-secrets.sh` scans what a
-push would publish.
+**5. fxr's own Gateway credential never enters output.** No snapshot, session
+event, or log line may carry the token fxr authenticated with. Tests assert this
+by planting a key-shaped literal and scanning both streams;
+`scripts/check-no-secrets.sh` scans what a push would publish. What the *model*
+reads is the opposite promise and must stay documented as one: a `tool_result`
+event stores a file's contents or a command's output verbatim, as owner-only
+plaintext under `~/.fxr/sessions/<id>/events.jsonl`, and `--no-save` is the only
+way to record nothing. Do not write a sentence that denies this; see "Safety, in
+plain terms" in [`README.md`](README.md).
 
 ## The gate
 

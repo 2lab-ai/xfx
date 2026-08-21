@@ -14,9 +14,14 @@
 //! - **Encoding is deterministic.** Field order is declaration order and the
 //!   line ends in exactly one newline, so the same event always produces the
 //!   same bytes and a digest over the log means something.
-//! - **The payload is typed, and none of its variants can hold a secret.** There
-//!   is no free-form "state blob" event and no credential field; what can be
-//!   written is exactly the list in [`SessionEvent`].
+//! - **The payload is typed, and it never carries fxr's own Gateway
+//!   credential.** There is no free-form "state blob" event and no field for the
+//!   token fxr authenticated with; what can be written is exactly the list in
+//!   [`SessionEvent`]. That is a promise about *fxr's* secret and not about the
+//!   reader's: [`SessionEvent::ToolResult`] stores a file's contents or a
+//!   command's output verbatim, as owner-only plaintext, so a secret the model
+//!   was asked to read is on disk until the session is deleted, and `--no-save`
+//!   is the only way to record nothing at all.
 
 use std::collections::hash_map::RandomState;
 use std::fmt;
@@ -74,9 +79,11 @@ impl TurnConclusion {
 
 /// Everything a session is allowed to remember.
 ///
-/// The set is closed, and deliberately contains no credential, no endpoint, and
-/// no environment capture. A session records what was asked, what was done, and
-/// what it cost -- never what fxr authenticated with.
+/// The set is closed, and has no field for fxr's own Gateway credential, no
+/// endpoint, and no environment capture. A session records what was asked, what
+/// was done, and what it cost -- never what fxr authenticated with. What a tool
+/// returned is recorded too, in [`SessionEvent::ToolResult`], so the reader's
+/// own secrets can be in the log even though fxr's never are.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionEvent {
@@ -114,6 +121,10 @@ pub enum SessionEvent {
         tool_calls: Vec<RecordedToolCall>,
     },
     /// The evidence one tool call produced, correlated by `call_id`.
+    ///
+    /// `output` is what the tool actually returned -- a file's bytes, a
+    /// command's output -- kept verbatim, which is why this is the one variant a
+    /// reader's own secret can reach.
     ToolResult {
         call_id: String,
         tool: String,

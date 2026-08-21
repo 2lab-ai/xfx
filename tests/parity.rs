@@ -522,27 +522,105 @@ fn every_environment_override_the_binary_reads_is_documented() {
 // ---------------------------------------------------------------------------
 //
 // A row-by-row validator cannot see a promise, and a promise is what a user
-// reads before pointing this at a repository they care about. These two tests
-// exist because one of those promises was false: the README said no session
-// event, snapshot, or tool result could carry a credential, while a
-// `ToolResult` event stores whatever the model read -- so a secret fxr was
-// asked to read was on disk in the session log at the moment the sentence
-// denied it. The claim is now scoped to fxr's own Gateway token, and these
-// tests are what stop the unscoped version from coming back in a new spelling.
+// reads before pointing this at a repository they care about. These tests exist
+// because one of those promises was false: the README said no session event,
+// snapshot, or tool result could carry a credential, while a `ToolResult` event
+// stores whatever the model read -- so a secret fxr was asked to read was on
+// disk in the session log at the moment the sentence denied it. The claim is
+// now scoped to fxr's own Gateway token, and these tests are what stop the
+// unscoped version from coming back in a new spelling, on a page with a smaller
+// audience, or without the disclosure that makes the scoping honest.
 
-/// The documents a user reads for safety claims, by repository-relative path.
+/// Every page that makes the promise, by repository-relative path.
+///
+/// `CONTRIBUTING.md` is here because a contributor reads it as the rule they
+/// must keep, the two `src/session` module headers are here because `rustdoc`
+/// publishes them -- the reader deciding whether to trust the session log lands
+/// on the page that describes the log, not on the README -- and the design spec
+/// is here because it is tracked, shipped in the repository, and is where the
+/// claim was written down first. A claim that is scoped in one of these and
+/// unscoped in another is the same lie with a smaller audience.
 fn safety_documents() -> Vec<(&'static str, String)> {
-    ["README.md", "docs/parity.md", "docs/architecture.md"]
-        .into_iter()
-        .map(|name| {
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(name);
-            (
-                name,
-                fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {name}: {err}")),
-            )
-        })
-        .collect()
+    [
+        "README.md",
+        "docs/parity.md",
+        "docs/architecture.md",
+        "CONTRIBUTING.md",
+        "src/session/mod.rs",
+        "src/session/event.rs",
+        "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
+    ]
+    .into_iter()
+    .map(|name| {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(name);
+        (
+            name,
+            fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {name}: {err}")),
+        )
+    })
+    .collect()
 }
+
+/// Phrases that deny a whole *class* of recorded things can hold a secret.
+///
+/// These are the shapes the false claim actually took, not a style rule: "no
+/// snapshot, session event, log line, or tool result may carry a credential"
+/// was true of every event variant except the one that stores what a tool read,
+/// which is the only one a user's own secret can reach. The same claim was also
+/// written as "secrets never enter snapshots, logs, or tool output", which is
+/// why both the "no X" and the "never Xs" spelling are listed: the first
+/// version of this check caught only the former, and the design spec, which
+/// says it in the second, walked straight through it.
+const UNIVERSAL_DENIALS: [&str; 14] = [
+    "no snapshot",
+    "no session event",
+    "no tool result",
+    "no log line",
+    "no variant",
+    "none of its variants",
+    "no credential",
+    "no secret",
+    "never enter",
+    "never reach",
+    "never appear",
+    "never written",
+    "never persisted",
+    "not persisted",
+];
+
+/// Word stems a sentence uses when it is about *keeping* something, as opposed
+/// to needing it or not needing it.
+///
+/// Stems rather than words because the claim is written in whatever tense suits
+/// the paragraph, and the tense is not the point.
+const RECORDING_WORDS: [&str; 12] = [
+    "carr", "hold", "store", "persist", "record", "writ", "save", "contain", "enter", "reach",
+    "appear", "leak",
+];
+
+/// Whether a sentence is promising secrecy for something fxr keeps.
+///
+/// Both halves are required. "the whole suite runs with no credential and no
+/// network" names a credential and is true, because it is about what a test
+/// needs rather than about what a record may hold; and a claim that project
+/// context's bytes are not persisted is about bytes that are not a secret.
+/// Judging either would only teach the next author to write around this test.
+fn promises_secrecy_about_a_record(sentence: &str) -> bool {
+    let names_a_secret = sentence.contains("credential") || sentence.contains("secret");
+    let about_keeping = RECORDING_WORDS.iter().any(|stem| sentence.contains(stem));
+    names_a_secret && about_keeping
+}
+
+/// The pages where the counterweight must be spelled out rather than linked: a
+/// reader who finds the credential promise here has to find what *is* saved in
+/// the same place.
+const FULL_DISCLOSURE: [&str; 5] = [
+    "README.md",
+    "docs/parity.md",
+    "CONTRIBUTING.md",
+    "src/session/event.rs",
+    "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
+];
 
 /// `text` with every run of whitespace collapsed to one space.
 ///
@@ -561,6 +639,10 @@ fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
         "no session event, snapshot, or tool result can carry",
         "no variant of the event union can carry one",
         "credentials are never persisted",
+        "no snapshot, session event, log line, or tool result may carry a credential",
+        "none of its variants can hold a secret",
+        "no variant of [`sessionevent`] can hold a credential",
+        "secrets never enter snapshots, logs, or tool output",
     ];
     for (name, text) in safety_documents() {
         let flowed = flow(&text).to_lowercase();
@@ -570,19 +652,130 @@ fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
                 "{name} carries the unscoped credential claim {claim:?}"
             );
         }
-        // The general rule behind those three: fxr may only promise that *its
-        // own* credential is unsaved, so any sentence making the promise has to
-        // name what it is about.
+        // The general rule behind those: fxr may only promise that *its own*
+        // credential is unsaved, so any sentence that denies a class of records
+        // can hold a secret -- or that says a secret is not persisted -- has to
+        // name what it is about. "fxr's own Gateway credential is never
+        // persisted: no variant of the event union carries it" passes; the same
+        // sentence with the scope removed does not.
         for sentence in flowed.split(". ") {
-            if sentence.contains("never persisted") || sentence.contains("not persisted") {
-                assert!(
-                    sentence.contains("gateway"),
-                    "{name} promises something is never persisted without naming fxr's own \
-                     Gateway credential, which is the only thing that is: {sentence:?}"
-                );
+            if !promises_secrecy_about_a_record(sentence) {
+                continue;
             }
+            if !UNIVERSAL_DENIALS
+                .iter()
+                .any(|denial| sentence.contains(denial))
+            {
+                continue;
+            }
+            assert!(
+                sentence.contains("gateway"),
+                "{name} promises secrecy for a class of records without naming fxr's own \
+                 Gateway credential, which is the only thing that is never written -- what a \
+                 tool read is: {sentence:?}"
+            );
         }
     }
+}
+
+#[test]
+fn every_page_that_scopes_the_credential_promise_also_says_what_is_saved() {
+    for (name, text) in safety_documents() {
+        if !FULL_DISCLOSURE.contains(&name) {
+            continue;
+        }
+        let flowed = flow(&text).to_lowercase();
+        // What it is on disk, and how to not put it there. Scoping the promise
+        // without these two is a narrower claim that still leaves the reader
+        // believing the old one.
+        for disclosure in ["plaintext", "--no-save"] {
+            assert!(
+                flowed.contains(disclosure),
+                "{name} scopes the credential promise but never discloses {disclosure:?}"
+            );
+        }
+        assert!(
+            flowed.contains("tool_result")
+                || flowed.contains("toolresult")
+                || flowed.contains("tool result"),
+            "{name} does not name the event that stores what the model read"
+        );
+    }
+
+    // The session module header is a table of contents. A second copy of the
+    // disclosure there would be a second thing to keep true, so it only has to
+    // send the reader to the variant that owns it.
+    let (_, module) = safety_documents()
+        .into_iter()
+        .find(|(name, _)| *name == "src/session/mod.rs")
+        .expect("the session module header is a safety document");
+    assert!(
+        flow(&module).to_lowercase().contains("toolresult"),
+        "src/session/mod.rs promises secrecy without naming the variant that records what a \
+         tool read"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the provenance claim a redistributor acts on
+// ---------------------------------------------------------------------------
+
+/// The attribution shipped in every release archive.
+fn notice() -> String {
+    fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("NOTICE"))
+        .expect("read NOTICE")
+}
+
+#[test]
+fn the_notice_says_one_thing_about_provenance_and_it_is_the_true_one() {
+    let flowed = flow(&notice());
+    let lowered = flowed.to_lowercase();
+
+    // fxr ships no upstream code, so the Apache boilerplate that announces
+    // included software is not a formality here -- it contradicts UPSTREAM.md
+    // and tells a redistributor to look for Zig sources that do not exist.
+    for claim in [
+        "includes software developed by",
+        "incorporates software",
+        "includes source",
+        "contains source code",
+        "portions of this work are derived from",
+    ] {
+        assert!(
+            !lowered.contains(claim),
+            "NOTICE claims fxr ships upstream software: {claim:?}"
+        );
+    }
+
+    // What has to survive any rewrite: who upstream is, under what licence, at
+    // which commit, that fxr is neither affiliated nor a copy, and that the
+    // relationship is specification-to-reimplementation.
+    for required in [
+        "https://github.com/vercel-labs/fx",
+        "580a0c5da9386317251968c09c1cee69e763487a",
+        "Copyright 2025 Vercel, Inc.",
+        "Apache License, Version 2.0",
+        "not affiliated",
+        "independent",
+        "reimplementation",
+        "specification",
+        "No Zig source is copied",
+    ] {
+        assert!(
+            flowed.contains(required),
+            "NOTICE no longer states {required:?}"
+        );
+    }
+
+    // The same sentence lives in UPSTREAM.md, which is what the NOTICE points a
+    // reader at. If the two ever disagree the archive carries both.
+    let upstream =
+        fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("UPSTREAM.md"))
+            .expect("read UPSTREAM.md");
+    assert!(
+        flow(&upstream).contains("No Zig source is copied"),
+        "UPSTREAM.md and NOTICE disagree about whether upstream source was copied"
+    );
 }
 
 #[test]
