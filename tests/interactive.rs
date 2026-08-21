@@ -17,7 +17,7 @@ mod support;
 
 use std::ffi::CString;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use rustix::fs::{fcntl_getfl, fcntl_setfl, Mode, OFlags};
 use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
 use rustix::termios::{
     tcgetattr, tcgetwinsize, ControlModes, InputModes, LocalModes, OutputModes, SpecialCodeIndex,
@@ -53,6 +54,9 @@ const TEST_KEY: &str = "fxr-test-interactive-key-must-not-appear";
 /// How long a test waits for expected output before failing.
 const WAIT: Duration = Duration::from_secs(20);
 
+/// How long the harness sleeps when a non-blocking descriptor has nothing yet.
+const IDLE_POLL: Duration = Duration::from_millis(2);
+
 /// The prompt the shell writes before reading a line.
 const PROMPT: &str = "> ";
 
@@ -60,10 +64,31 @@ const PROMPT: &str = "> ";
 // the pseudoterminal harness
 // ---------------------------------------------------------------------------
 
-/// A pty pair: the side a test writes to and reads from, and the device name
-/// the child opens as its stdin, stdout, and stderr.
+/// A pty pair: the side a test writes to and reads from, the device name the
+/// child opens as its stdin, stdout, and stderr, and **one slave descriptor
+/// held open for the pty's whole life**.
+///
+/// That retained descriptor is the difference between a real test and a
+/// comforting one. A pty's line discipline is reinitialized to the system
+/// defaults when its **last** slave descriptor closes, so a harness that opened
+/// a slave, read `termios`, and closed it again was measuring freshly reset
+/// defaults both before the child ran and after it exited -- and would have
+/// reported "the terminal was left exactly as it was found" for a child that
+/// left it in raw mode with echo off.
+/// `the_harness_can_tell_when_a_child_leaves_the_terminal_changed` is the proof
+/// that it no longer does.
+///
+/// The master is non-blocking. With a slave held open the child's exit no
+/// longer closes the last one, so a read on the master never reaches EOF; a
+/// blocking reader thread would then never return and every `Session` would
+/// hang on drop.
 struct Pty {
     master: Arc<File>,
+    /// Held, never read from. Its only job is to exist.
+    ///
+    /// `None` only in the harness's own self-test, which reproduces the earlier
+    /// version's blind spot deliberately.
+    slave: Option<File>,
     slave_path: PathBuf,
 }
 
@@ -74,38 +99,59 @@ impl Pty {
         unlockpt(&master).expect("unlock the pty slave");
         let name: CString = ptsname(&master, Vec::new()).expect("name the pty slave");
         let slave_path = PathBuf::from(name.to_str().expect("the slave name is utf-8").to_string());
+        let flags = fcntl_getfl(&master).expect("read the master's flags");
+        fcntl_setfl(&master, flags | OFlags::NONBLOCK).expect("make the master non-blocking");
+        let slave = open_slave(&slave_path);
         Self {
             master: Arc::new(File::from(master)),
+            slave: Some(slave),
             slave_path,
         }
     }
 
+    /// The pty as an earlier version of this harness had it: nothing retained,
+    /// every reading opening a slave and closing it again.
+    ///
+    /// It exists so that the blind spot can be demonstrated rather than
+    /// described. See `a_harness_that_retains_nothing_cannot_see_the_change`.
+    fn open_without_a_retained_slave() -> Self {
+        let mut pty = Self::open();
+        pty.slave = None;
+        pty
+    }
+
     /// The line-discipline state of the terminal, as a caller would see it.
     ///
-    /// Read through a freshly opened slave rather than through the master:
-    /// BSD-derived kernels, macOS among them, answer `tcgetattr` on a pty
-    /// master with `ENOTTY`. The handle is dropped immediately so that it can
-    /// never be the descriptor keeping the terminal alive after the child is
-    /// gone.
-    fn termios(&self) -> Termios {
-        let slave = self.open_slave();
-        tcgetattr(slave.as_fd()).expect("read the terminal state")
+    /// Read through the retained slave. Not through the master: BSD-derived
+    /// kernels, macOS among them, answer `tcgetattr` on a pty master with
+    /// `ENOTTY`. Not through a freshly opened one either, for the reason in the
+    /// type's own documentation.
+    fn try_termios(&self) -> Result<Termios, rustix::io::Errno> {
+        match &self.slave {
+            Some(slave) => tcgetattr(slave.as_fd()),
+            None => tcgetattr(open_slave(&self.slave_path).as_fd()),
+        }
     }
 
     /// The terminal's dimensions. A shell that resized the window would be
     /// changing state it was lent, exactly like a mode flag.
-    fn winsize(&self) -> Winsize {
-        let slave = self.open_slave();
-        tcgetwinsize(slave.as_fd()).expect("read the terminal size")
+    fn try_winsize(&self) -> Result<Winsize, rustix::io::Errno> {
+        match &self.slave {
+            Some(slave) => tcgetwinsize(slave.as_fd()),
+            None => tcgetwinsize(open_slave(&self.slave_path).as_fd()),
+        }
     }
+}
 
-    fn open_slave(&self) -> File {
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.slave_path)
-            .expect("open the pty slave")
-    }
+/// Opens a pty slave without letting it become this process's terminal.
+///
+/// `O_NOCTTY` matters on both sides: the test process must not acquire the
+/// child's terminal by holding a descriptor on it, and the child claims it
+/// deliberately with `TIOCSCTTY` rather than by accident of opening.
+fn open_slave(path: &Path) -> File {
+    let fd = rustix::fs::open(path, OFlags::RDWR | OFlags::NOCTTY, Mode::empty())
+        .expect("open the pty slave");
+    File::from(fd)
 }
 
 /// The real `fxr` binary running on a pty, with everything it wrote captured.
@@ -124,28 +170,42 @@ impl Session {
     /// The child gets its own session and claims the pty as its controlling
     /// terminal, because that is what makes a typed Ctrl-C become a real SIGINT
     /// in the child's foreground process group rather than a byte in a buffer.
-    fn spawn(pty: &Pty, mut command: Command) -> Self {
-        let slave = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&pty.slave_path)
-            .expect("open the pty slave");
+    fn spawn(pty: &Pty, command: Command) -> Self {
+        Self::spawn_owning(pty, command, true)
+    }
+
+    /// Spawns a child on the pty that does **not** take it as a controlling
+    /// terminal.
+    ///
+    /// Only the harness's own self-tests use this. A session leader's terminal
+    /// is revoked when it exits on BSD-derived kernels, which makes "what did
+    /// the child leave behind" unanswerable there; a child that never claimed
+    /// the terminal leaves it inspectable, which is what makes the harness's
+    /// blind spot demonstrable.
+    fn spawn_without_taking_the_terminal(pty: &Pty, command: Command) -> Self {
+        Self::spawn_owning(pty, command, false)
+    }
+
+    fn spawn_owning(pty: &Pty, mut command: Command, take_terminal: bool) -> Self {
+        let slave = open_slave(&pty.slave_path);
         let stdin = slave.try_clone().expect("clone the pty slave");
         let stdout = slave.try_clone().expect("clone the pty slave");
         command
             .stdin(Stdio::from(stdin))
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(slave));
-        // SAFETY: both calls are async-signal-safe and touch only this child's
-        // own session and controlling terminal. `std` has already dup'd the pty
-        // onto 0/1/2 by the time a `pre_exec` closure runs, so fd 0 is the
-        // terminal being claimed.
-        unsafe {
-            command.pre_exec(|| {
-                rustix::process::setsid()?;
-                rustix::process::ioctl_tiocsctty(BorrowedFd::borrow_raw(0))?;
-                Ok(())
-            });
+        if take_terminal {
+            // SAFETY: both calls are async-signal-safe and touch only this
+            // child's own session and controlling terminal. `std` has already
+            // dup'd the pty onto 0/1/2 by the time a `pre_exec` closure runs,
+            // so fd 0 is the terminal being claimed.
+            unsafe {
+                command.pre_exec(|| {
+                    rustix::process::setsid()?;
+                    rustix::process::ioctl_tiocsctty(BorrowedFd::borrow_raw(0))?;
+                    Ok(())
+                });
+            }
         }
         let child = command.spawn().expect("spawn fxr on the pty");
 
@@ -159,13 +219,21 @@ impl Session {
             let mut buffer = [0u8; 4096];
             while thread_reading.load(Ordering::SeqCst) {
                 match (&*thread_master).read(&mut buffer) {
-                    // A closed slave reads as EOF on some platforms and as EIO
-                    // on others; both mean the child is gone.
-                    Ok(0) | Err(_) => break,
+                    // A pty whose last slave has closed reads as EOF on some
+                    // platforms and as EIO on others. Neither happens here --
+                    // the harness holds a slave open on purpose -- so the loop
+                    // ends on the flag instead, which is why the master is
+                    // non-blocking. Both cases are still handled: the reader
+                    // must not spin on a descriptor that is genuinely finished.
+                    Ok(0) => break,
                     Ok(read) => thread_output
                         .lock()
                         .expect("output lock")
                         .extend_from_slice(&buffer[..read]),
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(IDLE_POLL);
+                    }
+                    Err(_) => break,
                 }
             }
         });
@@ -188,11 +256,28 @@ impl Session {
     }
 
     /// Types `bytes` on the terminal, exactly as a keyboard would.
+    ///
+    /// Written in a loop because the master is non-blocking: a full input queue
+    /// is a `WouldBlock`, not a failure, and the reader on the other side is a
+    /// real process that will get to it.
     fn type_bytes(&self, bytes: &[u8]) {
-        (&*self.master)
-            .write_all(bytes)
-            .expect("write to the terminal");
-        (&*self.master).flush().expect("flush the terminal");
+        let deadline = Instant::now() + WAIT;
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            match (&*self.master).write(rest) {
+                Ok(0) => panic!("the terminal accepted nothing"),
+                Ok(written) => rest = &rest[written..],
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the terminal never accepted input; terminal so far:\n{}",
+                        self.text()
+                    );
+                    thread::sleep(IDLE_POLL);
+                }
+                Err(err) => panic!("write to the terminal: {err}"),
+            }
+        }
     }
 
     /// Types a line and presses Return. Return is a carriage return on a
@@ -920,10 +1005,11 @@ struct TerminalState {
     size: (u16, u16),
 }
 
-fn modes(pty: &Pty) -> TerminalState {
-    let state = pty.termios();
-    let size = pty.winsize();
-    TerminalState {
+/// The terminal's state, when the kernel still allows the question to be asked.
+fn try_modes(pty: &Pty) -> Option<TerminalState> {
+    let state = pty.try_termios().ok()?;
+    let size = pty.try_winsize().ok()?;
+    Some(TerminalState {
         input: state.input_modes,
         output: state.output_modes,
         control: state.control_modes,
@@ -931,7 +1017,43 @@ fn modes(pty: &Pty) -> TerminalState {
         min: state.special_codes[SpecialCodeIndex::VMIN],
         time: state.special_codes[SpecialCodeIndex::VTIME],
         size: (size.ws_row, size.ws_col),
+    })
+}
+
+/// The terminal's state, for a terminal that is still one.
+fn modes(pty: &Pty) -> TerminalState {
+    try_modes(pty).expect("the pty is still a terminal")
+}
+
+/// Requires that fxr left the terminal alone, given a reading taken while it
+/// was still running and, where the platform still permits one, a second
+/// reading taken after it exited.
+///
+/// **The reading that matters is the one taken while fxr is alive.** On
+/// BSD-derived kernels -- macOS among them -- the terminal of a session leader
+/// is revoked when that leader exits: every descriptor to it, including the one
+/// this harness holds open, stops being a terminal, and a freshly opened one
+/// gets a pristine device with the system defaults. So "read the terminal after
+/// the child is gone" cannot distinguish a shell that restored the state from
+/// one that never touched it *or from one that left it in raw mode* -- which is
+/// exactly how the earlier version of these tests passed while proving nothing.
+///
+/// Sampling during the run is also the stronger question. fxr's claim is not
+/// "it puts the terminal back", it is "it never changes the terminal", and a
+/// during-run reading is the only one that can tell those two apart.
+fn assert_terminal_untouched(pty: &Pty, before: TerminalState, during: TerminalState) {
+    assert_eq!(
+        before, during,
+        "the terminal was changed while fxr was running"
+    );
+    if let Some(after) = try_modes(pty) {
+        assert_eq!(before, after, "the terminal was left changed");
     }
+    assert!(during.local.contains(LocalModes::ECHO), "echo is off");
+    assert!(
+        during.local.contains(LocalModes::ICANON),
+        "canonical mode is off"
+    );
 }
 
 #[test]
@@ -943,16 +1065,13 @@ fn a_normal_exit_leaves_the_line_discipline_exactly_as_it_was() {
 
     session.type_line("/version");
     session.wait_for_count(PROMPT, 2);
+    // Read while fxr is running and idle at its prompt. A shell that had taken
+    // the terminal for its line editor is in raw mode right now.
+    let during = modes(&pty);
+    assert!(during.local.contains(LocalModes::ISIG), "signals are off");
     assert_eq!(session.quit().code(), Some(0));
 
-    let after = modes(&pty);
-    assert_eq!(before, after, "the terminal was left changed");
-    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
-    assert!(
-        after.local.contains(LocalModes::ICANON),
-        "canonical mode is off"
-    );
-    assert!(after.local.contains(LocalModes::ISIG), "signals are off");
+    assert_terminal_untouched(&pty, before, during);
     assert!(
         !session.text().contains("\u{1b}[?1049"),
         "the alternate screen was used"
@@ -973,15 +1092,12 @@ fn an_interrupted_turn_leaves_the_line_discipline_exactly_as_it_was() {
     session.wait_for("thinking");
     session.type_bytes(&[0x03]);
     session.wait_for("interrupted");
+    // While the shell is still alive, having just cancelled a turn: the moment
+    // a restore-on-exit path would still be hiding a raw terminal.
+    let during = modes(&pty);
     assert_eq!(session.quit().code(), Some(0));
 
-    let after = modes(&pty);
-    assert_eq!(before, after, "the terminal was left changed");
-    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
-    assert!(
-        after.local.contains(LocalModes::ICANON),
-        "canonical mode is off"
-    );
+    assert_terminal_untouched(&pty, before, during);
 }
 
 #[test]
@@ -993,14 +1109,16 @@ fn a_hard_exit_on_a_second_interrupt_still_leaves_a_usable_terminal() {
 
     session.type_bytes(&[0x03]);
     session.wait_for_count(PROMPT, 2);
+    // Sampled before the interrupt that ends the process: `exit(130)` runs no
+    // destructor, so if fxr owed the terminal anything this is the last moment
+    // it could have owed it.
+    let during = modes(&pty);
     session.type_bytes(&[0x03]);
     let status = session.wait_exit();
     assert_eq!(status.code(), Some(130));
     assert_eq!(status.signal(), None, "fxr exits, it is not killed");
 
-    let after = modes(&pty);
-    assert_eq!(before, after, "the terminal was left changed");
-    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
+    assert_terminal_untouched(&pty, before, during);
 }
 
 // ---------------------------------------------------------------------------
@@ -1424,4 +1542,102 @@ fn the_terminal_comparator_notices_a_change_in_any_single_field() {
         assert_ne!(base, changed, "a change to {field} compares equal");
     }
     assert_eq!(base, modes(&pty), "reading twice must be stable");
+}
+
+// ---------------------------------------------------------------------------
+// the harness, tested against itself
+// ---------------------------------------------------------------------------
+
+/// A child that puts the terminal in raw mode with echo off and leaves it that
+/// way, which is the exact thing every restoration test above claims fxr never
+/// does.
+///
+/// `take_terminal` chooses whether it does so as a session leader owning the
+/// terminal, the way fxr runs, or as an ordinary process. The two are not
+/// interchangeable: a session leader's terminal is revoked when it exits on
+/// BSD-derived kernels, and that revocation is the whole reason the old harness
+/// saw nothing.
+fn leave_the_terminal_in_raw_mode(pty: &Pty, take_terminal: bool) -> Session {
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "stty raw -echo"]);
+    let mut session = if take_terminal {
+        Session::spawn(pty, command)
+    } else {
+        Session::spawn_without_taking_the_terminal(pty, command)
+    };
+    assert_eq!(
+        session.wait_exit().code(),
+        Some(0),
+        "stty failed; terminal so far:\n{}",
+        session.text()
+    );
+    session
+}
+
+#[test]
+fn the_harness_can_tell_when_a_child_leaves_the_terminal_changed() {
+    // Without this the whole "the terminal was left exactly as it was found"
+    // section is a green light with nothing behind it. Here a child really does
+    // wreck the terminal, and the comparator has to say so.
+    let pty = Pty::open();
+    let before = modes(&pty);
+    // Not a session leader, so the terminal survives its exit to be inspected.
+    // The session-leader case is covered by the during-run reading below, which
+    // is the one the restoration tests actually take.
+    let _child = leave_the_terminal_in_raw_mode(&pty, false);
+
+    let after = modes(&pty);
+    assert_ne!(before, after, "a raw-mode child compared equal");
+    assert!(!after.local.contains(LocalModes::ECHO), "echo survived raw");
+    assert!(
+        !after.local.contains(LocalModes::ICANON),
+        "canonical mode survived raw"
+    );
+    assert!(before.local.contains(LocalModes::ECHO), "{before:?}");
+}
+
+#[test]
+fn a_harness_that_retains_nothing_cannot_see_the_change() {
+    // The regression, reproduced, with a child spawned exactly the way fxr is:
+    // its own session, owning the terminal. When such a child exits, the kernel
+    // revokes its terminal, and the next open of that device name is a pristine
+    // one carrying the system defaults. A harness that opens a slave per
+    // reading therefore reports "the terminal is exactly as it was found" about
+    // the very raw-mode child the test above catches.
+    let pty = Pty::open_without_a_retained_slave();
+    let before = modes(&pty);
+    let _child = leave_the_terminal_in_raw_mode(&pty, true);
+
+    let after = modes(&pty);
+    assert_eq!(
+        before, after,
+        "this documents a blind spot; if it ever fails, the platform stopped \
+         being blind and this test should be deleted rather than repaired"
+    );
+    assert!(
+        after.local.contains(LocalModes::ECHO),
+        "a fresh descriptor did not report defaults, so the retained one is not \
+         what made the difference"
+    );
+}
+
+#[test]
+fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed() {
+    // The restoration tests above take their reading while fxr is alive, and
+    // this is the proof that such a reading can fail. The child is spawned
+    // exactly as fxr is -- its own session, holding this terminal -- so the
+    // path under test is the same one, down to the descriptor.
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "stty raw -echo; echo ready; sleep 30"]);
+    let session = Session::spawn(&pty, command);
+    session.wait_for("ready");
+
+    let during = modes(&pty);
+    assert_ne!(before, during, "a live raw-mode child compared equal");
+    assert!(!during.local.contains(LocalModes::ECHO), "{during:?}");
+    assert!(!during.local.contains(LocalModes::ICANON), "{during:?}");
+    // Dropping the session kills the child, which is the point: nothing here
+    // waits for a `sleep 30`.
 }
