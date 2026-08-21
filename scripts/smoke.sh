@@ -122,8 +122,33 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import TCPServer
 
 script_path, port_path, requests_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+
+class LoopbackHTTPServer(HTTPServer):
+    """`HTTPServer` without the reverse-DNS lookup it does while binding.
+
+    `http.server.HTTPServer.server_bind` binds the socket through
+    `TCPServer.server_bind` -- which is where the port is actually assigned --
+    and then, still inside the constructor, calls `socket.getfqdn(host)` to fill
+    in `server_name`. That lookup is a reverse-DNS query, and on a GitHub-hosted
+    macOS runner it blocks: in run 32509184302 both macOS jobs sat in it until
+    the smoke's own thirty-second deadline, alive and silent, with an empty log
+    and no port ever written, because this file publishes the port only after
+    the constructor returns.
+
+    The host here is `127.0.0.1`. Asking a resolver what loopback is called can
+    only return a name this script never uses -- `server_name` is read by the
+    CGI handler and by nothing else -- so the lookup is skipped and both
+    attributes are set from what binding already established.
+    """
+
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
 
 with open(script_path, encoding="utf-8") as handle:
     replies = json.load(handle)
@@ -188,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-server = HTTPServer(("127.0.0.1", 0), Handler)
+server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
 with open(port_path, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_address[1]))
 server.serve_forever()
