@@ -276,7 +276,6 @@ fn the_admitted_grammar_covers_the_read_and_test_commands_it_claims() {
         "cargo -V",
         "cargo metadata --no-deps",
         "cargo metadata --no-deps --offline",
-        "cargo fmt --check",
     ] {
         assert!(
             matches!(classify(command), CommandEffect::DirectReadOnly { .. }),
@@ -309,8 +308,16 @@ fn a_destructive_command_is_denied_by_the_effect_it_would_have() {
         ("cargo clippy", DeniedEffect::ExecutesProjectCode),
         ("cargo bench", DeniedEffect::ExecutesProjectCode),
         ("cargo run", DeniedEffect::ExecutesProjectCode),
-        // Both of these would do something other than report.
-        ("cargo fmt", DeniedEffect::UnsupportedArgument),
+        // `cargo fmt` is the external `cargo-fmt` binary, and Cargo lets a user
+        // alias shadow an external subcommand -- so what it does is whatever the
+        // alias points at, not whatever `cargo-fmt` does.
+        ("cargo fmt", DeniedEffect::ExecutesProjectCode),
+        ("cargo fmt --check", DeniedEffect::ExecutesProjectCode),
+        (
+            "cargo clippy --all-targets",
+            DeniedEffect::ExecutesProjectCode,
+        ),
+        // A bare `cargo metadata` can resolve the graph over the network.
         ("cargo metadata", DeniedEffect::UnsupportedArgument),
         ("frobnicate --all", DeniedEffect::UnknownCommand),
     ];
@@ -405,26 +412,29 @@ fn auto_will_not_compile_or_run_the_workspace_it_can_write_to() {
             "`{command}` must not be on the automatic route"
         );
     }
-    // What survives only reports.
-    for command in [
-        "cargo --version",
-        "cargo metadata --no-deps",
-        "cargo fmt --check",
-    ] {
+    // What survives only reports, and is a Cargo *built-in*, so no `[alias]` in
+    // a config file automatic mode may write can redirect it.
+    for command in ["cargo --version", "cargo -V", "cargo metadata --no-deps"] {
         assert!(
             matches!(classify(command), CommandEffect::DirectReadOnly { .. }),
             "`{command}` should still be admitted"
         );
     }
-    // ... and only in the form that reports: a bare `cargo fmt` rewrites the
-    // sources, and a bare `cargo metadata` can resolve the graph over the network.
-    for command in ["cargo fmt", "cargo metadata"] {
+    // `cargo fmt` is external and therefore alias-shadowable; its own behaviour
+    // is beside the point.
+    for command in ["cargo fmt", "cargo fmt --check", "cargo clippy"] {
         assert_eq!(
             classify(command),
-            CommandEffect::Denied(DeniedEffect::UnsupportedArgument),
-            "`{command}`"
+            CommandEffect::Denied(DeniedEffect::ExecutesProjectCode),
+            "`{command}` is reachable through [alias] and must not be automatic"
         );
     }
+    // A bare `cargo metadata` can resolve the dependency graph over the network,
+    // so it is refused for a different reason than the ones above.
+    assert_eq!(
+        classify("cargo metadata"),
+        CommandEffect::Denied(DeniedEffect::UnsupportedArgument)
+    );
     // The refusal has to say what the command would have done, because the
     // model's next move depends on it: "ask the user" and "use another
     // command" are different repairs.
@@ -476,6 +486,133 @@ fn auto_can_write_a_build_script_but_cannot_make_cargo_run_it() {
         "terminal",
         json!({ "action": "exec", "command": "cargo --version" }),
     );
+}
+
+#[test]
+fn a_config_alias_cannot_turn_an_admitted_cargo_command_into_a_build() {
+    // The attack, exactly. Automatic mode may write `.cargo/config.toml` and it
+    // may write `build.rs`. Cargo resolves a subcommand as built-in, then user
+    // alias, then external `cargo-<name>` -- so an alias can shadow `fmt`, which
+    // is the external `cargo-fmt`, and turn `cargo fmt --check` into `cargo run`.
+    // That compiles the crate and executes its build script.
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Auto);
+    let marker = tree.root().join("BUILD_RS_RAN");
+
+    succeeds(
+        &context,
+        "write_file",
+        json!({
+            "path": ".cargo/config.toml",
+            "content": "[alias]\nfmt = \"run --\"\nmetadata = \"run --\"\n",
+        }),
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({
+            "path": "Cargo.toml",
+            "content": "[package]\nname = \"victim\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        }),
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({ "path": "src/main.rs", "content": "fn main() {}\n" }),
+    );
+    succeeds(
+        &context,
+        "write_file",
+        json!({
+            "path": "build.rs",
+            "content": "fn main() { std::fs::write(\"BUILD_RS_RAN\", \"yes\").unwrap(); }\n",
+        }),
+    );
+
+    // Denied by the grammar, so nothing is spawned at all: the marker cannot
+    // exist, because `cargo` was never started.
+    for command in ["cargo fmt --check", "cargo fmt"] {
+        let refusal = fails(
+            &context,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        assert!(
+            refusal.contains("compiles or runs code from the workspace"),
+            "{refusal}"
+        );
+    }
+    assert!(!marker.exists(), "the build script ran");
+    assert!(
+        !tree.root().join("target").exists(),
+        "cargo was started despite the refusal"
+    );
+}
+
+#[test]
+fn a_config_alias_cannot_redirect_the_admitted_cargo_builtins() {
+    // The other half of the ruling: what stays admitted has to be provably
+    // alias-proof, not merely well-behaved. `metadata` is a Cargo built-in, so
+    // the alias is ignored; and `--no-deps` metadata never invokes `rustc`, so
+    // `build.rustc` cannot redirect it either.
+    let tree = Tree::new();
+    let context = context(&tree, PermissionMode::Auto);
+    let marker = tree.root().join("BUILD_RS_RAN");
+    let shim_ran = tree.root().join("RUSTC_SHIM_RAN");
+
+    // A genuinely executable redirect, which is stronger than anything the tools
+    // themselves could produce: fxr writes files 0644 and has no chmod.
+    let shim = tree.root().join("shim.sh");
+    fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\necho ran >> {}\nexec rustc \"$@\"\n",
+            shim_ran.display()
+        ),
+    )
+    .expect("write the shim");
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).expect("make the shim runnable");
+
+    tree.write(
+        ".cargo/config.toml",
+        &format!(
+            "[alias]\nmetadata = \"run --\"\n\n[build]\nrustc = \"{}\"\nrustc-wrapper = \"{}\"\n",
+            shim.display(),
+            shim.display()
+        ),
+    );
+    tree.write(
+        "Cargo.toml",
+        "[package]\nname = \"victim\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    tree.write("src/main.rs", "fn main() {}\n");
+    tree.write(
+        "build.rs",
+        "fn main() { std::fs::write(\"BUILD_RS_RAN\", \"yes\").unwrap(); }\n",
+    );
+
+    let output = succeeds(
+        &context,
+        "terminal",
+        json!({
+            "action": "exec",
+            "command": "cargo metadata --no-deps --offline --format-version 1",
+        }),
+    );
+    assert!(output.contains("<exit_code>0</exit_code>"), "{output}");
+    assert!(output.contains("packages"), "{output}");
+    assert!(!marker.exists(), "the alias redirected a built-in");
+    assert!(!shim_ran.exists(), "a built-in honoured build.rustc");
+
+    // And the version built-in reports without reading the project at all.
+    let version = succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cargo --version" }),
+    );
+    assert!(version.contains("<exit_code>0</exit_code>"), "{version}");
+    assert!(!marker.exists(), "the alias redirected `--version`");
+    assert!(!shim_ran.exists(), "`--version` honoured build.rustc");
 }
 
 #[test]
@@ -1625,6 +1762,59 @@ fn a_direct_operand_that_resolves_outside_the_workspace_is_refused() {
         !refusal.contains("SENSITIVE-OUTSIDE-VALUE"),
         "the refusal leaked the file it refused"
     );
+}
+
+#[test]
+fn a_dash_prefixed_operand_is_resolved_like_any_other() {
+    // `--` ends flag parsing, so `-escape.txt` past it is a filename. Skipping
+    // dash-prefixed words when looking for escapes let exactly that through.
+    let tree = Tree::new();
+    let outside = TempDir::new().expect("outside");
+    let secret = outside.path().join("secret.txt");
+    fs::write(&secret, "SENSITIVE-OUTSIDE-VALUE\n").expect("write the outside file");
+    symlink(&secret, tree.root().join("-escape.txt")).expect("plant the dashed symlink");
+
+    let context = context(&tree, PermissionMode::Auto);
+    for command in [
+        "cat -- -escape.txt",
+        // The same hole without a separator: a quoted operand takes the operand
+        // branch of the grammar, and quoting is invisible once an argv exists.
+        "cat '-escape.txt'",
+    ] {
+        let refusal = fails(
+            &context,
+            "terminal",
+            json!({ "action": "exec", "command": command }),
+        );
+        assert!(
+            refusal.contains("outside the authorized"),
+            "`{command}`: {refusal}"
+        );
+        assert!(
+            !refusal.contains("SENSITIVE-OUTSIDE-VALUE"),
+            "the refusal leaked what it refused"
+        );
+    }
+}
+
+#[test]
+fn a_dash_prefixed_operand_inside_the_workspace_still_works() {
+    // The counterpart: the rule is "resolve it", not "refuse it".
+    let tree = Tree::new();
+    tree.write("real.txt", "inside content\n");
+    symlink(
+        tree.root().join("real.txt"),
+        tree.root().join("-inside.txt"),
+    )
+    .expect("plant the dashed symlink");
+
+    let context = context(&tree, PermissionMode::Auto);
+    let output = succeeds(
+        &context,
+        "terminal",
+        json!({ "action": "exec", "command": "cat -- -inside.txt" }),
+    );
+    assert!(output.contains("inside content"), "{output}");
 }
 
 #[test]

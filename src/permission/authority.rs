@@ -708,7 +708,7 @@ impl PreparedCommand {
     }
 }
 
-/// The first operand of `argv` that exists and resolves outside the scope.
+/// The first word of `argv` that exists and resolves outside the scope.
 ///
 /// Only *existing* names are resolved. A word that names nothing -- a grep
 /// pattern, a git revision, an argument to a test harness -- cannot be a path
@@ -717,9 +717,21 @@ impl PreparedCommand {
 /// use, so an in-workspace symbolic link is followed and accepted while one that
 /// escapes is refused.
 ///
-/// Words beginning with `-` are skipped: the grammar already restricted the
-/// flags a command may carry, and treating `--check` as a candidate path would
-/// resolve whatever a file of that name happened to be.
+/// # Why every word, including the ones that look like flags
+///
+/// An earlier version skipped anything starting with `-`, on the theory that the
+/// grammar had already vetted the flags. It had not vetted these:
+///
+/// - `cat -- -escape.txt`. Past `--` there are no flags, only operands, and
+///   `-escape.txt` is a perfectly legal filename.
+/// - `cat '-escape.txt'`. A quoted word takes the operand branch of the grammar,
+///   and quoting is not visible here -- by the time an argv exists, `'-x'` and
+///   `-x` are the same string.
+///
+/// Tracking the `--` separator would close the first and not the second. So
+/// every word after the executable is resolved. The cost is that a *flag* which
+/// happens to name an existing escaping symlink refuses the command; that is
+/// both vanishingly rare and the safe direction to be wrong in.
 ///
 /// Residual: this is [`AccessScope::resolve_existing`], so it carries that
 /// function's documented TOCTOU limit. A command is not a mutation -- it does
@@ -727,7 +739,7 @@ impl PreparedCommand {
 /// resolving operands the child will resolve again for itself anyway.
 fn escaping_operand(argv: &[String], scope: &AccessScope, cwd: &Path) -> Option<String> {
     for word in argv.iter().skip(1) {
-        if word.starts_with('-') || word.is_empty() {
+        if word.is_empty() {
             continue;
         }
         // Resolved against the command's own working directory, which is what

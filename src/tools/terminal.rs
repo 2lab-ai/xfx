@@ -68,7 +68,8 @@ const EXEC_ACTION: &str = "exec";
 const TERMINAL_DESCRIPTION: &str = "Run one command in the workspace and return its captured result: exit status, standard output, and standard error. \
 Set action to exec. \
 A recognized read-only command runs as an exact argument list with no shell, so quoting, globbing, variable substitution, redirection, and operators such as |, &&, ;, and > are not expanded and take the command off the automatic route. \
-Commands that compile or run project code, including cargo test, build, check, clippy, bench, and run, always need approval even though the automatic mode may have written the files they would compile; cargo --version, cargo metadata --no-deps, and cargo fmt --check do not. \
+Commands that compile or run project code always need approval even though the automatic mode may have written the files they would compile; this includes cargo test, build, check, clippy, bench, run, and fmt, because a cargo alias in .cargo/config.toml can redirect any subcommand that is not a cargo built-in. \
+The automatic cargo surface is cargo --version, cargo -V, cargo --list, and cargo metadata --no-deps. \
 Operands must be relative, must not contain .., and must not resolve outside the authorized roots. \
 Anything else needs an explicit approval before it runs. \
 Output is captured, not streamed, and is truncated past a fixed size; the command is killed if it outruns its time limit. \

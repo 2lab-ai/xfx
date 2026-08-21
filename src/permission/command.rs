@@ -701,14 +701,39 @@ fn plan_git(arguments: &[Word]) -> Result<(), DeniedEffect> {
 /// scripts, procedural macros, and test harnesses are ordinary Rust programs
 /// that Cargo executes. Admitting both would mean `auto` could write `build.rs`
 /// and then run it, which is arbitrary code execution with no approval anywhere
-/// on the path. So Cargo's automatic surface is limited to invocations that
-/// only *report*:
+/// on the path.
+///
+/// # The rule: only Cargo built-ins
+///
+/// Naming a safe-looking subcommand is not enough, because the workspace also
+/// contains `.cargo/config.toml`, and `auto` may write that too. Cargo resolves
+/// a subcommand as **built-in, then user alias, then external `cargo-<name>`**,
+/// so an alias can shadow an *external* subcommand but never a built-in.
+/// `cargo fmt` and `cargo clippy` are external, so `[alias] fmt = "run --"`
+/// turns `cargo fmt --check` into `cargo run`, which compiles the project and
+/// executes its build script. Measured, not assumed:
+///
+/// ```text
+/// warning: user-defined alias `fmt` is shadowing an external subcommand
+///    Compiling victim v0.1.0
+///     Running `target/debug/victim --check`
+///
+/// warning: user-defined alias `metadata` is ignored, because it is shadowed
+///          by a built-in command
+/// => build.rs did not run, and `build.rustc` was never invoked
+/// ```
+///
+/// So the automatic Cargo surface is exactly the invocations that are both
+/// *reporting* and *alias-proof*, which means built-ins only:
 ///
 /// - `cargo --version` / `-V` / `--list`, which read nothing from the project;
-/// - `cargo metadata --no-deps`, which parses manifests -- `--no-deps` is
-///   required because resolving the dependency graph can reach the network;
-/// - `cargo fmt --check`, which parses and compares -- `--check` is required
-///   because a bare `cargo fmt` rewrites the source files.
+/// - `cargo metadata --no-deps`, a built-in that parses manifests -- `--no-deps`
+///   is required because resolving the dependency graph can reach the network,
+///   and it is proven not to honour `build.rustc` or `build.rustc-wrapper`
+///   (`a_config_alias_cannot_redirect_the_admitted_cargo_builtins`).
+///
+/// Anything reached through an external `cargo-<name>` binary is a review
+/// decision no matter how harmless that subcommand's own behaviour is.
 ///
 /// Everything else is a review decision. It is still available: an approval or
 /// an explicit rule sends it down the reviewed route, and `--yolo` skips the
@@ -732,6 +757,10 @@ fn plan_cargo(arguments: &[Word]) -> Result<(), DeniedEffect> {
     const EXECUTES_CODE: &[&str] = &[
         "test", "build", "check", "clippy", "bench", "run", "rustc", "fix", "doc", "install",
         "miri",
+        // Externally implemented, and therefore reachable through `[alias]` in a
+        // file `auto` may write. The effect such a command can have is the
+        // effect of whatever the alias points at, not of `cargo-fmt`.
+        "fmt",
     ];
     if EXECUTES_CODE.contains(&first.value.as_str()) {
         return Err(DeniedEffect::ExecutesProjectCode);
@@ -747,13 +776,6 @@ fn plan_cargo(arguments: &[Word]) -> Result<(), DeniedEffect> {
                 valued: &["--format-version"],
                 operands: false,
                 min_operands: 0,
-            },
-        ),
-        "fmt" if has("--check") => check(
-            rest,
-            &Grammar {
-                flags: &["--check", "--all", "--quiet", "-q"],
-                ..NO_ARGS
             },
         ),
         _ => Err(DeniedEffect::UnsupportedArgument),
@@ -871,21 +893,29 @@ mod tests {
                 "`{command}`"
             );
         }
-        // Not reporting either, but for different reasons: one rewrites the
-        // sources, the other can resolve the dependency graph over the network.
-        for command in ["cargo fmt", "cargo metadata"] {
-            assert_eq!(
-                denied(command),
-                DeniedEffect::UnsupportedArgument,
-                "`{command}`"
-            );
-        }
+        // A bare `cargo metadata` can resolve the dependency graph over the
+        // network, so it is refused for a different reason than the ones above.
+        assert_eq!(denied("cargo metadata"), DeniedEffect::UnsupportedArgument);
         assert_eq!(argv("cargo --version"), ["cargo", "--version"]);
         assert_eq!(
             argv("cargo metadata --no-deps"),
             ["cargo", "metadata", "--no-deps"]
         );
-        assert_eq!(argv("cargo fmt --check"), ["cargo", "fmt", "--check"]);
+    }
+
+    #[test]
+    fn an_externally_implemented_cargo_subcommand_is_never_automatic() {
+        // `cargo fmt` and `cargo clippy` are the `cargo-fmt` and `cargo-clippy`
+        // binaries, and Cargo lets a user alias shadow an external subcommand.
+        // `.cargo/config.toml` is a file automatic mode may write, so "this
+        // subcommand only reads" is not a property of the name.
+        for command in ["cargo fmt", "cargo fmt --check", "cargo clippy"] {
+            assert_eq!(
+                denied(command),
+                DeniedEffect::ExecutesProjectCode,
+                "`{command}`"
+            );
+        }
     }
 
     #[test]
