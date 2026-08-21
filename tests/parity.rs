@@ -18,10 +18,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use fxr::cli::{help_text, parser_command_names, ADVERTISED_COMMANDS, ADVERTISED_ENTRYPOINTS};
-use fxr::interactive::SLASH_COMMANDS;
-use fxr::tools::{PermissionKind, Registry, ADVERTISED_TOOLS};
 use serde_json::Value;
+use xfx::cli::{help_text, parser_command_names, ADVERTISED_COMMANDS, ADVERTISED_ENTRYPOINTS};
+use xfx::interactive::SLASH_COMMANDS;
+use xfx::tools::{PermissionKind, Registry, ADVERTISED_TOOLS};
 
 /// One row of the ledger.
 #[derive(Debug, Clone)]
@@ -283,10 +283,10 @@ fn the_implemented_tools_are_exactly_the_tools_the_model_is_offered() {
 /// The prose above the tool table, which is what a reader actually reads.
 ///
 /// A row-by-row validator cannot see a sentence, and a sentence is where the
-/// most dangerous drift lives: this file once said fxr "advertises the four
+/// most dangerous drift lives: this file once said xfx "advertises the four
 /// read-only tools below" while the table underneath listed eight, including
 /// the three that rewrite files and the one that starts processes. Every row
-/// was correct and the paragraph was a lie about what fxr is allowed to do.
+/// was correct and the paragraph was a lie about what xfx is allowed to do.
 fn tools_prose() -> String {
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     let start = ledger.find("## Tools").expect("the Tools section exists");
@@ -332,7 +332,7 @@ fn the_tools_prose_declares_the_number_of_tools_that_exist() {
     let text = tools_prose();
     let at = text
         .find("advertises the ")
-        .expect("the Tools prose says how many tools fxr advertises");
+        .expect("the Tools prose says how many tools xfx advertises");
     let declared: usize = text[at + "advertises the ".len()..]
         .split_whitespace()
         .next()
@@ -409,7 +409,7 @@ fn no_deferred_tool_name_appears_anywhere_in_the_schema() {
         );
         // Also absent as an accepted *value*: the deferred durable-terminal
         // actions are not tool names, they are enum members of `terminal`, and
-        // advertising one would promise a session fxr cannot open.
+        // advertising one would promise a session xfx cannot open.
         assert!(
             !schema_allows_value(&schema, &name),
             "`{name}` is deferred but is an accepted value in a tool schema"
@@ -461,7 +461,7 @@ fn the_implemented_slash_commands_are_exactly_the_ones_the_shell_answers() {
 
 #[test]
 fn no_deferred_slash_command_is_answered_or_listed() {
-    let help = fxr::interactive::help_text();
+    let help = xfx::interactive::help_text();
     for name in deferred_identifiers(&["slash"]) {
         assert!(
             !SLASH_COMMANDS.contains(&name.as_str()),
@@ -473,7 +473,7 @@ fn no_deferred_slash_command_is_answered_or_listed() {
 
 #[test]
 fn the_shell_help_lists_every_slash_command_it_has() {
-    let help = fxr::interactive::help_text();
+    let help = xfx::interactive::help_text();
     for name in SLASH_COMMANDS {
         assert!(help.contains(name), "/help omits {name}");
     }
@@ -504,9 +504,9 @@ fn every_turn_event_kind_the_binary_can_emit_is_documented() {
 fn every_environment_override_the_binary_reads_is_documented() {
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     for variable in [
-        "FXR_MODEL",
-        "FXR_PERMISSION_MODE",
-        "FXR_MAX_AGENT_STEPS",
+        "XFX_MODEL",
+        "XFX_PERMISSION_MODE",
+        "XFX_MAX_AGENT_STEPS",
         "VERCEL_OIDC_TOKEN",
         "AI_GATEWAY_API_KEY",
     ] {
@@ -525,9 +525,9 @@ fn every_environment_override_the_binary_reads_is_documented() {
 // reads before pointing this at a repository they care about. These tests exist
 // because one of those promises was false: the README said no session event,
 // snapshot, or tool result could carry a credential, while a `ToolResult` event
-// stores whatever the model read -- so a secret fxr was asked to read was on
+// stores whatever the model read -- so a secret xfx was asked to read was on
 // disk in the session log at the moment the sentence denied it. The claim is
-// now scoped to fxr's own Gateway token, and these tests are what stop the
+// now scoped to xfx's own Gateway token, and these tests are what stop the
 // unscoped version from coming back in a new spelling, on a page with a smaller
 // audience, or without the disclosure that makes the scoping honest.
 
@@ -553,7 +553,7 @@ fn safety_documents() -> Vec<(&'static str, String)> {
         "src/session/mod.rs",
         "src/session/event.rs",
         "src/output.rs",
-        "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
+        "docs/superpowers/specs/2026-08-21-xfx-rust-port-design.md",
     ]
     .into_iter()
     .map(|name| {
@@ -603,7 +603,7 @@ const RECORDING_WORDS: [&str; 12] = [
     "appear", "leak",
 ];
 
-/// Whether a sentence is promising secrecy for something fxr keeps.
+/// Whether a sentence is promising secrecy for something xfx keeps.
 ///
 /// Both halves are required. "the whole suite runs with no credential and no
 /// network" names a credential and is true, because it is about what a test
@@ -624,7 +624,7 @@ const FULL_DISCLOSURE: [&str; 5] = [
     "docs/parity.md",
     "CONTRIBUTING.md",
     "src/session/event.rs",
-    "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
+    "docs/superpowers/specs/2026-08-21-xfx-rust-port-design.md",
 ];
 
 /// The published documentation of a page: all of a Markdown file, and only the
@@ -670,7 +670,7 @@ fn flow(text: &str) -> String {
 }
 
 #[test]
-fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
+fn no_document_claims_that_nothing_xfx_saves_can_carry_a_credential() {
     // Two checks, because a false claim can return either as the exact sentence
     // that was removed or as a fresh unscoped one.
     let banned = [
@@ -690,10 +690,10 @@ fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
                 "{name} carries the unscoped credential claim {claim:?}"
             );
         }
-        // The general rule behind those: fxr may only promise that *its own*
+        // The general rule behind those: xfx may only promise that *its own*
         // credential is unsaved, so any sentence that denies a class of records
         // can hold a secret -- or that says a secret is not persisted -- has to
-        // name what it is about. "fxr's own Gateway credential is never
+        // name what it is about. "xfx's own Gateway credential is never
         // persisted: no variant of the event union carries it" passes; the same
         // sentence with the scope removed does not.
         for sentence in flowed.split(". ") {
@@ -708,7 +708,7 @@ fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
             }
             assert!(
                 sentence.contains("gateway"),
-                "{name} promises secrecy for a class of records without naming fxr's own \
+                "{name} promises secrecy for a class of records without naming xfx's own \
                  Gateway credential, which is the only thing that is never written -- what a \
                  tool read is: {sentence:?}"
             );
@@ -756,7 +756,7 @@ fn every_page_that_scopes_the_credential_promise_also_says_what_is_saved() {
     );
 
     // The renderer's page is where the same claim is made about display rather
-    // than about storage, and `fxr session <id>` is what puts a recorded tool
+    // than about storage, and `xfx session <id>` is what puts a recorded tool
     // result back on a terminal and into a JSON document. So the header has to
     // name the field that carries it and the bound that applies -- a reader who
     // only ever opens this module's docs still has to learn that a tool's
@@ -790,7 +790,7 @@ fn the_notice_says_one_thing_about_provenance_and_it_is_the_true_one() {
     let flowed = flow(&notice());
     let lowered = flowed.to_lowercase();
 
-    // fxr ships no upstream code, so the Apache boilerplate that announces
+    // xfx ships no upstream code, so the Apache boilerplate that announces
     // included software is not a formality here -- it contradicts UPSTREAM.md
     // and tells a redistributor to look for Zig sources that do not exist.
     for claim in [
@@ -802,12 +802,12 @@ fn the_notice_says_one_thing_about_provenance_and_it_is_the_true_one() {
     ] {
         assert!(
             !lowered.contains(claim),
-            "NOTICE claims fxr ships upstream software: {claim:?}"
+            "NOTICE claims xfx ships upstream software: {claim:?}"
         );
     }
 
     // What has to survive any rewrite: who upstream is, under what licence, at
-    // which commit, that fxr is neither affiliated nor a copy, and that the
+    // which commit, that xfx is neither affiliated nor a copy, and that the
     // relationship is specification-to-reimplementation.
     for required in [
         "https://github.com/vercel-labs/fx",
@@ -852,9 +852,9 @@ fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
     let safety = flow(&section[..end]);
 
     // Where it goes, what it is, and how to not do it. A reader who is about to
-    // have fxr read a file with a token in it has to learn all three here.
+    // have xfx read a file with a token in it has to learn all three here.
     for disclosure in [
-        "~/.fxr/sessions/<id>/events.jsonl",
+        "~/.xfx/sessions/<id>/events.jsonl",
         "0600",
         "plaintext",
         "--no-save",
@@ -870,12 +870,12 @@ fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
 fn every_doctor_check_the_binary_emits_is_documented() {
     // Run the real binary: the check list is built at runtime from the
     // configuration, so the only honest inventory is the one it prints.
-    let output = Command::new(env!("CARGO_BIN_EXE_fxr"))
+    let output = Command::new(env!("CARGO_BIN_EXE_xfx"))
         .args(["doctor", "--json"])
         .env_remove("VERCEL_OIDC_TOKEN")
         .env_remove("AI_GATEWAY_API_KEY")
         .output()
-        .expect("spawn fxr doctor");
+        .expect("spawn xfx doctor");
     let document: Value = serde_json::from_slice(&output.stdout).expect("doctor prints one JSON");
     let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
     let doctor_row = ledger
@@ -889,4 +889,29 @@ fn every_doctor_check_the_binary_emits_is_documented() {
             "the doctor check `{name}` is not named in the ledger's doctor row"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// one product name
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_tracked_tree_carries_only_the_current_product_name() {
+    // `scripts/check-xfx-identity.sh` is the machine form of the rule: the
+    // tracked tree names this product `xfx` and upstream `fx`, and nothing
+    // else. It is run here as well as in CI for the same reason the ledger is
+    // reconciled in both directions -- a gate that only exists in a workflow is
+    // a gate nobody runs before pushing, and the script proves itself awake on
+    // its own controls before it reports on this repository.
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let output = Command::new(root.join("scripts").join("check-xfx-identity.sh"))
+        .current_dir(&root)
+        .output()
+        .expect("spawn scripts/check-xfx-identity.sh");
+    assert!(
+        output.status.success(),
+        "the identity check failed:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

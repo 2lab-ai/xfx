@@ -1,6 +1,6 @@
 //! The Vercel AI Gateway wire contract.
 //!
-//! This module owns the exact bytes fxr sends and the typed shape of what it
+//! This module owns the exact bytes xfx sends and the typed shape of what it
 //! gets back. It performs no I/O, so every wire question can be answered by a
 //! test that never opens a socket.
 //!

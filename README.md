@@ -1,9 +1,9 @@
-# fxr
+# xfx
 
 **An unofficial, experimental Rust port of [`vercel-labs/fx`](https://github.com/vercel-labs/fx).**
 Not affiliated with or endorsed by Vercel. Apache-2.0, like the original.
 
-fxr is a small terminal coding agent. You ask it something; it streams an answer
+xfx is a small terminal coding agent. You ask it something; it streams an answer
 from Vercel AI Gateway, and it can read your workspace, change files in it, and
 run a bounded set of commands to answer you -- under a permission mode you choose
 and a session log you can resume.
@@ -11,33 +11,39 @@ and a session log you can resume.
 It is **a behavioral port of the load-bearing loop, not a reimplementation of the
 whole product.** Upstream `fx` is far larger: it has an interactive TUI, MCP,
 skills, subagents, an ACP server, OAuth logins, a model catalog, an updater, and
-26 tools. fxr v0.1 has one provider, eight tools, six commands, and a
+26 tools. xfx v0.1 has one provider, eight tools, six commands, and a
 line-oriented shell. Everything absent is absent *from the binary* -- not hidden
 behind a flag, not stubbed to return success. The row-by-row account is
 [`docs/parity.md`](docs/parity.md), and CI fails if the binary ever advertises
 something that ledger does not record as implemented.
 
-fxr is not `fx`. The binary is `fxr`, the profile home is `~/.fxr`, and the
-project file is `.fxr.json`, so installing it cannot shadow or corrupt an
+xfx is not `fx`. The binary is `xfx`, the profile home is `~/.xfx`, and the
+project file is `.xfx.json`, so installing it cannot shadow or corrupt an
 upstream installation.
 
 ## Status
 
-Experimental. Version 0.1.0, unreleased. Linux and macOS, on x86_64 and aarch64.
-There is no Windows build and no installer; you build it or you download an
-archive from a release.
+Experimental. Version 0.1.0, and 0.1.0 is unreleased: there is no tagged
+release and no stable package. Linux and macOS, on x86_64 and aarch64. There is
+no Windows build.
+
+What there is instead is a **preview channel**. Every push to `main` publishes a
+prerelease of that exact commit -- four native binaries and their checksums --
+and each binary reports `build_channel=preview` along with the twelve characters
+of the commit it was compiled from, so what you are running can be tied back to
+a source revision. [Install](#install) says how to get it in one command.
 
 ## What it does
 
 | | |
 |---|---|
-| **Ask** | `fxr ask "..."` runs one bounded, multi-step turn: streamed assistant text, tool calls executed locally, then exactly one terminal event. `--json` gives you JSONL. |
-| **Shell** | A bare `fxr` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Six commands: `/help`, `/new`, `/clear`, `/model`, `/version`, `/quit`. |
+| **Ask** | `xfx ask "..."` runs one bounded, multi-step turn: streamed assistant text, tool calls executed locally, then exactly one terminal event. `--json` gives you JSONL. |
+| **Shell** | A bare `xfx` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Six commands: `/help`, `/new`, `/clear`, `/model`, `/version`, `/quit`. |
 | **Tools** | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `create_folder`, and `terminal` (one action: `exec`). Reads are bounded; writes are canonicalized inside the workspace, staged in the same directory, and renamed atomically. |
 | **Permissions** | `ask` asks you on the terminal, `auto` admits bounded reversible changes and a reporting-only command grammar, `yolo` skips the checks and says so on stderr. |
-| **Sessions** | Every turn is recorded to an append-only log under `~/.fxr/sessions/<id>/`, with an atomically published manifest. `fxr sessions`, `fxr session <id>`, and `fxr ask --resume last` read it back. `--no-save` writes nothing at all. |
+| **Sessions** | Every turn is recorded to an append-only log under `~/.xfx/sessions/<id>/`, with an atomically published manifest. `xfx sessions`, `xfx session <id>`, and `xfx ask --resume last` read it back. `--no-save` writes nothing at all. |
 | **Context** | Bounded `AGENTS.md` instructions from the filesystem root down to your workspace, refreshed every turn rather than remembered. |
-| **Diagnostics** | `fxr status [--json]` and `fxr doctor [--json]` report what fxr resolved, without needing a credential and without creating anything. |
+| **Diagnostics** | `xfx status [--json]` and `xfx doctor [--json]` report what xfx resolved, without needing a credential and without creating anything. |
 
 ## What it does not do
 
@@ -48,7 +54,7 @@ terminals, images and vision, a full-screen TUI, replay, usage and credits,
 GitHub workflows, the updater, WASM, and N-API. `docs/parity.md` records each
 one with the upstream evidence for what it is.
 
-**fxr does not claim parity with `fx`, and it never will claim it in a version
+**xfx does not claim parity with `fx`, and it never will claim it in a version
 number.** If a claim in this file disagrees with `docs/parity.md`, the ledger is
 right; if the ledger disagrees with the code, the code is right and both
 documents are bugs.
@@ -57,13 +63,13 @@ documents are bugs.
 
 Read this before using `--auto` or `--yolo` on a repository you care about.
 
-- **There is no OS sandbox.** fxr reports `sandbox=none` in `status` because
-  that is true. A command fxr agrees to run runs with your privileges, with your
-  environment, with your network. The permission modes decide *what fxr agrees
+- **There is no OS sandbox.** xfx reports `sandbox=none` in `status` because
+  that is true. A command xfx agrees to run runs with your privileges, with your
+  environment, with your network. The permission modes decide *what xfx agrees
   to start*; they cannot constrain what a started process then does.
 - **`ask` (the safest mode)** requires a real terminal approval for every change
   and every command. With no terminal -- in a pipe, in CI -- it refuses instead of
-  asking, so a scripted `fxr ask` fails closed.
+  asking, so a scripted `xfx ask` fails closed.
 - **`auto` (the default)** runs reads directly, runs bounded reversible
   workspace writes after structural validation, and admits only a narrow
   reporting command grammar: no `&&`, no shell, no package-manager build or test
@@ -74,44 +80,94 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one
   target -- the target being the file's absolute path, so an approval cannot
   follow a resumed session into another workspace -- and it is recorded against
-  one session id; `fxr session <id>` lists every standing grant by name.
-- **fxr's own Gateway credential is never persisted.** No session event,
-  snapshot, or tool result carries it: fxr reads the token from the environment
+  one session id; `xfx session <id>` lists every standing grant by name.
+- **xfx's own Gateway credential is never persisted.** No session event,
+  snapshot, or tool result carries it: xfx reads the token from the environment
   and sends it to one endpoint. **What the model reads is a different question,
   and the answer is that it is saved.** Every file's contents and every
   command's output that a tool returns is written verbatim to
-  `~/.fxr/sessions/<id>/events.jsonl` as owner-only (`0600`) plaintext, so if
+  `~/.xfx/sessions/<id>/events.jsonl` as owner-only (`0600`) plaintext, so if
   you have the model read a file holding your own secrets, that secret is on
   disk in the session log. Use `--no-save` for a turn that must leave nothing
   behind.
-- **The file tools never write `.git` or `.fxr`.** Refused structurally, before
+- **The file tools never write `.git` or `.xfx`.** Refused structurally, before
   any permission check and in every mode including `--yolo`, because a
-  `.git/config` entry decides what the commands fxr may then run will execute.
+  `.git/config` entry decides what the commands xfx may then run will execute.
 
 ## Install
 
-There is no package yet. Either build from source, or download the archive for
-your platform from a release and verify it:
+### Homebrew, from the preview channel
 
 ```bash
-tar -xzf fxr-<target>.tar.gz
-shasum -a 256 -c fxr-<target>.tar.gz.sha256
-install -m 0755 fxr-<target>/fxr ~/.local/bin/fxr
+brew install 2lab-ai/tap/xfx-preview
 ```
 
-Targets are `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
-`x86_64-apple-darwin`, and `aarch64-apple-darwin`. Each archive is built and
-smoke-tested on its own native runner.
+That one command adds the `2lab-ai/tap` tap and installs the formula from it. If
+the tap is already added, the unqualified name is enough -- and it is what an
+upgrade later looks like:
+
+```bash
+brew install xfx-preview
+brew upgrade xfx-preview
+```
+
+The formula is named `xfx-preview`; **the executable it installs is `xfx`.** The
+name of the formula is the channel, not the command.
+
+Ask the binary which build it is, and it answers with the channel and the commit
+rather than with the version number, which is `0.1.0` on every channel:
+
+```bash
+xfx status --json
+```
+
+```json
+{"build_channel":"preview","build_revision":"52ece6cd8184"}
+```
+
+macOS and Linux, arm64 and x86_64. Homebrew verifies the SHA-256 of the file it
+downloads against the one recorded in the formula, which was taken from the
+release the same workflow published.
+
+### By hand, from a preview release
+
+Each preview is a GitHub prerelease tagged
+`preview-<date>-<time>-<run>-<attempt>-<sha12>`, carrying four flat executables
+-- `xfx-macos-aarch64`, `xfx-macos-x86_64`, `xfx-linux-aarch64`,
+`xfx-linux-x86_64` -- and one `SHA256SUMS` covering exactly those four:
+
+```bash
+curl -LO https://github.com/2lab-ai/xfx/releases/download/<tag>/xfx-macos-aarch64
+curl -LO https://github.com/2lab-ai/xfx/releases/download/<tag>/SHA256SUMS
+shasum -a 256 --ignore-missing -c SHA256SUMS
+install -m 0755 xfx-macos-aarch64 ~/.local/bin/xfx
+```
+
+### From a tagged release
+
+There is not one yet. When there is, it carries one archive per target --
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`,
+`aarch64-apple-darwin` -- and the archive is verified before it is installed:
+
+```bash
+tar -xzf xfx-<target>.tar.gz
+shasum -a 256 -c xfx-<target>.tar.gz.sha256
+install -m 0755 xfx-<target>/xfx ~/.local/bin/xfx
+```
+
+Every binary on every channel is built and smoke-tested on its own native
+runner: nothing is cross-compiled, because the tests that decide whether a build
+is publishable open pseudoterminals and run child processes.
 
 ## Build
 
 Rust 1.96 or newer:
 
 ```bash
-git clone https://github.com/2lab-ai/fxr
-cd fxr
+git clone https://github.com/2lab-ai/xfx
+cd xfx
 cargo build --locked --release
-./target/release/fxr --version
+./target/release/xfx --version
 ```
 
 The full local gate, which is what CI runs:
@@ -123,7 +179,9 @@ cargo test --locked --all-targets
 cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
-./scripts/smoke.sh target/release/fxr
+./scripts/check-xfx-identity.sh
+./scripts/check-preview-contract.sh
+./scripts/smoke.sh target/release/xfx
 ```
 
 `scripts/smoke.sh` drives the built binary end to end against a fake Gateway on
@@ -132,7 +190,7 @@ in an evidence directory it prints at the end.
 
 ## Run
 
-fxr needs a Vercel AI Gateway credential in the environment. It reads, in order,
+xfx needs a Vercel AI Gateway credential in the environment. It reads, in order,
 a nonblank `VERCEL_OIDC_TOKEN`, then a nonblank `AI_GATEWAY_API_KEY`:
 
 ```bash
@@ -142,27 +200,27 @@ export AI_GATEWAY_API_KEY=...
 One question:
 
 ```bash
-fxr ask "what does src/agent/machine.rs do"
+xfx ask "what does src/agent/machine.rs do"
 ```
 
 Let it change things, and watch what it decides:
 
 ```bash
-fxr ask --auto --json "add a doc comment to the run_turn function"
+xfx ask --auto --json "add a doc comment to the run_turn function"
 ```
 
 Continue where you left off:
 
 ```bash
-fxr sessions
-fxr ask --resume last "now do the same for run_turn_saved"
+xfx sessions
+xfx ask --resume last "now do the same for run_turn_saved"
 ```
 
 The shell:
 
 ```bash
-$ fxr
-fxr 0.1.0 (release, revision 52ece6cd8184) -- unofficial, experimental Rust port of fx
+$ xfx
+xfx 0.1.0 (release, revision 52ece6cd8184) -- unofficial, experimental Rust port of fx
 [shell] model=zai/glm-5.2 permission_mode=auto sandbox=none
 [shell] workspace=/home/you/project
 [shell] type a prompt, or /help for the 6 commands; Ctrl-D leaves
@@ -170,17 +228,17 @@ fxr 0.1.0 (release, revision 52ece6cd8184) -- unofficial, experimental Rust port
 ```
 
 Ctrl-C stops a running turn; a second one leaves immediately. At the prompt,
-Ctrl-C clears the line and twice in a row leaves. `fxr` refuses to open a shell
-when stdin or stdout is not a terminal -- use `fxr ask` there.
+Ctrl-C clears the line and twice in a row leaves. `xfx` refuses to open a shell
+when stdin or stdout is not a terminal -- use `xfx ask` there.
 
 ## Configuration
 
-Later layers override earlier ones, key by key: project `.fxr.json`, then
-`~/.fxr/settings.json`, then that file's exact `workspaces["<root>"]` entry, then
-the environment (`FXR_MODEL`, `FXR_PERMISSION_MODE`, `FXR_MAX_AGENT_STEPS`).
+Later layers override earlier ones, key by key: project `.xfx.json`, then
+`~/.xfx/settings.json`, then that file's exact `workspaces["<root>"]` entry, then
+the environment (`XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`).
 Three keys are read -- `model`, `permission_mode`, `max_agent_steps` -- because
 those are the three the runtime consumes. A settings file that exists but cannot
-be parsed is reported by `fxr doctor`, not silently ignored.
+be parsed is reported by `xfx doctor`, not silently ignored.
 
 ## How it works
 
@@ -193,12 +251,12 @@ is the only thing that writes bytes.
 
 ## Upstream and attribution
 
-fxr is an independent reimplementation pinned to `vercel-labs/fx` at
+xfx is an independent reimplementation pinned to `vercel-labs/fx` at
 `580a0c5da9386317251968c09c1cee69e763487a`. No Zig source is copied. Every
 behavioral claim in the ledger cites a file and line at that commit.
 
 - Upstream: `vercel-labs/fx`, Apache-2.0, Copyright 2025 Vercel, Inc.
-- fxr: Apache-2.0, Copyright 2026 2lab.ai.
+- xfx: Apache-2.0, Copyright 2026 2lab.ai.
 
 See [`UPSTREAM.md`](UPSTREAM.md) for the attribution, what behavior was taken
 from where, and every deliberate deviation. `LICENSE` and `NOTICE` travel with

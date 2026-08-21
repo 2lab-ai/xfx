@@ -42,11 +42,11 @@ pub const DEFAULT_CHAT_URL: &str = "https://ai-gateway.vercel.sh/v3/ai/language-
 /// It is read here rather than in `config` because the safety rule that governs
 /// it is a transport rule: the URL receives a bearer token, so only this module
 /// can say which ones are acceptable.
-pub const GATEWAY_URL_ENV: &str = "FXR_GATEWAY_URL";
+pub const GATEWAY_URL_ENV: &str = "XFX_GATEWAY_URL";
 
 /// How many transport attempts one model step may spend.
 ///
-/// An fxr bound, not an upstream constant. It exists so that a single flaky
+/// An xfx bound, not an upstream constant. It exists so that a single flaky
 /// connection does not fail a turn, and it is small because every attempt past
 /// the first is a chance to duplicate model intent.
 pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
@@ -54,7 +54,7 @@ pub const DEFAULT_MAX_ATTEMPTS: u32 = 3;
 /// How long a connection may take to establish.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// How long the stream may stall between chunks before fxr gives up.
+/// How long the stream may stall between chunks before xfx gives up.
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// How often a stalled stream re-reads the cancellation flag.
@@ -67,8 +67,8 @@ const CANCEL_POLL: Duration = Duration::from_millis(50);
 /// How much of a failed response body is quoted back to the user.
 const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
-/// The product's own user agent. fxr does not claim to be `fx`.
-const USER_AGENT: &str = concat!("fxr/", env!("CARGO_PKG_VERSION"));
+/// The product's own user agent. xfx does not claim to be `fx`.
+const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 
 /// Where a turn's assistant text goes as it is decoded.
 ///
@@ -125,7 +125,7 @@ impl Endpoint {
     /// (`vercel-labs/fx@580a0c5d src/builtins/gateway.zig:759-765`,
     /// `src/gateway/client.zig:1787-1803`).
     ///
-    /// Where upstream silently falls back to the default, fxr fails. A silent
+    /// Where upstream silently falls back to the default, xfx fails. A silent
     /// fallback sends a request the operator did not ask for, to an endpoint
     /// they did not name, which is the more surprising of the two outcomes.
     pub fn resolve(override_url: Option<&str>) -> Result<Self, EndpointError> {
@@ -164,7 +164,7 @@ impl Endpoint {
     /// Resolves the endpoint from the process environment.
     ///
     /// A blank value is ignored rather than treated as an override, matching how
-    /// every other fxr environment knob behaves.
+    /// every other xfx environment knob behaves.
     pub fn from_process() -> Result<Self, EndpointError> {
         let raw = std::env::var(GATEWAY_URL_ENV).ok();
         let candidate = raw.as_deref().map(str::trim).filter(|s| !s.is_empty());
@@ -444,7 +444,7 @@ impl GatewayProvider {
     /// The fixed headers every completion request carries.
     ///
     /// The shape follows upstream (`src/gateway/client.zig:1459-1494`), but the
-    /// identity is fxr's own: claiming to be `fx` would misattribute fxr's
+    /// identity is xfx's own: claiming to be `fx` would misattribute xfx's
     /// traffic to the product it is a port of.
     fn headers(&self, model: &str) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
@@ -472,9 +472,9 @@ impl GatewayProvider {
         for (name, value) in [
             (
                 "http-referer",
-                HeaderValue::from_static("https://github.com/2lab-ai/fxr"),
+                HeaderValue::from_static("https://github.com/2lab-ai/xfx"),
             ),
-            ("x-title", HeaderValue::from_static("fxr")),
+            ("x-title", HeaderValue::from_static("xfx")),
             (
                 "ai-gateway-protocol-version",
                 HeaderValue::from_static("0.0.1"),

@@ -2,7 +2,7 @@
 #
 # Refuses to let a credential be committed.
 #
-# fxr's whole security story is that it reads a token from the environment,
+# xfx's whole security story is that it reads a token from the environment,
 # sends it to exactly one endpoint, and never writes it anywhere -- not into a
 # session, not into a snapshot, not into a log. A token checked into the
 # repository would make that story false before the product even runs, and the
@@ -72,7 +72,7 @@ patterns=(
 # The samples are assembled at runtime rather than written out, because this
 # script is itself a tracked file that the scan below reads. A literal sample
 # would be a finding.
-control="$(mktemp "${TMPDIR:-/tmp}/fxr-secret-control.XXXXXX")"
+control="$(mktemp "${TMPDIR:-/tmp}/xfx-secret-control.XXXXXX")"
 trap 'rm -f "$control"' EXIT
 
 filler="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"

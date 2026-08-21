@@ -89,8 +89,8 @@ pub enum TurnError {
     Provider(ProviderError),
     /// The model asked to run a tool this build does not advertise.
     ///
-    /// Not a tool result: fxr told the model exactly which tools exist, so a
-    /// call outside that set means the exchange is running on a premise fxr
+    /// Not a tool result: xfx told the model exactly which tools exist, so a
+    /// call outside that set means the exchange is running on a premise xfx
     /// cannot correct from inside a result.
     ToolCallUnsupported { tool: String },
     /// Two tool calls in one step claimed the same identifier, so their results
@@ -129,7 +129,7 @@ impl fmt::Display for TurnError {
             Self::ToolCallUnsupported { tool } => write!(
                 f,
                 "the model asked to run the `{tool}` tool, which this build does not advertise; \
-                 fxr will not run a tool it did not offer"
+                 xfx will not run a tool it did not offer"
             ),
             Self::DuplicateToolCallId { call_id } => write!(
                 f,

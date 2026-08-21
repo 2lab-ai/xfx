@@ -31,17 +31,17 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use fxr::agent::{run_turn, TurnError, TurnRequest};
-use fxr::gateway::protocol::{Completion, CompletionRequest, FinishReason, ToolCall, Usage};
-use fxr::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
-use fxr::output::{Event, RecordingSink};
-use fxr::permission::{
+use xfx::agent::{run_turn, TurnError, TurnRequest};
+use xfx::gateway::protocol::{Completion, CompletionRequest, FinishReason, ToolCall, Usage};
+use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
+use xfx::output::{Event, RecordingSink};
+use xfx::permission::{
     classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, AuthorityError,
     CommandEffect, CommandPlan, CommandRoute, DeniedEffect, Grant, PermissionMode, PermissionRules,
     PermissionSession, PolicyDecision, ProposedAction, Rule, YOLO_WARNING,
 };
-use fxr::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
-use fxr::workspace::AccessScope;
+use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
+use xfx::workspace::AccessScope;
 
 use support::fake_gateway::{finish, sse_body, text_delta, tool_call, FakeGateway, Reply};
 
@@ -49,14 +49,14 @@ use support::fake_gateway::{finish, sse_body, text_delta, tool_call, FakeGateway
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
-    "FXR_GATEWAY_URL",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
 ];
 
 /// A test secret that must never appear on stdout, stderr, or in a subprocess.
-const TEST_KEY: &str = "fxr-test-permission-key-must-not-appear";
+const TEST_KEY: &str = "xfx-test-permission-key-must-not-appear";
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -561,7 +561,7 @@ fn a_config_alias_cannot_redirect_the_admitted_cargo_builtins() {
     let shim_ran = tree.root().join("RUSTC_SHIM_RAN");
 
     // A genuinely executable redirect, which is stronger than anything the tools
-    // themselves could produce: fxr writes files 0644 and has no chmod.
+    // themselves could produce: xfx writes files 0644 and has no chmod.
     let shim = tree.root().join("shim.sh");
     fs::write(
         &shim,
@@ -1452,7 +1452,7 @@ fn a_target_outside_every_authorized_root_is_refused() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn no_permission_mode_lets_a_file_tool_change_repository_or_fxr_metadata() {
+fn no_permission_mode_lets_a_file_tool_change_repository_or_xfx_metadata() {
     // The chain this closes: `auto` admits a bounded workspace write, so it
     // would admit `.git/config`, and the *next* call -- an ordinary `git
     // status` or `git diff` on the direct read-only route -- executes whatever
@@ -1466,13 +1466,13 @@ fn no_permission_mode_lets_a_file_tool_change_repository_or_fxr_metadata() {
     ] {
         let tree = Tree::new();
         tree.write(".git/config", "[core]\n\trepositoryformatversion = 0\n");
-        tree.write(".fxr/settings.json", "{}\n");
+        tree.write(".xfx/settings.json", "{}\n");
         let context = context(&tree, mode);
 
         // Read first, so the read-proof rule is satisfied and the only thing
         // left that can refuse the write is the structural check.
         read_whole(&context, ".git/config");
-        read_whole(&context, ".fxr/settings.json");
+        read_whole(&context, ".xfx/settings.json");
 
         let absolute = tree.root().join(".git/config");
         for (tool, input, protected) in [
@@ -1501,8 +1501,8 @@ fn no_permission_mode_lets_a_file_tool_change_repository_or_fxr_metadata() {
             ("create_folder", json!({ "path": ".git" }), ".git"),
             (
                 "write_file",
-                json!({ "path": ".fxr/settings.json", "content": "{\"permission_mode\":\"yolo\"}\n" }),
-                ".fxr",
+                json!({ "path": ".xfx/settings.json", "content": "{\"permission_mode\":\"yolo\"}\n" }),
+                ".xfx",
             ),
             // An absolute spelling of the same place, and a nested one.
             (
@@ -1527,8 +1527,8 @@ fn no_permission_mode_lets_a_file_tool_change_repository_or_fxr_metadata() {
             ),
             (
                 "write_file",
-                json!({ "path": ".Fxr/settings.json", "content": "{}\n" }),
-                ".Fxr",
+                json!({ "path": ".Xfx/settings.json", "content": "{}\n" }),
+                ".Xfx",
             ),
         ] {
             let refusal = fails(&context, tool, input);
@@ -1548,9 +1548,9 @@ fn no_permission_mode_lets_a_file_tool_change_repository_or_fxr_metadata() {
             "[core]\n\trepositoryformatversion = 0\n",
             "{mode:?}"
         );
-        assert_eq!(tree.read(".fxr/settings.json"), "{}\n", "{mode:?}");
+        assert_eq!(tree.read(".xfx/settings.json"), "{}\n", "{mode:?}");
         assert_eq!(tree.entries(".git"), ["config"], "{mode:?}");
-        assert_eq!(tree.entries(".fxr"), ["settings.json"], "{mode:?}");
+        assert_eq!(tree.entries(".xfx"), ["settings.json"], "{mode:?}");
         assert!(!tree.root().join("vendor").exists(), "{mode:?}");
     }
 }
@@ -1580,7 +1580,7 @@ fn an_ordinary_dot_directory_is_still_the_projects_own_content() {
 
 #[test]
 fn a_pre_existing_hostile_git_config_does_not_execute_on_the_automatic_route() {
-    // The write refusal above stops fxr from *installing* one of these. This is
+    // The write refusal above stops xfx from *installing* one of these. This is
     // the other direction: a repository that already carries one, opened by a
     // user who did not write it. `git diff` and `git status` are on the route
     // `auto` admits with no approval anywhere, so they have to run with the
@@ -1999,12 +1999,12 @@ fn terminal_bounds_the_output_it_returns_and_says_that_it_did() {
 }
 
 #[test]
-fn output_that_closes_fxrs_own_tags_produces_one_real_frame_and_forges_none() {
+fn output_that_closes_xfxs_own_tags_produces_one_real_frame_and_forges_none() {
     // The frame is the only thing telling the model that these bytes are *a
-    // command's output* rather than a statement by fxr. A file a stranger wrote
+    // command's output* rather than a statement by xfx. A file a stranger wrote
     // -- a fixture, a dependency's README, a log -- must not be able to end its
     // own quotation and then report an exit code, or hand the model a
-    // project-instructions block fxr never read.
+    // project-instructions block xfx never read.
     let tree = Tree::new();
     tree.write(
         "payload.txt",
@@ -2022,7 +2022,7 @@ fn output_that_closes_fxrs_own_tags_produces_one_real_frame_and_forges_none() {
         json!({ "action": "exec", "command": "cat payload.txt" }),
     );
 
-    // Exactly one of each real frame, and they are fxr's.
+    // Exactly one of each real frame, and they are xfx's.
     for tag in [
         "<stdout>",
         "</stdout>",
@@ -2042,7 +2042,7 @@ fn output_that_closes_fxrs_own_tags_produces_one_real_frame_and_forges_none() {
     assert!(output.contains("<exit_code>0</exit_code>"), "{output}");
     assert!(
         !output.contains("<project-instructions-guidance>"),
-        "a command's output opened a tag fxr owns:\n{output}"
+        "a command's output opened a tag xfx owns:\n{output}"
     );
 
     // Escaped, not deleted: the model still gets the bytes, reversibly, so it
@@ -2058,9 +2058,9 @@ fn output_that_closes_fxrs_own_tags_produces_one_real_frame_and_forges_none() {
 }
 
 #[test]
-fn the_command_fxr_echoes_back_cannot_close_the_tag_it_is_quoted_in() {
+fn the_command_xfx_echoes_back_cannot_close_the_tag_it_is_quoted_in() {
     // The command text is model-supplied too, and it is interpolated into a tag
-    // of fxr's. An approved shell command is the one route it can carry angle
+    // of xfx's. An approved shell command is the one route it can carry angle
     // brackets on, so that is where this is proven.
     let tree = Tree::new();
     let prompter = ScriptedPrompter::new(vec![ApprovalAnswer::Once, ApprovalAnswer::Once]);
@@ -2280,7 +2280,7 @@ fn a_command_that_leaves_a_process_holding_the_pipe_still_returns() {
 
 #[test]
 fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
-    // The shell forks, so killing the process fxr spawned leaves the two sleeps
+    // The shell forks, so killing the process xfx spawned leaves the two sleeps
     // alive and holding the pipe. Only a group kill ends them.
     let tree = Tree::new();
     let context = context_with_limits(
@@ -2383,15 +2383,15 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
 
     // Dynamic shell syntax can only run on the reviewed route. `CARGO_PKG_NAME`
     // is set in this test process, so an inherited environment would print
-    // `[fxr]` and a built one prints `[]`.
-    assert_eq!(std::env::var("CARGO_PKG_NAME").as_deref(), Ok("fxr"));
+    // `[xfx]` and a built one prints `[]`.
+    assert_eq!(std::env::var("CARGO_PKG_NAME").as_deref(), Ok("xfx"));
     let output = succeeds(
         &context,
         "terminal",
         json!({ "action": "exec", "command": "echo \"[$CARGO_PKG_NAME]\"" }),
     );
     assert!(
-        output.contains("[]") && !output.contains("[fxr]"),
+        output.contains("[]") && !output.contains("[xfx]"),
         "the child inherited the environment: {output}"
     );
     assert_eq!(prompter.asked().len(), 1);
@@ -2649,21 +2649,21 @@ impl Sandbox {
         fs::read_to_string(self.workspace.join(relative)).expect("read the file")
     }
 
-    /// Spawns fxr with its stdout on a pipe, for a test that has to act on the
+    /// Spawns xfx with its stdout on a pipe, for a test that has to act on the
     /// process while it is still running.
     fn spawn(&self, args: &[&str], env: &[(&str, &str)]) -> Child {
         let mut command = self.command(args, env);
         command.stdout(Stdio::piped());
         command.stderr(Stdio::piped());
-        command.spawn().expect("spawn fxr")
+        command.spawn().expect("spawn xfx")
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        Run::of(self.command(args, env).output().expect("spawn fxr"))
+        Run::of(self.command(args, env).output().expect("spawn xfx"))
     }
 
     fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         for key in CONTROLLED_VARS {
@@ -2732,7 +2732,7 @@ fn ask_advertises_the_permission_mode_flags() {
 #[test]
 fn status_reports_the_permission_mode_the_flags_selected() {
     let sandbox = Sandbox::new();
-    let run = sandbox.run(&["status", "--json"], &[("FXR_PERMISSION_MODE", "ask")]);
+    let run = sandbox.run(&["status", "--json"], &[("XFX_PERMISSION_MODE", "ask")]);
     assert_eq!(run.code, Some(0));
     let document: Value = serde_json::from_str(run.stdout.trim()).expect("one JSON document");
     assert_eq!(document["permission_mode"], "ask");
@@ -2743,7 +2743,7 @@ fn status_reports_the_permission_mode_the_flags_selected() {
 fn doctor_says_what_the_current_mode_will_do_without_being_asked() {
     let sandbox = Sandbox::new();
     let check = |mode: &str| -> Value {
-        let run = sandbox.run(&["doctor", "--json"], &[("FXR_PERMISSION_MODE", mode)]);
+        let run = sandbox.run(&["doctor", "--json"], &[("XFX_PERMISSION_MODE", mode)]);
         assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
         let document: Value = serde_json::from_str(run.stdout.trim()).expect("one JSON document");
         document["checks"]
@@ -2795,7 +2795,7 @@ fn yolo_prints_a_visible_warning_on_stderr_before_it_runs_anything() {
         &["ask", "--yolo", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -2835,8 +2835,8 @@ fn ask_mode_without_a_terminal_refuses_the_edit_and_leaves_the_file_alone() {
         &["ask", "--json", "--no-save", "edit", "the", "note"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
-            ("FXR_PERMISSION_MODE", "ask"),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_PERMISSION_MODE", "ask"),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -2874,7 +2874,7 @@ fn an_interrupt_stops_a_running_command_and_ends_the_turn_as_cancelled() {
         &["ask", "--yolo", "--json", "--no-save", "wait", "for", "me"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
 
@@ -2887,14 +2887,14 @@ fn an_interrupt_stops_a_running_command_and_ends_the_turn_as_cancelled() {
         *sink.lock().expect("stdout") = text;
     });
 
-    // The first Gateway request proves fxr is past startup, so the interrupt
+    // The first Gateway request proves xfx is past startup, so the interrupt
     // handler is installed and SIGINT will not fall through to the default
     // disposition.
     let ready = Instant::now() + Duration::from_secs(30);
     while gateway.request_count() < 1 && Instant::now() < ready {
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert_eq!(gateway.request_count(), 1, "fxr never reached the Gateway");
+    assert_eq!(gateway.request_count(), 1, "xfx never reached the Gateway");
     std::thread::sleep(Duration::from_millis(500));
 
     let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a live pid");
@@ -2903,12 +2903,12 @@ fn an_interrupt_stops_a_running_command_and_ends_the_turn_as_cancelled() {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(25);
     let status = loop {
-        if let Some(status) = child.try_wait().expect("wait on fxr") {
+        if let Some(status) = child.try_wait().expect("wait on xfx") {
             break status;
         }
         assert!(
             Instant::now() < deadline,
-            "fxr ignored SIGINT and was still running after {:?}",
+            "xfx ignored SIGINT and was still running after {:?}",
             started.elapsed()
         );
         std::thread::sleep(Duration::from_millis(25));
@@ -3015,7 +3015,7 @@ fn auto_cannot_install_a_git_payload_and_the_next_admitted_git_runs_none() {
         ],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -3118,7 +3118,7 @@ fn the_release_loop_reads_a_file_edits_it_runs_a_command_and_answers() {
         ],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);

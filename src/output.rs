@@ -7,13 +7,13 @@
 //! - a JSONL event stream, one newline-terminated object per event.
 //!
 //! Snapshots are built once from typed data and then only read. No snapshot
-//! field holds fxr's own Gateway credential: a renderer cannot reach the token,
+//! field holds xfx's own Gateway credential: a renderer cannot reach the token,
 //! only the name of the environment variable it came from.
 //!
 //! What a tool returned is the opposite case, and it is rendered rather than
 //! withheld. `SessionStepRow::Tool`'s `output` field carries a file's contents
 //! or a command's output out of the session log, clipped to
-//! `MAX_DETAIL_TEXT_BYTES`, and `fxr session <id>` prints it in the text shape
+//! `MAX_DETAIL_TEXT_BYTES`, and `xfx session <id>` prints it in the text shape
 //! and serializes it into the JSON one. The clip bounds how much of a secret
 //! the model was asked to read reaches the terminal, not whether any of it
 //! does; README's "Safety, in plain terms" says what to do about that.
@@ -27,18 +27,18 @@ use crate::session::{SessionDetail, SessionList, TurnStep};
 
 /// The help text shown when no credential is configured.
 ///
-/// It names only what fxr actually supports. Upstream points at `fx login` and
-/// `fx setup` (`vercel-labs/fx@580a0c5d tests/e2e/cli.test.ts:39-40`); fxr defers
+/// It names only what xfx actually supports. Upstream points at `fx login` and
+/// `fx setup` (`vercel-labs/fx@580a0c5d tests/e2e/cli.test.ts:39-40`); xfx defers
 /// both, so pointing at them would advertise a command that does not exist.
 pub const MISSING_AUTH_HELP: &str =
-    "fxr needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.";
+    "xfx needs access to Vercel AI Gateway. Set VERCEL_OIDC_TOKEN or AI_GATEWAY_API_KEY.";
 
 /// The label used when no credential resolved.
 pub const MISSING_AUTH_LABEL: &str = "missing";
 
-/// The sandbox fxr reports.
+/// The sandbox xfx reports.
 ///
-/// fxr does not confine commands in v0.1, so it reports `none`. Reporting a
+/// xfx does not confine commands in v0.1, so it reports `none`. Reporting a
 /// sandbox it does not have would be the most dangerous lie in the product.
 pub const SANDBOX_LABEL: &str = "none";
 
@@ -65,7 +65,7 @@ impl OutputFormat {
 pub struct AuthSnapshot {
     /// The environment variable that supplied the credential, or `missing`.
     pub source: String,
-    /// Whether the credential can be renewed without user action. fxr has no
+    /// Whether the credential can be renewed without user action. xfx has no
     /// refreshable credential source yet, so this is always false.
     pub refreshable: bool,
     /// Guidance shown only when no credential resolved.
@@ -91,7 +91,7 @@ impl AuthSnapshot {
     }
 }
 
-/// What `fxr status` reports.
+/// What `xfx status` reports.
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusSnapshot {
     pub kind: &'static str,
@@ -114,7 +114,7 @@ pub struct StatusSnapshot {
 /// What `status` reports about the session a turn here would continue.
 ///
 /// Zero when there is none, which is a measured fact about the store rather
-/// than a reserved field: `fxr status` in a directory that has never been asked
+/// than a reserved field: `xfx status` in a directory that has never been asked
 /// a question has nothing to continue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SessionFacts {
@@ -225,7 +225,7 @@ impl DoctorCheck {
     }
 }
 
-/// What `fxr doctor` reports.
+/// What `xfx doctor` reports.
 #[derive(Debug, Clone, Serialize)]
 pub struct DoctorSnapshot {
     pub kind: &'static str,
@@ -320,7 +320,7 @@ const MAX_DETAIL_TURNS: usize = 50;
 /// read a 200 KiB file must not put 200 KiB on a terminal.
 const MAX_DETAIL_TEXT_BYTES: usize = 2_000;
 
-/// What `fxr sessions` reports.
+/// What `xfx sessions` reports.
 ///
 /// # Every session-controlled value is flattened
 ///
@@ -436,7 +436,7 @@ pub enum SessionStepRow {
         /// A file's contents or a command's output, verbatim up to the clip, so
         /// this is the one snapshot field a reader's own secret can reach. It is
         /// printed by the text renderer and serialized into the JSON document
-        /// alike: `fxr session <id>` shows what the model was shown.
+        /// alike: `xfx session <id>` shows what the model was shown.
         output: String,
     },
 }
@@ -459,7 +459,7 @@ pub struct SessionGrantRow {
     pub target: String,
 }
 
-/// What `fxr session` reports.
+/// What `xfx session` reports.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionDetailSnapshot {
     pub kind: &'static str,
@@ -653,8 +653,8 @@ impl SessionDetailSnapshot {
 /// `finish_reason` looks like a closed vocabulary -- `stop`, `length`,
 /// `tool-calls` -- and it is, coming from a live provider. It is not a closed
 /// vocabulary coming off the disk, which is where this one came from. The reader
-/// treats the log as untrusted input rather than as something fxr wrote, because
-/// on any run where that distinction matters, fxr did not write it.
+/// treats the log as untrusted input rather than as something xfx wrote, because
+/// on any run where that distinction matters, xfx did not write it.
 fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::session::TurnConclusion {
     use crate::session::TurnConclusion;
     match outcome {
@@ -690,7 +690,7 @@ fn clip_text(text: &str) -> String {
 /// `text` with every control character turned into a space.
 ///
 /// The text renderer promises one fact per line, and a recorded prompt is the
-/// one place a newline can arrive from outside fxr.
+/// one place a newline can arrive from outside xfx.
 fn one_line(text: &str) -> String {
     text.chars()
         .map(|character| {
@@ -716,7 +716,7 @@ fn render_json_document<T: Serialize>(value: &T) -> String {
 /// A streamed turn event.
 ///
 /// The variants are the closed set the design fixes for `ask --json`
-/// (`docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md`, "Output
+/// (`docs/superpowers/specs/2026-08-21-xfx-rust-port-design.md`, "Output
 /// contracts"). Task 1 defines and renders them; the agent loop that produces
 /// them arrives with the Gateway turn.
 #[derive(Debug, Clone, Serialize)]
@@ -808,7 +808,7 @@ impl<W: Write, D: Write> TextSink<W, D> {
 
     /// The same sink, announcing each tool call as it starts and finishes.
     ///
-    /// Off by default, because the output of `fxr ask` is its answer and
+    /// Off by default, because the output of `xfx ask` is its answer and
     /// nothing else. On in the interactive shell, where the alternative is a
     /// terminal that sits silent for a minute while the model reads files, and
     /// a user who cannot tell "working" from "hung".
@@ -842,11 +842,11 @@ impl<W: Write, D: Write> TextSink<W, D> {
 
 /// `text` as one bounded line that is safe to print on a terminal.
 ///
-/// The one place fxr quotes something it did not write. Two rules, and both are
+/// The one place xfx quotes something it did not write. Two rules, and both are
 /// about a terminal rather than about tidiness:
 ///
 /// - **Every control character becomes a space.** A newline could forge a second
-///   line of fxr's own output; an `ESC` could paint the screen, retitle the
+///   line of xfx's own output; an `ESC` could paint the screen, retitle the
 ///   window, or move the cursor. Text that arrived from a file, a command, a
 ///   model, or a keyboard has no business doing any of that, so the whole class
 ///   goes rather than a list of the sequences someone thought of.

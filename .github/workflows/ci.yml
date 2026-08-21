@@ -38,7 +38,7 @@ jobs:
       fail-fast: false
       # Every supported target has a native GitHub-hosted runner, so this
       # matrix is four real machines rather than three plus a cross-compile.
-      # That matters here: fxr's acceptance tests open pseudoterminals, send
+      # That matters here: xfx's acceptance tests open pseudoterminals, send
       # signals, take advisory locks, and run child processes, none of which a
       # cross-built binary can exercise. `ubuntu-24.04-arm` and
       # `macos-15-intel` are free for public repositories; if either becomes
@@ -61,7 +61,7 @@ jobs:
           ref: ${{ env.COMMIT_UNDER_TEST }}
 
       # `build.rs` resolves the revision with `git rev-parse HEAD`, so the
-      # checkout above is also what ends up in `fxr status`. Asserting it here
+      # checkout above is also what ends up in `xfx status`. Asserting it here
       # rather than trusting the `ref:` means a checkout that silently landed
       # somewhere else fails before any gate can pass on the wrong source.
       - name: Confirm the checkout is the commit under test
@@ -104,17 +104,26 @@ jobs:
       - name: No credentials in tracked files
         run: ./scripts/check-no-secrets.sh
 
+      - name: One product name in tracked files
+        run: ./scripts/check-xfx-identity.sh
+
+      # The publishing workflow cannot be tested by running it: a merge to main
+      # is what runs it, and by then a broken tag grammar or a missing asset is
+      # a release users can see. Its structure is checked here instead.
+      - name: The preview publication contract holds
+        run: ./scripts/check-preview-contract.sh
+
       - name: Release build
         run: cargo build --locked --release
 
       - name: Smoke the release binary
-        run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"
+        run: ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
 
       - name: Keep the smoke evidence of a failed run
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-evidence-${{ matrix.target }}
-          path: ${{ runner.temp }}/fxr-smoke
+          path: ${{ runner.temp }}/xfx-smoke
           if-no-files-found: ignore
           retention-days: 7

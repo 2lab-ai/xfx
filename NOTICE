@@ -1,17 +1,17 @@
-fxr
+xfx
 Copyright 2026 2lab.ai
 
 No fx source is bundled in this product. What follows is attribution for the
-upstream work fxr was specified from, not a notice of included software.
+upstream work xfx was specified from, not a notice of included software.
 
-fxr is an unofficial, independent Rust reimplementation of part of fx
+xfx is an unofficial, independent Rust reimplementation of part of fx
 (https://github.com/vercel-labs/fx), Copyright 2025 Vercel, Inc., licensed
 under the Apache License, Version 2.0.
 
-fxr is not affiliated with, endorsed by, or supported by Vercel, Inc. The
-names "fx" and "Vercel" are used only to identify the upstream project fxr
-reimplements. The executable is named "fxr" and its configuration lives in
-"~/.fxr" so that fxr cannot be mistaken for, or interfere with, an
+xfx is not affiliated with, endorsed by, or supported by Vercel, Inc. The
+names "fx" and "Vercel" are used only to identify the upstream project xfx
+reimplements. The executable is named "xfx" and its configuration lives in
+"~/.xfx" so that xfx cannot be mistaken for, or interfere with, an
 installation of the upstream product.
 
 fx at commit 580a0c5da9386317251968c09c1cee69e763487a is the specification

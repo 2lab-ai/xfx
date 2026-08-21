@@ -75,19 +75,31 @@ jobs:
       - name: No credentials in tracked files
         run: ./scripts/check-no-secrets.sh
 
+      # An archive is named after the product, so a tree that still carries the
+      # retired name would publish it under two.
+      - name: One product name in tracked files
+        run: ./scripts/check-xfx-identity.sh
+
+      # A tag ships the tracked tree, and the tree includes the workflow that
+      # publishes the other channel. A stable release built from a commit whose
+      # preview workflow is broken would leave `brew install xfx-preview`
+      # pointing at whatever was last pushed, with nothing to say so.
+      - name: The preview publication contract holds
+        run: ./scripts/check-preview-contract.sh
+
       - name: Build
         run: cargo build --locked --release
 
       - name: Prove the archived binary works before archiving it
-        run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"
+        run: ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
 
       - name: Archive and checksum
         run: |
           set -euo pipefail
-          name="fxr-${{ matrix.target }}"
+          name="xfx-${{ matrix.target }}"
           staging="${RUNNER_TEMP}/${name}"
           mkdir -p "$staging"
-          cp target/release/fxr "$staging/"
+          cp target/release/xfx "$staging/"
           cp LICENSE NOTICE README.md UPSTREAM.md "$staging/"
           cp docs/parity.md "$staging/PARITY.md"
           tar -czf "${name}.tar.gz" -C "${RUNNER_TEMP}" "${name}"
@@ -97,10 +109,10 @@ jobs:
       - name: Upload the archive
         uses: actions/upload-artifact@v4
         with:
-          name: fxr-${{ matrix.target }}
+          name: xfx-${{ matrix.target }}
           path: |
-            fxr-${{ matrix.target }}.tar.gz
-            fxr-${{ matrix.target }}.tar.gz.sha256
+            xfx-${{ matrix.target }}.tar.gz
+            xfx-${{ matrix.target }}.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -133,8 +145,8 @@ jobs:
             aarch64-unknown-linux-gnu \
             aarch64-apple-darwin \
             x86_64-apple-darwin; do
-            test -f "fxr-${target}.tar.gz" || { echo "missing fxr-${target}.tar.gz" >&2; exit 1; }
-            test -f "fxr-${target}.tar.gz.sha256" || { echo "missing fxr-${target}.tar.gz.sha256" >&2; exit 1; }
+            test -f "xfx-${target}.tar.gz" || { echo "missing xfx-${target}.tar.gz" >&2; exit 1; }
+            test -f "xfx-${target}.tar.gz.sha256" || { echo "missing xfx-${target}.tar.gz.sha256" >&2; exit 1; }
           done
           cat ./*.tar.gz.sha256 >SHA256SUMS
           shasum -a 256 -c SHA256SUMS

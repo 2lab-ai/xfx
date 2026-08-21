@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes to fxr. The format follows
+Notable changes to xfx. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) -- with one caveat
 worth stating out loud: **a version number here never encodes closeness to
@@ -23,18 +23,18 @@ slices before it.
 
 ### Added
 
-- **The interactive shell.** A bare `fxr` opens a line-oriented append shell on
+- **The interactive shell.** A bare `xfx` opens a line-oriented append shell on
   the terminal. It refuses to start without a terminal on both stdin and stdout,
   or without a place to record the conversation. It never enters raw mode and
   never takes the alternate screen, so scrollback survives and there is no
   terminal state to restore. Six commands: `/help`, `/new`, `/clear`, `/model`,
   `/version`, `/quit`; anything else beginning with `/` gets one deterministic
   refusal. Each prompt runs one ordinary turn through the same provider, tool
-  registry, permission authority, and session store `fxr ask` uses.
+  registry, permission authority, and session store `xfx ask` uses.
 - **Tool notices in the shell.** Each tool call is announced on stderr as it
   starts and finishes, with a refusal's reason flattened to one bounded line.
-  `fxr ask` is unchanged: its output is its answer.
-- **A `sessions` check in `fxr doctor`**, reporting how many sessions are
+  `xfx ask` is unchanged: its output is its answer.
+- **A `sessions` check in `xfx doctor`**, reporting how many sessions are
   recorded, how many session directories could not be trusted, and how many
   staged manifest files an interrupted write left behind. A report, never a
   repair.
@@ -55,12 +55,29 @@ slices before it.
 - **CI and release workflows** for Linux and macOS on x86_64 and aarch64, each
   on its own native runner. A tag builds, smoke-tests, archives, and checksums
   four target archives.
+- **A preview channel.** Every push to `main` publishes a prerelease of that
+  exact commit: four native executables and one `SHA256SUMS`, each binary
+  stamped `build_channel=preview` with the twelve-character revision it was
+  compiled from, and each one gated and smoke-tested on the machine it will run
+  on before it is uploaded. The same run renders the Homebrew formula from the
+  assets it just published and pushes it to `2lab-ai/tap` over a repository
+  scoped deploy key, so `brew install xfx-preview` installs that build rather
+  than one from whenever a cron last ran. Because a published release cannot be
+  recalled, what can be checked cheaply is checked before it is created -- the
+  key is there, it authenticates to GitHub, the tap clones at `master`, and the
+  template is in it. Whether the update itself is accepted is decided when the
+  push is attempted and is not promised in advance: that push is a hard failure,
+  and the tap's scheduled bump remains the recovery path. The prerelease is never
+  marked latest, and `0.1.0` stays unreleased: a preview is a provenance claim,
+  not a version. `scripts/check-preview-contract.sh` holds the workflow to all
+  of that, including running its no-downgrade comparator rather than grepping
+  for it.
 - **Documentation**: `README.md`, `CONTRIBUTING.md`, `docs/architecture.md`, and
   this file.
 
 ### Fixed
 
-- **Ctrl-C now reaches the user.** `fxr ask` held locks on stdout and stderr for
+- **Ctrl-C now reaches the user.** `xfx ask` held locks on stdout and stderr for
   the whole command, so the interrupt watcher -- which runs on another thread and
   exists to say "stopping the turn" -- blocked forever on its first write. The
   first interrupt silently cancelled the turn and the second did nothing at all.
@@ -71,7 +88,7 @@ slices before it.
   The read now re-checks cancellation on a short poll.
 - **The interrupt handler is installed before the first prompt.** It is
   registered on the first poll of the signal future, so a Ctrl-C typed in the
-  first milliseconds used to meet the default disposition and kill fxr outright.
+  first milliseconds used to meet the default disposition and kill xfx outright.
   Startup now waits, briefly and boundedly, for the handler to exist.
 
 - **The unknown-command refusal cannot be used to paint on the terminal.** A
@@ -80,6 +97,6 @@ slices before it.
 
 ### Changed
 
-- A bare `fxr` runs the shell instead of exiting 1 with usage. Without a
+- A bare `xfx` runs the shell instead of exiting 1 with usage. Without a
   terminal it still exits 1, now naming the requirement and pointing at
-  `fxr ask`.
+  `xfx ask`.

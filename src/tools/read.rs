@@ -16,7 +16,7 @@
 //!   they are capped, so the same tree produces the same bytes and a cap keeps
 //!   the first N rather than an arbitrary N.
 //!
-//! Formats mirror upstream so a model prompted for `fx` reads fxr's results the
+//! Formats mirror upstream so a model prompted for `fx` reads xfx's results the
 //! same way (`vercel-labs/fx@580a0c5d src/tools/filesystem/read_file.zig:324-372`,
 //! `list_files.zig:80-115`, `glob_files.zig:200-245`, `grep_files.zig:303-530`).
 
@@ -43,9 +43,9 @@ const LINE_TRUNCATED_SUFFIX: &str = "... (line truncated)";
 // descriptions
 // ---------------------------------------------------------------------------
 //
-// These are fxr's own words, in upstream's shape: what the tool does, when to
+// These are xfx's own words, in upstream's shape: what the tool does, when to
 // use it, when not to. They describe what *this* build does -- there is no
-// mention of `~`, of external paths, or of a permission prompt, because fxr
+// mention of `~`, of external paths, or of a permission prompt, because xfx
 // reads the primary workspace and explicitly added directories and nothing
 // else.
 
@@ -927,7 +927,7 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     out.push_str("</content>");
 
     // A completed read is the proof a later mutation rests on. A capped snapshot
-    // is not recorded at all -- fxr never saw the whole file, so it has nothing
+    // is not recorded at all -- xfx never saw the whole file, so it has nothing
     // to compare against later -- while a windowed or clipped view is recorded
     // as incomplete, so `write_file` can say which of the three things is wrong.
     if snapshot_complete {
@@ -969,7 +969,7 @@ struct LineSelection {
 /// Walks `text` once, counting every line and keeping the requested window.
 ///
 /// Counting continues past the window because the sentinel has to say how many
-/// lines the file actually has; stopping early would let fxr report "showing 400
+/// lines the file actually has; stopping early would let xfx report "showing 400
 /// of 400" for a 4000-line file (`read_file.zig:267-301`).
 fn select_lines(
     text: &str,
@@ -1284,7 +1284,7 @@ mod tests {
     #[test]
     fn a_hidden_segment_in_a_pattern_opts_into_hidden_entries() {
         assert!(wants_hidden(".github/**"));
-        assert!(wants_hidden("**/.fxr.json"));
+        assert!(wants_hidden("**/.xfx.json"));
         assert!(wants_hidden(".*"));
         assert!(!wants_hidden("src/**/*.rs"));
     }
@@ -1330,7 +1330,7 @@ mod tests {
     fn an_unreadable_candidate_is_not_reported_as_the_wrong_kind_of_skip() {
         // Reasons are counted separately so neither note can claim something
         // untrue about the other's files.
-        let missing = read_searchable(Path::new("/nonexistent/fxr/candidate"), 1024);
+        let missing = read_searchable(Path::new("/nonexistent/xfx/candidate"), 1024);
         assert!(matches!(missing, FileText::Unreadable));
         assert!(missing.text().is_none());
     }

@@ -1,6 +1,6 @@
-# Contributing to fxr
+# Contributing to xfx
 
-fxr is an unofficial, experimental Rust port of
+xfx is an unofficial, experimental Rust port of
 [`vercel-labs/fx`](https://github.com/vercel-labs/fx). Contributions are
 welcome. Before you write code, please read this file and
 [`docs/parity.md`](docs/parity.md) -- most of the review friction here comes from
@@ -8,7 +8,7 @@ a rule that is unusual, and it is the first one below.
 
 ## The rules that are not negotiable
 
-**1. Advertisement is a promise.** A name that appears in `fxr --help`, in the
+**1. Advertisement is a promise.** A name that appears in `xfx --help`, in the
 shell's `/help`, or in a tool schema sent to a model must have a handler, an
 acceptance test, and an `implemented` row in `docs/parity.md` -- in the same
 change that adds the name. There is no "wire it up later". A surface that is not
@@ -23,17 +23,17 @@ the ledger, not a function that returns `Ok(())`.
 registry fails the parity check, in both directions: an `implemented` row for
 something the binary does not actually advertise fails too.
 
-**4. Never claim parity.** fxr is a behavioral port of part of a larger product.
+**4. Never claim parity.** xfx is a behavioral port of part of a larger product.
 Do not write "full parity", "feature complete", or a version number that implies
 either.
 
-**5. fxr's own Gateway credential never enters output.** No snapshot, session
-event, or log line may carry the token fxr authenticated with. Tests assert this
+**5. xfx's own Gateway credential never enters output.** No snapshot, session
+event, or log line may carry the token xfx authenticated with. Tests assert this
 by planting a key-shaped literal and scanning both streams;
 `scripts/check-no-secrets.sh` scans what a push would publish. What the *model*
 reads is the opposite promise and must stay documented as one: a `tool_result`
 event stores a file's contents or a command's output verbatim, as owner-only
-plaintext under `~/.fxr/sessions/<id>/events.jsonl`, and `--no-save` is the only
+plaintext under `~/.xfx/sessions/<id>/events.jsonl`, and `--no-save` is the only
 way to record nothing. Do not write a sentence that denies this; see "Safety, in
 plain terms" in [`README.md`](README.md).
 
@@ -49,8 +49,24 @@ cargo test --locked --all-targets
 cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
-./scripts/smoke.sh target/release/fxr
+./scripts/check-xfx-identity.sh
+./scripts/check-preview-contract.sh
+./scripts/smoke.sh target/release/xfx
 ```
+
+`scripts/check-xfx-identity.sh` scans the tracked tree for the name this port
+carried before it was `xfx`. Upstream is `fx` and keeps its own name wherever it
+is cited; the retired local name has no valid occurrence left, so the check has
+no allowlist -- prose, an identifier, a fake test literal, and a file name are
+all findings.
+
+`scripts/check-preview-contract.sh` parses `.github/workflows/preview.yml` and
+holds it to what `brew install xfx-preview` needs: the tag and version grammar
+the tap parses, the four native rows and their exact asset names, the gate
+running before the binary it guards, the `preview` stamp, the five published
+files, a prerelease that is not marked latest, and a tap push whose freshness
+comparator it extracts and runs rather than reads. It needs `ruby`, which is on
+every CI image, and uses `actionlint` when it is installed.
 
 `scripts/smoke.sh` drives the release binary end to end against a fake Gateway
 on a loopback port -- no credential, no network -- and prints an evidence
@@ -58,7 +74,7 @@ directory containing every captured stream. Quote from it when you report what
 you ran.
 
 **Run the binary.** A passing suite is necessary and not sufficient. Before
-saying a change is ready, run `./target/release/fxr` and exercise the path you
+saying a change is ready, run `./target/release/xfx` and exercise the path you
 changed, including the interactive shell if you touched it. Tests do not
 construct a terminal for you.
 
@@ -73,7 +89,7 @@ construct a terminal for you.
   in `tests/interactive.rs`, because a pipe that claims to be a TTY cannot prove
   echo, canonical mode, signal delivery, or a restored line discipline.
 - **Never use a live credential or the network.** `tests/support/fake_gateway.rs`
-  binds a loopback port, records exactly what fxr sent, and replays a scripted
+  binds a loopback port, records exactly what xfx sent, and replays a scripted
   response.
 - Name tests as sentences about the product: `a_refused_command_does_not_delete_the_file`
   is a specification; `test_terminal_2` is not.
@@ -112,5 +128,5 @@ added or changed. Keep the subject a plain imperative sentence.
 
 By contributing you agree that your work is licensed under Apache-2.0, matching
 the project and upstream. Do not copy Zig source from upstream into this
-repository: fxr is an independent reimplementation, and that is what makes its
+repository: xfx is an independent reimplementation, and that is what makes its
 attribution honest.

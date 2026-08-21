@@ -1,7 +1,7 @@
 //! Shared deterministic test infrastructure.
 //!
 //! Nothing here talks to a real network endpoint or a real credential. The fake
-//! Gateway binds a loopback port, records exactly what fxr sent, and replays a
+//! Gateway binds a loopback port, records exactly what xfx sent, and replays a
 //! scripted response, so a protocol assertion is about bytes rather than about a
 //! mock's expectations.
 

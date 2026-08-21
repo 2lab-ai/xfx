@@ -15,8 +15,8 @@
 //!   [`DeniedEffect::UnknownCommand`], never "probably fine".
 //! - **Dynamic syntax is never direct.** `$`, backticks, globs, `~`, pipes,
 //!   redirections, and control operators all leave the direct route, because
-//!   their meaning depends on a shell fxr is not running and on a filesystem
-//!   fxr has not inspected.
+//!   their meaning depends on a shell xfx is not running and on a filesystem
+//!   xfx has not inspected.
 //! - **Quoting is honored.** `grep ';' file` is a search for a semicolon, not
 //!   two commands; and the reverse must also hold, so a quoted operand can
 //!   never become an operator.
@@ -86,7 +86,7 @@ impl DeniedEffect {
             Self::FilesystemWrite => "it changes the filesystem",
             Self::NetworkAccess => "it reaches the network",
             Self::ProcessOrSystem => "it starts a shell or controls other processes",
-            Self::DynamicShell => "it uses dynamic shell syntax that fxr will not expand",
+            Self::DynamicShell => "it uses dynamic shell syntax that xfx will not expand",
             Self::UnsupportedShell => "its shell syntax could not be parsed",
             Self::UnknownCommand => "the command is not recognized by the admitted grammar",
             Self::UnsupportedArgument => "its arguments are outside the admitted grammar",
@@ -134,7 +134,7 @@ pub fn classify(command: &str) -> CommandEffect {
     }
 
     // `VAR=value cmd` is an assignment prefix: it is the shell, not the command,
-    // that would apply it, and fxr is not running one.
+    // that would apply it, and xfx is not running one.
     if !words[0].quoted && words[0].value.contains('=') {
         return CommandEffect::Denied(DeniedEffect::DynamicShell);
     }
@@ -204,7 +204,7 @@ fn lex(command: &str) -> Result<Vec<Word>, DeniedEffect> {
                 while index < bytes.len() && bytes[index] != b'"' {
                     match bytes[index] {
                         // A shell would expand these inside double quotes, so
-                        // the string fxr sees is not the string that would run.
+                        // the string xfx sees is not the string that would run.
                         b'$' | b'`' => return Err(DeniedEffect::DynamicShell),
                         b'\\' | b'\n' | b'\r' | 0 => return Err(DeniedEffect::UnsupportedShell),
                         _ => index += 1,
@@ -353,7 +353,7 @@ fn check(words: &[Word], grammar: &Grammar) -> Result<(), DeniedEffect> {
         let value = word.value.as_str();
 
         if !after_separator && !word.quoted && value == "--" {
-            // `--` stops *flag interpretation*. It does not stop fxr caring
+            // `--` stops *flag interpretation*. It does not stop xfx caring
             // where the remaining words point: `cat notes.md -- /etc/passwd`
             // still reads `/etc/passwd`. Only the flag grammar is suspended
             // below; every word past the separator is still vetted as an

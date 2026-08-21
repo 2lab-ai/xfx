@@ -1,0 +1,727 @@
+"on":
+  push:
+    branches: [main]
+
+# There is deliberately no `workflow_dispatch` and no `pull_request`. This
+# workflow is handed a deploy key with write access to another repository, and
+# both of those triggers run the version of the workflow that exists on the ref
+# being dispatched or proposed -- so anyone who can push a branch could rewrite
+# the steps that key is given to. A push to `main` has been through review.
+# A publication that failed halfway is retried with GitHub's own re-run of that
+# same trusted event, which is why the run attempt is part of the tag and of the
+# Homebrew version: a re-run is a strictly newer build, not a collision.
+
+name: Preview
+
+# One publication at a time, and never a cancelled one. A superseded run may
+# already have created the tag, uploaded some of the assets, or pushed the tap;
+# cancelling it would leave `brew install` resolving a formula whose download
+# does not exist. Waiting costs a few minutes.
+concurrency:
+  group: preview-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      commit: ${{ steps.identity.outputs.commit }}
+      sha12: ${{ steps.identity.outputs.sha12 }}
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      # Everything downstream is named after this commit and stamped into the
+      # binary. A checkout that silently landed somewhere else would publish a
+      # revision nobody can check out, and the formula would then promise it.
+      - name: Confirm the checkout is the commit being published
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${GITHUB_SHA}" ]; then
+            echo "checked out $actual, expected ${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          echo "publishing $actual"
+
+      # The name of a preview has to be unique, orderable, and readable back to
+      # the run that made it. The clock alone is none of those: two pushes can
+      # land in the same second, and a re-run of a failed publication would ask
+      # for a tag that already exists. So the numeric run id and attempt are
+      # part of both the tag and the Homebrew version, which makes the version
+      # strictly increasing for any normal sequence of Actions runs -- that is
+      # what stops the tap being rolled back by a slow job.
+      - name: Name this build after the run that produced it
+        id: identity
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "HEAD is not a full commit sha: $commit" >&2
+            exit 1
+          fi
+          sha12="${commit:0:12}"
+
+          if ! [[ "${GITHUB_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GITHUB_RUN_ID is not a positive number: ${GITHUB_RUN_ID}" >&2
+            exit 1
+          fi
+          if ! [[ "${GITHUB_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GITHUB_RUN_ATTEMPT is not a positive number: ${GITHUB_RUN_ATTEMPT}" >&2
+            exit 1
+          fi
+
+          tag="preview-$(date -u +%Y-%m-%d-%H%M%S)-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${sha12}"
+          # The exact grammar the tap parses. Generating a tag it cannot read
+          # would publish a release no formula could ever be rendered from, and
+          # the failure would surface in another repository hours later.
+          if ! [[ "$tag" =~ ^preview-([0-9]{4})-([0-9]{2})-([0-9]{2})-([0-9]{6})-([1-9][0-9]*)-([1-9][0-9]*)-([0-9a-f]{12})$ ]]; then
+            echo "generated tag does not match the preview grammar: $tag" >&2
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}.${BASH_REMATCH[4]}.${BASH_REMATCH[5]}.${BASH_REMATCH[6]}"
+          if ! [[ "$version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{6}\.[1-9][0-9]*\.[1-9][0-9]*$ ]]; then
+            echo "derived Homebrew version is not numeric and dotted: $version" >&2
+            exit 1
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "commit=$commit"
+            echo "sha12=$sha12"
+          } >>"$GITHUB_OUTPUT"
+          echo "tag=$tag version=$version commit=$commit"
+
+      # Once per publication rather than once per runner: linting the same four
+      # files on four machines proves the same thing four times.
+      - name: Lint the workflows
+        run: |
+          set -euo pipefail
+          # `go install` at a pinned tag rather than piping the project's
+          # install script into a shell: the linter that guards the publishing
+          # workflow should not itself be fetched by something that can change
+          # under it. Go is already on the runner image.
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$(go env GOPATH)/bin/actionlint" -color
+
+      - name: The preview publication contract holds
+        run: ./scripts/check-preview-contract.sh
+
+  build:
+    name: build (${{ matrix.asset }})
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      # A failing target must not cancel the others: knowing that three of four
+      # platforms are fine is the difference between a bad commit and a bad
+      # runner image.
+      fail-fast: false
+      # Four native machines, one published binary each. Nothing is
+      # cross-compiled, because the acceptance tests below open pseudoterminals,
+      # send signals and run child processes, none of which a cross-built binary
+      # can exercise on the machine that built it.
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            asset: xfx-macos-aarch64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            asset: xfx-macos-x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: xfx-linux-aarch64
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            asset: xfx-linux-x86_64
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          persist-credentials: false
+
+      - name: Confirm the checkout is the commit being published
+        run: |
+          set -eu
+          actual="$(git rev-parse HEAD)"
+          expected="${{ needs.preflight.outputs.commit }}"
+          if [ "$actual" != "$expected" ]; then
+            echo "checked out $actual, expected $expected" >&2
+            exit 1
+          fi
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Confirm the runner really is this target
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "runner host is $host, matrix says ${{ matrix.target }}" >&2
+            exit 1
+          fi
+
+      # The whole gate, on the exact commit, before anything is packaged. A
+      # push to main has a CI run of its own, but "there is probably a green run
+      # somewhere" is not a thing a published binary should rest on: a preview
+      # is installed by `brew install`, and an unchecked one costs a revocation.
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked --all-targets
+
+      - name: No stubs, and the parity ledger reconciles
+        run: ./scripts/check-no-stubs.sh
+
+      - name: No credentials in tracked files
+        run: ./scripts/check-no-secrets.sh
+
+      # An asset is named after the product, so a tree that still carried the
+      # retired name would publish it under two.
+      - name: One product name in tracked files
+        run: ./scripts/check-xfx-identity.sh
+
+      # `preview` is a provenance claim, not a compile profile: this compiles
+      # with the release profile but is not a release, and the revision is the
+      # exact commit above rather than whatever `git rev-parse` would find in a
+      # checkout that might have moved.
+      - name: Build the preview binary
+        env:
+          XFX_BUILD_CHANNEL: preview
+          XFX_BUILD_REVISION: ${{ needs.preflight.outputs.commit }}
+        run: cargo build --locked --release
+
+      # The stamp is only worth something if the binary agrees with it. This is
+      # the assertion the formula's own `test do` block will repeat on the
+      # user's machine, run here first so a mis-stamped binary never reaches a
+      # release.
+      - name: The binary says which build it is
+        run: |
+          set -euo pipefail
+          ./target/release/xfx status --json >"${RUNNER_TEMP}/status.json"
+          python3 - "${RUNNER_TEMP}/status.json" "${{ needs.preflight.outputs.sha12 }}" <<'PY'
+          import json
+          import sys
+
+          path, expected = sys.argv[1], sys.argv[2]
+          with open(path, encoding="utf-8") as handle:
+              status = json.load(handle)
+
+          problems = []
+          if status.get("build_channel") != "preview":
+              problems.append(
+                  f"build_channel is {status.get('build_channel')!r}, expected 'preview'"
+              )
+          if status.get("build_revision") != expected:
+              problems.append(
+                  f"build_revision is {status.get('build_revision')!r}, expected {expected!r}"
+              )
+
+          print(json.dumps(status, sort_keys=True))
+          for problem in problems:
+              print(problem, file=sys.stderr)
+          raise SystemExit(1 if problems else 0)
+          PY
+
+      - name: Smoke the binary that is about to be published
+        run: ./scripts/smoke.sh target/release/xfx "${RUNNER_TEMP}/xfx-smoke"
+
+      # Flat executables rather than tarballs: a Homebrew formula downloads one
+      # file per platform and verifies its checksum, and an archive would only
+      # add a layer between the bytes that were tested and the bytes installed.
+      - name: Name the binary after the platform it was proved on
+        run: |
+          set -euo pipefail
+          cp target/release/xfx "${{ matrix.asset }}"
+          chmod 0755 "${{ matrix.asset }}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" >"${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" >"${{ matrix.asset }}.sha256"
+          fi
+          cat "${{ matrix.asset }}.sha256"
+
+      - name: Hand the asset to the publisher
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the smoke evidence of a failed build
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-smoke-evidence-${{ matrix.target }}
+          path: ${{ runner.temp }}/xfx-smoke
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          # This job clones another repository over a deploy key. The token the
+          # checkout would otherwise leave in `.git/config` has no business
+          # being reachable from that step.
+          persist-credentials: false
+
+      - name: Collect every asset
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # The release is exactly five files. Anything extra is something a user
+      # would have to decide about, and anything missing is a platform whose
+      # formula line would 404 on the day someone with that machine tries it.
+      - name: Assemble the release, and prove it is exactly the contract
+        run: |
+          set -euo pipefail
+          mkdir release
+          for asset in xfx-macos-aarch64 xfx-macos-x86_64 xfx-linux-aarch64 xfx-linux-x86_64; do
+            cp "artifacts/${asset}/${asset}" "release/${asset}"
+            chmod 0755 "release/${asset}"
+            # The checksum computed on the machine that built and smoke-tested
+            # the binary, compared with the file about to be published: proof
+            # that the artifact round trip changed nothing.
+            native="$(cut -d' ' -f1 <"artifacts/${asset}/${asset}.sha256")"
+            here="$(sha256sum "release/${asset}" | cut -d' ' -f1)"
+            if [ "$native" != "$here" ]; then
+              echo "${asset} is not the file its runner built: ${native} != ${here}" >&2
+              exit 1
+            fi
+          done
+
+          (
+            cd release
+            sha256sum xfx-macos-aarch64 xfx-macos-x86_64 xfx-linux-aarch64 xfx-linux-x86_64 >SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          )
+
+          expected="$(printf '%s\n' SHA256SUMS xfx-linux-aarch64 xfx-linux-x86_64 xfx-macos-aarch64 xfx-macos-x86_64)"
+          actual="$(find release -mindepth 1 -maxdepth 1 -printf '%P\n' | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo "the release directory is not the five contract assets:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+          cat release/SHA256SUMS
+
+      # A GitHub release cannot be taken back: whoever fetched it has it, and
+      # `--cleanup-tag` after the fact does not unpublish what was downloaded.
+      # So the cheaply checkable reasons the tap step would fail are checked
+      # here, before the release exists, instead of after it exists and cannot
+      # be installed.
+      #
+      # What this step establishes, exactly: the deploy key is present, SSH
+      # authentication with it to github.com succeeds, the tap is reachable and
+      # can be cloned at `master`, and that clone contains the template the
+      # render depends on. What it does not and cannot establish: that the push
+      # after the release will be accepted. Acceptance is decided at update
+      # time, by whatever the key is allowed to do and whatever master looks
+      # like then -- so it is proved by the push itself, which is why that step
+      # is a hard failure and why the tap's scheduled bump remains the recovery
+      # path. This step changes nothing in the tap; the clone it leaves behind
+      # is what the push step later renders in.
+      - name: Check the tap is reachable, before anything is published
+        env:
+          # Step-scoped, as in the push step: no `uses:` step in this job ever
+          # has the key in its environment, and the agent holding it dies with
+          # this step rather than being exported to the job.
+          TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_PUSH_KEY:-}" ]; then
+            echo "TAP_PUSH_KEY is not set, so the tap cannot be updated and this preview would not be installable" >&2
+            exit 1
+          fi
+
+          # Pinned from GitHub's published SSH key fingerprints. A host key
+          # scraped from the network at first use is a trust decision made by
+          # the same hop that would forge it.
+          mkdir -p ~/.ssh
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >>~/.ssh/known_hosts
+          eval "$(env -u TAP_PUSH_KEY ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          ssh-add - <<<"$TAP_PUSH_KEY"
+          unset TAP_PUSH_KEY
+
+          # Authentication and reachability, in one request that mutates
+          # nothing: a key the tap does not know, or a tap that is not there,
+          # fails here rather than after a release has been created.
+          git ls-remote git@github.com:2lab-ai/homebrew-tap.git >/dev/null
+          git clone git@github.com:2lab-ai/homebrew-tap.git tap
+          git -C tap fetch origin master
+          git -C tap reset --hard origin/master
+          git -C tap config user.name "github-actions[bot]"
+          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ ! -f tap/Formula/xfx-preview.rb.tmpl ]; then
+            echo "the tap has no Formula/xfx-preview.rb.tmpl to render; publishing would strand this build" >&2
+            exit 1
+          fi
+
+          # No push of any kind here, dry run included. A dry run would not
+          # prove the real push will be accepted -- acceptance is decided when
+          # the update is attempted -- and pretending otherwise would turn this
+          # step into a promise the workflow cannot keep.
+          if [ -n "$(git -C tap status --porcelain)" ]; then
+            echo "checking the tap changed it; this step is supposed to be read-only" >&2
+            exit 1
+          fi
+          echo "the tap authenticates, is at master, and has a template to render"
+
+      - name: Write the release notes
+        env:
+          TAG: ${{ needs.preflight.outputs.tag }}
+          COMMIT: ${{ needs.preflight.outputs.commit }}
+          SHA12: ${{ needs.preflight.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Preview build of \`${COMMIT}\`, published by run ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}."
+            echo
+            echo "A prerelease from \`main\`, not a tagged release: it is not marked latest, and the"
+            echo "version number in it is still the unreleased 0.1.0."
+            echo
+            echo "First install, which adds the tap as well:"
+            echo
+            echo '```bash'
+            echo "brew install 2lab-ai/tap/xfx-preview"
+            echo '```'
+            echo
+            echo "Once \`2lab-ai/tap\` is tapped:"
+            echo
+            echo '```bash'
+            echo "brew install xfx-preview"
+            echo '```'
+            echo
+            echo "The formula is \`xfx-preview\`; the executable it installs is \`xfx\`."
+            echo "\`xfx status --json\` reports \`build_channel\` \`preview\` and \`build_revision\` \`${SHA12}\`,"
+            echo "so an installed binary can be tied back to this commit."
+            echo
+            echo "Verify a download against these:"
+            echo
+            echo '```'
+            cat release/SHA256SUMS
+            echo '```'
+          } >PREVIEW_NOTES.md
+          cat PREVIEW_NOTES.md
+
+      - name: Publish the prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          COMMIT: ${{ needs.preflight.outputs.commit }}
+        run: |
+          set -euo pipefail
+          # `--latest=false` is not cosmetic: the repository's "Latest release"
+          # is what a person lands on, and a preview is not what they should
+          # install by accident. The tag is created at the exact commit that was
+          # built, not at whatever the branch has moved on to.
+          gh release create "$TAG" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Preview ${TAG}" \
+            --notes-file PREVIEW_NOTES.md \
+            --prerelease \
+            --latest=false \
+            --target "$COMMIT" \
+            release/xfx-macos-aarch64 \
+            release/xfx-macos-x86_64 \
+            release/xfx-linux-aarch64 \
+            release/xfx-linux-x86_64 \
+            release/SHA256SUMS
+
+      # Read it back rather than trust the flags: `gh` accepting an argument and
+      # GitHub having stored it are different claims, and the second one is what
+      # the tap and the user meet.
+      - name: Confirm GitHub agrees what was published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          COMMIT: ${{ needs.preflight.outputs.commit }}
+        run: |
+          set -euo pipefail
+          # `isLatest` is a field of `gh release list`, not of `gh release
+          # view`: asking `view` for it makes gh exit 1 with "unknown JSON
+          # field", which would fail this step for a reason that has nothing to
+          # do with the release. Each command is asked only what it knows.
+          view="$(gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" \
+            --json tagName,isPrerelease,isDraft,assets)"
+
+          expect() {
+            local field="$1" want="$2" got
+            got="$(jq -r "$field" <<<"$view")"
+            if [ "$got" != "$want" ]; then
+              echo "$field is $got, expected $want" >&2
+              exit 1
+            fi
+          }
+          expect '.tagName' "$TAG"
+          expect '.isPrerelease' true
+          expect '.isDraft' false
+
+          # The repository's "Latest release" is what a person lands on, so it
+          # is read back from the one command that reports it, and a tag that
+          # is not in the list at all is a failure rather than a default.
+          #
+          # Presence and value are separate questions here, and the value is
+          # stringified rather than defaulted, because jq's `//` is
+          # "alternative" and not "default": it fires on `false` exactly as it
+          # fires on `null`. `[…| .isLatest] | first // "missing"` would report
+          # the one answer this step exists to see -- a preview that is
+          # correctly not the latest release -- as a release it could not find,
+          # and would fail a good publication after it was published.
+          # shellcheck disable=SC2016 # `$tag` and `$matches` are jq's, not the shell's
+          latest_of_tag='
+            [ .[] | select(.tagName == $tag) ] as $matches
+            | if ($matches | length) == 0
+              then "missing"
+              else ($matches[0].isLatest | tostring)
+              end
+          '
+          listed="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 200 \
+            --json tagName,isLatest)"
+          latest="$(jq -r --arg tag "$TAG" "$latest_of_tag" <<<"$listed")"
+          if [ "$latest" != "false" ]; then
+            echo "isLatest for $TAG is $latest, expected false" >&2
+            exit 1
+          fi
+
+          ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
+          if [ "$(jq -r '.object.type' <<<"$ref")" != "commit" ]; then
+            echo "the published tag does not point straight at a commit" >&2
+            exit 1
+          fi
+          if [ "$(jq -r '.object.sha' <<<"$ref")" != "$COMMIT" ]; then
+            echo "the published tag is not at $COMMIT" >&2
+            exit 1
+          fi
+
+          published="$(jq -r '.assets[].name' <<<"$view" | sort)"
+          expected="$(printf '%s\n' SHA256SUMS xfx-linux-aarch64 xfx-linux-x86_64 xfx-macos-aarch64 xfx-macos-x86_64)"
+          if [ "$published" != "$expected" ]; then
+            echo "the release carries $published, expected exactly the five contract assets" >&2
+            exit 1
+          fi
+          echo "$TAG is a prerelease of $COMMIT with exactly five assets"
+
+      # `brew install xfx-preview` is what this channel promises, so a release
+      # the tap does not know about is a failed publication rather than a
+      # partial success. The tap's scheduled bump is a backstop for the hours
+      # after an outage, not a reason for this step to be optional.
+      - name: Put this preview in the Homebrew tap
+        env:
+          # A deploy key scoped to 2lab-ai/homebrew-tap. Not a personal token:
+          # that would carry every other repository the owner can reach into a
+          # step that renders a file and pushes it. Step-scoped, and dropped
+          # from the environment as soon as the agent holds it.
+          TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          COMMIT: ${{ needs.preflight.outputs.commit }}
+          SHA12: ${{ needs.preflight.outputs.sha12 }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_PUSH_KEY:-}" ]; then
+            echo "TAP_PUSH_KEY is not set, so the tap cannot be updated and this preview would not be installable" >&2
+            exit 1
+          fi
+
+          preview_version_gt() {
+            # Exit 0 when $1 is strictly newer than $2, comparing dot-separated
+            # decimal fields (YYYY.MM.DD.HHMMSS.run_id.attempt). The tap must
+            # never be moved backwards, and a leading-zero clock field must not
+            # be read as octal.
+            local left="${1:?left version required}" right="${2:?right version required}"
+            local -a l r
+            IFS='.' read -r -a l <<<"$left"
+            IFS='.' read -r -a r <<<"$right"
+            local count=${#l[@]}
+            if [ "${#r[@]}" -gt "$count" ]; then count=${#r[@]}; fi
+            local i x y
+            for ((i = 0; i < count; i++)); do
+              x=$((10#${l[i]:-0}))
+              y=$((10#${r[i]:-0}))
+              if [ "$x" -gt "$y" ]; then return 0; fi
+              if [ "$x" -lt "$y" ]; then return 1; fi
+            done
+            return 1
+          }
+
+          # The version the tap currently ships, read from the committed file
+          # rather than the working copy, so the question can still be asked
+          # after this step has rendered over it.
+          tap_version() {
+            git -C tap show HEAD:Formula/xfx-preview.rb 2>/dev/null \
+              | sed -n 's/^  version "\(.*\)"$/\1/p' | head -1
+          }
+
+          # Leaves the step successfully when the tap already carries this build
+          # or a newer one: another run winning the race is a good outcome, and
+          # replacing it would be a downgrade for everyone who already upgraded.
+          refuse_downgrade() {
+            local current
+            current="$(tap_version || true)"
+            [ -n "$current" ] || return 0
+            if ! [[ "$current" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+              echo "the tap's xfx-preview version is unreadable: $current" >&2
+              exit 1
+            fi
+            if ! preview_version_gt "$VERSION" "$current"; then
+              echo "the tap is already at $current; not replacing it with $VERSION"
+              exit 0
+            fi
+          }
+
+          render() {
+            sed -e "s/@VERSION@/${VERSION}/g" \
+                -e "s/@TAG@/${TAG}/g" \
+                -e "s/@SOURCE_SHA@/${COMMIT}/g" \
+                -e "s/@SOURCE_SHA12@/${SHA12}/g" \
+                -e "s/@SHA_MACOS_AARCH64@/${SHAS[xfx-macos-aarch64]}/" \
+                -e "s/@SHA_MACOS_X86_64@/${SHAS[xfx-macos-x86_64]}/" \
+                -e "s/@SHA_LINUX_AARCH64@/${SHAS[xfx-linux-aarch64]}/" \
+                -e "s/@SHA_LINUX_X86_64@/${SHAS[xfx-linux-x86_64]}/" \
+                tap/Formula/xfx-preview.rb.tmpl >tap/Formula/xfx-preview.rb
+            ruby -c tap/Formula/xfx-preview.rb >/dev/null
+            if grep -q '@[A-Z0-9_]*@' tap/Formula/xfx-preview.rb; then
+              echo "the rendered formula still carries placeholders" >&2
+              exit 1
+            fi
+            if ! grep -q '^class XfxPreview < Formula$' tap/Formula/xfx-preview.rb; then
+              echo "the rendered file is not the XfxPreview formula" >&2
+              exit 1
+            fi
+            grep -Fq "# tag: ${TAG}" tap/Formula/xfx-preview.rb
+            grep -Fq "# source: ${COMMIT}" tap/Formula/xfx-preview.rb
+          }
+
+          # Pinned from GitHub's published SSH key fingerprints. A host key
+          # scraped from the network at first use is a trust decision made by
+          # the same hop that would forge it.
+          mkdir -p ~/.ssh
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >>~/.ssh/known_hosts
+          eval "$(env -u TAP_PUSH_KEY ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          ssh-add - <<<"$TAP_PUSH_KEY"
+          unset TAP_PUSH_KEY
+
+          declare -A SHAS
+          for asset in xfx-macos-aarch64 xfx-macos-x86_64 xfx-linux-aarch64 xfx-linux-x86_64; do
+            SHAS[$asset]="$(sha256sum "release/${asset}" | cut -d' ' -f1)"
+            if ! [[ "${SHAS[$asset]}" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "no checksum for ${asset}" >&2
+              exit 1
+            fi
+          done
+
+          # The clone the prerequisite step left behind, already on master and
+          # already known to hold a template. It is refetched and reset at the
+          # top of every attempt below, so nothing here depends on it having
+          # stayed still while the release was being created.
+          if [ ! -f tap/Formula/xfx-preview.rb.tmpl ]; then
+            echo "the prepared tap checkout is missing; it should have been made before the release" >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            git -C tap fetch origin master
+            git -C tap reset --hard origin/master
+            base="$(git -C tap rev-parse HEAD)"
+            refuse_downgrade
+            render
+            # The tap is written by this workflow and by its own scheduled
+            # backstop, so it can move while a formula is being rendered. Ask
+            # both questions again -- did it move, and is what it now carries
+            # newer than this -- before anything is committed.
+            git -C tap fetch origin master
+            if [ "$(git -C tap rev-parse FETCH_HEAD)" != "$base" ]; then
+              echo "the tap moved while the formula was rendering; starting over"
+              continue
+            fi
+            refuse_downgrade
+            git -C tap add Formula/xfx-preview.rb
+            if git -C tap diff --cached --quiet; then
+              echo "the tap already carries exactly this formula"
+              exit 0
+            fi
+            git -C tap commit -m "xfx-preview ${TAG}"
+            if git -C tap push origin HEAD:master; then
+              echo "the tap now installs ${TAG}"
+              exit 0
+            fi
+            echo "the push lost a race (attempt ${attempt}); refetching"
+          done
+          echo "the tap could not be updated after 3 attempts; ${TAG} is published but not installable" >&2
+          exit 1
+
+      # Previews are cheap to make and expensive to keep: every one holds four
+      # binaries. Fifteen is enough to bisect a regression across a week. Only
+      # this repository's `preview-` prereleases are ever considered -- a stable
+      # release is a different promise with a different retention.
+      - name: Keep the fifteen newest previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release list --repo "${GITHUB_REPOSITORY}" --limit 200 \
+            --json tagName,isPrerelease,createdAt >releases.json
+          jq -r '
+            [ .[] | select(.isPrerelease and (.tagName | startswith("preview-"))) ]
+            | sort_by(.createdAt) | reverse | .[15:] | .[].tagName
+          ' releases.json >stale.txt
+
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            # The filter above already restricted this list; the loop refuses to
+            # trust it, because the one thing this step must never do is delete
+            # a release that was not a preview.
+            case "$tag" in
+            preview-*) ;;
+            *)
+              echo "refusing to delete $tag: it is not a preview" >&2
+              exit 1
+              ;;
+            esac
+            gh release delete "$tag" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
+            echo "pruned $tag"
+          done <stale.txt

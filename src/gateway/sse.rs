@@ -10,7 +10,7 @@
 //! 1. **A finish event is required.** Neither end-of-stream nor `[DONE]` proves
 //!    the model completed; upstream terminates on both without a finish reason
 //!    and records the difference (`vercel-labs/fx@580a0c5d
-//!    src/gateway/client.zig:2817-2833`, `:3641`). fxr refuses to call a
+//!    src/gateway/client.zig:2817-2833`, `:3641`). xfx refuses to call a
 //!    truncated stream an answer.
 //! 2. **A single event is bounded.** A stream that never sends a newline would
 //!    otherwise buffer without limit, so the accumulator is capped by
@@ -29,7 +29,7 @@ use serde_json::{Map, Value};
 use super::{CancelToken, DeltaSink};
 use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
 
-/// The largest single SSE event fxr will buffer, in bytes.
+/// The largest single SSE event xfx will buffer, in bytes.
 pub const MAX_EVENT_BYTES: usize = 32 * 1024 * 1024;
 
 /// The `data:` prefix, including the single separating space upstream requires
@@ -267,7 +267,7 @@ impl SseReader {
             }
             "finish" => self.on_finish(&event),
             // `tool-input-end`, `text-start`, `reasoning-*`, `start-step` and
-            // every future event carry nothing fxr acts on yet.
+            // every future event carry nothing xfx acts on yet.
             _ => Ok(()),
         }
     }

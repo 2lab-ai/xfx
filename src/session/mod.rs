@@ -1,13 +1,13 @@
 //! Durable sessions: what a turn leaves behind, and how a later turn picks it up.
 //!
 //! A session is an append-only log of typed events under
-//! `~/.fxr/sessions/<id>/events.jsonl`, plus an atomically replaced manifest
+//! `~/.xfx/sessions/<id>/events.jsonl`, plus an atomically replaced manifest
 //! that publishes an exact byte boundary and digest of that log. The log is the
 //! truth; the manifest and every listing built from it are projections that can
 //! be rebuilt and are never preferred over the log when the two disagree.
 //!
 //! - [`event`] owns the wire format of one frame and the closed set of things a
-//!   session may remember. No variant of [`SessionEvent`] holds fxr's own
+//!   session may remember. No variant of [`SessionEvent`] holds xfx's own
 //!   Gateway credential; [`SessionEvent::ToolResult`] does hold what a tool
 //!   read, verbatim, which is where a user's own secret can end up -- [`event`]
 //!   says what that means and README's "Safety, in plain terms" says what to do

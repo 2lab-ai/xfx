@@ -1,4 +1,4 @@
-//! The command grammar. It decides what fxr accepts; it never decides what a
+//! The command grammar. It decides what xfx accepts; it never decides what a
 //! command does.
 //!
 //! The command set is closed on purpose. Advertisement is a promise: a name that
@@ -38,7 +38,7 @@ pub const ADVERTISED_COMMANDS: &[&str] = &[
 /// Runtime surfaces reached without naming a subcommand.
 ///
 /// The interactive shell is a real command with a parity row and a handler, but
-/// it has no name to type: it is what a bare `fxr` runs. Declaring it here is
+/// it has no name to type: it is what a bare `xfx` runs. Declaring it here is
 /// what lets `scripts/check-no-stubs.sh` hold every `implemented` command row to
 /// an advertised surface in *both* directions -- otherwise "implemented" could
 /// be claimed for a command the binary does not actually reach.
@@ -63,10 +63,10 @@ pub struct Cli {
 /// code and a stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// Run the interactive shell. What a bare `fxr` means.
+    /// Run the interactive shell. What a bare `xfx` means.
     Interactive,
     /// Print a navigation page. `page` is the exact text clap rendered, so
-    /// `fxr help`, `fxr --help`, and `fxr status --help` each show their own.
+    /// `xfx help`, `xfx --help`, and `xfx status --help` each show their own.
     Help { page: String },
     /// Print the version.
     Version,
@@ -138,7 +138,7 @@ impl Cli {
 
 /// The command names the parser actually accepts, read back from clap.
 ///
-/// This is the mechanical source of truth for "what does fxr advertise".
+/// This is the mechanical source of truth for "what does xfx advertise".
 pub fn parser_command_names() -> Vec<String> {
     let mut command = RawCli::command();
     // `help` is generated during the build pass, so an unbuilt command would
@@ -155,14 +155,14 @@ pub fn help_text() -> String {
     RawCli::command().render_help().to_string()
 }
 
-/// The subcommand is optional at the parser level so that `fxr --version`
+/// The subcommand is optional at the parser level so that `xfx --version`
 /// resolves before any command is required. A missing command is turned into an
 /// explicit rejection in [`RawCli::into_command`] rather than silently doing
 /// nothing.
 #[derive(Debug, Parser)]
 #[command(
-    name = "fxr",
-    bin_name = "fxr",
+    name = "xfx",
+    bin_name = "xfx",
     about = "Unofficial Rust port of the fx terminal coding agent",
     disable_version_flag = true,
     color = ColorChoice::Never
@@ -197,11 +197,11 @@ impl RawCli {
             }) => {
                 // Words are rejoined with a single space: the shell already
                 // split them, and preserving the original spacing would need
-                // the raw command line, which fxr does not have.
+                // the raw command line, which xfx does not have.
                 let prompt = prompt.join(" ").trim().to_string();
                 if prompt.is_empty() {
                     return Command::Rejected {
-                        message: "fxr ask: the prompt is empty; give fxr something to ask"
+                        message: "xfx ask: the prompt is empty; give xfx something to ask"
                             .to_string(),
                     };
                 }
@@ -239,14 +239,14 @@ impl RawCli {
                     Ok(Some(selector)) => Command::Session { json, selector },
                     Ok(None) => Command::Rejected {
                         message:
-                            "fxr session: name a session, or `last` for the most recent one in \
+                            "xfx session: name a session, or `last` for the most recent one in \
                               this workspace"
                                 .to_string(),
                     },
                     Err(message) => Command::Rejected { message },
                 }
             }
-            // A bare `fxr` starts the shell, as upstream does
+            // A bare `xfx` starts the shell, as upstream does
             // (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:443`).
             // Whether this terminal can host one is not a grammar question, so
             // it is decided by the handler rather than here.
@@ -269,7 +269,7 @@ fn resume_selector(
         (None, Some(raw)) => crate::session::SessionId::parse(raw).map(Selector::Id),
         (None, None) => return Ok(None),
     };
-    parsed.map(Some).map_err(|err| format!("fxr: {err}"))
+    parsed.map(Some).map_err(|err| format!("xfx: {err}"))
 }
 
 #[derive(Debug, Subcommand)]
@@ -279,7 +279,7 @@ enum RawCommand {
         /// Emit one JSON event per line instead of plain text
         #[arg(long)]
         json: bool,
-        // Now load-bearing: the default writes `~/.fxr/sessions/<id>/`, and
+        // Now load-bearing: the default writes `~/.xfx/sessions/<id>/`, and
         // this flag means nothing is created there at all -- not an empty
         // directory, not a manifest. It conflicts with the resume flags because
         // continuing a conversation you refuse to record would silently fork
@@ -361,7 +361,7 @@ mod tests {
     use super::*;
 
     fn parse(args: &[&str]) -> Command {
-        let mut argv = vec!["fxr"];
+        let mut argv = vec!["xfx"];
         argv.extend_from_slice(args);
         Cli::from_args(argv).command
     }
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn ask_does_not_advertise_a_deferred_flag() {
         // Advertisement is a promise. `--quiet` suppresses streamed output,
-        // which fxr does not have a second output mode for yet.
+        // which xfx does not have a second output mode for yet.
         for args in [vec!["ask", "--quiet", "hi"], vec!["ask", "--acp", "hi"]] {
             assert!(
                 matches!(parse(&args), Command::Rejected { .. }),
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn the_shell_has_no_name_to_type() {
-        // It is reached by giving no command at all, so `fxr interactive` is an
+        // It is reached by giving no command at all, so `xfx interactive` is an
         // unknown name rather than a second spelling of the same thing.
         for name in ADVERTISED_ENTRYPOINTS {
             assert!(
@@ -696,7 +696,7 @@ mod tests {
             "upgrade",
             "replay",
             "workspace",
-            // Upstream's `resume_session` command. fxr resumes through
+            // Upstream's `resume_session` command. xfx resumes through
             // `ask --resume`, so the bare name promises nothing.
             "resume",
         ] {

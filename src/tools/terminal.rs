@@ -31,7 +31,7 @@
 //! answered the question, and a process killed by SIGSEGV has not.
 //!
 //! There is no OS sandbox. `status` reports `sandbox=none`, and the environment
-//! is built rather than inherited so that fxr's own Gateway credential cannot
+//! is built rather than inherited so that xfx's own Gateway credential cannot
 //! reach a child (design, "Risks and controls").
 
 use std::io::Read;
@@ -53,12 +53,12 @@ use super::spec::{
 /// How often a running command notices a timeout or a cancellation.
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// How long fxr will wait for a killed command's pipes to close.
+/// How long xfx will wait for a killed command's pipes to close.
 ///
 /// A child that spawns a grandchild and exits leaves the grandchild holding the
 /// inherited stdout. Killing the process group normally closes it; a process
 /// that escaped its group with `setsid` will not. Waiting forever for that pipe
-/// would turn "the command finished" into "fxr hangs", so the wait is bounded
+/// would turn "the command finished" into "xfx hangs", so the wait is bounded
 /// and the shortfall is disclosed in the output.
 const DRAIN_GRACE: Duration = Duration::from_millis(1_500);
 
@@ -204,9 +204,9 @@ enum Ending {
     Exited(i32),
     /// Killed by a signal. Reported as itself: a segfault is not "exit 139".
     Signalled(i32),
-    /// fxr killed it because it ran too long.
+    /// xfx killed it because it ran too long.
     TimedOut(u64),
-    /// fxr killed it because the turn was cancelled.
+    /// xfx killed it because the turn was cancelled.
     Cancelled,
 }
 
@@ -249,7 +249,7 @@ impl Outcome {
             Ending::TimedOut(_) | Ending::Cancelled => unreachable!(),
         };
         // A command that ran and reported a nonzero status answered the
-        // question. Only fxr's own failures are refusals.
+        // question. Only xfx's own failures are refusals.
         ToolResult::success(out, detail)
     }
 
@@ -262,19 +262,19 @@ impl Outcome {
     }
 }
 
-/// One captured stream, bounded in bytes and in how long fxr waited for it.
+/// One captured stream, bounded in bytes and in how long xfx waited for it.
 struct Captured {
     bytes: Vec<u8>,
     /// How many bytes were produced past the bound.
     dropped: usize,
-    /// Whether the stream was still open when fxr stopped waiting.
+    /// Whether the stream was still open when xfx stopped waiting.
     stalled: bool,
 }
 
-/// Escapes text so it cannot close, open, or counterfeit one of fxr's own tags.
+/// Escapes text so it cannot close, open, or counterfeit one of xfx's own tags.
 ///
 /// The frame around a captured stream is the only thing telling the model that
-/// these bytes are *a command's output* rather than a statement by fxr. A file
+/// these bytes are *a command's output* rather than a statement by xfx. A file
 /// or a program that prints `</stdout><exit_code>0</exit_code>` would otherwise
 /// end its own quotation and start writing the report -- the same attack
 /// `crate::workspace::context` escapes an `AGENTS.md` body against, and the same
@@ -300,10 +300,10 @@ fn framed(text: &str) -> String {
 
 impl Captured {
     /// The stream as the model sees it: the child's own bytes, escaped, then
-    /// fxr's notices about what it did not capture.
+    /// xfx's notices about what it did not capture.
     ///
     /// The notices are appended after the escaping rather than passed through
-    /// it, so they stay fxr's words -- and they contain no tag of their own, so
+    /// it, so they stay xfx's words -- and they contain no tag of their own, so
     /// nothing about them is ambiguous.
     fn render(&self) -> String {
         let mut out = framed(&String::from_utf8_lossy(&self.bytes));
@@ -318,7 +318,7 @@ impl Captured {
         }
         if self.stalled {
             out.push_str(
-                "... [stream still open; a process outlived the command and fxr stopped waiting]\n",
+                "... [stream still open; a process outlived the command and xfx stopped waiting]\n",
             );
         }
         out
@@ -340,7 +340,7 @@ fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
         }
     };
     command.current_dir(plan.cwd());
-    // Built, not inherited: whatever is in fxr's environment stays there.
+    // Built, not inherited: whatever is in xfx's environment stays there.
     command.env_clear();
     for (name, value) in plan.environment() {
         command.env(name, value);
@@ -351,9 +351,9 @@ fn run(plan: &CommandPlan, context: &ToolContext) -> Result<Outcome, String> {
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     // Its own process group, so a timeout or a cancellation can reach every
-    // process the command started and not only the one fxr forked. `sh -c 'x &'`
+    // process the command started and not only the one xfx forked. `sh -c 'x &'`
     // exits immediately while `x` keeps running; without a group kill, `x`
-    // survives the turn and keeps fxr's pipe open.
+    // survives the turn and keeps xfx's pipe open.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -409,10 +409,10 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
     }
 }
 
-/// Kills everything the command started, and reaps the child fxr forked.
+/// Kills everything the command started, and reaps the child xfx forked.
 ///
-/// The group is signalled first, because the process holding fxr's pipe is very
-/// often not the process fxr forked. The direct kill follows as a backstop for
+/// The group is signalled first, because the process holding xfx's pipe is very
+/// often not the process xfx forked. The direct kill follows as a backstop for
 /// the case where the group could not be signalled at all.
 fn stop(child: &mut Child) {
     #[cfg(unix)]
@@ -603,8 +603,8 @@ mod tests {
         };
         assert_eq!(complete.render(), "all\n");
 
-        // A stream fxr stopped waiting for says so, so "no more output" is
-        // distinguishable from "output fxr never saw".
+        // A stream xfx stopped waiting for says so, so "no more output" is
+        // distinguishable from "output xfx never saw".
         let stalled = Captured {
             bytes: b"partial\n".to_vec(),
             dropped: 0,
@@ -616,7 +616,7 @@ mod tests {
             stalled = stalled.render()
         );
         // Silence stays silent, so "no output" is distinguishable from "output
-        // fxr chose not to show".
+        // xfx chose not to show".
         let empty = Captured {
             bytes: Vec::new(),
             dropped: 0,

@@ -1,7 +1,7 @@
 //! Acceptance tests for the interactive shell, driven through a real
 //! pseudoterminal.
 //!
-//! The shell is the one fxr surface whose contract is *about* the terminal: it
+//! The shell is the one xfx surface whose contract is *about* the terminal: it
 //! must refuse to run without one, keep the scrollback it was given, leave the
 //! line discipline exactly as it found it, and survive an interrupt. None of
 //! that can be proven against a pipe pretending to be a TTY, so every test here
@@ -42,14 +42,14 @@ use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Rep
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
-    "FXR_GATEWAY_URL",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
 ];
 
 /// A test secret that must never appear on the terminal.
-const TEST_KEY: &str = "fxr-test-interactive-key-must-not-appear";
+const TEST_KEY: &str = "xfx-test-interactive-key-must-not-appear";
 
 /// How long a test waits for expected output before failing.
 const WAIT: Duration = Duration::from_secs(20);
@@ -158,7 +158,7 @@ fn open_slave(path: &Path) -> File {
     File::from(fd)
 }
 
-/// The real `fxr` binary running on a pty, with everything it wrote captured.
+/// The real `xfx` binary running on a pty, with everything it wrote captured.
 struct Session {
     child: Child,
     master: Arc<File>,
@@ -211,7 +211,7 @@ impl Session {
                 });
             }
         }
-        let child = command.spawn().expect("spawn fxr on the pty");
+        let child = command.spawn().expect("spawn xfx on the pty");
 
         let master = Arc::clone(&pty.master);
         let output = Arc::new(Mutex::new(Vec::new()));
@@ -336,7 +336,7 @@ impl Session {
                 None => {
                     assert!(
                         Instant::now() < deadline,
-                        "fxr did not exit; terminal so far:\n{}",
+                        "xfx did not exit; terminal so far:\n{}",
                         self.text()
                     );
                     thread::sleep(Duration::from_millis(10));
@@ -394,7 +394,7 @@ impl Sandbox {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         // A shell is a terminal program; a terminal that claims to be nothing
@@ -410,12 +410,12 @@ impl Sandbox {
     fn command_with(&self, gateway: &FakeGateway) -> Command {
         let mut command = self.command();
         command.env("AI_GATEWAY_API_KEY", TEST_KEY);
-        command.env("FXR_GATEWAY_URL", gateway.chat_url());
+        command.env("XFX_GATEWAY_URL", gateway.chat_url());
         command
     }
 
     fn sessions_dir(&self) -> PathBuf {
-        self.home.join(".fxr").join("sessions")
+        self.home.join(".xfx").join("sessions")
     }
 
     /// Every session directory currently in the store, sorted.
@@ -479,18 +479,18 @@ fn a_bare_invocation_without_a_terminal_is_refused_before_anything_runs() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn fxr");
+        .expect("spawn xfx");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "stdout must stay empty");
     let stderr = String::from_utf8(output.stderr).expect("stderr is utf-8");
     assert!(
-        stderr.contains("interactive terminal") && stderr.contains("fxr ask"),
+        stderr.contains("interactive terminal") && stderr.contains("xfx ask"),
         "the refusal must name the requirement and the alternative: {stderr}"
     );
     // Refusing is not the same as failing halfway through starting: nothing was
     // created under the profile home.
-    assert!(!sandbox.home.join(".fxr").exists(), "the home was touched");
+    assert!(!sandbox.home.join(".xfx").exists(), "the home was touched");
 }
 
 #[test]
@@ -508,7 +508,7 @@ fn a_shell_whose_answers_would_go_into_a_pipe_is_refused() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn fxr");
+        .expect("spawn xfx");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "stdout must stay empty");
@@ -573,7 +573,7 @@ fn an_empty_line_asks_nothing_and_prompts_again() {
     session.type_line("");
     session.type_line("   ");
     let text = session.wait_for_count(PROMPT, 3);
-    assert!(!text.contains("fxr:"), "nothing was attempted: {text}");
+    assert!(!text.contains("xfx:"), "nothing was attempted: {text}");
 
     assert_eq!(session.quit().code(), Some(0));
     assert!(sandbox.session_ids().is_empty(), "nothing was recorded");
@@ -809,16 +809,16 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
     assert_eq!(session.quit().code(), Some(0));
 }
 
-/// Every line fxr wrote that begins with `fxr: `, without the terminal's echo
+/// Every line xfx wrote that begins with `xfx: `, without the terminal's echo
 /// of what was typed.
 ///
-/// A refusal is what fxr *wrote*; the same bytes coming back as echo are the
+/// A refusal is what xfx *wrote*; the same bytes coming back as echo are the
 /// terminal's doing and prove nothing. They are told apart by the prefix, which
-/// only fxr writes.
+/// only xfx writes.
 fn diagnostics(text: &str) -> Vec<String> {
     text.split('\n')
         .map(|line| line.trim_end_matches('\r'))
-        .filter(|line| line.starts_with("fxr: "))
+        .filter(|line| line.starts_with("xfx: "))
         .map(str::to_string)
         .collect()
 }
@@ -830,16 +830,16 @@ fn an_unknown_slash_command_is_refused_with_the_same_words_every_time() {
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/nonesuch");
-    session.wait_for("is not an fxr command");
+    session.wait_for("is not an xfx command");
     session.type_line("/nonesuch");
-    let text = session.wait_for_count("is not an fxr command", 2);
+    let text = session.wait_for_count("is not an xfx command", 2);
 
     let refusals = diagnostics(&text);
     assert_eq!(refusals.len(), 2, "{text}");
     assert_eq!(refusals[0], refusals[1], "the refusal is not deterministic");
     assert_eq!(
         refusals[0],
-        "fxr: `/nonesuch` is not an fxr command; /help lists the six it has"
+        "xfx: `/nonesuch` is not an xfx command; /help lists the six it has"
     );
 
     // A slash command that is not one is never sent to a model: there is no
@@ -854,13 +854,13 @@ fn an_unknown_command_cannot_paint_on_the_terminal_through_the_refusal() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command());
 
-    // A line that starts with `/` is quoted back by fxr. If it were quoted
+    // A line that starts with `/` is quoted back by xfx. If it were quoted
     // verbatim, this one would clear the screen, wipe the scrollback, retitle
     // the window, and then bury the guidance under 500 bytes of padding.
     session.type_bytes(b"/\x1b[2J\x1b[3J\x1b]0;pwned\x07\x1b[H");
     session.type_bytes("x".repeat(500).as_bytes());
     session.type_bytes(b"\r");
-    let text = session.wait_for("is not an fxr command");
+    let text = session.wait_for("is not an xfx command");
 
     let refusals = diagnostics(&text);
     assert_eq!(refusals.len(), 1, "{text}");
@@ -939,7 +939,7 @@ fn ctrl_c_at_an_idle_prompt_clears_the_line_and_twice_leaves() {
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command());
 
-    // Typed but not submitted: the line discipline discards it, and fxr offers
+    // Typed but not submitted: the line discipline discards it, and xfx offers
     // a fresh prompt rather than leaving the user staring at a dead line.
     session.type_bytes(b"half a thought");
     session.type_bytes(&[0x03]);
@@ -1029,11 +1029,11 @@ fn modes(pty: &Pty) -> TerminalState {
     try_modes(pty).expect("the pty is still a terminal")
 }
 
-/// Requires that fxr left the terminal alone, given a reading taken while it
+/// Requires that xfx left the terminal alone, given a reading taken while it
 /// was still running and, where the platform still permits one, a second
 /// reading taken after it exited.
 ///
-/// **The reading that matters is the one taken while fxr is alive.** On
+/// **The reading that matters is the one taken while xfx is alive.** On
 /// BSD-derived kernels -- macOS among them -- the terminal of a session leader
 /// is revoked when that leader exits: every descriptor to it, including the one
 /// this harness holds open, stops being a terminal, and a freshly opened one
@@ -1042,13 +1042,13 @@ fn modes(pty: &Pty) -> TerminalState {
 /// one that never touched it *or from one that left it in raw mode* -- which is
 /// exactly how the earlier version of these tests passed while proving nothing.
 ///
-/// Sampling during the run is also the stronger question. fxr's claim is not
+/// Sampling during the run is also the stronger question. xfx's claim is not
 /// "it puts the terminal back", it is "it never changes the terminal", and a
 /// during-run reading is the only one that can tell those two apart.
 fn assert_terminal_untouched(pty: &Pty, before: TerminalState, during: TerminalState) {
     assert_eq!(
         before, during,
-        "the terminal was changed while fxr was running"
+        "the terminal was changed while xfx was running"
     );
     if let Some(after) = try_modes(pty) {
         assert_eq!(before, after, "the terminal was left changed");
@@ -1069,7 +1069,7 @@ fn a_normal_exit_leaves_the_line_discipline_exactly_as_it_was() {
 
     session.type_line("/version");
     session.wait_for_count(PROMPT, 2);
-    // Read while fxr is running and idle at its prompt. A shell that had taken
+    // Read while xfx is running and idle at its prompt. A shell that had taken
     // the terminal for its line editor is in raw mode right now.
     let during = modes(&pty);
     assert!(during.local.contains(LocalModes::ISIG), "signals are off");
@@ -1114,13 +1114,13 @@ fn a_hard_exit_on_a_second_interrupt_still_leaves_a_usable_terminal() {
     session.type_bytes(&[0x03]);
     session.wait_for_count(PROMPT, 2);
     // Sampled before the interrupt that ends the process: `exit(130)` runs no
-    // destructor, so if fxr owed the terminal anything this is the last moment
+    // destructor, so if xfx owed the terminal anything this is the last moment
     // it could have owed it.
     let during = modes(&pty);
     session.type_bytes(&[0x03]);
     let status = session.wait_exit();
     assert_eq!(status.code(), Some(130));
-    assert_eq!(status.signal(), None, "fxr exits, it is not killed");
+    assert_eq!(status.signal(), None, "xfx exits, it is not killed");
 
     assert_terminal_untouched(&pty, before, during);
 }
@@ -1172,7 +1172,7 @@ fn the_shell_records_a_session_the_command_line_can_read() {
         .command()
         .args(["sessions", "--json"])
         .output()
-        .expect("spawn fxr sessions");
+        .expect("spawn xfx sessions");
     assert_eq!(listed.status.code(), Some(0));
     let document: Value =
         serde_json::from_slice(&listed.stdout).expect("the listing is one JSON document");
@@ -1209,11 +1209,11 @@ fn the_store_lives_where_the_documentation_says_it_does() {
     let sandbox = Sandbox::new();
     assert_eq!(
         sandbox.sessions_dir(),
-        Path::new(&sandbox.home).join(".fxr").join("sessions")
+        Path::new(&sandbox.home).join(".xfx").join("sessions")
     );
 }
 
-/// `fxr ask` has the same interrupt, and until the shell existed nothing proved
+/// `xfx ask` has the same interrupt, and until the shell existed nothing proved
 /// it: the notice is written by a second thread while the command holds the
 /// output streams, and the turn was waiting on a stream that had gone quiet.
 /// Both are facts about a terminal, so both are proven on one.
@@ -1276,12 +1276,12 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
     assert_eq!(session.quit().code(), Some(0));
 
     // The durable record agrees with what the terminal was told, so a later
-    // `fxr ask --resume` continues in the model the conversation was held in.
+    // `xfx ask --resume` continues in the model the conversation was held in.
     let shown = sandbox
         .command()
         .args(["session", "last", "--json"])
         .output()
-        .expect("spawn fxr session");
+        .expect("spawn xfx session");
     let document: Value = serde_json::from_slice(&shown.stdout).expect("one JSON document");
     assert_eq!(document["model"], "acme/model-9");
 }
@@ -1337,13 +1337,13 @@ fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
     let notes = with_notes(&sandbox);
     let pty = Pty::open();
     let mut command = sandbox.command_with(&gateway);
-    command.env("FXR_PERMISSION_MODE", "ask");
+    command.env("XFX_PERMISSION_MODE", "ask");
     let mut session = start(&sandbox, &pty, command);
 
     session.type_line("fix the notes");
-    // The prompt is the real one: it says what fxr wants, what "always" would
+    // The prompt is the real one: it says what xfx wants, what "always" would
     // grant, and it is asked on this terminal rather than assumed.
-    let asked = session.wait_for("fxr wants to");
+    let asked = session.wait_for("xfx wants to");
     assert!(asked.contains("[y] yes, once"), "{asked}");
     assert!(asked.contains("[a] always"), "{asked}");
     assert!(asked.contains("notes.txt"), "{asked}");
@@ -1377,11 +1377,11 @@ fn ask_mode_takes_no_for_an_answer_and_the_file_is_untouched() {
     let notes = with_notes(&sandbox);
     let pty = Pty::open();
     let mut command = sandbox.command_with(&gateway);
-    command.env("FXR_PERMISSION_MODE", "ask");
+    command.env("XFX_PERMISSION_MODE", "ask");
     let mut session = start(&sandbox, &pty, command);
 
     session.type_line("fix the notes");
-    session.wait_for("fxr wants to");
+    session.wait_for("xfx wants to");
     session.type_line("n");
     // The refusal is a tool result the model can act on, so the turn continues
     // and finishes normally.
@@ -1404,11 +1404,11 @@ fn ctrl_c_at_an_approval_prompt_does_not_hang_the_shell() {
     let notes = with_notes(&sandbox);
     let pty = Pty::open();
     let mut command = sandbox.command_with(&gateway);
-    command.env("FXR_PERMISSION_MODE", "ask");
+    command.env("XFX_PERMISSION_MODE", "ask");
     let mut session = start(&sandbox, &pty, command);
 
     session.type_line("fix the notes");
-    session.wait_for("fxr wants to");
+    session.wait_for("xfx wants to");
     session.type_bytes(&[0x03]);
     session.wait_for("interrupted");
 
@@ -1438,7 +1438,7 @@ fn yolo_mode_warns_once_and_then_asks_nobody_anything() {
     let notes = with_notes(&sandbox);
     let pty = Pty::open();
     let mut command = sandbox.command_with(&gateway);
-    command.env("FXR_PERMISSION_MODE", "yolo");
+    command.env("XFX_PERMISSION_MODE", "yolo");
     let mut session = Session::spawn(&pty, command);
 
     // The warning is on the way in, before a prompt exists to type at.
@@ -1453,7 +1453,7 @@ fn yolo_mode_warns_once_and_then_asks_nobody_anything() {
     session.wait_for("the edit is done");
     let text = session.text();
     assert!(
-        !text.contains("fxr wants to"),
+        !text.contains("xfx wants to"),
         "yolo asked a question: {text}"
     );
     assert_eq!(
@@ -1473,9 +1473,9 @@ fn status_reports_the_mode_the_shell_is_running_under() {
     let listed = sandbox
         .command()
         .args(["status", "--json"])
-        .env("FXR_PERMISSION_MODE", "yolo")
+        .env("XFX_PERMISSION_MODE", "yolo")
         .output()
-        .expect("spawn fxr status");
+        .expect("spawn xfx status");
     let document: Value = serde_json::from_slice(&listed.stdout).expect("one JSON document");
     assert_eq!(document["permission_mode"], "yolo");
     assert_eq!(document["sandbox"], "none");
@@ -1553,11 +1553,11 @@ fn the_terminal_comparator_notices_a_change_in_any_single_field() {
 // ---------------------------------------------------------------------------
 
 /// A child that puts the terminal in raw mode with echo off and leaves it that
-/// way, which is the exact thing every restoration test above claims fxr never
+/// way, which is the exact thing every restoration test above claims xfx never
 /// does.
 ///
 /// `take_terminal` chooses whether it does so as a session leader owning the
-/// terminal, the way fxr runs, or as an ordinary process. The two are not
+/// terminal, the way xfx runs, or as an ordinary process. The two are not
 /// interchangeable: a session leader's terminal is revoked when it exits on
 /// BSD-derived kernels, and that revocation is the whole reason the old harness
 /// saw nothing.
@@ -1603,7 +1603,7 @@ fn the_harness_can_tell_when_a_child_leaves_the_terminal_changed() {
 /// The old blind spot, reproduced -- on macOS only, because only a BSD-derived
 /// kernel can be made to show it.
 ///
-/// The child is spawned exactly the way fxr is: its own session, owning the
+/// The child is spawned exactly the way xfx is: its own session, owning the
 /// terminal. When such a child exits, a BSD-derived kernel revokes its
 /// terminal, and the next open of that device name is a pristine one carrying
 /// the system defaults. A harness that opens a slave per reading therefore
@@ -1617,7 +1617,7 @@ fn the_harness_can_tell_when_a_child_leaves_the_terminal_changed() {
 /// `before != after`, and asserting blindness fails on a kernel that is not
 /// blind. That is exactly what both Linux jobs of run 32505490051 reported
 /// (`assertion left == right failed` at this test, `ECHO | ICANON | ISIG`
-/// present before and absent after). macOS is the only BSD-derived target fxr
+/// present before and absent after). macOS is the only BSD-derived target xfx
 /// ships, so `target_os = "macos"` is the whole of the supported blind
 /// platform.
 ///
@@ -1650,9 +1650,9 @@ fn on_macos_a_harness_that_retains_nothing_cannot_see_the_change() {
 
 #[test]
 fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed() {
-    // The restoration tests above take their reading while fxr is alive, and
+    // The restoration tests above take their reading while xfx is alive, and
     // this is the proof that such a reading can fail. The child is spawned
-    // exactly as fxr is -- its own session, holding this terminal -- so the
+    // exactly as xfx is -- its own session, holding this terminal -- so the
     // path under test is the same one, down to the descriptor.
     let pty = Pty::open();
     let before = modes(&pty);

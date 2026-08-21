@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# End-to-end smoke test of a built fxr binary.
+# End-to-end smoke test of a built xfx binary.
 #
-#   scripts/smoke.sh <path-to-fxr> [evidence-dir]
+#   scripts/smoke.sh <path-to-xfx> [evidence-dir]
 #
 # It drives the real executable through the paths a release has to survive:
 # help and status, a content-only answer, a multi-step turn that reads a file,
@@ -27,7 +27,7 @@ set -euo pipefail
 
 binary="${1:-}"
 if [ -z "$binary" ]; then
-	printf 'usage: %s <path-to-fxr> [evidence-dir]\n' "$0" >&2
+	printf 'usage: %s <path-to-xfx> [evidence-dir]\n' "$0" >&2
 	exit 2
 fi
 if [ ! -x "$binary" ]; then
@@ -41,14 +41,14 @@ if ! command -v python3 >/dev/null 2>&1; then
 	exit 2
 fi
 
-evidence="${2:-${TMPDIR:-/tmp}/fxr-smoke-$(date +%Y%m%dT%H%M%S)-$$}"
+evidence="${2:-${TMPDIR:-/tmp}/xfx-smoke-$(date +%Y%m%dT%H%M%S)-$$}"
 mkdir -p "$evidence"
 evidence="$(cd "$evidence" && pwd)"
 
 # A credential-shaped literal that is not a credential. Every captured stream is
 # scanned for it at the end: a product that prints its key once will print
 # someone's real key eventually.
-readonly FAKE_KEY="fxr-smoke-key-must-not-appear-in-output"
+readonly FAKE_KEY="xfx-smoke-key-must-not-appear-in-output"
 
 # A token-shaped value that must never be used and never be seen.
 #
@@ -57,7 +57,7 @@ readonly FAKE_KEY="fxr-smoke-key-must-not-appear-in-output"
 # have exported when they run this. Three dot-separated segments so it has an
 # OIDC token's shape, and unmistakably fake so that finding it anywhere is an
 # unambiguous failure rather than a judgement call.
-readonly HOSTILE_OIDC="hdr-fxr-smoke-hostile.payload-must-never-be-used.sig-not-a-real-signature"
+readonly HOSTILE_OIDC="hdr-xfx-smoke-hostile.payload-must-never-be-used.sig-not-a-real-signature"
 readonly HOSTILE_MODEL="hostile/model-must-not-be-used"
 
 failures=0
@@ -222,7 +222,7 @@ PYTHON
 cat >"$helpers/pty_shell.py" <<'PYTHON'
 """Drives the interactive shell on a real pseudoterminal.
 
-A pipe cannot be used: `fxr` refuses to open a shell without a terminal, which
+A pipe cannot be used: `xfx` refuses to open a shell without a terminal, which
 is itself one of the things this checks. The transcript is written verbatim so
 the run leaves evidence of what the terminal actually received.
 """
@@ -237,10 +237,10 @@ import time
 binary, workspace, transcript_path = sys.argv[1], sys.argv[2], sys.argv[3]
 env_pairs = sys.argv[4:]
 
-# The child's environment is built from nothing, exactly as `fxr_env` builds it
+# The child's environment is built from nothing, exactly as `xfx_env` builds it
 # for every other invocation. `os.environ.update` was wrong here and only here:
 # it left the caller's whole environment in place, so a developer with a live
-# `VERCEL_OIDC_TOKEN` or `FXR_PERMISSION_MODE=yolo` exported would have been
+# `VERCEL_OIDC_TOKEN` or `XFX_PERMISSION_MODE=yolo` exported would have been
 # smoke-testing their shell instead of the binary -- on the one scenario whose
 # whole point is that it is the real thing.
 child_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
@@ -293,7 +293,7 @@ require(pump(re.compile(r"/version")), "/help listed the commands")
 send("/model\r")
 require(pump(re.compile(r"model=")), "/model reported the active model")
 send("/nonesuch\r")
-require(pump(re.compile(r"is not an fxr command")), "an unknown command was refused")
+require(pump(re.compile(r"is not an xfx command")), "an unknown command was refused")
 send("설명해줘 — a unicode prompt\r")
 require(pump(re.compile(r"shell answer")), "a prompt was answered through the Gateway")
 send("/quit\r")
@@ -423,60 +423,60 @@ mkdir -p "$home" "$workspace"
 # Runs a command in an environment built from nothing.
 #
 # `env -i` and an allowlist, not a list of `-u` flags. A denylist has to be kept
-# in step with every variable fxr ever learns to read, and the failure mode of
+# in step with every variable xfx ever learns to read, and the failure mode of
 # forgetting one is the worst kind this script has: a smoke run that quietly
-# used the developer's live credential, or their `FXR_PERMISSION_MODE=yolo`, and
+# used the developer's live credential, or their `XFX_PERMISSION_MODE=yolo`, and
 # passed. What a run legitimately needs is short, so it is stated instead.
 #
 # `PATH` is here because the `terminal` tool resolves an executable through it.
-fxr_env() {
+xfx_env() {
 	env -i \
 		PATH="$PATH" \
 		HOME="$home" \
 		TERM=dumb \
 		AI_GATEWAY_API_KEY="$FAKE_KEY" \
-		FXR_GATEWAY_URL="${gateway_url:-}" \
+		XFX_GATEWAY_URL="${gateway_url:-}" \
 		"$@"
 }
 
-# Runs fxr in `dir` and captures both streams.
+# Runs xfx in `dir` and captures both streams.
 #
-# `name` is the evidence prefix; the remaining arguments are fxr's. The exit
+# `name` is the evidence prefix; the remaining arguments are xfx's. The exit
 # status is left in `last_status`, and the streams in `$evidence/<name>.out`
 # and `.err`.
-run_fxr_in() {
+run_xfx_in() {
 	local dir="$1" name="$2"
 	shift 2
 	set +e
 	(
 		cd "$dir" || exit 1
-		fxr_env "$binary" "$@"
+		xfx_env "$binary" "$@"
 	) >"$evidence/$name.out" 2>"$evidence/$name.err"
 	last_status=$?
 	set -e
-	printf '$ (cd %s) fxr %s\n  exit=%s\n' "$dir" "$*" "$last_status" >>"$evidence/transcript.txt"
+	printf '$ (cd %s) xfx %s\n  exit=%s\n' "$dir" "$*" "$last_status" >>"$evidence/transcript.txt"
 	cat "$evidence/$name.out" >>"$evidence/transcript.txt"
 	cat "$evidence/$name.err" >>"$evidence/transcript.txt"
 	printf '\n' >>"$evidence/transcript.txt"
 }
 
-run_fxr() {
+run_xfx() {
 	local name="$1"
 	shift
-	run_fxr_in "$workspace" "$name" "$@"
+	run_xfx_in "$workspace" "$name" "$@"
 }
 
-printf 'fxr smoke\n  binary:   %s\n  evidence: %s\n\n' "$binary" "$evidence"
+printf 'xfx smoke\n  binary:   %s\n  evidence: %s\n\n' "$binary" "$evidence"
 : >"$evidence/transcript.txt"
 
 # Everything below runs with these exported. They are what a developer's shell
 # looks like -- a live token, a model override, a permission mode -- and not one
-# of them may reach the binary. `fxr_env` is what stands between them; this is
+# of them may reach the binary. `xfx_env` is what stands between them; this is
 # where that claim is tested rather than asserted.
 export VERCEL_OIDC_TOKEN="$HOSTILE_OIDC"
-export FXR_MODEL="$HOSTILE_MODEL"
-export FXR_PERMISSION_MODE="yolo"
-export FXR_MAX_AGENT_STEPS="1"
+export XFX_MODEL="$HOSTILE_MODEL"
+export XFX_PERMISSION_MODE="yolo"
+export XFX_MAX_AGENT_STEPS="1"
 
 # ---------------------------------------------------------------------------
 # 1. what the product says about itself, without a credential or a network
@@ -485,17 +485,17 @@ export FXR_MAX_AGENT_STEPS="1"
 printf '1. help, version, status, doctor\n'
 gateway_url=""
 
-run_fxr help --help
+run_xfx help --help
 expect_status "$last_status" 0 "--help exits 0"
-expect_contains "$evidence/help.out" "Usage: fxr" "--help shows usage"
+expect_contains "$evidence/help.out" "Usage: xfx" "--help shows usage"
 for deferred in " acp" " login" " upgrade" " replay"; do
 	expect_absent "$evidence/help.out" "$deferred" "--help does not advertise$deferred"
 done
 
-run_fxr version --version
+run_xfx version --version
 expect_status "$last_status" 0 "--version exits 0"
 
-run_fxr status status --json
+run_xfx status status --json
 expect_status "$last_status" 0 "status --json exits 0"
 expect_contains "$evidence/status.out" '"sandbox":"none"' "status reports no sandbox"
 expect_contains "$evidence/status.out" '"permission_mode"' "status reports the permission mode"
@@ -505,17 +505,17 @@ else
 	fail "status --json is exactly one document"
 fi
 
-run_fxr doctor doctor --json
+run_xfx doctor doctor --json
 expect_status "$last_status" 0 "doctor --json exits 0"
 expect_contains "$evidence/doctor.out" '"name":"sessions"' "doctor checks the session store"
 expect_contains "$evidence/doctor.out" '"name":"permissions"' "doctor checks the permission mode"
 
-run_fxr bare
-expect_status "$last_status" 1 "a bare fxr without a terminal exits 1"
+run_xfx bare
+expect_status "$last_status" 1 "a bare xfx without a terminal exits 1"
 expect_contains "$evidence/bare.err" "interactive terminal" "it says a terminal is required"
 
 # The isolation self-test. This script exported a live-looking OIDC token, a
-# model override, `FXR_PERMISSION_MODE=yolo`, and a step limit of 1 before any
+# model override, `XFX_PERMISSION_MODE=yolo`, and a step limit of 1 before any
 # scenario ran. If any of them reached the binary, everything below would be
 # measuring the developer's shell instead of the product -- and the `yolo` one
 # would mean the "destructive command was refused" check in section 3 passed for
@@ -527,11 +527,11 @@ document = json.load(open(sys.argv[1], encoding="utf-8"))
 hostile_model, hostile_oidc = sys.argv[2], sys.argv[3]
 problems = []
 if document["model"] == hostile_model:
-    problems.append("FXR_MODEL reached the binary")
+    problems.append("XFX_MODEL reached the binary")
 if document["permission_mode"] != "auto":
-    problems.append("FXR_PERMISSION_MODE reached the binary: " + document["permission_mode"])
+    problems.append("XFX_PERMISSION_MODE reached the binary: " + document["permission_mode"])
 if document["agent_step_limit"] == 1:
-    problems.append("FXR_MAX_AGENT_STEPS reached the binary")
+    problems.append("XFX_MAX_AGENT_STEPS reached the binary")
 if document["auth"] != "AI_GATEWAY_API_KEY":
     problems.append("the wrong credential was resolved: " + document["auth"])
 if hostile_oidc in json.dumps(document):
@@ -561,7 +561,7 @@ start_gateway content '[
   ]}
 ]'
 
-run_fxr content ask --no-save "say something"
+run_xfx content ask --no-save "say something"
 expect_status "$last_status" 0 "ask exits 0"
 expect_contains "$evidence/content.out" "the answer is content only" "the answer reached stdout"
 expect_absent "$evidence/content.err" "$FAKE_KEY" "the credential stayed out of stderr"
@@ -607,7 +607,7 @@ start_gateway mutation '[
   ]}
 ]'
 
-run_fxr mutation ask --auto --json --no-save "edit the notes and check them"
+run_xfx mutation ask --auto --json --no-save "edit the notes and check them"
 expect_status "$last_status" 0 "a five-step turn exits 0"
 expect_contains "$evidence/mutation.out" '"kind":"final"' "the turn ended with one final event"
 expect_contains "$evidence/mutation.out" '"tool":"edit_file"' "the edit ran"
@@ -656,10 +656,10 @@ start_gateway sessions '[
   ]}
 ]'
 
-run_fxr saved ask "remember this"
+run_xfx saved ask "remember this"
 expect_status "$last_status" 0 "a recorded ask exits 0"
 
-run_fxr list sessions --json
+run_xfx list sessions --json
 expect_status "$last_status" 0 "sessions --json exits 0"
 # Tolerant on purpose: a listing that is not JSON is a failure this script has
 # to *report*, not one it should die of halfway through.
@@ -677,11 +677,11 @@ else
 	fail "the turn was recorded"
 fi
 
-run_fxr detail session last --json
+run_xfx detail session last --json
 expect_status "$last_status" 0 "session last --json exits 0"
 expect_contains "$evidence/detail.out" "remember this" "the session kept the prompt"
 
-run_fxr resume ask --resume last "and this"
+run_xfx resume ask --resume last "and this"
 expect_status "$last_status" 0 "resume exits 0"
 set +e
 python3 -c '
@@ -713,18 +713,18 @@ mkdir -p "$other"
 # Through the same clean-environment path as every other invocation. It used to
 # have its own hand-written `env` line, which had drifted to unsetting exactly
 # one variable.
-run_fxr_in "$other" rebind ask --resume-id "$session_id" "from somewhere else"
+run_xfx_in "$other" rebind ask --resume-id "$session_id" "from somewhere else"
 expect_status "$last_status" 0 "a rebinding resume exits 0"
-if grep -qF 'workspace_rebound' "$home/.fxr/sessions/$session_id/events.jsonl" 2>/dev/null; then
+if grep -qF 'workspace_rebound' "$home/.xfx/sessions/$session_id/events.jsonl" 2>/dev/null; then
 	pass "the rebinding was recorded durably"
 else
 	fail "the rebinding was recorded durably"
 fi
 
-before="$(find "$home/.fxr/sessions" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ' || true)"
-run_fxr nosave ask --no-save "do not remember this"
+before="$(find "$home/.xfx/sessions" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ' || true)"
+run_xfx nosave ask --no-save "do not remember this"
 expect_status "$last_status" 0 "--no-save exits 0"
-after="$(find "$home/.fxr/sessions" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ' || true)"
+after="$(find "$home/.xfx/sessions" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l | tr -d ' ' || true)"
 if [ "$before" = "$after" ]; then
 	pass "--no-save created nothing under the profile home"
 else
@@ -747,7 +747,7 @@ start_gateway shell '[
 set +e
 python3 "$helpers/pty_shell.py" \
 	"$binary" "$workspace" "$evidence/shell-transcript.txt" \
-	"HOME=$home" "AI_GATEWAY_API_KEY=$FAKE_KEY" "FXR_GATEWAY_URL=$gateway_url" \
+	"HOME=$home" "AI_GATEWAY_API_KEY=$FAKE_KEY" "XFX_GATEWAY_URL=$gateway_url" \
 	"TERM=dumb" >"$evidence/shell.out" 2>"$evidence/shell.err"
 shell_status=$?
 set -e
@@ -773,7 +773,7 @@ printf '\n6. what was sent, and what was written down\n'
 #
 #   * Did every request carry exactly the credential this script provided?
 #     Checking only "the fake key is absent from the outputs" would pass just as
-#     well if fxr had sent someone's real token instead, which is the failure
+#     well if xfx had sent someone's real token instead, which is the failure
 #     that matters. So each `authorization` header must equal `Bearer <fake>`
 #     exactly, and any other bearer value is a failure by itself.
 #   * Did the fake key appear anywhere it should not? Everywhere except the
@@ -810,7 +810,7 @@ for directory, subdirectories, files in os.walk(root):
             continue
         scanned += 1
 
-        # Every bearer fxr sent, byte for byte.
+        # Every bearer xfx sent, byte for byte.
         if name == "requests.jsonl":
             for line in blob.decode("utf-8", "replace").splitlines():
                 if not line.strip():

@@ -57,7 +57,7 @@ use std::path::{Path, PathBuf};
 /// (`vercel-labs/fx@580a0c5d src/core/tooling/tool_dispatch.zig:36-45`). It is a
 /// backstop rather than the whole rule: the walkers also apply `.gitignore`, so
 /// a Rust `target/` or a Python `__pycache__/` is excluded by the project's own
-/// declaration rather than by a name fxr had to guess.
+/// declaration rather than by a name xfx had to guess.
 pub const IGNORED_DIRECTORY_NAMES: &[&str] = &[
     ".git",
     ".zig-cache",
@@ -81,7 +81,7 @@ pub fn is_ignored_directory(name: &str) -> bool {
 /// `core.fsmonitor`, a `diff.external`, or a `diff.<driver>.textconv` entry is a
 /// command that `git status` or `git diff` will run through a shell -- so a mode
 /// that admits a bounded workspace write would otherwise admit, one call later,
-/// an arbitrary command on the direct read-only route. `.fxr` is fxr's own
+/// an arbitrary command on the direct read-only route. `.xfx` is xfx's own
 /// profile home, which holds the session log an approval is recorded in.
 ///
 /// The set is explicit rather than "every dot directory" on purpose: `.github`,
@@ -90,16 +90,16 @@ pub fn is_ignored_directory(name: &str) -> bool {
 /// guarantee that is not about them.
 ///
 /// The comparison is on the components *below an authorized root*. A user who
-/// points fxr at a directory that is itself inside a `.git` has said that this
+/// points xfx at a directory that is itself inside a `.git` has said that this
 /// is the workspace, and the invocation already rests on that decision.
-pub const PROTECTED_WRITE_DIRECTORY_NAMES: &[&str] = &[".git", ".fxr"];
+pub const PROTECTED_WRITE_DIRECTORY_NAMES: &[&str] = &[".git", ".xfx"];
 
 /// Whether `name` is a directory the file tools refuse to write into or through.
 ///
 /// Case-insensitive, and that is not politeness. macOS ships a case-insensitive
 /// APFS volume by default, so `.GIT/hooks/pre-commit` names the same directory
 /// `openat` reaches for `.git/hooks/pre-commit`; an exact comparison would be a
-/// check the caller could spell its way around on one of the two platforms fxr
+/// check the caller could spell its way around on one of the two platforms xfx
 /// supports. The cost on a case-sensitive filesystem is that a directory
 /// genuinely called `.GIT` is refused as well, which has no plausible legitimate
 /// instance and is the safe direction to be wrong in.
@@ -379,12 +379,12 @@ mod tests {
 
     #[test]
     fn the_write_protected_set_covers_the_authorities_and_not_ordinary_dot_directories() {
-        assert_eq!(PROTECTED_WRITE_DIRECTORY_NAMES, [".git", ".fxr"]);
+        assert_eq!(PROTECTED_WRITE_DIRECTORY_NAMES, [".git", ".xfx"]);
         assert!(is_protected_write_directory(".git"));
-        assert!(is_protected_write_directory(".fxr"));
+        assert!(is_protected_write_directory(".xfx"));
         // macOS's default volume is case-insensitive, so on one of the two
         // supported platforms these name the very same directory.
-        for spelled in [".GIT", ".Git", ".gIt", ".FXR", ".Fxr"] {
+        for spelled in [".GIT", ".Git", ".gIt", ".XFX", ".Xfx"] {
             assert!(
                 is_protected_write_directory(spelled),
                 "`{spelled}` reaches the same directory on a case-insensitive filesystem"

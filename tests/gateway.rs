@@ -2,9 +2,9 @@
 //!
 //! Three layers are proven here, and each one is a product promise:
 //!
-//! 1. the exact bytes fxr sends to the Vercel AI Gateway;
-//! 2. what fxr accepts back, including every way a stream can lie or stop; and
-//! 3. what `fxr ask` puts on stdout, header for header and event for event.
+//! 1. the exact bytes xfx sends to the Vercel AI Gateway;
+//! 2. what xfx accepts back, including every way a stream can lie or stop; and
+//! 3. what `xfx ask` puts on stdout, header for header and event for event.
 //!
 //! Nothing here uses a real credential or a real endpoint. Upstream evidence is
 //! pinned to `vercel-labs/fx@580a0c5da9386317251968c09c1cee69e763487a`.
@@ -20,14 +20,14 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use fxr::agent::{run_turn, TurnError, TurnRequest};
-use fxr::gateway::protocol::{
+use xfx::agent::{run_turn, TurnError, TurnRequest};
+use xfx::gateway::protocol::{
     Completion, CompletionRequest, ContentPart, FinishReason, Message, ProtocolError, Role,
     ToolCall, ToolChoice,
 };
-use fxr::gateway::sse::{SseError, SseReader, MAX_EVENT_BYTES};
-use fxr::gateway::{CancelToken, DeltaSink, Endpoint, EndpointError, Provider, ProviderError};
-use fxr::output::{Event, RecordingSink};
+use xfx::gateway::sse::{SseError, SseReader, MAX_EVENT_BYTES};
+use xfx::gateway::{CancelToken, DeltaSink, Endpoint, EndpointError, Provider, ProviderError};
+use xfx::output::{Event, RecordingSink};
 
 use support::fake_gateway::{
     content_only, finish, finish_with_usage, sse_body, sse_body_without_done, text_delta,
@@ -38,14 +38,14 @@ use support::fake_gateway::{
 const CONTROLLED_VARS: &[&str] = &[
     "VERCEL_OIDC_TOKEN",
     "AI_GATEWAY_API_KEY",
-    "FXR_MODEL",
-    "FXR_PERMISSION_MODE",
-    "FXR_MAX_AGENT_STEPS",
-    "FXR_GATEWAY_URL",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
 ];
 
 /// A test secret that must never appear on stdout or stderr.
-const TEST_KEY: &str = "fxr-test-gateway-key-must-not-appear";
+const TEST_KEY: &str = "xfx-test-gateway-key-must-not-appear";
 
 // ---------------------------------------------------------------------------
 // request serialization
@@ -881,8 +881,8 @@ fn turn(prompt: &str) -> TurnRequest {
         // These tests are about the transport and the turn's terminal states.
         // No test here reaches a tool executor; the registry, its scope, and
         // the tool loop are exercised in `tests/tool_loop.rs`.
-        tools: fxr::tools::ToolContext::new(
-            fxr::workspace::AccessScope::primary_only(
+        tools: xfx::tools::ToolContext::new(
+            xfx::workspace::AccessScope::primary_only(
                 std::env::current_dir().expect("a current directory"),
             )
             .expect("a usable workspace root"),
@@ -1234,7 +1234,7 @@ async fn a_machine_refuses_to_run_a_second_time() {
         vec!["once".to_string()],
         stopped("once"),
     )]);
-    let mut machine = fxr::agent::TurnMachine::new(turn("hi"));
+    let mut machine = xfx::agent::TurnMachine::new(turn("hi"));
     let mut sink = RecordingSink::new();
     machine.run(&provider, &mut sink).await.expect("first run");
     let err = machine
@@ -1268,12 +1268,12 @@ async fn a_cancelled_turn_fails_before_it_calls_the_provider() {
 fn the_step_bound_treats_zero_as_unbounded_and_binds_above_it() {
     // `0` means unbounded, matching the configured semantics
     // (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3-31`).
-    assert!(fxr::agent::allows_step(0, 0));
-    assert!(fxr::agent::allows_step(0, 10_000));
-    assert!(fxr::agent::allows_step(1, 0));
-    assert!(!fxr::agent::allows_step(1, 1));
-    assert!(fxr::agent::allows_step(3, 2));
-    assert!(!fxr::agent::allows_step(3, 3));
+    assert!(xfx::agent::allows_step(0, 0));
+    assert!(xfx::agent::allows_step(0, 10_000));
+    assert!(xfx::agent::allows_step(1, 0));
+    assert!(!xfx::agent::allows_step(1, 1));
+    assert!(xfx::agent::allows_step(3, 2));
+    assert!(!xfx::agent::allows_step(3, 3));
 }
 
 #[tokio::test]
@@ -1305,7 +1305,7 @@ async fn a_turn_with_no_attempt_budget_never_calls_the_provider() {
 }
 
 // ---------------------------------------------------------------------------
-// binary acceptance: `fxr ask`
+// binary acceptance: `xfx ask`
 // ---------------------------------------------------------------------------
 
 struct Sandbox {
@@ -1329,7 +1329,7 @@ impl Sandbox {
     }
 
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_fxr"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         for key in CONTROLLED_VARS {
@@ -1339,7 +1339,7 @@ impl Sandbox {
             command.env(key, value);
         }
         command.args(args);
-        Run::of(command.output().expect("spawn fxr"))
+        Run::of(command.output().expect("spawn xfx"))
     }
 }
 
@@ -1414,7 +1414,7 @@ fn ask_json_streams_deltas_then_exactly_one_final() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
 
@@ -1438,14 +1438,14 @@ fn ask_json_streams_deltas_then_exactly_one_final() {
 }
 
 #[test]
-fn ask_sends_the_bearer_credential_and_the_fxr_source_headers() {
+fn ask_sends_the_bearer_credential_and_the_xfx_source_headers() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();
     let run = sandbox.run(
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1459,16 +1459,16 @@ fn ask_sends_the_bearer_credential_and_the_fxr_source_headers() {
     );
     assert_eq!(request.header("content-type"), Some("application/json"));
     assert_eq!(request.header("accept"), Some("text/event-stream"));
-    // fxr identifies itself as fxr. Claiming to be `fx` would be an
+    // xfx identifies itself as xfx. Claiming to be `fx` would be an
     // impersonation of the upstream product it is a port of.
     assert_eq!(
         request.header("http-referer"),
-        Some("https://github.com/2lab-ai/fxr")
+        Some("https://github.com/2lab-ai/xfx")
     );
-    assert_eq!(request.header("x-title"), Some("fxr"));
+    assert_eq!(request.header("x-title"), Some("xfx"));
     assert_eq!(
         request.header("ai-language-model-id"),
-        Some(fxr::config::DEFAULT_MODEL)
+        Some(xfx::config::DEFAULT_MODEL)
     );
     assert_eq!(request.header("ai-language-model-streaming"), Some("true"));
     assert_eq!(request.header("ai-gateway-protocol-version"), Some("0.0.1"));
@@ -1487,7 +1487,7 @@ fn the_oidc_token_is_the_bearer_when_both_credentials_are_present() {
         &[
             ("VERCEL_OIDC_TOKEN", "oidc-value"),
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1505,7 +1505,7 @@ fn ask_sends_exactly_the_documented_request_body() {
         &["ask", "--json", "--no-save", "explain", "this", "code"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1530,7 +1530,7 @@ fn ask_sends_exactly_the_documented_request_body() {
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
     assert_eq!(
         body["tools"],
-        Value::Array(fxr::tools::Registry::builtin().advertisement())
+        Value::Array(xfx::tools::Registry::builtin().advertisement())
     );
     assert_eq!(
         body.as_object().expect("an object").keys().len(),
@@ -1548,7 +1548,7 @@ fn ask_streams_plain_text_for_a_human() {
         &["ask", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1570,7 +1570,7 @@ fn an_sse_event_split_across_transport_writes_still_decodes() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1586,7 +1586,7 @@ fn a_loopback_http_override_named_localhost_is_accepted() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.localhost_chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.localhost_chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1604,7 +1604,7 @@ fn a_non_loopback_http_override_fails_before_a_credential_is_sent() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &override_url),
+            ("XFX_GATEWAY_URL", &override_url),
         ],
     );
 
@@ -1627,14 +1627,14 @@ fn ask_without_a_credential_reports_the_missing_auth_help_and_sends_nothing() {
     let sandbox = Sandbox::new();
     let run = sandbox.run(
         &["ask", "--json", "--no-save", "hello"],
-        &[("FXR_GATEWAY_URL", &gateway.chat_url())],
+        &[("XFX_GATEWAY_URL", &gateway.chat_url())],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
     assert_eq!(gateway.request_count(), 0);
     assert_eq!(run.kinds(), ["error"]);
     assert_eq!(
         run.events()[0]["message"],
-        fxr::output::MISSING_AUTH_HELP,
+        xfx::output::MISSING_AUTH_HELP,
         "the missing-credential message must be the one status and doctor use"
     );
 }
@@ -1650,7 +1650,7 @@ fn ask_reports_a_gateway_error_status_as_one_error_event() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
@@ -1672,7 +1672,7 @@ fn a_retryable_status_is_retried_before_any_answer_was_delivered() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1695,7 +1695,7 @@ fn a_retry_after_header_from_the_gateway_is_honored_before_the_next_request() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     let waited = started.elapsed();
@@ -1730,7 +1730,7 @@ fn a_truncated_body_is_not_replayed_once_delivery_has_started() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
 
@@ -1754,7 +1754,7 @@ fn a_stream_that_ends_without_a_finish_event_fails_the_turn() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
@@ -1769,7 +1769,7 @@ fn a_done_marker_without_a_finish_event_fails_the_turn() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
@@ -1789,7 +1789,7 @@ fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
         &["ask", "--json", "--no-save", "write it"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
@@ -1806,8 +1806,8 @@ fn ask_applies_the_configured_model() {
         &["ask", "--json", "--no-save", "hello"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_MODEL", "vendor/chosen-model"),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_MODEL", "vendor/chosen-model"),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1843,7 +1843,7 @@ fn ask_treats_a_leading_dash_prompt_after_a_separator_as_text() {
         &["ask", "--json", "--no-save", "--", "--not-a-flag"],
         &[
             ("AI_GATEWAY_API_KEY", TEST_KEY),
-            ("FXR_GATEWAY_URL", &gateway.chat_url()),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
         ],
     );
     assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
@@ -1923,7 +1923,7 @@ fn the_no_save_flag_and_the_log_it_opts_out_of_are_both_implemented() {
 #[test]
 fn ask_is_advertised_in_the_command_inventory_and_the_parity_ledger() {
     assert!(
-        fxr::cli::ADVERTISED_COMMANDS.contains(&"ask"),
+        xfx::cli::ADVERTISED_COMMANDS.contains(&"ask"),
         "ask must be in the advertised inventory"
     );
     let parity =

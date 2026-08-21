@@ -14,10 +14,10 @@
 //! - **Encoding is deterministic.** Field order is declaration order and the
 //!   line ends in exactly one newline, so the same event always produces the
 //!   same bytes and a digest over the log means something.
-//! - **The payload is typed, and it never carries fxr's own Gateway
+//! - **The payload is typed, and it never carries xfx's own Gateway
 //!   credential.** There is no free-form "state blob" event and no field for the
-//!   token fxr authenticated with; what can be written is exactly the list in
-//!   [`SessionEvent`]. That is a promise about *fxr's* secret and not about the
+//!   token xfx authenticated with; what can be written is exactly the list in
+//!   [`SessionEvent`]. That is a promise about *xfx's* secret and not about the
 //!   reader's: [`SessionEvent::ToolResult`] stores a file's contents or a
 //!   command's output verbatim, as owner-only plaintext, so a secret the model
 //!   was asked to read is on disk until the session is deleted, and `--no-save`
@@ -36,7 +36,7 @@ use sha2::{Digest, Sha256};
 /// The event frame schema this build writes and is willing to read.
 ///
 /// A frame that names any other version is refused rather than guessed at: an
-/// older fxr must not half-read a newer log and report the prefix as the whole
+/// older xfx must not half-read a newer log and report the prefix as the whole
 /// conversation.
 pub const EVENT_SCHEMA_VERSION: u32 = 1;
 
@@ -49,7 +49,7 @@ pub const MAX_EVENT_FRAME_BYTES: usize = 1024 * 1024;
 /// One model tool call, as it was actually requested.
 ///
 /// The arguments are kept verbatim so a resumed conversation shows the model
-/// what it asked for rather than fxr's paraphrase of it.
+/// what it asked for rather than xfx's paraphrase of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RecordedToolCall {
     pub id: String,
@@ -79,11 +79,11 @@ impl TurnConclusion {
 
 /// Everything a session is allowed to remember.
 ///
-/// The set is closed, and has no field for fxr's own Gateway credential, no
+/// The set is closed, and has no field for xfx's own Gateway credential, no
 /// endpoint, and no environment capture. A session records what was asked, what
-/// was done, and what it cost -- never what fxr authenticated with. What a tool
+/// was done, and what it cost -- never what xfx authenticated with. What a tool
 /// returned is recorded too, in [`SessionEvent::ToolResult`], so the reader's
-/// own secrets can be in the log even though fxr's never are.
+/// own secrets can be in the log even though xfx's never are.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionEvent {
@@ -277,7 +277,7 @@ pub fn new_identifier() -> String {
     let seeded = SEED.with(|state| state.hash_one(counter));
 
     let mut hasher = Sha256::new();
-    hasher.update(b"fxr:session-identifier:v1\0");
+    hasher.update(b"xfx:session-identifier:v1\0");
     hasher.update(seeded.to_be_bytes());
     hasher.update(nanos.to_be_bytes());
     hasher.update(std::process::id().to_be_bytes());

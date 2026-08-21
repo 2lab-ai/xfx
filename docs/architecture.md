@@ -1,6 +1,6 @@
 # Architecture
 
-This describes what fxr actually does with your input, in the order it does it.
+This describes what xfx actually does with your input, in the order it does it.
 It is written against the code; where the two disagree the code is right and
 this file is a bug.
 
@@ -12,7 +12,7 @@ One binary, one crate, ten modules. The dependency direction is one way:
 cli ──► app ──► agent ──► gateway ──► (network)
                   │  └──► tools ──► permission
                   │           └──► workspace
-                  └──► session ──► (~/.fxr)
+                  └──► session ──► (~/.xfx)
                           output ◄── everything that prints
 ```
 
@@ -23,7 +23,7 @@ cli ──► app ──► agent ──► gateway ──► (network)
   and the diagnostics that explain a settings file it could not use.
 - **`app`** is composition and dispatch: one place that turns a parsed
   invocation into bytes on a stream and an exit code.
-- **`interactive`** is the loop a bare `fxr` runs. It adds a prompt, six slash
+- **`interactive`** is the loop a bare `xfx` runs. It adds a prompt, six slash
   commands, and an interrupt policy on top of the same services `ask` uses.
 - **`gateway`** is the provider boundary. `Provider` is a trait, so a turn can
   be driven by a scripted stream in a test and a real socket in the binary.
@@ -51,7 +51,7 @@ which is why the whole suite runs with no credential and no network.
    resolves the credential by precedence, and collects non-fatal diagnostics.
    A malformed settings file is a fact `doctor` reports, not a refusal to run.
 3. **Resolve authority.** `workspace::AccessScope` canonicalizes the workspace
-   root and every `--add-dir`. A directory fxr cannot use fails the turn here,
+   root and every `--add-dir`. A directory xfx cannot use fails the turn here,
    before a credential is read or a socket is opened.
 4. **Open the session.** Unless `--no-save`, `session::SessionStore` creates or
    resumes a session and takes an exclusive advisory lock on its log. A resume
@@ -96,7 +96,7 @@ The shell is the same pipeline with a loop around it.
 
 - It requires a terminal on both stdin and stdout, and a place to record, and
   refuses precisely when either is missing.
-- It reads a line through the terminal's own canonical mode. fxr never enters
+- It reads a line through the terminal's own canonical mode. xfx never enters
   raw mode and never takes the alternate screen, so there is no terminal state
   to restore -- a property the acceptance tests assert by comparing `termios`
   before and after, on a real pseudoterminal.
@@ -118,8 +118,8 @@ The shell is the same pipeline with a loop around it.
   commands are three `const` lists reconciled against `docs/parity.md` by
   `scripts/check-no-stubs.sh` (source text) and `tests/parity.rs` (the running
   binary), in both directions.
-- **No sandbox.** fxr reports `sandbox=none` because it does not confine
-  commands. `ask` and `auto` bound what fxr agrees to start, which is a policy
+- **No sandbox.** xfx reports `sandbox=none` because it does not confine
+  commands. `ask` and `auto` bound what xfx agrees to start, which is a policy
   boundary and not confinement.
 - **No blind retry.** The transport performs exactly one attempt per call and
   reports whether a failed attempt provably delivered nothing. The turn owns the
@@ -133,7 +133,7 @@ The shell is the same pipeline with a loop around it.
   fragmentation, permission policy, path resolution, session replay, and output
   snapshots.
 - `tests/*.rs` are binary-level: they spawn the real executable against a fake
-  Gateway that records exactly what fxr sent and replays a scripted stream, so
+  Gateway that records exactly what xfx sent and replays a scripted stream, so
   protocol assertions are about bytes rather than about a mock's expectations.
 - `tests/interactive.rs` allocates a real pseudoterminal, gives the child its
   own session and controlling terminal, and types into it -- which is the only

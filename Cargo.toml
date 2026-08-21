@@ -1,19 +1,19 @@
 [package]
-name = "fxr"
+name = "xfx"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.96"
 description = "Unofficial Apache-2.0 Rust port of the fx terminal coding agent"
 license = "Apache-2.0"
-repository = "https://github.com/2lab-ai/fxr"
+repository = "https://github.com/2lab-ai/xfx"
 publish = false
 
 [[bin]]
-name = "fxr"
+name = "xfx"
 path = "src/main.rs"
 
 [lib]
-name = "fxr"
+name = "xfx"
 path = "src/lib.rs"
 
 [dependencies]
@@ -43,7 +43,7 @@ tokio = { version = "1", features = ["rt", "macros", "net", "signal", "sync", "t
 # resolves its target component by component with `openat(..., O_NOFOLLOW)`, so
 # no component can be substituted between the check and the write; a timed-out
 # command is killed by process group, so a grandchild cannot outlive it holding
-# the pipe fxr is reading. `std` exposes neither a path-relative `openat` nor a
+# the pipe xfx is reading. `std` exposes neither a path-relative `openat` nor a
 # group kill.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs", "process"] }
@@ -54,7 +54,7 @@ tempfile = "3.10"
 # The interactive shell is only meaningful on a terminal, so its acceptance
 # tests drive the real binary through a real pseudoterminal rather than through
 # a pipe that merely claims to be one. `pty` opens the device pair and `termios`
-# reads the line-discipline state back, which is how "fxr left your terminal as
+# reads the line-discipline state back, which is how "xfx left your terminal as
 # it found it" becomes an assertion instead of a hope. Test-only: a release
 # build links neither.
 [target.'cfg(unix)'.dev-dependencies]
