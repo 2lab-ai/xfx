@@ -492,7 +492,15 @@ impl SessionDetailSnapshot {
                     .map(|step| match step {
                         TurnStep::Assistant { text, tool_calls } => SessionStepRow::Assistant {
                             text: clip_text(text),
-                            tool_calls: tool_calls.iter().map(|call| call.name.clone()).collect(),
+                            // A tool name is a string out of the log, and the
+                            // log is read as untrusted whatever a live provider
+                            // would have produced. The text renderer joins these
+                            // onto one line, so a newline in one would end that
+                            // row and start a forged one.
+                            tool_calls: tool_calls
+                                .iter()
+                                .map(|call| clip_text(&one_line(&call.name)))
+                                .collect(),
                         },
                         TurnStep::ToolResult {
                             call_id,
@@ -500,14 +508,14 @@ impl SessionDetailSnapshot {
                             ok,
                             output,
                         } => SessionStepRow::Tool {
-                            call_id: one_line(call_id),
-                            tool: one_line(tool),
+                            call_id: clip_text(&one_line(call_id)),
+                            tool: clip_text(&one_line(tool)),
                             ok: *ok,
                             output: clip_text(output),
                         },
                     })
                     .collect(),
-                outcome: turn.outcome.clone(),
+                outcome: turn.outcome.as_ref().map(flatten_conclusion),
             })
             .collect();
 
@@ -623,6 +631,29 @@ impl SessionDetailSnapshot {
             OutputFormat::Text => self.render_text(),
             OutputFormat::Json => self.render_json(),
         }
+    }
+}
+
+/// A recorded conclusion with every string of it made safe to render.
+///
+/// `finish_reason` looks like a closed vocabulary -- `stop`, `length`,
+/// `tool-calls` -- and it is, coming from a live provider. It is not a closed
+/// vocabulary coming off the disk, which is where this one came from. The reader
+/// treats the log as untrusted input rather than as something fxr wrote, because
+/// on any run where that distinction matters, fxr did not write it.
+fn flatten_conclusion(outcome: &crate::session::TurnConclusion) -> crate::session::TurnConclusion {
+    use crate::session::TurnConclusion;
+    match outcome {
+        TurnConclusion::Final {
+            finish_reason,
+            steps,
+        } => TurnConclusion::Final {
+            finish_reason: clip_text(&one_line(finish_reason)),
+            steps: *steps,
+        },
+        TurnConclusion::Interrupted { reason } => TurnConclusion::Interrupted {
+            reason: clip_text(&one_line(reason)),
+        },
     }
 }
 

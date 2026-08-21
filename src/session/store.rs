@@ -1078,6 +1078,12 @@ impl SessionStore {
     /// caller is told with `truncated` rather than left to infer it from a round
     /// number of rows.
     pub fn list(&self, filter: &ListFilter) -> Result<SessionList, SessionError> {
+        // Before `read_dir`, and on both directories. Checking after the open
+        // would mean following the link first and objecting afterwards, and
+        // checking only `sessions` would leave a swapped `~/.fxr` unexamined --
+        // which redirects `sessions` along with everything else under it.
+        self.verify_store_dirs()?;
+
         let mut summaries: Vec<SessionSummary> = Vec::new();
         let mut skipped = 0usize;
 
@@ -1094,9 +1100,6 @@ impl SessionStore {
             }
             Err(err) => return Err(io_error(&self.sessions_dir, err)),
         };
-        // A symlinked or shared sessions directory is refused rather than read:
-        // it would be a whole foreign store, not one odd file.
-        verify_store_dir(&self.sessions_dir)?;
 
         let mut names: Vec<String> = Vec::new();
         for entry in entries {
@@ -1153,6 +1156,11 @@ impl SessionStore {
         selector: &Selector,
         workspace: &Path,
     ) -> Result<SessionDetail, SessionError> {
+        // At the entry, for every selector. `Selector::Last` reaches this check
+        // through `list`, but an exact id does not go anywhere near a listing --
+        // so relying on that would mean `fxr session --id X` read through a
+        // swapped `~/.fxr` that `fxr sessions` had already refused.
+        self.verify_store_dirs()?;
         let id = self.resolve(selector, workspace)?;
         let manifest = self.read_manifest(&id)?;
         let replay = self.replay(&id, &manifest)?;
@@ -1172,6 +1180,7 @@ impl SessionStore {
     /// relative path in the history.
     pub fn resume(&self, selector: &Selector, workspace: &Path) -> Result<Resumed, SessionError> {
         self.require_writable()?;
+        self.verify_store_dirs()?;
         let id = self.resolve(selector, workspace)?;
         let dir = self.session_dir(&id);
         verify_private(&dir, 0o700)?;
@@ -1242,6 +1251,20 @@ impl SessionStore {
         Err(SessionError::Unavailable {
             detail: "this session store was opened read-only".to_string(),
         })
+    }
+
+    /// Checks both directories the store lives in, outermost first.
+    ///
+    /// Both, because they nest: a safe `sessions` inside a symlinked `~/.fxr` is
+    /// not safe, it is somebody else's `sessions`. Outermost first, so the
+    /// diagnostic names the outer problem rather than a symptom of it.
+    ///
+    /// Absence is not a failure -- a machine that has never run `ask` has
+    /// neither directory, and reading from it is an empty answer rather than an
+    /// error.
+    fn verify_store_dirs(&self) -> Result<(), SessionError> {
+        verify_store_dir(&self.profile_dir)?;
+        verify_store_dir(&self.sessions_dir)
     }
 
     /// Turns a selector into an id, without reading any log.

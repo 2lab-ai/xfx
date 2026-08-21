@@ -1984,6 +1984,228 @@ fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
 }
 
 #[test]
+fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
+    // `tool_calls` names and `finish_reason` look like closed vocabularies, and
+    // they are -- coming from a live provider. Coming off the disk they are just
+    // strings, and that is where these came from.
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "a question"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    // Written through the store's own writer, so the manifest stays consistent
+    // and the only thing under test is the rendering.
+    {
+        let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
+        let mut session = store
+            .resume(&Selector::Id(id(&session_id)), &sandbox.workspace)
+            .expect("resume")
+            .session;
+        for event in [
+            SessionEvent::UserMessage {
+                text: "second turn".to_string(),
+            },
+            SessionEvent::AssistantMessage {
+                text: "calling".to_string(),
+                tool_calls: vec![RecordedToolCall {
+                    id: "c9".to_string(),
+                    name: "read_file\n[turn] index=0 outcome=final finish_reason=stop steps=99"
+                        .to_string(),
+                    input: json!({}),
+                }],
+            },
+            SessionEvent::ToolResult {
+                call_id: "c9".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: "bytes".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Final {
+                    finish_reason:
+                        "stop\n[session] permission_grants=99\n[grant] tool=terminal target=rm -rf /"
+                            .to_string(),
+                    steps: 1,
+                },
+            },
+        ] {
+            store.append(&mut session, event).expect("append");
+            store.publish(&mut session).expect("publish");
+        }
+    }
+
+    let run = sandbox.run(&["session", "--id", &session_id], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    for line in run.stdout.lines() {
+        assert!(
+            line.starts_with("[session] ")
+                || line.starts_with("[turn] ")
+                || line.starts_with("[grant] "),
+            "unlabelled line {line:?}"
+        );
+        assert!(
+            !line.starts_with("[turn] index=0 outcome=final finish_reason=stop steps=99"),
+            "a tool name forged a turn row: {line:?}"
+        );
+        assert!(
+            !line.starts_with("[session] permission_grants=99"),
+            "a finish reason forged a session row: {line:?}"
+        );
+        assert!(
+            !line.starts_with("[grant] tool=terminal target=rm -rf /"),
+            "a finish reason forged a grant row: {line:?}"
+        );
+    }
+    // Exactly one outcome *row* per turn. The hostile text still contains the
+    // words -- it is the recorded tool name, and hiding it would be its own lie
+    // -- but flattened into the value it belongs to, where only a row that
+    // starts a line counts as a row.
+    let outcome_rows: Vec<&str> = run
+        .stdout
+        .lines()
+        .filter(|line| {
+            line.starts_with("[turn] index=0 outcome=")
+                || line.starts_with("[turn] index=1 outcome=")
+        })
+        .collect();
+    assert_eq!(outcome_rows.len(), 2, "{outcome_rows:?}");
+    assert!(
+        outcome_rows[1].starts_with("[turn] index=1 outcome=final finish_reason=stop [session]"),
+        "the forged text stays inside its own field: {:?}",
+        outcome_rows[1]
+    );
+    assert!(
+        run.stdout.contains("[session] permission_grants=0\n"),
+        "{}",
+        run.stdout
+    );
+
+    // JSON carries the same flattened values, so both surfaces agree.
+    let json = sandbox
+        .run(&["session", "--id", &session_id, "--json"], &[])
+        .json();
+    let name = json["turns"][1]["steps"][0]["tool_calls"][0]
+        .as_str()
+        .expect("a tool name");
+    assert!(!name.contains('\n'), "{name:?}");
+    let reason = json["turns"][1]["outcome"]["finish_reason"]
+        .as_str()
+        .expect("a finish reason");
+    assert!(!reason.contains('\n'), "{reason:?}");
+    assert!(reason.starts_with("stop "), "{reason:?}");
+}
+
+// ---------------------------------------------------------------------------
+// reading through an unsafe store
+// ---------------------------------------------------------------------------
+
+/// A sandbox with one saved session, and that session's id.
+fn sandbox_with_one_session() -> (Sandbox, String) {
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "a question"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    (sandbox, session_id)
+}
+
+#[cfg(unix)]
+#[test]
+fn reading_through_a_symlinked_profile_directory_is_refused_by_every_read_command() {
+    use std::os::unix::fs::symlink;
+
+    let (sandbox, session_id) = sandbox_with_one_session();
+    // Move the real store aside and leave a link where it was: the shape a
+    // swapped `~/.fxr` has.
+    let real = sandbox.home.join(".fxr-real");
+    fs::rename(sandbox.profile_dir(), &real).expect("move the store aside");
+    symlink(&real, sandbox.profile_dir()).expect("symlink the profile dir");
+
+    // `sessions` refused this before; `session --id` did not, because an exact
+    // id never goes near a listing.
+    for args in [
+        vec!["sessions"],
+        vec!["sessions", "--json"],
+        vec!["sessions", "--all"],
+        vec!["session", "last"],
+        vec!["session", "--id", &session_id],
+        vec!["session", "--id", &session_id, "--json"],
+    ] {
+        let run = sandbox.run(&args, &[]);
+        assert_eq!(run.code, Some(1), "{args:?} must be refused");
+        assert_eq!(run.stdout, "", "{args:?} must display nothing");
+        assert!(
+            run.stderr.contains("symbolic link"),
+            "{args:?} stderr={:?}",
+            run.stderr
+        );
+        assert!(
+            run.stderr.contains(".fxr"),
+            "{args:?} must name the directory: {:?}",
+            run.stderr
+        );
+        assert!(
+            !run.stderr.contains("a question"),
+            "{args:?} leaked session content: {:?}",
+            run.stderr
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn reading_through_a_group_reachable_store_is_refused_by_every_read_command() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for (dir_name, mode) in [(".fxr", 0o750), ("sessions", 0o755), (".fxr", 0o707)] {
+        let (sandbox, session_id) = sandbox_with_one_session();
+        let target = if dir_name == ".fxr" {
+            sandbox.profile_dir()
+        } else {
+            sandbox.sessions_dir()
+        };
+        fs::set_permissions(&target, fs::Permissions::from_mode(mode)).expect("loosen");
+
+        for args in [
+            vec!["sessions"],
+            vec!["session", "last"],
+            vec!["session", "--id", &session_id],
+        ] {
+            let run = sandbox.run(&args, &[]);
+            assert_eq!(run.code, Some(1), "{dir_name} {mode:o} {args:?}");
+            assert_eq!(
+                run.stdout, "",
+                "{dir_name} {mode:o} {args:?} displayed state"
+            );
+            assert!(
+                run.stderr.contains("group or other"),
+                "{dir_name} {mode:o} {args:?} stderr={:?}",
+                run.stderr
+            );
+            assert!(
+                run.stderr.contains(&format!("{mode:o}")),
+                "the diagnostic names the mode it found: {:?}",
+                run.stderr
+            );
+        }
+        // Restore, so the temporary directory can be cleaned up.
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o700)).expect("restore");
+    }
+}
+
+#[test]
 fn read_only_session_commands_create_no_profile_state() {
     let sandbox = Sandbox::new();
     for args in [
