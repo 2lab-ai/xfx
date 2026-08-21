@@ -1,0 +1,6 @@
+# Cargo build artifacts.
+/target
+
+# fxr is a binary, not a library dependency, so Cargo.lock is committed on
+# purpose to pin the exact dependency set every build and receipt was produced
+# from. It is deliberately absent from this file.

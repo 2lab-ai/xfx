@@ -1,0 +1,28 @@
+[package]
+name = "fxr"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+description = "Unofficial Apache-2.0 Rust port of the fx terminal coding agent"
+license = "Apache-2.0"
+repository = "https://github.com/2lab-ai/fxr"
+publish = false
+
+[[bin]]
+name = "fxr"
+path = "src/main.rs"
+
+[lib]
+name = "fxr"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[profile.release]
+strip = true
