@@ -13,12 +13,27 @@ use clap::error::ErrorKind;
 use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 
 use crate::config::PermissionMode;
+use crate::session::Selector;
 
 /// Every command name the parser accepts, including clap's built-in `help`.
 ///
 /// `scripts/check-no-stubs.sh` reconciles this list against `docs/parity.md`, and
 /// [`parser_command_names`] proves it cannot drift from the real parser.
-pub const ADVERTISED_COMMANDS: &[&str] = &["ask", "doctor", "help", "status"];
+///
+/// The layout is pinned with `rustfmt::skip` because the script reads this
+/// declaration textually, matching `pub const NAME: &[&str] = &[` and then the
+/// entries. It has to work without building the crate -- a broken build must not
+/// be able to hide a broken promise -- so a reflow that split the opening line
+/// would silently disable the check rather than fail it.
+#[rustfmt::skip]
+pub const ADVERTISED_COMMANDS: &[&str] = &[
+    "ask",
+    "doctor",
+    "help",
+    "session",
+    "sessions",
+    "status",
+];
 
 /// A parsed invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,11 +69,24 @@ pub enum Command {
         /// leaves the configured mode alone; the flags are an override for one
         /// run, not a way to rewrite settings.
         mode: Option<PermissionMode>,
+        /// The session to continue, if the invocation named one. `None` starts
+        /// a new one.
+        resume: Option<Selector>,
     },
     /// Report resolved configuration and credentials.
     Status { json: bool },
     /// Run local diagnostics.
     Doctor { json: bool },
+    /// List saved sessions, newest first.
+    Sessions {
+        json: bool,
+        /// Include sessions bound to other workspaces.
+        all: bool,
+        /// How many to show. `0` means the store's default.
+        limit: usize,
+    },
+    /// Show one saved session.
+    Session { json: bool, selector: Selector },
     /// The invocation was rejected; `message` is the exact diagnostic to show.
     Rejected { message: String },
 }
@@ -147,6 +175,8 @@ impl RawCli {
                 add_dir,
                 auto,
                 yolo,
+                resume,
+                resume_id,
             }) => {
                 // Words are rejoined with a single space: the shell already
                 // split them, and preserving the original spacing would need
@@ -167,16 +197,38 @@ impl RawCli {
                 } else {
                     None
                 };
+                let resume = match resume_selector(resume.as_deref(), resume_id.as_deref()) {
+                    Ok(resume) => resume,
+                    Err(message) => return Command::Rejected { message },
+                };
                 Command::Ask {
                     prompt,
                     json,
                     no_save,
                     add_dirs: add_dir,
                     mode,
+                    resume,
                 }
             }
             Some(RawCommand::Status { json }) => Command::Status { json },
             Some(RawCommand::Doctor { json }) => Command::Doctor { json },
+            Some(RawCommand::Sessions { json, all, limit }) => Command::Sessions {
+                json,
+                all,
+                limit: limit.unwrap_or(0),
+            },
+            Some(RawCommand::Session { json, selector, id }) => {
+                match resume_selector(selector.as_deref(), id.as_deref()) {
+                    Ok(Some(selector)) => Command::Session { json, selector },
+                    Ok(None) => Command::Rejected {
+                        message:
+                            "fxr session: name a session, or `last` for the most recent one in \
+                              this workspace"
+                                .to_string(),
+                    },
+                    Err(message) => Command::Rejected { message },
+                }
+            }
             // The interactive shell is not part of this release slice, so a bare
             // invocation has nothing to run and says so instead of succeeding.
             None => Command::Rejected {
@@ -186,26 +238,44 @@ impl RawCli {
     }
 }
 
+/// Turns the two spellings of "which session" into one answer.
+///
+/// `--resume <last|id>` is the convenient form and `--resume-id <id>` is the
+/// exact one, which is the only way to name a session that is literally called
+/// `last`. clap already refuses both at once, so at most one is set here.
+fn resume_selector(
+    positional: Option<&str>,
+    exact: Option<&str>,
+) -> Result<Option<Selector>, String> {
+    let parsed = match (positional, exact) {
+        (Some(raw), _) => Selector::parse(raw),
+        (None, Some(raw)) => crate::session::SessionId::parse(raw).map(Selector::Id),
+        (None, None) => return Ok(None),
+    };
+    parsed.map(Some).map_err(|err| format!("fxr: {err}"))
+}
+
 #[derive(Debug, Subcommand)]
 enum RawCommand {
     /// Ask the model one question and stream the answer
-    ///
-    /// The permission-mode and resume flags from upstream's `ask` are not here
-    /// yet; they arrive with the tool and session slices (`docs/parity.md`).
     Ask {
         /// Emit one JSON event per line instead of plain text
         #[arg(long)]
         json: bool,
-        // The parenthetical is a fact about this build, not a caveat about the
-        // flag. `ask` has no session store yet, so the flag's guarantee already
-        // holds and the default is not yet different from it; help that said
-        // only "do not record this turn in a session" would let a reader infer
-        // that the default does record one. The flag's meaning does not change
-        // when sessions arrive -- only the parenthetical goes away
-        // (`docs/parity.md`, `ask --no-save`).
-        /// Do not record this turn in a session (this release records none either way)
-        #[arg(long = "no-save")]
+        // Now load-bearing: the default writes `~/.fxr/sessions/<id>/`, and
+        // this flag means nothing is created there at all -- not an empty
+        // directory, not a manifest. It conflicts with the resume flags because
+        // continuing a conversation you refuse to record would silently fork
+        // its history.
+        /// Do not record this turn in a session
+        #[arg(long = "no-save", conflicts_with_all = ["resume", "resume_id"])]
         no_save: bool,
+        /// Continue the most recent session of this workspace, or the one named
+        #[arg(long, value_name = "last|ID", conflicts_with = "resume_id")]
+        resume: Option<String>,
+        /// Continue exactly this session, even if it is called `last`
+        #[arg(long = "resume-id", value_name = "ID")]
+        resume_id: Option<String>,
         // Repeatable, and off by default. Without it the read tools see the
         // workspace and nothing else; upstream spells the same authority
         // `--add-dir` (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:391-415`).
@@ -242,6 +312,30 @@ enum RawCommand {
         /// Emit one JSON document instead of text
         #[arg(long)]
         json: bool,
+    },
+    /// List saved sessions, newest first
+    Sessions {
+        /// Emit one JSON document instead of text
+        #[arg(long)]
+        json: bool,
+        /// Include sessions belonging to other workspaces
+        #[arg(long)]
+        all: bool,
+        /// Show at most this many
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    /// Show one saved session, including its turns
+    Session {
+        /// Emit one JSON document instead of text
+        #[arg(long)]
+        json: bool,
+        /// Which session: `last`, or an id
+        #[arg(value_name = "last|ID", conflicts_with = "id")]
+        selector: Option<String>,
+        /// Exactly this session, even if it is called `last`
+        #[arg(long, value_name = "ID")]
+        id: Option<String>,
     },
 }
 
@@ -315,6 +409,7 @@ mod tests {
                 no_save: false,
                 add_dirs: Vec::new(),
                 mode: None,
+                resume: None,
             }
         );
         assert_eq!(
@@ -325,6 +420,7 @@ mod tests {
                 no_save: true,
                 add_dirs: Vec::new(),
                 mode: None,
+                resume: None,
             }
         );
     }
@@ -339,8 +435,123 @@ mod tests {
                 no_save: false,
                 add_dirs: vec![PathBuf::from("/one"), PathBuf::from("/two")],
                 mode: None,
+                resume: None,
             }
         );
+    }
+
+    /// The session an `ask` invocation asked to continue.
+    fn resume_of(args: &[&str]) -> Option<Selector> {
+        match parse(args) {
+            Command::Ask { resume, .. } => resume,
+            other => panic!("{args:?} must be an ask: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resume_names_the_latest_session_or_an_exact_one() {
+        assert_eq!(resume_of(&["ask", "hi"]), None);
+        assert_eq!(
+            resume_of(&["ask", "--resume", "last", "hi"]),
+            Some(Selector::Last)
+        );
+        assert_eq!(
+            resume_of(&["ask", "--resume", "abc-1", "hi"]),
+            Some(Selector::Id(
+                crate::session::SessionId::parse("abc-1").unwrap()
+            ))
+        );
+        // `--resume-id` is the escape hatch for a session literally named
+        // `last`, so it never resolves to the keyword.
+        assert_eq!(
+            resume_of(&["ask", "--resume-id", "last", "hi"]),
+            Some(Selector::Id(
+                crate::session::SessionId::parse("last").unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn an_unsafe_resume_id_is_rejected_before_it_becomes_a_path() {
+        for args in [
+            vec!["ask", "--resume", "../escape", "hi"],
+            vec!["ask", "--resume-id", "a/b", "hi"],
+            vec!["session", "../escape"],
+            vec!["session", "--id", ".."],
+        ] {
+            let Command::Rejected { message } = parse(&args) else {
+                panic!("{args:?} must be rejected");
+            };
+            assert!(message.contains("session id"), "{args:?}: {message}");
+        }
+    }
+
+    #[test]
+    fn resuming_a_session_and_refusing_to_save_it_is_contradictory() {
+        for args in [
+            vec!["ask", "--resume", "last", "--no-save", "hi"],
+            vec!["ask", "--resume-id", "abc", "--no-save", "hi"],
+            // Two ways of naming the session at once is also a contradiction.
+            vec!["ask", "--resume", "last", "--resume-id", "abc", "hi"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn sessions_lists_with_an_optional_scope_and_bound() {
+        assert_eq!(
+            parse(&["sessions"]),
+            Command::Sessions {
+                json: false,
+                all: false,
+                limit: 0
+            }
+        );
+        assert_eq!(
+            parse(&["sessions", "--json", "--all", "--limit", "5"]),
+            Command::Sessions {
+                json: true,
+                all: true,
+                limit: 5
+            }
+        );
+        // A limit has to be a number; a typo is a usage error, not a default.
+        assert!(matches!(
+            parse(&["sessions", "--limit", "many"]),
+            Command::Rejected { .. }
+        ));
+    }
+
+    #[test]
+    fn session_needs_exactly_one_way_of_naming_its_session() {
+        assert_eq!(
+            parse(&["session", "last"]),
+            Command::Session {
+                json: false,
+                selector: Selector::Last
+            }
+        );
+        assert_eq!(
+            parse(&["session", "--id", "abc", "--json"]),
+            Command::Session {
+                json: true,
+                selector: Selector::Id(crate::session::SessionId::parse("abc").unwrap())
+            }
+        );
+        for args in [
+            vec!["session"],
+            vec!["session", "last", "--id", "abc"],
+            vec!["session", "one", "two"],
+        ] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
     }
 
     #[test]
@@ -399,12 +610,9 @@ mod tests {
 
     #[test]
     fn ask_does_not_advertise_a_deferred_flag() {
-        // Advertisement is a promise. `--resume` needs sessions, which this
-        // release does not have.
-        for args in [
-            vec!["ask", "--resume", "last", "hi"],
-            vec!["ask", "--quiet", "hi"],
-        ] {
+        // Advertisement is a promise. `--quiet` suppresses streamed output,
+        // which fxr does not have a second output mode for yet.
+        for args in [vec!["ask", "--quiet", "hi"], vec!["ask", "--acp", "hi"]] {
             assert!(
                 matches!(parse(&args), Command::Rejected { .. }),
                 "{args:?} must be rejected while the flag is deferred"
@@ -462,6 +670,9 @@ mod tests {
             "upgrade",
             "replay",
             "workspace",
+            // Upstream's `resume_session` command. fxr resumes through
+            // `ask --resume`, so the bare name promises nothing.
+            "resume",
         ] {
             assert!(
                 matches!(parse(&[name]), Command::Rejected { .. }),

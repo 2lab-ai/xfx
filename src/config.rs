@@ -90,7 +90,12 @@ impl PermissionMode {
         }
     }
 
-    fn parse(raw: &str) -> Option<Self> {
+    /// The inverse of [`Self::label`], tolerating surrounding whitespace.
+    ///
+    /// Public because a persisted session records the label and has to be able
+    /// to read it back; a second parser in the session module would be a second
+    /// thing to keep in step with the three modes.
+    pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim() {
             "ask" => Some(Self::Ask),
             "auto" => Some(Self::Auto),

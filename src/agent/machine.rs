@@ -27,8 +27,27 @@
 //!   tool -- before any of them runs, and then each runs once and appends
 //!   exactly one correlated result. A call that cannot be checked stops the turn
 //!   before the first execution, so a turn never half-runs a step.
+//!
+//! # The shape of a request
+//!
+//! A prompt is assembled in one fixed order, and each slot means something
+//! different (`vercel-labs/fx@580a0c5d src/core/agent/runtime/prompt_context.zig:27-43`):
+//!
+//! | Slot | What it is | When it changes |
+//! |---|---|---|
+//! | static system/project | the project's instructions as of the turn's start | never, within a turn |
+//! | transient overlay | instructions for a scope a tool call has just reached | grows before a target is admitted |
+//! | durable history | earlier turns, restored from a session | never, within a turn |
+//! | current user message | what was asked now | never |
+//! | within-turn suffix | this turn's assistant steps and tool results | after each step |
+//!
+//! The order is load-bearing rather than cosmetic. The static prefix is never
+//! rewritten mid-turn, so a scope discovered at step three arrives as an
+//! *additional* message instead of silently editing something the model has
+//! already read.
 
 use std::io;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::gateway::protocol::{
@@ -36,9 +55,11 @@ use crate::gateway::protocol::{
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
+use crate::session::{RecordedToolCall, SessionEvent, TurnConclusion};
 use crate::tools::Registry;
+use crate::workspace::ProjectContext;
 
-use super::types::{TurnError, TurnOutcome, TurnRequest};
+use super::types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};
 
 /// The first backoff, doubled per failed attempt when the server names no delay.
 ///
@@ -62,6 +83,22 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// `0` is unbounded (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3-31`).
 pub fn allows_step(limit: u32, step: u32) -> bool {
     limit == 0 || step < limit
+}
+
+/// The filesystem target a tool call names, if it names one.
+///
+/// Every advertised tool spells its target `path`, so this reads one field
+/// rather than knowing eight schemas. A call with no `path` -- `terminal`, or a
+/// workspace-wide `glob_files` -- has no scope of its own to admit, and returns
+/// `None` rather than being guessed at from a command line.
+///
+/// The value is *not* resolved here. This is a hint used to widen the model's
+/// context; the security decision about the same path happens later, inside the
+/// executor, against the scope. Confusing the two would make a rules lookup a
+/// permission check.
+fn target_path(value: Option<&serde_json::Value>) -> Option<PathBuf> {
+    let raw = value?.as_str()?.trim();
+    (!raw.is_empty()).then(|| PathBuf::from(raw))
 }
 
 /// How long to wait before replaying `attempt`, which has just failed.
@@ -100,6 +137,9 @@ async fn wait_before_retry(delay: Duration, cancel: &CancelToken) -> Result<(), 
 }
 
 /// Runs one turn to a terminal state, emitting exactly one terminal event.
+///
+/// Nothing is recorded: this is the entry point for a turn that carries no
+/// project context and no session. [`run_turn_saved`] is the one `ask` uses.
 pub async fn run_turn(
     request: TurnRequest,
     provider: &dyn Provider,
@@ -108,13 +148,39 @@ pub async fn run_turn(
     TurnMachine::new(request).run(provider, events).await
 }
 
+/// Runs one turn with project context and a durable journal.
+pub async fn run_turn_saved(
+    request: TurnRequest,
+    context: ProjectContext,
+    provider: &dyn Provider,
+    events: &mut dyn EventSink,
+    journal: &mut dyn TurnJournal,
+) -> Result<TurnOutcome, TurnError> {
+    TurnMachine::new(request)
+        .with_context(context)
+        .run_journaled(provider, events, journal)
+        .await
+}
+
 /// One turn's conversation and bounds.
 #[derive(Debug)]
 pub struct TurnMachine {
     request: TurnRequest,
-    /// The prompt sent to the model: history, then this turn's user message,
-    /// then whatever the turn appends as it runs.
-    messages: Vec<Message>,
+    /// The project's instructions, and the machinery to widen them when a tool
+    /// call reaches a scope that has its own.
+    context: ProjectContext,
+    /// The static system message: the project context as of the turn's start.
+    /// Empty when there is none.
+    static_context: String,
+    /// Instructions admitted mid-turn, in the order they were admitted. Each is
+    /// its own message, so nothing already delivered is rewritten.
+    overlay: Vec<String>,
+    /// Earlier turns, restored from a session. Never changes within a turn.
+    history: Vec<Message>,
+    /// What was asked now.
+    user: Message,
+    /// This turn's own assistant steps and tool results.
+    suffix: Vec<Message>,
     /// Every assistant fragment this turn delivered, concatenated. A turn that
     /// spans several steps answers with all of them, because that is what the
     /// user watched arrive.
@@ -125,20 +191,46 @@ pub struct TurnMachine {
 
 impl TurnMachine {
     pub fn new(request: TurnRequest) -> Self {
-        let mut messages = request.history.clone();
-        messages.push(Message::user(request.prompt.clone()));
+        let history = request.history.clone();
+        let user = Message::user(request.prompt.clone());
         Self {
             request,
-            messages,
+            context: ProjectContext::none(),
+            static_context: String::new(),
+            overlay: Vec::new(),
+            history,
+            user,
+            suffix: Vec::new(),
             output: String::new(),
             steps: 0,
             finalized: false,
         }
     }
 
-    /// The prompt as it currently stands.
-    pub fn messages(&self) -> &[Message] {
-        &self.messages
+    /// The same machine, carrying `context` as its static system message.
+    ///
+    /// Rendered once, here, rather than per request: the static prefix is a
+    /// snapshot of the project as the turn began, and re-rendering it each step
+    /// would let a file edited mid-turn change what the model was told earlier.
+    pub fn with_context(mut self, context: ProjectContext) -> Self {
+        self.static_context = context.render();
+        self.context = context;
+        self
+    }
+
+    /// The prompt as it currently stands, in wire order.
+    pub fn messages(&self) -> Vec<Message> {
+        let mut messages = Vec::with_capacity(self.history.len() + self.suffix.len() + 3);
+        if !self.static_context.is_empty() {
+            messages.push(Message::system(self.static_context.clone()));
+        }
+        for overlay in &self.overlay {
+            messages.push(Message::system(overlay.clone()));
+        }
+        messages.extend(self.history.iter().cloned());
+        messages.push(self.user.clone());
+        messages.extend(self.suffix.iter().cloned());
+        messages
     }
 
     /// How many model steps have run.
@@ -146,18 +238,57 @@ impl TurnMachine {
         self.steps
     }
 
-    /// Runs the turn and finalizes it exactly once.
+    /// Runs the turn and finalizes it exactly once, recording nothing.
     pub async fn run(
         &mut self,
         provider: &dyn Provider,
         events: &mut dyn EventSink,
+    ) -> Result<TurnOutcome, TurnError> {
+        self.run_journaled(provider, events, &mut NoJournal).await
+    }
+
+    /// Runs the turn, finalizes it exactly once, and records what happened.
+    pub async fn run_journaled(
+        &mut self,
+        provider: &dyn Provider,
+        events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
     ) -> Result<TurnOutcome, TurnError> {
         if self.finalized {
             return Err(TurnError::AlreadyFinalized);
         }
         self.finalized = true;
 
-        let result = self.drive(provider, events).await;
+        // The user's message opens the turn in the log before anything can go
+        // wrong, so a turn that fails on its first request is still a turn that
+        // was asked.
+        journal.record(SessionEvent::UserMessage {
+            text: self.request.prompt.clone(),
+        });
+
+        let result = self.drive(provider, events, journal).await;
+
+        // Exactly one conclusion, whichever way the turn went.
+        match &result {
+            Ok(outcome) => {
+                journal.record(SessionEvent::UsageRecorded {
+                    input_tokens: outcome.usage.input_tokens,
+                    output_tokens: outcome.usage.output_tokens,
+                });
+                journal.record(SessionEvent::TurnConcluded {
+                    outcome: TurnConclusion::Final {
+                        finish_reason: outcome.finish_reason.label().to_string(),
+                        steps: outcome.steps,
+                    },
+                });
+            }
+            Err(err) => journal.record(SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: err.to_string(),
+                },
+            }),
+        }
+
         // The only place a terminal event is written. One match, two arms, no
         // early return in between: the "exactly once" property is the shape of
         // this code rather than a rule someone has to remember.
@@ -187,6 +318,7 @@ impl TurnMachine {
         &mut self,
         provider: &dyn Provider,
         events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
     ) -> Result<TurnOutcome, TurnError> {
         loop {
             if self.request.cancel.is_cancelled() {
@@ -217,6 +349,14 @@ impl TurnMachine {
             }
 
             if completion.tool_calls.is_empty() {
+                // The answering step's own text, recorded as the assistant
+                // evidence of this turn. An empty one is not evidence.
+                if !completion.text.is_empty() {
+                    journal.record(SessionEvent::AssistantMessage {
+                        text: completion.text.clone(),
+                        tool_calls: Vec::new(),
+                    });
+                }
                 return match completion.finish_reason {
                     FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
                     // `stop`, `length`, `content-filter`, and `other` all end
@@ -242,7 +382,7 @@ impl TurnMachine {
                 });
             }
 
-            self.execute_tool_calls(&completion, events)?;
+            self.execute_tool_calls(&completion, events, journal)?;
         }
     }
 
@@ -255,6 +395,7 @@ impl TurnMachine {
         &mut self,
         completion: &Completion,
         events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
     ) -> Result<(), TurnError> {
         let registry = Registry::builtin();
 
@@ -281,12 +422,33 @@ impl TurnMachine {
         // The assistant turn goes in exactly as the provider sent it: its text,
         // then its calls in order. The next request has to show the model what
         // it asked for, not fxr's paraphrase of it.
-        self.messages.push(Message::assistant(
+        self.suffix.push(Message::assistant(
             Some(&completion.text),
             completion.tool_calls.clone(),
         ));
+        journal.record(SessionEvent::AssistantMessage {
+            text: completion.text.clone(),
+            tool_calls: completion
+                .tool_calls
+                .iter()
+                .map(|call| RecordedToolCall {
+                    id: call.id.clone(),
+                    name: call.name.clone(),
+                    input: call.input.clone(),
+                })
+                .collect(),
+        });
 
         for call in &completion.tool_calls {
+            // Before the call is admitted, not after it runs: a rule about the
+            // directory this call is about to touch is worth nothing once the
+            // file has already been written.
+            if let Some(target) = target_path(call.input.get("path")) {
+                if let Some(delta) = self.context.admit_target(&target) {
+                    self.overlay.push(delta);
+                }
+            }
+
             events
                 .emit(&Event::ToolStart {
                     call_id: call.id.clone(),
@@ -310,7 +472,13 @@ impl TurnMachine {
                 })
                 .map_err(TurnError::Sink)?;
 
-            self.messages
+            journal.record(SessionEvent::ToolResult {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                ok: result.ok,
+                output: result.output.clone(),
+            });
+            self.suffix
                 .push(Message::tool_result(&call.id, &call.name, result.output));
 
             // Almost every refusal goes back to the model, which can correct
@@ -330,8 +498,9 @@ impl TurnMachine {
 
     /// Every tool call id already in the prompt.
     fn announced_call_ids(&self) -> Vec<String> {
-        self.messages
+        self.history
             .iter()
+            .chain(self.suffix.iter())
             .flat_map(|message| message.content.iter())
             .filter_map(|part| match part {
                 ContentPart::ToolCall(call) => Some(call.id.clone()),
@@ -409,7 +578,7 @@ impl TurnMachine {
     fn completion_request(&self) -> CompletionRequest {
         CompletionRequest {
             model: self.request.model.clone(),
-            messages: self.messages.clone(),
+            messages: self.messages(),
             // The registry verbatim, every step. Re-advertising is not
             // redundant: the Gateway is stateless, so a schema omitted from
             // step two is a tool the model no longer has.
@@ -522,7 +691,7 @@ mod tests {
             tools,
         });
         assert!(machine.announced_call_ids().is_empty());
-        machine.messages.push(Message::assistant(
+        machine.suffix.push(Message::assistant(
             None,
             vec![ToolCall {
                 id: "c1".to_string(),
@@ -531,9 +700,81 @@ mod tests {
             }],
         ));
         machine
-            .messages
+            .suffix
             .push(Message::tool_result("c1", "read_file", "x"));
         assert_eq!(machine.announced_call_ids(), ["c1"]);
+    }
+
+    #[test]
+    fn a_request_runs_static_then_overlay_then_history_then_user_then_suffix() {
+        use crate::gateway::protocol::Role;
+        let (_dir, tools) = tools();
+        let mut machine = TurnMachine::new(TurnRequest {
+            model: "m".to_string(),
+            prompt: "now".to_string(),
+            history: vec![
+                Message::user("before"),
+                Message::assistant(Some("ok"), vec![]),
+            ],
+            max_steps: 4,
+            max_attempts: 1,
+            cancel: crate::gateway::CancelToken::new(),
+            tools,
+        });
+        machine.static_context = "STATIC".to_string();
+        machine.overlay.push("OVERLAY".to_string());
+        machine.suffix.push(Message::assistant(Some("mid"), vec![]));
+
+        let messages = machine.messages();
+        let roles: Vec<Role> = messages.iter().map(|message| message.role).collect();
+        assert_eq!(
+            roles,
+            [
+                Role::System,
+                Role::System,
+                Role::User,
+                Role::Assistant,
+                Role::User,
+                Role::Assistant
+            ]
+        );
+        assert_eq!(messages[0].text(), "STATIC");
+        assert_eq!(messages[1].text(), "OVERLAY");
+        assert_eq!(messages[4].text(), "now");
+        assert_eq!(messages[5].text(), "mid");
+    }
+
+    #[test]
+    fn a_machine_without_project_context_sends_no_system_message() {
+        let (_dir, tools) = tools();
+        let machine = TurnMachine::new(TurnRequest {
+            model: "m".to_string(),
+            prompt: "now".to_string(),
+            history: Vec::new(),
+            max_steps: 1,
+            max_attempts: 1,
+            cancel: crate::gateway::CancelToken::new(),
+            tools,
+        })
+        .with_context(crate::workspace::ProjectContext::none());
+        assert_eq!(machine.messages().len(), 1);
+    }
+
+    #[test]
+    fn a_tool_target_is_read_from_the_path_field_and_nowhere_else() {
+        use serde_json::json;
+        assert_eq!(
+            target_path(json!({ "path": "src/a.rs" }).get("path")),
+            Some(std::path::PathBuf::from("src/a.rs"))
+        );
+        assert_eq!(target_path(json!({}).get("path")), None);
+        assert_eq!(target_path(json!({ "path": "  " }).get("path")), None);
+        assert_eq!(target_path(json!({ "path": 7 }).get("path")), None);
+        // A command is not a path, however path-shaped it looks.
+        assert_eq!(
+            target_path(json!({ "command": "ls src" }).get("path")),
+            None
+        );
     }
 
     #[test]

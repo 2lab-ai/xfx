@@ -15,6 +15,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 
 use crate::config::{Credential, RuntimeConfig};
+use crate::session::{SessionDetail, SessionList, TurnStep};
 
 /// The help text shown when no credential is configured.
 ///
@@ -102,13 +103,20 @@ pub struct StatusSnapshot {
     pub agent_step_limit: u32,
 }
 
+/// What `status` reports about the session a turn here would continue.
+///
+/// Zero when there is none, which is a measured fact about the store rather
+/// than a reserved field: `fxr status` in a directory that has never been asked
+/// a question has nothing to continue.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SessionFacts {
+    pub history_turns: u64,
+    pub permission_grants: u64,
+}
+
 impl StatusSnapshot {
     /// Builds the snapshot from resolved configuration and build metadata.
-    ///
-    /// `history_turns` and `session_permission_grants` are zero because there is
-    /// no durable session in this release slice; they are measured facts about
-    /// the current process, not reserved fields.
-    pub fn new(config: &RuntimeConfig, build: crate::BuildInfo) -> Self {
+    pub fn new(config: &RuntimeConfig, build: crate::BuildInfo, session: SessionFacts) -> Self {
         let auth = AuthSnapshot::from_credential(config.credential.as_ref());
         Self {
             kind: "status",
@@ -121,8 +129,8 @@ impl StatusSnapshot {
             permission_mode: config.permission_mode.label().to_string(),
             sandbox: SANDBOX_LABEL.to_string(),
             workspace: config.workspace_root.display().to_string(),
-            history_turns: 0,
-            session_permission_grants: 0,
+            history_turns: session.history_turns,
+            session_permission_grants: session.permission_grants,
             agent_step_limit: config.max_agent_steps,
         }
     }
@@ -289,6 +297,314 @@ impl DoctorSnapshot {
             OutputFormat::Json => self.render_json(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// sessions
+// ---------------------------------------------------------------------------
+
+/// How many turns `session` shows before it says it stopped.
+const MAX_DETAIL_TURNS: usize = 50;
+
+/// How many bytes of one recorded text `session` shows.
+///
+/// A session detail is a summary a person reads, not an export: a turn that
+/// read a 200 KiB file must not put 200 KiB on a terminal.
+const MAX_DETAIL_TEXT_BYTES: usize = 2_000;
+
+/// What `fxr sessions` reports.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionsSnapshot {
+    pub kind: &'static str,
+    /// `workspace` or `all`.
+    pub scope: &'static str,
+    pub count: usize,
+    /// Whether the bound cut the list short.
+    pub has_more: bool,
+    /// Session directories that could not be trusted and were skipped.
+    pub skipped_invalid: usize,
+    pub sessions: Vec<SessionRow>,
+}
+
+/// One line of a listing.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionRow {
+    pub id: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub workspace: String,
+    pub origin_workspace: String,
+    pub history_turns: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl SessionsSnapshot {
+    pub fn new(list: &SessionList) -> Self {
+        Self {
+            kind: "sessions",
+            scope: list.scope,
+            count: list.sessions.len(),
+            has_more: list.has_more,
+            skipped_invalid: list.skipped_invalid,
+            sessions: list
+                .sessions
+                .iter()
+                .map(|summary| SessionRow {
+                    id: summary.id.clone(),
+                    created_at_ms: summary.created_at_ms,
+                    updated_at_ms: summary.updated_at_ms,
+                    workspace: summary.workspace_root.clone(),
+                    origin_workspace: summary.origin_workspace_root.clone(),
+                    history_turns: summary.history_turns,
+                    title: summary.title.as_deref().map(one_line),
+                })
+                .collect(),
+        }
+    }
+
+    /// A header line, then one line per session, in the same order as the JSON.
+    pub fn render_text(&self) -> String {
+        let mut out = format!(
+            "[sessions] scope={} count={} has_more={} skipped_invalid={}\n",
+            self.scope, self.count, self.has_more, self.skipped_invalid
+        );
+        for row in &self.sessions {
+            out.push_str(&format!(
+                "[session] id={} updated_at_ms={} turns={} workspace={} title={}\n",
+                row.id,
+                row.updated_at_ms,
+                row.history_turns,
+                row.workspace,
+                row.title.as_deref().unwrap_or("")
+            ));
+        }
+        out
+    }
+
+    pub fn render_json(&self) -> String {
+        render_json_document(self)
+    }
+
+    pub fn render(&self, format: OutputFormat) -> String {
+        match format {
+            OutputFormat::Text => self.render_text(),
+            OutputFormat::Json => self.render_json(),
+        }
+    }
+}
+
+/// One step of a recorded turn, bounded for display.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "role", rename_all = "snake_case")]
+pub enum SessionStepRow {
+    Assistant {
+        text: String,
+        /// The tools the step asked for, by name and in order.
+        tool_calls: Vec<String>,
+    },
+    Tool {
+        call_id: String,
+        tool: String,
+        ok: bool,
+        output: String,
+    },
+}
+
+/// One recorded turn, bounded for display.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionTurnRow {
+    pub user: String,
+    pub steps: Vec<SessionStepRow>,
+    /// Absent for a turn whose conclusion never reached the log, which is what
+    /// a crash mid-turn looks like.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<crate::session::TurnConclusion>,
+}
+
+/// What `fxr session` reports.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionDetailSnapshot {
+    pub kind: &'static str,
+    pub id: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub workspace: String,
+    pub origin_workspace: String,
+    pub model: String,
+    pub permission_mode: String,
+    pub history_turns: u64,
+    pub permission_grants: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    /// The project-instruction files in force at the last recorded turn. Kept
+    /// as provenance only: the next turn rediscovers them.
+    pub context_sources: Vec<String>,
+    /// Whether older turns were left out of `turns`.
+    pub truncated: bool,
+    pub turns: Vec<SessionTurnRow>,
+}
+
+impl SessionDetailSnapshot {
+    pub fn new(detail: &SessionDetail) -> Self {
+        let state = &detail.state;
+        let skipped = state.turns.len().saturating_sub(MAX_DETAIL_TURNS);
+        let turns = state
+            .turns
+            .iter()
+            .skip(skipped)
+            .map(|turn| SessionTurnRow {
+                user: clip_text(&turn.user),
+                steps: turn
+                    .steps
+                    .iter()
+                    .map(|step| match step {
+                        TurnStep::Assistant { text, tool_calls } => SessionStepRow::Assistant {
+                            text: clip_text(text),
+                            tool_calls: tool_calls.iter().map(|call| call.name.clone()).collect(),
+                        },
+                        TurnStep::ToolResult {
+                            call_id,
+                            tool,
+                            ok,
+                            output,
+                        } => SessionStepRow::Tool {
+                            call_id: call_id.clone(),
+                            tool: tool.clone(),
+                            ok: *ok,
+                            output: clip_text(output),
+                        },
+                    })
+                    .collect(),
+                outcome: turn.outcome.clone(),
+            })
+            .collect();
+
+        Self {
+            kind: "session",
+            id: state.id.clone(),
+            created_at_ms: state.created_at_ms,
+            updated_at_ms: state.updated_at_ms,
+            workspace: state.workspace_root.clone(),
+            origin_workspace: state.origin_workspace_root.clone(),
+            model: state.model.clone(),
+            permission_mode: state.permission_mode.label().to_string(),
+            history_turns: state.turns.len() as u64,
+            permission_grants: state.grants.len() as u64,
+            total_input_tokens: state.total_input_tokens,
+            total_output_tokens: state.total_output_tokens,
+            context_sources: state.context_sources.clone(),
+            truncated: skipped > 0,
+            turns,
+        }
+    }
+
+    /// The session's facts, then one line per recorded step.
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        let mut line = |key: &str, value: &str| {
+            out.push_str("[session] ");
+            out.push_str(key);
+            out.push('=');
+            out.push_str(value);
+            out.push('\n');
+        };
+        line("id", &self.id);
+        line("created_at_ms", &self.created_at_ms.to_string());
+        line("updated_at_ms", &self.updated_at_ms.to_string());
+        line("workspace", &self.workspace);
+        line("origin_workspace", &self.origin_workspace);
+        line("model", &self.model);
+        line("permission_mode", &self.permission_mode);
+        line("history_turns", &self.history_turns.to_string());
+        line("permission_grants", &self.permission_grants.to_string());
+        line("total_input_tokens", &self.total_input_tokens.to_string());
+        line("total_output_tokens", &self.total_output_tokens.to_string());
+        line("truncated", &self.truncated.to_string());
+        for source in &self.context_sources {
+            line("context_source", source);
+        }
+
+        for (index, turn) in self.turns.iter().enumerate() {
+            out.push_str(&format!(
+                "[turn] index={index} role=user text={}\n",
+                one_line(&turn.user)
+            ));
+            for step in &turn.steps {
+                match step {
+                    SessionStepRow::Assistant { text, tool_calls } => out.push_str(&format!(
+                        "[turn] index={index} role=assistant tools={} text={}\n",
+                        tool_calls.join(","),
+                        one_line(text)
+                    )),
+                    SessionStepRow::Tool {
+                        call_id,
+                        tool,
+                        ok,
+                        output,
+                    } => out.push_str(&format!(
+                        "[turn] index={index} role=tool call_id={call_id} tool={tool} ok={ok} output={}\n",
+                        one_line(output)
+                    )),
+                }
+            }
+            let outcome = match &turn.outcome {
+                Some(crate::session::TurnConclusion::Final {
+                    finish_reason,
+                    steps,
+                }) => format!("final finish_reason={finish_reason} steps={steps}"),
+                Some(crate::session::TurnConclusion::Interrupted { reason }) => {
+                    format!("interrupted reason={}", one_line(reason))
+                }
+                None => "unfinished".to_string(),
+            };
+            out.push_str(&format!("[turn] index={index} outcome={outcome}\n"));
+        }
+        out
+    }
+
+    pub fn render_json(&self) -> String {
+        render_json_document(self)
+    }
+
+    pub fn render(&self, format: OutputFormat) -> String {
+        match format {
+            OutputFormat::Text => self.render_text(),
+            OutputFormat::Json => self.render_json(),
+        }
+    }
+}
+
+/// `text` clipped to [`MAX_DETAIL_TEXT_BYTES`], on a character boundary, with a
+/// sentinel that says it was clipped.
+fn clip_text(text: &str) -> String {
+    if text.len() <= MAX_DETAIL_TEXT_BYTES {
+        return text.to_string();
+    }
+    let mut end = MAX_DETAIL_TEXT_BYTES;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}... [clipped at {MAX_DETAIL_TEXT_BYTES} bytes]",
+        &text[..end]
+    )
+}
+
+/// `text` with every control character turned into a space.
+///
+/// The text renderer promises one fact per line, and a recorded prompt is the
+/// one place a newline can arrive from outside fxr.
+fn one_line(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 /// Serializes to exactly one line and terminates it.
@@ -521,7 +837,7 @@ mod tests {
     #[test]
     fn a_status_snapshot_without_credentials_reports_missing_and_no_secret_field() {
         let (_workspace, config) = empty_config();
-        let snapshot = StatusSnapshot::new(&config, crate::build_info());
+        let snapshot = StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
         assert_eq!(snapshot.auth, MISSING_AUTH_LABEL);
         assert!(!snapshot.auth_refreshable);
         assert_eq!(snapshot.auth_help.as_deref(), Some(MISSING_AUTH_HELP));
@@ -530,9 +846,220 @@ mod tests {
     }
 
     #[test]
+    fn status_reports_the_session_facts_it_was_given_rather_than_a_fixed_zero() {
+        let (_workspace, config) = empty_config();
+        let snapshot = StatusSnapshot::new(
+            &config,
+            crate::build_info(),
+            SessionFacts {
+                history_turns: 4,
+                permission_grants: 2,
+            },
+        );
+        assert_eq!(snapshot.history_turns, 4);
+        assert_eq!(snapshot.session_permission_grants, 2);
+        assert!(snapshot
+            .render_text()
+            .contains("[status] history_turns=4\n"));
+        assert!(snapshot
+            .render_text()
+            .contains("[status] session_permission_grants=2\n"));
+    }
+
+    // -- sessions ----------------------------------------------------------
+
+    fn turn(user: &str, steps: Vec<crate::session::TurnStep>) -> crate::session::HistoryTurn {
+        crate::session::HistoryTurn {
+            user: user.to_string(),
+            steps,
+            outcome: Some(crate::session::TurnConclusion::Final {
+                finish_reason: "stop".to_string(),
+                steps: 1,
+            }),
+        }
+    }
+
+    fn state(turns: Vec<crate::session::HistoryTurn>) -> crate::session::DurableState {
+        crate::session::DurableState {
+            id: "s1".to_string(),
+            created_at_ms: 10,
+            updated_at_ms: 20,
+            origin_workspace_root: "/w".to_string(),
+            workspace_root: "/w".to_string(),
+            model: "m".to_string(),
+            permission_mode: crate::config::PermissionMode::Auto,
+            last_event_seq: 1,
+            total_input_tokens: 3,
+            total_output_tokens: 4,
+            grants: Vec::new(),
+            context_sources: vec!["/w/AGENTS.md".to_string()],
+            turns,
+        }
+    }
+
+    fn detail_of(state: crate::session::DurableState) -> SessionDetail {
+        SessionDetail {
+            summary: crate::session::SessionSummary {
+                id: state.id.clone(),
+                created_at_ms: state.created_at_ms,
+                updated_at_ms: state.updated_at_ms,
+                workspace_root: state.workspace_root.clone(),
+                origin_workspace_root: state.origin_workspace_root.clone(),
+                history_turns: state.turns.len() as u64,
+                title: state.title(),
+            },
+            manifest: crate::session::SessionManifest {
+                schema_version: crate::session::MANIFEST_SCHEMA_VERSION,
+                storage_format: crate::session::STORAGE_FORMAT.to_string(),
+                id: state.id.clone(),
+                log_generation: "a".repeat(32),
+                created_at_ms: state.created_at_ms,
+                updated_at_ms: state.updated_at_ms,
+                origin_workspace_root: state.origin_workspace_root.clone(),
+                workspace_root: state.workspace_root.clone(),
+                model: state.model.clone(),
+                permission_mode: state.permission_mode.label().to_string(),
+                title: state.title(),
+                history_turns: state.turns.len() as u64,
+                permission_grants: 0,
+                total_input_tokens: state.total_input_tokens,
+                total_output_tokens: state.total_output_tokens,
+                last_event_seq: state.last_event_seq,
+                event_log_bytes: 1,
+                event_log_sha256: "0".repeat(64),
+            },
+            state,
+        }
+    }
+
+    #[test]
+    fn a_session_detail_clips_a_long_recorded_text_and_says_that_it_did() {
+        let long = "x".repeat(MAX_DETAIL_TEXT_BYTES * 2);
+        let snapshot = SessionDetailSnapshot::new(&detail_of(state(vec![turn(
+            &long,
+            vec![crate::session::TurnStep::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: long.clone(),
+            }],
+        )])));
+        assert!(snapshot.turns[0].user.ends_with("bytes]"), "the user text");
+        assert!(
+            snapshot.turns[0].user.len() < long.len(),
+            "a recorded prompt is bounded"
+        );
+        let json = snapshot.render_json();
+        assert_eq!(json.matches('\n').count(), 1, "one document");
+        assert!(json.contains("clipped at"), "{json}");
+    }
+
+    #[test]
+    fn a_session_detail_shows_the_most_recent_turns_and_reports_the_ones_it_dropped() {
+        let turns: Vec<crate::session::HistoryTurn> = (0..MAX_DETAIL_TURNS + 5)
+            .map(|index| turn(&format!("turn {index}"), Vec::new()))
+            .collect();
+        let snapshot = SessionDetailSnapshot::new(&detail_of(state(turns)));
+        assert_eq!(snapshot.history_turns as usize, MAX_DETAIL_TURNS + 5);
+        assert_eq!(snapshot.turns.len(), MAX_DETAIL_TURNS);
+        assert!(snapshot.truncated);
+        assert_eq!(snapshot.turns[0].user, "turn 5", "the newest are kept");
+        assert!(snapshot
+            .render_text()
+            .contains("[session] truncated=true\n"));
+    }
+
+    #[test]
+    fn a_recorded_newline_cannot_break_the_one_fact_per_line_contract() {
+        let snapshot =
+            SessionDetailSnapshot::new(&detail_of(state(vec![turn("first\nsecond", Vec::new())])));
+        let text = snapshot.render_text();
+        assert!(
+            text.contains("[turn] index=0 role=user text=first second\n"),
+            "{text}"
+        );
+        // The real property: every line is a labelled fact, so a recorded
+        // newline cannot produce a line a parser would not recognize.
+        for line in text.lines() {
+            assert!(
+                line.starts_with("[session] ") || line.starts_with("[turn] "),
+                "unlabelled line {line:?} in {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_listing_renders_the_same_facts_as_text_and_as_one_document() {
+        let list = SessionList {
+            scope: "workspace",
+            sessions: vec![crate::session::SessionSummary {
+                id: "s1".to_string(),
+                created_at_ms: 10,
+                updated_at_ms: 20,
+                workspace_root: "/w".to_string(),
+                origin_workspace_root: "/w".to_string(),
+                history_turns: 2,
+                title: Some("a question".to_string()),
+            }],
+            has_more: true,
+            skipped_invalid: 1,
+        };
+        let snapshot = SessionsSnapshot::new(&list);
+        let text = snapshot.render_text();
+        assert!(
+            text.starts_with(
+                "[sessions] scope=workspace count=1 has_more=true skipped_invalid=1\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "[session] id=s1 updated_at_ms=20 turns=2 workspace=/w title=a question\n"
+            ),
+            "{text}"
+        );
+        let json = snapshot.render_json();
+        assert_eq!(json.matches('\n').count(), 1);
+        let parsed: serde_json::Value = serde_json::from_str(json.trim_end()).unwrap();
+        assert_eq!(parsed["kind"], "sessions");
+        assert_eq!(parsed["skipped_invalid"], 1);
+        assert_eq!(parsed["sessions"][0]["title"], "a question");
+    }
+
+    #[test]
+    fn an_untitled_session_omits_the_field_rather_than_inventing_one() {
+        let list = SessionList {
+            scope: "all",
+            sessions: vec![crate::session::SessionSummary {
+                id: "s1".to_string(),
+                created_at_ms: 10,
+                updated_at_ms: 20,
+                workspace_root: "/w".to_string(),
+                origin_workspace_root: "/w".to_string(),
+                history_turns: 0,
+                title: None,
+            }],
+            has_more: false,
+            skipped_invalid: 0,
+        };
+        let json = SessionsSnapshot::new(&list).render_json();
+        assert!(!json.contains("title"), "{json}");
+    }
+
+    #[test]
+    fn clipping_never_splits_a_character() {
+        let text = "한".repeat(MAX_DETAIL_TEXT_BYTES);
+        let clipped = clip_text(&text);
+        assert!(clipped.starts_with('한'));
+        assert!(clipped.ends_with("bytes]"));
+        assert_eq!(clip_text("short"), "short");
+    }
+
+    #[test]
     fn an_absent_build_revision_is_omitted_rather_than_rendered_empty() {
         let (_workspace, config) = empty_config();
-        let mut snapshot = StatusSnapshot::new(&config, crate::build_info());
+        let mut snapshot =
+            StatusSnapshot::new(&config, crate::build_info(), SessionFacts::default());
         snapshot.build_revision = None;
         assert!(!snapshot.render_json().contains("build_revision"));
         assert!(!snapshot.render_text().contains("build_revision"));

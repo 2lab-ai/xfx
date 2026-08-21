@@ -5,6 +5,7 @@ use std::io;
 
 use crate::gateway::protocol::{FinishReason, Message, Usage};
 use crate::gateway::{CancelToken, ProviderError};
+use crate::session::SessionEvent;
 use crate::tools::ToolContext;
 
 /// One user request, with the bounds it must run inside.
@@ -32,6 +33,39 @@ pub struct TurnRequest {
     /// *scope* of its tools, never their identity: two turns in one process
     /// cannot advertise different tool sets.
     pub tools: ToolContext,
+}
+
+/// Where a turn's durable evidence goes.
+///
+/// The turn emits typed [`SessionEvent`]s and knows nothing about files: the
+/// session store implements this, and so does a recorder in a test. Two
+/// decisions are deliberate.
+///
+/// **It returns nothing.** A turn's outcome is what the user asked for, and it
+/// must not change because a log could not be written. A persistence failure is
+/// remembered by the implementation and reported by the caller alongside the
+/// answer, which is the only honest report: the answer did arrive, and it was
+/// not recorded.
+///
+/// **It is called as things happen, not once at the end.** A turn that is
+/// interrupted -- by Ctrl-C, by a step limit, by a revoked authority -- has
+/// still done real work, and the evidence of that work is exactly what a resume
+/// needs. Events accumulated in memory until a tidy ending would be the events
+/// most worth keeping and the ones most likely to be lost.
+pub trait TurnJournal {
+    fn record(&mut self, event: SessionEvent);
+}
+
+/// A journal that keeps nothing.
+///
+/// What `--no-save` and every unpersisted test turn run against. It exists so
+/// "do not record this" is a real implementation rather than an `Option` every
+/// call site has to remember to check.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoJournal;
+
+impl TurnJournal for NoJournal {
+    fn record(&mut self, _event: SessionEvent) {}
 }
 
 /// What a completed turn produced.

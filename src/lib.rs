@@ -7,10 +7,12 @@
 //! - [`config`]: settings discovery, precedence, credentials, and diagnostics
 //! - [`output`]: immutable snapshots and the text/JSON/JSONL renderers
 //! - [`gateway`]: the provider contract, the Gateway wire shape, and bounded SSE
-//! - [`workspace`]: the roots a turn may read, and canonical path proofs
+//! - [`workspace`]: the roots a turn may read, canonical path proofs, and the
+//!   bounded project instructions a turn carries
 //! - [`permission`]: modes, policies, and one-use execution authorities
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
+//! - [`session`]: the durable event log, its published boundary, and resume
 //! - [`app`]: composition and dispatch
 //!
 //! fxr is not affiliated with Vercel. It is a behavioral port pinned to
@@ -24,6 +26,7 @@ pub mod config;
 pub mod gateway;
 pub mod output;
 pub mod permission;
+pub mod session;
 pub mod tools;
 pub mod workspace;
 

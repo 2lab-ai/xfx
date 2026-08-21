@@ -1858,10 +1858,17 @@ fn ask_help_advertises_only_the_implemented_flags() {
     let sandbox = Sandbox::new();
     let run = sandbox.run(&["ask", "--help"], &[]);
     assert_eq!(run.code, Some(0));
-    for flag in ["--json", "--no-save", "--auto", "--yolo"] {
+    for flag in [
+        "--json",
+        "--no-save",
+        "--auto",
+        "--yolo",
+        "--resume",
+        "--resume-id",
+    ] {
         assert!(run.stdout.contains(flag), "ask help must list {flag}");
     }
-    for deferred in ["--resume", "--resume-id", "--quiet"] {
+    for deferred in ["--quiet", "--acp"] {
         assert!(
             !run.stdout.contains(deferred),
             "ask help must not advertise the deferred flag {deferred}"
@@ -1870,26 +1877,30 @@ fn ask_help_advertises_only_the_implemented_flags() {
 }
 
 #[test]
-fn the_no_save_flag_help_does_not_imply_that_the_default_saves() {
-    // `--no-save` is honored, but this release persists nothing either way.
-    // Help that described only the flag would let a reader conclude that the
-    // default records a session, which would be a promise fxr does not keep.
+fn the_no_save_flag_help_states_exactly_what_it_prevents() {
+    // The flag is load-bearing now: the default records the turn and this one
+    // records nothing at all, so the help states the flag's own guarantee. The
+    // caveat it used to carry -- that the default was indistinguishable from it
+    // -- would now be the false statement.
     let sandbox = Sandbox::new();
     for alias in ["--help", "-h"] {
         let run = sandbox.run(&["ask", alias], &[]);
         assert_eq!(run.code, Some(0), "ask {alias} must exit 0");
         assert!(
-            run.stdout.contains(
-                "Do not record this turn in a session (this release records none either way)"
-            ),
-            "ask {alias} must state that no session is recorded either way, got {:?}",
+            run.stdout.contains("Do not record this turn in a session"),
+            "ask {alias} must state what --no-save prevents, got {:?}",
+            run.stdout
+        );
+        assert!(
+            !run.stdout.contains("records none either way"),
+            "ask {alias} must not still claim the default records nothing, got {:?}",
             run.stdout
         );
     }
 }
 
 #[test]
-fn the_no_save_flag_has_a_partial_parity_row_that_says_it_is_not_yet_distinguishable() {
+fn the_no_save_flag_and_the_log_it_opts_out_of_are_both_implemented() {
     let parity =
         fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs/parity.md"))
             .expect("read parity.md");
@@ -1897,19 +1908,15 @@ fn the_no_save_flag_has_a_partial_parity_row_that_says_it_is_not_yet_distinguish
         .lines()
         .find(|line| line.starts_with("| `ask --no-save` | persistence |"))
         .expect("docs/parity.md has an `ask --no-save` persistence row");
-    assert!(row.contains("| partial |"), "got {row}");
-    assert!(
-        row.contains("not yet distinguishable from the default"),
-        "the row must state the exact limitation, got {row}"
-    );
+    assert!(row.contains("| implemented |"), "got {row}");
 
     let session_row = parity
         .lines()
         .find(|line| line.starts_with("| session event log | persistence |"))
         .expect("docs/parity.md has a session event log row");
     assert!(
-        session_row.contains("| deferred |"),
-        "the flag is only partial because the log is deferred, got {session_row}"
+        session_row.contains("| implemented |"),
+        "the flag only means something because the log exists, got {session_row}"
     );
 }
 

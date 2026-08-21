@@ -6,20 +6,25 @@
 
 use std::fmt;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use crate::agent::{run_turn, TurnRequest};
+use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{ConfigError, PermissionMode, RuntimeConfig};
+use crate::config::{ConfigError, PermissionMode, RuntimeConfig, SettingSource};
 use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
-    StatusSnapshot, TextSink, MISSING_AUTH_HELP,
+    SessionDetailSnapshot, SessionFacts, SessionsSnapshot, StatusSnapshot, TextSink,
+    MISSING_AUTH_HELP,
 };
-use crate::permission::{PermissionSession, TtyPrompter, YOLO_WARNING};
+use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
+use crate::session::{
+    ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
+    SessionRecorder, SessionStore,
+};
 use crate::tools::ToolContext;
-use crate::workspace::AccessScope;
+use crate::workspace::{AccessScope, ProjectContext};
 
 /// The exit code for a rejected invocation.
 ///
@@ -118,28 +123,65 @@ pub async fn run_with(
         Command::Ask {
             prompt,
             json,
-            // Nothing is persisted in this release, so the flag's promise --
-            // "this turn is not recorded" -- already holds. The session store
-            // that would make the default meaningful is a later slice
-            // (`docs/parity.md`, session event log).
-            no_save: _,
+            no_save,
             add_dirs,
             mode,
+            resume,
         } => {
             let config = load_config()?;
-            // A flag overrides the configured mode for this invocation only.
-            // Nothing is written back: `--yolo` must not be something a user can
-            // turn on once and then forget is on.
-            let mode = mode.unwrap_or(config.permission_mode);
-            ask(&config, mode, prompt, add_dirs, json, stdout, stderr).await
+            let request = AskRequest {
+                prompt,
+                json,
+                no_save,
+                add_dirs,
+                mode,
+                resume,
+            };
+            ask(&config, request, stdout, stderr).await
         }
         Command::Status { json } => {
             let config = load_config()?;
-            let snapshot = StatusSnapshot::new(&config, crate::build_info());
+            let snapshot =
+                StatusSnapshot::new(&config, crate::build_info(), session_facts(&config));
             write!(
                 stdout,
                 "{}",
                 snapshot.render(OutputFormat::from_json_flag(json))
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Sessions { json, all, limit } => {
+            let config = load_config()?;
+            let scope = if all {
+                ListScope::AllWorkspaces
+            } else {
+                ListScope::CurrentWorkspace(config.workspace_root.clone())
+            };
+            // Read-only: a machine that has never run `ask` still has an empty
+            // home after `fxr sessions`.
+            let store = read_only_store(&config);
+            let listed = match store.list(&ListFilter::new(scope).with_limit(limit)) {
+                Ok(listed) => listed,
+                Err(err) => return fail_command(stderr, &err.to_string()),
+            };
+            write!(
+                stdout,
+                "{}",
+                SessionsSnapshot::new(&listed).render(OutputFormat::from_json_flag(json))
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Session { json, selector } => {
+            let config = load_config()?;
+            let store = read_only_store(&config);
+            let detail = match store.detail(&selector, &config.workspace_root) {
+                Ok(detail) => detail,
+                Err(err) => return fail_command(stderr, &err.to_string()),
+            };
+            write!(
+                stdout,
+                "{}",
+                SessionDetailSnapshot::new(&detail).render(OutputFormat::from_json_flag(json))
             )?;
             Ok(ExitCode::SUCCESS)
         }
@@ -165,50 +207,130 @@ pub async fn run_with(
     }
 }
 
-/// Runs one streamed model turn.
+/// One `ask` invocation, as parsed.
+struct AskRequest {
+    prompt: String,
+    json: bool,
+    no_save: bool,
+    add_dirs: Vec<PathBuf>,
+    /// The mode the invocation asked for, if it asked. Kept as an `Option` so
+    /// "the user chose ask mode" and "nothing chose a mode" stay different
+    /// facts after a session is restored.
+    mode: Option<PermissionMode>,
+    resume: Option<Selector>,
+}
+
+/// Runs one streamed model turn, and records it unless told not to.
 ///
 /// Every failure is reported through the same event sink as a success, so a
 /// `--json` caller gets exactly one terminal JSONL event whatever happened, and
 /// a human gets the answer on stdout and the diagnosis on stderr.
-#[allow(clippy::too_many_arguments)]
+///
+/// The order below is the order the failures cost the least in: the workspace,
+/// then the credential and the endpoint, then the session. A resume that names a
+/// session that does not exist must fail before a token is spent, and a machine
+/// with no credential must not collect one empty session per attempt.
 async fn ask(
     config: &RuntimeConfig,
-    mode: PermissionMode,
-    prompt: String,
-    add_dirs: Vec<PathBuf>,
-    json: bool,
+    request: AskRequest,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
+    // The permission mode is deliberately *not* restored from a session. It is
+    // the most dangerous setting fxr has, and a `--yolo` turn recorded last week
+    // must not become the default of a turn run today without the word being
+    // typed again.
+    let mode = request.mode.unwrap_or(config.permission_mode);
     // Before anything runs, and on stderr, so it is visible whether or not the
     // caller is parsing stdout as JSONL.
     if mode == PermissionMode::Yolo {
         writeln!(stderr, "{YOLO_WARNING}")?;
     }
 
-    let mut sink: Box<dyn EventSink + '_> = if json {
+    // The sink borrows both streams in text mode, so the whole turn happens in
+    // here and anything that still has to be said afterwards comes back out.
+    let (code, warning) = run_ask(config, request, mode, stdout, stderr).await?;
+    if let Some(warning) = warning {
+        writeln!(stderr, "{warning}")?;
+    }
+    Ok(code)
+}
+
+/// The body of `ask`, returning the exit code and anything left to report.
+async fn run_ask(
+    config: &RuntimeConfig,
+    request: AskRequest,
+    mode: PermissionMode,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<(ExitCode, Option<String>), AppError> {
+    let mut sink: Box<dyn EventSink + '_> = if request.json {
         Box::new(JsonlSink::new(stdout))
     } else {
         Box::new(TextSink::new(stdout, stderr))
     };
+    let quiet = |code: Result<ExitCode, AppError>| code.map(|code| (code, None));
 
     // The authority the turn's tools will run under, resolved before anything
     // else. A directory the user named but fxr cannot use is a mistake in the
     // invocation, and reporting it here costs no credential and no round trip.
-    let scope = match AccessScope::new(&config.workspace_root, &add_dirs) {
+    let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
         Ok(scope) => scope,
-        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
+        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
     };
 
-    // Both preconditions are checked before a request is built, so a missing
-    // credential and an unusable endpoint each cost nothing and leak nothing.
+    // The credential and the endpoint are checked next because they are free,
+    // they leak nothing, and they are the two ways an `ask` most often cannot
+    // start at all. Checking them before the session is opened is also what
+    // keeps a machine with no credential from accumulating a directory of empty
+    // sessions, one per failed attempt.
     let Some(credential) = config.credential.clone() else {
-        return fail_turn(sink.as_mut(), MISSING_AUTH_HELP.to_string());
+        return quiet(fail_turn(sink.as_mut(), MISSING_AUTH_HELP.to_string()));
     };
     let endpoint = match Endpoint::from_process() {
         Ok(endpoint) => endpoint,
-        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
+        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
     };
+
+    // The session, before anything is asked of a model. A resume that names a
+    // session that does not exist must fail before a token is spent.
+    let mut opened = match open_session(config, &request, mode) {
+        Ok(opened) => opened,
+        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
+    };
+
+    // A restored model preference applies only when nothing this run chose one:
+    // an explicit setting or override outranks what a past turn happened to use.
+    let model = match &opened.restored_model {
+        Some(model) if config.sources.model == SettingSource::CompiledDefault => model.clone(),
+        _ => config.model.clone(),
+    };
+    if let Some(recorder) = opened.recorder.as_mut() {
+        let model_changed = recorder.state().model != model;
+        let mode_changed = recorder.state().permission_mode != mode;
+        if model_changed || mode_changed {
+            recorder.commit(SessionEvent::PreferencesChanged {
+                model: model_changed.then(|| model.clone()),
+                permission_mode: mode_changed.then(|| mode.label().to_string()),
+            });
+        }
+    }
+
+    // Project instructions, read now rather than restored: they are a fact about
+    // the working tree as it is, and a resumed session must not carry a stale
+    // copy that outranks the file on disk.
+    let context = ProjectContext::discover(&scope);
+    if let Some(recorder) = opened.recorder.as_mut() {
+        recorder.commit(SessionEvent::ProjectContextRecorded {
+            sources: context
+                .sources()
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            bytes: context.total_bytes() as u64,
+        });
+    }
+
     let cancel = CancelToken::new();
     // Ctrl-C now means something. Without this the token existed and nothing
     // ever set it, so every cancellation path in the turn and in `terminal` was
@@ -216,24 +338,132 @@ async fn ask(
     watch_for_interrupt(cancel.clone());
     let provider = match GatewayProvider::new(endpoint, credential, cancel.clone()) {
         Ok(provider) => provider,
-        Err(err) => return fail_turn(sink.as_mut(), err.to_string()),
+        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
     };
 
-    let request = TurnRequest {
-        model: config.model.clone(),
-        prompt,
-        history: Vec::new(),
+    let mut permissions = permission_session(mode);
+    for grant in &opened.restored_grants {
+        permissions.grant(grant.clone());
+    }
+    let tools = ToolContext::new(scope)
+        .with_permissions(permissions)
+        .with_cancel(cancel.clone());
+
+    let turn = TurnRequest {
+        model,
+        prompt: request.prompt,
+        history: opened.history,
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
-        cancel: cancel.clone(),
-        tools: ToolContext::new(scope)
-            .with_permissions(permission_session(mode))
-            .with_cancel(cancel),
+        cancel,
+        // Cloned rather than moved: a context shares one permission ledger and
+        // one set of read proofs with the turn, so the grants it accumulates are
+        // readable here after the turn ends.
+        tools: tools.clone(),
     };
+
     // The turn writes its own terminal event, including on failure.
-    match run_turn(request, &provider, sink.as_mut()).await {
-        Ok(_) => Ok(ExitCode::SUCCESS),
-        Err(_) => Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE)),
+    let outcome = match opened.recorder.as_mut() {
+        Some(recorder) => run_turn_saved(turn, context, &provider, sink.as_mut(), recorder).await,
+        None => {
+            let mut journal = crate::agent::NoJournal;
+            run_turn_saved(turn, context, &provider, sink.as_mut(), &mut journal).await
+        }
+    };
+
+    // Approvals the user gave during the turn are recorded after it, once, so a
+    // grant survives to the next resume. Reading them back from the shared
+    // context is what makes this the real list rather than a second tally.
+    let mut warning = None;
+    if let Some(recorder) = opened.recorder.as_mut() {
+        for grant in tools.permissions().grants().to_vec() {
+            if !opened.restored_grants.contains(&grant) {
+                recorder.commit(SessionEvent::PermissionGrantRecorded {
+                    tool: grant.tool,
+                    target: grant.target,
+                });
+            }
+        }
+        // A turn that could not be recorded is reported next to the answer
+        // rather than instead of it: the answer did arrive, and saying the turn
+        // failed would be a lie in the other direction.
+        warning = recorder.failure().map(|failure| format!("fxr: {failure}"));
+    }
+
+    Ok((
+        match outcome {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(_) => ExitCode::from(TURN_FAILURE_EXIT_CODE),
+        },
+        warning,
+    ))
+}
+
+/// What opening a session produced for the turn that follows.
+struct OpenedSession {
+    recorder: Option<SessionRecorder>,
+    history: Vec<crate::gateway::protocol::Message>,
+    restored_grants: Vec<Grant>,
+    restored_model: Option<String>,
+}
+
+/// Creates or resumes the session this invocation writes to.
+///
+/// `--no-save` returns an empty result without touching the filesystem, so the
+/// flag's promise is kept by there being no code path that could break it: not
+/// an empty session directory, not a manifest, nothing.
+fn open_session(
+    config: &RuntimeConfig,
+    request: &AskRequest,
+    mode: PermissionMode,
+) -> Result<OpenedSession, SessionError> {
+    let empty = OpenedSession {
+        recorder: None,
+        history: Vec::new(),
+        restored_grants: Vec::new(),
+        restored_model: None,
+    };
+    if request.no_save {
+        return Ok(empty);
+    }
+    let Some(profile_dir) = config.profile_dir.as_deref() else {
+        return Err(SessionError::Unavailable {
+            detail: "fxr cannot record this turn because no home directory is set; \
+                     rerun with --no-save to ask without recording"
+                .to_string(),
+        });
+    };
+
+    let store = SessionStore::open(profile_dir)?;
+    match &request.resume {
+        Some(selector) => {
+            let resumed = store.resume(selector, &config.workspace_root)?;
+            let state = resumed.session.state();
+            let history = state.history_messages();
+            let restored_grants = state.grants.clone();
+            let restored_model = Some(state.model.clone());
+            Ok(OpenedSession {
+                recorder: Some(SessionRecorder::new(store, resumed.session)),
+                history,
+                restored_grants,
+                restored_model,
+            })
+        }
+        None => {
+            let session = store.create(
+                SessionId::generate(),
+                NewSession {
+                    origin_workspace_root: config.workspace_root.clone(),
+                    workspace_root: config.workspace_root.clone(),
+                    model: config.model.clone(),
+                    permission_mode: mode,
+                },
+            )?;
+            Ok(OpenedSession {
+                recorder: Some(SessionRecorder::new(store, session)),
+                ..empty
+            })
+        }
     }
 }
 
@@ -295,6 +525,45 @@ fn permission_session(mode: PermissionMode) -> PermissionSession {
 fn fail_turn(sink: &mut dyn EventSink, message: String) -> Result<ExitCode, AppError> {
     sink.emit(&Event::Error { message })?;
     Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE))
+}
+
+/// Reports a command that produced no output, on the diagnostic stream.
+///
+/// `sessions` and `session` are not turns: they have no event stream, so a
+/// failure is a plain diagnostic and stdout stays empty rather than carrying
+/// half a document a caller might try to parse.
+fn fail_command(stderr: &mut dyn Write, message: &str) -> Result<ExitCode, AppError> {
+    writeln!(stderr, "fxr: {message}")?;
+    Ok(ExitCode::from(REJECTED_EXIT_CODE))
+}
+
+/// A store that can only read, rooted at the configured profile home.
+///
+/// A machine with no home has no store, and an unusable path is reported by the
+/// operation that needed it rather than by refusing to start.
+fn read_only_store(config: &RuntimeConfig) -> SessionStore {
+    let profile = config
+        .profile_dir
+        .clone()
+        .unwrap_or_else(|| Path::new(crate::config::PROFILE_DIR_NAME).to_path_buf());
+    SessionStore::read_only(&profile)
+}
+
+/// What `status` says about the session a turn in this workspace would continue.
+///
+/// Read-only and best-effort: `status` describes the machine, so a store that
+/// cannot be read is reported as "nothing to continue" rather than as a failed
+/// command. A session that exists but is damaged is visible through `doctor`'s
+/// job, not by making `status` refuse to run.
+fn session_facts(config: &RuntimeConfig) -> SessionFacts {
+    let store = read_only_store(config);
+    match store.detail(&Selector::Last, &config.workspace_root) {
+        Ok(detail) => SessionFacts {
+            history_turns: detail.state.turns.len() as u64,
+            permission_grants: detail.state.grants.len() as u64,
+        },
+        Err(_) => SessionFacts::default(),
+    }
 }
 
 /// Resolves configuration for the current directory.
