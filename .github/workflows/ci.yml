@@ -67,10 +67,10 @@ jobs:
         run: cargo fmt --check
 
       - name: Lints
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
 
       - name: No stubs, and the parity ledger reconciles
         run: ./scripts/check-no-stubs.sh
@@ -79,7 +79,7 @@ jobs:
         run: ./scripts/check-no-secrets.sh
 
       - name: Release build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Smoke the release binary
         run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"

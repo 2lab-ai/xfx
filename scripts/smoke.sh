@@ -50,6 +50,16 @@ evidence="$(cd "$evidence" && pwd)"
 # someone's real key eventually.
 readonly FAKE_KEY="fxr-smoke-key-must-not-appear-in-output"
 
+# A token-shaped value that must never be used and never be seen.
+#
+# It is planted in this script's own environment for the isolation self-test
+# below, standing in for the live `VERCEL_OIDC_TOKEN` a developer is likely to
+# have exported when they run this. Three dot-separated segments so it has an
+# OIDC token's shape, and unmistakably fake so that finding it anywhere is an
+# unambiguous failure rather than a judgement call.
+readonly HOSTILE_OIDC="hdr-fxr-smoke-hostile.payload-must-never-be-used.sig-not-a-real-signature"
+readonly HOSTILE_MODEL="hostile/model-must-not-be-used"
+
 failures=0
 checks=0
 
@@ -202,13 +212,21 @@ import time
 binary, workspace, transcript_path = sys.argv[1], sys.argv[2], sys.argv[3]
 env_pairs = sys.argv[4:]
 
+# The child's environment is built from nothing, exactly as `fxr_env` builds it
+# for every other invocation. `os.environ.update` was wrong here and only here:
+# it left the caller's whole environment in place, so a developer with a live
+# `VERCEL_OIDC_TOKEN` or `FXR_PERMISSION_MODE=yolo` exported would have been
+# smoke-testing their shell instead of the binary -- on the one scenario whose
+# whole point is that it is the real thing.
+child_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+for pair in env_pairs:
+    key, _, value = pair.partition("=")
+    child_env[key] = value
+
 pid, fd = pty.fork()
 if pid == 0:
     os.chdir(workspace)
-    for pair in env_pairs:
-        key, _, value = pair.partition("=")
-        os.environ[key] = value
-    os.execv(binary, [binary])
+    os.execve(binary, [binary], child_env)
 
 captured = bytearray()
 deadline_seconds = 30.0
@@ -335,33 +353,63 @@ home="$evidence/home"
 workspace="$evidence/workspace"
 mkdir -p "$home" "$workspace"
 
-# Runs fxr with a controlled environment and captures both streams.
+# Runs a command in an environment built from nothing.
+#
+# `env -i` and an allowlist, not a list of `-u` flags. A denylist has to be kept
+# in step with every variable fxr ever learns to read, and the failure mode of
+# forgetting one is the worst kind this script has: a smoke run that quietly
+# used the developer's live credential, or their `FXR_PERMISSION_MODE=yolo`, and
+# passed. What a run legitimately needs is short, so it is stated instead.
+#
+# `PATH` is here because the `terminal` tool resolves an executable through it.
+fxr_env() {
+	env -i \
+		PATH="$PATH" \
+		HOME="$home" \
+		TERM=dumb \
+		AI_GATEWAY_API_KEY="$FAKE_KEY" \
+		FXR_GATEWAY_URL="${gateway_url:-}" \
+		"$@"
+}
+
+# Runs fxr in `dir` and captures both streams.
 #
 # `name` is the evidence prefix; the remaining arguments are fxr's. The exit
 # status is left in `last_status`, and the streams in `$evidence/<name>.out`
 # and `.err`.
-run_fxr() {
-	local name="$1"
-	shift
+run_fxr_in() {
+	local dir="$1" name="$2"
+	shift 2
 	set +e
 	(
-		cd "$workspace" || exit 1
-		env -u VERCEL_OIDC_TOKEN -u FXR_MODEL -u FXR_PERMISSION_MODE -u FXR_MAX_AGENT_STEPS \
-			HOME="$home" \
-			AI_GATEWAY_API_KEY="$FAKE_KEY" \
-			FXR_GATEWAY_URL="${gateway_url:-}" \
-			"$binary" "$@"
+		cd "$dir" || exit 1
+		fxr_env "$binary" "$@"
 	) >"$evidence/$name.out" 2>"$evidence/$name.err"
 	last_status=$?
 	set -e
-	printf '$ fxr %s\n  exit=%s\n' "$*" "$last_status" >>"$evidence/transcript.txt"
+	printf '$ (cd %s) fxr %s\n  exit=%s\n' "$dir" "$*" "$last_status" >>"$evidence/transcript.txt"
 	cat "$evidence/$name.out" >>"$evidence/transcript.txt"
 	cat "$evidence/$name.err" >>"$evidence/transcript.txt"
 	printf '\n' >>"$evidence/transcript.txt"
 }
 
+run_fxr() {
+	local name="$1"
+	shift
+	run_fxr_in "$workspace" "$name" "$@"
+}
+
 printf 'fxr smoke\n  binary:   %s\n  evidence: %s\n\n' "$binary" "$evidence"
 : >"$evidence/transcript.txt"
+
+# Everything below runs with these exported. They are what a developer's shell
+# looks like -- a live token, a model override, a permission mode -- and not one
+# of them may reach the binary. `fxr_env` is what stands between them; this is
+# where that claim is tested rather than asserted.
+export VERCEL_OIDC_TOKEN="$HOSTILE_OIDC"
+export FXR_MODEL="$HOSTILE_MODEL"
+export FXR_PERMISSION_MODE="yolo"
+export FXR_MAX_AGENT_STEPS="1"
 
 # ---------------------------------------------------------------------------
 # 1. what the product says about itself, without a credential or a network
@@ -398,6 +446,39 @@ expect_contains "$evidence/doctor.out" '"name":"permissions"' "doctor checks the
 run_fxr bare
 expect_status "$last_status" 1 "a bare fxr without a terminal exits 1"
 expect_contains "$evidence/bare.err" "interactive terminal" "it says a terminal is required"
+
+# The isolation self-test. This script exported a live-looking OIDC token, a
+# model override, `FXR_PERMISSION_MODE=yolo`, and a step limit of 1 before any
+# scenario ran. If any of them reached the binary, everything below would be
+# measuring the developer's shell instead of the product -- and the `yolo` one
+# would mean the "destructive command was refused" check in section 3 passed for
+# a reason that will not hold on someone else's machine.
+set +e
+python3 -c '
+import json, sys
+document = json.load(open(sys.argv[1], encoding="utf-8"))
+hostile_model, hostile_oidc = sys.argv[2], sys.argv[3]
+problems = []
+if document["model"] == hostile_model:
+    problems.append("FXR_MODEL reached the binary")
+if document["permission_mode"] != "auto":
+    problems.append("FXR_PERMISSION_MODE reached the binary: " + document["permission_mode"])
+if document["agent_step_limit"] == 1:
+    problems.append("FXR_MAX_AGENT_STEPS reached the binary")
+if document["auth"] != "AI_GATEWAY_API_KEY":
+    problems.append("the wrong credential was resolved: " + document["auth"])
+if hostile_oidc in json.dumps(document):
+    problems.append("the hostile token is in the snapshot")
+print("; ".join(problems))
+sys.exit(1 if problems else 0)
+' "$evidence/status.out" "$HOSTILE_MODEL" "$HOSTILE_OIDC" >"$evidence/isolation.txt" 2>&1
+isolation_status=$?
+set -e
+if [ "$isolation_status" -eq 0 ]; then
+	pass "a hostile environment reaches nothing: no token, model, mode, or step limit"
+else
+	fail "environment isolation: $(tr '\n' '; ' <"$evidence/isolation.txt")"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. a content-only answer
@@ -562,15 +643,10 @@ fi
 # a durable event rather than a silent move.
 other="$evidence/other-workspace"
 mkdir -p "$other"
-set +e
-(
-	cd "$other" &&
-		env -u VERCEL_OIDC_TOKEN HOME="$home" AI_GATEWAY_API_KEY="$FAKE_KEY" \
-			FXR_GATEWAY_URL="$gateway_url" \
-			"$binary" ask --resume-id "$session_id" "from somewhere else"
-) >"$evidence/rebind.out" 2>"$evidence/rebind.err"
-last_status=$?
-set -e
+# Through the same clean-environment path as every other invocation. It used to
+# have its own hand-written `env` line, which had drifted to unsetting exactly
+# one variable.
+run_fxr_in "$other" rebind ask --resume-id "$session_id" "from somewhere else"
 expect_status "$last_status" 0 "a rebinding resume exits 0"
 if grep -qF 'workspace_rebound' "$home/.fxr/sessions/$session_id/events.jsonl" 2>/dev/null; then
 	pass "the rebinding was recorded durably"
@@ -621,22 +697,36 @@ stop_gateway
 # 6. nothing leaked
 # ---------------------------------------------------------------------------
 
-printf '\n6. no credential in any captured stream\n'
+printf '\n6. what was sent, and what was written down\n'
 # Done in python rather than with `grep -r`, because the recursive spellings
 # differ between greps: `--exclude-dir` is not portable, and a `grep` that
 # silently searched nothing would turn this into a check that cannot fail.
 #
-# It is deliberately two-sided. The fake Gateway's own request log *must*
-# contain the bearer token -- that is the protocol working -- and every other
-# captured stream must not. Requiring the positive half is what proves the
-# negative half was actually looking.
+# Three questions, not one:
+#
+#   * Did every request carry exactly the credential this script provided?
+#     Checking only "the fake key is absent from the outputs" would pass just as
+#     well if fxr had sent someone's real token instead, which is the failure
+#     that matters. So each `authorization` header must equal `Bearer <fake>`
+#     exactly, and any other bearer value is a failure by itself.
+#   * Did the fake key appear anywhere it should not? Everywhere except the
+#     Gateway's own record of what it received.
+#   * Did the hostile token planted in this script's environment appear
+#     anywhere at all? It must not even be in a request.
 set +e
-python3 - "$evidence" "$FAKE_KEY" >"$evidence/leaks.txt" 2>&1 <<'PYTHON'
+python3 - "$evidence" "$FAKE_KEY" "$HOSTILE_OIDC" "$HOSTILE_MODEL" >"$evidence/leaks.txt" 2>&1 <<'PYTHON'
+import json
 import os
 import sys
 
-root, key = sys.argv[1], sys.argv[2]
-expected, leaked, scanned = [], [], 0
+root, key, hostile_oidc, hostile_model = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+expected_bearer = f"Bearer {key}"
+
+problems = []
+scanned = 0
+key_in_request_log = []
+requests_seen = 0
+
 for directory, subdirectories, files in os.walk(root):
     if os.path.basename(directory) == "helpers":
         subdirectories[:] = []
@@ -645,29 +735,57 @@ for directory, subdirectories, files in os.walk(root):
         if name == "leaks.txt":
             continue
         path = os.path.join(directory, name)
+        shown = os.path.relpath(path, root)
         try:
             with open(path, "rb") as handle:
                 blob = handle.read()
         except OSError:
             continue
         scanned += 1
-        if key.encode() not in blob:
-            continue
-        (expected if name == "requests.jsonl" else leaked).append(
-            os.path.relpath(path, root)
-        )
 
-print(f"scanned {scanned} file(s)")
-for path in leaked:
-    print(f"leaked {path}")
-if not expected:
-    print("the Gateway request log did not contain the key, so nothing was proven")
-sys.exit(1 if leaked or not expected else 0)
+        # Every bearer fxr sent, byte for byte.
+        if name == "requests.jsonl":
+            for line in blob.decode("utf-8", "replace").splitlines():
+                if not line.strip():
+                    continue
+                requests_seen += 1
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    problems.append(f"{shown}: a request record is not JSON")
+                    continue
+                sent = record.get("headers", {}).get("authorization")
+                if sent is None:
+                    problems.append(f"{shown}: request {record.get('index')} sent no bearer")
+                elif sent != expected_bearer:
+                    # Never printed: an unexpected credential is exactly the
+                    # thing that must not end up in a log.
+                    problems.append(
+                        f"{shown}: request {record.get('index')} sent a bearer that is not "
+                        f"the one this script provided ({len(sent)} bytes)"
+                    )
+            if key.encode() in blob:
+                key_in_request_log.append(shown)
+        elif key.encode() in blob:
+            problems.append(f"{shown}: the credential leaked into a captured stream")
+
+        for planted, what in ((hostile_oidc, "hostile token"), (hostile_model, "hostile model")):
+            if planted.encode() in blob:
+                problems.append(f"{shown}: the {what} from the environment reached this file")
+
+print(f"scanned {scanned} file(s), {requests_seen} request(s)")
+if not requests_seen:
+    problems.append("no requests were recorded, so nothing about credentials was proven")
+if not key_in_request_log:
+    problems.append("no request log contained the key, so the scan proved nothing")
+for problem in problems:
+    print(problem)
+sys.exit(1 if problems else 0)
 PYTHON
 leak_status=$?
 set -e
 if [ "$leak_status" -eq 0 ]; then
-	pass "the credential appears only in the Gateway's own request log ($(head -1 "$evidence/leaks.txt"))"
+	pass "every request carried exactly the provided credential, and nothing else leaked ($(head -1 "$evidence/leaks.txt"))"
 else
 	fail "credential scan: $(tr '\n' '; ' <"$evidence/leaks.txt")"
 fi

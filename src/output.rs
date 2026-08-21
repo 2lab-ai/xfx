@@ -826,19 +826,28 @@ impl<W: Write, D: Write> TextSink<W, D> {
     }
 }
 
-/// `detail` as one bounded line that cannot forge another notice.
+/// `text` as one bounded line that is safe to print on a terminal.
 ///
-/// Tool output is model-facing text that came from a file, a command, or a
-/// refusal, so it is arbitrary. It goes through the same flattening a recorded
-/// prompt does -- a newline in it must not be able to write a second `[tool]`
-/// line on the user's terminal -- and is then clipped, because the full report
-/// is for the model and not for the scrollback.
-fn bounded_notice_detail(detail: &str) -> String {
-    let flattened = one_line(detail);
+/// The one place fxr quotes something it did not write. Two rules, and both are
+/// about a terminal rather than about tidiness:
+///
+/// - **Every control character becomes a space.** A newline could forge a second
+///   line of fxr's own output; an `ESC` could paint the screen, retitle the
+///   window, or move the cursor. Text that arrived from a file, a command, a
+///   model, or a keyboard has no business doing any of that, so the whole class
+///   goes rather than a list of the sequences someone thought of.
+/// - **The result is clipped to `max_bytes`**, on a character boundary, with an
+///   ellipsis when anything was dropped. The full text is for whoever needs it
+///   in full -- usually the model -- and never for the scrollback.
+///
+/// The ellipsis is appended after the bound, so a clipped result is at most
+/// `max_bytes + 3` bytes.
+pub fn safe_one_line(text: &str, max_bytes: usize) -> String {
+    let flattened = one_line(text);
     let trimmed = flattened.trim();
     let mut out = String::new();
     for character in trimmed.chars() {
-        if out.len() + character.len_utf8() > MAX_TOOL_NOTICE_DETAIL {
+        if out.len() + character.len_utf8() > max_bytes {
             out.push('…');
             break;
         }
@@ -880,7 +889,7 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                 } else {
                     self.notice(&format!(
                         "[tool] {tool} refused: {}",
-                        bounded_notice_detail(detail)
+                        safe_one_line(detail, MAX_TOOL_NOTICE_DETAIL)
                     ))
                 }
             }

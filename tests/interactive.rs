@@ -28,7 +28,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
-use rustix::termios::{tcgetattr, LocalModes, Termios};
+use rustix::termios::{
+    tcgetattr, tcgetwinsize, ControlModes, InputModes, LocalModes, OutputModes, SpecialCodeIndex,
+    Termios, Winsize,
+};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -85,12 +88,23 @@ impl Pty {
     /// never be the descriptor keeping the terminal alive after the child is
     /// gone.
     fn termios(&self) -> Termios {
-        let slave = OpenOptions::new()
+        let slave = self.open_slave();
+        tcgetattr(slave.as_fd()).expect("read the terminal state")
+    }
+
+    /// The terminal's dimensions. A shell that resized the window would be
+    /// changing state it was lent, exactly like a mode flag.
+    fn winsize(&self) -> Winsize {
+        let slave = self.open_slave();
+        tcgetwinsize(slave.as_fd()).expect("read the terminal size")
+    }
+
+    fn open_slave(&self) -> File {
+        OpenOptions::new()
             .read(true)
             .write(true)
             .open(&self.slave_path)
-            .expect("open the pty slave");
-        tcgetattr(slave.as_fd()).expect("read the terminal state")
+            .expect("open the pty slave")
     }
 }
 
@@ -706,6 +720,20 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
     assert_eq!(session.quit().code(), Some(0));
 }
 
+/// Every line fxr wrote that begins with `fxr: `, without the terminal's echo
+/// of what was typed.
+///
+/// A refusal is what fxr *wrote*; the same bytes coming back as echo are the
+/// terminal's doing and prove nothing. They are told apart by the prefix, which
+/// only fxr writes.
+fn diagnostics(text: &str) -> Vec<String> {
+    text.split('\n')
+        .map(|line| line.trim_end_matches('\r'))
+        .filter(|line| line.starts_with("fxr: "))
+        .map(str::to_string)
+        .collect()
+}
+
 #[test]
 fn an_unknown_slash_command_is_refused_with_the_same_words_every_time() {
     let sandbox = Sandbox::new();
@@ -713,24 +741,61 @@ fn an_unknown_slash_command_is_refused_with_the_same_words_every_time() {
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/nonesuch");
-    let text = session.wait_for("/nonesuch is not");
+    session.wait_for("is not an fxr command");
     session.type_line("/nonesuch");
-    let text_again = session.wait_for_count("/nonesuch is not", 2);
+    let text = session.wait_for_count("is not an fxr command", 2);
 
-    let refusals: Vec<&str> = text_again
-        .match_indices("/nonesuch is not")
-        .map(|(index, _)| {
-            let rest = &text_again[index..];
-            rest.split('\n').next().unwrap_or(rest)
-        })
-        .collect();
-    assert_eq!(refusals.len(), 2);
+    let refusals = diagnostics(&text);
+    assert_eq!(refusals.len(), 2, "{text}");
     assert_eq!(refusals[0], refusals[1], "the refusal is not deterministic");
-    assert!(text.contains("/help"), "the refusal must point somewhere");
+    assert_eq!(
+        refusals[0],
+        "fxr: `/nonesuch` is not an fxr command; /help lists the six it has"
+    );
 
     // A slash command that is not one is never sent to a model: there is no
     // Gateway configured here, and no connection failure was reported.
-    assert!(!text_again.contains("connect"), "{text_again}");
+    assert!(!text.contains("connect"), "{text}");
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn an_unknown_command_cannot_paint_on_the_terminal_through_the_refusal() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    // A line that starts with `/` is quoted back by fxr. If it were quoted
+    // verbatim, this one would clear the screen, wipe the scrollback, retitle
+    // the window, and then bury the guidance under 500 bytes of padding.
+    session.type_bytes(b"/\x1b[2J\x1b[3J\x1b]0;pwned\x07\x1b[H");
+    session.type_bytes("x".repeat(500).as_bytes());
+    session.type_bytes(b"\r");
+    let text = session.wait_for("is not an fxr command");
+
+    let refusals = diagnostics(&text);
+    assert_eq!(refusals.len(), 1, "{text}");
+    let refusal = &refusals[0];
+    assert!(
+        !refusal.contains('\u{1b}'),
+        "the refusal carries an escape: {refusal:?}"
+    );
+    assert!(
+        !refusal.chars().any(char::is_control),
+        "the refusal carries a control character: {refusal:?}"
+    );
+    assert!(
+        refusal.len() < 200,
+        "the refusal is unbounded ({} bytes)",
+        refusal.len()
+    );
+    assert!(
+        refusal.ends_with("/help lists the six it has"),
+        "the guidance was pushed off the line: {refusal:?}"
+    );
+    // The shell is unharmed and still answering.
+    session.type_line("/version");
+    session.wait_for(env!("CARGO_PKG_VERSION"));
     assert_eq!(session.quit().code(), Some(0));
 }
 
@@ -833,40 +898,61 @@ fn end_of_input_leaves_the_shell_cleanly() {
 // what the terminal looks like afterwards
 // ---------------------------------------------------------------------------
 
-/// The line-discipline facts a shell must not silently change.
-fn modes(state: &Termios) -> (u32, LocalModes) {
-    (
-        state.input_modes.bits() as u32 | state.output_modes.bits() as u32,
-        state.local_modes,
-    )
+/// Every terminal fact a shell must not silently change.
+///
+/// Compared field by field as an exact tuple. An earlier version OR-ed the
+/// input and output flags into one integer before comparing, which was wrong in
+/// the direction that matters: the two words have overlapping bit values, so a
+/// bit gained in one and lost in the other cancels out and a changed terminal
+/// compares equal. There is no reason to fold them at all.
+///
+/// `VMIN` and `VTIME` are in here because they are precisely what raw mode
+/// rewrites -- a shell can leave `ICANON` looking untouched and still have left
+/// the read behaviour changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerminalState {
+    input: InputModes,
+    output: OutputModes,
+    control: ControlModes,
+    local: LocalModes,
+    min: u8,
+    time: u8,
+    size: (u16, u16),
+}
+
+fn modes(pty: &Pty) -> TerminalState {
+    let state = pty.termios();
+    let size = pty.winsize();
+    TerminalState {
+        input: state.input_modes,
+        output: state.output_modes,
+        control: state.control_modes,
+        local: state.local_modes,
+        min: state.special_codes[SpecialCodeIndex::VMIN],
+        time: state.special_codes[SpecialCodeIndex::VTIME],
+        size: (size.ws_row, size.ws_col),
+    }
 }
 
 #[test]
 fn a_normal_exit_leaves_the_line_discipline_exactly_as_it_was() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
-    let before = pty.termios();
+    let before = modes(&pty);
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/version");
     session.wait_for_count(PROMPT, 2);
     assert_eq!(session.quit().code(), Some(0));
 
-    let after = pty.termios();
-    assert_eq!(
-        modes(&before),
-        modes(&after),
-        "the terminal was left changed"
-    );
-    assert!(after.local_modes.contains(LocalModes::ECHO), "echo is off");
+    let after = modes(&pty);
+    assert_eq!(before, after, "the terminal was left changed");
+    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
     assert!(
-        after.local_modes.contains(LocalModes::ICANON),
+        after.local.contains(LocalModes::ICANON),
         "canonical mode is off"
     );
-    assert!(
-        after.local_modes.contains(LocalModes::ISIG),
-        "signals are off"
-    );
+    assert!(after.local.contains(LocalModes::ISIG), "signals are off");
     assert!(
         !session.text().contains("\u{1b}[?1049"),
         "the alternate screen was used"
@@ -880,7 +966,7 @@ fn an_interrupted_turn_leaves_the_line_discipline_exactly_as_it_was() {
     )])])]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
-    let before = pty.termios();
+    let before = modes(&pty);
     let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
 
     session.type_line("start something long");
@@ -889,15 +975,11 @@ fn an_interrupted_turn_leaves_the_line_discipline_exactly_as_it_was() {
     session.wait_for("interrupted");
     assert_eq!(session.quit().code(), Some(0));
 
-    let after = pty.termios();
-    assert_eq!(
-        modes(&before),
-        modes(&after),
-        "the terminal was left changed"
-    );
-    assert!(after.local_modes.contains(LocalModes::ECHO), "echo is off");
+    let after = modes(&pty);
+    assert_eq!(before, after, "the terminal was left changed");
+    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
     assert!(
-        after.local_modes.contains(LocalModes::ICANON),
+        after.local.contains(LocalModes::ICANON),
         "canonical mode is off"
     );
 }
@@ -906,7 +988,7 @@ fn an_interrupted_turn_leaves_the_line_discipline_exactly_as_it_was() {
 fn a_hard_exit_on_a_second_interrupt_still_leaves_a_usable_terminal() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
-    let before = pty.termios();
+    let before = modes(&pty);
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_bytes(&[0x03]);
@@ -916,13 +998,9 @@ fn a_hard_exit_on_a_second_interrupt_still_leaves_a_usable_terminal() {
     assert_eq!(status.code(), Some(130));
     assert_eq!(status.signal(), None, "fxr exits, it is not killed");
 
-    let after = pty.termios();
-    assert_eq!(
-        modes(&before),
-        modes(&after),
-        "the terminal was left changed"
-    );
-    assert!(after.local_modes.contains(LocalModes::ECHO), "echo is off");
+    let after = modes(&pty);
+    assert_eq!(before, after, "the terminal was left changed");
+    assert!(after.local.contains(LocalModes::ECHO), "echo is off");
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,4 +1162,266 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
         .expect("spawn fxr session");
     let document: Value = serde_json::from_slice(&shown.stdout).expect("one JSON document");
     assert_eq!(document["model"], "acme/model-9");
+}
+
+// ---------------------------------------------------------------------------
+// the permission modes, on a terminal
+// ---------------------------------------------------------------------------
+
+/// A Gateway that reads `notes.txt`, edits it, and then reports what happened.
+///
+/// The read is not decoration. An edit may only replace a file the turn has
+/// already read in full, in *every* mode -- that is a validation rule about
+/// knowing what you are overwriting, not a permission rule, so `yolo` does not
+/// skip it either. A script that jumped straight to the edit would be testing
+/// that rule rather than the permission modes.
+fn edit_then_finish() -> Vec<Reply> {
+    vec![
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            support::fake_gateway::tool_call(
+                "call-1",
+                "edit_file",
+                serde_json::json!({
+                    "path": "notes.txt",
+                    "old_string": "alpha",
+                    "new_string": "beta",
+                }),
+            ),
+            support::fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["the edit is done"])),
+    ]
+}
+
+/// A workspace with one file the model is scripted to edit.
+fn with_notes(sandbox: &Sandbox) -> PathBuf {
+    let path = sandbox.workspace.join("notes.txt");
+    fs::write(&path, "alpha\n").expect("write the fixture");
+    path
+}
+
+#[test]
+fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("FXR_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("fix the notes");
+    // The prompt is the real one: it says what fxr wants, what "always" would
+    // grant, and it is asked on this terminal rather than assumed.
+    let asked = session.wait_for("fxr wants to");
+    assert!(asked.contains("[y] yes, once"), "{asked}");
+    assert!(asked.contains("[a] always"), "{asked}");
+    assert!(asked.contains("notes.txt"), "{asked}");
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "alpha\n",
+        "the edit ran before it was approved"
+    );
+
+    session.type_line("y");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "beta\n",
+        "an approved edit did not land"
+    );
+
+    // The answer was consumed by the approval and nothing else: the next line
+    // is read by the shell as a fresh line, not as leftover bytes. Two readers
+    // share one buffered stdin, and this is the assertion that they do not
+    // swallow each other's input.
+    session.type_line("/version");
+    session.wait_for(env!("CARGO_PKG_VERSION"));
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn ask_mode_takes_no_for_an_answer_and_the_file_is_untouched() {
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("FXR_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("fix the notes");
+    session.wait_for("fxr wants to");
+    session.type_line("n");
+    // The refusal is a tool result the model can act on, so the turn continues
+    // and finishes normally.
+    session.wait_for("the edit is done");
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "alpha\n",
+        "a refused edit changed the file"
+    );
+
+    session.type_line("/version");
+    session.wait_for(env!("CARGO_PKG_VERSION"));
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn ctrl_c_at_an_approval_prompt_does_not_hang_the_shell() {
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("FXR_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("fix the notes");
+    session.wait_for("fxr wants to");
+    session.type_bytes(&[0x03]);
+    session.wait_for("interrupted");
+
+    // The question is still on the terminal and still needs an answer -- the
+    // interrupt stopped the turn, it did not answer for the user. What must not
+    // happen is a shell that never comes back.
+    session.type_line("n");
+    session.wait_for_count(PROMPT, 2);
+    // The file is the assertion, not the transcript: the question itself quotes
+    // an excerpt of the change it is asking about, so the new text is on the
+    // terminal by design and means nothing about what happened on disk.
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "alpha\n",
+        "a cancelled and refused edit changed the file"
+    );
+
+    session.type_line("/version");
+    session.wait_for(env!("CARGO_PKG_VERSION"));
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn yolo_mode_warns_once_and_then_asks_nobody_anything() {
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("FXR_PERMISSION_MODE", "yolo");
+    let mut session = Session::spawn(&pty, command);
+
+    // The warning is on the way in, before a prompt exists to type at.
+    let opening = session.wait_for(PROMPT);
+    assert!(
+        opening.to_lowercase().contains("yolo"),
+        "yolo must announce itself: {opening}"
+    );
+    assert!(opening.contains("permission_mode=yolo"), "{opening}");
+
+    session.type_line("fix the notes");
+    session.wait_for("the edit is done");
+    let text = session.text();
+    assert!(
+        !text.contains("fxr wants to"),
+        "yolo asked a question: {text}"
+    );
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "beta\n",
+        "yolo did not run the edit"
+    );
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn status_reports_the_mode_the_shell_is_running_under() {
+    // The same fact from the other side of the product: what the shell warned
+    // about is what `status` says, so the two cannot disagree.
+    let sandbox = Sandbox::new();
+    let listed = sandbox
+        .command()
+        .args(["status", "--json"])
+        .env("FXR_PERMISSION_MODE", "yolo")
+        .output()
+        .expect("spawn fxr status");
+    let document: Value = serde_json::from_slice(&listed.stdout).expect("one JSON document");
+    assert_eq!(document["permission_mode"], "yolo");
+    assert_eq!(document["sandbox"], "none");
+}
+
+#[test]
+fn the_terminal_comparator_notices_a_change_in_any_single_field() {
+    // The regression this pins: the comparator used to fold the input and
+    // output flag words together with a bitwise OR before comparing. The two
+    // words have overlapping bit values, so a flag gained in one and lost in
+    // the other cancelled out and a changed terminal compared equal. Each field
+    // now stands on its own, and this proves each one is actually looked at.
+    let pty = Pty::open();
+    let base = modes(&pty);
+
+    let variants = [
+        (
+            "input",
+            TerminalState {
+                input: base.input ^ InputModes::ICRNL,
+                ..base
+            },
+        ),
+        (
+            "output",
+            TerminalState {
+                output: base.output ^ OutputModes::OPOST,
+                ..base
+            },
+        ),
+        (
+            "control",
+            TerminalState {
+                control: base.control ^ ControlModes::CREAD,
+                ..base
+            },
+        ),
+        (
+            "local",
+            TerminalState {
+                local: base.local ^ LocalModes::ECHO,
+                ..base
+            },
+        ),
+        (
+            "VMIN",
+            TerminalState {
+                min: base.min.wrapping_add(1),
+                ..base
+            },
+        ),
+        (
+            "VTIME",
+            TerminalState {
+                time: base.time.wrapping_add(1),
+                ..base
+            },
+        ),
+        (
+            "size",
+            TerminalState {
+                size: (base.size.0.wrapping_add(1), base.size.1),
+                ..base
+            },
+        ),
+    ];
+    for (field, changed) in variants {
+        assert_ne!(base, changed, "a change to {field} compares equal");
+    }
+    assert_eq!(base, modes(&pty), "reading twice must be stable");
 }

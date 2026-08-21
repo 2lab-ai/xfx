@@ -39,9 +39,9 @@ runs, on Linux and macOS, on x86_64 and aarch64:
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo build --release
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked --release
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/smoke.sh target/release/fxr

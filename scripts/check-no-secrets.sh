@@ -61,6 +61,48 @@ patterns=(
 	"bearer literal:[Bb]earer [A-Za-z0-9_.=-]{24,}"
 )
 
+# --- the positive control ------------------------------------------------
+#
+# Every pattern is first run against a credential of its own shape, and must
+# find it. Without this the whole script is one `grep` invocation away from
+# being a green light that never looks at anything: a typo in a regex, a `grep`
+# that does not take `-E` the way this one expects, an empty file list. A check
+# whose failure mode is "silently passes" has to be able to prove it is awake.
+#
+# The samples are assembled at runtime rather than written out, because this
+# script is itself a tracked file that the scan below reads. A literal sample
+# would be a finding.
+control="$(mktemp "${TMPDIR:-/tmp}/fxr-secret-control.XXXXXX")"
+trap 'rm -f "$control"' EXIT
+
+filler="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+digits="1234567890123456"
+jwt_head="ey"
+jwt_head="${jwt_head}J"
+private_key="PRIVATE"
+private_key="${private_key} KEY"
+{
+	printf 'sk-%s\n' "$filler"
+	printf 'ghp_%s\n' "$filler"
+	printf 'github_pat_%s\n' "$filler"
+	printf 'AKIA%s\n' "$digits"
+	printf 'AIza%s%s\n' "$filler" "$filler"
+	printf 'xoxb-%s\n' "$filler"
+	printf -- '-----BEGIN TEST %s-----\n' "$private_key"
+	printf '%s%s.%s%s.%s\n' "$jwt_head" "$filler" "$jwt_head" "$filler" "$filler"
+	printf 'Bearer %s\n' "$filler"
+} >"$control"
+
+for entry in "${patterns[@]}"; do
+	name="${entry%%:*}"
+	pattern="${entry#*:}"
+	if ! grep -q -E -e "$pattern" "$control"; then
+		fail "the '$name' pattern does not match its own sample; this scan is not working"
+	fi
+done
+
+# --- the scan itself ---------------------------------------------------------
+
 for entry in "${patterns[@]}"; do
 	name="${entry%%:*}"
 	pattern="${entry#*:}"

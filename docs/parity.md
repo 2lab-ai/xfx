@@ -84,9 +84,25 @@ directions.
 ## Tools
 
 Upstream's registry is the 26 entries in `src/builtins/tools.zig:1351-1378`.
-fxr advertises the four read-only tools below, in that order, and nothing else.
-The registry is a compile-time constant; `scripts/check-no-stubs.sh` reconciles
-it against the `tool` rows here.
+fxr advertises the 8 tools below, in that order, and nothing else:
+4 read-only (`list_files`, `glob_files`, `grep_files`, `read_file`),
+3 mutating (`write_file`, `edit_file`, `create_folder`), and
+1 command (`terminal`).
+
+That split is the safety boundary, not a taxonomy. A read-only call is admitted
+in every permission mode without asking anyone, because it changes nothing. Each
+of the other four crosses a permission decision that mints a one-use authority
+for one exact target and revalidates it immediately before spending it: `ask`
+stops on every one of them, and `auto` admits only bounded reversible writes and
+a reporting-only command grammar. **fxr can change files in your workspace and
+start processes on your machine**, under no OS sandbox; those four rows are
+where that begins.
+
+The registry is a compile-time constant. `scripts/check-no-stubs.sh` reconciles
+it against the `tool` rows below, and `tests/parity.rs` reconciles the counts
+and the three groups named in this paragraph against the registry's real
+`PermissionKind`s -- so the prose cannot drift from the code any more quietly
+than a row can.
 
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|

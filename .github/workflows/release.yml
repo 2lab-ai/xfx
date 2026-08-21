@@ -43,7 +43,7 @@ jobs:
 
       - name: Install the pinned toolchain
         run: |
-          rustup toolchain install stable --profile minimal
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
           rustc --version
 
@@ -55,8 +55,28 @@ jobs:
             exit 1
           fi
 
+      # The whole gate, again, on the exact commit being packaged. A tag can be
+      # pushed at any commit -- including one CI never saw, or one whose run was
+      # cancelled -- and "there is probably a green run somewhere" is not a
+      # thing a release should rest on. Repeating it costs minutes; shipping an
+      # unchecked binary costs a revocation.
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked --all-targets
+
+      - name: No stubs, and the parity ledger reconciles
+        run: ./scripts/check-no-stubs.sh
+
+      - name: No credentials in tracked files
+        run: ./scripts/check-no-secrets.sh
+
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release
 
       - name: Prove the archived binary works before archiving it
         run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"

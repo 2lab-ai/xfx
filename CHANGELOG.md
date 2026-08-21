@@ -7,7 +7,19 @@ worth stating out loud: **a version number here never encodes closeness to
 upstream `fx`.** What is and is not implemented lives in
 [`docs/parity.md`](docs/parity.md) and nowhere else.
 
-## [Unreleased]
+## [0.1.0] - unreleased
+
+The first vertical slice, delivered as one bounded loop rather than a broad
+facade: the CLI and configuration core, the Gateway transport and its bounded
+SSE decoder, the read tools and multi-step turn, the mutating tools under typed
+permission authorities, durable sessions with resume and refreshed project
+context, and the interactive shell. Eight tools, six commands, one provider.
+Everything else upstream has is absent from the binary and accounted for in
+`docs/parity.md`.
+
+There is no earlier release, so everything below is part of this one. The
+sections separate what the last slice added from what it repaired in the
+slices before it.
 
 ### Added
 
@@ -62,18 +74,12 @@ upstream `fx`.** What is and is not implemented lives in
   first milliseconds used to meet the default disposition and kill fxr outright.
   Startup now waits, briefly and boundedly, for the handler to exist.
 
+- **The unknown-command refusal cannot be used to paint on the terminal.** A
+  shell line beginning `/` is quoted back in the refusal; an escape sequence in
+  it was quoted verbatim and obeyed. The quote is now flattened and bounded.
+
 ### Changed
 
 - A bare `fxr` runs the shell instead of exiting 1 with usage. Without a
   terminal it still exits 1, now naming the requirement and pointing at
   `fxr ask`.
-
-## [0.1.0] - unreleased
-
-The first vertical slice, delivered as one bounded loop rather than a broad
-facade: the CLI and configuration core, the Gateway transport and its bounded
-SSE decoder, the read tools and multi-step turn, the mutating tools under typed
-permission authorities, durable sessions with resume and refreshed project
-context, and the interactive shell. Eight tools, six commands, one provider.
-Everything else upstream has is absent from the binary and accounted for in
-`docs/parity.md`.

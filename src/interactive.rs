@@ -26,7 +26,7 @@ use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{Event, EventSink, TextSink, MISSING_AUTH_HELP, SANDBOX_LABEL};
+use crate::output::{safe_one_line, Event, EventSink, TextSink, MISSING_AUTH_HELP, SANDBOX_LABEL};
 use crate::permission::YOLO_WARNING;
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
 use crate::tools::ToolContext;
@@ -67,6 +67,13 @@ pub const LEAVING_NOTICE: &str = "fxr: interrupted -- leaving.";
 
 /// The exit status of a process that stopped because it was interrupted.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
+
+/// The most bytes of a mistyped command fxr quotes back.
+///
+/// A slash command is a word, and a word that runs past this is not a typo the
+/// user needs to see in full -- it is something pasted, and the part of the
+/// refusal worth reading is the guidance at the end of the line.
+const MAX_QUOTED_COMMAND_BYTES: usize = 60;
 
 /// The most bytes a `/model` argument may have.
 ///
@@ -178,8 +185,20 @@ pub fn classify(line: &str) -> Submitted {
 }
 
 /// The exact refusal for a slash command that does not exist.
+///
+/// The token is quoted back so a user can see their typo, and it is the one
+/// thing on this line that fxr did not write. It therefore goes through
+/// [`safe_one_line`] first: a line beginning `/` and continuing with an escape
+/// sequence would otherwise be echoed straight back and *obeyed* by the
+/// terminal -- clearing the screen, retitling the window, moving the cursor --
+/// and a very long one would push the guidance off the end of it. The backticks
+/// are part of the same job: once control characters have become spaces, the
+/// reader still has to be able to see where the quoted text stops.
 pub fn unknown_command_message(token: &str) -> String {
-    format!("fxr: {token} is not an fxr command; /help lists the six it has")
+    format!(
+        "fxr: `{}` is not an fxr command; /help lists the six it has",
+        safe_one_line(token, MAX_QUOTED_COMMAND_BYTES)
+    )
 }
 
 /// The `/help` page.
@@ -772,8 +791,49 @@ mod tests {
             unknown_command_message("/nonesuch"),
             unknown_command_message("/nonesuch")
         );
-        assert!(unknown_command_message("/nonesuch").contains("/nonesuch"));
-        assert!(unknown_command_message("/nonesuch").contains("/help"));
+        assert_eq!(
+            unknown_command_message("/nonesuch"),
+            "fxr: `/nonesuch` is not an fxr command; /help lists the six it has"
+        );
+    }
+
+    #[test]
+    fn a_refusal_never_quotes_back_a_control_character() {
+        // A line beginning `/` is echoed by the terminal *and* quoted by fxr.
+        // The echo is the terminal's own business; the quote is fxr's, and it
+        // must not be a way to make fxr clear the screen, retitle the window,
+        // or move the cursor on the user's behalf.
+        let hostile = "/\u{1b}[2J\u{1b}]0;pwned\u{7}\u{1b}[H";
+        let message = unknown_command_message(hostile);
+        assert!(!message.contains('\u{1b}'), "{message:?}");
+        assert!(!message.chars().any(char::is_control), "{message:?}");
+        assert_eq!(message.lines().count(), 1, "{message:?}");
+        assert!(message.contains("/help"), "{message:?}");
+    }
+
+    #[test]
+    fn a_refusal_is_bounded_however_long_the_mistake_was() {
+        let message = unknown_command_message(&format!("/{}", "x".repeat(100_000)));
+        assert!(
+            message.len() < MAX_QUOTED_COMMAND_BYTES + 128,
+            "{message:?}"
+        );
+        assert!(message.contains('…'), "{message:?}");
+        // The guidance is the part worth reading, so it survives the clip.
+        assert!(
+            message.ends_with("/help lists the six it has"),
+            "{message:?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_keeps_a_multibyte_typo_readable() {
+        let message = unknown_command_message("/설명");
+        assert!(message.contains("/설명"), "{message}");
+        // Clipping is on a character boundary, so a long multibyte token can
+        // never produce invalid text.
+        let long = unknown_command_message(&format!("/{}", "설".repeat(1000)));
+        assert!(long.contains('…'), "{long}");
     }
 
     #[test]

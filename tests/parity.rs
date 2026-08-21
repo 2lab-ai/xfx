@@ -20,7 +20,7 @@ use std::process::Command;
 
 use fxr::cli::{help_text, parser_command_names, ADVERTISED_COMMANDS, ADVERTISED_ENTRYPOINTS};
 use fxr::interactive::SLASH_COMMANDS;
-use fxr::tools::{Registry, ADVERTISED_TOOLS};
+use fxr::tools::{PermissionKind, Registry, ADVERTISED_TOOLS};
 use serde_json::Value;
 
 /// One row of the ledger.
@@ -278,6 +278,122 @@ fn advertised_tool_names() -> BTreeSet<String> {
 fn the_implemented_tools_are_exactly_the_tools_the_model_is_offered() {
     assert_eq!(named("tool", "implemented"), advertised_tool_names());
     assert_eq!(set_of(ADVERTISED_TOOLS.to_vec()), advertised_tool_names());
+}
+
+/// The prose above the tool table, which is what a reader actually reads.
+///
+/// A row-by-row validator cannot see a sentence, and a sentence is where the
+/// most dangerous drift lives: this file once said fxr "advertises the four
+/// read-only tools below" while the table underneath listed eight, including
+/// the three that rewrite files and the one that starts processes. Every row
+/// was correct and the paragraph was a lie about what fxr is allowed to do.
+fn tools_prose() -> String {
+    let ledger = fs::read_to_string(parity_path()).expect("read docs/parity.md");
+    let start = ledger.find("## Tools").expect("the Tools section exists");
+    let section = &ledger[start..];
+    let end = section
+        .find("\n| Surface")
+        .expect("the Tools section has a table");
+    section[..end].to_string()
+}
+
+/// The count declared immediately before `label`, and the names in the
+/// parentheses immediately after it.
+fn prose_group(label: &str) -> (usize, BTreeSet<String>) {
+    let text = tools_prose();
+    let marker = format!(" {label} (");
+    let at = text
+        .find(&marker)
+        .unwrap_or_else(|| panic!("the Tools prose declares no `{label}` group:\n{text}"));
+    let count = text[..at]
+        .split_whitespace()
+        .next_back()
+        .and_then(|word| word.parse::<usize>().ok())
+        .unwrap_or_else(|| panic!("the `{label}` group is not preceded by a count:\n{text}"));
+    let rest = &text[at + marker.len()..];
+    let close = rest
+        .find(')')
+        .unwrap_or_else(|| panic!("the `{label}` group is not closed:\n{text}"));
+    (count, backticked(&rest[..close]).into_iter().collect())
+}
+
+/// The tool names of one permission kind, as the registry really classifies them.
+fn tools_of_kind(kind: PermissionKind) -> BTreeSet<String> {
+    Registry::builtin()
+        .specs()
+        .iter()
+        .filter(|spec| spec.permission() == kind)
+        .map(|spec| spec.name().to_string())
+        .collect()
+}
+
+#[test]
+fn the_tools_prose_declares_the_number_of_tools_that_exist() {
+    let text = tools_prose();
+    let at = text
+        .find("advertises the ")
+        .expect("the Tools prose says how many tools fxr advertises");
+    let declared: usize = text[at + "advertises the ".len()..]
+        .split_whitespace()
+        .next()
+        .and_then(|word| word.parse().ok())
+        .expect("the declared count is a number");
+    assert_eq!(
+        declared,
+        advertised_tool_names().len(),
+        "the Tools prose claims {declared} tools; the registry advertises {}",
+        advertised_tool_names().len()
+    );
+}
+
+#[test]
+fn the_tools_prose_splits_them_the_way_the_permission_system_does() {
+    let (read_only_count, read_only) = prose_group("read-only");
+    let (mutating_count, mutating) = prose_group("mutating");
+    let (command_count, command) = prose_group("command");
+
+    // Each group says how many it has, and has that many.
+    assert_eq!(read_only_count, read_only.len(), "{read_only:?}");
+    assert_eq!(mutating_count, mutating.len(), "{mutating:?}");
+    assert_eq!(command_count, command.len(), "{command:?}");
+
+    // The groups are the registry's own classification rather than a
+    // description of it. A tool that changed from a read to a mutation without
+    // the paragraph changing would fail here.
+    assert_eq!(read_only, tools_of_kind(PermissionKind::ReadOnly));
+    assert_eq!(mutating, tools_of_kind(PermissionKind::MutateFile));
+    assert_eq!(command, tools_of_kind(PermissionKind::RunCommand));
+
+    // Together they are every advertised tool, once.
+    let mut union: BTreeSet<String> = BTreeSet::new();
+    for group in [&read_only, &mutating, &command] {
+        for name in group {
+            assert!(union.insert(name.clone()), "`{name}` is in two groups");
+        }
+    }
+    assert_eq!(union, advertised_tool_names());
+    assert_eq!(
+        read_only_count + mutating_count + command_count,
+        advertised_tool_names().len()
+    );
+}
+
+#[test]
+fn the_tools_prose_says_what_the_dangerous_half_can_do() {
+    let text = tools_prose();
+    // Not a style check. That paragraph is the only place a reader is told, in
+    // one breath, that this registry is not just an observer.
+    for claim in ["change files", "start processes", "sandbox"] {
+        assert!(
+            text.contains(claim),
+            "the Tools prose does not mention {claim:?}:\n{text}"
+        );
+    }
+    assert!(
+        !tools_of_kind(PermissionKind::MutateFile).is_empty()
+            && !tools_of_kind(PermissionKind::RunCommand).is_empty(),
+        "the warning above would itself be the drift, if this ever became false"
+    );
 }
 
 #[test]
