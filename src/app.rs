@@ -167,9 +167,44 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks
 }
 
-/// Reports which settings layers were actually found.
+/// Reports which settings layers were found, and which were found but ignored.
+///
+/// A file that exists but could not be parsed is the case that most needs to be
+/// said out loud: the user wrote settings, fxr silently ran without them, and
+/// reporting "no config files found" would tell them to go looking for a file
+/// that is already there. Presence and usability are therefore reported
+/// separately.
 fn config_presence_check(config: &RuntimeConfig) -> DoctorCheck {
-    if !config.has_settings_file() {
+    // Paths are written in their documented `~/.fxr/...` and `.fxr.json` forms
+    // rather than expanded, so the detail is stable across machines and carries
+    // no home directory name into a pasted report.
+    let profile = format!("~/{}/settings.json", crate::config::PROFILE_DIR_NAME);
+    let project = crate::config::PROJECT_SETTINGS_FILE.to_string();
+
+    let layers = [
+        (
+            config.user_settings_present,
+            config.user_settings_loaded,
+            profile,
+        ),
+        (
+            config.project_settings_present,
+            config.project_settings_loaded,
+            project,
+        ),
+    ];
+
+    let mut loaded: Vec<&str> = Vec::new();
+    let mut unusable: Vec<&str> = Vec::new();
+    for (present, was_loaded, name) in &layers {
+        if *was_loaded {
+            loaded.push(name);
+        } else if *present {
+            unusable.push(name);
+        }
+    }
+
+    if loaded.is_empty() && unusable.is_empty() {
         return DoctorCheck::new(
             "config",
             CheckStatus::Warn,
@@ -177,24 +212,23 @@ fn config_presence_check(config: &RuntimeConfig) -> DoctorCheck {
         );
     }
 
-    // The profile path is written in its documented `~/.fxr/...` form rather
-    // than expanded, so the detail is stable across machines and carries no home
-    // directory name into a pasted report.
-    let mut found: Vec<String> = Vec::new();
-    if config.user_settings_present {
-        found.push(format!(
-            "~/{}/settings.json",
-            crate::config::PROFILE_DIR_NAME
-        ));
+    if unusable.is_empty() {
+        return DoctorCheck::new(
+            "config",
+            CheckStatus::Ok,
+            format!("loaded settings from {}", loaded.join(", ")),
+        );
     }
-    if config.project_settings_present {
-        found.push(crate::config::PROJECT_SETTINGS_FILE.to_string());
+
+    // The specific reason each layer was rejected is reported by its own
+    // diagnostic check; this one states the consequence.
+    let mut detail = format!("found but could not use {}", unusable.join(", "));
+    if loaded.is_empty() {
+        detail.push_str("; using defaults and env overrides");
+    } else {
+        detail.push_str(&format!("; loaded settings from {}", loaded.join(", ")));
     }
-    DoctorCheck::new(
-        "config",
-        CheckStatus::Ok,
-        format!("loaded settings from {}", found.join(", ")),
-    )
+    DoctorCheck::new("config", CheckStatus::Warn, detail)
 }
 
 #[cfg(test)]

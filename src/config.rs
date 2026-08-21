@@ -393,8 +393,17 @@ pub struct RuntimeConfig {
     pub user_settings_path: Option<PathBuf>,
     /// `<workspace>/.fxr.json`, whether or not it exists.
     pub project_settings_path: PathBuf,
+    /// A `~/.fxr/settings.json` entry exists on disk, whether or not it was
+    /// usable. Presence and usability are separate facts: a file that exists but
+    /// cannot be parsed must never be reported as "no config files found".
     pub user_settings_present: bool,
+    /// A `<workspace>/.fxr.json` entry exists on disk, whether or not it was
+    /// usable.
     pub project_settings_present: bool,
+    /// The profile settings file was parsed and merged.
+    pub user_settings_loaded: bool,
+    /// The project settings file was parsed and merged.
+    pub project_settings_loaded: bool,
     pub model: String,
     pub permission_mode: PermissionMode,
     pub max_agent_steps: u32,
@@ -424,13 +433,14 @@ impl RuntimeConfig {
         let mut settings = Settings::default();
         let mut sources = Sources::default();
 
-        let project = read_object(
+        let project = read_layer(
             &project_settings_path,
             ConfigLayer::Project,
             &mut diagnostics,
         );
-        let project_settings_present = project.is_some();
-        if let Some(object) = &project {
+        let project_settings_present = project.present;
+        let project_settings_loaded = project.object.is_some();
+        if let Some(object) = &project.object {
             report_ignored_profile_keys(object, &mut diagnostics);
             let layer = parse_layer(
                 object,
@@ -441,11 +451,13 @@ impl RuntimeConfig {
             settings.merge(layer, SettingSource::Project, &mut sources);
         }
 
-        let user = user_settings_path
-            .as_ref()
-            .and_then(|path| read_object(path, ConfigLayer::User, &mut diagnostics));
-        let user_settings_present = user.is_some();
-        if let Some(object) = &user {
+        let user = match user_settings_path.as_ref() {
+            Some(path) => read_layer(path, ConfigLayer::User, &mut diagnostics),
+            None => LayerRead::absent(),
+        };
+        let user_settings_present = user.present;
+        let user_settings_loaded = user.object.is_some();
+        if let Some(object) = &user.object {
             let layer = parse_layer(
                 object,
                 LayerKind::Profile,
@@ -478,6 +490,8 @@ impl RuntimeConfig {
             project_settings_path,
             user_settings_present,
             project_settings_present,
+            user_settings_loaded,
+            project_settings_loaded,
             model: settings.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             permission_mode: settings.permission_mode.unwrap_or_default(),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
@@ -487,9 +501,18 @@ impl RuntimeConfig {
         })
     }
 
-    /// Whether any settings file contributed to this configuration.
+    /// Whether a settings file exists on disk, usable or not.
     pub fn has_settings_file(&self) -> bool {
         self.user_settings_present || self.project_settings_present
+    }
+
+    /// Whether a settings file exists that fxr could not use.
+    ///
+    /// This is the case `doctor` must not describe as "no config files found":
+    /// the user wrote a file, fxr ignored it, and silence would read as consent.
+    pub fn has_unusable_settings_file(&self) -> bool {
+        (self.user_settings_present && !self.user_settings_loaded)
+            || (self.project_settings_present && !self.project_settings_loaded)
     }
 }
 
@@ -655,42 +678,80 @@ fn exact_workspace_entry<'a>(
     }
 }
 
-/// Reads one settings file, returning `None` for absent, oversized, unreadable,
-/// or non-object content and recording why.
-fn read_object(
-    path: &Path,
-    layer: ConfigLayer,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<serde_json::Map<String, Value>> {
+/// The outcome of consulting one settings file.
+///
+/// Presence and usability are kept apart deliberately. Collapsing them into a
+/// single `Option` loses the difference between "the user has no settings" and
+/// "the user has settings fxr threw away", and only the second one needs to be
+/// shouted about.
+struct LayerRead {
+    /// Something exists at the path, whatever its content.
+    ///
+    /// Set for every outcome that produced a diagnostic, so a layer fxr has
+    /// something to say about can never be reported as absent.
+    present: bool,
+    /// The parsed object, when the file was usable.
+    object: Option<serde_json::Map<String, Value>>,
+}
+
+impl LayerRead {
+    fn absent() -> Self {
+        Self {
+            present: false,
+            object: None,
+        }
+    }
+
+    /// Present but unusable; the caller has already recorded why.
+    fn rejected() -> Self {
+        Self {
+            present: true,
+            object: None,
+        }
+    }
+
+    fn loaded(object: serde_json::Map<String, Value>) -> Self {
+        Self {
+            present: true,
+            object: Some(object),
+        }
+    }
+}
+
+/// Reads one settings file, recording why it was rejected and whether it was
+/// there at all.
+fn read_layer(path: &Path, layer: ConfigLayer, diagnostics: &mut Vec<Diagnostic>) -> LayerRead {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return None,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return LayerRead::absent(),
         Err(_) => {
+            // The entry could not be stat'ed. Something is there, or something
+            // is wrong with the path; either way fxr owes the user a report.
             diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return None;
+            return LayerRead::rejected();
         }
     };
     if !metadata.is_file() {
         diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-        return None;
+        return LayerRead::rejected();
     }
     if metadata.len() > MAX_SETTINGS_BYTES as u64 {
         diagnostics.push(Diagnostic::new(layer, DiagnosticCause::SettingsTooLarge));
-        return None;
+        return LayerRead::rejected();
     }
 
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(_) => {
             diagnostics.push(Diagnostic::new(layer, DiagnosticCause::UnreadableSettings));
-            return None;
+            return LayerRead::rejected();
         }
     };
     match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) => Some(object),
+        Ok(Value::Object(object)) => LayerRead::loaded(object),
         Ok(_) | Err(_) => {
             diagnostics.push(Diagnostic::new(layer, DiagnosticCause::MalformedSettings));
-            None
+            LayerRead::rejected()
         }
     }
 }
@@ -787,6 +848,47 @@ mod tests {
         assert_eq!(settings.max_agent_steps, Some(2));
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
+    }
+
+    #[test]
+    fn an_explicit_zero_step_limit_is_a_value_not_an_absence() {
+        // `0` means unbounded, so the merge must key off presence rather than
+        // truthiness; a `if steps > 0` shortcut here would silently restore the
+        // compiled bound and cap a turn the user asked to leave uncapped.
+        let mut settings = Settings {
+            max_agent_steps: Some(9),
+            ..Settings::default()
+        };
+        let mut sources = Sources::default();
+        settings.merge(
+            Settings {
+                max_agent_steps: Some(0),
+                ..Settings::default()
+            },
+            SettingSource::ProcessOverride,
+            &mut sources,
+        );
+        assert_eq!(settings.max_agent_steps, Some(0));
+        assert_eq!(sources.max_agent_steps, SettingSource::ProcessOverride);
+    }
+
+    #[test]
+    fn a_zero_step_limit_survives_parsing_from_every_layer() {
+        let object = serde_json::from_str::<Value>(r#"{"max_agent_steps":0}"#).unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        for kind in [LayerKind::Project, LayerKind::Profile] {
+            let settings = parse_layer(object, kind, ConfigLayer::Project, &mut diagnostics);
+            assert_eq!(settings.max_agent_steps, Some(0), "{kind:?}");
+        }
+
+        let env = Environment::new(
+            None,
+            BTreeMap::from([(ENV_MAX_AGENT_STEPS.to_string(), "0".to_string())]),
+        );
+        let settings = parse_environment(&env, &mut diagnostics);
+        assert_eq!(settings.max_agent_steps, Some(0));
+        assert!(diagnostics.is_empty(), "0 is valid, not a diagnostic");
     }
 
     #[test]

@@ -659,6 +659,17 @@ fn an_invalid_permission_mode_override_is_a_diagnostic_not_a_crash() {
 // settings discovery through the binary
 // ---------------------------------------------------------------------------
 
+/// Every `config` check detail, in order.
+fn config_details(json: &Value) -> Vec<String> {
+    json["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|check| check["name"] == "config")
+        .map(|check| check["detail"].as_str().unwrap().to_string())
+        .collect()
+}
+
 #[test]
 fn a_malformed_settings_file_warns_without_failing_the_command() {
     let sandbox = Sandbox::new();
@@ -667,13 +678,93 @@ fn a_malformed_settings_file_warns_without_failing_the_command() {
     assert_eq!(status.code, Some(0));
     assert_eq!(status.json()["model"], fxr::config::DEFAULT_MODEL);
 
-    let doctor = sandbox.run(&["doctor", "--json"]);
-    let warned = doctor.json()["checks"]
+    let doctor = sandbox.run(&["doctor", "--json"]).json();
+    let warned = doctor["checks"]
         .as_array()
         .unwrap()
         .iter()
         .any(|c| c["name"] == "config" && c["status"] == "warn");
     assert!(warned, "doctor must warn about unreadable settings");
+
+    // The file is on disk. Reporting that none was found would send the user
+    // hunting for a file they already wrote.
+    let details = config_details(&doctor);
+    assert!(
+        !details.iter().any(|d| d.contains("no config files found")),
+        "a settings file exists; doctor must not report that none was found: {details:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|d| d.contains("found but could not use") && d.contains("~/.fxr/settings.json")),
+        "doctor must say the profile settings were found and ignored: {details:?}"
+    );
+    assert!(
+        details.iter().any(|d| d.contains("malformed_settings")),
+        "doctor must still report why the layer was rejected: {details:?}"
+    );
+}
+
+#[test]
+fn an_unusable_layer_does_not_hide_a_usable_one() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{ this is not json");
+    sandbox.write_project_settings("{\"max_agent_steps\":7}");
+
+    let doctor = sandbox.run(&["doctor", "--json"]).json();
+    assert_eq!(
+        doctor["agent_step_limit"], 7,
+        "the usable layer must still apply"
+    );
+
+    let details = config_details(&doctor);
+    assert!(
+        details.iter().any(|d| {
+            d.contains("found but could not use")
+                && d.contains("~/.fxr/settings.json")
+                && d.contains("loaded settings from")
+                && d.contains(".fxr.json")
+        }),
+        "doctor must report both the rejected and the loaded layer: {details:?}"
+    );
+}
+
+#[test]
+fn a_directory_where_a_settings_file_belongs_is_found_but_unusable() {
+    let sandbox = Sandbox::new();
+    // A directory at the settings path is present but can never be parsed.
+    fs::create_dir_all(sandbox.profile_dir().join("settings.json")).expect("occupy the path");
+
+    let doctor = sandbox.run(&["doctor", "--json"]);
+    assert_eq!(doctor.code, Some(0), "doctor must still run");
+    let details = config_details(&doctor.json());
+    assert!(
+        !details.iter().any(|d| d.contains("no config files found")),
+        "the path is occupied; doctor must not report that none was found: {details:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|d| d.contains("found but could not use")),
+        "doctor must report the occupied path: {details:?}"
+    );
+}
+
+#[test]
+fn an_oversized_settings_file_is_found_but_unusable() {
+    let sandbox = Sandbox::new();
+    let padding = "x".repeat(fxr::config::MAX_SETTINGS_BYTES + 1);
+    sandbox.write_user_settings(&format!("{{\"model\":\"{padding}\"}}"));
+
+    let details = config_details(&sandbox.run(&["doctor", "--json"]).json());
+    assert!(
+        !details.iter().any(|d| d.contains("no config files found")),
+        "an oversized file still exists on disk: {details:?}"
+    );
+    assert!(
+        details.iter().any(|d| d.contains("settings_too_large")),
+        "doctor must report the size rejection: {details:?}"
+    );
 }
 
 #[test]
@@ -764,6 +855,107 @@ fn precedence_runs_project_then_profile_then_exact_workspace_then_environment() 
     assert_eq!(
         config.sources.max_agent_steps,
         SettingSource::ProcessOverride
+    );
+}
+
+// `0` means an unbounded agent step limit, matching upstream
+// (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3-31`). It is the one
+// configured value that looks like "unset" to a careless reader, so each layer
+// that can carry it is proven to preserve it rather than fall back to the
+// compiled default.
+
+#[test]
+fn an_environment_zero_selects_an_unbounded_step_limit() {
+    let sandbox = Sandbox::new();
+    let config = RuntimeConfig::load_with(
+        &environment(&sandbox.home, &[("FXR_MAX_AGENT_STEPS", "0")]),
+        &sandbox.workspace,
+    )
+    .unwrap();
+    assert_eq!(
+        config.max_agent_steps, 0,
+        "explicit 0 must not fall back to the compiled default"
+    );
+    assert_ne!(config.max_agent_steps, fxr::config::DEFAULT_MAX_AGENT_STEPS);
+    assert_eq!(
+        config.sources.max_agent_steps,
+        SettingSource::ProcessOverride
+    );
+}
+
+#[test]
+fn a_project_zero_selects_an_unbounded_step_limit() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_settings("{\"max_agent_steps\":0}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(
+        config.max_agent_steps, 0,
+        "explicit 0 must not fall back to the compiled default"
+    );
+    assert_eq!(config.sources.max_agent_steps, SettingSource::Project);
+}
+
+#[test]
+fn a_zero_step_limit_overrides_a_configured_bound_at_every_layer() {
+    let sandbox = Sandbox::new();
+    let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
+
+    // A profile bound is replaced by a project-free profile zero.
+    sandbox.write_user_settings("{\"max_agent_steps\":0}");
+    sandbox.write_project_settings("{\"max_agent_steps\":11}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.max_agent_steps, 0);
+    assert_eq!(config.sources.max_agent_steps, SettingSource::UserGlobal);
+
+    // The exact workspace entry can also select unbounded.
+    sandbox.write_user_settings(&format!(
+        "{{\"max_agent_steps\":11,\"workspaces\":{{{}:{{\"max_agent_steps\":0}}}}}}",
+        serde_json::to_string(&workspace_key).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.max_agent_steps, 0);
+    assert_eq!(config.sources.max_agent_steps, SettingSource::UserWorkspace);
+
+    // And a configured zero is still overridable by a bounded environment value.
+    let config = RuntimeConfig::load_with(
+        &environment(&sandbox.home, &[("FXR_MAX_AGENT_STEPS", "4")]),
+        &sandbox.workspace,
+    )
+    .unwrap();
+    assert_eq!(config.max_agent_steps, 4);
+    assert_eq!(
+        config.sources.max_agent_steps,
+        SettingSource::ProcessOverride
+    );
+}
+
+#[test]
+fn status_and_doctor_report_an_unbounded_step_limit_as_zero() {
+    let sandbox = Sandbox::new();
+    let env = [("FXR_MAX_AGENT_STEPS", "0")];
+
+    let status = sandbox.run_with_env(&["status", "--json"], &env);
+    assert_eq!(status.code, Some(0));
+    assert_eq!(status.json()["agent_step_limit"], 0);
+
+    let doctor = sandbox.run_with_env(&["doctor", "--json"], &env).json();
+    assert_eq!(doctor["agent_step_limit"], 0);
+    let startup = doctor["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "startup")
+        .cloned()
+        .expect("startup check");
+    assert!(
+        startup["detail"]
+            .as_str()
+            .unwrap()
+            .contains("agent_step_limit=0"),
+        "startup detail must carry the unbounded limit, got {startup:?}"
     );
 }
 
