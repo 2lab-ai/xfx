@@ -74,6 +74,44 @@ pub fn is_ignored_directory(name: &str) -> bool {
     IGNORED_DIRECTORY_NAMES.contains(&name)
 }
 
+/// Directory names the typed file tools never write into, at any depth.
+///
+/// These are not "files that matter"; they are the places where *the authority
+/// itself* is configured. `.git/config` is executable input to git -- a
+/// `core.fsmonitor`, a `diff.external`, or a `diff.<driver>.textconv` entry is a
+/// command that `git status` or `git diff` will run through a shell -- so a mode
+/// that admits a bounded workspace write would otherwise admit, one call later,
+/// an arbitrary command on the direct read-only route. `.fxr` is fxr's own
+/// profile home, which holds the session log an approval is recorded in.
+///
+/// The set is explicit rather than "every dot directory" on purpose: `.github`,
+/// `.cargo`, and `.vscode` are ordinary project content that a coding agent is
+/// expected to edit, and refusing them would make the tool useless to buy a
+/// guarantee that is not about them.
+///
+/// The comparison is on the components *below an authorized root*. A user who
+/// points fxr at a directory that is itself inside a `.git` has said that this
+/// is the workspace, and the invocation already rests on that decision.
+pub const PROTECTED_WRITE_DIRECTORY_NAMES: &[&str] = &[".git", ".fxr"];
+
+/// Whether `name` is a directory the file tools refuse to write into or through.
+///
+/// Case-insensitive, and that is not politeness. macOS ships a case-insensitive
+/// APFS volume by default, so `.GIT/hooks/pre-commit` names the same directory
+/// `openat` reaches for `.git/hooks/pre-commit`; an exact comparison would be a
+/// check the caller could spell its way around on one of the two platforms fxr
+/// supports. The cost on a case-sensitive filesystem is that a directory
+/// genuinely called `.GIT` is refused as well, which has no plausible legitimate
+/// instance and is the safe direction to be wrong in.
+///
+/// ASCII folding only: both names are ASCII, and Unicode case folding would put
+/// locale-dependent behaviour inside a security check for nothing.
+pub fn is_protected_write_directory(name: &str) -> bool {
+    PROTECTED_WRITE_DIRECTORY_NAMES
+        .iter()
+        .any(|protected| protected.eq_ignore_ascii_case(name))
+}
+
 /// Why a path could not be used.
 ///
 /// The `Display` text reaches the model as a tool result, so each variant says
@@ -337,6 +375,29 @@ mod tests {
         );
         assert!(is_ignored_directory(".git"));
         assert!(!is_ignored_directory("src"));
+    }
+
+    #[test]
+    fn the_write_protected_set_covers_the_authorities_and_not_ordinary_dot_directories() {
+        assert_eq!(PROTECTED_WRITE_DIRECTORY_NAMES, [".git", ".fxr"]);
+        assert!(is_protected_write_directory(".git"));
+        assert!(is_protected_write_directory(".fxr"));
+        // macOS's default volume is case-insensitive, so on one of the two
+        // supported platforms these name the very same directory.
+        for spelled in [".GIT", ".Git", ".gIt", ".FXR", ".Fxr"] {
+            assert!(
+                is_protected_write_directory(spelled),
+                "`{spelled}` reaches the same directory on a case-insensitive filesystem"
+            );
+        }
+        // The whole reason the set is a list and not "starts with a dot": these
+        // are project content a coding agent is expected to change.
+        for ordinary in [".github", ".cargo", ".vscode", ".config", "git", "src"] {
+            assert!(
+                !is_protected_write_directory(ordinary),
+                "`{ordinary}` must stay writable"
+            );
+        }
     }
 
     #[test]

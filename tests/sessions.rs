@@ -1908,6 +1908,160 @@ fn a_standing_grant_is_shown_by_tool_and_target_and_survives_a_resume() {
     );
 }
 
+/// Seeds one standing grant into `session_id`, the way an "always" answer does.
+fn seed_grant(sandbox: &Sandbox, session_id: &str, tool: &str, target: &str) {
+    let store = SessionStore::open(&sandbox.profile_dir()).expect("open");
+    let mut session = store
+        .resume(&Selector::Id(id(session_id)), &sandbox.workspace)
+        .expect("resume")
+        .session;
+    store
+        .append(
+            &mut session,
+            SessionEvent::PermissionGrantRecorded {
+                tool: tool.to_string(),
+                target: target.to_string(),
+            },
+        )
+        .expect("append");
+    store.publish(&mut session).expect("publish");
+}
+
+/// One turn whose only step is `write_file` on `path`, then an answer.
+fn write_file_turn(path: &str) -> Vec<Reply> {
+    vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "c1",
+                "write_file",
+                json!({ "path": path, "content": "rewritten\n" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[text_delta("a0", "done"), finish("stop")])),
+    ]
+}
+
+/// Whether the `write_file` call in `run`'s JSONL was admitted.
+fn write_was_allowed(run: &Run) -> bool {
+    run.stdout
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("JSONL"))
+        .find(|event| event["kind"] == "tool_result" && event["call_id"] == "c1")
+        .map(|event| event["ok"] == json!(true))
+        .expect("the write_file call has a result")
+}
+
+#[test]
+fn a_standing_mutation_grant_is_keyed_by_the_file_it_approved() {
+    // An "always" answer is a decision about *one file*. It is persisted, and a
+    // later `--resume-id` reuses it, so the key has to name the file rather than
+    // the name the file happened to have from one directory.
+    let sandbox = Sandbox::new();
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["first"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "first turn"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    let target = sandbox.workspace.join("notes.md");
+    seed_grant(
+        &sandbox,
+        &session_id,
+        "write_file",
+        target.to_str().expect("a utf-8 path"),
+    );
+
+    // `ask` with no terminal refuses everything it has not been told about, so
+    // the standing grant is the only thing that can admit this write.
+    let gateway = FakeGateway::start(write_file_turn("notes.md"));
+    let url = gateway.chat_url();
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("FXR_PERMISSION_MODE", "ask"));
+    let run = sandbox.run(
+        &["ask", "--json", "--resume-id", &session_id, "rewrite it"],
+        &env,
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert!(
+        write_was_allowed(&run),
+        "the approval given for this exact file did not admit it: {}",
+        run.stdout
+    );
+    assert_eq!(fs::read_to_string(&target).expect("read"), "rewritten\n");
+}
+
+#[test]
+fn a_standing_mutation_grant_does_not_follow_an_exact_id_into_another_workspace() {
+    // The defect: the grant key was the *display* path, which is
+    // workspace-relative. `--resume-id` may be run from anywhere and rebinds the
+    // session, so `notes.md` approved in one tree matched `notes.md` in the next
+    // one -- a different file, about which nobody was ever asked.
+    let sandbox = Sandbox::new();
+    let second = TempDir::new().expect("a second workspace");
+    let elsewhere = second.path().canonicalize().expect("canonicalize");
+    // Deliberately absent: creating a file needs no read proof, so policy is the
+    // only thing standing between the grant and this tree.
+    let stranger = elsewhere.join("notes.md");
+
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["first"]))]);
+    let url = gateway.chat_url();
+    assert_eq!(
+        sandbox
+            .run(&["ask", "first turn"], &gateway_env(&url, TEST_KEY))
+            .code,
+        Some(0)
+    );
+    let session_id = sandbox.saved_ids().into_iter().next().expect("one session");
+    drop(gateway);
+
+    // Both spellings a retargeting key could take: the relative name the defect
+    // persisted, and the absolute one belonging to the *original* workspace.
+    seed_grant(&sandbox, &session_id, "write_file", "notes.md");
+    seed_grant(
+        &sandbox,
+        &session_id,
+        "write_file",
+        sandbox
+            .workspace
+            .join("notes.md")
+            .to_str()
+            .expect("a utf-8 path"),
+    );
+
+    let gateway = FakeGateway::start(write_file_turn("notes.md"));
+    let url = gateway.chat_url();
+    let mut env = gateway_env(&url, TEST_KEY);
+    env.push(("FXR_PERMISSION_MODE", "ask"));
+    let run = sandbox.run_in(
+        &elsewhere,
+        &["ask", "--json", "--resume-id", &session_id, "rewrite it"],
+        &env,
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert!(
+        !write_was_allowed(&run),
+        "a grant from another workspace authorized this one: {}",
+        run.stdout
+    );
+    assert!(
+        !stranger.exists(),
+        "a file nobody was asked about was written in the workspace the session moved to"
+    );
+    // And the refusal is the one that means "nothing here says yes", not an
+    // accident of some other rule.
+    assert!(
+        run.stdout.contains("approval"),
+        "the refusal must be the permission decision: {}",
+        run.stdout
+    );
+}
+
 #[test]
 fn a_session_field_carrying_a_newline_cannot_forge_a_row() {
     // A manifest is a file, and a file is something that can be written by

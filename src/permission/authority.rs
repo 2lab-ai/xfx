@@ -609,7 +609,9 @@ impl CommandPlan {
             denied => denied,
         };
         let route = match &effect {
-            CommandEffect::DirectReadOnly { argv } => CommandRoute::Direct { argv: argv.clone() },
+            CommandEffect::DirectReadOnly { argv } => CommandRoute::Direct {
+                argv: hardened(argv),
+            },
             CommandEffect::Denied(_) => CommandRoute::Shell {
                 program: platform_shell(),
             },
@@ -623,7 +625,7 @@ impl CommandPlan {
         hasher.update([0u8]);
         for (name, value) in &environment {
             hasher.update(name.as_bytes());
-            hasher.update([b'=']);
+            hasher.update(*b"=");
             hasher.update(value.as_bytes());
             hasher.update([0u8]);
         }
@@ -706,6 +708,61 @@ impl PreparedCommand {
     pub fn nonce(&self) -> Nonce {
         self.nonce
     }
+}
+
+/// Overrides prepended to an admitted `git`, before its subcommand.
+///
+/// `core.fsmonitor` names a command git runs through a shell on `status` and on
+/// anything else that refreshes the index, so a repository whose `.git/config`
+/// already carries one would execute it on the route `auto` admits without
+/// asking. `-c` outranks every configuration file, and `false` is the value that
+/// disables both the built-in monitor and the hook form.
+const GIT_CONFIG_OVERRIDES: &[&str] = &["-c", "core.fsmonitor=false"];
+
+/// Options inserted directly after a `git` subcommand that accepts them.
+///
+/// `--no-ext-diff` disables `diff.external`; `--no-textconv` disables the
+/// `diff.<driver>.textconv` a `.gitattributes` entry can select. Both are
+/// commands run through a shell, and both are configured *inside the
+/// repository*, which is exactly the kind of pre-existing state a read-only
+/// route must not execute.
+const GIT_DIFF_SAFETY: &[&str] = &["--no-ext-diff", "--no-textconv"];
+
+/// The `git` subcommands that accept [`GIT_DIFF_SAFETY`].
+const GIT_DIFF_SUBCOMMANDS: &[&str] = &["diff", "log", "show"];
+
+/// The argv a direct plan really executes.
+///
+/// Only `git` is rewritten, and only by adding options that *remove* behaviour.
+/// The command text the model wrote is untouched -- it is what a rule or a grant
+/// is keyed on, and what the user is shown -- so this changes what runs, not
+/// what was agreed.
+///
+/// # What this does not cover
+///
+/// A `filter.<driver>.clean` selected by a `.gitattributes` entry is also a
+/// shell command, and `git diff` runs it on a worktree file. Git offers no
+/// single switch for it, and enumerating drivers is not a boundary. The real
+/// control for that is the other half of this change: the typed file tools
+/// refuse to write `.git` at all, so fxr cannot be the thing that installs one.
+/// A repository that already carries a hostile `.gitattributes` and a matching
+/// `.git/config` is a repository whose contents the user has already chosen to
+/// open.
+fn hardened(argv: &[String]) -> Vec<String> {
+    if argv.first().map(String::as_str) != Some("git") {
+        return argv.to_vec();
+    }
+    let mut out: Vec<String> = Vec::with_capacity(argv.len() + 4);
+    out.push(argv[0].clone());
+    out.extend(GIT_CONFIG_OVERRIDES.iter().map(|word| word.to_string()));
+    if let Some(subcommand) = argv.get(1) {
+        out.push(subcommand.clone());
+        if GIT_DIFF_SUBCOMMANDS.contains(&subcommand.as_str()) {
+            out.extend(GIT_DIFF_SAFETY.iter().map(|word| word.to_string()));
+        }
+        out.extend(argv[2..].iter().cloned());
+    }
+    out
 }
 
 /// The first word of `argv` that exists and resolves outside the scope.
@@ -1063,6 +1120,52 @@ mod tests {
             message.contains(&MAX_COMMAND_BYTES.to_string()),
             "{message}"
         );
+    }
+
+    #[test]
+    fn an_admitted_git_runs_with_the_repositorys_own_hooks_and_diff_drivers_off() {
+        let (_dir, scope) = scope();
+        let limits = ToolLimits::default();
+
+        let status = CommandPlan::prepare("git status --short", &scope, None, &limits)
+            .expect("a plannable command");
+        let CommandRoute::Direct { argv } = status.route() else {
+            panic!("`git status` is a direct plan");
+        };
+        assert_eq!(
+            argv,
+            &["git", "-c", "core.fsmonitor=false", "status", "--short"]
+        );
+
+        // The diff family gets the two options that turn off the commands a
+        // repository can configure for it.
+        let diff = CommandPlan::prepare("git diff --stat", &scope, None, &limits).expect("a plan");
+        let CommandRoute::Direct { argv } = diff.route() else {
+            panic!("`git diff` is a direct plan");
+        };
+        assert_eq!(
+            argv,
+            &[
+                "git",
+                "-c",
+                "core.fsmonitor=false",
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--stat"
+            ]
+        );
+
+        // The agreement is unchanged: the text a rule or a grant is keyed on,
+        // and the sentence a human was shown, are still what the model wrote.
+        assert_eq!(diff.command(), "git diff --stat");
+
+        // Nothing else is rewritten.
+        let other = CommandPlan::prepare("cargo --version", &scope, None, &limits).expect("a plan");
+        let CommandRoute::Direct { argv } = other.route() else {
+            panic!("`cargo --version` is a direct plan");
+        };
+        assert_eq!(argv, &["cargo", "--version"]);
     }
 
     #[test]

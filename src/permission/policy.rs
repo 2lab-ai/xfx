@@ -126,9 +126,17 @@ impl ProposedAction<'_> {
     /// A command's key includes its working directory. Without it, approving
     /// `cat notes.md` in the workspace would also approve `cat notes.md` in a
     /// directory `--add-dir` opened, which is a different file and a different
-    /// question. A mutation's key is its display path, which is already
-    /// workspace-relative inside the workspace and absolute anywhere else, so it
-    /// distinguishes roots on its own.
+    /// question.
+    ///
+    /// A mutation's key is the plan's **canonical absolute target**, never its
+    /// display path. The display path is workspace-relative, and a grant
+    /// outlives the process that gave it: `fxr ask --resume-id <id>` may be run
+    /// from a different directory, which rebinds the session's workspace, and a
+    /// relative key would then silently match a different file with the same
+    /// name in the new tree. An approval is an answer about one file, so the key
+    /// names that file. The *prose* a human is asked -- [`Self::summary`] and
+    /// [`Self::always_scope`] -- keeps the friendly relative path, because that
+    /// is the name the user and the model both use.
     ///
     /// The rest of a command plan -- the route and the environment -- is a
     /// function of the command text and the process environment, so (tool,
@@ -137,7 +145,7 @@ impl ProposedAction<'_> {
     /// pins that.
     pub fn target(&self) -> String {
         match self {
-            Self::Mutation(plan) => plan.display().to_string(),
+            Self::Mutation(plan) => plan.target().to_string_lossy().into_owned(),
             Self::Command(plan) => format!("{} in {}", plan.command(), plan.cwd().display()),
         }
     }
@@ -691,12 +699,57 @@ mod tests {
     }
 
     #[test]
+    fn a_mutation_is_keyed_by_its_absolute_target_and_not_by_the_name_it_is_shown_as() {
+        // The retargeting defect in one assertion: two workspaces, the same
+        // relative name, one key each. An `always` given in `/w` is persisted
+        // and reused by a later `--resume-id` run that rebound the session to
+        // another tree, so a key that was only `a.txt` would authorize a file
+        // nobody was ever asked about.
+        let here = write_plan(TargetScope::PrimaryWorkspace);
+        let elsewhere = MutationPlan::new(
+            MutationKind::Write,
+            PathBuf::from("/other/a.txt"),
+            "a.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"hello".to_vec(),
+        );
+        assert_eq!(ProposedAction::Mutation(&here).target(), "/w/a.txt");
+        assert_ne!(
+            ProposedAction::Mutation(&here).target(),
+            ProposedAction::Mutation(&elsewhere).target()
+        );
+
+        let mut session = PermissionSession::new(PermissionMode::Ask);
+        session.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&here)),
+            PolicyDecision::Allow {
+                source: AllowSource::SessionGrant
+            }
+        );
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&elsewhere)),
+            PolicyDecision::Prompt,
+            "a grant for one tree authorized the same relative name in another"
+        );
+
+        // The question a human answers still names the file the way they do.
+        assert!(
+            ProposedAction::Mutation(&here)
+                .always_scope()
+                .contains("`a.txt`"),
+            "the prose must keep the friendly path"
+        );
+    }
+
+    #[test]
     fn a_deny_rule_outranks_an_allow_rule_for_the_same_target() {
         let plan = write_plan(TargetScope::PrimaryWorkspace);
         let session =
             PermissionSession::new(PermissionMode::Auto).with_rules(PermissionRules::new(
-                vec![Rule::new("write_file", "a.txt")],
-                vec![Rule::new("write_file", "a.txt")],
+                vec![Rule::new("write_file", "/w/a.txt")],
+                vec![Rule::new("write_file", "/w/a.txt")],
             ));
         assert!(matches!(
             session.evaluate(ProposedAction::Mutation(&plan)),
@@ -711,7 +764,7 @@ mod tests {
     fn a_rule_for_a_different_tool_does_not_apply() {
         let plan = write_plan(TargetScope::PrimaryWorkspace);
         let session = PermissionSession::new(PermissionMode::Ask).with_rules(PermissionRules::new(
-            vec![Rule::new("edit_file", "a.txt")],
+            vec![Rule::new("edit_file", "/w/a.txt")],
             Vec::new(),
         ));
         assert_eq!(

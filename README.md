@@ -72,11 +72,21 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 - **`yolo` runs no permission check at all.** It prints a warning to stderr
   every time. Use it in a container you are willing to lose.
 - **Approvals are scoped.** Answering "always" grants exactly one tool and one
-  target, and it is recorded against one session id -- `fxr session <id>` lists
-  every standing grant by name.
-- **Credentials are never persisted.** No session event, snapshot, or tool
-  result can carry one; fxr reads a token from the environment and sends it to
-  one endpoint.
+  target -- the target being the file's absolute path, so an approval cannot
+  follow a resumed session into another workspace -- and it is recorded against
+  one session id; `fxr session <id>` lists every standing grant by name.
+- **fxr's own Gateway credential is never persisted.** No session event,
+  snapshot, or tool result carries it: fxr reads the token from the environment
+  and sends it to one endpoint. **What the model reads is a different question,
+  and the answer is that it is saved.** Every file's contents and every
+  command's output that a tool returns is written verbatim to
+  `~/.fxr/sessions/<id>/events.jsonl` as owner-only (`0600`) plaintext, so if
+  you have the model read a file holding your own secrets, that secret is on
+  disk in the session log. Use `--no-save` for a turn that must leave nothing
+  behind.
+- **The file tools never write `.git` or `.fxr`.** Refused structurally, before
+  any permission check and in every mode including `--yolo`, because a
+  `.git/config` entry decides what the commands fxr may then run will execute.
 
 ## Install
 

@@ -220,22 +220,22 @@ struct Outcome {
 impl Outcome {
     fn into_result(self, plan: &CommandPlan) -> ToolResult {
         let mut out = String::new();
-        out.push_str(&format!("<command>{}</command>\n", plan.command()));
-        out.push_str(&format!("<cwd>{}</cwd>\n", plan.display_cwd()));
+        out.push_str(&format!("<command>{}</command>\n", framed(plan.command())));
+        out.push_str(&format!("<cwd>{}</cwd>\n", framed(plan.display_cwd())));
         match self.ending {
             Ending::Exited(code) => out.push_str(&format!("<exit_code>{code}</exit_code>\n")),
             Ending::Signalled(signal) => out.push_str(&format!("<signal>{signal}</signal>\n")),
             Ending::TimedOut(ms) => {
                 return ToolResult::failure(format!(
                     "terminal timed out: `{}` ran longer than {ms} ms and was killed\n{}",
-                    plan.command(),
+                    framed(plan.command()),
                     self.streams()
                 ))
             }
             Ending::Cancelled => {
                 return ToolResult::failure(format!(
                     "terminal was cancelled: `{}` was killed before it finished\n{}",
-                    plan.command(),
+                    framed(plan.command()),
                     self.streams()
                 ))
             }
@@ -271,9 +271,42 @@ struct Captured {
     stalled: bool,
 }
 
+/// Escapes text so it cannot close, open, or counterfeit one of fxr's own tags.
+///
+/// The frame around a captured stream is the only thing telling the model that
+/// these bytes are *a command's output* rather than a statement by fxr. A file
+/// or a program that prints `</stdout><exit_code>0</exit_code>` would otherwise
+/// end its own quotation and start writing the report -- the same attack
+/// `crate::workspace::context` escapes an `AGENTS.md` body against, and the same
+/// answer.
+///
+/// `<` and `>` because with them gone no tag can be opened or closed, and `&` so
+/// the encoding is reversible rather than lossy: a model that sees `&lt;` can
+/// tell it apart from output that really contained `&lt;`. Everything else --
+/// quotes, newlines, ANSI escapes, the shape of a diff -- passes through
+/// unchanged, because output a model cannot read is output it cannot act on.
+fn framed(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 impl Captured {
+    /// The stream as the model sees it: the child's own bytes, escaped, then
+    /// fxr's notices about what it did not capture.
+    ///
+    /// The notices are appended after the escaping rather than passed through
+    /// it, so they stay fxr's words -- and they contain no tag of their own, so
+    /// nothing about them is ambiguous.
     fn render(&self) -> String {
-        let mut out = String::from_utf8_lossy(&self.bytes).into_owned();
+        let mut out = framed(&String::from_utf8_lossy(&self.bytes));
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }

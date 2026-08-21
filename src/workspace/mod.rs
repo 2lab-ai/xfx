@@ -18,5 +18,6 @@ pub use context::{
     ProjectContext, CONTEXT_FILE_NAME, CONTEXT_GUIDANCE,
 };
 pub use path::{
-    is_ignored_directory, AccessScope, PathError, ResolvedPath, IGNORED_DIRECTORY_NAMES,
+    is_ignored_directory, is_protected_write_directory, AccessScope, PathError, ResolvedPath,
+    IGNORED_DIRECTORY_NAMES, PROTECTED_WRITE_DIRECTORY_NAMES,
 };

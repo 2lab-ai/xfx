@@ -41,6 +41,19 @@
 //! proof has to still be true: the digest recorded at read time is compared with
 //! the file's digest now, and a mismatch is a refusal that says to read again
 //! (`vercel-labs/fx@580a0c5d src/core/workspace/read_tracker.zig:9-20`).
+//!
+//! # What no mode may write
+//!
+//! Two directory names are refused *structurally*, before policy is consulted
+//! and in every permission mode:
+//! [`crate::workspace::PROTECTED_WRITE_DIRECTORY_NAMES`]. They are where the
+//! authority is configured rather than where the work is: `.git/config` is
+//! executable input to git, so a bounded workspace write followed by an
+//! admitted `git status` or `git diff` would be an arbitrary command with no
+//! approval anywhere on the path, and `.fxr` is the profile home an approval is
+//! recorded in. `yolo` can still run an explicitly approved terminal command
+//! that touches them -- the claim is about the typed file tools, which never
+//! rewrite their own or git's authority metadata.
 
 use serde_json::Value;
 
@@ -260,7 +273,7 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(located) => located,
         Err(reason) => return ToolResult::failure(reason),
     };
-    let preimage = match read_preimage(&located, "write_file") {
+    let preimage = match read_preimage(&located, "write_file", context) {
         Ok(preimage) => preimage,
         Err(reason) => return ToolResult::failure(reason),
     };
@@ -302,7 +315,7 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         Ok(located) => located,
         Err(reason) => return ToolResult::failure(reason),
     };
-    let preimage = match read_preimage(&located, "edit_file") {
+    let preimage = match read_preimage(&located, "edit_file", context) {
         Ok(preimage) => preimage,
         Err(reason) => return ToolResult::failure(reason),
     };
@@ -440,8 +453,16 @@ impl TargetState {
 }
 
 /// Reads whatever is at the located target, without following a symlink.
-fn read_preimage(located: &Location, tool: &str) -> Result<TargetState, String> {
-    match namespace::read_target(located) {
+///
+/// Bounded by the same ceiling a complete `read_file` runs under, and bounded
+/// against the file's stat rather than against what a read turned out to
+/// produce, so an enormous target is refused before it is allocated.
+fn read_preimage(
+    located: &Location,
+    tool: &str,
+    context: &ToolContext,
+) -> Result<TargetState, String> {
+    match namespace::read_target(located, context.limits().max_read_bytes) {
         Ok(None) => Ok(TargetState::Absent),
         Ok(Some((identity, bytes))) => {
             let hash = ContentHash::of(&bytes);
@@ -754,6 +775,17 @@ mod namespace {
             ));
         }
 
+        // Before policy, in every mode: the file tools do not rewrite the
+        // metadata that decides what fxr and git are allowed to do. This is
+        // structural rather than a rule, so no mode, rule, or standing approval
+        // can reach past it.
+        if let Some(protected) = protected_component(&relative) {
+            return Err(format!(
+                "{tool} refused the path: `{trimmed}` passes through `{protected}`, which holds repository or fxr metadata; \
+                 the file tools never change it in any permission mode, because a `{protected}` entry decides what later commands are allowed to run"
+            ));
+        }
+
         // The root is authorized and canonical, so it is opened by path. Every
         // component below it is opened relative to a descriptor.
         let mut parent = rustix::fs::open(
@@ -789,6 +821,17 @@ mod namespace {
             display: scope.display_path(&full),
             full,
             target_scope,
+        })
+    }
+
+    /// The first component of `relative` that names write-protected metadata.
+    ///
+    /// Every component is checked, including the last: `create_folder .git` is
+    /// as much a change to that authority as `write_file .git/config` is.
+    fn protected_component(relative: &[OsString]) -> Option<String> {
+        relative.iter().find_map(|component| {
+            let name = component.to_string_lossy();
+            crate::workspace::is_protected_write_directory(&name).then(|| name.into_owned())
         })
     }
 
@@ -845,7 +888,20 @@ mod namespace {
     }
 
     /// Reads the target without following a link, or reports that it is absent.
-    pub fn read_target(located: &Location) -> Result<Option<(FileIdentity, Vec<u8>)>, String> {
+    ///
+    /// `max_bytes` is checked against the *stat*, before a byte is allocated. A
+    /// mutation has to hold the whole preimage in memory -- it is hashed, and an
+    /// edit builds its postimage from it -- so an unbounded read here would let
+    /// one `edit_file` on a large file exhaust fxr's memory before policy had
+    /// even been asked. The bound is the same ceiling a complete `read_file`
+    /// runs under, which is not a coincidence: an existing target needs a
+    /// complete read proof, and a file above that ceiling can never have one, so
+    /// this refuses at the top of the path what would have been refused at the
+    /// bottom of it anyway.
+    pub fn read_target(
+        located: &Location,
+        max_bytes: usize,
+    ) -> Result<Option<(FileIdentity, Vec<u8>)>, String> {
         if !located.reachable() {
             return Ok(None);
         }
@@ -868,8 +924,17 @@ mod namespace {
                 located.display()
             ));
         }
-        let mut bytes = Vec::new();
-        let mut file = file;
+        if metadata.len() > max_bytes as u64 {
+            return Err(format!(
+                "will not change `{}`: it is {} bytes and one change may only rest on a preimage of at most {max_bytes} bytes",
+                located.display(),
+                metadata.len()
+            ));
+        }
+        // Exactly the size that was just admitted, so the read cannot grow past
+        // the bound even if the file does between the stat and the read.
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        let mut file = std::io::Read::take(file, max_bytes as u64);
         std::io::Read::read_to_end(&mut file, &mut bytes)
             .map_err(|err| format!("cannot read `{}`: {err}", located.display()))?;
         Ok(Some((FileIdentity::from_metadata(&metadata), bytes)))
@@ -1125,7 +1190,10 @@ mod namespace {
         Err(format!("{tool} {UNSUPPORTED}"))
     }
 
-    pub fn read_target(_located: &Location) -> Result<Option<(FileIdentity, Vec<u8>)>, String> {
+    pub fn read_target(
+        _located: &Location,
+        _max_bytes: usize,
+    ) -> Result<Option<(FileIdentity, Vec<u8>)>, String> {
         Err(UNSUPPORTED.to_string())
     }
 

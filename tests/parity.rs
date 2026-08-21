@@ -517,6 +517,103 @@ fn every_environment_override_the_binary_reads_is_documented() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// the safety claims a reader acts on
+// ---------------------------------------------------------------------------
+//
+// A row-by-row validator cannot see a promise, and a promise is what a user
+// reads before pointing this at a repository they care about. These two tests
+// exist because one of those promises was false: the README said no session
+// event, snapshot, or tool result could carry a credential, while a
+// `ToolResult` event stores whatever the model read -- so a secret fxr was
+// asked to read was on disk in the session log at the moment the sentence
+// denied it. The claim is now scoped to fxr's own Gateway token, and these
+// tests are what stop the unscoped version from coming back in a new spelling.
+
+/// The documents a user reads for safety claims, by repository-relative path.
+fn safety_documents() -> Vec<(&'static str, String)> {
+    ["README.md", "docs/parity.md", "docs/architecture.md"]
+        .into_iter()
+        .map(|name| {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(name);
+            (
+                name,
+                fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {name}: {err}")),
+            )
+        })
+        .collect()
+}
+
+/// `text` with every run of whitespace collapsed to one space.
+///
+/// A claim that is true on one line and false when a paragraph is rewrapped is
+/// not a claim anyone can check, so the check reads the prose the way a reader
+/// does rather than the way the file is wrapped.
+fn flow(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+#[test]
+fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
+    // Two checks, because a false claim can return either as the exact sentence
+    // that was removed or as a fresh unscoped one.
+    let banned = [
+        "no session event, snapshot, or tool result can carry",
+        "no variant of the event union can carry one",
+        "credentials are never persisted",
+    ];
+    for (name, text) in safety_documents() {
+        let flowed = flow(&text).to_lowercase();
+        for claim in banned {
+            assert!(
+                !flowed.contains(claim),
+                "{name} carries the unscoped credential claim {claim:?}"
+            );
+        }
+        // The general rule behind those three: fxr may only promise that *its
+        // own* credential is unsaved, so any sentence making the promise has to
+        // name what it is about.
+        for sentence in flowed.split(". ") {
+            if sentence.contains("never persisted") || sentence.contains("not persisted") {
+                assert!(
+                    sentence.contains("gateway"),
+                    "{name} promises something is never persisted without naming fxr's own \
+                     Gateway credential, which is the only thing that is: {sentence:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_readme_says_plainly_that_what_the_model_reads_is_saved() {
+    let readme = fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("README.md"))
+        .expect("read README.md");
+    let start = readme
+        .find("## Safety, in plain terms")
+        .expect("the README has a Safety section");
+    let section = &readme[start..];
+    let end = section[1..]
+        .find("\n## ")
+        .map(|at| at + 1)
+        .unwrap_or(section.len());
+    let safety = flow(&section[..end]);
+
+    // Where it goes, what it is, and how to not do it. A reader who is about to
+    // have fxr read a file with a token in it has to learn all three here.
+    for disclosure in [
+        "~/.fxr/sessions/<id>/events.jsonl",
+        "0600",
+        "plaintext",
+        "--no-save",
+    ] {
+        assert!(
+            safety.contains(disclosure),
+            "the README's Safety section does not disclose {disclosure:?}:\n{safety}"
+        );
+    }
+}
+
 #[test]
 fn every_doctor_check_the_binary_emits_is_documented() {
     // Run the real binary: the check list is built at runtime from the
