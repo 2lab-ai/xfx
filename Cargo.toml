@@ -33,7 +33,18 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# SHA-256 over file contents. A mutation authority is only as strong as the
+# preimage it names, so a preimage is identified by digest as well as by
+# device/inode, and the digest is re-derived immediately before the rename.
+sha2 = "0.10"
 tokio = { version = "1", features = ["rt", "macros", "net", "time", "sync"] }
+
+# Directory-descriptor traversal. A mutation resolves its target component by
+# component with `openat(..., O_NOFOLLOW)`, so no component can be substituted
+# between the check and the write. `std::fs` exposes no path-relative `openat`,
+# and this is the one place fxr needs one.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3.10"

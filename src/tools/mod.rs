@@ -15,8 +15,10 @@
 //!   [`UnadvertisedTool`] rather than inventing a result, and the turn ends
 //!   rather than continuing on a false premise.
 
+pub mod mutate;
 pub mod read;
 pub mod spec;
+pub mod terminal;
 
 use std::fmt;
 
@@ -25,22 +27,36 @@ use serde_json::Value;
 use crate::gateway::protocol::ToolCall;
 
 pub use spec::{
-    InputSchema, PermissionKind, Property, PropertyKind, ToolContext, ToolDecoder, ToolExecutor,
-    ToolInput, ToolLimits, ToolResult, ToolSpec, ToolValidator,
+    InputSchema, PermissionKind, Property, PropertyKind, RaceInterlude, ToolContext, ToolDecoder,
+    ToolExecutor, ToolInput, ToolLimits, ToolResult, ToolSession, ToolSpec, ToolValidator,
 };
 
 /// Every tool name this build advertises, in registry order.
 ///
 /// `scripts/check-no-stubs.sh` reads this declaration textually and requires an
 /// `implemented` row in `docs/parity.md` for each name.
-pub const ADVERTISED_TOOLS: &[&str] = &["list_files", "glob_files", "grep_files", "read_file"];
+pub const ADVERTISED_TOOLS: &[&str] = &[
+    "list_files",
+    "glob_files",
+    "grep_files",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "create_folder",
+    "terminal",
+];
 
-/// The specs themselves, in upstream's order (`tools.zig:1352-1355`).
+/// The specs themselves, in upstream's order (`tools.zig:1352-1367`): the read
+/// group, then the mutation group, then the terminal.
 static BUILTIN_TOOLS: &[ToolSpec] = &[
     read::LIST_FILES,
     read::GLOB_FILES,
     read::GREP_FILES,
     read::READ_FILE,
+    mutate::WRITE_FILE,
+    mutate::EDIT_FILE,
+    mutate::CREATE_FOLDER,
+    terminal::TERMINAL,
 ];
 
 /// A tool call fxr never offered.
@@ -101,11 +117,17 @@ impl Registry {
     /// result. `Err` is reserved for the one case the turn cannot represent --
     /// a tool that was never offered.
     ///
-    /// Every spec in this registry is [`PermissionKind::ReadOnly`], which every
-    /// permission mode admits (design, "Permissions"). That invariant is
-    /// asserted by a test rather than by a branch here, so the mutation slice
-    /// has to add the approval channel in the same change as the first kind
-    /// that needs one.
+    /// Permission admission is *not* here. It is inside the executors that need
+    /// it, because a decision has to be made about a prepared plan -- an exact
+    /// target with its exact preimage, an exact argv with its exact cwd -- and
+    /// only the executor can produce one. A gate at this level would have to
+    /// decide from the raw arguments, which is the mistake this design exists to
+    /// avoid: it would judge a path the model wrote rather than the file that
+    /// path currently resolves to.
+    ///
+    /// What is asserted here instead is that every [`PermissionKind`] that
+    /// requires an authority belongs to a spec whose executor mints one; see
+    /// `every_mutating_spec_goes_through_a_permission_decision`.
     pub fn execute(
         &self,
         call: &ToolCall,
@@ -150,17 +172,58 @@ mod tests {
     }
 
     #[test]
-    fn every_spec_is_read_only() {
-        // The admission rule in `execute` depends on this. When it stops holding
-        // this test fails, which is the point at which an approval channel has
-        // to exist.
-        for spec in Registry::builtin().specs() {
-            assert_eq!(
-                spec.permission(),
-                PermissionKind::ReadOnly,
-                "{} is not read-only",
-                spec.name()
-            );
+    fn every_spec_declares_the_authority_its_effects_need() {
+        // The registry's contract in one table: reading is free, changing a file
+        // or starting a process is not. A new spec that forgets to declare its
+        // kind fails here rather than at a user's expense.
+        let expected = [
+            ("list_files", PermissionKind::ReadOnly),
+            ("glob_files", PermissionKind::ReadOnly),
+            ("grep_files", PermissionKind::ReadOnly),
+            ("read_file", PermissionKind::ReadOnly),
+            ("write_file", PermissionKind::MutateFile),
+            ("edit_file", PermissionKind::MutateFile),
+            ("create_folder", PermissionKind::MutateFile),
+            ("terminal", PermissionKind::RunCommand),
+        ];
+        let actual: Vec<(&str, PermissionKind)> = Registry::builtin()
+            .specs()
+            .iter()
+            .map(|spec| (spec.name(), spec.permission()))
+            .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn every_mutating_spec_goes_through_a_permission_decision() {
+        // A context whose session is `ask` with no approval channel can admit
+        // nothing. Every spec that declares it needs an authority must therefore
+        // refuse, which is what proves the executor consults policy rather than
+        // declaring a kind and ignoring it.
+        let (_dir, context) = context();
+        let arguments = [
+            ("write_file", json!({ "path": "a.txt", "content": "x" })),
+            (
+                "edit_file",
+                json!({ "path": "a.txt", "old_string": "a", "new_string": "b" }),
+            ),
+            ("create_folder", json!({ "path": "made" })),
+            ("terminal", json!({ "action": "exec", "command": "pwd" })),
+        ];
+        for (name, input) in arguments {
+            let spec = Registry::builtin().spec(name).expect("advertised");
+            assert!(spec.permission().requires_authority(), "{name}");
+            let result = Registry::builtin()
+                .execute(
+                    &ToolCall {
+                        id: "c1".to_string(),
+                        name: name.to_string(),
+                        input,
+                    },
+                    &context,
+                )
+                .expect("the tool is advertised");
+            assert!(!result.ok, "{name} ran without an authority: {result:?}");
         }
     }
 
@@ -197,15 +260,18 @@ mod tests {
             .execute(
                 &ToolCall {
                     id: "c1".to_string(),
-                    name: "terminal".to_string(),
+                    // Genuinely deferred: `delete_file` is an upstream tool
+                    // with a `deferred` parity row, so this stays a real case
+                    // rather than one that expires the moment a tool lands.
+                    name: "delete_file".to_string(),
                     input: json!({}),
                 },
                 &context,
             )
-            .expect_err("terminal is not advertised");
-        assert_eq!(err.name, "terminal");
+            .expect_err("delete_file is not advertised");
+        assert_eq!(err.name, "delete_file");
         let message = err.to_string();
-        assert!(message.contains("terminal"), "{message}");
+        assert!(message.contains("delete_file"), "{message}");
         assert!(message.contains("read_file"), "{message}");
     }
 

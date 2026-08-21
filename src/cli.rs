@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use clap::error::ErrorKind;
 use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 
+use crate::config::PermissionMode;
+
 /// Every command name the parser accepts, including clap's built-in `help`.
 ///
 /// `scripts/check-no-stubs.sh` reconciles this list against `docs/parity.md`, and
@@ -48,6 +50,10 @@ pub enum Command {
         /// Directories the turn's read tools may reach outside the workspace,
         /// in the order the user named them. Empty means workspace-only.
         add_dirs: Vec<PathBuf>,
+        /// The permission mode this invocation asked for, if it asked. `None`
+        /// leaves the configured mode alone; the flags are an override for one
+        /// run, not a way to rewrite settings.
+        mode: Option<PermissionMode>,
     },
     /// Report resolved configuration and credentials.
     Status { json: bool },
@@ -139,6 +145,8 @@ impl RawCli {
                 json,
                 no_save,
                 add_dir,
+                auto,
+                yolo,
             }) => {
                 // Words are rejoined with a single space: the shell already
                 // split them, and preserving the original spacing would need
@@ -150,11 +158,21 @@ impl RawCli {
                             .to_string(),
                     };
                 }
+                // clap already rejects `--auto --yolo` together, so at most one
+                // is set here; the `else` order is not a precedence rule.
+                let mode = if yolo {
+                    Some(PermissionMode::Yolo)
+                } else if auto {
+                    Some(PermissionMode::Auto)
+                } else {
+                    None
+                };
                 Command::Ask {
                     prompt,
                     json,
                     no_save,
                     add_dirs: add_dir,
+                    mode,
                 }
             }
             Some(RawCommand::Status { json }) => Command::Status { json },
@@ -196,6 +214,16 @@ enum RawCommand {
         /// Let this turn's read tools also read PATH (repeatable)
         #[arg(long = "add-dir", value_name = "PATH", action = ArgAction::Append)]
         add_dir: Vec<PathBuf>,
+        // The two mode flags are `conflicts_with` rather than an enum-valued
+        // option because that is the spelling upstream uses
+        // (`cli_surface.zig:61`), and because `--yolo` should be a word a user
+        // has to type deliberately rather than a value they could mistype into.
+        /// Run bounded reversible workspace changes and read-only commands without asking
+        #[arg(long, conflicts_with = "yolo")]
+        auto: bool,
+        /// Skip every permission check for this run (prints a warning)
+        #[arg(long)]
+        yolo: bool,
         /// The question. Everything after `--`, and everything after the first
         /// prompt word, is prompt text rather than a flag. A leading `-` before
         /// the prompt is still an unknown flag, so a typo is reported instead
@@ -286,6 +314,7 @@ mod tests {
                 json: false,
                 no_save: false,
                 add_dirs: Vec::new(),
+                mode: None,
             }
         );
         assert_eq!(
@@ -295,6 +324,7 @@ mod tests {
                 json: true,
                 no_save: true,
                 add_dirs: Vec::new(),
+                mode: None,
             }
         );
     }
@@ -308,6 +338,7 @@ mod tests {
                 json: false,
                 no_save: false,
                 add_dirs: vec![PathBuf::from("/one"), PathBuf::from("/two")],
+                mode: None,
             }
         );
     }
@@ -343,12 +374,34 @@ mod tests {
     }
 
     #[test]
+    fn the_permission_flags_select_a_mode_and_cannot_be_combined() {
+        let mode = |args: &[&str]| match parse(args) {
+            Command::Ask { mode, .. } => mode,
+            other => panic!("{args:?} must be an ask: {other:?}"),
+        };
+        assert_eq!(mode(&["ask", "hi"]), None);
+        assert_eq!(mode(&["ask", "--auto", "hi"]), Some(PermissionMode::Auto));
+        assert_eq!(mode(&["ask", "--yolo", "hi"]), Some(PermissionMode::Yolo));
+        // Two modes at once has no honest meaning, and picking one silently
+        // would make `--yolo --auto` and `--auto --yolo` mean different things.
+        assert!(matches!(
+            parse(&["ask", "--auto", "--yolo", "hi"]),
+            Command::Rejected { .. }
+        ));
+        // The mode flags belong to `ask`; `status` and `doctor` change nothing.
+        for args in [vec!["status", "--auto"], vec!["doctor", "--yolo"]] {
+            assert!(
+                matches!(parse(&args), Command::Rejected { .. }),
+                "{args:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
     fn ask_does_not_advertise_a_deferred_flag() {
-        // Advertisement is a promise. `--auto`, `--yolo`, and `--resume` need
-        // permission modes and sessions, which this release does not have.
+        // Advertisement is a promise. `--resume` needs sessions, which this
+        // release does not have.
         for args in [
-            vec!["ask", "--auto", "hi"],
-            vec!["ask", "--yolo", "hi"],
             vec!["ask", "--resume", "last", "hi"],
             vec!["ask", "--quiet", "hi"],
         ] {

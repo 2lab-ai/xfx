@@ -14,23 +14,41 @@
 //! nonsense" and "the filesystem said no" are different failures with different
 //! messages (`src/core/tooling/tool_dispatch.zig:122-168`).
 
+use std::sync::{Arc, Mutex, MutexGuard};
+
 use serde_json::{Map, Value};
 
+use crate::gateway::CancelToken;
+use crate::permission::{PermissionSession, ReadTracker};
 use crate::workspace::AccessScope;
 
+use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
+use super::terminal::TerminalInput;
 
 /// How much authority a tool needs before it may run.
 ///
-/// Only one kind exists in this release, and every spec in the registry carries
-/// it. The mutation kinds arrive with the mutation slice, together with the
-/// approval channel that can actually refuse one (`docs/parity.md`).
+/// The kind is declared on the spec rather than derived from the arguments, so
+/// "is this call dangerous" is answered by the tool's identity and cannot be
+/// changed by what the model sent
+/// (`vercel-labs/fx@580a0c5d src/core/permissions/permission_gate.zig:59-70`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionKind {
     /// The tool observes the filesystem and changes nothing. Admitted in every
     /// permission mode: `ask` requires an approval for mutations and commands,
     /// not for reads (design, "Permissions").
     ReadOnly,
+    /// The tool changes a file or a directory. Every call mints an authority.
+    MutateFile,
+    /// The tool starts a process. Every call mints an authority.
+    RunCommand,
+}
+
+impl PermissionKind {
+    /// Whether a call of this kind must cross a permission decision.
+    pub fn requires_authority(self) -> bool {
+        !matches!(self, Self::ReadOnly)
+    }
 }
 
 /// The scalar types a tool input field may have.
@@ -109,6 +127,10 @@ pub enum ToolInput {
     GlobFiles(GlobFilesInput),
     GrepFiles(GrepFilesInput),
     ReadFile(ReadFileInput),
+    WriteFile(WriteFileInput),
+    EditFile(EditFileInput),
+    CreateFolder(CreateFolderInput),
+    Terminal(TerminalInput),
 }
 
 /// Turns raw model JSON into a typed input, or says why it cannot.
@@ -132,6 +154,14 @@ pub struct ToolResult {
     pub output: String,
     /// A one-line summary for the `tool_result` event a human watches.
     pub detail: String,
+    /// Whether this result ends the turn instead of going back to the model.
+    ///
+    /// Almost always false: a refusal is information the model can act on. It is
+    /// true for exactly one situation -- an authority that was granted and then
+    /// stopped describing the world, because the file moved underneath it. That
+    /// is not an argument the model can fix, and letting it retry would let
+    /// whoever won the race keep racing.
+    pub fatal: bool,
 }
 
 impl ToolResult {
@@ -142,6 +172,7 @@ impl ToolResult {
             ok: true,
             output: output.into(),
             detail: summarize(&detail.into()),
+            fatal: false,
         }
     }
 
@@ -154,6 +185,16 @@ impl ToolResult {
             ok: false,
             output,
             detail,
+            fatal: false,
+        }
+    }
+
+    /// A refusal that ends the turn: the authority for this call stopped being
+    /// true before it could be spent.
+    pub fn revoked(output: impl Into<String>) -> Self {
+        Self {
+            fatal: true,
+            ..Self::failure(output)
         }
     }
 }
@@ -214,6 +255,19 @@ pub struct ToolLimits {
     /// Files a walk will consider before it reports itself incomplete
     /// (`src/core/workspace/workspace_files.zig:10`).
     pub max_candidates: usize,
+    /// Bytes a single mutation may write
+    /// (`src/tools/filesystem/edit_file.zig:6`).
+    pub max_mutation_bytes: usize,
+    /// Bytes of one command's captured output, per stream
+    /// (`src/core/permissions/direct_command.zig:10`).
+    pub max_command_output_bytes: usize,
+    /// How long one command may run before it is killed.
+    ///
+    /// An fxr value. Upstream's foreground executor takes an optional timeout
+    /// and its callers supply their own (`sandbox.zig:152`); a coding agent that
+    /// appears to hang is indistinguishable from a broken one, so fxr always has
+    /// a ceiling.
+    pub command_timeout_ms: u64,
 }
 
 impl Default for ToolLimits {
@@ -230,33 +284,119 @@ impl Default for ToolLimits {
             max_grep_file_bytes: 200 * 1024,
             max_context_lines: 5,
             max_candidates: 100_000,
+            max_mutation_bytes: 4 * 1024 * 1024,
+            max_command_output_bytes: 64 * 1024,
+            command_timeout_ms: 120_000,
         }
+    }
+}
+
+/// A callback run at the exact moment an authority is minted and not yet spent.
+///
+/// This is the race window, and it is the only part of the mutation path that
+/// cannot be observed from outside the process. A test installs a closure here
+/// to change the filesystem at precisely that instant and prove the stale
+/// authority is refused. Nothing in the product installs one: `ToolContext`
+/// leaves it `None`, and `app.rs` never sets it.
+pub type RaceInterlude = Arc<dyn Fn() + Send + Sync>;
+
+/// The mutable state one run of fxr shares across every tool call.
+///
+/// Behind an `Arc` so that cloning a [`ToolContext`] -- which the turn does --
+/// shares one set of read proofs and one permission ledger rather than forking
+/// them. A session grant given during step two has to be visible in step three.
+pub struct ToolSession {
+    permissions: Mutex<PermissionSession>,
+    reads: Mutex<ReadTracker>,
+}
+
+impl ToolSession {
+    pub fn new(permissions: PermissionSession) -> Self {
+        Self {
+            permissions: Mutex::new(permissions),
+            reads: Mutex::new(ReadTracker::new()),
+        }
+    }
+}
+
+impl std::fmt::Debug for ToolSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolSession").finish_non_exhaustive()
     }
 }
 
 /// Everything a tool executor is allowed to know.
 ///
-/// It carries no provider, no session, and no credential: a read tool cannot
-/// reach the network or the model even by accident.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// It carries no provider and no credential: a tool cannot reach the network or
+/// the model even by accident. What it does carry is the authority to change
+/// things -- the scope, the bounds, the permission session, and the turn's
+/// cancellation flag -- because those are exactly the facts an executor needs
+/// and nothing more.
+#[derive(Clone)]
 pub struct ToolContext {
     scope: AccessScope,
     limits: ToolLimits,
+    session: Arc<ToolSession>,
+    cancel: CancelToken,
+    interlude: Option<RaceInterlude>,
+}
+
+impl std::fmt::Debug for ToolContext {
+    /// The interlude is a closure with no representation, so its presence is
+    /// printed rather than its identity -- and printing it at all is the point:
+    /// a context with one installed is a test context.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolContext")
+            .field("scope", &self.scope)
+            .field("limits", &self.limits)
+            .field("session", &self.session)
+            .field("cancelled", &self.cancel.is_cancelled())
+            .field("has_race_interlude", &self.interlude.is_some())
+            .finish()
+    }
 }
 
 impl ToolContext {
-    /// A context with the shipped limits.
+    /// A context with the shipped limits and the most restrictive session.
+    ///
+    /// The default session is `ask` with no approval channel, so a context built
+    /// without an explicit permission session can read but cannot change
+    /// anything. That is the safe direction to be wrong in.
     pub fn new(scope: AccessScope) -> Self {
-        Self {
-            scope,
-            limits: ToolLimits::default(),
-        }
+        Self::with_limits(scope, ToolLimits::default())
     }
 
     /// A context with explicit limits, so a test can prove a bound without
     /// building a fixture large enough to hit the shipped one.
     pub fn with_limits(scope: AccessScope, limits: ToolLimits) -> Self {
-        Self { scope, limits }
+        Self {
+            scope,
+            limits,
+            session: Arc::new(ToolSession::new(PermissionSession::default())),
+            cancel: CancelToken::new(),
+            interlude: None,
+        }
+    }
+
+    /// The same context running under `permissions`.
+    pub fn with_permissions(mut self, permissions: PermissionSession) -> Self {
+        self.session = Arc::new(ToolSession::new(permissions));
+        self
+    }
+
+    /// The same context, cancelled by `cancel`.
+    ///
+    /// A long-running command has to stop when the user presses Ctrl-C, and the
+    /// turn's token is the one thing that already means that.
+    pub fn with_cancel(mut self, cancel: CancelToken) -> Self {
+        self.cancel = cancel;
+        self
+    }
+
+    /// The same context with a [`RaceInterlude`] installed. Tests only.
+    pub fn with_race_interlude(mut self, interlude: RaceInterlude) -> Self {
+        self.interlude = Some(interlude);
+        self
     }
 
     pub fn scope(&self) -> &AccessScope {
@@ -265,6 +405,38 @@ impl ToolContext {
 
     pub fn limits(&self) -> &ToolLimits {
         &self.limits
+    }
+
+    pub fn cancel(&self) -> &CancelToken {
+        &self.cancel
+    }
+
+    /// The permission session, locked.
+    ///
+    /// A poisoned lock is recovered rather than propagated: a panic in one tool
+    /// executor must not make every later permission decision panic too, and the
+    /// session's invariants are "a set of nonces and a list of grants", which a
+    /// partial update cannot corrupt.
+    pub fn permissions(&self) -> MutexGuard<'_, PermissionSession> {
+        self.session
+            .permissions
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// This session's read proofs, locked.
+    pub fn reads(&self) -> MutexGuard<'_, ReadTracker> {
+        self.session
+            .reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs the installed interlude, if a test installed one.
+    pub(crate) fn run_race_interlude(&self) {
+        if let Some(interlude) = &self.interlude {
+            interlude();
+        }
     }
 }
 

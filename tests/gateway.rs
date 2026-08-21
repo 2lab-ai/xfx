@@ -1160,13 +1160,13 @@ async fn a_failure_that_may_have_been_delivered_is_never_replayed() {
 
 #[tokio::test]
 async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simulated() {
-    // `write_file` is `deferred` in `docs/parity.md`, so the turn never offered
+    // `delete_file` is `deferred` in `docs/parity.md`, so the turn never offered
     // it and will not act as though it had.
     let completion = Completion {
         text: String::new(),
         tool_calls: vec![ToolCall {
             id: "c1".to_string(),
-            name: "write_file".to_string(),
+            name: "delete_file".to_string(),
             input: json!({}),
         }],
         finish_reason: FinishReason::ToolCalls,
@@ -1181,7 +1181,7 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
     assert!(matches!(err, TurnError::ToolCallUnsupported { .. }));
     assert_eq!(kinds(&sink), ["error"]);
     match &sink.events()[0] {
-        Event::Error { message } => assert!(message.contains("write_file"), "got {message}"),
+        Event::Error { message } => assert!(message.contains("delete_file"), "got {message}"),
         other => panic!("expected an error event, got {other:?}"),
     }
 }
@@ -1778,10 +1778,10 @@ fn a_done_marker_without_a_finish_event_fails_the_turn() {
 
 #[test]
 fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
-    // `write_file` is `deferred`; the binary must refuse rather than answer as
-    // though a file had been written.
+    // `delete_file` is `deferred`; the binary must refuse rather than answer as
+    // though a file had been deleted.
     let gateway = FakeGateway::start(vec![Reply::Sse(sse_body(&[
-        tool_call("c1", "write_file", json!({ "path": "x", "content": "y" })),
+        tool_call("c1", "delete_file", json!({ "path": "x" })),
         finish("tool-calls"),
     ]))]);
     let sandbox = Sandbox::new();
@@ -1795,7 +1795,7 @@ fn ask_fails_when_the_model_asks_for_a_tool_that_is_not_advertised() {
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
     assert_eq!(run.kinds(), ["error"]);
     let message = run.error_message();
-    assert!(message.contains("write_file"), "got {message}");
+    assert!(message.contains("delete_file"), "got {message}");
 }
 
 #[test]
@@ -1858,10 +1858,10 @@ fn ask_help_advertises_only_the_implemented_flags() {
     let sandbox = Sandbox::new();
     let run = sandbox.run(&["ask", "--help"], &[]);
     assert_eq!(run.code, Some(0));
-    for flag in ["--json", "--no-save"] {
+    for flag in ["--json", "--no-save", "--auto", "--yolo"] {
         assert!(run.stdout.contains(flag), "ask help must list {flag}");
     }
-    for deferred in ["--auto", "--yolo", "--resume", "--resume-id", "--quiet"] {
+    for deferred in ["--resume", "--resume-id", "--quiet"] {
         assert!(
             !run.stdout.contains(deferred),
             "ask help must not advertise the deferred flag {deferred}"

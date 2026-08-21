@@ -306,12 +306,24 @@ impl TurnMachine {
                     call_id: call.id.clone(),
                     tool: call.name.clone(),
                     ok: result.ok,
-                    detail: result.detail,
+                    detail: result.detail.clone(),
                 })
                 .map_err(TurnError::Sink)?;
 
             self.messages
                 .push(Message::tool_result(&call.id, &call.name, result.output));
+
+            // Almost every refusal goes back to the model, which can correct
+            // itself. One does not: an authority that stopped describing the
+            // filesystem means the premise of the exchange is void, so the turn
+            // ends here rather than running the rest of the step or asking for
+            // another one.
+            if result.fatal {
+                return Err(TurnError::ToolAuthorityRevoked {
+                    tool: call.name.clone(),
+                    detail: result.detail,
+                });
+            }
         }
         Ok(())
     }

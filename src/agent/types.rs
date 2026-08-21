@@ -65,6 +65,13 @@ pub enum TurnError {
     /// The model hit its output limit while writing a tool call, so the
     /// arguments may be cut short. They are not run.
     ToolCallTruncated { tool: String },
+    /// A tool was authorized and then the world it was authorized against
+    /// changed before it could run.
+    ///
+    /// Terminal rather than a tool result: the exchange rests on a fact that
+    /// stopped being true, and offering the model a retry would let whoever won
+    /// that race keep racing.
+    ToolAuthorityRevoked { tool: String, detail: String },
     /// The model said it was calling tools and then named none.
     EmptyToolCallFinish,
     /// The provider reported its own failure as the terminal state.
@@ -99,6 +106,11 @@ impl fmt::Display for TurnError {
                 f,
                 "the model reached its output limit while calling `{tool}`, so the arguments may \
                  be incomplete and were not run"
+            ),
+            Self::ToolAuthorityRevoked { tool, detail } => write!(
+                f,
+                "`{tool}` was authorized and then the filesystem changed underneath it, so the \
+                 turn stopped without making the change: {detail}"
             ),
             Self::EmptyToolCallFinish => write!(
                 f,

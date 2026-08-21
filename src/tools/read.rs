@@ -926,6 +926,20 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     }
     out.push_str("</content>");
 
+    // A completed read is the proof a later mutation rests on. A capped snapshot
+    // is not recorded at all -- fxr never saw the whole file, so it has nothing
+    // to compare against later -- while a windowed or clipped view is recorded
+    // as incomplete, so `write_file` can say which of the three things is wrong.
+    if snapshot_complete {
+        super::mutate::record_read(
+            context,
+            resolved.absolute(),
+            &metadata,
+            &bytes,
+            complete_view,
+        );
+    }
+
     let detail = format!(
         "{display} ({} of {} lines)",
         selection.lines.len(),

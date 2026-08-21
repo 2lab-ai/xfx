@@ -11,12 +11,13 @@ use std::process::ExitCode;
 
 use crate::agent::{run_turn, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{ConfigError, RuntimeConfig};
+use crate::config::{ConfigError, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     StatusSnapshot, TextSink, MISSING_AUTH_HELP,
 };
+use crate::permission::{PermissionSession, TtyPrompter, YOLO_WARNING};
 use crate::tools::ToolContext;
 use crate::workspace::AccessScope;
 
@@ -111,9 +112,14 @@ pub async fn run_with(
             // (`docs/parity.md`, session event log).
             no_save: _,
             add_dirs,
+            mode,
         } => {
             let config = load_config()?;
-            ask(&config, prompt, add_dirs, json, stdout, stderr).await
+            // A flag overrides the configured mode for this invocation only.
+            // Nothing is written back: `--yolo` must not be something a user can
+            // turn on once and then forget is on.
+            let mode = mode.unwrap_or(config.permission_mode);
+            ask(&config, mode, prompt, add_dirs, json, stdout, stderr).await
         }
         Command::Status { json } => {
             let config = load_config()?;
@@ -152,14 +158,22 @@ pub async fn run_with(
 /// Every failure is reported through the same event sink as a success, so a
 /// `--json` caller gets exactly one terminal JSONL event whatever happened, and
 /// a human gets the answer on stdout and the diagnosis on stderr.
+#[allow(clippy::too_many_arguments)]
 async fn ask(
     config: &RuntimeConfig,
+    mode: PermissionMode,
     prompt: String,
     add_dirs: Vec<PathBuf>,
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
+    // Before anything runs, and on stderr, so it is visible whether or not the
+    // caller is parsing stdout as JSONL.
+    if mode == PermissionMode::Yolo {
+        writeln!(stderr, "{YOLO_WARNING}")?;
+    }
+
     let mut sink: Box<dyn EventSink + '_> = if json {
         Box::new(JsonlSink::new(stdout))
     } else {
@@ -195,13 +209,29 @@ async fn ask(
         history: Vec::new(),
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
-        cancel,
-        tools: ToolContext::new(scope),
+        cancel: cancel.clone(),
+        tools: ToolContext::new(scope)
+            .with_permissions(permission_session(mode))
+            .with_cancel(cancel),
     };
     // The turn writes its own terminal event, including on failure.
     match run_turn(request, &provider, sink.as_mut()).await {
         Ok(_) => Ok(ExitCode::SUCCESS),
         Err(_) => Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE)),
+    }
+}
+
+/// Builds the permission session one `ask` runs under.
+///
+/// The approval channel is attached only when there is a real terminal on both
+/// ends. Without one, `ask` mode denies every mutation rather than hanging on a
+/// question nobody can see -- so a piped or scripted `fxr ask` fails closed by
+/// construction rather than by remembering to check.
+fn permission_session(mode: PermissionMode) -> PermissionSession {
+    let session = PermissionSession::new(mode);
+    match TtyPrompter::available() {
+        Some(prompter) => session.with_prompter(Box::new(prompter)),
+        None => session,
     }
 }
 
@@ -244,6 +274,8 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
         None => DoctorCheck::new("auth", CheckStatus::Fail, crate::output::MISSING_AUTH_HELP),
     });
 
+    checks.push(permissions_check(config.permission_mode));
+
     checks.push(DoctorCheck::new(
         "startup",
         CheckStatus::Ok,
@@ -256,6 +288,46 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     ));
 
     checks
+}
+
+/// Reports what the current mode will and will not do without being asked.
+///
+/// This check exists because the most confusing failure in the whole permission
+/// system is invisible from the outside: `ask` mode in a pipe refuses every
+/// change, correctly, and the only symptom is a model that keeps apologizing.
+/// Saying so here turns that into a diagnosis. `yolo` is reported as a warning
+/// even though nothing is wrong with it, because a machine configured that way
+/// is a fact its owner should be reminded of.
+fn permissions_check(mode: PermissionMode) -> DoctorCheck {
+    let sandbox = crate::output::SANDBOX_LABEL;
+    match mode {
+        PermissionMode::Ask => {
+            let (status, detail) = match TtyPrompter::available() {
+                Some(_) => (
+                    CheckStatus::Ok,
+                    "mode=ask: changes and commands will ask for approval on this terminal"
+                        .to_string(),
+                ),
+                None => (
+                    CheckStatus::Warn,
+                    "mode=ask, but this run has no terminal to ask on, so every change and command will be refused; use --auto for bounded workspace changes".to_string(),
+                ),
+            };
+            DoctorCheck::new("permissions", status, detail)
+        }
+        PermissionMode::Auto => DoctorCheck::new(
+            "permissions",
+            CheckStatus::Ok,
+            format!(
+                "mode=auto: bounded workspace changes and read-only commands run without asking; sandbox={sandbox}"
+            ),
+        ),
+        PermissionMode::Yolo => DoctorCheck::new(
+            "permissions",
+            CheckStatus::Warn,
+            format!("mode=yolo: no permission check runs at all; sandbox={sandbox}"),
+        ),
+    }
 }
 
 /// Reports which settings layers were found, and which were found but ignored.

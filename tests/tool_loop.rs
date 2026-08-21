@@ -130,20 +130,22 @@ fn fails(context: &ToolContext, tool: &str, input: Value) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_registry_is_exactly_the_four_read_tools_in_upstream_order() {
+fn the_read_tools_come_first_in_upstream_order_and_the_set_stays_closed() {
     // The order is upstream's (`src/builtins/tools.zig:1352-1355`), and the set
-    // is closed: a fifth name here would be a promise this build cannot keep.
+    // is closed: a name here that is not in `docs/parity.md` as `implemented`
+    // would be a promise this build cannot keep.
+    let names = Registry::builtin().names();
     assert_eq!(
-        Registry::builtin().names(),
+        &names[..4],
         ["list_files", "glob_files", "grep_files", "read_file"]
     );
-    assert_eq!(ADVERTISED_TOOLS, Registry::builtin().names());
+    assert_eq!(ADVERTISED_TOOLS, names);
 }
 
 #[test]
 fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
     let advertisement = Registry::builtin().advertisement();
-    assert_eq!(advertisement.len(), 4);
+    assert_eq!(advertisement.len(), ADVERTISED_TOOLS.len());
 
     for (schema, expected) in advertisement.iter().zip(ADVERTISED_TOOLS) {
         assert_eq!(schema["type"], "function", "{schema}");
@@ -194,15 +196,11 @@ fn the_advertisement_names_no_deferred_tool() {
     // `docs/parity.md`, so it must not reach a model schema.
     let rendered = serde_json::to_string(&Registry::builtin().advertisement()).unwrap();
     for deferred in [
-        "write_file",
-        "edit_file",
         "delete_file",
         "rename_file",
         "copy_file",
-        "create_folder",
         "file_info",
         "open_file",
-        "terminal",
         "web_fetch",
         "web_search",
         "memory",
@@ -244,13 +242,13 @@ fn a_call_naming_a_tool_the_registry_does_not_have_is_not_executed() {
     let unadvertised = Registry::builtin().execute(
         &ToolCall {
             id: "c1".to_string(),
-            name: "write_file".to_string(),
-            input: json!({ "path": "x", "content": "y" }),
+            name: "delete_file".to_string(),
+            input: json!({ "path": "x" }),
         },
         &context,
     );
     let err = unadvertised.expect_err("an unadvertised tool has no executor");
-    assert_eq!(err.name, "write_file");
+    assert_eq!(err.name, "delete_file");
 }
 
 // ---------------------------------------------------------------------------
@@ -1353,13 +1351,13 @@ async fn a_call_naming_an_unadvertised_tool_fails_the_turn() {
     let tree = Tree::new();
     let provider = ScriptedProvider::new(vec![calls_step(vec![ToolCall {
         id: "c1".to_string(),
-        name: "write_file".to_string(),
-        input: json!({ "path": "x", "content": "y" }),
+        name: "delete_file".to_string(),
+        input: json!({ "path": "x" }),
     }])]);
     let mut sink = RecordingSink::new();
-    let err = run_turn(turn("write", context(&tree)), &provider, &mut sink)
+    let err = run_turn(turn("delete", context(&tree)), &provider, &mut sink)
         .await
-        .expect_err("fxr does not advertise write_file");
+        .expect_err("fxr does not advertise delete_file");
     assert!(
         matches!(err, TurnError::ToolCallUnsupported { .. }),
         "{err}"
@@ -1525,7 +1523,7 @@ fn read_file_reply(call_id: &str, path: &str) -> Reply {
 }
 
 #[test]
-fn ask_advertises_the_four_read_tools_in_its_first_request() {
+fn ask_advertises_the_whole_registry_in_its_first_request() {
     let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
     let sandbox = Sandbox::new();
     let run = sandbox.run(
@@ -1544,10 +1542,7 @@ fn ask_advertises_the_four_read_tools_in_its_first_request() {
         .iter()
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
-    assert_eq!(
-        names,
-        ["list_files", "glob_files", "grep_files", "read_file"]
-    );
+    assert_eq!(names, ADVERTISED_TOOLS);
     assert_eq!(body["toolChoice"], json!({ "type": "auto" }));
     run.assert_no_secret();
 }
