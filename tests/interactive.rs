@@ -113,7 +113,11 @@ impl Pty {
     /// every reading opening a slave and closing it again.
     ///
     /// It exists so that the blind spot can be demonstrated rather than
-    /// described. See `a_harness_that_retains_nothing_cannot_see_the_change`.
+    /// described. See
+    /// `on_macos_a_harness_that_retains_nothing_cannot_see_the_change`, which is
+    /// its only caller and, for the reason given there, runs only on macOS --
+    /// hence the `cfg`, which keeps this from being dead code elsewhere.
+    #[cfg(target_os = "macos")]
     fn open_without_a_retained_slave() -> Self {
         let mut pty = Self::open();
         pty.slave = None;
@@ -1596,14 +1600,36 @@ fn the_harness_can_tell_when_a_child_leaves_the_terminal_changed() {
     assert!(before.local.contains(LocalModes::ECHO), "{before:?}");
 }
 
+/// The old blind spot, reproduced -- on macOS only, because only a BSD-derived
+/// kernel can be made to show it.
+///
+/// The child is spawned exactly the way fxr is: its own session, owning the
+/// terminal. When such a child exits, a BSD-derived kernel revokes its
+/// terminal, and the next open of that device name is a pristine one carrying
+/// the system defaults. A harness that opens a slave per reading therefore
+/// reports "the terminal is exactly as it was found" about the very raw-mode
+/// child `the_harness_can_tell_when_a_child_leaves_the_terminal_changed`
+/// catches.
+///
+/// **This fixture is not portable, and its `cfg` is the fix rather than a
+/// concession.** Linux does not revoke an exiting session leader's terminal, so
+/// a freshly opened slave there still reports the raw mode the child left:
+/// `before != after`, and asserting blindness fails on a kernel that is not
+/// blind. That is exactly what both Linux jobs of run 32505490051 reported
+/// (`assertion left == right failed` at this test, `ECHO | ICANON | ISIG`
+/// present before and absent after). macOS is the only BSD-derived target fxr
+/// ships, so `target_os = "macos"` is the whole of the supported blind
+/// platform.
+///
+/// Nothing about the harness's guarantees is scoped by this. What proves the
+/// harness can see a change is
+/// `the_harness_can_tell_when_a_child_leaves_the_terminal_changed` and
+/// `a_during_run_reading_sees_a_terminal_the_running_child_has_changed`, and
+/// both of those, like every restoration test above them, run on every
+/// platform.
+#[cfg(target_os = "macos")]
 #[test]
-fn a_harness_that_retains_nothing_cannot_see_the_change() {
-    // The regression, reproduced, with a child spawned exactly the way fxr is:
-    // its own session, owning the terminal. When such a child exits, the kernel
-    // revokes its terminal, and the next open of that device name is a pristine
-    // one carrying the system defaults. A harness that opens a slave per
-    // reading therefore reports "the terminal is exactly as it was found" about
-    // the very raw-mode child the test above catches.
+fn on_macos_a_harness_that_retains_nothing_cannot_see_the_change() {
     let pty = Pty::open_without_a_retained_slave();
     let before = modes(&pty);
     let _child = leave_the_terminal_in_raw_mode(&pty, true);
@@ -1611,8 +1637,9 @@ fn a_harness_that_retains_nothing_cannot_see_the_change() {
     let after = modes(&pty);
     assert_eq!(
         before, after,
-        "this documents a blind spot; if it ever fails, the platform stopped \
-         being blind and this test should be deleted rather than repaired"
+        "macOS reported an exiting session leader's terminal as the child left \
+         it, so it no longer revokes and this macOS-only fixture has nothing \
+         left to document; delete it rather than repair it"
     );
     assert!(
         after.local.contains(LocalModes::ECHO),

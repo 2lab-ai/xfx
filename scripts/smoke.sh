@@ -308,8 +308,27 @@ PYTHON
 gateway_pid=""
 gateway_dir=""
 
+# How long the fake Gateway is given to bind a port and say which one.
+#
+# Wall-clock seconds, and that is the point. The earlier version of the wait
+# below looped a hundred times around `sleep 0.05` and was described as five
+# seconds, but a loop counts iterations, not time: each one also pays for a
+# `fork`, an `exec` of /bin/sleep, and a `wait`. On a hosted macOS runner that
+# overhead is most of the iteration, and in run 32505490051 the "five second"
+# wait ran for twelve to fourteen before declaring the helper dead -- with an
+# empty `gateway.log` and no port file, which is what a python interpreter still
+# importing looks like, not a crash. A deadline the machine cannot reinterpret
+# is the only kind worth writing, and thirty seconds of it costs nothing on a
+# machine where the helper starts in tens of milliseconds.
+readonly GATEWAY_START_TIMEOUT=30
+
 start_gateway() {
 	local name="$1" script="$2"
+	# Every call site stops the previous helper before starting the next, and
+	# this keeps that true even if one ever forgets: replacing the helper is
+	# this function's guarantee, not the caller's discipline. It is a no-op
+	# when nothing is running.
+	stop_gateway
 	gateway_dir="$evidence/$name"
 	mkdir -p "$gateway_dir"
 	printf '%s' "$script" >"$gateway_dir/script.json"
@@ -319,15 +338,38 @@ start_gateway() {
 		"$gateway_dir/script.json" "$gateway_dir/port" "$gateway_dir/requests.jsonl" \
 		>"$gateway_dir/gateway.log" 2>&1 &
 	gateway_pid=$!
-	for _ in $(seq 1 100); do
-		if [ -s "$gateway_dir/port" ]; then
-			break
+	# `SECONDS` rather than a counter, and read without resetting it, so the
+	# deadline is real time however long an iteration happens to take.
+	local started=$SECONDS
+	local status=0
+	while [ ! -s "$gateway_dir/port" ]; do
+		# The helper writes the port only after the socket is bound and
+		# listening, so a non-empty file is readiness, not intent.
+		if ! kill -0 "$gateway_pid" 2>/dev/null; then
+			# It died. Waiting on a child the shell has already reaped still
+			# yields its status, and reaping it here is what lets the exit
+			# trap stay quiet about a process that is already gone.
+			wait "$gateway_pid" 2>/dev/null || status=$?
+			gateway_pid=""
+			printf 'smoke: the fake Gateway exited before it was ready (status %s, after %ss); %s follows\n' \
+				"$status" "$((SECONDS - started))" "$gateway_dir/gateway.log" >&2
+			cat "$gateway_dir/gateway.log" >&2 || true
+			exit 1
+		fi
+		if [ "$((SECONDS - started))" -ge "$GATEWAY_START_TIMEOUT" ]; then
+			# Still running, still silent. The trap kills it on the way out.
+			printf 'smoke: the fake Gateway did not report a port within %ss and is still running; %s follows\n' \
+				"$GATEWAY_START_TIMEOUT" "$gateway_dir/gateway.log" >&2
+			cat "$gateway_dir/gateway.log" >&2 || true
+			exit 1
 		fi
 		sleep 0.05
 	done
-	if [ ! -s "$gateway_dir/port" ]; then
-		printf 'smoke: the fake Gateway did not start; see %s\n' "$gateway_dir/gateway.log" >&2
-		exit 1
+	# A run that needed whole seconds for a startup that normally costs tens of
+	# milliseconds says something about the machine, and saying it here is
+	# cheaper than the next timeout having to discover it.
+	if [ "$((SECONDS - started))" -ge 2 ]; then
+		printf 'smoke: note: the fake Gateway took %ss to report a port\n' "$((SECONDS - started))"
 	fi
 	gateway_url="http://127.0.0.1:$(cat "$gateway_dir/port")/v3/ai/language-model"
 }
