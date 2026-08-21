@@ -534,12 +534,16 @@ fn every_environment_override_the_binary_reads_is_documented() {
 /// Every page that makes the promise, by repository-relative path.
 ///
 /// `CONTRIBUTING.md` is here because a contributor reads it as the rule they
-/// must keep, the two `src/session` module headers are here because `rustdoc`
-/// publishes them -- the reader deciding whether to trust the session log lands
-/// on the page that describes the log, not on the README -- and the design spec
-/// is here because it is tracked, shipped in the repository, and is where the
+/// must keep, the three module headers are here because `rustdoc` publishes
+/// them -- the reader deciding whether to trust the session log lands on the
+/// page that describes the log, not on the README -- and the design spec is
+/// here because it is tracked, shipped in the repository, and is where the
 /// claim was written down first. A claim that is scoped in one of these and
 /// unscoped in another is the same lie with a smaller audience.
+///
+/// `src/output.rs` earns its place twice: it is where the snapshots a user
+/// actually sees are built, and it made the same claim about *rendering* that
+/// the session module made about *storage*.
 fn safety_documents() -> Vec<(&'static str, String)> {
     [
         "README.md",
@@ -548,6 +552,7 @@ fn safety_documents() -> Vec<(&'static str, String)> {
         "CONTRIBUTING.md",
         "src/session/mod.rs",
         "src/session/event.rs",
+        "src/output.rs",
         "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
     ]
     .into_iter()
@@ -622,6 +627,39 @@ const FULL_DISCLOSURE: [&str; 5] = [
     "docs/superpowers/specs/2026-08-21-fxr-rust-port-design.md",
 ];
 
+/// The published documentation of a page: all of a Markdown file, and only the
+/// `//!` header plus the `///` item docs of a Rust one.
+///
+/// A claim lives in a doc comment; `use std::io::{self, Write};` is not one.
+/// Reading a source file the way a reader reads prose -- whitespace collapsed,
+/// sentences split on a full stop -- glued that import to the doc line under it
+/// and invented a promise nobody had written, so the code is dropped before the
+/// prose is judged.
+fn documentation(name: &str, text: &str) -> String {
+    if !name.ends_with(".rs") {
+        return text.to_string();
+    }
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            trimmed
+                .strip_prefix("//!")
+                .or_else(|| trimmed.strip_prefix("///"))
+        })
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+/// The `//!` header of a Rust module: the page `rustdoc` publishes, and the
+/// only part of a source file a reader of the documentation ever sees.
+fn module_header(source: &str) -> String {
+    source
+        .lines()
+        .take_while(|line| line.starts_with("//!") || line.trim().is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
 /// `text` with every run of whitespace collapsed to one space.
 ///
 /// A claim that is true on one line and false when a paragraph is rewrapped is
@@ -645,7 +683,7 @@ fn no_document_claims_that_nothing_fxr_saves_can_carry_a_credential() {
         "secrets never enter snapshots, logs, or tool output",
     ];
     for (name, text) in safety_documents() {
-        let flowed = flow(&text).to_lowercase();
+        let flowed = flow(&documentation(name, &text)).to_lowercase();
         for claim in banned {
             assert!(
                 !flowed.contains(claim),
@@ -684,7 +722,7 @@ fn every_page_that_scopes_the_credential_promise_also_says_what_is_saved() {
         if !FULL_DISCLOSURE.contains(&name) {
             continue;
         }
-        let flowed = flow(&text).to_lowercase();
+        let flowed = flow(&documentation(name, &text)).to_lowercase();
         // What it is on disk, and how to not put it there. Scoping the promise
         // without these two is a narrower claim that still leaves the reader
         // believing the old one.
@@ -710,10 +748,31 @@ fn every_page_that_scopes_the_credential_promise_also_says_what_is_saved() {
         .find(|(name, _)| *name == "src/session/mod.rs")
         .expect("the session module header is a safety document");
     assert!(
-        flow(&module).to_lowercase().contains("toolresult"),
+        flow(&documentation("src/session/mod.rs", &module))
+            .to_lowercase()
+            .contains("toolresult"),
         "src/session/mod.rs promises secrecy without naming the variant that records what a \
          tool read"
     );
+
+    // The renderer's page is where the same claim is made about display rather
+    // than about storage, and `fxr session <id>` is what puts a recorded tool
+    // result back on a terminal and into a JSON document. So the header has to
+    // name the field that carries it and the bound that applies -- a reader who
+    // only ever opens this module's docs still has to learn that a tool's
+    // return is rendered, clipped rather than withheld.
+    let (_, renderer) = safety_documents()
+        .into_iter()
+        .find(|(name, _)| *name == "src/output.rs")
+        .expect("the renderer is a safety document");
+    let header = module_header(&renderer);
+    for disclosure in ["SessionStepRow::Tool", "MAX_DETAIL_TEXT_BYTES"] {
+        assert!(
+            header.contains(disclosure),
+            "src/output.rs's module header does not say that {disclosure:?} is what carries a \
+             tool's return into a snapshot:\n{header}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

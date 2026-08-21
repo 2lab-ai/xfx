@@ -6,9 +6,17 @@
 //! - a JSON document, exactly one newline-terminated line;
 //! - a JSONL event stream, one newline-terminated object per event.
 //!
-//! Snapshots are built once from typed data and then only read. A renderer
-//! cannot reach a credential: no snapshot field ever holds a secret, only the
-//! name of the environment variable a secret came from.
+//! Snapshots are built once from typed data and then only read. No snapshot
+//! field holds fxr's own Gateway credential: a renderer cannot reach the token,
+//! only the name of the environment variable it came from.
+//!
+//! What a tool returned is the opposite case, and it is rendered rather than
+//! withheld. `SessionStepRow::Tool`'s `output` field carries a file's contents
+//! or a command's output out of the session log, clipped to
+//! `MAX_DETAIL_TEXT_BYTES`, and `fxr session <id>` prints it in the text shape
+//! and serializes it into the JSON one. The clip bounds how much of a secret
+//! the model was asked to read reaches the terminal, not whether any of it
+//! does; README's "Safety, in plain terms" says what to do about that.
 
 use std::io::{self, Write};
 
@@ -423,6 +431,12 @@ pub enum SessionStepRow {
         call_id: String,
         tool: String,
         ok: bool,
+        /// What the tool actually returned, clipped to `MAX_DETAIL_TEXT_BYTES`.
+        ///
+        /// A file's contents or a command's output, verbatim up to the clip, so
+        /// this is the one snapshot field a reader's own secret can reach. It is
+        /// printed by the text renderer and serialized into the JSON document
+        /// alike: `fxr session <id>` shows what the model was shown.
         output: String,
     },
 }
