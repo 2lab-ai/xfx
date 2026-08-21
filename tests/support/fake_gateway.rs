@@ -31,6 +31,9 @@ const ACCEPT_POLL: Duration = Duration::from_millis(5);
 /// How long a finished connection waits for the client to close its half.
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// The longest a deliberately unfinished response is held open.
+const HANG_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// One request the fake Gateway received, captured verbatim.
 #[derive(Debug, Clone)]
 pub struct CapturedRequest {
@@ -71,6 +74,11 @@ pub enum Reply {
     /// Write these bytes as chunks and then drop the connection without the
     /// terminating chunk, so the client sees a truncated body mid-delivery.
     SseThenAbort(Vec<String>),
+    /// Write these bytes as chunks and then keep the response open until the
+    /// client hangs up. This is the shape of a real stream that has started
+    /// answering and has not finished, which is the only state a user can
+    /// actually interrupt.
+    SseThenHang(Vec<String>),
     /// A non-2xx response with a plain body.
     Status(u16, String),
     /// A non-2xx response carrying extra headers, so a test can drive the
@@ -136,7 +144,7 @@ impl FakeGateway {
                     Ok((stream, _)) => {
                         // Connections are served one at a time on purpose: the
                         // request order a test asserts on is then the real order.
-                        serve(&thread_state, stream);
+                        serve(&thread_state, &thread_shutdown, stream);
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(ACCEPT_POLL);
@@ -202,7 +210,7 @@ impl Drop for FakeGateway {
 }
 
 /// Reads one request, records it, and writes the next scripted reply.
-fn serve(state: &Arc<State>, stream: TcpStream) {
+fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
     // On the BSD socket API an accepted socket inherits the listener's
     // O_NONBLOCK flag, so this connection would return `WouldBlock` for a read
     // that simply has not arrived yet. The listener polls; the connection does
@@ -230,6 +238,10 @@ fn serve(state: &Arc<State>, stream: TcpStream) {
         Some(Reply::Sse(body)) => write_sse(&mut writer, &[body], true),
         Some(Reply::SsePieces(pieces)) => write_sse(&mut writer, &pieces, true),
         Some(Reply::SseThenAbort(pieces)) => write_sse(&mut writer, &pieces, false),
+        Some(Reply::SseThenHang(pieces)) => {
+            write_sse(&mut writer, &pieces, false);
+            hang_until_hangup(&mut writer, shutdown);
+        }
         Some(Reply::Status(status, body)) => write_status(&mut writer, status, &[], &body),
         Some(Reply::StatusWithHeaders {
             status,
@@ -239,6 +251,27 @@ fn serve(state: &Arc<State>, stream: TcpStream) {
         None => write_status(&mut writer, 500, &[], "fake gateway: unscripted request"),
     }
     close_cleanly(&mut writer);
+}
+
+/// Holds a started response open until the client closes its end.
+///
+/// The loop polls rather than blocking forever so that dropping the server can
+/// still join its thread: a test that fails before it interrupts anything must
+/// fail, not hang. Bounded for the same reason.
+fn hang_until_hangup(stream: &mut TcpStream, shutdown: &Arc<AtomicBool>) {
+    let deadline = std::time::Instant::now() + HANG_TIMEOUT;
+    let _ = stream.set_read_timeout(Some(ACCEPT_POLL));
+    let mut discard = [0u8; 1024];
+    while std::time::Instant::now() < deadline && !shutdown.load(Ordering::SeqCst) {
+        match stream.read(&mut discard) {
+            // The client closed, which is what a cancelled turn does.
+            Ok(0) => return,
+            Ok(_) => continue,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(_) => return,
+        }
+    }
 }
 
 /// Ends a connection without losing what was already written.

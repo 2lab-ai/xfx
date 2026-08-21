@@ -35,6 +35,21 @@ pub const ADVERTISED_COMMANDS: &[&str] = &[
     "status",
 ];
 
+/// Runtime surfaces reached without naming a subcommand.
+///
+/// The interactive shell is a real command with a parity row and a handler, but
+/// it has no name to type: it is what a bare `fxr` runs. Declaring it here is
+/// what lets `scripts/check-no-stubs.sh` hold every `implemented` command row to
+/// an advertised surface in *both* directions -- otherwise "implemented" could
+/// be claimed for a command the binary does not actually reach.
+///
+/// The same `rustfmt::skip` reasoning as [`ADVERTISED_COMMANDS`] applies: the
+/// script reads this declaration textually.
+#[rustfmt::skip]
+pub const ADVERTISED_ENTRYPOINTS: &[&str] = &[
+    "interactive",
+];
+
 /// A parsed invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cli {
@@ -48,6 +63,8 @@ pub struct Cli {
 /// code and a stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
+    /// Run the interactive shell. What a bare `fxr` means.
+    Interactive,
     /// Print a navigation page. `page` is the exact text clap rendered, so
     /// `fxr help`, `fxr --help`, and `fxr status --help` each show their own.
     Help { page: String },
@@ -229,11 +246,11 @@ impl RawCli {
                     Err(message) => Command::Rejected { message },
                 }
             }
-            // The interactive shell is not part of this release slice, so a bare
-            // invocation has nothing to run and says so instead of succeeding.
-            None => Command::Rejected {
-                message: format!("fxr: no command given\n\n{}", help_text()),
-            },
+            // A bare `fxr` starts the shell, as upstream does
+            // (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:443`).
+            // Whether this terminal can host one is not a grammar question, so
+            // it is decided by the handler rather than here.
+            None => Command::Interactive,
         }
     }
 }
@@ -629,11 +646,20 @@ mod tests {
     }
 
     #[test]
-    fn a_bare_invocation_is_rejected_with_usage() {
-        let Command::Rejected { message } = parse(&[]) else {
-            panic!("a bare invocation must be rejected until the shell exists");
-        };
-        assert!(message.contains("Usage:"), "{message}");
+    fn a_bare_invocation_asks_for_the_shell() {
+        assert_eq!(parse(&[]), Command::Interactive);
+    }
+
+    #[test]
+    fn the_shell_has_no_name_to_type() {
+        // It is reached by giving no command at all, so `fxr interactive` is an
+        // unknown name rather than a second spelling of the same thing.
+        for name in ADVERTISED_ENTRYPOINTS {
+            assert!(
+                matches!(parse(&[name]), Command::Rejected { .. }),
+                "`{name}` must not be a subcommand"
+            );
+        }
     }
 
     #[test]

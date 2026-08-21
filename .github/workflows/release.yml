@@ -1,0 +1,133 @@
+"on":
+  push:
+    tags: ["v*"]
+  # Packaging can be rehearsed without a tag. The rehearsal stops after the
+  # archives are built: nothing is published unless a tag asked for it.
+  workflow_dispatch:
+
+name: Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  package:
+    name: package (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # The same four native runners CI uses. An archive is only published for
+      # a target whose binary was built and smoke-tested on that target.
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Confirm the runner really is this target
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "runner host is $host, matrix says ${{ matrix.target }}" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Prove the archived binary works before archiving it
+        run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"
+
+      - name: Archive and checksum
+        run: |
+          set -euo pipefail
+          name="fxr-${{ matrix.target }}"
+          staging="${RUNNER_TEMP}/${name}"
+          mkdir -p "$staging"
+          cp target/release/fxr "$staging/"
+          cp LICENSE NOTICE README.md UPSTREAM.md "$staging/"
+          cp docs/parity.md "$staging/PARITY.md"
+          tar -czf "${name}.tar.gz" -C "${RUNNER_TEMP}" "${name}"
+          shasum -a 256 "${name}.tar.gz" >"${name}.tar.gz.sha256"
+          cat "${name}.tar.gz.sha256"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: fxr-${{ matrix.target }}
+          path: |
+            fxr-${{ matrix.target }}.tar.gz
+            fxr-${{ matrix.target }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish
+    needs: package
+    # Only a tag publishes. A manual run has already done its job by proving
+    # the four archives can be built.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+
+      - name: Collect every archive
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Require all four targets, and one checksum file for the release
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for target in \
+            x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-gnu \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin; do
+            test -f "fxr-${target}.tar.gz" || { echo "missing fxr-${target}.tar.gz" >&2; exit 1; }
+            test -f "fxr-${target}.tar.gz.sha256" || { echo "missing fxr-${target}.tar.gz.sha256" >&2; exit 1; }
+          done
+          cat ./*.tar.gz.sha256 >SHA256SUMS
+          shasum -a 256 -c SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "$tag" \
+            --notes "Unofficial, experimental Rust port of vercel-labs/fx. See CHANGELOG.md for what changed and docs/parity.md for what is and is not implemented. Verify a download against SHA256SUMS." \
+            artifacts/*.tar.gz artifacts/*.tar.gz.sha256 artifacts/SHA256SUMS

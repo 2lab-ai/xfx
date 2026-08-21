@@ -1,0 +1,94 @@
+"on":
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+name: CI
+
+# One run per branch or pull request. A superseded run proves nothing about the
+# commit that replaced it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: 1
+
+jobs:
+  gate:
+    name: gate (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      # Every supported target has a native GitHub-hosted runner, so this
+      # matrix is four real machines rather than three plus a cross-compile.
+      # That matters here: fxr's acceptance tests open pseudoterminals, send
+      # signals, take advisory locks, and run child processes, none of which a
+      # cross-built binary can exercise. `ubuntu-24.04-arm` and
+      # `macos-15-intel` are free for public repositories; if either becomes
+      # unavailable, the honest change is to drop that row and stop shipping
+      # its archive, not to replace it with a build that is never run.
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    steps:
+      - name: Check out the exact commit
+        uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Confirm the runner really is this target
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          if [ "$host" != "${{ matrix.target }}" ]; then
+            echo "runner host is $host, matrix says ${{ matrix.target }}" >&2
+            exit 1
+          fi
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Lints
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --all-targets
+
+      - name: No stubs, and the parity ledger reconciles
+        run: ./scripts/check-no-stubs.sh
+
+      - name: No credentials in tracked files
+        run: ./scripts/check-no-secrets.sh
+
+      - name: Release build
+        run: cargo build --release
+
+      - name: Smoke the release binary
+        run: ./scripts/smoke.sh target/release/fxr "${RUNNER_TEMP}/fxr-smoke"
+
+      - name: Keep the smoke evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence-${{ matrix.target }}
+          path: ${{ runner.temp }}/fxr-smoke
+          if-no-files-found: ignore
+          retention-days: 7

@@ -31,5 +31,5 @@ pub use store::{
     Selector, SessionDetail, SessionError, SessionId, SessionList, SessionManifest,
     SessionRecorder, SessionStore, SessionSummary, TurnStep, WritableSession, DEFAULT_LIST_LIMIT,
     EVENTS_FILE, MANIFEST_FILE, MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT, SESSIONS_DIR_NAME,
-    STORAGE_FORMAT,
+    STAGE_SUFFIX, STORAGE_FORMAT,
 };

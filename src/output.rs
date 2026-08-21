@@ -771,7 +771,16 @@ pub struct TextSink<W: Write, D: Write> {
     /// newline. A streamed answer rarely ends in one, and a shell prompt landing
     /// mid-sentence looks like truncated output.
     pending_newline: bool,
+    /// Whether tool activity is announced on the diagnostic stream.
+    tool_notices: bool,
 }
+
+/// How much of a failed tool's report is echoed beside its notice.
+///
+/// The whole report goes to the model, which is where it is useful. A watching
+/// human needs the first line and a bound, so that a tool refusing to read a
+/// 200 KiB file does not repaint the terminal to say so.
+const MAX_TOOL_NOTICE_DETAIL: usize = 120;
 
 impl<W: Write, D: Write> TextSink<W, D> {
     pub fn new(writer: W, diagnostics: D) -> Self {
@@ -779,7 +788,19 @@ impl<W: Write, D: Write> TextSink<W, D> {
             writer,
             diagnostics,
             pending_newline: false,
+            tool_notices: false,
         }
+    }
+
+    /// The same sink, announcing each tool call as it starts and finishes.
+    ///
+    /// Off by default, because the output of `fxr ask` is its answer and
+    /// nothing else. On in the interactive shell, where the alternative is a
+    /// terminal that sits silent for a minute while the model reads files, and
+    /// a user who cannot tell "working" from "hung".
+    pub fn with_tool_notices(mut self) -> Self {
+        self.tool_notices = true;
+        self
     }
 
     pub fn into_inner(self) -> (W, D) {
@@ -795,6 +816,35 @@ impl<W: Write, D: Write> TextSink<W, D> {
         self.writer.write_all(b"\n")?;
         self.writer.flush()
     }
+
+    /// Writes one `[tool] ...` line on the diagnostic stream.
+    fn notice(&mut self, line: &str) -> io::Result<()> {
+        self.end_line()?;
+        self.diagnostics.write_all(line.as_bytes())?;
+        self.diagnostics.write_all(b"\n")?;
+        self.diagnostics.flush()
+    }
+}
+
+/// `detail` as one bounded line that cannot forge another notice.
+///
+/// Tool output is model-facing text that came from a file, a command, or a
+/// refusal, so it is arbitrary. It goes through the same flattening a recorded
+/// prompt does -- a newline in it must not be able to write a second `[tool]`
+/// line on the user's terminal -- and is then clipped, because the full report
+/// is for the model and not for the scrollback.
+fn bounded_notice_detail(detail: &str) -> String {
+    let flattened = one_line(detail);
+    let trimmed = flattened.trim();
+    let mut out = String::new();
+    for character in trimmed.chars() {
+        if out.len() + character.len_utf8() > MAX_TOOL_NOTICE_DETAIL {
+            out.push('…');
+            break;
+        }
+        out.push(character);
+    }
+    out
 }
 
 impl<W: Write, D: Write> EventSink for TextSink<W, D> {
@@ -813,7 +863,27 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
             // likewise emits only a closing newline
             // (`vercel-labs/fx@580a0c5d src/core/agent/runtime/orchestrator.zig:4654`).
             Event::Final { .. } => self.end_line(),
-            Event::ToolStart { .. } | Event::ToolResult { .. } => Ok(()),
+            Event::ToolStart { tool, .. } => {
+                if !self.tool_notices {
+                    return Ok(());
+                }
+                self.notice(&format!("[tool] {tool} running"))
+            }
+            Event::ToolResult {
+                tool, ok, detail, ..
+            } => {
+                if !self.tool_notices {
+                    return Ok(());
+                }
+                if *ok {
+                    self.notice(&format!("[tool] {tool} ok"))
+                } else {
+                    self.notice(&format!(
+                        "[tool] {tool} refused: {}",
+                        bounded_notice_detail(detail)
+                    ))
+                }
+            }
             Event::Error { message } => {
                 self.end_line()?;
                 self.diagnostics.write_all(message.as_bytes())?;
@@ -1247,6 +1317,97 @@ mod tests {
             },
         ]);
         assert_eq!(stdout, "one two\n");
+        assert_eq!(stderr, "");
+    }
+
+    fn noticing_sink_output(events: &[Event]) -> (String, String) {
+        let mut sink = TextSink::new(Vec::new(), Vec::new()).with_tool_notices();
+        for event in events {
+            sink.emit(event).unwrap();
+        }
+        let (stdout, stderr) = sink.into_inner();
+        (
+            String::from_utf8(stdout).unwrap(),
+            String::from_utf8(stderr).unwrap(),
+        )
+    }
+
+    #[test]
+    fn a_noticing_sink_announces_each_tool_without_touching_the_answer() {
+        let (stdout, stderr) = noticing_sink_output(&[
+            Event::AssistantDelta {
+                text: "reading".to_string(),
+            },
+            Event::ToolStart {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+            },
+            Event::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                detail: "12 lines".to_string(),
+            },
+            Event::AssistantDelta {
+                text: " done".to_string(),
+            },
+            Event::Final {
+                output: "reading done".to_string(),
+            },
+        ]);
+        // The answer is unchanged except for the newline the notice forced, so
+        // a notice never lands in the middle of a sentence.
+        assert_eq!(stdout, "reading\n done\n");
+        assert_eq!(stderr, "[tool] read_file running\n[tool] read_file ok\n");
+    }
+
+    #[test]
+    fn a_notice_cannot_be_forged_by_a_tool_that_refuses_with_a_newline() {
+        let (_, stderr) = noticing_sink_output(&[Event::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "terminal".to_string(),
+            ok: false,
+            detail: "denied\n[tool] terminal ok".to_string(),
+        }]);
+        assert_eq!(
+            stderr,
+            "[tool] terminal refused: denied [tool] terminal ok\n"
+        );
+        assert_eq!(stderr.lines().count(), 1);
+    }
+
+    #[test]
+    fn a_notice_bounds_what_it_quotes_back() {
+        let detail = "x".repeat(10_000);
+        let (_, stderr) = noticing_sink_output(&[Event::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "grep_files".to_string(),
+            ok: false,
+            detail,
+        }]);
+        assert!(
+            stderr.len() < MAX_TOOL_NOTICE_DETAIL + 64,
+            "{}",
+            stderr.len()
+        );
+        assert!(stderr.ends_with("…\n"), "{stderr}");
+    }
+
+    #[test]
+    fn a_plain_text_sink_still_says_nothing_about_tools() {
+        let (stdout, stderr) = text_sink_output(&[
+            Event::ToolStart {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+            },
+            Event::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+                ok: false,
+                detail: "no such file".to_string(),
+            },
+        ]);
+        assert_eq!(stdout, "");
         assert_eq!(stderr, "");
     }
 

@@ -18,8 +18,20 @@ between fxr and upstream, not so the gap can be advertised as a feature.
 | `partial` | Present and useful, but narrower than upstream. The row states the limit. |
 | `deferred` | Absent from the binary. Not in help, not in a tool schema, not a stub. |
 
-`scripts/check-no-stubs.sh` fails the build if a runtime surface is missing an
-`implemented` row here, or if a `deferred` row is advertised by the parser.
+`scripts/check-no-stubs.sh` reconciles this file against the binary in **both**
+directions, for commands, tools, and shell slash commands:
+
+- every surface the binary advertises has an `implemented` row here;
+- every `implemented` row names a surface the binary really advertises, so
+  "implemented" cannot be claimed for something that does not exist;
+- no name from a `deferred` row -- including the names listed inside a grouped
+  row, such as `delete_file` or `/resume` -- is advertised anywhere; and
+- no surface name appears in two rows.
+
+`tests/parity.rs` proves the same reconciliation against the *running* binary
+rather than against the source text: the parser's own subcommand list, the tool
+schemas as they are serialized into a Gateway request, and the rendered help
+pages.
 
 ## Commands
 
@@ -28,10 +40,10 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|
 | `status` | command | implemented | `[--json]`. Model, credential source, permission mode, sandbox, workspace, history turns, step limit. `cli_surface.zig:69`, `output_contracts.zig:489-540`. |
-| `doctor` | command | implemented | `[--json]`. Aggregate counts plus `{name,status,detail}` checks. `cli_surface.zig:73`, `output_contracts.zig:1209-1285`. |
+| `doctor` | command | implemented | `[--json]`. Aggregate counts plus `{name,status,detail}` checks: `workspace`, `config`, `auth`, `permissions`, `sessions`, `startup`. The `sessions` check reports how many sessions are recorded, how many directories could not be trusted, and how many staged manifests an interrupted write left behind -- a report, never a repair. `cli_surface.zig:73`, `output_contracts.zig:1209-1285`. |
 | `help` | command | implemented | `help`, `--help`, `-h`. Lists only implemented commands. `cli_surface.zig:60`. |
 | `ask` | command | implemented | `[--auto\|--yolo] [--json] [--no-save] [--add-dir <PATH>]... [--resume <last\|ID>\|--resume-id <ID>] <prompt>`. A bounded multi-step Gateway turn: ordered assistant text, tool calls executed locally under a permission authority, then exactly one terminal event. Ctrl-C cancels the turn and kills any running command's process group; a second Ctrl-C exits 130. `--no-save`, `--add-dir`, the resume flags, and the permission modes have their own rows. `cli_surface.zig:61`. |
-| `interactive` | command | deferred | Planned for the shell slice of v0.1; a bare `fxr` is rejected until then. `cli_surface.zig:59`. |
+| `interactive` | command | implemented | What a bare `fxr` runs. A line-oriented append shell on the terminal's own canonical mode: it never enters raw mode or the alternate screen, so scrollback is preserved and there is no terminal state to restore. It refuses to start without a terminal on both stdin and stdout, and without a place to record the conversation. Each prompt is one ordinary turn -- same provider, registry, permission authority, and session store as `ask` -- and it owns exactly the six `slash` rows below. Ctrl-C stops a running turn and a second one exits 130; at the prompt it clears the line, and twice in a row leaves. It has no name to type: the parser reaches it by a bare invocation, which `src/cli.rs` declares as `ADVERTISED_ENTRYPOINTS`. `cli_surface.zig:59`, `app_entry_runtime.zig:224`. |
 | `session` | command | implemented | `<last\|ID>\|--id <ID> [--json]`. Replays one session's log through its published boundary and cross-checks it against the manifest, then renders bounded turns. Read-only: it creates no profile state, and a session it cannot trust is a named refusal rather than a partial read. `cli_surface.zig:76`. |
 | `sessions` | command | implemented | `[--json] [--all] [--limit N]`. Newest first with a total order, scoped to the current workspace unless `--all`, bounded at 20 by default and 200 at most. A session directory that cannot be trusted is counted in `skipped_invalid` rather than failing the listing. Read-only. `cli_surface.zig:77`. |
 | `resume` | command | deferred | Upstream's standalone `resume_session` command. fxr resumes through `ask --resume`/`--resume-id`, so the bare name is not advertised. `cli_surface.zig:78`. |
@@ -51,6 +63,23 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 | `upgrade` | command | deferred | Self-updater and release channels. `cli_surface.zig:81`. |
 | `replay` | command | deferred | Golden terminal replay; needs the full-screen UI. `cli_surface.zig:82`. |
 | `workspace` | command | deferred | Additional-root management. `cli_surface.zig:83`. |
+
+## Interactive shell commands
+
+Upstream's slash palette is the ~40 entries in `src/builtins/commands.zig:414-457`.
+fxr's shell owns the six below and nothing else; `scripts/check-no-stubs.sh`
+reconciles them against `SLASH_COMMANDS` in `src/interactive.rs`, in both
+directions.
+
+| Surface | Kind | Status | Notes and upstream evidence |
+|---|---|---|---|
+| `/help` | slash | implemented | Lists these six with one line each, then says that anything else is a prompt. `commands.zig:415`. |
+| `/new` | slash | implemented | Ends the current session and starts a fresh identity on the next prompt. The old session's writer lock, its "always" grants, and its read proofs are all released with it, because each was sold as being about that session. `commands.zig:417`. |
+| `/clear` | slash | implemented | Erases the screen and the scrollback (`ESC[2J`, `ESC[3J`) and reprints the header. The conversation is untouched: same session id, same durable history, and the next prompt still carries every earlier turn. It is a display command, not a memory command. `commands.zig:416`, `app_input_runtime.zig:2718`. |
+| `/model` | slash | implemented | With no argument, reports the active model and which settings layer chose it. With one, uses that model from the next turn on and records a durable `preferences_changed` event, so a resumed session continues in the model it was actually held in. Bounded to one printable word: the id becomes an HTTP header. It does not browse a catalog -- `models` and `provider` are separate deferred rows -- and an id the Gateway rejects is reported by the Gateway. `commands.zig:452`. |
+| `/version` | slash | implemented | The version, compile profile, and build revision of the running binary. `commands.zig:456`. |
+| `/quit` | slash | implemented | Leaves with status 0. `commands.zig:457`. |
+| other upstream slash commands (`/reset`, `/resume`, `/continue`, `/rename`, `/login`, `/logout`, `/setup`, `/stats`, `/usage`, `/status`, `/background`, `/image`, `/images`, `/models`, `/provider`, `/permissions`, `/allowlist`, `/undo`, `/mcp`, `/exit`) | slash | deferred | Absent from `/help` and from the parser: an unrecognized slash line is one deterministic refusal that names the command and points at `/help`. `/exit` is deferred as well rather than aliased, so the shell has exactly six names. `commands.zig:414-457`. |
 
 ## Tools
 
@@ -115,7 +144,7 @@ it against the `tool` rows here.
 | `AGENTS.md` project context | persistence | implemented | Bounded instruction files from the filesystem root down to the workspace, plus a nested directory's own file admitted immediately before a tool call touches a target inside it. Each section is labelled with its file and scope; the narrowest scope renders last. At most 32 files, 64 KiB each, 256 KiB in total -- counted in **model-visible bytes**, so a body is budgeted after escaping and a section after its framing, and a file whose escaped form is too large is omitted rather than clipped. Omission markers are bounded by the same file cap and name the reason. Containment is decided on canonical paths, so a symlinked directory inside the workspace cannot pull in an external file -- neither its bytes nor its provenance; a link that resolves inside the workspace is ordinary layout and is delivered once, under its real scope. Rule bodies are escaped so a repository cannot close fxr's framing and write its own. `CLAUDE.md` is never read directly and an `--add-dir` root contributes nothing. Context is rediscovered after a resume rather than persisted, so editing `AGENTS.md` takes effect on the next turn. `context.zig:284-436`, `:502-519`. |
 | `ask --add-dir <PATH>` | persistence | implemented | Repeatable. Authorizes one extra directory for this turn's **read** tools; a path that is not a usable directory fails the turn before any request is sent. `auto` will not write into an added root, so reading it and changing it stay separate decisions. `cli_surface.zig:391-415`, `workspace_access.zig:53-96`. |
 | saved additional workspace roots | persistence | deferred | Upstream persists added directories and manages them from the `workspace` command. fxr authorizes them per invocation only, so nothing is remembered between runs. `cli_surface.zig:83`. |
-| prompt history | persistence | deferred | Post-v0.1. |
+| prompt history | persistence | deferred | Post-v0.1. The shell reads lines through the terminal's canonical mode, which gives backspace, word erase, and line kill but no recall: there is no in-shell history buffer, no arrow-key recall, and nothing written to a history file. Adding one means owning the line editor, and owning the line editor means owning the terminal state the shell currently guarantees it never changes. |
 
 ## Output and UI
 
@@ -126,10 +155,10 @@ it against the `tool` rows here.
 | sessions/session renderers | ui | implemented | The same facts as text and as one JSON document. Deterministic: two reads of an unchanged store are byte-identical. Recorded text is clipped at 2000 bytes and *every* session-controlled value is flattened -- including tool-call names and `finish_reason`, which are a closed vocabulary coming from a provider but arbitrary strings coming off the disk -- so a session that read a large file cannot flood a terminal and a recorded newline cannot forge a row. |
 | JSONL turn event stream | ui | implemented | `assistant_delta`, `tool_start`, `tool_result`, `final`, and `error` are all produced by `ask --json`, with exactly one terminal event per turn. |
 | streamed assistant text | ui | implemented | `ask` without `--json` writes only the answer to stdout, one delta at a time, and puts a failure on stderr. `orchestrator.zig:4650-4655`. |
-| interactive shell | ui | deferred | Line-oriented shell with six slash commands; lands with the shell slice of v0.1. |
-| full-screen TUI | ui | deferred | Not a goal. The shell keeps normal scrollback. |
+| interactive turn notices | ui | implemented | In the shell only, each tool call is announced on stderr as `[tool] <name> running` and then `ok` or `refused: <reason>`, with the reason flattened to one line and clipped. `ask` is unchanged: its output is its answer. |
+| full-screen TUI | ui | deferred | Not a goal. The shell is line-oriented, never enters raw mode or the alternate screen, and leaves the terminal's line discipline byte-identical. |
 | notifications and status line | ui | deferred | Post-v0.1. `config_runtime.zig:139-152`. |
-| colored and hyperlinked TTY output | ui | deferred | Post-v0.1; output is plain text. |
+| colored and hyperlinked TTY output | ui | deferred | Post-v0.1; output is plain text. The one control sequence fxr emits is the erase pair `/clear` writes, and only when asked. |
 
 ## Embedding surfaces
 

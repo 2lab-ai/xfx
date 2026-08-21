@@ -51,6 +51,11 @@ would break the integration rather than disambiguate it.
 | `startup` detail format `resolved model=..., permission_mode=..., agent_step_limit=N` | `src/core/cli/doctor_runtime.zig:231-237`, `tests/e2e/cli.test.ts:808-848` |
 | `config` warning text when no settings file exists | `src/core/cli/doctor_runtime.zig:174` |
 | `status` and `doctor` succeed without credentials and do not mutate an empty home | `tests/e2e/cli.test.ts:551-586` |
+| A bare invocation starts the interactive shell | `src/core/cli/cli_surface.zig:443` |
+| Refusing to open a shell without a terminal, exit 1 | `src/core/app/app_entry_runtime.zig:224` |
+| The shell's `/clear` clears the transcript rather than the conversation | `src/core/app/app_input_runtime.zig:2718` |
+| `/new` starts a fresh session; `/model` takes an id; `/version`; `/quit` | `src/builtins/commands.zig:415-457` |
+| An unrecognized slash command is one refusal that points at `/help` | `src/core/app/app_commands.zig:1754-1761` |
 | Snapshots print the credential source label, never the secret | `tests/e2e/cli.test.ts:625-640`, `:698-716` |
 | 12-character abbreviated build revision | `tests/e2e/cli.test.ts:729` |
 
@@ -76,16 +81,41 @@ Each of these is a decision, not an omission.
    defers both, so naming them would advertise absent commands.
 5. **`auth_refreshable` is always `false`.** fxr has no refreshable credential
    source, because OAuth login is deferred.
-6. **A bare `fxr` is rejected.** Upstream starts the interactive shell
-   (`src/core/cli/cli_surface.zig:443`). fxr's shell is a later slice, so a bare
-   invocation exits 1 with usage rather than succeeding at nothing.
-7. **Settings surface is a small subset.** Upstream's `Settings` carries ~35
+6. **The shell is line-oriented, not a TUI.** Upstream's interactive product is
+   a full terminal application with a composer, a status line, a slash-command
+   menu, and five classes of owner that may take the alternate screen
+   (`AGENTS.md:265-278`, `src/ui/shell_runtime.zig`). fxr's shell appends lines
+   to the terminal it was given: it uses the kernel's own canonical mode, never
+   enters raw mode, never takes the alternate screen, and leaves the line
+   discipline byte-identical. The cost is real and is recorded as the deferred
+   `prompt history` row -- no recall, no arrow-key editing, no completion menu.
+   The benefit is that scrollback survives, output is pipeable in the parts that
+   are meant to be, and "fxr left your terminal as it found it" is a property
+   with nothing to restore rather than a cleanup path that has to be right on
+   every exit.
+7. **The shell owns six slash commands, not forty.** Upstream registers about
+   forty (`src/builtins/commands.zig:414-457`). fxr answers `/help`, `/new`,
+   `/clear`, `/model`, `/version`, and `/quit`, and refuses everything else by
+   name. `/exit` is not aliased to `/quit`, because a seventh accepted spelling
+   is a seventh promise.
+8. **Settings surface is a small subset.** Upstream's `Settings` carries ~35
    keys (`src/core/config/config_runtime.zig:68-129`). fxr implements `model`,
    `permission_mode`, and `max_agent_steps`, which are the keys its runtime
    actually consumes. An unread key is not configuration; it is decoration.
+9. **The default permission mode asks for less.** Upstream's `auto` runs
+   "routine understood development actions" directly and gives an unresolved
+   sensitive action one bounded automatic review (`README.md:96-98`). fxr's
+   `auto` admits a reporting-only command grammar that cannot compile or run
+   project code, has no automatic review, and never widens itself. Narrower is
+   the right direction to be wrong in for a port with no sandbox.
 
 ## Scope
 
 `docs/parity.md` is the authoritative row-by-row account of what is implemented,
-partial, and deferred. `scripts/check-no-stubs.sh` fails the build if the binary
-advertises a surface that ledger does not record as implemented.
+partial, and deferred. `scripts/check-no-stubs.sh` reconciles it against the
+source in both directions -- an advertised surface with no `implemented` row and
+an `implemented` row with no surface both fail the build -- and
+`tests/parity.rs` runs the same reconciliation against the running binary.
+
+fxr does not claim parity with `fx` and will not encode closeness to it in a
+version number.

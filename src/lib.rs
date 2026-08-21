@@ -13,6 +13,7 @@
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
+//! - [`interactive`]: the line-oriented shell a bare `fxr` runs
 //! - [`app`]: composition and dispatch
 //!
 //! fxr is not affiliated with Vercel. It is a behavioral port pinned to
@@ -24,6 +25,7 @@ pub mod app;
 pub mod cli;
 pub mod config;
 pub mod gateway;
+pub mod interactive;
 pub mod output;
 pub mod permission;
 pub mod session;

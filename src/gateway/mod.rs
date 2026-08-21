@@ -57,6 +57,13 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the stream may stall between chunks before fxr gives up.
 const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// How often a stalled stream re-reads the cancellation flag.
+///
+/// Short enough that Ctrl-C feels immediate, long enough that a healthy stream
+/// never notices. It bounds latency, not the wait itself: [`READ_TIMEOUT`] is
+/// still what decides that a silent server is a failed attempt.
+const CANCEL_POLL: Duration = Duration::from_millis(50);
+
 /// How much of a failed response body is quoted back to the user.
 const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
@@ -84,6 +91,19 @@ impl CancelToken {
     /// Requests cancellation. Idempotent, and safe from any thread.
     pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
+    }
+
+    /// Clears the request, so the next turn starts uncancelled.
+    ///
+    /// A one-shot `ask` never needs this: its token dies with the process. A
+    /// shell does, because it runs many turns through one provider and one tool
+    /// context, and an interrupt has to mean "stop *that* turn" rather than
+    /// "stop everything from now on". The caller is responsible for calling it
+    /// while no turn is running -- in the shell that is the same lock that
+    /// decides whether a signal is a cancellation or an exit -- so this cannot
+    /// race a cancellation it was supposed to honor.
+    pub fn reset(&self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -522,7 +542,26 @@ impl Provider for GatewayProvider {
 
         let mut reader = SseReader::with_cancel(self.cancel.clone());
         let mut stream = response.bytes_stream();
-        while let Some(chunk) = stream.next().await {
+        loop {
+            // Waiting for the *next* chunk is where a cancelled turn actually
+            // spends its time: a stream that has started answering and stopped
+            // is exactly what a user interrupts. Checking the flag only when
+            // bytes arrive would mean Ctrl-C said "stopping the turn" and then
+            // the turn kept the terminal for as long as the server felt like
+            // holding the connection open. So the wait is chopped into short
+            // polls; the flag is read between them.
+            let chunk = match tokio::time::timeout(CANCEL_POLL, stream.next()).await {
+                Ok(Some(chunk)) => chunk,
+                // End of body. Whether that is a completion or a truncation is
+                // the decoder's judgement, not the transport's.
+                Ok(None) => break,
+                Err(_elapsed) => {
+                    if self.cancel.is_cancelled() {
+                        return Err(ProviderError::Cancelled);
+                    }
+                    continue;
+                }
+            };
             if self.cancel.is_cancelled() {
                 return Err(ProviderError::Cancelled);
             }
@@ -826,6 +865,20 @@ mod tests {
             err,
             ProviderError::Request(ProtocolError::UnmatchedToolResult { .. })
         ));
+    }
+
+    #[test]
+    fn a_reset_token_is_shared_with_every_clone_of_itself() {
+        let cancel = CancelToken::new();
+        let clone = cancel.clone();
+        cancel.cancel();
+        assert!(clone.is_cancelled());
+        // The shell resets between turns, and the tool context that holds a
+        // clone has to see it: a copy that stayed cancelled would refuse every
+        // later tool call in the same session.
+        clone.reset();
+        assert!(!cancel.is_cancelled());
+        assert!(!clone.is_cancelled());
     }
 
     #[tokio::test]

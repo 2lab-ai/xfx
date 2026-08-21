@@ -51,5 +51,14 @@ rustix = { version = "1", features = ["fs", "process"] }
 [dev-dependencies]
 tempfile = "3.10"
 
+# The interactive shell is only meaningful on a terminal, so its acceptance
+# tests drive the real binary through a real pseudoterminal rather than through
+# a pipe that merely claims to be one. `pty` opens the device pair and `termios`
+# reads the line-discipline state back, which is how "fxr left your terminal as
+# it found it" becomes an assertion instead of a hope. Test-only: a release
+# build links neither.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1", features = ["fs", "process", "pty", "termios"] }
+
 [profile.release]
 strip = true

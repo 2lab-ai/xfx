@@ -284,15 +284,28 @@ fn a_deferred_command_is_rejected_like_any_unknown_name() {
 }
 
 #[test]
-fn a_bare_invocation_reports_usage_on_stderr_with_exit_1() {
+fn a_bare_invocation_without_a_terminal_is_refused_with_exit_1() {
+    // A bare `fxr` asks for the shell, and a shell needs a terminal. In a test
+    // harness there is none, so this is the refusal path; the shell's own
+    // acceptance tests in `tests/interactive.rs` drive the other one on a real
+    // pty. Nothing is created under the profile home on the way out.
     let sandbox = Sandbox::new();
     let run = sandbox.run(&[]);
     assert_eq!(run.code, Some(1), "bare invocation must exit 1");
     assert_eq!(run.stdout, "", "bare invocation must not write to stdout");
     assert!(
-        run.stderr.contains("Usage:"),
-        "stderr must show usage, got {:?}",
+        run.stderr.contains("interactive terminal"),
+        "stderr must name the requirement, got {:?}",
         run.stderr
+    );
+    assert!(
+        run.stderr.contains("fxr ask"),
+        "stderr must name what to use instead, got {:?}",
+        run.stderr
+    );
+    assert!(
+        !sandbox.profile_dir().exists(),
+        "a refused shell must not create a profile home"
     );
 }
 
@@ -422,12 +435,100 @@ fn doctor_json_reports_aggregate_counts_and_named_checks() {
     assert_eq!(json["fail_count"], fail);
 
     let names: Vec<&str> = checks.iter().map(|c| c["name"].as_str().unwrap()).collect();
-    for expected in ["workspace", "config", "auth", "startup"] {
+    for expected in [
+        "workspace",
+        "config",
+        "auth",
+        "permissions",
+        "sessions",
+        "startup",
+    ] {
         assert!(
             names.contains(&expected),
             "doctor must run the `{expected}` check, got {names:?}"
         );
     }
+}
+
+/// Creates a session directory the store will agree to read.
+///
+/// `0700` on both levels, because the store re-checks that on every use: state
+/// reachable by group or other is refused rather than read, and a fixture that
+/// forgot would be testing the refusal instead of the check under test.
+fn private_session_dir(sandbox: &Sandbox, id: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let session = sandbox.profile_dir().join("sessions").join(id);
+    fs::create_dir_all(&session).expect("create a session directory");
+    for level in [
+        sandbox.profile_dir(),
+        sandbox.profile_dir().join("sessions"),
+        session.clone(),
+    ] {
+        fs::set_permissions(&level, fs::Permissions::from_mode(0o700)).expect("make it private");
+    }
+    session
+}
+
+/// The `detail` of one named `doctor` check.
+fn doctor_check(sandbox: &Sandbox, name: &str) -> (String, String) {
+    let json = sandbox.run(&["doctor", "--json"]).json();
+    let checks = json["checks"].as_array().expect("checks array").clone();
+    let check = checks
+        .iter()
+        .find(|check| check["name"] == name)
+        .unwrap_or_else(|| panic!("doctor has no `{name}` check: {checks:?}"));
+    (
+        check["status"].as_str().expect("status").to_string(),
+        check["detail"].as_str().expect("detail").to_string(),
+    )
+}
+
+#[test]
+fn doctor_reports_an_empty_session_store_as_nothing_wrong() {
+    let sandbox = Sandbox::new();
+    let (status, detail) = doctor_check(&sandbox, "sessions");
+    assert_eq!(status, "ok", "{detail}");
+    assert!(detail.contains("0 session(s)"), "{detail}");
+    // Still read-only: asking about the store must not create it.
+    assert!(!sandbox.profile_dir().exists());
+}
+
+#[test]
+fn doctor_reports_a_session_directory_it_cannot_read() {
+    let sandbox = Sandbox::new();
+    // A directory with a usable name and nothing inside it is not a session
+    // fxr wrote, and `fxr sessions` will quietly skip it. `doctor` is where
+    // that becomes visible.
+    private_session_dir(&sandbox, "1700000000000-aaaaaaaaaaaaaaaa");
+    let (status, detail) = doctor_check(&sandbox, "sessions");
+    assert_eq!(status, "warn", "{detail}");
+    assert!(detail.contains("could not be read"), "{detail}");
+}
+
+#[test]
+fn doctor_reports_a_staged_manifest_left_by_an_interrupted_write() {
+    let sandbox = Sandbox::new();
+    // Exactly what a process killed between staging and rename leaves behind.
+    // fxr never unlinks one, because it cannot know whose it is; the promise
+    // that replaces removal is that `doctor` says it is there.
+    let session = private_session_dir(&sandbox, "1700000000000-bbbbbbbbbbbbbbbb");
+    fs::write(
+        session.join("session.json.999.abcdef0123456789.staged"),
+        "{}",
+    )
+    .expect("leave a stage file");
+
+    let (status, detail) = doctor_check(&sandbox, "sessions");
+    assert_eq!(status, "warn", "{detail}");
+    assert!(detail.contains("1 staged manifest"), "{detail}");
+    assert!(detail.contains("interrupted write"), "{detail}");
+    // A report, not a repair.
+    assert!(
+        session
+            .join("session.json.999.abcdef0123456789.staged")
+            .exists(),
+        "doctor must not delete anything"
+    );
 }
 
 #[test]

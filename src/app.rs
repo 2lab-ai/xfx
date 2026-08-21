@@ -4,10 +4,11 @@
 //! stream and an exit code. Every later slice adds a match arm here rather than
 //! a second entry point, so there is exactly one path from argument to effect.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
@@ -50,6 +51,13 @@ pub const INTERRUPT_NOTICE: &str =
 
 /// The exit status for a process killed on a second interrupt: 128 + SIGINT.
 const INTERRUPTED_EXIT_CODE: i32 = 130;
+
+/// The longest fxr waits for its interrupt handler before starting anyway.
+///
+/// Installing one takes a fraction of a millisecond. This bound exists so that
+/// a machine where it somehow cannot be installed still gets a working fxr,
+/// with the default Ctrl-C behaviour, rather than a hung one.
+const INTERRUPT_INSTALL_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A failure that stops a command before it can report anything.
 ///
@@ -94,10 +102,16 @@ impl From<io::Error> for AppError {
 }
 
 /// Runs one invocation against the real process streams.
+///
+/// The handles are deliberately *not* locked for the duration of the command.
+/// fxr's interrupt watcher lives on another thread and its whole job is to say
+/// something while a command is still running; a lock held across the command
+/// makes that write block forever on the lock the command is holding. That is
+/// the difference between "Ctrl-C says it is stopping" and "Ctrl-C appears to
+/// do nothing, and the second one does nothing either". Each write takes the
+/// lock for itself instead.
 pub async fn run(cli: Cli) -> Result<ExitCode, AppError> {
-    let stdout = io::stdout();
-    let stderr = io::stderr();
-    run_with(cli, &mut stdout.lock(), &mut stderr.lock()).await
+    run_with(cli, &mut io::stdout(), &mut io::stderr()).await
 }
 
 /// Runs one invocation against explicit streams.
@@ -110,6 +124,14 @@ pub async fn run_with(
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     match cli.command {
+        // The shell is the one command whose streams are not arguments: it is
+        // defined by the terminal the process was given, and it refuses to run
+        // when there is not one. Its startup diagnostics still go through the
+        // caller's stderr, so the refusal is testable without a terminal.
+        Command::Interactive => {
+            let config = load_config()?;
+            crate::interactive::run(&config, stderr).await
+        }
         Command::Help { page } => {
             write!(stdout, "{page}")?;
             Ok(ExitCode::SUCCESS)
@@ -475,17 +497,42 @@ fn open_session(
 }
 
 /// Turns the next Ctrl-C into a cancellation, and the one after that into an exit.
+fn watch_for_interrupt(cancel: CancelToken) {
+    spawn_interrupt_thread(move || {
+        if cancel.is_cancelled() {
+            // Asked twice. The first request is still being honored somewhere;
+            // the user has decided not to wait for it.
+            std::process::exit(INTERRUPTED_EXIT_CODE);
+        }
+        cancel.cancel();
+        let _ = writeln!(io::stderr(), "{INTERRUPT_NOTICE}");
+    });
+}
+
+/// Calls `on_signal` once for every SIGINT, forever.
 ///
-/// It runs on its own OS thread with its own small runtime, because the turn's
+/// It runs on its own OS thread with its own small runtime, because fxr's
 /// runtime is single-threaded and `terminal` blocks it for the duration of a
-/// command. A signal that could only be observed by the blocked runtime would
-/// arrive exactly when it is least able to be noticed -- which is when the user
-/// is most likely to send one.
+/// command -- and the shell blocks it for as long as a user takes to type. A
+/// signal that could only be observed by the blocked runtime would arrive
+/// exactly when it is least able to be noticed, which is when the user is most
+/// likely to send one.
 ///
 /// The thread is detached. It has nothing to clean up, and it must outlive
-/// nothing: when the turn ends, the process ends.
-fn watch_for_interrupt(cancel: CancelToken) {
-    let _ = std::thread::Builder::new()
+/// nothing: when the process ends, it ends.
+///
+/// **It returns only once the handler exists.** The OS handler is installed by
+/// the first poll of the signal future, and until then SIGINT keeps its default
+/// disposition -- so a caller that started printing a prompt before this
+/// returned would be offering the user a Ctrl-C that kills fxr outright. The
+/// wait is bounded because a handler fxr cannot install must not stop it from
+/// starting either.
+pub(crate) fn spawn_interrupt_thread<F>(mut on_signal: F)
+where
+    F: FnMut() + Send + 'static,
+{
+    let (installed, wait_for_install) = std::sync::mpsc::sync_channel::<()>(1);
+    let spawned = std::thread::Builder::new()
         .name("fxr-interrupt".to_string())
         .spawn(move || {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -494,24 +541,33 @@ fn watch_for_interrupt(cancel: CancelToken) {
             else {
                 // No runtime means no handler, which means the default SIGINT
                 // disposition stays in place. Ctrl-C then kills fxr outright:
-                // worse, but not silently worse.
+                // worse, but not silently worse. Dropping `installed` releases
+                // the caller immediately rather than making it wait for a
+                // handler that is never coming.
                 return;
             };
             runtime.block_on(async move {
+                // Polled once, before anything is reported as ready: that poll
+                // is the registration.
+                let mut first = std::pin::pin!(tokio::signal::ctrl_c());
+                let during_install = tokio::time::timeout(Duration::ZERO, first.as_mut()).await;
+                let _ = installed.send(());
+                // A signal that arrived inside that window is still the user's
+                // interrupt, so it is delivered rather than dropped.
+                if during_install.is_ok() {
+                    on_signal();
+                }
                 loop {
                     if tokio::signal::ctrl_c().await.is_err() {
                         return;
                     }
-                    if cancel.is_cancelled() {
-                        // Asked twice. The first request is still being honored
-                        // somewhere; the user has decided not to wait for it.
-                        std::process::exit(INTERRUPTED_EXIT_CODE);
-                    }
-                    cancel.cancel();
-                    let _ = writeln!(io::stderr(), "{INTERRUPT_NOTICE}");
+                    on_signal();
                 }
             });
         });
+    if spawned.is_ok() {
+        let _ = wait_for_install.recv_timeout(INTERRUPT_INSTALL_TIMEOUT);
+    }
 }
 
 /// Builds the permission session one `ask` runs under.
@@ -520,7 +576,7 @@ fn watch_for_interrupt(cancel: CancelToken) {
 /// ends. Without one, `ask` mode denies every mutation rather than hanging on a
 /// question nobody can see -- so a piped or scripted `fxr ask` fails closed by
 /// construction rather than by remembering to check.
-fn permission_session(mode: PermissionMode) -> PermissionSession {
+pub(crate) fn permission_session(mode: PermissionMode) -> PermissionSession {
     let session = PermissionSession::new(mode);
     match TtyPrompter::available() {
         Some(prompter) => session.with_prompter(Box::new(prompter)),
@@ -607,6 +663,7 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     });
 
     checks.push(permissions_check(config.permission_mode));
+    checks.push(sessions_check(config));
 
     checks.push(DoctorCheck::new(
         "startup",
@@ -660,6 +717,113 @@ fn permissions_check(mode: PermissionMode) -> DoctorCheck {
             format!("mode=yolo: no permission check runs at all; sandbox={sandbox}"),
         ),
     }
+}
+
+/// Reports what the session store holds, and what it holds that fxr cannot use.
+///
+/// Three facts, in one line, and each of them is something a user can otherwise
+/// only discover by accident:
+///
+/// - how many sessions are recorded, so `~/.fxr` is not a black box;
+/// - how many session directories could not be trusted -- a store that is
+///   quietly losing conversations should say so out loud rather than only in the
+///   `skipped_invalid` field of a listing nobody reads; and
+/// - how many staged manifests were left behind by a process that died between
+///   staging and rename. `session/store.rs` promises exactly this report as the
+///   reason it never unlinks a stage file it did not create, and until now that
+///   promise had no reader. They are inert, but they are also the only visible
+///   evidence that fxr was killed mid-write.
+///
+/// It is a report, not a repair: nothing here deletes, rebuilds, or compacts
+/// anything. Read-only and bounded, so `doctor` stays a command that is always
+/// safe to run.
+fn sessions_check(config: &RuntimeConfig) -> DoctorCheck {
+    let store = read_only_store(config);
+    let listed = match store.list(&ListFilter::new(ListScope::AllWorkspaces).with_limit(usize::MAX))
+    {
+        Ok(listed) => listed,
+        Err(err) => {
+            return DoctorCheck::new(
+                "sessions",
+                CheckStatus::Warn,
+                format!("cannot read the session store: {err}"),
+            )
+        }
+    };
+    let stages = leftover_stage_count(store.sessions_dir());
+
+    // "at least", never a bare number that could be a ceiling reported as a
+    // total: the listing is bounded twice, once by the limit it was asked for
+    // and once by the store's own scan cap.
+    let mut detail = if listed.truncated || listed.has_more {
+        format!(
+            "at least {} session(s) recorded; the store holds more than fxr reads in one pass",
+            listed.sessions.len()
+        )
+    } else {
+        format!("{} session(s) recorded", listed.sessions.len())
+    };
+    let mut status = CheckStatus::Ok;
+    if listed.skipped_invalid > 0 {
+        status = CheckStatus::Warn;
+        let _ = write!(
+            detail,
+            "; {} session director{} could not be read and {} skipped by `fxr sessions`",
+            listed.skipped_invalid,
+            if listed.skipped_invalid == 1 {
+                "y"
+            } else {
+                "ies"
+            },
+            if listed.skipped_invalid == 1 {
+                "is"
+            } else {
+                "are"
+            },
+        );
+    }
+    if stages > 0 {
+        status = CheckStatus::Warn;
+        let _ = write!(
+            detail,
+            "; {stages} staged manifest file(s) left by an interrupted write remain under {} \
+             (inert, and never read as session state)",
+            store.sessions_dir().display()
+        );
+    }
+    DoctorCheck::new("sessions", status, detail)
+}
+
+/// Counts leftover `*.staged` files under the session store.
+///
+/// Depth-bounded by construction: exactly one directory level below `sessions`,
+/// which is the only place fxr's own staging writes, and only entries whose name
+/// ends in that suffix. `DirEntry::file_type` does not follow symbolic links, so
+/// a link planted in the store cannot make this walk somewhere else. A path it
+/// cannot read contributes nothing rather than failing the check -- why it
+/// cannot be read is already reported by the check above.
+fn leftover_stage_count(sessions_dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(sessions_dir) else {
+        return 0;
+    };
+    let mut count = 0usize;
+    for entry in entries.flatten() {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let Ok(inner) = std::fs::read_dir(entry.path()) else {
+            continue;
+        };
+        count += inner
+            .flatten()
+            .filter(|file| {
+                file.file_name()
+                    .to_string_lossy()
+                    .ends_with(crate::session::STAGE_SUFFIX)
+            })
+            .count();
+    }
+    count
 }
 
 /// Reports which settings layers were found, and which were found but ignored.
@@ -778,6 +942,21 @@ mod tests {
         })
         .await;
         assert_eq!(stderr, "nope\n");
+    }
+
+    #[tokio::test]
+    async fn the_shell_is_dispatched_and_refuses_a_test_harness_that_is_not_a_terminal() {
+        // Under `cargo test` there is no terminal, so this exercises the arm
+        // and the refusal at once -- and proves the refusal goes to the stderr
+        // it was handed rather than to the process's own.
+        let (code, stdout, stderr) = run_capture(Command::Interactive).await;
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(REJECTED_EXIT_CODE))
+        );
+        assert_eq!(stdout, "");
+        assert!(stderr.contains("interactive terminal"), "{stderr}");
+        assert!(stderr.contains("fxr ask"), "{stderr}");
     }
 
     #[test]
