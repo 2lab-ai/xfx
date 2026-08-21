@@ -95,6 +95,15 @@ export CONTRACT_PLACEHOLDERS='@VERSION@
 @SHA_LINUX_AARCH64@
 @SHA_LINUX_X86_64@'
 
+# The `--json` fields each `gh` subcommand accepts, pinned from
+# `gh release <verb> --json` on gh 2.96.0. The two lists differ, and the
+# difference is load bearing: `isLatest` belongs to `release list` only, and
+# asking `release view` for it makes gh exit 1 on an unknown JSON field -- a
+# publication failing for a reason that has nothing to do with the release.
+# The pin is re-checked against the installed gh below so it cannot rot.
+export CONTRACT_GH_RELEASE_VIEW_FIELDS='apiUrl assets author body createdAt databaseId id isDraft isImmutable isPrerelease name publishedAt tagName tarballUrl targetCommitish uploadUrl url zipballUrl'
+export CONTRACT_GH_RELEASE_LIST_FIELDS='createdAt isDraft isImmutable isLatest isPrerelease name publishedAt tagName'
+
 export CONTRACT_FORMULA_CLASS='XfxPreview'
 export CONTRACT_FORMULA_TEMPLATE='Formula/xfx-preview.rb.tmpl'
 export CONTRACT_FORMULA_RENDERED='Formula/xfx-preview.rb'
@@ -134,8 +143,8 @@ check = lambda do |condition, message|
   problems << message unless condition
 end
 
-def list(name)
-  ENV.fetch(name).split("\n").reject(&:empty?)
+def list(name, separator = "\n")
+  ENV.fetch(name).split(separator).reject(&:empty?)
 end
 
 def steps_of(job)
@@ -182,10 +191,8 @@ end
 triggers = document["on"] || document[true] || {}
 check.(triggers.dig("push", "branches") == ["main"],
        "the workflow does not publish on a push to main; it triggers on #{triggers.inspect}")
-check.(triggers.key?("workflow_dispatch"),
-       "the workflow cannot be run by hand, so a failed publication cannot be retried")
-check.(!triggers.key?("pull_request"),
-       "the workflow triggers on pull_request; a fork's branch would publish a release and push the tap")
+check.(triggers.keys == ["push"],
+       "the workflow triggers on #{triggers.keys.inspect}; a workflow holding a deploy key may only run from a push to main, because every other trigger runs the version of it that lives on the ref being dispatched or proposed")
 
 check.(document.dig("concurrency", "group") == "preview-publish",
        "the concurrency group is not `preview-publish`, so two publications can interleave")
@@ -404,34 +411,112 @@ if publish
     end
   end
 
+  # Every `--json` list is checked against the fields the subcommand it belongs
+  # to actually accepts. gh exits 1 on an unknown field, so a wrong list is a
+  # step that always fails -- and it fails after the release exists, which is
+  # the one place in this workflow where "try again" is not free.
+  supported = {
+    "view" => list("CONTRACT_GH_RELEASE_VIEW_FIELDS", " "),
+    "list" => list("CONTRACT_GH_RELEASE_LIST_FIELDS", " "),
+  }
+  run_text(publish).scan(/--json\s+([A-Za-z0-9_,]+)/) do |(fields)|
+    verb = Regexp.last_match.pre_match.scan(/gh release (view|list)\b/).flatten.last
+    next if verb.nil?
+
+    fields.split(",").reject(&:empty?).each do |field|
+      check.(supported.fetch(verb).include?(field),
+             "`gh release #{verb} --json` is asked for `#{field}`, which it does not support; " \
+             "the fields it accepts are #{supported.fetch(verb).join(', ')}")
+    end
+  end
+
   # ------------------------------------------------------------------ tap ---
 
   secret = ENV.fetch("CONTRACT_TAP_SECRET")
-  tap = steps_of(publish).find { |step| (step["env"] || {}).key?(secret) }
-  if tap.nil?
-    problems << "no step updates the tap, so `brew install xfx-preview` would not see this build"
-  else
-    check.((tap["env"] || {})[secret] == "${{ secrets.#{secret} }}",
-           "the tap step does not read the repository-scoped deploy key from secrets.#{secret}")
-    check.(tap["continue-on-error"] != true,
-           "the tap step is continue-on-error; a preview nobody can install would report success")
+  release_at = release.nil? ? nil : steps_of(publish).index(release)
 
-    run = commands(tap["run"])
+  # A `uses:` step with the key in its environment hands a credential for
+  # another repository to code this repository does not review.
+  steps_of(publish).each do |step|
+    next unless (step["env"] || {}).key?(secret)
+
+    check.(step["uses"].nil?,
+           "the step `#{step['name']}` gives #{secret} to the action #{step['uses'].inspect} instead of to a shell in this file")
+  end
+
+  tap_steps = steps_of(publish).select { |step| (step["env"] || {}).key?(secret) && step["run"] }
+  if tap_steps.empty?
+    problems << "no step updates the tap, so `brew install xfx-preview` would not see this build"
+  end
+
+  # Whatever a step touching the key does, it does these.
+  tap_steps.each do |step|
+    name = step["name"].to_s
+    check.((step["env"] || {})[secret] == "${{ secrets.#{secret} }}",
+           "`#{name}` does not read the repository-scoped deploy key from secrets.#{secret}")
+    check.(step["continue-on-error"] != true,
+           "`#{name}` is continue-on-error; a preview nobody can install would report success")
+
+    run = commands(step["run"])
     guard = run[/if \[ -z "\$\{#{secret}:-\}" \]; then(.*?)\n\s*fi/m, 1]
     if guard.nil?
-      problems << "the tap step has no explicit branch for a missing #{secret}"
+      problems << "`#{name}` has no explicit branch for a missing #{secret}"
     else
       check.(guard.include?("exit 1"),
-             "a missing #{secret} does not fail the run; the release would be published with no way to install it")
+             "in `#{name}` a missing #{secret} does not fail the run; the release would be published with no way to install it")
       check.(!guard.include?("exit 0"),
-             "a missing #{secret} is treated as success")
+             "in `#{name}` a missing #{secret} is treated as success")
     end
-
-    check.(run.include?(ENV.fetch("CONTRACT_TAP_REMOTE")),
-           "the tap step does not clone the tap over SSH")
-    check.(run.include?("known_hosts"), "the tap step does not pin GitHub's host key")
+    check.(run.include?("known_hosts"), "`#{name}` does not pin GitHub's host key")
     check.(!run.include?("ssh-keyscan"),
-           "the tap step trusts a host key handed to it by the network it is defending against")
+           "`#{name}` trusts a host key handed to it by the network it is defending against")
+    check.(run.include?("unset #{secret}"),
+           "`#{name}` leaves the key in its environment after loading it into the agent")
+  end
+
+  # The prerequisite: everything that can stop the tap being updated is found
+  # before a release exists, because a published release cannot be recalled.
+  prepare = tap_steps.find { |step| commands(step["run"]).include?("git ls-remote") }
+  if prepare.nil?
+    problems << "nothing proves the tap is reachable before the release is created; a missing key, a revoked key or a missing template would be discovered after publishing"
+  else
+    run = commands(prepare["run"])
+    prepare_at = steps_of(publish).index(prepare)
+    check.(release_at.nil? || prepare_at < release_at,
+           "the tap prerequisite runs after `gh release create`, so the release exists before anyone knows it can be installed")
+    check.(run.include?(ENV.fetch("CONTRACT_TAP_REMOTE")),
+           "the prerequisite does not reach the tap over SSH")
+    check.(run.include?("git clone"),
+           "the prerequisite does not clone the tap, so the push step has nothing prepared to render in")
+    check.(run.include?("origin master") && run.include?("reset --hard origin/master"),
+           "the prerequisite does not fetch and reset the exact master branch it will push to")
+    check.(run.include?("tap/#{ENV.fetch('CONTRACT_FORMULA_TEMPLATE')}"),
+           "the prerequisite does not require the formula template that the render depends on")
+    check.(run.match?(/-f tap\/#{Regexp.escape(ENV.fetch('CONTRACT_FORMULA_TEMPLATE'))}/),
+           "the prerequisite never tests that the template file exists")
+
+    # It proves; it does not change anything. A tap mutated before the release
+    # would point at a download that does not exist yet -- and might never.
+    pushes = run.scan(/git -C tap push[^\n]*/)
+    check.(pushes.any?, "the prerequisite never proves the key can write, only that it can read")
+    check.(pushes.all? { |push| push.include?("--dry-run") },
+           "the prerequisite pushes to the tap for real before the release exists: #{pushes.inspect}")
+    check.(!run.include?("git -C tap commit"),
+           "the prerequisite commits to the tap before the release exists")
+    check.(!run.include?(">tap/#{ENV.fetch('CONTRACT_FORMULA_RENDERED')}"),
+           "the prerequisite renders the formula before the release exists")
+  end
+
+  push_step = tap_steps.find { |step| commands(step["run"]).include?("git -C tap push origin") }
+  if push_step.nil?
+    problems << "nothing pushes the rendered formula to the tap"
+  else
+    run = commands(push_step["run"])
+    push_at = steps_of(publish).index(push_step)
+    check.(release_at.nil? || push_at > release_at,
+           "the tap is pushed before the release it names exists, so the formula would point at a download that is not there")
+    check.(!run.include?("git clone"),
+           "the push step clones the tap again instead of reusing the checkout the prerequisite proved")
     check.(run.include?(ENV.fetch("CONTRACT_FORMULA_TEMPLATE")),
            "the formula is not rendered from the tracked template")
     check.(run.include?(ENV.fetch("CONTRACT_FORMULA_RENDERED")),
@@ -448,7 +533,7 @@ if publish
            "the render substitutes #{rendered_placeholders.inspect}, but the formula template needs #{expected_placeholders.inspect}")
 
     check.(run.include?("preview_version_gt"),
-           "the tap step has no numeric freshness comparator")
+           "the push step has no numeric freshness comparator")
     check.(run.scan(/refuse_downgrade/).length >= 3,
            "the freshness guard is not re-asked after every fetch and before the commit")
     check.(run.include?("for attempt in 1 2 3"),
@@ -458,7 +543,7 @@ if publish
     check.(!fetch_at.nil? && !commit_at.nil? && fetch_at < commit_at,
            "the tap is committed without being refetched first")
     check.(run.include?("exit 1"),
-           "the tap step cannot fail, so an unusable tap would be reported as a publication")
+           "the push step cannot fail, so an unusable tap would be reported as a publication")
   end
 
   # ---------------------------------------------------------------- prune ---
@@ -479,9 +564,8 @@ if publish
     check.(run.include?("preview-*"),
            "the delete loop does not re-check that what it is about to delete is a preview")
 
-    tap_index = steps_of(publish).index(tap)
     prune_index = steps_of(publish).index(prune)
-    check.(tap.nil? || tap_index < prune_index,
+    check.(push_step.nil? || steps_of(publish).index(push_step) < prune_index,
            "previews are pruned before the tap was updated")
   end
 end
@@ -502,6 +586,40 @@ problems.each { |problem| warn "check-preview-contract: #{problem}" }
 exit(problems.empty? ? 0 : 1)
 RUBY
 	fail 'the workflow does not satisfy the preview publication contract'
+fi
+
+# --- the gh field pin, against the gh that is installed ----------------------
+#
+# The workflow check above rejects a `--json` field its subcommand does not
+# accept, using the lists pinned at the top of this file. A pin is worth only
+# as much as its last comparison with reality, so when gh is here it is asked
+# directly rather than trusted: its field list is what it prints when `--json`
+# arrives with no value, which is why the invocation below looks like a
+# mistake. When gh is absent, unauthenticated, or outside a GitHub checkout it
+# says so and the pin stands unverified -- this never passes quietly for having
+# asked nothing.
+
+if command -v gh >/dev/null 2>&1; then
+	for verb in view list; do
+		case "$verb" in
+		view) pinned="$CONTRACT_GH_RELEASE_VIEW_FIELDS" ;;
+		list) pinned="$CONTRACT_GH_RELEASE_LIST_FIELDS" ;;
+		*) pinned='' ;;
+		esac
+
+		usage="$(gh release "$verb" --json 2>&1 || true)"
+		if ! printf '%s\n' "$usage" | grep -q 'comma-separated fields'; then
+			printf 'check-preview-contract: gh did not report its --json fields for `release %s`; the pinned list is unverified here\n' "$verb"
+			continue
+		fi
+
+		live="$(printf '%s\n' "$usage" | sed -n 's/^[[:space:]][[:space:]]*\([a-zA-Z][a-zA-Z0-9_]*\)$/\1/p')"
+		for field in $pinned; do
+			if ! printf '%s\n' "$live" | grep -qx "$field"; then
+				fail "the pinned field list for \`gh release $verb --json\` includes '$field', which the installed gh does not accept"
+			fi
+		done
+	done
 fi
 
 # --- the freshness comparator, executed rather than asserted -----------------

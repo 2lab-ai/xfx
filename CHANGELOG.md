@@ -62,8 +62,11 @@ slices before it.
   on before it is uploaded. The same run renders the Homebrew formula from the
   assets it just published and pushes it to `2lab-ai/tap` over a repository
   scoped deploy key, so `brew install xfx-preview` installs that build rather
-  than one from whenever a cron last ran; a run that cannot update the tap fails
-  instead of reporting a release nobody can install. The prerelease is never
+  than one from whenever a cron last ran. Everything that could stop that --
+  no key, a key that lost its write access, a tap with no template to render --
+  is proved before the release is created, because a published release cannot be
+  recalled; a run that still cannot update the tap afterwards fails rather than
+  reporting a preview nobody can install. The prerelease is never
   marked latest, and `0.1.0` stays unreleased: a preview is a provenance claim,
   not a version. `scripts/check-preview-contract.sh` holds the workflow to all
   of that, including running its no-downgrade comparator rather than grepping

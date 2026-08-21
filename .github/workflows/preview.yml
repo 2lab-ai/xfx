@@ -1,9 +1,15 @@
 "on":
   push:
     branches: [main]
-  # A publication that failed halfway -- a release created but a tap that was
-  # not pushed -- has to be repeatable without an empty commit.
-  workflow_dispatch:
+
+# There is deliberately no `workflow_dispatch` and no `pull_request`. This
+# workflow is handed a deploy key with write access to another repository, and
+# both of those triggers run the version of the workflow that exists on the ref
+# being dispatched or proposed -- so anyone who can push a branch could rewrite
+# the steps that key is given to. A push to `main` has been through review.
+# A publication that failed halfway is retried with GitHub's own re-run of that
+# same trusted event, which is why the run attempt is part of the tag and of the
+# Homebrew version: a re-run is a strictly newer build, not a collision.
 
 name: Preview
 
@@ -337,6 +343,63 @@ jobs:
           fi
           cat release/SHA256SUMS
 
+      # Nothing public may exist until the last mile is known to work.
+      #
+      # A GitHub release cannot be taken back: whoever fetched it has it, and
+      # `--cleanup-tag` after the fact does not unpublish what was downloaded.
+      # So the reasons the tap step can fail -- no deploy key, a key that lost
+      # its write access, a tap with no template to render -- are all found
+      # here, before the release exists, rather than after it exists and cannot
+      # be installed. This step proves and prepares; it changes nothing in the
+      # tap. The clone it leaves behind is what the push step later renders in.
+      - name: Prove the tap can be updated, before anything is published
+        env:
+          # Step-scoped, as in the push step: no `uses:` step in this job ever
+          # has the key in its environment, and the agent holding it dies with
+          # this step rather than being exported to the job.
+          TAP_PUSH_KEY: ${{ secrets.TAP_PUSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TAP_PUSH_KEY:-}" ]; then
+            echo "TAP_PUSH_KEY is not set, so the tap cannot be updated and this preview would not be installable" >&2
+            exit 1
+          fi
+
+          # Pinned from GitHub's published SSH key fingerprints. A host key
+          # scraped from the network at first use is a trust decision made by
+          # the same hop that would forge it.
+          mkdir -p ~/.ssh
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >>~/.ssh/known_hosts
+          eval "$(env -u TAP_PUSH_KEY ssh-agent -s)" >/dev/null
+          trap 'ssh-agent -k >/dev/null 2>&1 || true' EXIT
+          ssh-add - <<<"$TAP_PUSH_KEY"
+          unset TAP_PUSH_KEY
+
+          git ls-remote git@github.com:2lab-ai/homebrew-tap.git >/dev/null
+          git clone git@github.com:2lab-ai/homebrew-tap.git tap
+          git -C tap fetch origin master
+          git -C tap reset --hard origin/master
+          git -C tap config user.name "github-actions[bot]"
+          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ ! -f tap/Formula/xfx-preview.rb.tmpl ]; then
+            echo "the tap has no Formula/xfx-preview.rb.tmpl to render; publishing would strand this build" >&2
+            exit 1
+          fi
+
+          # `ls-remote` only proves the key can read. This proves it can write,
+          # and proves it now: `--dry-run` completes the same authorization the
+          # real push needs, sends no objects, and asks the server to update
+          # nothing.
+          git -C tap push --dry-run origin HEAD:master
+
+          if [ -n "$(git -C tap status --porcelain)" ]; then
+            echo "preparing the tap changed it; this step is supposed to be read-only" >&2
+            exit 1
+          fi
+          echo "the tap is reachable, writable, and has a template to render"
+
       - name: Write the release notes
         env:
           TAG: ${{ needs.preflight.outputs.tag }}
@@ -408,8 +471,12 @@ jobs:
           COMMIT: ${{ needs.preflight.outputs.commit }}
         run: |
           set -euo pipefail
+          # `isLatest` is a field of `gh release list`, not of `gh release
+          # view`: asking `view` for it makes gh exit 1 with "unknown JSON
+          # field", which would fail this step for a reason that has nothing to
+          # do with the release. Each command is asked only what it knows.
           view="$(gh release view "$TAG" --repo "${GITHUB_REPOSITORY}" \
-            --json tagName,isPrerelease,isDraft,isLatest,assets)"
+            --json tagName,isPrerelease,isDraft,assets)"
 
           expect() {
             local field="$1" want="$2" got
@@ -422,7 +489,18 @@ jobs:
           expect '.tagName' "$TAG"
           expect '.isPrerelease' true
           expect '.isDraft' false
-          expect '.isLatest' false
+
+          # The repository's "Latest release" is what a person lands on, so it
+          # is read back from the one command that reports it, and a tag that
+          # is not in the list at all is a failure rather than a default.
+          listed="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 200 \
+            --json tagName,isLatest)"
+          latest="$(jq -r --arg tag "$TAG" \
+            '[.[] | select(.tagName == $tag) | .isLatest] | first // "missing"' <<<"$listed")"
+          if [ "$latest" != "false" ]; then
+            echo "isLatest for $TAG is $latest, expected false" >&2
+            exit 1
+          fi
 
           ref="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}")"
           if [ "$(jq -r '.object.type' <<<"$ref")" != "commit" ]; then
@@ -553,9 +631,14 @@ jobs:
             fi
           done
 
-          git clone git@github.com:2lab-ai/homebrew-tap.git tap
-          git -C tap config user.name "github-actions[bot]"
-          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The clone the prerequisite step left behind, already on master and
+          # already known to hold a template. It is refetched and reset at the
+          # top of every attempt below, so nothing here depends on it having
+          # stayed still while the release was being created.
+          if [ ! -f tap/Formula/xfx-preview.rb.tmpl ]; then
+            echo "the prepared tap checkout is missing; it should have been made before the release" >&2
+            exit 1
+          fi
 
           for attempt in 1 2 3; do
             git -C tap fetch origin master
