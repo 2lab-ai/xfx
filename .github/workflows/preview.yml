@@ -343,16 +343,23 @@ jobs:
           fi
           cat release/SHA256SUMS
 
-      # Nothing public may exist until the last mile is known to work.
-      #
       # A GitHub release cannot be taken back: whoever fetched it has it, and
       # `--cleanup-tag` after the fact does not unpublish what was downloaded.
-      # So the reasons the tap step can fail -- no deploy key, a key that lost
-      # its write access, a tap with no template to render -- are all found
-      # here, before the release exists, rather than after it exists and cannot
-      # be installed. This step proves and prepares; it changes nothing in the
-      # tap. The clone it leaves behind is what the push step later renders in.
-      - name: Prove the tap can be updated, before anything is published
+      # So the cheaply checkable reasons the tap step would fail are checked
+      # here, before the release exists, instead of after it exists and cannot
+      # be installed.
+      #
+      # What this step establishes, exactly: the deploy key is present, SSH
+      # authentication with it to github.com succeeds, the tap is reachable and
+      # can be cloned at `master`, and that clone contains the template the
+      # render depends on. What it does not and cannot establish: that the push
+      # after the release will be accepted. Acceptance is decided at update
+      # time, by whatever the key is allowed to do and whatever master looks
+      # like then -- so it is proved by the push itself, which is why that step
+      # is a hard failure and why the tap's scheduled bump remains the recovery
+      # path. This step changes nothing in the tap; the clone it leaves behind
+      # is what the push step later renders in.
+      - name: Check the tap is reachable, before anything is published
         env:
           # Step-scoped, as in the push step: no `uses:` step in this job ever
           # has the key in its environment, and the agent holding it dies with
@@ -376,6 +383,9 @@ jobs:
           ssh-add - <<<"$TAP_PUSH_KEY"
           unset TAP_PUSH_KEY
 
+          # Authentication and reachability, in one request that mutates
+          # nothing: a key the tap does not know, or a tap that is not there,
+          # fails here rather than after a release has been created.
           git ls-remote git@github.com:2lab-ai/homebrew-tap.git >/dev/null
           git clone git@github.com:2lab-ai/homebrew-tap.git tap
           git -C tap fetch origin master
@@ -388,17 +398,15 @@ jobs:
             exit 1
           fi
 
-          # `ls-remote` only proves the key can read. This proves it can write,
-          # and proves it now: `--dry-run` completes the same authorization the
-          # real push needs, sends no objects, and asks the server to update
-          # nothing.
-          git -C tap push --dry-run origin HEAD:master
-
+          # No push of any kind here, dry run included. A dry run would not
+          # prove the real push will be accepted -- acceptance is decided when
+          # the update is attempted -- and pretending otherwise would turn this
+          # step into a promise the workflow cannot keep.
           if [ -n "$(git -C tap status --porcelain)" ]; then
-            echo "preparing the tap changed it; this step is supposed to be read-only" >&2
+            echo "checking the tap changed it; this step is supposed to be read-only" >&2
             exit 1
           fi
-          echo "the tap is reachable, writable, and has a template to render"
+          echo "the tap authenticates, is at master, and has a template to render"
 
       - name: Write the release notes
         env:
@@ -493,10 +501,25 @@ jobs:
           # The repository's "Latest release" is what a person lands on, so it
           # is read back from the one command that reports it, and a tag that
           # is not in the list at all is a failure rather than a default.
+          #
+          # Presence and value are separate questions here, and the value is
+          # stringified rather than defaulted, because jq's `//` is
+          # "alternative" and not "default": it fires on `false` exactly as it
+          # fires on `null`. `[…| .isLatest] | first // "missing"` would report
+          # the one answer this step exists to see -- a preview that is
+          # correctly not the latest release -- as a release it could not find,
+          # and would fail a good publication after it was published.
+          # shellcheck disable=SC2016 # `$tag` and `$matches` are jq's, not the shell's
+          latest_of_tag='
+            [ .[] | select(.tagName == $tag) ] as $matches
+            | if ($matches | length) == 0
+              then "missing"
+              else ($matches[0].isLatest | tostring)
+              end
+          '
           listed="$(gh release list --repo "${GITHUB_REPOSITORY}" --limit 200 \
             --json tagName,isLatest)"
-          latest="$(jq -r --arg tag "$TAG" \
-            '[.[] | select(.tagName == $tag) | .isLatest] | first // "missing"' <<<"$listed")"
+          latest="$(jq -r --arg tag "$TAG" "$latest_of_tag" <<<"$listed")"
           if [ "$latest" != "false" ]; then
             echo "isLatest for $TAG is $latest, expected false" >&2
             exit 1

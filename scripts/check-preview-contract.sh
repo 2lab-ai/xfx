@@ -474,11 +474,14 @@ if publish
            "`#{name}` leaves the key in its environment after loading it into the agent")
   end
 
-  # The prerequisite: everything that can stop the tap being updated is found
-  # before a release exists, because a published release cannot be recalled.
+  # The prerequisite: the cheaply checkable reasons the tap step would fail are
+  # found before a release exists, because a published release cannot be
+  # recalled. Its scope is deliberately bounded -- key present, SSH
+  # authentication, the tap cloned at master, the template there -- and it must
+  # not claim, by pushing anything, that the later update is already decided.
   prepare = tap_steps.find { |step| commands(step["run"]).include?("git ls-remote") }
   if prepare.nil?
-    problems << "nothing proves the tap is reachable before the release is created; a missing key, a revoked key or a missing template would be discovered after publishing"
+    problems << "nothing checks the tap is reachable before the release is created; a missing key, a key the tap does not know, or a missing template would be discovered after publishing"
   else
     run = commands(prepare["run"])
     prepare_at = steps_of(publish).index(prepare)
@@ -495,12 +498,14 @@ if publish
     check.(run.match?(/-f tap\/#{Regexp.escape(ENV.fetch('CONTRACT_FORMULA_TEMPLATE'))}/),
            "the prerequisite never tests that the template file exists")
 
-    # It proves; it does not change anything. A tap mutated before the release
-    # would point at a download that does not exist yet -- and might never.
+    # It checks; it does not change anything, and it does not push -- not even
+    # a dry run. A tap mutated before the release would point at a download
+    # that does not exist yet, and a dry run would be a claim about a decision
+    # the server has not made: whether the update is accepted is settled when
+    # the update is attempted, by the push step, which fails hard.
     pushes = run.scan(/git -C tap push[^\n]*/)
-    check.(pushes.any?, "the prerequisite never proves the key can write, only that it can read")
-    check.(pushes.all? { |push| push.include?("--dry-run") },
-           "the prerequisite pushes to the tap for real before the release exists: #{pushes.inspect}")
+    check.(pushes.empty?,
+           "the prerequisite pushes to the tap before the release exists: #{pushes.inspect}; a real push mutates it and a dry run cannot promise the later push is accepted")
     check.(!run.include?("git -C tap commit"),
            "the prerequisite commits to the tap before the release exists")
     check.(!run.include?(">tap/#{ENV.fetch('CONTRACT_FORMULA_RENDERED')}"),
@@ -632,6 +637,42 @@ document = YAML.safe_load(File.read(ARGV.fetch(0)), aliases: true)
 job = (document["jobs"] || {})["publish"] || {}
 print (job["steps"] || []).map { |step| step["run"].to_s }.join("\n")
 RUBY
+
+# --- the exact-tag latest query, executed rather than asserted ---------------
+#
+# jq's `//` is "alternative", not "default": it fires on `false` exactly as it
+# fires on `null`. A query that reads `isLatest` and then defaults it that way
+# answers "missing" for the one case this readback exists to see -- a preview
+# that is correctly not the latest release -- and fails a correct publication
+# after the release has been created. So the shipped filter is run here over
+# literal releases rather than being read for plausibility.
+
+awk "/^latest_of_tag='\$/, /^'\$/" "$work/publish.sh" >"$work/latest-query.sh"
+if [ ! -s "$work/latest-query.sh" ]; then
+	fail 'the exact-tag latest query could not be extracted, so the readback is unproven'
+elif ! command -v jq >/dev/null 2>&1; then
+	printf 'check-preview-contract: jq is not installed; the latest query is unverified here\n'
+else
+	# shellcheck source=/dev/null
+	. "$work/latest-query.sh"
+
+	answers() {
+		local want="$1" tag="$2" releases="$3" got
+		got="$(printf '%s' "$releases" | jq -r --arg tag "$tag" "$latest_of_tag")"
+		if [ "$got" != "$want" ]; then
+			fail "the latest query answers '$got' for $releases, expected '$want'"
+		fi
+	}
+
+	# The case the whole readback is about, and the case `//` gets wrong.
+	answers false T '[{"tagName":"T","isLatest":false}]'
+	answers true T '[{"tagName":"T","isLatest":true}]'
+	# Absent is not the same answer as false, and must not be reported as one.
+	answers missing T '[{"tagName":"OTHER","isLatest":true}]'
+	answers missing T '[]'
+	# The exact tag is selected, not the first release that happens to be there.
+	answers false T '[{"tagName":"OTHER","isLatest":true},{"tagName":"T","isLatest":false}]'
+fi
 
 awk '/^preview_version_gt\(\) \{$/, /^\}$/' "$work/publish.sh" >"$work/version-gt.sh"
 if [ ! -s "$work/version-gt.sh" ]; then
