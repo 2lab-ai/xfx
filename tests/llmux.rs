@@ -2602,6 +2602,56 @@ fn a_resumed_conversation_replays_the_recorded_thinking_blocks() {
 }
 
 #[test]
+fn a_thinking_only_answer_is_recorded_even_though_it_says_nothing_visible() {
+    // A response that reasoned and then hit `max_tokens` before producing any
+    // visible text has empty `text`, no tool calls, and a signed thinking block.
+    // The terminal event was gated on the text being nonempty, so the block was
+    // dropped from the session -- and a later resume replayed a history missing
+    // a block Anthropic requires back unchanged.
+    let thoughts = "a long chain of reasoning that ran out of room";
+    let signature = "ErUBCkYIBRgCIkDtruncatedSIGNATURE==";
+    let mut thinking_only = anthropic_start("claude-fake", 3);
+    thinking_only.push_str(&anthropic_thinking_block(0, &[thoughts], signature));
+    thinking_only.push_str(&anthropic_stop("max_tokens", 3, 8192));
+    thinking_only.push_str(&anthropic_event(
+        "message_stop",
+        json!({ "type": "message_stop" }),
+    ));
+
+    let daemon = FakeLlmux::start(vec![
+        Reply::Sse(thinking_only),
+        Reply::Sse(anthropic_answer(&["now with room to answer"])),
+    ]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+
+    let first = sandbox.run(&["ask", "--json", "think hard"], &[]);
+    assert_eq!(first.code, Some(0), "stderr={:?}", first.stderr);
+
+    let second = sandbox.run(&["ask", "--json", "--resume", "last", "carry on"], &[]);
+    assert_eq!(second.code, Some(0), "stderr={:?}", second.stderr);
+
+    let replayed = daemon
+        .message_requests()
+        .last()
+        .expect("a second request")
+        .json();
+    let assistant = replayed["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .unwrap_or_else(|| panic!("the thinking-only turn was dropped: {replayed}"))
+        .clone();
+    assert_eq!(assistant["content"][0]["type"], "thinking");
+    assert_eq!(assistant["content"][0]["thinking"], thoughts);
+    assert_eq!(
+        assistant["content"][0]["signature"], signature,
+        "the signature must survive a turn that produced no visible text"
+    );
+}
+
+#[test]
 fn a_session_listing_never_shows_the_reasoning_it_preserved() {
     // Preserved for the wire, never for a reader: `xfx session` shows what the
     // user and the tools said.
