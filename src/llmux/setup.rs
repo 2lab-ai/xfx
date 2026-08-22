@@ -611,41 +611,87 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// A stage name no other writer can own.
+///
+/// This process's id **and** a fresh nonce, which is the session store's shape
+/// (`src/session/store.rs` `replace_private_file`). The pid alone is not unique:
+/// two writes from this same process share it, so the second wrote through a
+/// file the first was still filling.
+fn stage_path(dir: &Path) -> PathBuf {
+    dir.join(format!(
+        "settings.json.{}.{}{}",
+        std::process::id(),
+        &crate::session::new_identifier()[..16],
+        crate::session::STAGE_SUFFIX
+    ))
+}
+
+/// A staged file that removes itself unless it was renamed into place.
+///
+/// The store's guard, for the store's reason. The stage exists for the few
+/// microseconds between "written" and "renamed", and if anything in between
+/// fails the partial file must not be left behind to be mistaken for state --
+/// but it must not be cleaned up by deleting a *fixed* name either, because a
+/// fixed name is something another process might own. That is not hypothetical
+/// here: the previous version removed exactly the pid-shaped name on a failed
+/// rename, so a concurrent writer's stage was deleted by this one's error path.
+/// The path this guard holds is this write's own, nonce and all.
+struct StagedFile {
+    path: PathBuf,
+    committed: bool,
+}
+
+impl StagedFile {
+    fn commit(mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for StagedFile {
+    fn drop(&mut self) {
+        if !self.committed {
+            // Only ever this write's own uniquely named stage.
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Writes `bytes` to `path` atomically and privately.
 ///
-/// The discipline is the session store's (`src/session/store.rs`
-/// `replace_private_file`), for the same reasons: the stage lives in the target
-/// directory so the rename cannot cross a filesystem, the stage name carries
-/// this process's id so a concurrent writer's file is never removed, the file is
-/// created `0600` rather than tightened afterwards, and the directory is synced
-/// so the *name* is durable and not only the bytes it points at.
+/// The discipline is the session store's, for the same reasons: the stage lives
+/// in the target directory so the rename cannot cross a filesystem, it is opened
+/// `create_new` so a name this write did not create is never written through,
+/// the file is created `0600` rather than tightened afterwards, and the
+/// directory is synced so the *name* is durable and not only the bytes it points
+/// at.
 ///
 /// A reader of `settings.json` therefore sees either the old document or the new
 /// one -- never a half-written file, which for a settings file would mean the
 /// next `xfx` run silently loses every key past the truncation.
 fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let staged = dir.join(format!("settings.json.{}.staged", std::process::id()));
+    let staged = StagedFile {
+        path: stage_path(dir),
+        committed: false,
+    };
     {
         let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        // `create_new`, never `create().truncate()`: writing through a name this
+        // write did not create is how a concurrent writer's in-flight file gets
+        // destroyed.
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&staged)?;
+        let mut file = options.open(&staged.path)?;
         io::Write::write_all(&mut file, bytes)?;
         file.sync_all()?;
     }
-    // A rename onto the target keeps the target's inode replaced atomically;
-    // a failure leaves the stage behind rather than a truncated settings file.
-    match fs::rename(&staged, path) {
-        Ok(()) => {}
-        Err(err) => {
-            let _ = fs::remove_file(&staged);
-            return Err(err);
-        }
-    }
+    // A rename onto the target replaces its inode atomically. On failure the
+    // guard removes this write's own stage on the way out -- and only that one.
+    fs::rename(&staged.path, path)?;
+    staged.commit();
     sync_directory(dir)
 }
 
@@ -923,6 +969,85 @@ mod tests {
         }
         fs::remove_file(&path).expect("remove");
         assert_eq!(read_existing(&path).expect("absent is empty"), Map::new());
+    }
+
+    /// Every `*.staged` name directly under `dir`, sorted.
+    fn staged_files(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("read the directory")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(crate::session::STAGE_SUFFIX))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The stage name shape this writer used before it carried a nonce.
+    fn pid_only_stage(dir: &Path) -> PathBuf {
+        dir.join(format!("settings.json.{}.staged", std::process::id()))
+    }
+
+    #[test]
+    fn a_stage_another_writer_owns_is_never_written_through() {
+        // The stage name used to be this process's pid and nothing else, opened
+        // with `create().truncate()`. Two writes -- a second xfx, or this one
+        // twice -- would then share a name, and the second would write straight
+        // through a file the first was still filling. A nonce is what makes that
+        // impossible, so this plants a file at the *old* name shape and requires
+        // it to survive a successful write untouched.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        let foreign = pid_only_stage(dir.path());
+        fs::write(&foreign, b"another writer owns this").expect("plant a stage");
+
+        replace_private_file(dir.path(), &path, b"{\"ok\":true}\n").expect("the write succeeds");
+
+        assert_eq!(
+            fs::read_to_string(&foreign).unwrap(),
+            "another writer owns this",
+            "a stage this write did not create must not be written through"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"ok\":true}\n");
+    }
+
+    #[test]
+    fn a_successful_write_leaves_no_stage_of_its_own_behind() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        replace_private_file(dir.path(), &path, b"{}\n").expect("the write succeeds");
+        assert!(
+            staged_files(dir.path()).is_empty(),
+            "{:?}",
+            staged_files(dir.path())
+        );
+    }
+
+    #[test]
+    fn a_failed_rename_removes_this_writes_stage_and_no_other() {
+        // Renaming onto a directory fails, which is the reachable way to reach
+        // the guard. The stage this write created must be gone; a stage it did
+        // not create must still be there, because unlinking a name you do not
+        // own is the interference the nonce exists to prevent.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::create_dir(&path).expect("a target that cannot be renamed onto");
+        let foreign = pid_only_stage(dir.path());
+        fs::write(&foreign, b"another writer owns this").expect("plant a stage");
+
+        replace_private_file(dir.path(), &path, b"{}\n")
+            .expect_err("renaming onto a directory fails");
+
+        assert_eq!(
+            fs::read_to_string(&foreign).unwrap(),
+            "another writer owns this",
+            "the guard must never unlink a stage this write did not create"
+        );
+        assert_eq!(
+            staged_files(dir.path()),
+            vec![foreign.file_name().unwrap().to_string_lossy().into_owned()],
+            "this write's own stage is gone and only the foreign one remains"
+        );
     }
 
     #[test]
