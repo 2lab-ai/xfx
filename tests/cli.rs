@@ -11,7 +11,9 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 use tempfile::TempDir;
-use xfx::config::{CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource};
+use xfx::config::{
+    Backend, CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource,
+};
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
@@ -1095,6 +1097,105 @@ fn project_settings_cannot_set_profile_only_keys() {
         .collect();
     assert!(ignored.contains(&"model"), "got {ignored:?}");
     assert!(ignored.contains(&"permission_mode"), "got {ignored:?}");
+}
+
+#[test]
+fn the_backend_defaults_to_the_gateway_and_the_profile_may_select_llmux() {
+    let sandbox = Sandbox::new();
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.backend, Backend::Gateway);
+    assert_eq!(config.llmux_url, None);
+    assert_eq!(config.sources.backend, SettingSource::CompiledDefault);
+
+    sandbox.write_user_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.llmux_url.as_deref(), Some("http://127.0.0.1:3456"));
+    assert_eq!(config.sources.backend, SettingSource::UserGlobal);
+    assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+}
+
+#[test]
+fn an_exact_workspace_entry_may_choose_a_different_backend() {
+    let sandbox = Sandbox::new();
+    let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
+    sandbox.write_user_settings(&format!(
+        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"backend\":\"llmux\",\
+         \"llmux_url\":\"http://127.0.0.1:4000\"}}}}}}",
+        serde_json::to_string(&workspace_key).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.llmux_url.as_deref(), Some("http://127.0.0.1:4000"));
+    assert_eq!(config.sources.backend, SettingSource::UserWorkspace);
+}
+
+#[test]
+fn project_settings_cannot_choose_the_backend_or_point_at_an_endpoint() {
+    // A repository is shared. If `.xfx.json` could set these, cloning one would
+    // be enough to redirect a prompt at an endpoint of its author's choosing.
+    let sandbox = Sandbox::new();
+    sandbox.write_project_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:9\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.backend, Backend::Gateway);
+    assert_eq!(config.llmux_url, None);
+
+    let ignored: Vec<&str> = config
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.ignored_setting_key())
+        .collect();
+    assert!(ignored.contains(&"backend"), "got {ignored:?}");
+    assert!(ignored.contains(&"llmux_url"), "got {ignored:?}");
+}
+
+#[test]
+fn a_refused_llmux_url_is_a_diagnostic_and_never_becomes_an_endpoint() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://example.com:80\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(
+        config.llmux_url, None,
+        "a url the transport rule refuses must not survive as a string"
+    );
+    // The backend the operator chose is kept: a turn that cannot name an
+    // endpoint has to refuse, not quietly send the prompt to the Gateway.
+    assert_eq!(config.backend, Backend::Llmux);
+    assert!(
+        config
+            .diagnostics
+            .iter()
+            .any(|d| d.setting_key.as_deref() == Some("llmux_url")),
+        "got {:?}",
+        config.diagnostics
+    );
+}
+
+#[test]
+fn an_unreadable_backend_falls_back_to_the_gateway_without_being_fatal() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"anthropic\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.backend, Backend::Gateway);
+    assert_eq!(config.sources.backend, SettingSource::CompiledDefault);
+    assert!(
+        config
+            .diagnostics
+            .iter()
+            .any(|d| d.setting_key.as_deref() == Some("backend")),
+        "got {:?}",
+        config.diagnostics
+    );
+
+    // `status` still runs: a broken setting is a fact to report, not a reason
+    // to refuse to describe the machine.
+    assert_eq!(sandbox.run(&["status"]).code, Some(0));
 }
 
 #[test]

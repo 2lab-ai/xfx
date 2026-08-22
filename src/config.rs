@@ -62,11 +62,58 @@ const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 /// same line in `src/core/config/config_runtime.zig:548-576`; xfx keeps the
 /// subset that its own settings surface actually supports.
 const PROFILE_ONLY_KEYS: &[&str] = &[
+    "backend",
+    "credential_source",
+    "llmux_url",
     "model",
     "permission_mode",
-    "credential_source",
     "workspaces",
 ];
+
+/// Which provider a turn talks to.
+///
+/// An xfx choice rather than an upstream one: upstream's second provider family
+/// is a `provider` command (`src/core/shared/types.zig:90-96`), which xfx defers.
+/// This is a setting because the two backends differ in what they need from the
+/// machine -- the Gateway needs a bearer credential, llmux needs a loopback
+/// daemon -- and that is a property of the machine, not of one invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    /// The Vercel AI Gateway over its own wire, authenticated by a bearer token.
+    Gateway,
+    /// A local llmux daemon over the Anthropic Messages wire, keyless.
+    Llmux,
+}
+
+impl Backend {
+    /// The stable label every renderer and settings file uses.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Gateway => "gateway",
+            Self::Llmux => "llmux",
+        }
+    }
+
+    /// The inverse of [`Self::label`], tolerating surrounding whitespace, in the
+    /// same shape as [`PermissionMode::parse`].
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim() {
+            "gateway" => Some(Self::Gateway),
+            "llmux" => Some(Self::Llmux),
+            _ => None,
+        }
+    }
+}
+
+impl Default for Backend {
+    /// The Gateway, which is what xfx has always talked to.
+    fn default() -> Self {
+        Self::Gateway
+    }
+}
+
+/// The name the `llmux_url` refusals use, so a message names the settings key.
+const LLMUX_URL_KEY: &str = "llmux_url";
 
 /// How much authority the agent has before it must ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +188,7 @@ pub struct Sources {
     pub model: SettingSource,
     pub permission_mode: SettingSource,
     pub max_agent_steps: SettingSource,
+    pub backend: SettingSource,
 }
 
 impl Default for Sources {
@@ -149,6 +197,7 @@ impl Default for Sources {
             model: SettingSource::CompiledDefault,
             permission_mode: SettingSource::CompiledDefault,
             max_agent_steps: SettingSource::CompiledDefault,
+            backend: SettingSource::CompiledDefault,
         }
     }
 }
@@ -412,6 +461,18 @@ pub struct RuntimeConfig {
     pub model: String,
     pub permission_mode: PermissionMode,
     pub max_agent_steps: u32,
+    /// The provider a turn will talk to.
+    ///
+    /// This is the *configured* backend, never silently downgraded. When it is
+    /// [`Backend::Llmux`] and [`Self::llmux_url`] is `None`, xfx refuses the turn
+    /// and names `xfx setup llmux` rather than falling back to the Gateway: an
+    /// operator who configured a local daemon must not have their prompt sent to
+    /// a remote paid endpoint because the URL was missing or mistyped.
+    pub backend: Backend,
+    /// The llmux daemon's base URL, present only when a settings layer named one
+    /// that passes the endpoint rule. A refused URL is a diagnostic and a `None`,
+    /// never a value.
+    pub llmux_url: Option<String>,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
@@ -500,6 +561,8 @@ impl RuntimeConfig {
             model: settings.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             permission_mode: settings.permission_mode.unwrap_or_default(),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
+            backend: settings.backend.unwrap_or_default(),
+            llmux_url: settings.llmux_url,
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -527,6 +590,8 @@ struct Settings {
     model: Option<String>,
     permission_mode: Option<PermissionMode>,
     max_agent_steps: Option<u32>,
+    backend: Option<Backend>,
+    llmux_url: Option<String>,
 }
 
 impl Settings {
@@ -546,6 +611,16 @@ impl Settings {
         if let Some(steps) = incoming.max_agent_steps {
             self.max_agent_steps = Some(steps);
             sources.max_agent_steps = source;
+        }
+        if let Some(backend) = incoming.backend {
+            self.backend = Some(backend);
+            sources.backend = source;
+        }
+        // The URL has no provenance of its own: it is only ever read together
+        // with the backend that gives it a meaning, and a second `Sources` field
+        // nothing renders would be a field that could quietly go wrong.
+        if let Some(url) = incoming.llmux_url {
+            self.llmux_url = Some(url);
         }
     }
 }
@@ -583,6 +658,32 @@ fn parse_layer(
                     layer,
                     DiagnosticCause::InvalidValue,
                     "permission_mode",
+                )),
+            }
+        }
+        if let Some(value) = object.get("backend") {
+            match value.as_str().and_then(Backend::parse) {
+                Some(backend) => settings.backend = Some(backend),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    "backend",
+                )),
+            }
+        }
+        if let Some(value) = object.get("llmux_url") {
+            // The transport owns what a URL is allowed to be, because the URL
+            // receives the prompt. A refused one is dropped rather than kept as
+            // a string somebody downstream might decide to trust.
+            match value
+                .as_str()
+                .and_then(|raw| crate::gateway::Endpoint::checked(raw, LLMUX_URL_KEY).ok())
+            {
+                Some(endpoint) => settings.llmux_url = Some(endpoint.url().to_string()),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    LLMUX_URL_KEY,
                 )),
             }
         }
@@ -837,13 +938,14 @@ mod tests {
             model: Some("first".to_string()),
             permission_mode: Some(PermissionMode::Ask),
             max_agent_steps: Some(1),
+            backend: Some(Backend::Llmux),
+            llmux_url: Some("http://127.0.0.1:3456".to_string()),
         };
         let mut sources = Sources::default();
         settings.merge(
             Settings {
-                model: None,
-                permission_mode: None,
                 max_agent_steps: Some(2),
+                ..Settings::default()
             },
             SettingSource::UserGlobal,
             &mut sources,
@@ -851,8 +953,15 @@ mod tests {
         assert_eq!(settings.model.as_deref(), Some("first"));
         assert_eq!(settings.permission_mode, Some(PermissionMode::Ask));
         assert_eq!(settings.max_agent_steps, Some(2));
+        assert_eq!(settings.backend, Some(Backend::Llmux));
+        assert_eq!(
+            settings.llmux_url.as_deref(),
+            Some("http://127.0.0.1:3456"),
+            "a layer that says nothing about the backend leaves its url alone"
+        );
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
+        assert_eq!(sources.backend, SettingSource::CompiledDefault);
     }
 
     #[test]
@@ -894,6 +1003,99 @@ mod tests {
         let settings = parse_environment(&env, &mut diagnostics);
         assert_eq!(settings.max_agent_steps, Some(0));
         assert!(diagnostics.is_empty(), "0 is valid, not a diagnostic");
+    }
+
+    #[test]
+    fn the_compiled_default_backend_is_the_gateway() {
+        assert_eq!(Backend::default(), Backend::Gateway);
+        assert_eq!(Backend::Gateway.label(), "gateway");
+        assert_eq!(Backend::Llmux.label(), "llmux");
+        for backend in [Backend::Gateway, Backend::Llmux] {
+            assert_eq!(Backend::parse(backend.label()), Some(backend));
+        }
+        assert_eq!(Backend::parse("  llmux \n"), Some(Backend::Llmux));
+        assert_eq!(Backend::parse("anthropic"), None);
+        assert_eq!(Backend::parse(""), None);
+    }
+
+    #[test]
+    fn a_profile_layer_selects_the_backend_and_its_url() {
+        let object = serde_json::from_str::<Value>(
+            r#"{"backend":"llmux","llmux_url":"http://127.0.0.1:3456"}"#,
+        )
+        .unwrap();
+        let mut diagnostics = Vec::new();
+        let settings = parse_layer(
+            object.as_object().unwrap(),
+            LayerKind::Profile,
+            ConfigLayer::User,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.backend, Some(Backend::Llmux));
+        assert_eq!(settings.llmux_url.as_deref(), Some("http://127.0.0.1:3456"));
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn a_project_layer_cannot_choose_the_backend_or_its_url() {
+        // A checked-in repository must not be able to redirect whoever clones
+        // it at an endpoint of its choosing.
+        let object = serde_json::from_str::<Value>(
+            r#"{"backend":"llmux","llmux_url":"http://127.0.0.1:3456"}"#,
+        )
+        .unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        let settings = parse_layer(
+            object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.backend, None);
+        assert_eq!(settings.llmux_url, None);
+
+        report_ignored_profile_keys(object, &mut diagnostics);
+        let ignored: Vec<&str> = diagnostics
+            .iter()
+            .filter_map(Diagnostic::ignored_setting_key)
+            .collect();
+        assert_eq!(ignored, ["backend", "llmux_url"]);
+    }
+
+    #[test]
+    fn an_unreadable_backend_or_url_is_a_diagnostic_rather_than_a_value() {
+        // The URL goes through the same transport rule as the environment
+        // override: a plaintext http endpoint that is not loopback would carry
+        // the whole prompt to a machine the operator did not mean to name.
+        for (body, key) in [
+            (r#"{"backend":"anthropic"}"#, "backend"),
+            (r#"{"backend":7}"#, "backend"),
+            (r#"{"llmux_url":"http://example.com:80"}"#, "llmux_url"),
+            (r#"{"llmux_url":"http://127.0.0.1"}"#, "llmux_url"),
+            (r#"{"llmux_url":"ftp://127.0.0.1:3456"}"#, "llmux_url"),
+            (r#"{"llmux_url":"  "}"#, "llmux_url"),
+        ] {
+            let object = serde_json::from_str::<Value>(body).unwrap();
+            let mut diagnostics = Vec::new();
+            let settings = parse_layer(
+                object.as_object().unwrap(),
+                LayerKind::Profile,
+                ConfigLayer::User,
+                &mut diagnostics,
+            );
+            assert_eq!(settings.backend, None, "for {body}");
+            assert_eq!(settings.llmux_url, None, "for {body}");
+            assert_eq!(
+                diagnostics,
+                vec![Diagnostic::with_key(
+                    ConfigLayer::User,
+                    DiagnosticCause::InvalidValue,
+                    key
+                )],
+                "for {body}"
+            );
+        }
     }
 
     #[test]
