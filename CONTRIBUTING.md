@@ -64,7 +64,8 @@ all findings.
 holds it to what `brew install xfx-preview` needs: the tag and version grammar
 the tap parses, the four native rows and their exact asset names, the gate
 running before the binary it guards, the `preview` stamp, the five published
-files, a prerelease that is not marked latest, and a tap push whose freshness
+files, a prerelease that is not marked latest, an actionlint pin new enough to
+recognize every runner label in the matrix, and a tap push whose freshness
 comparator it extracts and runs rather than reads. It needs `ruby`, which is on
 every CI image, and uses `actionlint` when it is installed.
 
