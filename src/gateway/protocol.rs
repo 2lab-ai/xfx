@@ -246,7 +246,13 @@ impl CompletionRequest {
             .expect("a validated request is always serializable"))
     }
 
-    fn validate(&self) -> Result<(), ProtocolError> {
+    /// Checks the prompt without rendering it.
+    ///
+    /// Visible to the crate because a second wire ([`crate::llmux::protocol`])
+    /// renders the same prompt differently and must reject exactly the same
+    /// requests: an orphan tool result and a duplicate call id are client bugs
+    /// on either wire, and two validators would be two things to keep in step.
+    pub(crate) fn validate(&self) -> Result<(), ProtocolError> {
         if self.messages.is_empty() {
             return Err(ProtocolError::EmptyPrompt);
         }

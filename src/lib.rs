@@ -26,6 +26,7 @@ pub mod cli;
 pub mod config;
 pub mod gateway;
 pub mod interactive;
+pub mod llmux;
 pub mod output;
 pub mod permission;
 pub mod session;
