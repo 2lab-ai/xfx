@@ -41,6 +41,8 @@ pub const ROOT_BODY: &str = "llmux";
 struct Probes {
     root: (u16, String),
     catalog: (u16, String),
+    /// When set, `GET /models` answers this redirect instead of the catalog.
+    catalog_redirect: Option<(u16, String)>,
 }
 
 struct State {
@@ -76,6 +78,7 @@ impl FakeLlmux {
                     200,
                     catalog(&[("claude-fable-5[1m]", &["fable"])]).to_string(),
                 ),
+                catalog_redirect: None,
             },
         )
     }
@@ -131,6 +134,16 @@ impl FakeLlmux {
     /// Answers `GET /models` with a status and a raw body.
     pub fn with_catalog_response(self, status: u16, body: &str) -> Self {
         self.state.probes.lock().expect("probes lock").catalog = (status, body.to_string());
+        self
+    }
+
+    /// Answers `GET /models` with a redirect, which a following client replays to.
+    pub fn with_catalog_redirect(self, status: u16, location: &str) -> Self {
+        self.state
+            .probes
+            .lock()
+            .expect("probes lock")
+            .catalog_redirect = Some((status, location.to_string()));
         self
     }
 
@@ -216,8 +229,23 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
             write_status(&mut writer, status, &[], &body);
         }
         "/models" => {
-            let (status, body) = state.probes.lock().expect("probes lock").catalog.clone();
-            write_status(&mut writer, status, &[], &body);
+            let probes = state.probes.lock().expect("probes lock");
+            match probes.catalog_redirect.clone() {
+                Some((status, location)) => {
+                    drop(probes);
+                    write_status(
+                        &mut writer,
+                        status,
+                        &[("location".to_string(), location)],
+                        "",
+                    );
+                }
+                None => {
+                    let (status, body) = probes.catalog.clone();
+                    drop(probes);
+                    write_status(&mut writer, status, &[], &body);
+                }
+            }
         }
         _ => write_status(&mut writer, 404, &[], "fake llmux: no such path"),
     }

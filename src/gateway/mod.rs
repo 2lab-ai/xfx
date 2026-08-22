@@ -90,7 +90,8 @@ pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
     finish_client(base_client_builder())
 }
 
-/// The same client for a service on this machine, with proxies refused.
+/// The same client for a service on this machine, with proxies and redirects
+/// both refused.
 ///
 /// A loopback backend must never route through a proxy, for two reasons that
 /// point the same way. It would be wrong: the request carries the prompt and the
@@ -100,8 +101,22 @@ pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
 /// arrangement. And it would be broken: on a machine with a corporate
 /// `HTTP_PROXY` set, every connection to `127.0.0.1` would be attempted through
 /// the proxy, so a daemon that is running would look like a daemon that is not.
+///
+/// **And it must never follow a redirect.** The endpoint policy validates the
+/// URL xfx *names*; it cannot see where a reply points. Whatever holds the
+/// configured port can answer `307` with a `Location` anywhere on the internet,
+/// and a client on reqwest's default `Policy::limited(10)` replays the POST body
+/// -- the whole prompt and the project context -- to it, keyless. `no_proxy`
+/// does not cover that: it is a second, independent way off the machine. A real
+/// daemon never redirects (it runs `Policy::none()` itself,
+/// `2lab-ai/llmux@79f66748656b src/proxy/server.rs:283-284`), so refusing to
+/// follow one costs nothing and a `3xx` surfaces as an ordinary status error.
 pub(crate) fn build_loopback_client() -> Result<reqwest::Client, ProviderError> {
-    finish_client(base_client_builder().no_proxy())
+    finish_client(
+        base_client_builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none()),
+    )
 }
 
 fn base_client_builder() -> reqwest::ClientBuilder {
@@ -237,7 +252,7 @@ impl Endpoint {
                 }
             }
             EndpointPolicy::LoopbackService => {
-                if !parsed.is_loopback_with_port() {
+                if !parsed.is_loopback_literal_with_port() {
                     return Err(EndpointError::NotLoopback {
                         subject,
                         url: candidate.to_string(),
@@ -358,11 +373,13 @@ impl fmt::Display for EndpointError {
             ),
             Self::NotLoopback { subject, url } => write!(
                 f,
-                "{subject} must name a service on this machine -- a loopback address \
-                 with an explicit port, such as `http://127.0.0.1:3456` -- because the \
-                 request carries the prompt with no credential and is safe only while \
-                 it does not leave the machine; `{url}` is remote, and a remote llmux \
-                 is not supported"
+                "{subject} must name a service on this machine by address -- \
+                 `127.0.0.1` or `[::1]`, with an explicit port, such as \
+                 `http://127.0.0.1:3456` -- because the request travels with nothing \
+                 to authenticate it and is safe only while it does not leave the \
+                 machine. `{url}` is not one: a remote host is not supported, and the \
+                 name `localhost` is not accepted here because it resolves wherever \
+                 the resolver says it does"
             ),
             Self::UnexpectedPath { subject, url, path } => write!(
                 f,
@@ -445,11 +462,28 @@ impl ParsedUrl {
 
     /// The upstream loopback test, plus upstream's requirement that the port be
     /// explicit (`src/gateway/client.zig:1789-1803`).
+    ///
+    /// Accepts the *name* `localhost` because upstream does. That is fine for
+    /// the bearer rule, where loopback is a concession that lets a local test
+    /// server receive a token; it is not fine for a rule that is proving
+    /// locality, which is why [`Self::is_loopback_literal_with_port`] exists.
     fn is_loopback_with_port(&self) -> bool {
-        self.has_port
-            && (self.host == "127.0.0.1"
-                || self.host == "[::1]"
-                || self.host.eq_ignore_ascii_case("localhost"))
+        self.has_port && (self.is_loopback_literal() || self.host.eq_ignore_ascii_case("localhost"))
+    }
+
+    /// The same test with the *name* excluded.
+    ///
+    /// `localhost` is whatever the resolver says it is, and `/etc/hosts` is a
+    /// file anything with write access can change. A rule whose entire purpose
+    /// is "this keyless request does not leave the machine" cannot take a name
+    /// something else controls as evidence of that; the address literal is the
+    /// evidence.
+    fn is_loopback_literal_with_port(&self) -> bool {
+        self.has_port && self.is_loopback_literal()
+    }
+
+    fn is_loopback_literal(&self) -> bool {
+        self.host == "127.0.0.1" || self.host == "[::1]"
     }
 }
 
@@ -892,11 +926,36 @@ mod tests {
     }
 
     #[test]
+    fn a_local_service_must_be_named_by_address_not_by_the_name_localhost() {
+        // `localhost` resolves wherever the resolver says it does, and
+        // `/etc/hosts` is editable. For a rule whose whole job is "this request
+        // does not leave the machine", a name that something else controls is
+        // not evidence -- the address literal is.
+        for url in [
+            "http://localhost:3456",
+            "https://localhost:3456",
+            "http://LOCALHOST:3456",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("a name is not an address");
+            assert!(
+                matches!(err, EndpointError::NotLoopback { .. }),
+                "`{url}` got {err:?}"
+            );
+            assert!(
+                err.to_string().contains("127.0.0.1"),
+                "the refusal must say what to write instead: {err}"
+            );
+        }
+        // The bearer rule is upstream's and keeps accepting the name.
+        assert!(Endpoint::checked("http://localhost:8080/v3", GATEWAY_URL_ENV).is_ok());
+    }
+
+    #[test]
     fn the_loopback_service_policy_accepts_https_on_loopback() {
         for url in [
             "http://127.0.0.1:3456",
             "https://127.0.0.1:3456",
-            "http://localhost:3456",
             "http://[::1]:3456",
             "http://127.0.0.1:3456/",
         ] {

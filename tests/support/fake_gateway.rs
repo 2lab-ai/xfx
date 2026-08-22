@@ -81,6 +81,9 @@ pub enum Reply {
     SseThenHang(Vec<String>),
     /// A non-2xx response with a plain body.
     Status(u16, String),
+    /// A redirect to `location`, which a client that follows redirects will
+    /// replay the request body to.
+    Redirect { status: u16, location: String },
     /// A non-2xx response carrying extra headers, so a test can drive the
     /// client's reaction to `Retry-After`.
     StatusWithHeaders {
@@ -253,6 +256,9 @@ pub fn write_reply(writer: &mut TcpStream, reply: Option<Reply>, shutdown: &Arc<
             write_sse(writer, &pieces, false);
             hang_until_hangup(writer, shutdown);
         }
+        Some(Reply::Redirect { status, location }) => {
+            write_status(writer, status, &[("location".to_string(), location)], "")
+        }
         Some(Reply::Status(status, body)) => write_status(writer, status, &[], &body),
         Some(Reply::StatusWithHeaders {
             status,
@@ -400,6 +406,8 @@ fn reason_phrase(status: u16) -> &'static str {
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
         429 => "Too Many Requests",
         500 => "Internal Server Error",
         503 => "Service Unavailable",

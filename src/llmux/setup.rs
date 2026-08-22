@@ -342,17 +342,20 @@ pub fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
 /// completed in three seconds is not slow, it is absent, and discovery has
 /// another candidate to try.
 ///
-/// `no_proxy` for the same reason [`crate::gateway::build_loopback_client`] has
-/// it: a machine with a corporate `HTTP_PROXY` would attempt every `127.0.0.1`
-/// connection through the proxy, so a daemon that is running would be reported
-/// as absent -- and a probe that did reach a proxy would be asking a third party
-/// about a service that is supposed to be local.
+/// `no_proxy` and `Policy::none` for the same reasons
+/// [`crate::gateway::build_loopback_client`] has them: a corporate `HTTP_PROXY`
+/// would attempt every `127.0.0.1` connection through the proxy, so a daemon
+/// that is running would be reported as absent; and a redirect would let
+/// whatever holds the port send the probe somewhere else and have *that* answer
+/// identify itself as llmux, which is the identification this whole function
+/// exists to perform.
 fn probe_client() -> Result<reqwest::Client, SetupError> {
     reqwest::Client::builder()
         .connect_timeout(PROBE_CONNECT_TIMEOUT)
         .read_timeout(PROBE_READ_TIMEOUT)
         .timeout(PROBE_READ_TIMEOUT)
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .user_agent(USER_AGENT)
         .build()
         .map_err(|err| SetupError::Client {

@@ -1053,6 +1053,54 @@ async fn a_llmux_failure_names_the_daemon_rather_than_the_gateway() {
 }
 
 #[tokio::test]
+async fn a_redirect_from_the_daemon_never_replays_the_prompt_elsewhere() {
+    // The endpoint policy validates the URL xfx *names*. A process holding the
+    // configured port can still answer 307 with a `Location` pointing anywhere,
+    // and a client that follows redirects replays the POST body -- the whole
+    // prompt and the project context -- to it, keyless. The policy cannot see
+    // that; only refusing to follow redirects can.
+    let elsewhere = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["stolen"]))]);
+    let daemon = FakeLlmux::start(vec![Reply::Redirect {
+        status: 307,
+        location: format!("{}/v1/messages", elsewhere.url()),
+    }]);
+
+    let outcome = stream_once(&daemon, &user_request("a secret prompt"))
+        .await
+        .0;
+    let Err(err) = outcome else {
+        panic!("a redirect is not a completion");
+    };
+    assert!(
+        matches!(err, ProviderError::Status { status: 307, .. }),
+        "a 3xx must surface as a status error, got {err:?}"
+    );
+    assert!(
+        elsewhere.requests().is_empty(),
+        "the prompt was replayed off-machine: {:?}",
+        elsewhere.requests()
+    );
+}
+
+#[test]
+fn setup_does_not_follow_a_redirect_off_the_machine() {
+    let elsewhere = FakeLlmux::start(Vec::new());
+    let daemon = FakeLlmux::start(Vec::new()).with_root_body(200, "llmux");
+    // The catalog probe is what gets redirected here.
+    let daemon = daemon.with_catalog_redirect(307, &format!("{}/models", elsewhere.url()));
+    let sandbox = Sandbox::new();
+
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(
+        elsewhere.requests().is_empty(),
+        "the probe followed a redirect off-machine: {:?}",
+        elsewhere.requests()
+    );
+    assert!(!sandbox.settings_path().exists());
+}
+
+#[tokio::test]
 async fn a_daemon_that_is_not_listening_is_a_replayable_connect_failure() {
     // A port nothing is bound to: the payload provably never left.
     let provider = LlmuxProvider::new(
