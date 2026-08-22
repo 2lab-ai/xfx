@@ -32,6 +32,19 @@ use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
 /// The largest single SSE event xfx will buffer, in bytes.
 pub const MAX_EVENT_BYTES: usize = 32 * 1024 * 1024;
 
+/// The most a single completion may accumulate, in bytes.
+///
+/// [`MAX_EVENT_BYTES`] bounds one frame; this bounds the whole answer, and the
+/// second does not follow from the first -- a stream of well-formed small frames
+/// grows without limit. Counts the assistant text and every streamed tool
+/// argument together, because those are the two things that grow with the
+/// stream.
+///
+/// The same ceiling both decoders use, defined here because the error that
+/// reports it is shared and a bound advertised by one enum but enforced by one
+/// of its two users is not a bound.
+pub const MAX_COMPLETION_BYTES: usize = 8 * 1024 * 1024;
+
 /// The `data:` prefix, including the single separating space upstream requires
 /// (`src/gateway/client.zig:2652-2653`).
 const DATA_PREFIX: &str = "data: ";
@@ -136,6 +149,8 @@ pub struct SseReader {
     usage: Usage,
     provider_detail: Option<String>,
     complete: bool,
+    /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
+    accumulated: usize,
     cancel: CancelToken,
 }
 
@@ -161,8 +176,20 @@ impl SseReader {
             usage: Usage::default(),
             provider_detail: None,
             complete: false,
+            accumulated: 0,
             cancel,
         }
+    }
+
+    /// Charges `bytes` against the completion ceiling.
+    fn charge(&mut self, bytes: usize) -> Result<(), SseError> {
+        self.accumulated = self.accumulated.saturating_add(bytes);
+        if self.accumulated > MAX_COMPLETION_BYTES {
+            return Err(SseError::CompletionTooLarge {
+                limit: MAX_COMPLETION_BYTES,
+            });
+        }
+        Ok(())
     }
 
     /// Whether a canonical finish event has arrived.
@@ -280,10 +307,7 @@ impl SseReader {
                 self.on_tool_input_start(&event);
                 Ok(())
             }
-            "tool-input-delta" => {
-                self.on_tool_input_delta(&event);
-                Ok(())
-            }
+            "tool-input-delta" => self.on_tool_input_delta(&event),
             "tool-call" => self.on_tool_call(&event),
             "error" => {
                 if let Some(detail) = failure_detail(&event) {
@@ -309,6 +333,7 @@ impl SseReader {
         if delta.is_empty() {
             return Ok(());
         }
+        self.charge(delta.len())?;
         self.text.push_str(delta);
         deltas.text_delta(delta).map_err(SseError::Sink)
     }
@@ -329,18 +354,20 @@ impl SseReader {
         });
     }
 
-    fn on_tool_input_delta(&mut self, event: &Map<String, Value>) {
+    fn on_tool_input_delta(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
         let Some(id) = string_field(event, "id") else {
-            return;
+            return Ok(());
         };
         let Some(Value::String(delta)) = event.get("delta") else {
-            return;
+            return Ok(());
         };
+        self.charge(delta.len())?;
         // A delta for an unannounced id is dropped; correlating it would invent
         // a call the provider never opened.
         if let Some(record) = self.streamed.iter_mut().find(|record| record.id == id) {
             record.arguments.push_str(delta);
         }
+        Ok(())
     }
 
     fn on_tool_call(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {

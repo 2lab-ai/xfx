@@ -41,21 +41,8 @@
 use serde_json::{Map, Value};
 
 use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
-use crate::gateway::sse::{SseError, MAX_EVENT_BYTES};
+use crate::gateway::sse::{SseError, MAX_COMPLETION_BYTES, MAX_EVENT_BYTES};
 use crate::gateway::{CancelToken, DeltaSink};
-
-/// The most a single completion may accumulate, in bytes.
-///
-/// [`MAX_EVENT_BYTES`] bounds one frame; this bounds the whole answer. Without
-/// it a stream of well-formed small frames grows without limit, and the module's
-/// promise of a bounded decoder would be true of each event and false of the
-/// decode. It counts the assistant text and every tool block's arguments
-/// together, because those are the two things that grow with the stream.
-///
-/// 8 MiB is far past any answer a model produces and far short of a number that
-/// matters to a machine running a coding agent, which is the shape a ceiling
-/// should have: invisible in use, decisive under abuse.
-pub const MAX_COMPLETION_BYTES: usize = 8 * 1024 * 1024;
 
 /// The most content blocks a single message may have open or tracked at once.
 ///

@@ -63,6 +63,18 @@ pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
     for tool in &request.tools {
         check_tool(tool)?;
     }
+    // The mapping drops things -- system messages leave `messages` entirely and
+    // an emptied message is dropped -- so a prompt the shared validator accepts
+    // can still render to something Anthropic refuses. Checking the *rendered*
+    // shape is the only way to catch that before it costs a round trip and
+    // arrives as a 400 xfx would then have to explain.
+    let messages = wire_messages(&request.messages);
+    if messages.is_empty() {
+        return Err(ProtocolError::EmptyPrompt);
+    }
+    if messages[0].role != "user" {
+        return Err(ProtocolError::AssistantFirst);
+    }
     Ok(serde_json::to_string(&WireRequest(request))
         .expect("a validated request is always serializable"))
 }

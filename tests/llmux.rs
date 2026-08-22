@@ -362,6 +362,59 @@ fn the_tool_choice_table_is_the_anthropic_vocabulary() {
 }
 
 #[test]
+fn a_prompt_that_renders_to_no_usable_messages_is_refused_before_the_socket() {
+    use xfx::gateway::protocol::{ContentPart, ProtocolError, Role};
+
+    // System messages leave `messages` entirely and empty-rendering ones are
+    // dropped, so a prompt that is only those produces `"messages":[]` -- which
+    // Anthropic answers with a 400 xfx would have to explain. And a history
+    // beginning with an assistant turn is the other shape Anthropic refuses.
+    let only_system = CompletionRequest {
+        model: "fable".to_string(),
+        messages: vec![Message::system("be terse")],
+        tools: Vec::new(),
+        tool_choice: ToolChoice::None,
+    };
+    assert!(
+        matches!(
+            protocol::body(&only_system),
+            Err(ProtocolError::EmptyPrompt)
+        ),
+        "got {:?}",
+        protocol::body(&only_system)
+    );
+
+    let all_empty = CompletionRequest {
+        model: "fable".to_string(),
+        messages: vec![Message {
+            role: Role::User,
+            content: vec![ContentPart::Text {
+                text: String::new(),
+            }],
+        }],
+        tools: Vec::new(),
+        tool_choice: ToolChoice::None,
+    };
+    assert!(matches!(
+        protocol::body(&all_empty),
+        Err(ProtocolError::EmptyPrompt)
+    ));
+
+    let assistant_first = CompletionRequest {
+        model: "fable".to_string(),
+        messages: vec![
+            Message::system("be terse"),
+            Message::assistant(Some("I was here first"), Vec::new()),
+            Message::user("hi"),
+        ],
+        tools: Vec::new(),
+        tool_choice: ToolChoice::None,
+    };
+    let err = protocol::body(&assistant_first).expect_err("anthropic requires a user turn first");
+    assert!(err.to_string().contains("user"), "got {err}");
+}
+
+#[test]
 fn an_invalid_prompt_is_refused_by_the_same_rules_as_the_gateway() {
     use xfx::gateway::protocol::ProtocolError;
 

@@ -672,6 +672,63 @@ fn an_event_larger_than_the_ceiling_is_rejected_instead_of_buffered() {
 }
 
 #[test]
+fn a_completion_larger_than_the_ceiling_is_rejected() {
+    // `MAX_EVENT_BYTES` bounds one frame. A stream of well-formed small frames
+    // grew the answer without limit, while the shared error enum -- and its doc
+    // -- advertised a ceiling only the llmux decoder enforced.
+    let mut deltas = RecordingDeltas::default();
+    let mut reader = SseReader::new();
+    let frame = format!("data: {}\n\n", text_delta("t", &"x".repeat(64 * 1024)));
+
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 4096, "the completion ceiling was never enforced");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
+}
+
+#[test]
+fn streamed_tool_arguments_count_against_the_completion_ceiling() {
+    // Arguments accumulate exactly like text and are exactly as unbounded.
+    let mut deltas = RecordingDeltas::default();
+    let mut reader = SseReader::new();
+    reader
+        .push(
+            format!(
+                "data: {}\n\n",
+                json!({ "type": "tool-input-start", "id": "c1", "toolName": "t" })
+            )
+            .as_bytes(),
+            &mut deltas,
+        )
+        .expect("open the call");
+    let frame = format!(
+        "data: {}\n\n",
+        json!({ "type": "tool-input-delta", "id": "c1", "delta": "x".repeat(64 * 1024) })
+    );
+
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 4096, "the completion ceiling was never enforced");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
+}
+
+#[test]
 fn a_cancelled_decode_stops_at_the_next_frame() {
     let cancel = CancelToken::new();
     let mut deltas = RecordingDeltas::default();

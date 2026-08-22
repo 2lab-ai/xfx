@@ -213,6 +213,11 @@ pub enum ProtocolError {
         role: &'static str,
         part: &'static str,
     },
+    /// The rendered prompt does not begin with a user turn.
+    ///
+    /// Anthropic requires it. The Gateway does not, which is why this lives
+    /// beside [`Self::EmptyPrompt`] rather than replacing it.
+    AssistantFirst,
     /// An advertised tool could not be rendered for the provider's wire.
     ///
     /// The tool list is opaque JSON because the schema belongs to the registry,
@@ -237,6 +242,11 @@ impl fmt::Display for ProtocolError {
             Self::MisplacedPart { role, part } => {
                 write!(f, "a `{part}` part cannot appear on a `{role}` message")
             }
+            Self::AssistantFirst => write!(
+                f,
+                "the conversation must begin with a user message; this one begins \
+                 with an assistant turn"
+            ),
             Self::UnusableTool { tool, reason } => {
                 write!(f, "the advertised tool {tool} {reason}")
             }
