@@ -134,25 +134,41 @@ impl Endpoint {
                 url: DEFAULT_CHAT_URL.to_string(),
             });
         };
-        let candidate = candidate.trim();
+        Self::checked(candidate, GATEWAY_URL_ENV)
+    }
+
+    /// Applies the same rule to a URL that came from somewhere else.
+    ///
+    /// The rule belongs to this module because it is a transport rule, and it is
+    /// one rule: whatever names the endpoint, the request body goes there. Only
+    /// the *name of the knob* differs, so `subject` is carried into the refusal
+    /// rather than the environment variable this module happens to own -- a
+    /// message that told an operator to fix `XFX_GATEWAY_URL` when they had
+    /// mistyped `llmux_url` would send them to edit a variable they never set.
+    pub fn checked(url: &str, subject: &'static str) -> Result<Self, EndpointError> {
+        let candidate = url.trim();
         let Some(parsed) = ParsedUrl::parse(candidate) else {
             return Err(EndpointError::Malformed {
+                subject,
                 url: candidate.to_string(),
             });
         };
         if parsed.scheme != "http" && parsed.scheme != "https" {
             return Err(EndpointError::UnsupportedScheme {
+                subject,
                 url: candidate.to_string(),
                 scheme: parsed.scheme,
             });
         }
         if parsed.has_userinfo {
             return Err(EndpointError::EmbeddedCredentials {
+                subject,
                 url: candidate.to_string(),
             });
         }
         if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
             return Err(EndpointError::NonLoopbackHttp {
+                subject,
                 url: candidate.to_string(),
             });
         }
@@ -176,33 +192,53 @@ impl Endpoint {
     }
 }
 
-/// Why an endpoint override was refused.
+/// Why an endpoint was refused.
+///
+/// Every variant carries the `subject`: the name of the knob that supplied the
+/// URL, so the message points at what the operator wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EndpointError {
-    Malformed { url: String },
-    UnsupportedScheme { url: String, scheme: String },
-    EmbeddedCredentials { url: String },
-    NonLoopbackHttp { url: String },
+    Malformed {
+        subject: &'static str,
+        url: String,
+    },
+    UnsupportedScheme {
+        subject: &'static str,
+        url: String,
+        scheme: String,
+    },
+    EmbeddedCredentials {
+        subject: &'static str,
+        url: String,
+    },
+    NonLoopbackHttp {
+        subject: &'static str,
+        url: String,
+    },
 }
 
 impl fmt::Display for EndpointError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Malformed { url } => {
-                write!(f, "{GATEWAY_URL_ENV} is not a URL: `{url}`")
+            Self::Malformed { subject, url } => {
+                write!(f, "{subject} is not a URL: `{url}`")
             }
-            Self::UnsupportedScheme { url, scheme } => write!(
+            Self::UnsupportedScheme {
+                subject,
+                url,
+                scheme,
+            } => write!(
                 f,
-                "{GATEWAY_URL_ENV} must use https, or http on loopback; `{url}` uses `{scheme}`"
+                "{subject} must use https, or http on loopback; `{url}` uses `{scheme}`"
             ),
-            Self::EmbeddedCredentials { url } => write!(
+            Self::EmbeddedCredentials { subject, url } => write!(
                 f,
-                "{GATEWAY_URL_ENV} must not embed credentials in the URL: `{url}`"
+                "{subject} must not embed credentials in the URL: `{url}`"
             ),
-            Self::NonLoopbackHttp { url } => write!(
+            Self::NonLoopbackHttp { subject, url } => write!(
                 f,
-                "{GATEWAY_URL_ENV} may use http only for a loopback address with an \
-                 explicit port, because the request carries a bearer token in cleartext; \
+                "{subject} may use http only for a loopback address with an \
+                 explicit port, because the request travels in cleartext; \
                  `{url}` is not one"
             ),
         }
@@ -655,6 +691,24 @@ mod tests {
         assert!(!ParsedUrl::parse("http://[::1]/v3").expect("parse").has_port);
         assert!(ParsedUrl::parse("http:///v3").is_none(), "no host");
         assert!(ParsedUrl::parse("//127.0.0.1:8080").is_none(), "no scheme");
+    }
+
+    #[test]
+    fn a_refusal_names_the_setting_that_supplied_the_url() {
+        // The rule is one rule, but it now guards more than one knob: the
+        // environment override and the `llmux_url` setting. A refusal has to
+        // name the one the user actually wrote, or it sends them to edit a
+        // variable they never set.
+        let message = Endpoint::checked("http://example.com/v1", "llmux_url")
+            .expect_err("a non-loopback http url is refused")
+            .to_string();
+        assert!(message.contains("llmux_url"), "{message}");
+        assert!(!message.contains(GATEWAY_URL_ENV), "{message}");
+
+        let message = Endpoint::resolve(Some("http://example.com/v3"))
+            .expect_err("the same rule refuses the override")
+            .to_string();
+        assert!(message.contains(GATEWAY_URL_ENV), "{message}");
     }
 
     #[test]
