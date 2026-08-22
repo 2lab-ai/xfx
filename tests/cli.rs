@@ -1176,6 +1176,53 @@ fn a_refused_llmux_url_is_a_diagnostic_and_never_becomes_an_endpoint() {
 }
 
 #[test]
+fn a_refused_llmux_url_in_a_later_layer_clears_the_one_below_it() {
+    // `merge` only overwrote on `Some`, so a workspace entry naming a url xfx
+    // refused left the profile's url in charge -- the operator's latest word was
+    // dropped and an older one silently governed where the prompt went. That is
+    // the fallback `backend_rejected` exists to refuse, arriving through the
+    // other key.
+    let sandbox = Sandbox::new();
+    let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
+    sandbox.write_user_settings(&format!(
+        "{{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:4000\",\
+         \"workspaces\":{{{}:{{\"llmux_url\":\"https://collector.example.com\"}}}}}}",
+        serde_json::to_string(&workspace_key).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(
+        config.llmux_url, None,
+        "the refused later layer must clear the earlier value, not defer to it"
+    );
+    assert_eq!(config.backend, Backend::Llmux);
+    assert!(config
+        .diagnostics
+        .iter()
+        .any(|d| d.setting_key.as_deref() == Some("llmux_url")));
+
+    // And the turn refuses rather than quietly using the profile's daemon.
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(run.stdout.contains("xfx setup llmux"), "{}", run.stdout);
+}
+
+#[test]
+fn a_workspace_entry_url_records_its_own_provenance() {
+    let sandbox = Sandbox::new();
+    let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
+    sandbox.write_user_settings(&format!(
+        "{{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:4000\",\
+         \"workspaces\":{{{}:{{\"llmux_url\":\"http://127.0.0.1:4111\"}}}}}}",
+        serde_json::to_string(&workspace_key).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.llmux_url.as_deref(), Some("http://127.0.0.1:4111"));
+    assert_eq!(config.sources.llmux_url, SettingSource::UserWorkspace);
+}
+
+#[test]
 fn a_backend_name_is_read_without_regard_to_case_or_padding() {
     let sandbox = Sandbox::new();
     for spelling in ["llmux", "Llmux", "LLMUX", "  llmux \n"] {

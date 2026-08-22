@@ -87,7 +87,7 @@ pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 /// It honours the system proxy environment, which is correct for an endpoint on
 /// the internet -- reaching it may require one.
 pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
-    finish_client(base_client_builder())
+    finish_client(base_client_builder(), GATEWAY_SUBJECT)
 }
 
 /// The same client for a service on this machine, with proxies and redirects
@@ -111,11 +111,14 @@ pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
 /// daemon never redirects (it runs `Policy::none()` itself,
 /// `2lab-ai/llmux@79f66748656b src/proxy/server.rs:283-284`), so refusing to
 /// follow one costs nothing and a `3xx` surfaces as an ordinary status error.
-pub(crate) fn build_loopback_client() -> Result<reqwest::Client, ProviderError> {
+pub(crate) fn build_loopback_client(
+    subject: &'static str,
+) -> Result<reqwest::Client, ProviderError> {
     finish_client(
         base_client_builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none()),
+        subject,
     )
 }
 
@@ -126,9 +129,17 @@ fn base_client_builder() -> reqwest::ClientBuilder {
         .user_agent(USER_AGENT)
 }
 
-fn finish_client(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, ProviderError> {
+/// Builds the client, naming `subject` if it cannot be built.
+///
+/// The subject is a parameter rather than a constant because both callers know
+/// it and only one of them is the Gateway: a dead path that says the wrong thing
+/// is still a message an operator can be shown.
+fn finish_client(
+    builder: reqwest::ClientBuilder,
+    subject: &'static str,
+) -> Result<reqwest::Client, ProviderError> {
     builder.build().map_err(|err| ProviderError::Transport {
-        subject: GATEWAY_SUBJECT,
+        subject,
         detail: err.to_string(),
     })
 }

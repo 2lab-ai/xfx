@@ -213,6 +213,7 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
     }
     if config.sources.model == SettingSource::UserWorkspace
         || config.sources.backend == SettingSource::UserWorkspace
+        || config.sources.llmux_url == SettingSource::UserWorkspace
     {
         layers.push(format!(
             "the workspaces entry for {}",
@@ -265,7 +266,7 @@ async fn discover(
         return Ok((url, catalog));
     }
 
-    discover_in(candidates(config, env)).await
+    probe_candidates(&client, candidates(config, env)).await
 }
 
 /// Probes `candidates` in order and returns the first that answers as llmux.
@@ -279,11 +280,18 @@ async fn discover(
 pub async fn discover_in(
     candidates: Vec<String>,
 ) -> Result<(String, Vec<CatalogEntry>), SetupError> {
-    let client = probe_client()?;
+    probe_candidates(&probe_client()?, candidates).await
+}
+
+/// The candidate loop, over a client the caller already built.
+async fn probe_candidates(
+    client: &reqwest::Client,
+    candidates: Vec<String>,
+) -> Result<(String, Vec<CatalogEntry>), SetupError> {
     let mut tried: Vec<String> = Vec::new();
     let mut answered: Option<String> = None;
     for candidate in candidates {
-        match probe(&client, &candidate).await {
+        match probe(client, &candidate).await {
             Ok(catalog) => return Ok((candidate, catalog)),
             Err(err) => {
                 // A candidate that answered and was not llmux is the one worth
@@ -621,10 +629,15 @@ fn create_private_dir(dir: &Path) -> io::Result<()> {
 /// two writes from this same process share it, so the second wrote through a
 /// file the first was still filling.
 fn stage_path(dir: &Path) -> PathBuf {
+    // Taken by characters rather than sliced by byte index. `new_identifier`
+    // returns lowercase hex today, so the two agree -- but a byte slice that is
+    // only correct because of what another module happens to return is a panic
+    // waiting for that module to change, in the one code path whose job is not
+    // to destroy a settings file.
+    let nonce: String = crate::session::new_identifier().chars().take(16).collect();
     dir.join(format!(
-        "settings.json.{}.{}{}",
+        "settings.json.{}.{nonce}{}",
         std::process::id(),
-        &crate::session::new_identifier()[..16],
         crate::session::STAGE_SUFFIX
     ))
 }

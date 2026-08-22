@@ -96,7 +96,7 @@ pub struct LlmuxProvider {
 impl LlmuxProvider {
     pub fn new(endpoint: Endpoint, cancel: CancelToken) -> Result<Self, ProviderError> {
         Ok(Self {
-            client: build_loopback_client()?,
+            client: build_loopback_client(SUBJECT)?,
             base: trim_base(endpoint.url()),
             cancel,
         })

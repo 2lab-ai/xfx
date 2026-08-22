@@ -25,7 +25,7 @@ use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
 use xfx::gateway::sse::{SseError, MAX_EVENT_BYTES};
-use xfx::gateway::{CancelToken, DeltaSink, Endpoint, Provider, ProviderError};
+use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
 use xfx::llmux::{protocol, setup};
@@ -1031,8 +1031,11 @@ fn a_single_event_is_bounded() {
 // ---------------------------------------------------------------------------
 
 fn provider_for(daemon: &FakeLlmux, cancel: CancelToken) -> LlmuxProvider {
+    // Through the product's own gate, not the bearer rule: otherwise the
+    // integration tests exercise a policy the binary does not use, and every
+    // `LoopbackService` property would be untested here.
     LlmuxProvider::new(
-        Endpoint::checked(&daemon.url(), "llmux_url").expect("a loopback url"),
+        xfx::llmux::endpoint(&daemon.url(), xfx::llmux::URL_KEY).expect("a loopback url"),
         cancel,
     )
     .expect("build the provider")
@@ -1266,7 +1269,7 @@ fn setup_does_not_follow_a_redirect_off_the_machine() {
 async fn a_daemon_that_is_not_listening_is_a_replayable_connect_failure() {
     // A port nothing is bound to: the payload provably never left.
     let provider = LlmuxProvider::new(
-        Endpoint::checked("http://127.0.0.1:1", "llmux_url").unwrap(),
+        xfx::llmux::endpoint("http://127.0.0.1:1", xfx::llmux::URL_KEY).unwrap(),
         CancelToken::new(),
     )
     .expect("build the provider");

@@ -210,6 +210,13 @@ pub struct Sources {
     pub permission_mode: SettingSource,
     pub max_agent_steps: SettingSource,
     pub backend: SettingSource,
+    /// Where the daemon URL came from.
+    ///
+    /// It has its own entry rather than riding on `backend`'s, because a
+    /// workspace entry can pin the URL without touching the backend -- and
+    /// `setup` has to be able to tell the operator that the file it just wrote
+    /// is not the layer their next turn will read.
+    pub llmux_url: SettingSource,
 }
 
 impl Default for Sources {
@@ -219,6 +226,7 @@ impl Default for Sources {
             permission_mode: SettingSource::CompiledDefault,
             max_agent_steps: SettingSource::CompiledDefault,
             backend: SettingSource::CompiledDefault,
+            llmux_url: SettingSource::CompiledDefault,
         }
     }
 }
@@ -632,6 +640,8 @@ struct Settings {
     /// The raw `backend` value a layer wrote that could not be read.
     backend_rejected: Option<String>,
     llmux_url: Option<String>,
+    /// This layer wrote an `llmux_url` the endpoint policy refused.
+    llmux_url_rejected: bool,
 }
 
 impl Settings {
@@ -665,11 +675,20 @@ impl Settings {
             self.backend_rejected = Some(rejected);
             sources.backend = source;
         }
-        // The URL has no provenance of its own: it is only ever read together
-        // with the backend that gives it a meaning, and a second `Sources` field
-        // nothing renders would be a field that could quietly go wrong.
         if let Some(url) = incoming.llmux_url {
             self.llmux_url = Some(url);
+            self.llmux_url_rejected = false;
+            sources.llmux_url = source;
+        }
+        // A later layer whose URL was refused **clears** the accumulated one,
+        // exactly as a rejected `backend` does. Deferring to an earlier layer
+        // would mean the operator's most recent word about where the prompt goes
+        // was dropped and an older one silently governed instead -- which is the
+        // fallback this whole mechanism exists to refuse.
+        if incoming.llmux_url_rejected {
+            self.llmux_url = None;
+            self.llmux_url_rejected = true;
+            sources.llmux_url = source;
         }
     }
 }
@@ -738,11 +757,14 @@ fn parse_layer(
                 .and_then(|raw| crate::llmux::endpoint(raw, crate::llmux::URL_KEY).ok())
             {
                 Some(endpoint) => settings.llmux_url = Some(endpoint.url().to_string()),
-                None => diagnostics.push(Diagnostic::with_key(
-                    layer,
-                    DiagnosticCause::InvalidValue,
-                    crate::llmux::URL_KEY,
-                )),
+                None => {
+                    settings.llmux_url_rejected = true;
+                    diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        crate::llmux::URL_KEY,
+                    ));
+                }
             }
         }
     }
@@ -999,6 +1021,7 @@ mod tests {
             backend: Some(Backend::Llmux),
             backend_rejected: None,
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
+            llmux_url_rejected: false,
         };
         let mut sources = Sources::default();
         settings.merge(
