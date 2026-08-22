@@ -11,11 +11,12 @@
 //! upstream refusal to run without a terminal at all).
 //!
 //! Everything below the prompt is the same product as the command line: one
-//! [`crate::agent::TurnMachine`] per prompt, the same
-//! [`crate::gateway::GatewayProvider`], the same [`crate::tools`] registry under
-//! the same [`crate::permission`] authority, and the same
+//! [`crate::agent::TurnMachine`] per prompt, a provider from the same
+//! [`crate::app::build_provider`], the same [`crate::tools`] registry under the
+//! same [`crate::permission`] authority, and the same
 //! [`crate::session::SessionStore`]. The shell adds a loop, six slash commands,
-//! and an interrupt policy -- not a second way to talk to a model.
+//! and an interrupt policy -- not a second way to talk to a model, and not a
+//! second place that decides which backend a prompt goes to.
 
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal, Write};
@@ -23,10 +24,10 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
-use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::app::{build_provider, spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::config::{PermissionMode, RuntimeConfig};
-use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{safe_one_line, Event, EventSink, TextSink, MISSING_AUTH_HELP, SANDBOX_LABEL};
+use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
+use crate::output::{safe_one_line, Event, EventSink, TextSink, SANDBOX_LABEL};
 use crate::permission::YOLO_WARNING;
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
 use crate::tools::ToolContext;
@@ -417,7 +418,7 @@ pub async fn run(
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
-    let mut provider: Option<GatewayProvider> = None;
+    let mut provider: Option<Box<dyn Provider>> = None;
 
     write!(io::stdout(), "{}", banner(config, &model))?;
     io::stdout().flush()?;
@@ -497,7 +498,7 @@ pub async fn run(
 
 /// Runs exactly one turn, the same way `xfx ask` runs its one.
 async fn one_turn(
-    provider: &GatewayProvider,
+    provider: &dyn Provider,
     conversation: &mut Conversation,
     model: &str,
     prompt: String,
@@ -571,23 +572,19 @@ async fn one_turn(
 }
 
 /// Builds the provider once, or explains why there can not be one.
+///
+/// The decision itself belongs to [`build_provider`], which `ask` uses too: the
+/// shell caches the result for the life of the session, it does not choose a
+/// backend of its own.
 fn ensure_provider<'a>(
-    slot: &'a mut Option<GatewayProvider>,
+    slot: &'a mut Option<Box<dyn Provider>>,
     config: &RuntimeConfig,
     cancel: &CancelToken,
-) -> Result<&'a GatewayProvider, String> {
+) -> Result<&'a dyn Provider, String> {
     if slot.is_none() {
-        let credential = config
-            .credential
-            .clone()
-            .ok_or_else(|| MISSING_AUTH_HELP.to_string())?;
-        let endpoint = Endpoint::from_process().map_err(|err| err.to_string())?;
-        *slot = Some(
-            GatewayProvider::new(endpoint, credential, cancel.clone())
-                .map_err(|err| err.to_string())?,
-        );
+        *slot = Some(build_provider(config, cancel)?);
     }
-    Ok(slot.as_ref().expect("the provider was just built"))
+    Ok(slot.as_deref().expect("the provider was just built"))
 }
 
 /// Reports a prompt that never became a request, in the shape a turn failure has.

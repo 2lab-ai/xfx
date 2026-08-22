@@ -15,7 +15,10 @@
 
 mod support;
 
+use std::path::PathBuf;
+
 use serde_json::{json, Value};
+use tempfile::TempDir;
 
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
@@ -884,4 +887,248 @@ async fn cancelling_a_started_stream_ends_the_attempt() {
         matches!(outcome, Err(ProviderError::Cancelled)),
         "got {outcome:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `xfx ask` against the llmux backend
+// ---------------------------------------------------------------------------
+
+/// Environment variables that must never leak in from the developer's shell.
+const CONTROLLED_VARS: &[&str] = &[
+    "VERCEL_OIDC_TOKEN",
+    "AI_GATEWAY_API_KEY",
+    "XFX_MODEL",
+    "XFX_PERMISSION_MODE",
+    "XFX_MAX_AGENT_STEPS",
+    "XFX_GATEWAY_URL",
+    "LLMUX_CONFIG",
+    "XDG_CONFIG_HOME",
+];
+
+struct Sandbox {
+    _root: TempDir,
+    home: PathBuf,
+    workspace: PathBuf,
+}
+
+impl Sandbox {
+    fn new() -> Self {
+        let root = TempDir::new().expect("create sandbox root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        std::fs::create_dir_all(&home).expect("create home");
+        std::fs::create_dir_all(&workspace).expect("create workspace");
+        Self {
+            home: home.canonicalize().expect("canonicalize home"),
+            workspace: workspace.canonicalize().expect("canonicalize workspace"),
+            _root: root,
+        }
+    }
+
+    fn profile_dir(&self) -> PathBuf {
+        self.home.join(".xfx")
+    }
+
+    fn settings_path(&self) -> PathBuf {
+        self.profile_dir().join("settings.json")
+    }
+
+    fn write_user_settings(&self, body: &str) {
+        let dir = self.profile_dir();
+        std::fs::create_dir_all(&dir).expect("create profile dir");
+        // 0700, the way xfx creates it: the session store refuses a profile home
+        // that group or other can reach, so a fixture that left it 0755 would
+        // fail every recorded turn for a reason that has nothing to do with the
+        // backend under test.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .expect("tighten the profile dir");
+        }
+        std::fs::write(self.settings_path(), body).expect("write user settings");
+    }
+
+    /// Points the profile at `daemon`, the way `setup` would.
+    fn select_llmux(&self, daemon: &FakeLlmux) {
+        self.write_user_settings(&format!(
+            "{{\"backend\":\"llmux\",\"llmux_url\":{},\"model\":\"fable\"}}",
+            serde_json::to_string(&daemon.url()).unwrap()
+        ));
+    }
+
+    fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_xfx"));
+        command.current_dir(&self.workspace);
+        command.env("HOME", &self.home);
+        for key in CONTROLLED_VARS {
+            command.env_remove(key);
+        }
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.args(args);
+        Run::of(command.output().expect("spawn xfx"))
+    }
+}
+
+struct Run {
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+}
+
+impl Run {
+    fn of(output: std::process::Output) -> Self {
+        Self {
+            code: output.status.code(),
+            stdout: String::from_utf8(output.stdout).expect("stdout is utf-8"),
+            stderr: String::from_utf8(output.stderr).expect("stderr is utf-8"),
+        }
+    }
+
+    /// The stdout JSONL stream, one parsed object per line.
+    fn events(&self) -> Vec<Value> {
+        assert!(
+            self.stdout.is_empty() || self.stdout.ends_with('\n'),
+            "JSONL must be newline terminated, got {:?}",
+            self.stdout
+        );
+        self.stdout
+            .lines()
+            .map(|line| {
+                serde_json::from_str(line)
+                    .unwrap_or_else(|err| panic!("`{line}` is not JSON ({err})"))
+            })
+            .collect()
+    }
+
+    fn kinds(&self) -> Vec<String> {
+        self.events()
+            .iter()
+            .map(|event| event["kind"].as_str().expect("a kind").to_string())
+            .collect()
+    }
+
+    /// Exactly one JSON document on stdout.
+    fn json(&self) -> Value {
+        assert_eq!(
+            self.stdout.matches('\n').count(),
+            1,
+            "expected one document, got {:?}",
+            self.stdout
+        );
+        serde_json::from_str(self.stdout.trim_end()).expect("stdout parses as JSON")
+    }
+}
+
+#[test]
+fn ask_streams_a_turn_through_the_llmux_backend_without_any_credential() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["Hello, ", "world"]))]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+
+    // No `VERCEL_OIDC_TOKEN`, no `AI_GATEWAY_API_KEY`: the whole point is that
+    // this backend needs neither, and the gateway's missing-auth refusal must
+    // not fire on a turn that was never going to the gateway.
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.kinds(), ["assistant_delta", "assistant_delta", "final"]);
+    assert_eq!(run.events()[2]["output"], "Hello, world");
+
+    let request = daemon.only_message_request();
+    assert_eq!(request.path, "/v1/messages");
+    assert_eq!(request.json()["model"], "fable");
+    assert_eq!(request.header("authorization"), None);
+}
+
+#[test]
+fn ask_advertises_the_registry_to_llmux_in_the_anthropic_envelope() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["ok"]))]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    assert_eq!(
+        sandbox
+            .run(&["ask", "--json", "--no-save", "hello"], &[])
+            .code,
+        Some(0)
+    );
+
+    let tools = daemon.only_message_request().json()["tools"].clone();
+    let names: Vec<String> = tools
+        .as_array()
+        .expect("a tool array")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a name").to_string())
+        .collect();
+    assert_eq!(names, xfx::tools::ADVERTISED_TOOLS);
+    for tool in tools.as_array().unwrap() {
+        assert!(tool.get("input_schema").is_some(), "{tool}");
+        assert!(tool.get("inputSchema").is_none(), "{tool}");
+    }
+}
+
+#[test]
+fn a_llmux_turn_records_a_session_the_same_way_a_gateway_turn_does() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["remembered"]))]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    let asked = sandbox.run(&["ask", "--json", "hello"], &[]);
+    assert_eq!(
+        asked.code,
+        Some(0),
+        "stdout={:?} stderr={:?}",
+        asked.stdout,
+        asked.stderr
+    );
+
+    let listed = sandbox.run(&["sessions", "--json"], &[]);
+    assert_eq!(listed.code, Some(0), "stderr={:?}", listed.stderr);
+    assert_eq!(listed.json()["count"], 1);
+
+    let detail = sandbox.run(&["session", "last", "--json"], &[]);
+    assert_eq!(detail.json()["model"], "fable");
+    assert_eq!(detail.json()["history_turns"], 1);
+}
+
+#[test]
+fn a_llmux_backend_with_no_url_refuses_the_turn_and_names_the_setup_command() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"llmux\"}");
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert_eq!(run.kinds(), ["error"]);
+
+    let message = run.events()[0]["message"]
+        .as_str()
+        .expect("an error message")
+        .to_string();
+    assert!(message.contains("xfx setup llmux"), "got {message}");
+    // Pointing at the gateway's credentials would be advice for a backend the
+    // operator deliberately configured away from.
+    assert!(!message.contains("AI_GATEWAY_API_KEY"), "got {message}");
+}
+
+#[test]
+fn a_llmux_backend_whose_url_was_refused_also_names_the_setup_command() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://example.com:80\"}");
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    let events = run.events();
+    let message = events[0]["message"].as_str().expect("a message");
+    assert!(message.contains("xfx setup llmux"), "got {message}");
+}
+
+#[test]
+fn the_gateway_backend_is_unchanged_when_nothing_selects_llmux() {
+    // The default path still demands a credential and still says so in the
+    // gateway's own words.
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(1));
+    let events = run.events();
+    let message = events[0]["message"].as_str().expect("a message");
+    assert!(message.contains("AI_GATEWAY_API_KEY"), "got {message}");
+    assert!(!message.contains("llmux"), "got {message}");
 }

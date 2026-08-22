@@ -12,8 +12,9 @@ use std::time::Duration;
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{ConfigError, PermissionMode, RuntimeConfig, SettingSource};
-use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
+use crate::config::{Backend, ConfigError, PermissionMode, RuntimeConfig, SettingSource};
+use crate::gateway::{CancelToken, Endpoint, GatewayProvider, Provider, DEFAULT_MAX_ATTEMPTS};
+use crate::llmux::{LlmuxProvider, MISSING_URL_HELP};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     SessionDetailSnapshot, SessionFacts, SessionsSnapshot, StatusSnapshot, TextSink,
@@ -301,17 +302,15 @@ async fn run_ask(
         Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
     };
 
-    // The credential and the endpoint are checked next because they are free,
-    // they leak nothing, and they are the two ways an `ask` most often cannot
-    // start at all. Checking them before the session is opened is also what
-    // keeps a machine with no credential from accumulating a directory of empty
-    // sessions, one per failed attempt.
-    let Some(credential) = config.credential.clone() else {
-        return quiet(fail_turn(sink.as_mut(), MISSING_AUTH_HELP.to_string()));
-    };
-    let endpoint = match Endpoint::from_process() {
-        Ok(endpoint) => endpoint,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
+    // The provider is built next because it is free, it leaks nothing, and it is
+    // the way an `ask` most often cannot start at all: no credential on the
+    // Gateway backend, no daemon url on the llmux one. Building it before the
+    // session is opened is also what keeps such a machine from accumulating one
+    // empty session per failed attempt.
+    let cancel = CancelToken::new();
+    let provider = match build_provider(config, &cancel) {
+        Ok(provider) => provider,
+        Err(message) => return quiet(fail_turn(sink.as_mut(), message)),
     };
 
     // The session, before anything is asked of a model. A resume that names a
@@ -353,15 +352,10 @@ async fn run_ask(
         });
     }
 
-    let cancel = CancelToken::new();
     // Ctrl-C now means something. Without this the token existed and nothing
     // ever set it, so every cancellation path in the turn and in `terminal` was
     // unreachable from the binary.
     watch_for_interrupt(cancel.clone());
-    let provider = match GatewayProvider::new(endpoint, credential, cancel.clone()) {
-        Ok(provider) => provider,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
-    };
 
     let mut permissions = permission_session(mode);
     // The prompt has to state the scope it is actually selling. When this turn
@@ -393,10 +387,19 @@ async fn run_ask(
 
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
-        Some(recorder) => run_turn_saved(turn, context, &provider, sink.as_mut(), recorder).await,
+        Some(recorder) => {
+            run_turn_saved(turn, context, provider.as_ref(), sink.as_mut(), recorder).await
+        }
         None => {
             let mut journal = crate::agent::NoJournal;
-            run_turn_saved(turn, context, &provider, sink.as_mut(), &mut journal).await
+            run_turn_saved(
+                turn,
+                context,
+                provider.as_ref(),
+                sink.as_mut(),
+                &mut journal,
+            )
+            .await
         }
     };
 
@@ -567,6 +570,58 @@ where
         });
     if spawned.is_ok() {
         let _ = wait_for_install.recv_timeout(INTERRUPT_INSTALL_TIMEOUT);
+    }
+}
+
+/// Builds the provider the configured backend selects.
+///
+/// The one place a backend becomes a socket. `ask` and the shell both come
+/// through here, so "which backend am I talking to" is decided once rather than
+/// in two dispatch sites that could disagree about it -- and a third caller that
+/// forgot one of them could not exist.
+///
+/// The two backends need different things from the machine, and each failure is
+/// reported in the vocabulary of the backend that actually failed:
+///
+/// - the Gateway needs a bearer credential, so a machine without one is told
+///   which environment variables to set;
+/// - llmux needs a daemon URL and no credential at all, so a machine without a
+///   usable one is told to run `xfx setup llmux` -- naming the Gateway's
+///   variables there would be advice for a backend the operator deliberately
+///   configured away from.
+///
+/// An `llmux_url` that is missing or was refused by the endpoint rule is a
+/// refusal rather than a silent fall back to the Gateway. Falling back would
+/// send the prompt to a remote paid endpoint because a local port was mistyped,
+/// which is the one outcome the endpoint rule exists to prevent.
+pub(crate) fn build_provider(
+    config: &RuntimeConfig,
+    cancel: &CancelToken,
+) -> Result<Box<dyn Provider>, String> {
+    match config.backend {
+        Backend::Gateway => {
+            let credential = config
+                .credential
+                .clone()
+                .ok_or_else(|| MISSING_AUTH_HELP.to_string())?;
+            let endpoint = Endpoint::from_process().map_err(|err| err.to_string())?;
+            let provider = GatewayProvider::new(endpoint, credential, cancel.clone())
+                .map_err(|err| err.to_string())?;
+            Ok(Box::new(provider))
+        }
+        Backend::Llmux => {
+            let url = config
+                .llmux_url
+                .as_deref()
+                .ok_or_else(|| MISSING_URL_HELP.to_string())?;
+            // Re-checked here rather than trusted: the value reached this point
+            // through configuration, and the rule that decides what may receive
+            // a prompt belongs to the transport.
+            let endpoint = Endpoint::checked(url, "llmux_url").map_err(|err| err.to_string())?;
+            let provider =
+                LlmuxProvider::new(endpoint, cancel.clone()).map_err(|err| err.to_string())?;
+            Ok(Box::new(provider))
+        }
     }
 }
 
