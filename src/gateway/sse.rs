@@ -43,6 +43,12 @@ pub enum SseError {
     Cancelled,
     /// One event exceeded the buffering ceiling.
     EventTooLarge { limit: usize },
+    /// The accumulated answer exceeded the ceiling on a whole completion.
+    ///
+    /// Distinct from [`Self::EventTooLarge`], which bounds one frame: a stream of
+    /// well-formed small frames can grow without limit, and "bounded decoder" has
+    /// to mean bounded over the stream rather than over each event of it.
+    CompletionTooLarge { limit: usize },
     /// The stream ended, with or without `[DONE]`, and never sent a finish
     /// event. A partial answer is not a completed answer.
     MissingFinish,
@@ -67,6 +73,9 @@ impl fmt::Display for SseError {
             Self::Cancelled => write!(f, "the stream was cancelled"),
             Self::EventTooLarge { limit } => {
                 write!(f, "a single stream event exceeded {limit} bytes")
+            }
+            Self::CompletionTooLarge { limit } => {
+                write!(f, "the accumulated completion exceeded {limit} bytes")
             }
             Self::MissingFinish => write!(
                 f,

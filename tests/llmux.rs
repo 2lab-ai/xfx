@@ -32,7 +32,7 @@ use xfx::llmux::LlmuxProvider;
 use support::fake_gateway::Reply;
 use support::fake_llmux::{
     anthropic_answer, anthropic_error, anthropic_event, anthropic_stop, anthropic_text_block,
-    anthropic_tool_answer, catalog, FakeLlmux,
+    anthropic_tool_answer, anthropic_tool_block, catalog, FakeLlmux,
 };
 
 // ---------------------------------------------------------------------------
@@ -574,12 +574,21 @@ fn every_stop_reason_maps_to_a_reason_this_version_knows() {
         ("end_turn", FinishReason::Stop),
         ("stop_sequence", FinishReason::Stop),
         ("max_tokens", FinishReason::Length),
-        ("tool_use", FinishReason::ToolCalls),
         ("refusal", FinishReason::ContentFilter),
     ] {
         let completion = decode(&anthropic_stop(raw, 1, 1)).0.expect("finish");
         assert_eq!(completion.finish_reason, expected, "for `{raw}`");
     }
+    // `tool_use` needs a tool to have been called: the reason and the calls are
+    // one claim, and a stream that makes half of it is refused.
+    let body = format!(
+        "{}{}",
+        anthropic_tool_block(0, "toolu_1", "read_file", &["{}"]),
+        anthropic_stop("tool_use", 1, 1),
+    );
+    let completion = decode(&body).0.expect("finish");
+    assert_eq!(completion.finish_reason, FinishReason::ToolCalls);
+    assert_eq!(completion.tool_calls.len(), 1);
 }
 
 #[test]
@@ -672,6 +681,124 @@ fn everything_after_the_stop_frame_is_trailer() {
     let (completion, deltas) = decode(&body);
     assert!(deltas.is_empty(), "got {deltas:?}");
     assert_eq!(completion.expect("finish").text, "");
+}
+
+#[test]
+fn a_tool_block_that_cannot_be_closed_is_an_error_not_an_empty_tool_round() {
+    // The stop frame's index is a string, so the open `tool_use` block is never
+    // correlated. Dropping it silently produced `ToolCalls` with an empty call
+    // list -- a completion claiming the model asked for a tool while naming
+    // none, which the turn then has to interpret. That is a guess, and this
+    // decoder does not guess.
+    let body = format!(
+        "{}{}{}",
+        anthropic_event(
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "tool_use", "id": "toolu_1", "name": "read_file" },
+            })
+        ),
+        anthropic_event(
+            "content_block_stop",
+            json!({ "type": "content_block_stop", "index": "0" })
+        ),
+        anthropic_stop("tool_use", 1, 1),
+    );
+    match decode(&body).0 {
+        Err(SseError::InvalidToolCall { detail }) => {
+            assert!(
+                detail.contains("toolu_1"),
+                "the block must be named: {detail}"
+            );
+        }
+        other => panic!("expected an unusable tool call, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_tool_use_stop_reason_with_no_calls_at_all_is_an_error() {
+    // Same lie by a different route: the daemon says it stopped to call a tool
+    // and never opened one.
+    match decode(&anthropic_stop("tool_use", 1, 1)).0 {
+        Err(SseError::InvalidToolCall { .. }) => {}
+        other => panic!("expected an unusable tool call, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_error_frame_fails_the_attempt_whatever_arrives_after_it() {
+    // A daemon that reports an error and then closes cleanly used to produce a
+    // successful completion carrying a truncated answer, because the failure was
+    // only consulted when no stop reason had arrived. The frame itself is the
+    // failure, so ordering cannot change the verdict.
+    let body = format!(
+        "{}{}{}{}",
+        anthropic_text_block(0, &["half an ans"]),
+        anthropic_error("upstream refused"),
+        anthropic_stop("end_turn", 1, 1),
+        anthropic_event("message_stop", json!({ "type": "message_stop" })),
+    );
+    match decode(&body).0 {
+        Err(SseError::ProviderFailure { detail }) => assert_eq!(detail, "upstream refused"),
+        other => panic!("expected a provider failure, got {other:?}"),
+    }
+}
+
+#[test]
+fn input_tokens_include_the_cache_reads_the_prompt_was_billed_for() {
+    // A cached prompt reports most of its input under the cache counters. Adding
+    // only `input_tokens` reported a fraction of what the turn actually cost,
+    // which is the number a session totals up.
+    let body = format!(
+        "{}{}",
+        anthropic_event(
+            "message_start",
+            json!({
+                "type": "message_start",
+                "message": {
+                    "usage": {
+                        "input_tokens": 10,
+                        "cache_read_input_tokens": 4000,
+                        "cache_creation_input_tokens": 25,
+                    },
+                },
+            })
+        ),
+        anthropic_stop("end_turn", 10, 7),
+    );
+    let completion = decode(&body).0.expect("finish");
+    assert_eq!(completion.usage.input_tokens, Some(4035));
+    assert_eq!(completion.usage.output_tokens, Some(7));
+}
+
+#[test]
+fn a_completion_that_never_stops_growing_is_bounded() {
+    // The module promises boundedness, and the per-event ceiling only bounds one
+    // frame: a stream of well-formed small frames could accumulate without limit.
+    let frame = anthropic_event(
+        "content_block_delta",
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "text_delta", "text": "x".repeat(64 * 1024) },
+        }),
+    );
+    let mut reader = AnthropicReader::new();
+    let mut deltas = Collected::default();
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 1024, "the ceiling was never reached");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[test]

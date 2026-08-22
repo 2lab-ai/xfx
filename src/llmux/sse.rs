@@ -14,16 +14,24 @@
 //! 1. **A stop reason is required.** End of stream does not prove the model
 //!    finished, and neither does `message_stop`: only `message_delta` says why
 //!    generation ended. A truncated stream is a failure, not a short answer.
-//! 2. **A single event is bounded**, by the same [`MAX_EVENT_BYTES`] ceiling, so
-//!    a stream that never sends a newline cannot buffer without limit.
+//! 2. **Both the frame and the answer are bounded** -- one frame by
+//!    [`MAX_EVENT_BYTES`], the whole accumulation by [`MAX_COMPLETION_BYTES`].
+//!    The second is not implied by the first: a stream of well-formed small
+//!    frames grows without limit.
 //! 3. **An unknown terminal state is an error.** A future `stop_reason` mapped
 //!    onto a known one would report a refusal, a pause, or a quota stop as a
 //!    normal completion.
+//! 4. **A tool round is one claim.** `stop_reason: "tool_use"` and the calls it
+//!    refers to stand or fall together: a stream that says it stopped to call a
+//!    tool and names none, or opens a `tool_use` block xfx cannot close, is
+//!    refused rather than handed on as a completion with an empty call list.
 //!
 //! And one rule this stream needs that the Gateway's does not: an `error` frame
 //! arrives inside an HTTP 200 (`2lab-ai/llmux src/provider/responses.rs:569-583`),
 //! so a transport that only read the status would call an upstream failure a
-//! successful empty answer.
+//! successful empty answer. It fails **at the frame**, not at the end, because
+//! consulting it later made the verdict depend on what happened to arrive
+//! afterwards.
 //!
 //! A malformed nonterminal event is skipped rather than fatal, matching the
 //! Gateway decoder; a malformed terminal one is fatal, because that is the one
@@ -34,6 +42,19 @@ use serde_json::{Map, Value};
 use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
 use crate::gateway::sse::{SseError, MAX_EVENT_BYTES};
 use crate::gateway::{CancelToken, DeltaSink};
+
+/// The most a single completion may accumulate, in bytes.
+///
+/// [`MAX_EVENT_BYTES`] bounds one frame; this bounds the whole answer. Without
+/// it a stream of well-formed small frames grows without limit, and the module's
+/// promise of a bounded decoder would be true of each event and false of the
+/// decode. It counts the assistant text and every tool block's arguments
+/// together, because those are the two things that grow with the stream.
+///
+/// 8 MiB is far past any answer a model produces and far short of a number that
+/// matters to a machine running a coding agent, which is the shape a ceiling
+/// should have: invisible in use, decisive under abuse.
+pub const MAX_COMPLETION_BYTES: usize = 8 * 1024 * 1024;
 
 /// What an open content block is accumulating.
 #[derive(Debug)]
@@ -73,6 +94,8 @@ pub struct AnthropicReader {
     text: String,
     blocks: Vec<OpenBlock>,
     tool_calls: Vec<ToolCall>,
+    /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
+    accumulated: usize,
     finish_reason: Option<FinishReason>,
     usage: Usage,
     provider_detail: Option<String>,
@@ -99,6 +122,7 @@ impl AnthropicReader {
             text: String::new(),
             blocks: Vec::new(),
             tool_calls: Vec::new(),
+            accumulated: 0,
             finish_reason: None,
             usage: Usage::default(),
             provider_detail: None,
@@ -151,6 +175,15 @@ impl AnthropicReader {
             let line = std::mem::take(&mut self.line);
             let mut discard = DiscardDeltas;
             self.consume_line(&line, &mut discard)?;
+        }
+
+        // An open `tool_use` block at end of stream was never closed, so its
+        // arguments are half a JSON document xfx must not guess at.
+        self.refuse_open_tool_block("the stream ended while it was still open")?;
+        if self.finish_reason == Some(FinishReason::ToolCalls) && self.tool_calls.is_empty() {
+            return Err(SseError::InvalidToolCall {
+                detail: "the daemon stopped to call a tool and named none".to_string(),
+            });
         }
 
         match self.finish_reason {
@@ -208,8 +241,9 @@ impl AnthropicReader {
         // from a body xfx could not read.
         let Ok(Value::Object(event)) = serde_json::from_str::<Value>(payload) else {
             if event_name.as_deref() == Some("error") {
-                self.provider_detail
-                    .get_or_insert_with(|| "the daemon reported an unreadable error".to_string());
+                return Err(SseError::ProviderFailure {
+                    detail: "the daemon reported an unreadable error".to_string(),
+                });
             }
             return Ok(());
         };
@@ -234,12 +268,14 @@ impl AnthropicReader {
                 self.complete = true;
                 Ok(())
             }
-            "error" => {
-                if let Some(detail) = failure_detail(&event) {
-                    self.provider_detail = Some(detail);
-                }
-                Ok(())
-            }
+            // The frame *is* the failure. Recording it and deciding later made
+            // the verdict depend on what arrived afterwards: a daemon that
+            // reported an error and then closed cleanly produced a successful
+            // completion carrying a truncated answer.
+            "error" => Err(SseError::ProviderFailure {
+                detail: failure_detail(&event)
+                    .unwrap_or_else(|| "the daemon reported an error".to_string()),
+            }),
             // `ping` and every future event carry nothing xfx acts on.
             _ => Ok(()),
         }
@@ -253,7 +289,7 @@ impl AnthropicReader {
         let Some(Value::Object(usage)) = message.get("usage") else {
             return;
         };
-        if let Some(total) = token_total(usage, "input_tokens") {
+        if let Some(total) = input_total(usage) {
             self.usage.input_tokens = Some(total);
         }
     }
@@ -307,14 +343,27 @@ impl AnthropicReader {
                 // A delta for a block that was never opened is still the
                 // answer's text; the index only decides where a *tool* input
                 // accumulates.
+                self.accumulated = self.accumulated.saturating_add(text.len());
+                if self.accumulated > MAX_COMPLETION_BYTES {
+                    return Err(SseError::CompletionTooLarge {
+                        limit: MAX_COMPLETION_BYTES,
+                    });
+                }
                 self.text.push_str(text);
-                let text = text.to_string();
-                deltas.text_delta(&text).map_err(SseError::Sink)
+                // Handed to the sink borrowed: this is the hot path of every
+                // streamed answer, and a fresh allocation per token buys nothing.
+                deltas.text_delta(text).map_err(SseError::Sink)
             }
             Some("input_json_delta") => {
                 let Some(fragment) = string_field(delta, "partial_json") else {
                     return Ok(());
                 };
+                self.accumulated = self.accumulated.saturating_add(fragment.len());
+                if self.accumulated > MAX_COMPLETION_BYTES {
+                    return Err(SseError::CompletionTooLarge {
+                        limit: MAX_COMPLETION_BYTES,
+                    });
+                }
                 // A fragment for an unopened block is dropped: correlating it
                 // would invent a call the daemon never opened.
                 if let Some(OpenBlock {
@@ -334,7 +383,11 @@ impl AnthropicReader {
 
     fn on_block_stop(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
         let Some(index) = event.get("index").and_then(Value::as_u64) else {
-            return Ok(());
+            // A stop frame xfx cannot correlate is harmless while nothing is
+            // being assembled, and a silent lie while a tool call is: the block
+            // would be dropped, the daemon would still say it stopped to call a
+            // tool, and the turn would be handed `ToolCalls` with no calls in it.
+            return self.refuse_open_tool_block("a `content_block_stop` carried no usable `index`");
         };
         let Some(position) = self.blocks.iter().position(|open| open.index == index) else {
             return Ok(());
@@ -367,14 +420,35 @@ impl AnthropicReader {
         Ok(())
     }
 
+    /// Fails the decode when a tool block is open and cannot be closed.
+    ///
+    /// Nothing to assemble means nothing to lie about, so this is a no-op unless
+    /// a `tool_use` block is still open.
+    fn refuse_open_tool_block(&self, reason: &str) -> Result<(), SseError> {
+        let open = self.blocks.iter().find_map(|open| match &open.block {
+            Block::ToolUse { id, .. } => Some(id.as_str()),
+            _ => None,
+        });
+        match open {
+            Some(id) => Err(SseError::InvalidToolCall {
+                detail: format!("tool call `{id}` was never closed: {reason}"),
+            }),
+            None => Ok(()),
+        }
+    }
+
     fn on_message_delta(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
         if let Some(Value::Object(usage)) = event.get("usage") {
             if let Some(total) = token_total(usage, "output_tokens") {
                 self.usage.output_tokens = Some(total);
             }
-            // A `message_delta` may restate the input total; the last word wins.
-            if let Some(total) = token_total(usage, "input_tokens") {
-                self.usage.input_tokens = Some(total);
+            // The input total belongs to `message_start`: the prompt was already
+            // sent by then, and a `message_delta` that restates `input_tokens`
+            // without the cache counters is the same prompt described with less
+            // detail. Letting the last word win turned a cache-inclusive 4035
+            // back into 10.
+            if self.usage.input_tokens.is_none() {
+                self.usage.input_tokens = input_total(usage);
             }
         }
         let Some(Value::Object(delta)) = event.get("delta") else {
@@ -451,6 +525,34 @@ fn failure_detail(event: &Map<String, Value>) -> Option<String> {
 /// are different facts.
 fn token_total(usage: &Map<String, Value>, key: &str) -> Option<u64> {
     usage.get(key)?.as_u64()
+}
+
+/// Everything the prompt was billed as input.
+///
+/// Anthropic splits the input across three counters, and a cached prompt reports
+/// almost all of it under the cache ones: reading `input_tokens` alone reported
+/// ten tokens for a turn that was billed four thousand, and that number is what
+/// a session totals up and shows the operator. Absent counters contribute
+/// nothing rather than making the whole total absent, and the addition
+/// saturates, because a total that wrapped would be worse than one that is
+/// merely large.
+fn input_total(usage: &Map<String, Value>) -> Option<u64> {
+    let counted: Vec<u64> = [
+        "input_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ]
+    .iter()
+    .filter_map(|key| token_total(usage, key))
+    .collect();
+    if counted.is_empty() {
+        return None;
+    }
+    Some(
+        counted
+            .iter()
+            .fold(0u64, |sum, part| sum.saturating_add(*part)),
+    )
 }
 
 #[cfg(test)]
@@ -538,13 +640,14 @@ mod tests {
 
     #[test]
     fn a_frame_the_daemon_named_an_error_fails_even_when_its_body_is_unreadable() {
+        // An ordinary malformed frame is skipped; one the daemon *named* an
+        // error is not, because that is the one name whose meaning cannot be
+        // guessed from a body xfx could not read. It fails at the frame, so
+        // nothing that arrives afterwards can turn it back into a success.
         let mut reader = AnthropicReader::new();
         let mut discard = DiscardDeltas;
-        reader
-            .push(b"event: error\ndata: not json\n\n", &mut discard)
-            .expect("a malformed frame is not itself fatal");
         assert!(matches!(
-            reader.finish(),
+            reader.push(b"event: error\ndata: not json\n\n", &mut discard),
             Err(SseError::ProviderFailure { .. })
         ));
     }
