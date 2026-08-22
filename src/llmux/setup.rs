@@ -94,9 +94,22 @@ pub enum SetupError {
     /// The `--url` the invocation named is not one xfx may send a prompt to.
     Endpoint(EndpointError),
     /// No daemon answered, and nothing named another place to look.
-    NotFound { tried: Vec<String> },
+    NotFound {
+        tried: Vec<String>,
+        /// What the most informative candidate actually said, when one answered
+        /// and was not llmux. "No daemon answered" is true and useless when the
+        /// operator has a port conflict: it sends them to start something that
+        /// is already running.
+        answered: Option<String>,
+    },
     /// Something answered, but it is not llmux.
     NotLlmux { url: String, detail: String },
+    /// xfx could not build its own HTTP client, so nothing was contacted.
+    ///
+    /// Its own variant because reporting it as a daemon that did not answer
+    /// blamed a daemon that was never asked -- and rendered as
+    /// ``did not answer as an llmux daemon`` with an empty URL.
+    Client { detail: String },
     /// There is no home directory, so there is no profile to write.
     NoProfile,
     /// The existing settings file could not be read, so it must not be replaced.
@@ -109,14 +122,26 @@ impl std::fmt::Display for SetupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Endpoint(err) => write!(f, "{err}"),
-            Self::NotFound { tried } => write!(
-                f,
-                "no llmux daemon answered. xfx tried {}. Start llmux, or name it with \
-                 `xfx setup llmux --url http://127.0.0.1:<port>`",
-                tried.join(", ")
-            ),
+            Self::NotFound { tried, answered } => {
+                write!(
+                    f,
+                    "no llmux daemon answered. xfx tried {}",
+                    tried.join(", ")
+                )?;
+                if let Some(answered) = answered {
+                    write!(f, ". {answered}")?;
+                }
+                write!(
+                    f,
+                    ". Start llmux, or name it with \
+                     `xfx setup llmux --url http://127.0.0.1:<port>`"
+                )
+            }
             Self::NotLlmux { url, detail } => {
                 write!(f, "`{url}` did not answer as an llmux daemon: {detail}")
+            }
+            Self::Client { detail } => {
+                write!(f, "xfx could not build its HTTP client: {detail}")
             }
             Self::NoProfile => write!(
                 f,
@@ -199,7 +224,7 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
 
 /// One catalog entry, reduced to the two names a model may be called by.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CatalogEntry {
+pub struct CatalogEntry {
     id: String,
     aliases: Vec<String>,
 }
@@ -240,32 +265,72 @@ async fn discover(
         return Ok((url, catalog));
     }
 
+    discover_in(candidates(config, env)).await
+}
+
+/// Probes `candidates` in order and returns the first that answers as llmux.
+///
+/// Split out and public because the composition is what needed proving and what
+/// could not be proven any other way: the first candidate of a real run is
+/// `127.0.0.1:3456`, which on a developer's machine is a live daemon, so a test
+/// that exercised the fallthrough through the binary would reach the operator's
+/// own infrastructure and would pass or fail depending on whether it happened to
+/// be running. Over an injected list it is hermetic.
+pub async fn discover_in(
+    candidates: Vec<String>,
+) -> Result<(String, Vec<CatalogEntry>), SetupError> {
+    let client = probe_client()?;
     let mut tried: Vec<String> = Vec::new();
-    for candidate in candidates(config, env) {
+    let mut answered: Option<String> = None;
+    for candidate in candidates {
         match probe(&client, &candidate).await {
             Ok(catalog) => return Ok((candidate, catalog)),
-            Err(_) => tried.push(candidate),
+            Err(err) => {
+                // A candidate that answered and was not llmux is the one worth
+                // repeating: it means something else holds that port.
+                if let SetupError::NotLlmux { .. } = &err {
+                    answered = Some(err.to_string());
+                }
+                tried.push(candidate);
+            }
         }
     }
-    Err(SetupError::NotFound { tried })
+    Err(SetupError::NotFound { tried, answered })
 }
 
 /// Where xfx will look for a daemon, in order, when nothing named one.
 ///
-/// Two places and no more: the default loopback port, then whatever port llmux's
-/// own configuration names. Trying a range would be a port scan, and trying
-/// anything off this machine would be a prompt sent somewhere nobody asked for.
+/// Three places and no more, most-likely first:
 ///
-/// Pure, and separate from the probing, so the rule can be proven without a
-/// socket -- which matters here more than usual, because the first candidate is
-/// the port a real daemon on the developer's own machine is listening on.
-fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
-    let mut candidates = vec![DEFAULT_URL.to_string()];
-    if let Some(port) = configured_port(config, env) {
-        let from_config = format!("http://127.0.0.1:{port}");
-        if !candidates.contains(&from_config) {
-            candidates.push(from_config);
+/// 1. the url a previous `setup` recorded, which is the one every turn on this
+///    machine is already using -- ignoring it meant that re-running setup on a
+///    machine whose daemon is not on the default port probed the wrong place
+///    first;
+/// 2. the default loopback port; and
+/// 3. whatever port llmux's own configuration names.
+///
+/// Trying a range would be a port scan, and trying anything off this machine
+/// would be a prompt sent somewhere nobody asked for.
+///
+/// Pure, and public, and separate from the probing, so the rule can be proven
+/// without a socket -- which matters here more than usual, because one of the
+/// candidates is the port a real daemon on the developer's own machine is
+/// listening on.
+pub fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+    let mut add = |url: String| {
+        if !candidates.contains(&url) {
+            candidates.push(url);
         }
+    };
+    // Already validated by the endpoint policy on its way into the config, so
+    // this cannot reintroduce a remote or pathed URL.
+    if let Some(recorded) = config.llmux_url.as_deref() {
+        add(trim_base(recorded));
+    }
+    add(DEFAULT_URL.to_string());
+    if let Some(port) = configured_port(config, env) {
+        add(format!("http://127.0.0.1:{port}"));
     }
     candidates
 }
@@ -290,8 +355,7 @@ fn probe_client() -> Result<reqwest::Client, SetupError> {
         .no_proxy()
         .user_agent(USER_AGENT)
         .build()
-        .map_err(|err| SetupError::NotLlmux {
-            url: String::new(),
+        .map_err(|err| SetupError::Client {
             detail: err.to_string(),
         })
 }
@@ -809,11 +873,37 @@ mod tests {
     fn a_failed_discovery_names_every_place_it_looked() {
         let message = SetupError::NotFound {
             tried: vec![DEFAULT_URL.to_string(), "http://127.0.0.1:4123".to_string()],
+            answered: None,
         }
         .to_string();
         assert!(message.contains(DEFAULT_URL), "{message}");
         assert!(message.contains("http://127.0.0.1:4123"), "{message}");
         assert!(message.contains("--url"), "{message}");
+    }
+
+    #[test]
+    fn a_failed_discovery_repeats_what_actually_answered() {
+        // Otherwise a port conflict reads as "nothing is running" and sends the
+        // operator to start a daemon that is already up.
+        let message = SetupError::NotFound {
+            tried: vec![DEFAULT_URL.to_string()],
+            answered: Some(
+                "`http://127.0.0.1:3456` did not answer as an llmux daemon: nginx".to_string(),
+            ),
+        }
+        .to_string();
+        assert!(message.contains("nginx"), "{message}");
+        assert!(message.contains("--url"), "{message}");
+    }
+
+    #[test]
+    fn a_client_that_could_not_be_built_does_not_blame_a_daemon() {
+        let message = SetupError::Client {
+            detail: "no tls backend".to_string(),
+        }
+        .to_string();
+        assert!(message.contains("xfx"), "{message}");
+        assert!(!message.contains("did not answer"), "{message}");
     }
 
     #[test]

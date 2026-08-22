@@ -20,16 +20,30 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
+use xfx::config::{Environment, RuntimeConfig};
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
 use xfx::gateway::sse::{SseError, MAX_EVENT_BYTES};
 use xfx::gateway::{CancelToken, DeltaSink, Endpoint, Provider, ProviderError};
-use xfx::llmux::protocol;
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
+use xfx::llmux::{protocol, setup};
 
 use support::fake_gateway::Reply;
+
+/// Runs one async library call to completion.
+///
+/// The setup entry points are `async` because they open sockets; a test that
+/// only wants the answer does not need a `#[tokio::test]` around everything else
+/// it is asserting.
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a test runtime")
+        .block_on(future)
+}
 use support::fake_llmux::{
     anthropic_answer, anthropic_error, anthropic_event, anthropic_stop, anthropic_text_block,
     anthropic_tool_answer, anthropic_tool_block, catalog, FakeLlmux,
@@ -1156,6 +1170,20 @@ impl Sandbox {
         ));
     }
 
+    /// A `RuntimeConfig` for this sandbox, loaded the way the binary loads one.
+    fn config(&self, vars: &[(&str, &str)]) -> RuntimeConfig {
+        RuntimeConfig::load_with(&self.environment(vars), &self.workspace).expect("load config")
+    }
+
+    /// The injected environment, carrying only what a test named.
+    fn environment(&self, vars: &[(&str, &str)]) -> Environment {
+        let map = vars
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect();
+        Environment::new(Some(self.home.clone()), map)
+    }
+
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_xfx"));
         command.current_dir(&self.workspace);
@@ -1790,11 +1818,11 @@ fn setup_refuses_a_daemon_whose_catalog_is_unusable() {
 // config location is proven there too.
 
 #[test]
-fn setup_never_copies_a_field_of_the_llmux_configuration_but_the_port() {
+fn setup_reads_the_llmux_configuration_for_its_port_and_for_nothing_else() {
     // llmux's configuration file holds OAuth tokens and admin keys beside the
-    // port. `--url` is used so the probe never reaches the real daemon; what is
-    // under test is that the config is read for one `u16` and nothing else
-    // reaches an output or the settings file.
+    // port. This drives discovery through that file for real -- no `--url` -- so
+    // the read actually happens, and then asserts that nothing but the port
+    // reached an output or the settings file.
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();
     let xdg = sandbox.home.join("xdg");
@@ -1808,20 +1836,83 @@ fn setup_never_copies_a_field_of_the_llmux_configuration_but_the_port() {
         .to_string(),
     )
     .unwrap();
+    let config = sandbox.config(&[("XDG_CONFIG_HOME", xdg.to_str().unwrap())]);
+    let env = sandbox.environment(&[("XDG_CONFIG_HOME", xdg.to_str().unwrap())]);
 
-    let run = sandbox.run(
-        &["setup", "llmux", "--url", &daemon.url(), "--json"],
-        &[("XDG_CONFIG_HOME", xdg.to_str().unwrap())],
-    );
-    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
-    assert_eq!(run.json()["url"], daemon.url());
-    assert!(!run.stdout.contains("must-not-be-read"), "{:?}", run.stdout);
-    assert!(!run.stderr.contains("must-not-be-read"), "{:?}", run.stderr);
-
-    let settings = std::fs::read_to_string(sandbox.settings_path()).unwrap();
+    // The candidate list really is built from that file...
+    let candidates = setup::candidates(&config, &env);
     assert!(
-        !settings.contains("must-not-be-read"),
-        "no llmux config field may be persisted: {settings}"
+        candidates.contains(&daemon.url()),
+        "the configured port must be a candidate: {candidates:?}"
+    );
+    // ...and nothing but the port came out of it.
+    let rendered = format!("{candidates:?}");
+    assert!(!rendered.contains("must-not-be-read"), "{rendered}");
+
+    // Discovery is then driven over exactly the candidate that file produced.
+    // The default `127.0.0.1:3456` is deliberately left out of this list: on a
+    // developer's machine that is a live llmux daemon, and a test that probed it
+    // would be reaching real infrastructure.
+    let from_config: Vec<String> = candidates
+        .into_iter()
+        .filter(|candidate| candidate != "http://127.0.0.1:3456")
+        .collect();
+    assert_eq!(from_config, vec![daemon.url()]);
+    let (url, catalog) =
+        block_on(setup::discover_in(from_config)).expect("the configured port answers as llmux");
+    assert_eq!(url, daemon.url());
+    assert_eq!(catalog.len(), 1);
+    assert_eq!(daemon.paths(), ["/", "/models"]);
+}
+
+#[test]
+fn a_failed_discovery_says_what_actually_answered_on_each_port() {
+    // "no llmux daemon answered" is true and useless when something *did*
+    // answer and was not llmux: the operator has a port conflict, and the
+    // message they were given sends them to start a daemon that is running.
+    let impostor = FakeLlmux::start(Vec::new()).with_root_body(200, "nginx");
+    let message = block_on(setup::discover_in(vec![impostor.url()]))
+        .expect_err("an impostor is not a daemon")
+        .to_string();
+    assert!(message.contains("nginx"), "got {message}");
+    assert!(message.contains(&impostor.url()), "got {message}");
+}
+
+#[test]
+fn discovery_falls_through_a_dead_candidate_to_a_live_one() {
+    // The fallthrough itself, hermetically: the first candidate is a port that
+    // was bound and released, so nothing is listening on it.
+    let dead = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        listener.local_addr().expect("addr").port()
+    };
+    let daemon = FakeLlmux::start(Vec::new());
+    let (url, _) = block_on(setup::discover_in(vec![
+        format!("http://127.0.0.1:{dead}"),
+        daemon.url(),
+    ]))
+    .expect("the second candidate answers");
+    assert_eq!(url, daemon.url());
+}
+
+#[test]
+fn setup_looks_first_at_the_daemon_a_previous_setup_recorded() {
+    // Re-running setup on a machine whose daemon is not on the default port used
+    // to ignore the url every turn was already using and probe 3456 first.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    let candidates = setup::candidates(&sandbox.config(&[]), &sandbox.environment(&[]));
+    assert_eq!(
+        candidates.first().map(String::as_str),
+        Some(daemon.url().as_str()),
+        "the url every turn already uses is the first place to look: {candidates:?}"
+    );
+    // The default is still in the list, behind it, so a daemon that moved back
+    // is still found.
+    assert!(
+        candidates.contains(&"http://127.0.0.1:3456".to_string()),
+        "{candidates:?}"
     );
 }
 
