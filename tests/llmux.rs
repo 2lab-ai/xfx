@@ -1606,7 +1606,7 @@ fn doctor_reports_the_backend_and_adds_no_network_call() {
 }
 
 #[test]
-fn doctor_warns_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
+fn doctor_fails_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"backend\":\"llmux\"}");
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
@@ -1616,10 +1616,16 @@ fn doctor_warns_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
         .iter()
         .find(|check| check["name"] == "backend")
         .unwrap_or_else(|| panic!("no backend check in {document}"));
-    assert_eq!(backend["status"], "warn");
+    // Fail, not warn. Every turn on this machine refuses, so a doctor that
+    // reported `fail=0` would be telling the operator their setup is fine while
+    // `xfx ask` refuses one hundred percent of the time.
+    assert_eq!(backend["status"], "fail");
     let detail = backend["detail"].as_str().expect("a detail");
     assert!(detail.contains("xfx setup llmux"), "got {detail}");
-    assert!(document["warn_count"].as_u64().unwrap() >= 1);
+    assert!(
+        document["fail_count"].as_u64().unwrap() >= 1,
+        "got {document}"
+    );
 
     // A configured backend is not a warning on its own.
     let daemon = FakeLlmux::start(Vec::new());

@@ -820,8 +820,9 @@ fn unreadable_backend_message(rejected: &str) -> String {
 ///
 /// The one way the llmux backend is broken from `doctor`'s point of view is
 /// having no endpoint: the operator selected it and either never named a URL or
-/// named one the transport rule refused. That is a warning rather than a failure
-/// because it is one command away from fixed, and the detail names that command.
+/// named one the endpoint policy refused. It is a failure rather than a warning
+/// because no turn can run at all, however easy it is to fix, and the detail
+/// names the command that fixes it.
 ///
 /// It is decided from configuration alone. `doctor` is the command that is
 /// always safe to run, so it does not probe the daemon to find out whether it is
@@ -839,12 +840,16 @@ fn backend_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
     if config.backend != Backend::Llmux || config.llmux_url.is_some() {
         return None;
     }
+    // Fail rather than warn. `auth` is a separate axis and stays accurate -- this
+    // backend really does need no credential -- but every turn on this machine
+    // refuses, and a `doctor` that reported `fail=0` would be telling its owner
+    // the setup is fine while `xfx ask` refuses one hundred percent of the time.
     Some(DoctorCheck::new(
         "backend",
-        CheckStatus::Warn,
+        CheckStatus::Fail,
         format!(
-            "backend=llmux, but no usable `llmux_url` is configured, so every turn will \
-             refuse; {}",
+            "backend=llmux, but no usable `llmux_url` is configured, so every turn \
+             refuses; {}",
             crate::llmux::SETUP_HINT
         ),
     ))
