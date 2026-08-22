@@ -234,23 +234,33 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
 
     let reply = state.script.lock().expect("script lock").pop_front();
     let mut writer = stream;
+    write_reply(&mut writer, reply, shutdown);
+    close_cleanly(&mut writer);
+}
+
+/// Writes one scripted reply, or a 500 when the script has run out.
+///
+/// Shared with `fake_llmux`: an unscripted request answering 500 is what makes
+/// an unexpected extra request fail a test rather than hang it, and the chunk
+/// splitting, abort, and hang shapes are transport facts that do not depend on
+/// which wire is being spoken over them.
+pub fn write_reply(writer: &mut TcpStream, reply: Option<Reply>, shutdown: &Arc<AtomicBool>) {
     match reply {
-        Some(Reply::Sse(body)) => write_sse(&mut writer, &[body], true),
-        Some(Reply::SsePieces(pieces)) => write_sse(&mut writer, &pieces, true),
-        Some(Reply::SseThenAbort(pieces)) => write_sse(&mut writer, &pieces, false),
+        Some(Reply::Sse(body)) => write_sse(writer, &[body], true),
+        Some(Reply::SsePieces(pieces)) => write_sse(writer, &pieces, true),
+        Some(Reply::SseThenAbort(pieces)) => write_sse(writer, &pieces, false),
         Some(Reply::SseThenHang(pieces)) => {
-            write_sse(&mut writer, &pieces, false);
-            hang_until_hangup(&mut writer, shutdown);
+            write_sse(writer, &pieces, false);
+            hang_until_hangup(writer, shutdown);
         }
-        Some(Reply::Status(status, body)) => write_status(&mut writer, status, &[], &body),
+        Some(Reply::Status(status, body)) => write_status(writer, status, &[], &body),
         Some(Reply::StatusWithHeaders {
             status,
             headers,
             body,
-        }) => write_status(&mut writer, status, &headers, &body),
-        None => write_status(&mut writer, 500, &[], "fake gateway: unscripted request"),
+        }) => write_status(writer, status, &headers, &body),
+        None => write_status(writer, 500, &[], "fake server: unscripted request"),
     }
-    close_cleanly(&mut writer);
 }
 
 /// Holds a started response open until the client closes its end.
@@ -280,7 +290,7 @@ fn hang_until_hangup(stream: &mut TcpStream, shutdown: &Arc<AtomicBool>) {
 /// peer has received but not yet read. That turns a complete response into a
 /// truncated one at random, which is a flaky test rather than a real protocol
 /// fact. So: send FIN, then read until the client closes too.
-fn close_cleanly(stream: &mut TcpStream) {
+pub fn close_cleanly(stream: &mut TcpStream) {
     let _ = stream.flush();
     let _ = stream.shutdown(Shutdown::Write);
     let _ = stream.set_read_timeout(Some(DRAIN_TIMEOUT));
@@ -294,7 +304,7 @@ fn close_cleanly(stream: &mut TcpStream) {
 }
 
 /// Parses request line, headers, and a `Content-Length` body.
-fn read_request(reader: &mut BufReader<TcpStream>) -> Option<CapturedRequest> {
+pub fn read_request(reader: &mut BufReader<TcpStream>) -> Option<CapturedRequest> {
     let mut request_line = String::new();
     if reader.read_line(&mut request_line).ok()? == 0 {
         return None;
@@ -367,7 +377,7 @@ fn write_sse(stream: &mut TcpStream, pieces: &[String], terminate: bool) {
     // body, which is exactly the "delivery already started" failure under test.
 }
 
-fn write_status(stream: &mut TcpStream, status: u16, extra: &[(String, String)], body: &str) {
+pub fn write_status(stream: &mut TcpStream, status: u16, extra: &[(String, String)], body: &str) {
     let mut response = format!(
         "HTTP/1.1 {status} {}\r\n\
          content-type: application/json\r\n\

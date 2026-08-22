@@ -11,7 +11,236 @@
 //! under test: a keyless loopback request is what llmux accepts, so a fake that
 //! demanded a key would be testing something xfx must never send.
 
+use std::collections::VecDeque;
+use std::io::BufReader;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
 use serde_json::{json, Value};
+
+use super::fake_gateway::{
+    close_cleanly, read_request, write_reply, write_status, CapturedRequest, Reply,
+};
+
+/// How long the accept loop waits between shutdown checks.
+const ACCEPT_POLL: Duration = Duration::from_millis(5);
+
+/// The path the Anthropic Messages data plane lives at.
+const MESSAGES_PATH: &str = "/v1/messages";
+
+/// What a real daemon answers `GET /` with, byte for byte.
+///
+/// It is the probe's whole identification of llmux: any HTTP server on loopback
+/// can answer 200, and only this one answers this word.
+pub const ROOT_BODY: &str = "llmux";
+
+/// How the fake answers the two probe endpoints.
+struct Probes {
+    root: (u16, String),
+    catalog: (u16, String),
+}
+
+struct State {
+    requests: Mutex<Vec<CapturedRequest>>,
+    script: Mutex<VecDeque<Reply>>,
+    probes: Mutex<Probes>,
+}
+
+/// A scripted llmux daemon listening on a loopback port.
+///
+/// Unlike the fake Gateway it answers by **path**, because `xfx setup llmux`
+/// probes `GET /` and `GET /models` before anything else happens, and a script
+/// keyed by arrival order would make the probe's own requests consume the
+/// replies meant for a turn. Only `POST /v1/messages` reads the script.
+///
+/// Dropping it stops the listener and joins its thread, so a test cannot leak a
+/// server into the next test.
+pub struct FakeLlmux {
+    addr: SocketAddr,
+    state: Arc<State>,
+    shutdown: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl FakeLlmux {
+    /// A healthy daemon that answers `script` on the data plane, in order.
+    pub fn start(script: Vec<Reply>) -> Self {
+        Self::with_probes(
+            script,
+            Probes {
+                root: (200, ROOT_BODY.to_string()),
+                catalog: (
+                    200,
+                    catalog(&[("claude-fable-5[1m]", &["fable"])]).to_string(),
+                ),
+            },
+        )
+    }
+
+    fn with_probes(script: Vec<Reply>, probes: Probes) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let addr = listener.local_addr().expect("resolve local address");
+        listener
+            .set_nonblocking(true)
+            .expect("set the listener non-blocking");
+
+        let state = Arc::new(State {
+            requests: Mutex::new(Vec::new()),
+            script: Mutex::new(script.into()),
+            probes: Mutex::new(probes),
+        });
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let thread_state = Arc::clone(&state);
+        let thread_shutdown = Arc::clone(&shutdown);
+        let thread = thread::spawn(move || {
+            while !thread_shutdown.load(Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((stream, _)) => serve(&thread_state, &thread_shutdown, stream),
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(ACCEPT_POLL);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        Self {
+            addr,
+            state,
+            shutdown,
+            thread: Some(thread),
+        }
+    }
+
+    /// Answers `GET /` with something other than the daemon's own word.
+    pub fn with_root_body(self, status: u16, body: &str) -> Self {
+        self.state.probes.lock().expect("probes lock").root = (status, body.to_string());
+        self
+    }
+
+    /// Answers `GET /models` with this exact document.
+    pub fn with_catalog(self, catalog: Value) -> Self {
+        self.state.probes.lock().expect("probes lock").catalog = (200, catalog.to_string());
+        self
+    }
+
+    /// Answers `GET /models` with a status and a raw body.
+    pub fn with_catalog_response(self, status: u16, body: &str) -> Self {
+        self.state.probes.lock().expect("probes lock").catalog = (status, body.to_string());
+        self
+    }
+
+    /// The daemon's base URL, which is what `llmux_url` holds.
+    pub fn url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.addr.port())
+    }
+
+    pub fn port(&self) -> u16 {
+        self.addr.port()
+    }
+
+    /// Every request received so far, in arrival order.
+    pub fn requests(&self) -> Vec<CapturedRequest> {
+        self.state.requests.lock().expect("requests lock").clone()
+    }
+
+    /// The paths requested, in order: what a probe did before a turn ran.
+    pub fn paths(&self) -> Vec<String> {
+        self.requests()
+            .into_iter()
+            .map(|request| request.path)
+            .collect()
+    }
+
+    /// Every data-plane request, ignoring the probes.
+    pub fn message_requests(&self) -> Vec<CapturedRequest> {
+        self.requests()
+            .into_iter()
+            .filter(|request| request.path == MESSAGES_PATH)
+            .collect()
+    }
+
+    /// The single data-plane request. Panics when the count is not exactly one.
+    pub fn only_message_request(&self) -> CapturedRequest {
+        let requests = self.message_requests();
+        assert_eq!(
+            requests.len(),
+            1,
+            "expected exactly one `{MESSAGES_PATH}` request, got {}",
+            requests.len()
+        );
+        requests.into_iter().next().expect("one request")
+    }
+}
+
+impl Drop for FakeLlmux {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Reads one request, records it, and answers it by path.
+fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
+    stream
+        .set_nonblocking(false)
+        .expect("serve each connection in blocking mode");
+    stream
+        .set_nodelay(true)
+        .expect("disable Nagle so a piece is its own packet");
+    let mut reader = BufReader::new(stream.try_clone().expect("clone the stream"));
+
+    let Some(request) = read_request(&mut reader) else {
+        return;
+    };
+    state
+        .requests
+        .lock()
+        .expect("requests lock")
+        .push(request.clone());
+
+    let mut writer = stream;
+    match request.path.as_str() {
+        MESSAGES_PATH => {
+            let reply = state.script.lock().expect("script lock").pop_front();
+            write_reply(&mut writer, reply, shutdown);
+        }
+        "/" => {
+            let (status, body) = state.probes.lock().expect("probes lock").root.clone();
+            write_status(&mut writer, status, &[], &body);
+        }
+        "/models" => {
+            let (status, body) = state.probes.lock().expect("probes lock").catalog.clone();
+            write_status(&mut writer, status, &[], &body);
+        }
+        _ => write_status(&mut writer, 404, &[], "fake llmux: no such path"),
+    }
+    close_cleanly(&mut writer);
+}
+
+/// A `GET /models` document in the daemon's own shape.
+pub fn catalog(entries: &[(&str, &[&str])]) -> Value {
+    let models: Vec<Value> = entries
+        .iter()
+        .map(|(id, aliases)| {
+            json!({
+                "id": id,
+                "name": id,
+                "aliases": aliases,
+                "group": "anthropic",
+                "efforts": [],
+                "max_context": 200000,
+            })
+        })
+        .collect();
+    json!({ "models": models })
+}
 
 // ---------------------------------------------------------------------------
 // Anthropic SSE body construction

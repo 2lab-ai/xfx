@@ -62,13 +62,29 @@ const READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// Short enough that Ctrl-C feels immediate, long enough that a healthy stream
 /// never notices. It bounds latency, not the wait itself: [`READ_TIMEOUT`] is
 /// still what decides that a silent server is a failed attempt.
-const CANCEL_POLL: Duration = Duration::from_millis(50);
+pub(crate) const CANCEL_POLL: Duration = Duration::from_millis(50);
 
 /// How much of a failed response body is quoted back to the user.
-const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+pub(crate) const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
 /// The product's own user agent. xfx does not claim to be `fx`.
-const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
+
+/// The HTTP client every provider streams over.
+///
+/// One builder rather than one per backend: the timeouts and the user agent are
+/// facts about xfx as a client, not about which wire it happens to be speaking,
+/// and two copies would be two places for them to drift apart.
+pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .user_agent(USER_AGENT)
+        .build()
+        .map_err(|err| ProviderError::Transport {
+            detail: err.to_string(),
+        })
+}
 
 /// Where a turn's assistant text goes as it is decoded.
 ///
@@ -461,16 +477,8 @@ impl GatewayProvider {
         credential: Credential,
         cancel: CancelToken,
     ) -> Result<Self, ProviderError> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(READ_TIMEOUT)
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|err| ProviderError::Transport {
-                detail: err.to_string(),
-            })?;
         Ok(Self {
-            client,
+            client: build_client()?,
             endpoint,
             credential,
             cancel,
@@ -625,7 +633,7 @@ impl Provider for GatewayProvider {
 ///
 /// A value too large for `u64` is reported as [`Duration::MAX`]; the turn caps
 /// every delay anyway, so an absurd number cannot become an absurd wait.
-fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
     let trimmed = raw.trim();
     if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -641,7 +649,7 @@ fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
 
 /// Statuses the Gateway edge returns without having produced a completion
 /// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1810-1820`).
-fn is_retryable_status(status: u16) -> bool {
+pub(crate) fn is_retryable_status(status: u16) -> bool {
     matches!(status, 429 | 500 | 502 | 503 | 504)
 }
 
@@ -649,7 +657,7 @@ fn is_retryable_status(status: u16) -> bool {
 ///
 /// A failing endpoint is exactly the one whose body length cannot be trusted,
 /// so the quote shown to the user is bounded.
-async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
+pub(crate) async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
     let mut collected: Vec<u8> = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(Ok(chunk)) = stream.next().await {

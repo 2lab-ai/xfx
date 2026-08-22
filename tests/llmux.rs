@@ -21,11 +21,16 @@ use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
 use xfx::gateway::sse::{SseError, MAX_EVENT_BYTES};
-use xfx::gateway::DeltaSink;
+use xfx::gateway::{CancelToken, DeltaSink, Endpoint, Provider, ProviderError};
 use xfx::llmux::protocol;
 use xfx::llmux::sse::AnthropicReader;
+use xfx::llmux::LlmuxProvider;
 
-use support::fake_llmux::{anthropic_event, anthropic_stop};
+use support::fake_gateway::Reply;
+use support::fake_llmux::{
+    anthropic_answer, anthropic_error, anthropic_event, anthropic_stop, anthropic_text_block,
+    anthropic_tool_answer, FakeLlmux,
+};
 
 // ---------------------------------------------------------------------------
 // request serialization
@@ -679,4 +684,204 @@ fn a_single_event_is_bounded() {
         reader.push(b"x", &mut deltas),
         Err(SseError::EventTooLarge { .. })
     ));
+}
+
+// ---------------------------------------------------------------------------
+// the provider, over one real loopback socket
+// ---------------------------------------------------------------------------
+
+fn provider_for(daemon: &FakeLlmux, cancel: CancelToken) -> LlmuxProvider {
+    LlmuxProvider::new(
+        Endpoint::checked(&daemon.url(), "llmux_url").expect("a loopback url"),
+        cancel,
+    )
+    .expect("build the provider")
+}
+
+async fn stream_once(
+    daemon: &FakeLlmux,
+    request: &CompletionRequest,
+) -> (Result<Completion, ProviderError>, Vec<String>) {
+    let provider = provider_for(daemon, CancelToken::new());
+    let mut deltas = Collected::default();
+    let outcome = provider.stream(request, &mut deltas).await;
+    (outcome, deltas.0)
+}
+
+#[tokio::test]
+async fn a_completion_is_posted_to_the_messages_path_with_no_credential_header() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["Hello, ", "world"]))]);
+    let (completion, deltas) = stream_once(&daemon, &user_request("hi")).await;
+
+    let completion = completion.expect("the daemon answered");
+    assert_eq!(deltas, ["Hello, ", "world"]);
+    assert_eq!(completion.text, "Hello, world");
+    assert_eq!(completion.finish_reason, FinishReason::Stop);
+
+    let request = daemon.only_message_request();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/v1/messages");
+    assert_eq!(request.header("content-type"), Some("application/json"));
+    assert_eq!(request.header("accept"), Some("text/event-stream"));
+    assert_eq!(request.header("anthropic-version"), Some("2023-06-01"));
+    assert_eq!(
+        request.header("user-agent"),
+        Some(&*format!("xfx/{}", env!("CARGO_PKG_VERSION"))),
+        "xfx identifies itself as itself"
+    );
+    // The credential story of this backend is that there is no credential.
+    // Anything here would be a secret xfx had no reason to hold.
+    for header in ["authorization", "x-api-key", "proxy-authorization"] {
+        assert_eq!(request.header(header), None, "`{header}` must not be sent");
+    }
+    assert_eq!(request.json()["model"], "fable");
+    assert_eq!(request.json()["stream"], json!(true));
+}
+
+#[tokio::test]
+async fn a_tool_round_arrives_as_a_completion_that_names_its_calls() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_tool_answer(
+        "toolu_1",
+        "read_file",
+        "{\"path\":\"a.txt\"}",
+    ))]);
+    let completion = stream_once(&daemon, &user_request("read it"))
+        .await
+        .0
+        .expect("the daemon answered");
+    assert_eq!(completion.finish_reason, FinishReason::ToolCalls);
+    assert_eq!(completion.tool_calls.len(), 1);
+    assert_eq!(completion.tool_calls[0].name, "read_file");
+    assert_eq!(completion.tool_calls[0].input, json!({ "path": "a.txt" }));
+}
+
+#[tokio::test]
+async fn a_stream_split_across_chunks_decodes_the_same() {
+    // Transport boundaries never line up with frame boundaries on a real
+    // connection, and a fake that only ever wrote whole frames would never say so.
+    let body = anthropic_answer(&["one", "two"]);
+    let pieces: Vec<String> = body
+        .as_bytes()
+        .chunks(7)
+        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+        .collect();
+    let daemon = FakeLlmux::start(vec![Reply::SsePieces(pieces)]);
+    let (completion, deltas) = stream_once(&daemon, &user_request("hi")).await;
+    assert_eq!(deltas, ["one", "two"]);
+    assert_eq!(completion.expect("the daemon answered").text, "onetwo");
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_without_a_stop_reason_is_not_a_short_answer() {
+    // The body is complete as HTTP -- the daemon really did stop here -- and it
+    // still never said why the model stopped. Text arrived; an answer did not.
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_text_block(0, &["half"]))]);
+    let (outcome, deltas) = stream_once(&daemon, &user_request("hi")).await;
+    assert_eq!(deltas, ["half"], "what did arrive still reached the reader");
+    assert!(
+        matches!(
+            outcome,
+            Err(ProviderError::Protocol(SseError::MissingFinish))
+        ),
+        "got {outcome:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_connection_that_dies_mid_body_is_never_replayed() {
+    // A chunked body cut off without its terminating chunk breaks the HTTP
+    // framing itself, so this is a transport failure rather than a decode one --
+    // and either way the request may already have been processed and paid for,
+    // which is why it is not replayable.
+    let daemon = FakeLlmux::start(vec![Reply::SseThenAbort(vec![anthropic_text_block(
+        0,
+        &["half"],
+    )])]);
+    let (outcome, deltas) = stream_once(&daemon, &user_request("hi")).await;
+    assert_eq!(deltas, ["half"], "what did arrive still reached the reader");
+    let Err(err) = outcome else {
+        panic!("a body that stopped mid-delivery is not a completion");
+    };
+    assert!(
+        matches!(err, ProviderError::Transport { .. }),
+        "got {err:?}"
+    );
+    assert!(!err.is_replayable(), "delivery had already started");
+}
+
+#[tokio::test]
+async fn an_error_frame_inside_a_two_hundred_fails_the_attempt_with_its_message() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_error("model is overloaded"))]);
+    match stream_once(&daemon, &user_request("hi")).await.0 {
+        Err(ProviderError::Protocol(SseError::ProviderFailure { detail })) => {
+            assert_eq!(detail, "model is overloaded");
+        }
+        other => panic!("expected a provider failure, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_non_success_status_carries_the_bounded_body_and_its_replay_verdict() {
+    let daemon = FakeLlmux::start(vec![Reply::retry_after(429, 2, "slow down")]);
+    let outcome = stream_once(&daemon, &user_request("hi")).await.0;
+    let Err(err) = outcome else {
+        panic!("a 429 is not a completion");
+    };
+    assert!(err.is_replayable(), "an edge 429 delivered nothing");
+    assert_eq!(err.retry_after(), Some(std::time::Duration::from_secs(2)));
+    let message = err.to_string();
+    assert!(message.contains("429"), "{message}");
+    assert!(message.contains("slow down"), "{message}");
+
+    let daemon = FakeLlmux::start(vec![Reply::Status(400, "bad request".to_string())]);
+    let outcome = stream_once(&daemon, &user_request("hi")).await.0;
+    let Err(err) = outcome else {
+        panic!("a 400 is not a completion");
+    };
+    assert!(
+        !err.is_replayable(),
+        "a rejected request must not be resent"
+    );
+}
+
+#[tokio::test]
+async fn a_daemon_that_is_not_listening_is_a_replayable_connect_failure() {
+    // A port nothing is bound to: the payload provably never left.
+    let provider = LlmuxProvider::new(
+        Endpoint::checked("http://127.0.0.1:1", "llmux_url").unwrap(),
+        CancelToken::new(),
+    )
+    .expect("build the provider");
+    let mut deltas = Collected::default();
+    let err = provider
+        .stream(&user_request("hi"), &mut deltas)
+        .await
+        .expect_err("nothing is listening");
+    assert!(matches!(err, ProviderError::Connect { .. }), "got {err:?}");
+    assert!(err.is_replayable());
+}
+
+#[tokio::test]
+async fn cancelling_a_started_stream_ends_the_attempt() {
+    // A stream that has begun answering and stopped is the only state a user
+    // can actually interrupt.
+    let daemon = FakeLlmux::start(vec![Reply::SseThenHang(vec![anthropic_text_block(
+        0,
+        &["thinking"],
+    )])]);
+    let cancel = CancelToken::new();
+    let provider = provider_for(&daemon, cancel.clone());
+    // Set from another OS thread, the way the real interrupt handler sets it:
+    // xfx's runtime is single-threaded and the stream is what is blocking it.
+    let signal = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        signal.cancel();
+    });
+    let mut deltas = Collected::default();
+    let outcome = provider.stream(&user_request("hi"), &mut deltas).await;
+    assert!(
+        matches!(outcome, Err(ProviderError::Cancelled)),
+        "got {outcome:?}"
+    );
 }
