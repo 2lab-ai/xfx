@@ -116,7 +116,17 @@ jobs:
           # install script into a shell: the linter that guards the publishing
           # workflow should not itself be fetched by something that can change
           # under it. Go is already on the runner image.
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          #
+          # The tag is a floor as well as a pin, held by
+          # `scripts/check-preview-contract.sh`. actionlint's runner labels are
+          # a table compiled into the binary, so a version older than the
+          # matrix below rejects a machine GitHub actually provides: v1.7.7
+          # predates `macos-15-intel` and failed this step in run 32538186453
+          # on all three workflows, after GitHub had already built on that
+          # runner. Bumping the pin is how this stays true; keeping the linter
+          # is not negotiable, because it is the only thing that reads the
+          # steps a deploy key is handed.
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
           "$(go env GOPATH)/bin/actionlint" -color
 
       - name: The preview publication contract holds
