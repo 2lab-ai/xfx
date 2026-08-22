@@ -32,6 +32,19 @@ use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
 /// The largest single SSE event xfx will buffer, in bytes.
 pub const MAX_EVENT_BYTES: usize = 32 * 1024 * 1024;
 
+/// The most a single completion may accumulate, in bytes.
+///
+/// [`MAX_EVENT_BYTES`] bounds one frame; this bounds the whole answer, and the
+/// second does not follow from the first -- a stream of well-formed small frames
+/// grows without limit. Counts the assistant text and every streamed tool
+/// argument together, because those are the two things that grow with the
+/// stream.
+///
+/// The same ceiling both decoders use, defined here because the error that
+/// reports it is shared and a bound advertised by one enum but enforced by one
+/// of its two users is not a bound.
+pub const MAX_COMPLETION_BYTES: usize = 8 * 1024 * 1024;
+
 /// The `data:` prefix, including the single separating space upstream requires
 /// (`src/gateway/client.zig:2652-2653`).
 const DATA_PREFIX: &str = "data: ";
@@ -43,6 +56,12 @@ pub enum SseError {
     Cancelled,
     /// One event exceeded the buffering ceiling.
     EventTooLarge { limit: usize },
+    /// The accumulated answer exceeded the ceiling on a whole completion.
+    ///
+    /// Distinct from [`Self::EventTooLarge`], which bounds one frame: a stream of
+    /// well-formed small frames can grow without limit, and "bounded decoder" has
+    /// to mean bounded over the stream rather than over each event of it.
+    CompletionTooLarge { limit: usize },
     /// The stream ended, with or without `[DONE]`, and never sent a finish
     /// event. A partial answer is not a completed answer.
     MissingFinish,
@@ -56,7 +75,17 @@ pub enum SseError {
     /// Two tool calls in one stream claimed the same identifier.
     DuplicateToolCallId { call_id: String },
     /// The provider reported its own failure and never finished.
-    ProviderFailure { detail: String },
+    ProviderFailure {
+        detail: String,
+        /// Whether the condition is transient, so the turn may replay the
+        /// attempt when nothing was delivered.
+        ///
+        /// Anthropic delivers `overloaded_error` and `rate_limit_error` inside
+        /// an HTTP 200, where the Gateway would deliver the same upstream
+        /// condition as a 429. Without this the two backends disagree about how
+        /// many attempts the identical failure is worth.
+        retryable: bool,
+    },
     /// The consumer of the assistant text could not accept it.
     Sink(io::Error),
 }
@@ -67,6 +96,9 @@ impl fmt::Display for SseError {
             Self::Cancelled => write!(f, "the stream was cancelled"),
             Self::EventTooLarge { limit } => {
                 write!(f, "a single stream event exceeded {limit} bytes")
+            }
+            Self::CompletionTooLarge { limit } => {
+                write!(f, "the accumulated completion exceeded {limit} bytes")
             }
             Self::MissingFinish => write!(
                 f,
@@ -82,7 +114,7 @@ impl fmt::Display for SseError {
             Self::DuplicateToolCallId { call_id } => {
                 write!(f, "the stream reused tool call id `{call_id}`")
             }
-            Self::ProviderFailure { detail } => write!(f, "the provider failed: {detail}"),
+            Self::ProviderFailure { detail, .. } => write!(f, "the provider failed: {detail}"),
             Self::Sink(err) => write!(f, "cannot write assistant output: {err}"),
         }
     }
@@ -117,6 +149,8 @@ pub struct SseReader {
     usage: Usage,
     provider_detail: Option<String>,
     complete: bool,
+    /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
+    accumulated: usize,
     cancel: CancelToken,
 }
 
@@ -142,8 +176,20 @@ impl SseReader {
             usage: Usage::default(),
             provider_detail: None,
             complete: false,
+            accumulated: 0,
             cancel,
         }
+    }
+
+    /// Charges `bytes` against the completion ceiling.
+    fn charge(&mut self, bytes: usize) -> Result<(), SseError> {
+        self.accumulated = self.accumulated.saturating_add(bytes);
+        if self.accumulated > MAX_COMPLETION_BYTES {
+            return Err(SseError::CompletionTooLarge {
+                limit: MAX_COMPLETION_BYTES,
+            });
+        }
+        Ok(())
     }
 
     /// Whether a canonical finish event has arrived.
@@ -201,11 +247,21 @@ impl SseReader {
                 finish_reason,
                 usage: self.usage,
                 provider_detail: self.provider_detail,
+                // The Vercel wire has no replay contract and no signed blocks,
+                // so there is nothing here to preserve.
+                raw_content: Vec::new(),
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.
             None => match self.provider_detail {
-                Some(detail) => Err(SseError::ProviderFailure { detail }),
+                Some(detail) => Err(SseError::ProviderFailure {
+                    detail,
+                    // The Vercel wire carries no error taxonomy this decoder
+                    // could classify, and upstream records the detail and
+                    // decides nothing (`client.zig:2902-2903`). An unclassified
+                    // failure is not replayed.
+                    retryable: false,
+                }),
                 None => Err(SseError::MissingFinish),
             },
         }
@@ -254,10 +310,7 @@ impl SseReader {
                 self.on_tool_input_start(&event);
                 Ok(())
             }
-            "tool-input-delta" => {
-                self.on_tool_input_delta(&event);
-                Ok(())
-            }
+            "tool-input-delta" => self.on_tool_input_delta(&event),
             "tool-call" => self.on_tool_call(&event),
             "error" => {
                 if let Some(detail) = failure_detail(&event) {
@@ -283,6 +336,7 @@ impl SseReader {
         if delta.is_empty() {
             return Ok(());
         }
+        self.charge(delta.len())?;
         self.text.push_str(delta);
         deltas.text_delta(delta).map_err(SseError::Sink)
     }
@@ -303,18 +357,20 @@ impl SseReader {
         });
     }
 
-    fn on_tool_input_delta(&mut self, event: &Map<String, Value>) {
+    fn on_tool_input_delta(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
         let Some(id) = string_field(event, "id") else {
-            return;
+            return Ok(());
         };
         let Some(Value::String(delta)) = event.get("delta") else {
-            return;
+            return Ok(());
         };
+        self.charge(delta.len())?;
         // A delta for an unannounced id is dropped; correlating it would invent
         // a call the provider never opened.
         if let Some(record) = self.streamed.iter_mut().find(|record| record.id == id) {
             record.arguments.push_str(delta);
         }
+        Ok(())
     }
 
     fn on_tool_call(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
@@ -593,7 +649,7 @@ mod tests {
             json!({ "type": "error", "error": "rate limited" })
         );
         match decode(&body).0 {
-            Err(SseError::ProviderFailure { detail }) => assert_eq!(detail, "rate limited"),
+            Err(SseError::ProviderFailure { detail, .. }) => assert_eq!(detail, "rate limited"),
             other => panic!("expected a provider failure, got {other:?}"),
         }
     }

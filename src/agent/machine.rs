@@ -81,6 +81,42 @@ const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(25);
 /// Whether a turn bounded by `limit` may take the step with index `step`.
 ///
 /// `0` is unbounded (`vercel-labs/fx@580a0c5d src/core/config/agent_steps.zig:3-31`).
+/// Records one assistant step, when there is one worth recording.
+///
+/// The one place that decides. "Is there a step here" is three questions rather
+/// than one -- visible text, tool calls, or the provider's own content blocks --
+/// and the terminal path used to ask only the first. A completion that reasoned
+/// and hit `max_tokens` before saying anything visible has empty text, no calls,
+/// and a signed `thinking` block; gating on the text dropped it from the session
+/// entirely, so a later `--resume` replayed a history missing a block Anthropic
+/// requires back unchanged, and the two user turns on either side of the hole
+/// merged into one.
+///
+/// Nothing at all is still not evidence, and is still not recorded.
+fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
+    if completion.text.is_empty()
+        && completion.tool_calls.is_empty()
+        && completion.raw_content.is_empty()
+    {
+        return;
+    }
+    journal.record(SessionEvent::AssistantMessage {
+        text: completion.text.clone(),
+        tool_calls: completion
+            .tool_calls
+            .iter()
+            .map(|call| RecordedToolCall {
+                id: call.id.clone(),
+                name: call.name.clone(),
+                input: call.input.clone(),
+            })
+            .collect(),
+        // A terminal step has no continuation to satisfy, but a resumed
+        // conversation replays it too, and the signature is checked there.
+        raw_content: completion.raw_content.clone(),
+    });
+}
+
 pub fn allows_step(limit: u32, step: u32) -> bool {
     limit == 0 || step < limit
 }
@@ -349,14 +385,9 @@ impl TurnMachine {
             }
 
             if completion.tool_calls.is_empty() {
-                // The answering step's own text, recorded as the assistant
-                // evidence of this turn. An empty one is not evidence.
-                if !completion.text.is_empty() {
-                    journal.record(SessionEvent::AssistantMessage {
-                        text: completion.text.clone(),
-                        tool_calls: Vec::new(),
-                    });
-                }
+                // The answering step's own evidence, recorded through the same
+                // guard the tool-calling step uses.
+                record_assistant(journal, &completion);
                 return match completion.finish_reason {
                     FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
                     // `stop`, `length`, `content-filter`, and `other` all end
@@ -422,22 +453,21 @@ impl TurnMachine {
         // The assistant turn goes in exactly as the provider sent it: its text,
         // then its calls in order. The next request has to show the model what
         // it asked for, not xfx's paraphrase of it.
-        self.suffix.push(Message::assistant(
-            Some(&completion.text),
-            completion.tool_calls.clone(),
-        ));
-        journal.record(SessionEvent::AssistantMessage {
-            text: completion.text.clone(),
-            tool_calls: completion
-                .tool_calls
-                .iter()
-                .map(|call| RecordedToolCall {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    input: call.input.clone(),
-                })
-                .collect(),
+        //
+        // When the provider sent its own content blocks, "exactly as it sent
+        // them" stops being a figure of speech. Anthropic signs its reasoning
+        // blocks and verifies the signature when they come back in a tool
+        // continuation, so a rebuilt-from-text assistant turn is answered with a
+        // 400 at the next step. The blocks are replayed verbatim instead.
+        self.suffix.push(if completion.raw_content.is_empty() {
+            Message::assistant(Some(&completion.text), completion.tool_calls.clone())
+        } else {
+            Message::assistant_raw(
+                completion.raw_content.clone(),
+                completion.tool_calls.clone(),
+            )
         });
+        record_assistant(journal, completion);
 
         for call in &completion.tool_calls {
             // Before the call is admitted, not after it runs: a rule about the

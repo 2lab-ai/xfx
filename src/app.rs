@@ -12,11 +12,14 @@ use std::time::Duration;
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{ConfigError, PermissionMode, RuntimeConfig, SettingSource};
-use crate::gateway::{CancelToken, Endpoint, GatewayProvider, DEFAULT_MAX_ATTEMPTS};
+use crate::config::{
+    Backend, ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource,
+};
+use crate::gateway::{CancelToken, Endpoint, GatewayProvider, Provider, DEFAULT_MAX_ATTEMPTS};
+use crate::llmux::{LlmuxProvider, MISSING_URL_HELP};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
-    SessionDetailSnapshot, SessionFacts, SessionsSnapshot, StatusSnapshot, TextSink,
+    SessionDetailSnapshot, SessionFacts, SessionsSnapshot, SetupSnapshot, StatusSnapshot, TextSink,
     MISSING_AUTH_HELP,
 };
 use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
@@ -161,6 +164,10 @@ pub async fn run_with(
             };
             ask(&config, request, stdout, stderr).await
         }
+        Command::Setup { url, json } => {
+            let (env, config) = load_config_with_env()?;
+            setup_llmux(&config, &env, url.as_deref(), json, stdout, stderr).await
+        }
         Command::Status { json } => {
             let config = load_config()?;
             let snapshot =
@@ -301,17 +308,15 @@ async fn run_ask(
         Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
     };
 
-    // The credential and the endpoint are checked next because they are free,
-    // they leak nothing, and they are the two ways an `ask` most often cannot
-    // start at all. Checking them before the session is opened is also what
-    // keeps a machine with no credential from accumulating a directory of empty
-    // sessions, one per failed attempt.
-    let Some(credential) = config.credential.clone() else {
-        return quiet(fail_turn(sink.as_mut(), MISSING_AUTH_HELP.to_string()));
-    };
-    let endpoint = match Endpoint::from_process() {
-        Ok(endpoint) => endpoint,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
+    // The provider is built next because it is free, it leaks nothing, and it is
+    // the way an `ask` most often cannot start at all: no credential on the
+    // Gateway backend, no daemon url on the llmux one. Building it before the
+    // session is opened is also what keeps such a machine from accumulating one
+    // empty session per failed attempt.
+    let cancel = CancelToken::new();
+    let provider = match build_provider(config, &cancel) {
+        Ok(provider) => provider,
+        Err(message) => return quiet(fail_turn(sink.as_mut(), message)),
     };
 
     // The session, before anything is asked of a model. A resume that names a
@@ -353,15 +358,10 @@ async fn run_ask(
         });
     }
 
-    let cancel = CancelToken::new();
     // Ctrl-C now means something. Without this the token existed and nothing
     // ever set it, so every cancellation path in the turn and in `terminal` was
     // unreachable from the binary.
     watch_for_interrupt(cancel.clone());
-    let provider = match GatewayProvider::new(endpoint, credential, cancel.clone()) {
-        Ok(provider) => provider,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
-    };
 
     let mut permissions = permission_session(mode);
     // The prompt has to state the scope it is actually selling. When this turn
@@ -393,10 +393,19 @@ async fn run_ask(
 
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
-        Some(recorder) => run_turn_saved(turn, context, &provider, sink.as_mut(), recorder).await,
+        Some(recorder) => {
+            run_turn_saved(turn, context, provider.as_ref(), sink.as_mut(), recorder).await
+        }
         None => {
             let mut journal = crate::agent::NoJournal;
-            run_turn_saved(turn, context, &provider, sink.as_mut(), &mut journal).await
+            run_turn_saved(
+                turn,
+                context,
+                provider.as_ref(),
+                sink.as_mut(),
+                &mut journal,
+            )
+            .await
         }
     };
 
@@ -570,6 +579,66 @@ where
     }
 }
 
+/// Builds the provider the configured backend selects.
+///
+/// The one place a backend becomes a socket. `ask` and the shell both come
+/// through here, so "which backend am I talking to" is decided once rather than
+/// in two dispatch sites that could disagree about it -- and a third caller that
+/// forgot one of them could not exist.
+///
+/// The two backends need different things from the machine, and each failure is
+/// reported in the vocabulary of the backend that actually failed:
+///
+/// - the Gateway needs a bearer credential, so a machine without one is told
+///   which environment variables to set;
+/// - llmux needs a daemon URL and no credential at all, so a machine without a
+///   usable one is told to run `xfx setup llmux` -- naming the Gateway's
+///   variables there would be advice for a backend the operator deliberately
+///   configured away from.
+///
+/// An `llmux_url` that is missing or was refused by the endpoint rule is a
+/// refusal rather than a silent fall back to the Gateway. Falling back would
+/// send the prompt to a remote paid endpoint because a local port was mistyped,
+/// which is the one outcome the endpoint rule exists to prevent.
+pub(crate) fn build_provider(
+    config: &RuntimeConfig,
+    cancel: &CancelToken,
+) -> Result<Box<dyn Provider>, String> {
+    // Before either backend: a `backend` value xfx could not read means no
+    // backend was chosen, and the compiled default is not a safe guess. Guessing
+    // would put the prompt and the Gateway credential on a remote paid endpoint
+    // because a settings value was mistyped.
+    if let Some(rejected) = &config.backend_rejected {
+        return Err(unreadable_backend_message(rejected));
+    }
+    match config.backend {
+        Backend::Gateway => {
+            let credential = config
+                .credential
+                .clone()
+                .ok_or_else(|| MISSING_AUTH_HELP.to_string())?;
+            let endpoint = Endpoint::from_process().map_err(|err| err.to_string())?;
+            let provider = GatewayProvider::new(endpoint, credential, cancel.clone())
+                .map_err(|err| err.to_string())?;
+            Ok(Box::new(provider))
+        }
+        Backend::Llmux => {
+            let url = config
+                .llmux_url
+                .as_deref()
+                .ok_or_else(|| MISSING_URL_HELP.to_string())?;
+            // Re-checked here rather than trusted: the value reached this point
+            // through configuration, and the rule that decides what may receive
+            // a keyless prompt belongs to the module that made the promise.
+            let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY)
+                .map_err(|err| err.to_string())?;
+            let provider =
+                LlmuxProvider::new(endpoint, cancel.clone()).map_err(|err| err.to_string())?;
+            Ok(Box::new(provider))
+        }
+    }
+}
+
 /// Builds the permission session one `ask` runs under.
 ///
 /// The approval channel is attached only when there is a real terminal on both
@@ -631,8 +700,62 @@ fn session_facts(config: &RuntimeConfig) -> SessionFacts {
 
 /// Resolves configuration for the current directory.
 fn load_config() -> Result<RuntimeConfig, AppError> {
+    Ok(load_config_with_env()?.1)
+}
+
+/// The same, keeping the environment it was resolved from.
+///
+/// Only `setup` needs it: finding the daemon means reading llmux's own
+/// configuration file, whose location comes from `LLMUX_CONFIG` or
+/// `XDG_CONFIG_HOME`. Those are llmux's and XDG's variables rather than xfx's,
+/// and passing them through the same injected [`Environment`] every other
+/// setting travels in is what keeps that reading testable without a test having
+/// to mutate the process environment.
+fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     let workspace = std::env::current_dir().map_err(ConfigError::Workspace)?;
-    Ok(RuntimeConfig::load(&workspace)?)
+    let env = Environment::from_process();
+    let config = RuntimeConfig::load_with(&env, &workspace)?;
+    Ok((env, config))
+}
+
+/// Runs `xfx setup llmux` and reports what it did, or why it did not.
+///
+/// A failure is reported in whichever shape the caller asked for, matching
+/// `ask`: text goes to stderr so stdout stays empty, and `--json` puts exactly
+/// one terminal document on stdout so a caller parsing it gets a document
+/// whatever happened.
+async fn setup_llmux(
+    config: &RuntimeConfig,
+    env: &Environment,
+    url: Option<&str>,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExitCode, AppError> {
+    let format = OutputFormat::from_json_flag(json);
+    match crate::llmux::setup::run(config, env, url).await {
+        Ok(report) => {
+            let snapshot = SetupSnapshot::new(&report);
+            write!(stdout, "{}", snapshot.render(format))?;
+            // On stderr in both modes: it is a fact about the operator's shell
+            // rather than about the setup, and a `--json` caller's stdout has to
+            // stay exactly one document.
+            if let Some(warning) = snapshot.override_warning() {
+                writeln!(stderr, "{warning}")?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => match format {
+            OutputFormat::Json => {
+                let mut sink = JsonlSink::new(stdout);
+                sink.emit(&Event::Error {
+                    message: err.to_string(),
+                })?;
+                Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE))
+            }
+            OutputFormat::Text => fail_command(stderr, &err.to_string()),
+        },
+    }
 }
 
 /// Builds the diagnostic checks in a fixed order: what xfx is looking at, what
@@ -653,14 +776,15 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
         ));
     }
 
-    checks.push(match &config.credential {
-        Some(credential) => DoctorCheck::new(
-            "auth",
-            CheckStatus::Ok,
-            format!("{} is configured", credential.source_label()),
-        ),
-        None => DoctorCheck::new("auth", CheckStatus::Fail, crate::output::MISSING_AUTH_HELP),
-    });
+    // Only when something is wrong with it. A backend that is configured and
+    // usable is already reported by the snapshot's own `backend` field, and a
+    // check that always fires would be a line that means nothing when it is
+    // green and is therefore not read when it is not.
+    if let Some(check) = backend_check(config) {
+        checks.push(check);
+    }
+
+    checks.push(auth_check(config));
 
     checks.push(permissions_check(config.permission_mode));
     checks.push(sessions_check(config));
@@ -677,6 +801,91 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     ));
 
     checks
+}
+
+/// What a turn says when the `backend` setting cannot be read.
+///
+/// It quotes the value, because the operator has to be able to find it: the
+/// setting lives in a file xfx will not edit for them, and "your backend is
+/// invalid" without the spelling is a message that sends someone hunting.
+fn unreadable_backend_message(rejected: &str) -> String {
+    crate::output::rejected_backend_help(rejected)
+}
+
+/// Reports a backend that cannot run, and nothing when it can.
+///
+/// The one way the llmux backend is broken from `doctor`'s point of view is
+/// having no endpoint: the operator selected it and either never named a URL or
+/// named one the endpoint policy refused. It is a failure rather than a warning
+/// because no turn can run at all, however easy it is to fix, and the detail
+/// names the command that fixes it.
+///
+/// It is decided from configuration alone. `doctor` is the command that is
+/// always safe to run, so it does not probe the daemon to find out whether it is
+/// up -- that is `xfx setup llmux`'s job, and it is the one that writes.
+fn backend_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
+    // An unreadable `backend` fails rather than warns: nothing selected a
+    // provider, so there is no turn this machine can run at all.
+    if let Some(rejected) = &config.backend_rejected {
+        return Some(DoctorCheck::new(
+            "backend",
+            CheckStatus::Fail,
+            unreadable_backend_message(rejected),
+        ));
+    }
+    if config.backend != Backend::Llmux || config.llmux_url.is_some() {
+        return None;
+    }
+    // Fail rather than warn. `auth` is a separate axis and stays accurate -- this
+    // backend really does need no credential -- but every turn on this machine
+    // refuses, and a `doctor` that reported `fail=0` would be telling its owner
+    // the setup is fine while `xfx ask` refuses one hundred percent of the time.
+    Some(DoctorCheck::new(
+        "backend",
+        CheckStatus::Fail,
+        format!(
+            "backend=llmux, but no usable `llmux_url` is configured, so every turn \
+             refuses; {}",
+            crate::llmux::SETUP_HINT
+        ),
+    ))
+}
+
+/// Reports whether the configured backend can authenticate at all.
+///
+/// The two backends are asked different questions, because they need different
+/// things. The Gateway needs a bearer credential and a machine without one is a
+/// failure. llmux needs none: a keyless loopback request is what the daemon
+/// accepts, and it holds the operator's model credentials itself -- so failing
+/// that machine, and telling its owner to set two Vercel variables, would be a
+/// diagnosis of a backend they configured away from.
+fn auth_check(config: &RuntimeConfig) -> DoctorCheck {
+    if config.backend == Backend::Llmux {
+        return DoctorCheck::new(
+            "auth",
+            CheckStatus::Ok,
+            "backend=llmux needs no credential: a loopback request is accepted keyless, \
+             and xfx neither reads nor forwards an llmux key",
+        );
+    }
+    if config.backend_rejected.is_some() {
+        // The `backend` check already fails and names the setting; saying
+        // anything about a credential here would be advice about the wrong
+        // problem, and a second Fail would double-count one broken setting.
+        return DoctorCheck::new(
+            "auth",
+            CheckStatus::Warn,
+            "no backend was validly chosen, so there is no credential question to answer",
+        );
+    }
+    match &config.credential {
+        Some(credential) => DoctorCheck::new(
+            "auth",
+            CheckStatus::Ok,
+            format!("{} is configured", credential.source_label()),
+        ),
+        None => DoctorCheck::new("auth", CheckStatus::Fail, crate::output::MISSING_AUTH_HELP),
+    }
 }
 
 /// Reports what the current mode will and will not do without being asked.

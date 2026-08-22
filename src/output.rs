@@ -22,7 +22,7 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 
-use crate::config::{Credential, RuntimeConfig};
+use crate::config::{Backend, Credential, RuntimeConfig};
 use crate::session::{SessionDetail, SessionList, TurnStep};
 
 /// The help text shown when no credential is configured.
@@ -35,6 +35,21 @@ pub const MISSING_AUTH_HELP: &str =
 
 /// The label used when no credential resolved.
 pub const MISSING_AUTH_LABEL: &str = "missing";
+
+/// What the `backend` field says when no backend was validly chosen.
+///
+/// Not `gateway`. The compiled default is what xfx falls back to when *nothing*
+/// selects a backend; a value it could not read is not nothing, and reporting it
+/// as the default described a healthy gateway machine while every turn refused.
+pub const REJECTED_BACKEND_LABEL: &str = "rejected";
+
+/// What the `auth` field says on the llmux backend.
+///
+/// It names an arrangement rather than a credential source, because on this
+/// backend there is no source: llmux answers a loopback request without one, and
+/// xfx sends none. `missing` would be the wrong word for that -- nothing is
+/// absent and nothing needs to be set.
+pub const LLMUX_AUTH_LABEL: &str = "llmux-keyless-loopback";
 
 /// The sandbox xfx reports.
 ///
@@ -89,6 +104,41 @@ impl AuthSnapshot {
             },
         }
     }
+
+    /// The same, but answering for the backend a turn will actually use.
+    ///
+    /// llmux answers a loopback request without any bearer value, so `missing`
+    /// would be the wrong word there: nothing is absent and nothing needs to be
+    /// set. Saying it anyway -- and pointing at two Vercel environment variables
+    /// -- would diagnose a backend the operator deliberately configured away
+    /// from, and would make `doctor` fail a machine that is working.
+    ///
+    /// The two unrunnable states answer differently again, and the `help` line
+    /// is where they say so. Credential advice for a backend nobody validly
+    /// chose is advice about the wrong problem, and on a machine where every
+    /// turn refuses, silence here is the lie.
+    pub fn for_config(config: &RuntimeConfig) -> Self {
+        if let Some(rejected) = &config.backend_rejected {
+            return Self {
+                source: MISSING_AUTH_LABEL.to_string(),
+                refreshable: false,
+                help: Some(rejected_backend_help(rejected)),
+            };
+        }
+        match config.backend {
+            Backend::Gateway => Self::from_credential(config.credential.as_ref()),
+            Backend::Llmux => Self {
+                source: LLMUX_AUTH_LABEL.to_string(),
+                refreshable: false,
+                // The endpoint is what this backend needs, so a missing one is
+                // reported on the same line a missing credential would be.
+                help: config
+                    .llmux_url
+                    .is_none()
+                    .then(|| crate::llmux::MISSING_URL_HELP.to_string()),
+            },
+        }
+    }
 }
 
 /// What `xfx status` reports.
@@ -96,6 +146,16 @@ impl AuthSnapshot {
 pub struct StatusSnapshot {
     pub kind: &'static str,
     pub model: String,
+    /// Which provider a turn here would talk to. Always present: "which model"
+    /// is only half an answer without "asked of what".
+    pub backend: String,
+    /// The daemon the llmux backend will use, when one resolved. Absent on the
+    /// gateway backend, which has no configured url to report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_url: Option<String>,
+    /// The `backend` value xfx could not read, quoted, when a layer wrote one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_rejected: Option<String>,
     pub build_channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_revision: Option<String>,
@@ -125,10 +185,13 @@ pub struct SessionFacts {
 impl StatusSnapshot {
     /// Builds the snapshot from resolved configuration and build metadata.
     pub fn new(config: &RuntimeConfig, build: crate::BuildInfo, session: SessionFacts) -> Self {
-        let auth = AuthSnapshot::from_credential(config.credential.as_ref());
+        let auth = AuthSnapshot::for_config(config);
         Self {
             kind: "status",
             model: config.model.clone(),
+            backend: backend_label(config),
+            backend_url: backend_url(config),
+            backend_rejected: config.backend_rejected.as_deref().map(one_line),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -154,6 +217,15 @@ impl StatusSnapshot {
             out.push('\n');
         };
         line("model", &self.model);
+        // Directly after the model, which is the fact it qualifies: a model name
+        // means nothing without the endpoint it is asked of.
+        line("backend", &self.backend);
+        if let Some(url) = &self.backend_url {
+            line("backend_url", url);
+        }
+        if let Some(rejected) = &self.backend_rejected {
+            line("backend_rejected", rejected);
+        }
         line("build_channel", &self.build_channel);
         if let Some(revision) = &self.build_revision {
             line("build_revision", revision);
@@ -172,6 +244,136 @@ impl StatusSnapshot {
             &self.session_permission_grants.to_string(),
         );
         line("agent_step_limit", &self.agent_step_limit.to_string());
+        out
+    }
+
+    /// Exactly one newline-terminated JSON document.
+    pub fn render_json(&self) -> String {
+        render_json_document(self)
+    }
+
+    pub fn render(&self, format: OutputFormat) -> String {
+        match format {
+            OutputFormat::Text => self.render_text(),
+            OutputFormat::Json => self.render_json(),
+        }
+    }
+}
+
+/// What `status` and `doctor` say about a `backend` value xfx could not read.
+///
+/// It names the setting and quotes the value, because the operator has to be
+/// able to find it in a file xfx will not edit for them.
+pub fn rejected_backend_help(rejected: &str) -> String {
+    let quoted = if rejected.is_empty() {
+        "a value that is not a string".to_string()
+    } else {
+        format!("`{rejected}`")
+    };
+    format!(
+        "the `backend` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
+         Until then every turn refuses, because guessing would send the prompt to an \
+         endpoint you did not choose",
+        Backend::Gateway.label(),
+        Backend::Llmux.label()
+    )
+}
+
+/// The label a snapshot uses for the configured backend.
+fn backend_label(config: &RuntimeConfig) -> String {
+    match config.backend_rejected {
+        Some(_) => REJECTED_BACKEND_LABEL.to_string(),
+        None => config.backend.label().to_string(),
+    }
+}
+
+/// The endpoint a snapshot reports, when the backend has one to report.
+///
+/// Only the llmux backend does. The gateway's endpoint is a compiled default an
+/// environment variable may override, and printing it would put a URL nothing in
+/// the profile chose next to one that was chosen -- which is exactly the
+/// distinction these two fields exist to make.
+fn backend_url(config: &RuntimeConfig) -> Option<String> {
+    if config.backend_rejected.is_some() {
+        return None;
+    }
+    match config.backend {
+        Backend::Gateway => None,
+        Backend::Llmux => config.llmux_url.as_deref().map(one_line),
+    }
+}
+
+/// What `xfx setup llmux` reports.
+///
+/// `models` is the catalog size rather than the catalog. A setup receipt is
+/// something a person reads to confirm what happened, and a document that grew
+/// with the daemon's model list would be unbounded output for a fact nobody
+/// asked for; `xfx status` names the one model that was actually chosen.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetupSnapshot {
+    pub kind: &'static str,
+    pub backend: &'static str,
+    pub url: String,
+    pub models: usize,
+    pub model: String,
+    /// Why that model, so a replaced one is a decision the operator can see
+    /// rather than something they discover later.
+    pub model_reason: String,
+    pub settings_path: String,
+    /// What will still outrank the file that was just written, when anything
+    /// does. Absent when the profile is the last word, which is the usual case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overridden_by: Option<String>,
+}
+
+impl SetupSnapshot {
+    pub fn new(report: &crate::llmux::setup::SetupReport) -> Self {
+        Self {
+            kind: "setup",
+            backend: crate::config::Backend::Llmux.label(),
+            url: one_line(&report.url),
+            models: report.models,
+            model: one_line(&report.model),
+            model_reason: one_line(&report.model_reason),
+            settings_path: report.settings_path.display().to_string(),
+            overridden_by: report.overridden_by.as_deref().map(one_line),
+        }
+    }
+
+    /// The warning an operator has to see even when they asked for JSON.
+    ///
+    /// It is a fact about their shell rather than about the setup, so it goes to
+    /// stderr in both output modes: a `--json` caller's stdout stays exactly one
+    /// document, and a person watching the terminal is still told that what they
+    /// just configured is not what the next turn will use.
+    pub fn override_warning(&self) -> Option<String> {
+        self.overridden_by.as_ref().map(|source| {
+            format!(
+                "xfx: {source} outranks the profile, so this configuration is not what \
+                 the next turn in this shell will use"
+            )
+        })
+    }
+
+    /// One `[setup] key=value` line per fact, in a fixed order.
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        let mut line = |key: &str, value: &str| {
+            out.push_str("[setup] ");
+            out.push_str(key);
+            out.push('=');
+            out.push_str(value);
+            out.push('\n');
+        };
+        line("backend", self.backend);
+        line("url", &self.url);
+        line("models", &self.models.to_string());
+        line("model", &self.model);
+        line("model_reason", &self.model_reason);
+        line("settings_path", &self.settings_path);
+        if let Some(source) = &self.overridden_by {
+            line("overridden_by", source);
+        }
         out
     }
 
@@ -234,6 +436,11 @@ pub struct DoctorSnapshot {
     pub fail_count: usize,
     pub workspace: String,
     pub model: String,
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_rejected: Option<String>,
     pub auth: String,
     pub auth_refreshable: bool,
     pub permission_mode: String,
@@ -245,7 +452,7 @@ impl DoctorSnapshot {
     /// Builds the snapshot, deriving the aggregate counts from the checks so the
     /// two can never disagree.
     pub fn new(config: &RuntimeConfig, checks: Vec<DoctorCheck>) -> Self {
-        let auth = AuthSnapshot::from_credential(config.credential.as_ref());
+        let auth = AuthSnapshot::for_config(config);
         let count = |status: CheckStatus| checks.iter().filter(|c| c.status == status).count();
         Self {
             kind: "doctor",
@@ -254,6 +461,9 @@ impl DoctorSnapshot {
             fail_count: count(CheckStatus::Fail),
             workspace: config.workspace_root.display().to_string(),
             model: config.model.clone(),
+            backend: backend_label(config),
+            backend_url: backend_url(config),
+            backend_rejected: config.backend_rejected.as_deref().map(one_line),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -270,6 +480,13 @@ impl DoctorSnapshot {
         );
         out.push_str(&format!("[doctor] workspace={}\n", self.workspace));
         out.push_str(&format!("[doctor] model={}\n", self.model));
+        out.push_str(&format!("[doctor] backend={}\n", self.backend));
+        if let Some(url) = &self.backend_url {
+            out.push_str(&format!("[doctor] backend_url={url}\n"));
+        }
+        if let Some(rejected) = &self.backend_rejected {
+            out.push_str(&format!("[doctor] backend_rejected={rejected}\n"));
+        }
         out.push_str(&format!("[doctor] auth={}\n", self.auth));
         out.push_str(&format!(
             "[doctor] auth_refreshable={}\n",
@@ -504,7 +721,12 @@ impl SessionDetailSnapshot {
                     .steps
                     .iter()
                     .map(|step| match step {
-                        TurnStep::Assistant { text, tool_calls } => SessionStepRow::Assistant {
+                        // `raw_content` is deliberately not read: a session
+                        // renderer shows what the user and the tools said, and
+                        // reasoning is preserved for the wire, never displayed.
+                        TurnStep::Assistant {
+                            text, tool_calls, ..
+                        } => SessionStepRow::Assistant {
                             text: clip_text(text),
                             // A tool name is a string out of the log, and the
                             // log is read as untrusted whatever a live provider

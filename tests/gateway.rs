@@ -102,6 +102,65 @@ fn tool_choice_labels_match_the_gateway_vocabulary() {
 }
 
 #[test]
+fn an_assistant_message_carrying_another_wire_s_blocks_degrades_to_this_one() {
+    // A session recorded against the llmux backend and continued on the Gateway
+    // must not panic and must not forward the other provider's private
+    // reasoning. The text survives; the thinking does not travel.
+    let request = CompletionRequest {
+        model: "vendor/model".to_string(),
+        messages: vec![
+            Message::user("go"),
+            Message::assistant_raw(
+                vec![
+                    json!({
+                        "type": "thinking",
+                        "thinking": "private reasoning",
+                        "signature": "sig-abc",
+                    }),
+                    json!({ "type": "text", "text": "the answer" }),
+                    json!({
+                        "type": "tool_use",
+                        "id": "c1",
+                        "name": "read_file",
+                        "input": { "path": "a.txt" },
+                    }),
+                ],
+                vec![ToolCall {
+                    id: "c1".to_string(),
+                    name: "read_file".to_string(),
+                    input: json!({ "path": "a.txt" }),
+                }],
+            ),
+            Message::tool_result("c1", "read_file", "hello"),
+        ],
+        tools: Vec::new(),
+        tool_choice: ToolChoice::Auto,
+    };
+    let body = request.body().expect("serialize");
+    assert!(
+        !body.contains("private reasoning") && !body.contains("sig-abc"),
+        "another provider's reasoning must not travel here: {body}"
+    );
+
+    let parsed: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        parsed["prompt"][1],
+        json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "the answer" },
+                {
+                    "type": "tool-call",
+                    "toolCallId": "c1",
+                    "toolName": "read_file",
+                    "input": { "path": "a.txt" },
+                },
+            ],
+        })
+    );
+}
+
+#[test]
 fn a_system_message_serializes_as_a_bare_string_not_a_part_array() {
     // Upstream writes system content as a string and every other role as a
     // typed part array (`src/core/gateway/gateway_json.zig:552-560`).
@@ -538,7 +597,7 @@ fn an_error_event_is_reported_as_a_provider_failure() {
 fn an_error_event_without_a_finish_is_still_a_provider_failure() {
     let body = sse_body(&[json!({ "type": "error", "error": { "message": "boom" } })]);
     match decode_byte_by_byte(&body).0 {
-        Err(SseError::ProviderFailure { detail }) => {
+        Err(SseError::ProviderFailure { detail, .. }) => {
             assert!(detail.contains("boom"), "got {detail}")
         }
         other => panic!("expected a provider failure, got {other:?}"),
@@ -669,6 +728,63 @@ fn an_event_larger_than_the_ceiling_is_rejected_instead_of_buffered() {
             "the decoder never enforced the {MAX_EVENT_BYTES} ceiling"
         );
     }
+}
+
+#[test]
+fn a_completion_larger_than_the_ceiling_is_rejected() {
+    // `MAX_EVENT_BYTES` bounds one frame. A stream of well-formed small frames
+    // grew the answer without limit, while the shared error enum -- and its doc
+    // -- advertised a ceiling only the llmux decoder enforced.
+    let mut deltas = RecordingDeltas::default();
+    let mut reader = SseReader::new();
+    let frame = format!("data: {}\n\n", text_delta("t", &"x".repeat(64 * 1024)));
+
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 4096, "the completion ceiling was never enforced");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
+}
+
+#[test]
+fn streamed_tool_arguments_count_against_the_completion_ceiling() {
+    // Arguments accumulate exactly like text and are exactly as unbounded.
+    let mut deltas = RecordingDeltas::default();
+    let mut reader = SseReader::new();
+    reader
+        .push(
+            format!(
+                "data: {}\n\n",
+                json!({ "type": "tool-input-start", "id": "c1", "toolName": "t" })
+            )
+            .as_bytes(),
+            &mut deltas,
+        )
+        .expect("open the call");
+    let frame = format!(
+        "data: {}\n\n",
+        json!({ "type": "tool-input-delta", "id": "c1", "delta": "x".repeat(64 * 1024) })
+    );
+
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 4096, "the completion ceiling was never enforced");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[test]
@@ -853,6 +969,7 @@ impl Provider for ScriptedProvider {
 /// A retryable edge status, optionally carrying the server's own delay.
 fn edge_status(retry_after: Option<Duration>) -> ProviderError {
     ProviderError::Status {
+        subject: xfx::gateway::GATEWAY_SUBJECT,
         status: 503,
         body: "try later".to_string(),
         retryable: true,
@@ -867,6 +984,7 @@ fn stopped(text: &str) -> Completion {
         finish_reason: FinishReason::Stop,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     }
 }
 
@@ -949,6 +1067,7 @@ async fn the_turn_sends_the_user_prompt_and_the_configured_model() {
 #[tokio::test]
 async fn a_provider_failure_emits_exactly_one_error_and_no_final() {
     let provider = ScriptedProvider::new(vec![ScriptedResult::Failed(ProviderError::Status {
+        subject: xfx::gateway::GATEWAY_SUBJECT,
         status: 401,
         body: "unauthorized".to_string(),
         retryable: false,
@@ -986,6 +1105,7 @@ async fn a_failure_after_partial_delivery_still_finalizes_exactly_once() {
 async fn a_replayable_failure_is_retried_up_to_max_attempts() {
     let provider = ScriptedProvider::new(vec![
         ScriptedResult::Failed(ProviderError::Connect {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection refused".to_string(),
         }),
         ScriptedResult::Streamed(vec!["ok".to_string()], stopped("ok")),
@@ -1003,6 +1123,7 @@ async fn a_replayable_failure_is_retried_up_to_max_attempts() {
 async fn a_replayable_failure_stops_at_max_attempts() {
     let failures = || {
         ScriptedResult::Failed(ProviderError::Connect {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection refused".to_string(),
         })
     };
@@ -1141,6 +1262,7 @@ async fn a_failure_that_may_have_been_delivered_is_never_replayed() {
     // ambiguous delivery can duplicate model intent, so it does not happen.
     for err in [
         ProviderError::Transport {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection reset".to_string(),
         },
         ProviderError::Protocol(SseError::MissingFinish),
@@ -1172,6 +1294,7 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
         finish_reason: FinishReason::ToolCalls,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1194,6 +1317,7 @@ async fn a_provider_error_finish_fails_the_turn_with_its_detail() {
         finish_reason: FinishReason::ProviderError,
         usage: Default::default(),
         provider_detail: Some("model overloaded".to_string()),
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(
         vec!["half".to_string()],
@@ -1218,6 +1342,7 @@ async fn a_tool_call_finish_that_names_no_tool_is_rejected() {
         finish_reason: FinishReason::ToolCalls,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();

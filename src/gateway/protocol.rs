@@ -66,6 +66,18 @@ pub enum ContentPart {
         tool: String,
         output: String,
     },
+    /// The provider's own content blocks, kept exactly as they arrived.
+    ///
+    /// Only an assistant message may carry these, and only the Anthropic wire
+    /// emits them. They exist because that wire has a replay contract xfx cannot
+    /// satisfy by paraphrase: a continuation must return the assistant's prior
+    /// `thinking` blocks unchanged, with the signatures Anthropic verifies, and
+    /// a signature cannot be reconstructed from the text it signed.
+    ///
+    /// The Gateway serializer derives its ordinary text-and-tool-call shape from
+    /// these rather than refusing them, so a session recorded against one
+    /// backend and continued on the other degrades instead of failing.
+    RawBlocks(Vec<Value>),
 }
 
 impl ContentPart {
@@ -79,6 +91,7 @@ impl ContentPart {
             Self::Text { .. } => matches!(role, Role::System | Role::User | Role::Assistant),
             Self::ToolCall(_) => role == Role::Assistant,
             Self::ToolResult { .. } => role == Role::Tool,
+            Self::RawBlocks(_) => role == Role::Assistant,
         }
     }
 
@@ -87,6 +100,7 @@ impl ContentPart {
             Self::Text { .. } => "text",
             Self::ToolCall(_) => "tool-call",
             Self::ToolResult { .. } => "tool-result",
+            Self::RawBlocks(_) => "raw-blocks",
         }
     }
 }
@@ -111,6 +125,30 @@ impl Message {
             role: Role::User,
             content: vec![ContentPart::Text { text: text.into() }],
         }
+    }
+
+    /// An assistant turn carrying the provider's own content blocks.
+    ///
+    /// Used when a completion brought `raw_content`: the blocks go back exactly
+    /// as they arrived, because that is what the wire that produced them
+    /// requires. `tool_calls` is kept alongside so prompt validation and the
+    /// turn machine still see the calls without having to interpret the blocks.
+    pub fn assistant_raw(blocks: Vec<Value>, tool_calls: Vec<ToolCall>) -> Self {
+        let mut content = Vec::with_capacity(tool_calls.len() + 1);
+        content.push(ContentPart::RawBlocks(blocks));
+        content.extend(tool_calls.into_iter().map(ContentPart::ToolCall));
+        Self {
+            role: Role::Assistant,
+            content,
+        }
+    }
+
+    /// The provider's own blocks, when this message carries them.
+    pub fn raw_blocks(&self) -> Option<&[Value]> {
+        self.content.iter().find_map(|part| match part {
+            ContentPart::RawBlocks(blocks) => Some(blocks.as_slice()),
+            _ => None,
+        })
     }
 
     /// An assistant turn: optional text followed by its tool calls, in order.
@@ -213,6 +251,19 @@ pub enum ProtocolError {
         role: &'static str,
         part: &'static str,
     },
+    /// The rendered prompt does not begin with a user turn.
+    ///
+    /// Anthropic requires it. The Gateway does not, which is why this lives
+    /// beside [`Self::EmptyPrompt`] rather than replacing it.
+    AssistantFirst,
+    /// An advertised tool could not be rendered for the provider's wire.
+    ///
+    /// The tool list is opaque JSON because the schema belongs to the registry,
+    /// but a wire that has to *rename* a key inside it has to be able to find
+    /// that key. A tool sent without its schema is not a smaller tool: the model
+    /// is left to invent arguments for something that runs on the operator's
+    /// machine.
+    UnusableTool { tool: String, reason: &'static str },
 }
 
 impl fmt::Display for ProtocolError {
@@ -228,6 +279,14 @@ impl fmt::Display for ProtocolError {
             ),
             Self::MisplacedPart { role, part } => {
                 write!(f, "a `{part}` part cannot appear on a `{role}` message")
+            }
+            Self::AssistantFirst => write!(
+                f,
+                "the conversation must begin with a user message; this one begins \
+                 with an assistant turn"
+            ),
+            Self::UnusableTool { tool, reason } => {
+                write!(f, "the advertised tool {tool} {reason}")
             }
         }
     }
@@ -246,7 +305,13 @@ impl CompletionRequest {
             .expect("a validated request is always serializable"))
     }
 
-    fn validate(&self) -> Result<(), ProtocolError> {
+    /// Checks the prompt without rendering it.
+    ///
+    /// Visible to the crate because a second wire ([`crate::llmux::protocol`])
+    /// renders the same prompt differently and must reject exactly the same
+    /// requests: an orphan tool result and a duplicate call id are client bugs
+    /// on either wire, and two validators would be two things to keep in step.
+    pub(crate) fn validate(&self) -> Result<(), ProtocolError> {
         if self.messages.is_empty() {
             return Err(ProtocolError::EmptyPrompt);
         }
@@ -276,7 +341,11 @@ impl CompletionRequest {
                             });
                         }
                     }
-                    ContentPart::Text { .. } => {}
+                    // Validation reads the tool calls from their own parts,
+                    // which `assistant_raw` keeps alongside the blocks exactly
+                    // so that duplicate-id and orphan-result checking does not
+                    // have to interpret provider JSON.
+                    ContentPart::Text { .. } | ContentPart::RawBlocks(_) => {}
                 }
             }
         }
@@ -343,6 +412,25 @@ impl Serialize for WireParts<'_> {
         let mut seq = serializer.serialize_seq(None)?;
         for part in self.0 {
             match part {
+                // The Vercel wire has no equivalent of a signed reasoning block
+                // and no contract requiring one back, so the blocks are reduced
+                // to the text this wire understands. The reasoning is dropped
+                // rather than translated: it belongs to the other provider, and
+                // forwarding it here would send one model's private reasoning to
+                // another one. The tool calls travel as their own parts already.
+                ContentPart::RawBlocks(blocks) => {
+                    let text: String = blocks
+                        .iter()
+                        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                        .filter_map(|block| block.get("text").and_then(Value::as_str))
+                        .collect();
+                    if !text.is_empty() {
+                        seq.serialize_element(&TextPart {
+                            r#type: "text",
+                            text: &text,
+                        })?;
+                    }
+                }
                 // An empty text part is omitted rather than written as `""`,
                 // matching `gateway_json.zig:564-571`.
                 ContentPart::Text { text } if text.is_empty() => {}
@@ -466,6 +554,16 @@ pub struct Completion {
     pub usage: Usage,
     /// The provider's own failure description, when it sent one.
     pub provider_detail: Option<String>,
+    /// Every content block the provider sent, in arrival order, in the shape a
+    /// follow-up request has to send back.
+    ///
+    /// Empty on the Vercel wire, which has no equivalent contract. On the
+    /// Anthropic wire it is load-bearing: a tool continuation must return the
+    /// assistant's prior `thinking` blocks unchanged, in order, with their
+    /// signatures intact, or the next request is a 400. xfx cannot reconstruct
+    /// a signature it did not keep, so it keeps the blocks verbatim rather than
+    /// rebuilding an approximation of them from `text` and `tool_calls`.
+    pub raw_content: Vec<Value>,
 }
 
 #[cfg(test)]

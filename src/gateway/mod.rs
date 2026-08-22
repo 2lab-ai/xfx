@@ -62,13 +62,87 @@ const READ_TIMEOUT: Duration = Duration::from_secs(120);
 /// Short enough that Ctrl-C feels immediate, long enough that a healthy stream
 /// never notices. It bounds latency, not the wait itself: [`READ_TIMEOUT`] is
 /// still what decides that a silent server is a failed attempt.
-const CANCEL_POLL: Duration = Duration::from_millis(50);
+pub(crate) const CANCEL_POLL: Duration = Duration::from_millis(50);
 
 /// How much of a failed response body is quoted back to the user.
-const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+pub(crate) const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
+
+/// How a Gateway failure names the endpoint it was talking to.
+///
+/// A failure has to say *which* endpoint could not be reached. Hard-coding one
+/// name into the messages made every llmux failure read as a Gateway failure --
+/// a stopped local daemon printed "cannot reach the Gateway: Connection
+/// refused" and sent the operator to look at Vercel.
+pub const GATEWAY_SUBJECT: &str = "the Gateway";
 
 /// The product's own user agent. xfx does not claim to be `fx`.
-const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
+
+/// The HTTP client a remote provider streams over.
+///
+/// One builder rather than one per backend: the timeouts and the user agent are
+/// facts about xfx as a client, not about which wire it happens to be speaking,
+/// and two copies would be two places for them to drift apart.
+///
+/// It honours the system proxy environment, which is correct for an endpoint on
+/// the internet -- reaching it may require one.
+pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
+    finish_client(base_client_builder(), GATEWAY_SUBJECT)
+}
+
+/// The same client for a service on this machine, with proxies and redirects
+/// both refused.
+///
+/// A loopback backend must never route through a proxy, for two reasons that
+/// point the same way. It would be wrong: the request carries the prompt and the
+/// project context with no credential, and the only thing making that safe is
+/// that it does not leave the machine -- an `ALL_PROXY` would hand all of it to
+/// a third party while `status` went on reporting a keyless loopback
+/// arrangement. And it would be broken: on a machine with a corporate
+/// `HTTP_PROXY` set, every connection to `127.0.0.1` would be attempted through
+/// the proxy, so a daemon that is running would look like a daemon that is not.
+///
+/// **And it must never follow a redirect.** The endpoint policy validates the
+/// URL xfx *names*; it cannot see where a reply points. Whatever holds the
+/// configured port can answer `307` with a `Location` anywhere on the internet,
+/// and a client on reqwest's default `Policy::limited(10)` replays the POST body
+/// -- the whole prompt and the project context -- to it, keyless. `no_proxy`
+/// does not cover that: it is a second, independent way off the machine. A real
+/// daemon never redirects (it runs `Policy::none()` itself,
+/// `2lab-ai/llmux@79f66748656b src/proxy/server.rs:283-284`), so refusing to
+/// follow one costs nothing and a `3xx` surfaces as an ordinary status error.
+pub(crate) fn build_loopback_client(
+    subject: &'static str,
+) -> Result<reqwest::Client, ProviderError> {
+    finish_client(
+        base_client_builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none()),
+        subject,
+    )
+}
+
+fn base_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .user_agent(USER_AGENT)
+}
+
+/// Builds the client, naming `subject` if it cannot be built.
+///
+/// The subject is a parameter rather than a constant because both callers know
+/// it and only one of them is the Gateway: a dead path that says the wrong thing
+/// is still a message an operator can be shown.
+fn finish_client(
+    builder: reqwest::ClientBuilder,
+    subject: &'static str,
+) -> Result<reqwest::Client, ProviderError> {
+    builder.build().map_err(|err| ProviderError::Transport {
+        subject,
+        detail: err.to_string(),
+    })
+}
 
 /// Where a turn's assistant text goes as it is decoded.
 ///
@@ -134,27 +208,75 @@ impl Endpoint {
                 url: DEFAULT_CHAT_URL.to_string(),
             });
         };
-        let candidate = candidate.trim();
+        Self::checked(candidate, GATEWAY_URL_ENV)
+    }
+
+    /// Applies the bearer-transport rule to a URL that came from somewhere else.
+    ///
+    /// The rule belongs to this module because it is a transport rule. Only the
+    /// *name of the knob* differs, so `subject` is carried into the refusal
+    /// rather than the environment variable this module happens to own -- a
+    /// message that told an operator to fix `XFX_GATEWAY_URL` when they had
+    /// mistyped `llmux_url` would send them to edit a variable they never set.
+    pub fn checked(url: &str, subject: &'static str) -> Result<Self, EndpointError> {
+        Self::checked_with(url, subject, EndpointPolicy::BearerTransport)
+    }
+
+    /// Accepts a URL under the policy that fits what will be sent to it.
+    ///
+    /// Both policies refuse a malformed URL, a scheme outside http/https, and
+    /// embedded userinfo. They part company on *why* an endpoint is allowed to
+    /// receive a request at all, and that is a question about the promise xfx has
+    /// made to the operator rather than about URLs -- see [`EndpointPolicy`].
+    pub fn checked_with(
+        url: &str,
+        subject: &'static str,
+        policy: EndpointPolicy,
+    ) -> Result<Self, EndpointError> {
+        let candidate = url.trim();
         let Some(parsed) = ParsedUrl::parse(candidate) else {
             return Err(EndpointError::Malformed {
+                subject,
                 url: candidate.to_string(),
             });
         };
         if parsed.scheme != "http" && parsed.scheme != "https" {
             return Err(EndpointError::UnsupportedScheme {
+                subject,
                 url: candidate.to_string(),
                 scheme: parsed.scheme,
             });
         }
         if parsed.has_userinfo {
             return Err(EndpointError::EmbeddedCredentials {
+                subject,
                 url: candidate.to_string(),
             });
         }
-        if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
-            return Err(EndpointError::NonLoopbackHttp {
-                url: candidate.to_string(),
-            });
+        match policy {
+            EndpointPolicy::BearerTransport => {
+                if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
+                    return Err(EndpointError::NonLoopbackHttp {
+                        subject,
+                        url: candidate.to_string(),
+                    });
+                }
+            }
+            EndpointPolicy::LoopbackService => {
+                if !parsed.is_loopback_literal_with_port() {
+                    return Err(EndpointError::NotLoopback {
+                        subject,
+                        url: candidate.to_string(),
+                    });
+                }
+                if !parsed.path.is_empty() && parsed.path != "/" {
+                    return Err(EndpointError::UnexpectedPath {
+                        subject,
+                        url: candidate.to_string(),
+                        path: parsed.path,
+                    });
+                }
+            }
         }
         Ok(Self {
             url: candidate.to_string(),
@@ -176,34 +298,104 @@ impl Endpoint {
     }
 }
 
-/// Why an endpoint override was refused.
+/// What an endpoint is allowed to be, given what will be sent to it.
+///
+/// Two policies, because xfx makes two different promises.
+///
+/// [`Self::BearerTransport`] guards a URL that receives a **credential**. TLS is
+/// what protects it, so https is acceptable anywhere and cleartext http only to
+/// a loopback address with an explicit port.
+///
+/// [`Self::LoopbackService`] guards a URL that receives a **prompt with no
+/// credential at all**. The reason that is safe is that the request never leaves
+/// the machine -- so "it never leaves the machine" has to be enforced rather than
+/// assumed, and TLS does not substitute for it: an https collector on the
+/// internet would receive the prompt and the project context, keyless, while
+/// `status` went on reporting `llmux-keyless-loopback`. The label is true by
+/// construction only if a remote host cannot be named in the first place. The
+/// base URL must also carry no path, because a provider appends its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointPolicy {
+    /// https anywhere, http only on loopback with an explicit port.
+    BearerTransport,
+    /// http or https, loopback host with an explicit port, and no path.
+    LoopbackService,
+}
+
+/// Why an endpoint was refused.
+///
+/// Every variant carries the `subject`: the name of the knob that supplied the
+/// URL, so the message points at what the operator wrote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EndpointError {
-    Malformed { url: String },
-    UnsupportedScheme { url: String, scheme: String },
-    EmbeddedCredentials { url: String },
-    NonLoopbackHttp { url: String },
+    Malformed {
+        subject: &'static str,
+        url: String,
+    },
+    UnsupportedScheme {
+        subject: &'static str,
+        url: String,
+        scheme: String,
+    },
+    EmbeddedCredentials {
+        subject: &'static str,
+        url: String,
+    },
+    NonLoopbackHttp {
+        subject: &'static str,
+        url: String,
+    },
+    /// A local-service endpoint named a host that is not on this machine.
+    NotLoopback {
+        subject: &'static str,
+        url: String,
+    },
+    /// A local-service base URL carried a path, which a provider would append to.
+    UnexpectedPath {
+        subject: &'static str,
+        url: String,
+        path: String,
+    },
 }
 
 impl fmt::Display for EndpointError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Malformed { url } => {
-                write!(f, "{GATEWAY_URL_ENV} is not a URL: `{url}`")
+            Self::Malformed { subject, url } => {
+                write!(f, "{subject} is not a URL: `{url}`")
             }
-            Self::UnsupportedScheme { url, scheme } => write!(
+            Self::UnsupportedScheme {
+                subject,
+                url,
+                scheme,
+            } => write!(
                 f,
-                "{GATEWAY_URL_ENV} must use https, or http on loopback; `{url}` uses `{scheme}`"
+                "{subject} must use https, or http on loopback; `{url}` uses `{scheme}`"
             ),
-            Self::EmbeddedCredentials { url } => write!(
+            Self::EmbeddedCredentials { subject, url } => write!(
                 f,
-                "{GATEWAY_URL_ENV} must not embed credentials in the URL: `{url}`"
+                "{subject} must not embed credentials in the URL: `{url}`"
             ),
-            Self::NonLoopbackHttp { url } => write!(
+            Self::NonLoopbackHttp { subject, url } => write!(
                 f,
-                "{GATEWAY_URL_ENV} may use http only for a loopback address with an \
-                 explicit port, because the request carries a bearer token in cleartext; \
+                "{subject} may use http only for a loopback address with an \
+                 explicit port, because the request travels in cleartext; \
                  `{url}` is not one"
+            ),
+            Self::NotLoopback { subject, url } => write!(
+                f,
+                "{subject} must name a service on this machine by address -- \
+                 `127.0.0.1` or `[::1]`, with an explicit port, such as \
+                 `http://127.0.0.1:3456` -- because the request travels with nothing \
+                 to authenticate it and is safe only while it does not leave the \
+                 machine. `{url}` is not one: a remote host is not supported, and the \
+                 name `localhost` is not accepted here because it resolves wherever \
+                 the resolver says it does"
+            ),
+            Self::UnexpectedPath { subject, url, path } => write!(
+                f,
+                "{subject} must be a base address with no path, because xfx appends \
+                 the API path itself; `{url}` carries `{path}`"
             ),
         }
     }
@@ -221,6 +413,12 @@ struct ParsedUrl {
     has_userinfo: bool,
     host: String,
     has_port: bool,
+    /// Everything after the authority, including a query or fragment.
+    ///
+    /// Read only by [`EndpointPolicy::LoopbackService`], which needs a base
+    /// address: a provider appends its own path, so anything here would be
+    /// doubled onto the request.
+    path: String,
 }
 
 impl ParsedUrl {
@@ -235,6 +433,7 @@ impl ParsedUrl {
         }
         let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         let authority = &rest[..authority_end];
+        let path = rest[authority_end..].to_string();
         if authority.is_empty() {
             return None;
         }
@@ -268,16 +467,34 @@ impl ParsedUrl {
             has_userinfo,
             host,
             has_port,
+            path,
         })
     }
 
     /// The upstream loopback test, plus upstream's requirement that the port be
     /// explicit (`src/gateway/client.zig:1789-1803`).
+    ///
+    /// Accepts the *name* `localhost` because upstream does. That is fine for
+    /// the bearer rule, where loopback is a concession that lets a local test
+    /// server receive a token; it is not fine for a rule that is proving
+    /// locality, which is why [`Self::is_loopback_literal_with_port`] exists.
     fn is_loopback_with_port(&self) -> bool {
-        self.has_port
-            && (self.host == "127.0.0.1"
-                || self.host == "[::1]"
-                || self.host.eq_ignore_ascii_case("localhost"))
+        self.has_port && (self.is_loopback_literal() || self.host.eq_ignore_ascii_case("localhost"))
+    }
+
+    /// The same test with the *name* excluded.
+    ///
+    /// `localhost` is whatever the resolver says it is, and `/etc/hosts` is a
+    /// file anything with write access can change. A rule whose entire purpose
+    /// is "this keyless request does not leave the machine" cannot take a name
+    /// something else controls as evidence of that; the address literal is the
+    /// evidence.
+    fn is_loopback_literal_with_port(&self) -> bool {
+        self.has_port && self.is_loopback_literal()
+    }
+
+    fn is_loopback_literal(&self) -> bool {
+        self.host == "127.0.0.1" || self.host == "[::1]"
     }
 }
 
@@ -287,16 +504,26 @@ pub enum ProviderError {
     /// The endpoint itself was refused, before any credential was sent.
     Endpoint(EndpointError),
     /// The request could not be built from the prompt it was given.
-    Request(ProtocolError),
+    Request {
+        subject: &'static str,
+        source: ProtocolError,
+    },
     /// A header value could not be transmitted.
     InvalidHeader { name: &'static str },
     /// The connection could not be established, so the request was never sent.
-    Connect { detail: String },
+    Connect {
+        subject: &'static str,
+        detail: String,
+    },
     /// The exchange failed at a point where the request may already have been
     /// processed.
-    Transport { detail: String },
-    /// The Gateway answered with a non-success status.
+    Transport {
+        subject: &'static str,
+        detail: String,
+    },
+    /// The endpoint answered with a non-success status.
     Status {
+        subject: &'static str,
         status: u16,
         body: String,
         retryable: bool,
@@ -323,8 +550,15 @@ impl ProviderError {
         match self {
             // The connection never opened, so the payload never left.
             Self::Connect { .. } => true,
-            // The Gateway rejected the request outright and streamed nothing.
+            // The endpoint rejected the request outright and streamed nothing.
             Self::Status { retryable, .. } => *retryable,
+            // A provider failure delivered in-band. Anthropic sends an overload
+            // or a rate limit as an `error` frame inside a 200, where the
+            // Gateway sends the same condition as a 429 -- so the transport a
+            // failure happened to arrive over must not decide how many attempts
+            // it is worth. The turn still refuses to replay anything that was
+            // already delivered.
+            Self::Protocol(SseError::ProviderFailure { retryable, .. }) => *retryable,
             _ => false,
         }
     }
@@ -346,19 +580,24 @@ impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Endpoint(err) => write!(f, "{err}"),
-            Self::Request(err) => write!(f, "cannot build the Gateway request: {err}"),
+            Self::Request { subject, source } => {
+                write!(f, "cannot build the request for {subject}: {source}")
+            }
             Self::InvalidHeader { name } => {
                 write!(f, "the `{name}` header value cannot be transmitted")
             }
-            Self::Connect { detail } => write!(f, "cannot reach the Gateway: {detail}"),
-            Self::Transport { detail } => write!(f, "the Gateway connection failed: {detail}"),
+            Self::Connect { subject, detail } => write!(f, "cannot reach {subject}: {detail}"),
+            Self::Transport { subject, detail } => {
+                write!(f, "the connection to {subject} failed: {detail}")
+            }
             Self::Status {
+                subject,
                 status,
                 body,
                 retryable: _,
                 retry_after,
             } => {
-                write!(f, "the Gateway returned HTTP {status}")?;
+                write!(f, "{subject} returned HTTP {status}")?;
                 if let Some(delay) = retry_after {
                     write!(f, " (retry after {}s)", delay.as_secs())?;
                 }
@@ -378,7 +617,7 @@ impl std::error::Error for ProviderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Endpoint(err) => Some(err),
-            Self::Request(err) => Some(err),
+            Self::Request { source, .. } => Some(source),
             Self::Protocol(err) => Some(err),
             Self::Sink(err) => Some(err),
             _ => None,
@@ -425,16 +664,8 @@ impl GatewayProvider {
         credential: Credential,
         cancel: CancelToken,
     ) -> Result<Self, ProviderError> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(READ_TIMEOUT)
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|err| ProviderError::Transport {
-                detail: err.to_string(),
-            })?;
         Ok(Self {
-            client,
+            client: build_client()?,
             endpoint,
             credential,
             cancel,
@@ -507,7 +738,10 @@ impl Provider for GatewayProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = request.body().map_err(ProviderError::Request)?;
+        let body = request.body().map_err(|source| ProviderError::Request {
+            subject: GATEWAY_SUBJECT,
+            source,
+        })?;
         let headers = self.headers(&request.model)?;
 
         let response = self
@@ -517,22 +751,14 @@ impl Provider for GatewayProvider {
             .body(body)
             .send()
             .await
-            .map_err(|err| {
-                let detail = err.to_string();
-                if err.is_connect() {
-                    ProviderError::Connect { detail }
-                } else {
-                    // Anything past connection setup may already have been
-                    // received and acted on.
-                    ProviderError::Transport { detail }
-                }
-            })?;
+            .map_err(|err| transport_failure(GATEWAY_SUBJECT, &err))?;
 
         let status = response.status();
         if !status.is_success() {
             // Read the header before the body: consuming the response moves it.
             let retry_after = parse_retry_after(response.headers());
             return Err(ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: status.as_u16(),
                 body: read_bounded(response, MAX_ERROR_BODY_BYTES).await,
                 retryable: is_retryable_status(status.as_u16()),
@@ -566,6 +792,7 @@ impl Provider for GatewayProvider {
                 return Err(ProviderError::Cancelled);
             }
             let chunk = chunk.map_err(|err| ProviderError::Transport {
+                subject: GATEWAY_SUBJECT,
                 detail: err.to_string(),
             })?;
             reader.push(&chunk, deltas)?;
@@ -589,7 +816,7 @@ impl Provider for GatewayProvider {
 ///
 /// A value too large for `u64` is reported as [`Duration::MAX`]; the turn caps
 /// every delay anyway, so an absurd number cannot become an absurd wait.
-fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     let raw = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?;
     let trimmed = raw.trim();
     if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -603,9 +830,23 @@ fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
     )
 }
 
+/// Classifies one `reqwest` send failure for `subject`.
+///
+/// The line it draws is the one the turn depends on: a connection that never
+/// opened provably delivered nothing, and anything past connection setup may
+/// already have been received and acted on.
+pub(crate) fn transport_failure(subject: &'static str, err: &reqwest::Error) -> ProviderError {
+    let detail = err.to_string();
+    if err.is_connect() {
+        ProviderError::Connect { subject, detail }
+    } else {
+        ProviderError::Transport { subject, detail }
+    }
+}
+
 /// Statuses the Gateway edge returns without having produced a completion
 /// (`vercel-labs/fx@580a0c5d src/gateway/client.zig:1810-1820`).
-fn is_retryable_status(status: u16) -> bool {
+pub(crate) fn is_retryable_status(status: u16) -> bool {
     matches!(status, 429 | 500 | 502 | 503 | 504)
 }
 
@@ -613,7 +854,7 @@ fn is_retryable_status(status: u16) -> bool {
 ///
 /// A failing endpoint is exactly the one whose body length cannot be trusted,
 /// so the quote shown to the user is bounded.
-async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
+pub(crate) async fn read_bounded(response: reqwest::Response, limit: usize) -> String {
     let mut collected: Vec<u8> = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(Ok(chunk)) = stream.next().await {
@@ -655,6 +896,131 @@ mod tests {
         assert!(!ParsedUrl::parse("http://[::1]/v3").expect("parse").has_port);
         assert!(ParsedUrl::parse("http:///v3").is_none(), "no host");
         assert!(ParsedUrl::parse("//127.0.0.1:8080").is_none(), "no scheme");
+    }
+
+    #[test]
+    fn a_refusal_names_the_setting_that_supplied_the_url() {
+        // The rule is one rule, but it now guards more than one knob: the
+        // environment override and the `llmux_url` setting. A refusal has to
+        // name the one the user actually wrote, or it sends them to edit a
+        // variable they never set.
+        let message = Endpoint::checked("http://example.com/v1", "llmux_url")
+            .expect_err("a non-loopback http url is refused")
+            .to_string();
+        assert!(message.contains("llmux_url"), "{message}");
+        assert!(!message.contains(GATEWAY_URL_ENV), "{message}");
+
+        let message = Endpoint::resolve(Some("http://example.com/v3"))
+            .expect_err("the same rule refuses the override")
+            .to_string();
+        assert!(message.contains(GATEWAY_URL_ENV), "{message}");
+    }
+
+    #[test]
+    fn the_loopback_service_policy_refuses_a_remote_host_whatever_the_scheme() {
+        // The bearer rule lets https go anywhere, because TLS is what it is
+        // protecting. A local daemon is a different promise: xfx tells the
+        // operator the request is keyless *because* it never leaves the machine,
+        // so a remote host has to be refused rather than trusted to TLS.
+        for url in [
+            "https://collector.example.com:443",
+            "https://collector.example.com",
+            "http://198.51.100.7:3456",
+            "http://127.0.0.1.example.com:3456",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("`{url}` is not on this machine");
+            assert!(
+                matches!(err, EndpointError::NotLoopback { .. }),
+                "`{url}` got {err:?}"
+            );
+            let message = err.to_string();
+            assert!(message.contains("llmux_url"), "{message}");
+            assert!(message.contains("remote"), "{message}");
+        }
+        // The same URLs are still fine for the bearer rule, which is a different
+        // question about a different endpoint.
+        assert!(Endpoint::checked("https://collector.example.com", GATEWAY_URL_ENV).is_ok());
+    }
+
+    #[test]
+    fn a_local_service_must_be_named_by_address_not_by_the_name_localhost() {
+        // `localhost` resolves wherever the resolver says it does, and
+        // `/etc/hosts` is editable. For a rule whose whole job is "this request
+        // does not leave the machine", a name that something else controls is
+        // not evidence -- the address literal is.
+        for url in [
+            "http://localhost:3456",
+            "https://localhost:3456",
+            "http://LOCALHOST:3456",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("a name is not an address");
+            assert!(
+                matches!(err, EndpointError::NotLoopback { .. }),
+                "`{url}` got {err:?}"
+            );
+            assert!(
+                err.to_string().contains("127.0.0.1"),
+                "the refusal must say what to write instead: {err}"
+            );
+        }
+        // The bearer rule is upstream's and keeps accepting the name.
+        assert!(Endpoint::checked("http://localhost:8080/v3", GATEWAY_URL_ENV).is_ok());
+    }
+
+    #[test]
+    fn the_loopback_service_policy_accepts_https_on_loopback() {
+        for url in [
+            "http://127.0.0.1:3456",
+            "https://127.0.0.1:3456",
+            "http://[::1]:3456",
+            "http://127.0.0.1:3456/",
+        ] {
+            assert!(
+                Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService).is_ok(),
+                "`{url}` is a local service"
+            );
+        }
+        // A port is still required: an implicit one names a service by accident.
+        assert!(matches!(
+            Endpoint::checked_with(
+                "http://127.0.0.1",
+                "llmux_url",
+                EndpointPolicy::LoopbackService
+            ),
+            Err(EndpointError::NotLoopback { .. })
+        ));
+        // And the scheme set is still closed.
+        assert!(matches!(
+            Endpoint::checked_with(
+                "ftp://127.0.0.1:3456",
+                "llmux_url",
+                EndpointPolicy::LoopbackService
+            ),
+            Err(EndpointError::UnsupportedScheme { .. })
+        ));
+    }
+
+    #[test]
+    fn a_local_service_base_url_may_not_carry_a_path() {
+        // `http://127.0.0.1:3456/v1` plus the provider's own `/v1/messages`
+        // makes `/v1/v1/messages`, which llmux does not match and therefore
+        // forwards upstream -- keyless -- surfacing as a confusing 401.
+        for url in [
+            "http://127.0.0.1:3456/v1",
+            "http://127.0.0.1:3456/v1/messages",
+            "http://127.0.0.1:3456/?x=1",
+            "http://127.0.0.1:3456/#frag",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("a base url carries no path");
+            assert!(
+                matches!(err, EndpointError::UnexpectedPath { .. }),
+                "`{url}` got {err:?}"
+            );
+            assert!(err.to_string().contains("llmux_url"), "{err}");
+        }
     }
 
     #[test]
@@ -728,6 +1094,7 @@ mod tests {
     fn only_a_status_error_carries_a_server_delay() {
         assert_eq!(
             ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: 429,
                 body: String::new(),
                 retryable: true,
@@ -738,6 +1105,7 @@ mod tests {
         );
         assert_eq!(
             ProviderError::Connect {
+                subject: GATEWAY_SUBJECT,
                 detail: "refused".to_string()
             }
             .retry_after(),
@@ -748,6 +1116,7 @@ mod tests {
     #[test]
     fn a_status_message_names_the_server_delay_it_will_wait_for() {
         let message = ProviderError::Status {
+            subject: GATEWAY_SUBJECT,
             status: 429,
             body: "slow down".to_string(),
             retryable: true,
@@ -772,10 +1141,12 @@ mod tests {
     #[test]
     fn only_a_connection_setup_failure_and_an_edge_status_are_replayable() {
         assert!(ProviderError::Connect {
+            subject: GATEWAY_SUBJECT,
             detail: "refused".to_string()
         }
         .is_replayable());
         assert!(ProviderError::Status {
+            subject: GATEWAY_SUBJECT,
             status: 503,
             body: String::new(),
             retryable: true,
@@ -784,9 +1155,11 @@ mod tests {
         .is_replayable());
         for err in [
             ProviderError::Transport {
+                subject: GATEWAY_SUBJECT,
                 detail: "reset".to_string(),
             },
             ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: 401,
                 body: String::new(),
                 retryable: false,
@@ -863,7 +1236,10 @@ mod tests {
             .expect_err("an orphan tool result is not sendable");
         assert!(matches!(
             err,
-            ProviderError::Request(ProtocolError::UnmatchedToolResult { .. })
+            ProviderError::Request {
+                source: ProtocolError::UnmatchedToolResult { .. },
+                ..
+            }
         ));
     }
 
