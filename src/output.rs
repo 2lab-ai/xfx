@@ -36,6 +36,13 @@ pub const MISSING_AUTH_HELP: &str =
 /// The label used when no credential resolved.
 pub const MISSING_AUTH_LABEL: &str = "missing";
 
+/// What the `backend` field says when no backend was validly chosen.
+///
+/// Not `gateway`. The compiled default is what xfx falls back to when *nothing*
+/// selects a backend; a value it could not read is not nothing, and reporting it
+/// as the default described a healthy gateway machine while every turn refused.
+pub const REJECTED_BACKEND_LABEL: &str = "rejected";
+
 /// What the `auth` field says on the llmux backend.
 ///
 /// It names an arrangement rather than a credential source, because on this
@@ -105,13 +112,30 @@ impl AuthSnapshot {
     /// set. Saying it anyway -- and pointing at two Vercel environment variables
     /// -- would diagnose a backend the operator deliberately configured away
     /// from, and would make `doctor` fail a machine that is working.
-    pub fn for_backend(backend: Backend, credential: Option<&Credential>) -> Self {
-        match backend {
-            Backend::Gateway => Self::from_credential(credential),
+    ///
+    /// The two unrunnable states answer differently again, and the `help` line
+    /// is where they say so. Credential advice for a backend nobody validly
+    /// chose is advice about the wrong problem, and on a machine where every
+    /// turn refuses, silence here is the lie.
+    pub fn for_config(config: &RuntimeConfig) -> Self {
+        if let Some(rejected) = &config.backend_rejected {
+            return Self {
+                source: MISSING_AUTH_LABEL.to_string(),
+                refreshable: false,
+                help: Some(rejected_backend_help(rejected)),
+            };
+        }
+        match config.backend {
+            Backend::Gateway => Self::from_credential(config.credential.as_ref()),
             Backend::Llmux => Self {
                 source: LLMUX_AUTH_LABEL.to_string(),
                 refreshable: false,
-                help: None,
+                // The endpoint is what this backend needs, so a missing one is
+                // reported on the same line a missing credential would be.
+                help: config
+                    .llmux_url
+                    .is_none()
+                    .then(|| crate::llmux::MISSING_URL_HELP.to_string()),
             },
         }
     }
@@ -129,6 +153,9 @@ pub struct StatusSnapshot {
     /// gateway backend, which has no configured url to report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_url: Option<String>,
+    /// The `backend` value xfx could not read, quoted, when a layer wrote one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_rejected: Option<String>,
     pub build_channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_revision: Option<String>,
@@ -158,12 +185,13 @@ pub struct SessionFacts {
 impl StatusSnapshot {
     /// Builds the snapshot from resolved configuration and build metadata.
     pub fn new(config: &RuntimeConfig, build: crate::BuildInfo, session: SessionFacts) -> Self {
-        let auth = AuthSnapshot::for_backend(config.backend, config.credential.as_ref());
+        let auth = AuthSnapshot::for_config(config);
         Self {
             kind: "status",
             model: config.model.clone(),
-            backend: config.backend.label().to_string(),
+            backend: backend_label(config),
             backend_url: backend_url(config),
+            backend_rejected: config.backend_rejected.as_deref().map(one_line),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -194,6 +222,9 @@ impl StatusSnapshot {
         line("backend", &self.backend);
         if let Some(url) = &self.backend_url {
             line("backend_url", url);
+        }
+        if let Some(rejected) = &self.backend_rejected {
+            line("backend_rejected", rejected);
         }
         line("build_channel", &self.build_channel);
         if let Some(revision) = &self.build_revision {
@@ -229,6 +260,33 @@ impl StatusSnapshot {
     }
 }
 
+/// What `status` and `doctor` say about a `backend` value xfx could not read.
+///
+/// It names the setting and quotes the value, because the operator has to be
+/// able to find it in a file xfx will not edit for them.
+pub fn rejected_backend_help(rejected: &str) -> String {
+    let quoted = if rejected.is_empty() {
+        "a value that is not a string".to_string()
+    } else {
+        format!("`{rejected}`")
+    };
+    format!(
+        "the `backend` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
+         Until then every turn refuses, because guessing would send the prompt to an \
+         endpoint you did not choose",
+        Backend::Gateway.label(),
+        Backend::Llmux.label()
+    )
+}
+
+/// The label a snapshot uses for the configured backend.
+fn backend_label(config: &RuntimeConfig) -> String {
+    match config.backend_rejected {
+        Some(_) => REJECTED_BACKEND_LABEL.to_string(),
+        None => config.backend.label().to_string(),
+    }
+}
+
 /// The endpoint a snapshot reports, when the backend has one to report.
 ///
 /// Only the llmux backend does. The gateway's endpoint is a compiled default an
@@ -236,6 +294,9 @@ impl StatusSnapshot {
 /// the profile chose next to one that was chosen -- which is exactly the
 /// distinction these two fields exist to make.
 fn backend_url(config: &RuntimeConfig) -> Option<String> {
+    if config.backend_rejected.is_some() {
+        return None;
+    }
     match config.backend {
         Backend::Gateway => None,
         Backend::Llmux => config.llmux_url.as_deref().map(one_line),
@@ -378,6 +439,8 @@ pub struct DoctorSnapshot {
     pub backend: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_rejected: Option<String>,
     pub auth: String,
     pub auth_refreshable: bool,
     pub permission_mode: String,
@@ -389,7 +452,7 @@ impl DoctorSnapshot {
     /// Builds the snapshot, deriving the aggregate counts from the checks so the
     /// two can never disagree.
     pub fn new(config: &RuntimeConfig, checks: Vec<DoctorCheck>) -> Self {
-        let auth = AuthSnapshot::for_backend(config.backend, config.credential.as_ref());
+        let auth = AuthSnapshot::for_config(config);
         let count = |status: CheckStatus| checks.iter().filter(|c| c.status == status).count();
         Self {
             kind: "doctor",
@@ -398,8 +461,9 @@ impl DoctorSnapshot {
             fail_count: count(CheckStatus::Fail),
             workspace: config.workspace_root.display().to_string(),
             model: config.model.clone(),
-            backend: config.backend.label().to_string(),
+            backend: backend_label(config),
             backend_url: backend_url(config),
+            backend_rejected: config.backend_rejected.as_deref().map(one_line),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -419,6 +483,9 @@ impl DoctorSnapshot {
         out.push_str(&format!("[doctor] backend={}\n", self.backend));
         if let Some(url) = &self.backend_url {
             out.push_str(&format!("[doctor] backend_url={url}\n"));
+        }
+        if let Some(rejected) = &self.backend_rejected {
+            out.push_str(&format!("[doctor] backend_rejected={rejected}\n"));
         }
         out.push_str(&format!("[doctor] auth={}\n", self.auth));
         out.push_str(&format!(

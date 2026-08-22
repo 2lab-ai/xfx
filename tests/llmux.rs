@@ -2078,6 +2078,50 @@ fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
 }
 
 #[test]
+fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
+    // `backend_rejected` left the snapshot reading the defaulted `Backend`, so
+    // status printed a perfectly ordinary gateway machine -- credential advice
+    // and all -- while every `ask` refused.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"anthropc\"}");
+    let run = sandbox.run(&["status", "--json"], &[]);
+    assert_eq!(run.code, Some(0), "status must still render");
+
+    let document = run.json();
+    assert_eq!(document["backend"], "rejected");
+    assert_eq!(document["backend_rejected"], "anthropc");
+    let help = document["auth_help"].as_str().unwrap_or_default();
+    assert!(
+        help.contains("backend"),
+        "the help must name the setting: {document}"
+    );
+    assert!(
+        !help.contains("AI_GATEWAY_API_KEY"),
+        "no credential advice for a backend nobody chose: {document}"
+    );
+
+    let text = sandbox.run(&["status"], &[]).stdout;
+    assert!(text.contains("[status] backend=rejected"), "{text}");
+    assert!(
+        text.contains("[status] backend_rejected=anthropc"),
+        "{text}"
+    );
+}
+
+#[test]
+fn status_carries_the_refusal_when_llmux_has_no_endpoint() {
+    // The machine cannot run a turn, and status was the one surface that did
+    // not say so.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"llmux\"}");
+    let document = sandbox.run(&["status", "--json"], &[]).json();
+    assert_eq!(document["backend"], "llmux");
+    assert!(document.get("backend_url").is_none(), "{document}");
+    let help = document["auth_help"].as_str().unwrap_or_default();
+    assert!(help.contains("xfx setup llmux"), "got {document}");
+}
+
+#[test]
 fn doctor_reports_the_backend_and_adds_no_network_call() {
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();

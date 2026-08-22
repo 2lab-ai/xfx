@@ -809,18 +809,7 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
 /// setting lives in a file xfx will not edit for them, and "your backend is
 /// invalid" without the spelling is a message that sends someone hunting.
 fn unreadable_backend_message(rejected: &str) -> String {
-    let quoted = if rejected.is_empty() {
-        "a value that is not a string".to_string()
-    } else {
-        format!("`{rejected}`")
-    };
-    format!(
-        "the `backend` setting is {quoted}, which xfx cannot read; it must be \
-         `{}` or `{}`. xfx will not guess, because guessing would send this prompt \
-         to an endpoint you did not choose",
-        Backend::Gateway.label(),
-        Backend::Llmux.label()
-    )
+    crate::output::rejected_backend_help(rejected)
 }
 
 /// Reports a backend that cannot run, and nothing when it can.
@@ -877,6 +866,16 @@ fn auth_check(config: &RuntimeConfig) -> DoctorCheck {
             CheckStatus::Ok,
             "backend=llmux needs no credential: a loopback request is accepted keyless, \
              and xfx neither reads nor forwards an llmux key",
+        );
+    }
+    if config.backend_rejected.is_some() {
+        // The `backend` check already fails and names the setting; saying
+        // anything about a credential here would be advice about the wrong
+        // problem, and a second Fail would double-count one broken setting.
+        return DoctorCheck::new(
+            "auth",
+            CheckStatus::Warn,
+            "no backend was validly chosen, so there is no credential question to answer",
         );
     }
     match &config.credential {
