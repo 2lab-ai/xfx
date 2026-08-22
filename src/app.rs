@@ -604,6 +604,13 @@ pub(crate) fn build_provider(
     config: &RuntimeConfig,
     cancel: &CancelToken,
 ) -> Result<Box<dyn Provider>, String> {
+    // Before either backend: a `backend` value xfx could not read means no
+    // backend was chosen, and the compiled default is not a safe guess. Guessing
+    // would put the prompt and the Gateway credential on a remote paid endpoint
+    // because a settings value was mistyped.
+    if let Some(rejected) = &config.backend_rejected {
+        return Err(unreadable_backend_message(rejected));
+    }
     match config.backend {
         Backend::Gateway => {
             let credential = config
@@ -789,6 +796,26 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks
 }
 
+/// What a turn says when the `backend` setting cannot be read.
+///
+/// It quotes the value, because the operator has to be able to find it: the
+/// setting lives in a file xfx will not edit for them, and "your backend is
+/// invalid" without the spelling is a message that sends someone hunting.
+fn unreadable_backend_message(rejected: &str) -> String {
+    let quoted = if rejected.is_empty() {
+        "a value that is not a string".to_string()
+    } else {
+        format!("`{rejected}`")
+    };
+    format!(
+        "the `backend` setting is {quoted}, which xfx cannot read; it must be \
+         `{}` or `{}`. xfx will not guess, because guessing would send this prompt \
+         to an endpoint you did not choose",
+        Backend::Gateway.label(),
+        Backend::Llmux.label()
+    )
+}
+
 /// Reports a backend that cannot run, and nothing when it can.
 ///
 /// The one way the llmux backend is broken from `doctor`'s point of view is
@@ -800,6 +827,15 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
 /// always safe to run, so it does not probe the daemon to find out whether it is
 /// up -- that is `xfx setup llmux`'s job, and it is the one that writes.
 fn backend_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
+    // An unreadable `backend` fails rather than warns: nothing selected a
+    // provider, so there is no turn this machine can run at all.
+    if let Some(rejected) = &config.backend_rejected {
+        return Some(DoctorCheck::new(
+            "backend",
+            CheckStatus::Fail,
+            unreadable_backend_message(rejected),
+        ));
+    }
     if config.backend != Backend::Llmux || config.llmux_url.is_some() {
         return None;
     }

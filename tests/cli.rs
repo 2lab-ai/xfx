@@ -1176,13 +1176,34 @@ fn a_refused_llmux_url_is_a_diagnostic_and_never_becomes_an_endpoint() {
 }
 
 #[test]
-fn an_unreadable_backend_falls_back_to_the_gateway_without_being_fatal() {
+fn a_backend_name_is_read_without_regard_to_case_or_padding() {
     let sandbox = Sandbox::new();
-    sandbox.write_user_settings("{\"backend\":\"anthropic\"}");
+    for spelling in ["llmux", "Llmux", "LLMUX", "  llmux \n"] {
+        sandbox.write_user_settings(&format!(
+            "{{\"backend\":{}}}",
+            serde_json::to_string(spelling).unwrap()
+        ));
+        let config =
+            RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+        assert_eq!(config.backend, Backend::Llmux, "for {spelling:?}");
+        assert!(config.diagnostics.is_empty(), "for {spelling:?}");
+    }
+}
+
+#[test]
+fn an_unreadable_backend_poisons_turns_rather_than_falling_back_to_the_gateway() {
+    // The fallback this replaces would have sent the prompt *and the Vercel
+    // credential* to a remote paid endpoint because a settings value was
+    // mistyped -- the same silent redirection the llmux url rules forbid.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"definitely-not-a-backend\"}");
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.backend, Backend::Gateway);
-    assert_eq!(config.sources.backend, SettingSource::CompiledDefault);
+    assert_eq!(
+        config.backend_rejected.as_deref(),
+        Some("definitely-not-a-backend"),
+        "the unusable value is kept so a turn can name it"
+    );
     assert!(
         config
             .diagnostics
@@ -1192,9 +1213,26 @@ fn an_unreadable_backend_falls_back_to_the_gateway_without_being_fatal() {
         config.diagnostics
     );
 
-    // `status` still runs: a broken setting is a fact to report, not a reason
-    // to refuse to describe the machine.
+    // status still describes the machine: a broken setting is a fact to report,
+    // not a reason to refuse to run.
     assert_eq!(sandbox.run(&["status"]).code, Some(0));
+
+    // But no turn is sent anywhere, even with a credential available.
+    let run = sandbox.run_with_env(
+        &["ask", "--json", "--no-save", "hello"],
+        &[("AI_GATEWAY_API_KEY", "must-not-be-sent")],
+    );
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(run.stdout.contains("backend"), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("definitely-not-a-backend"),
+        "the refusal must quote the value: {}",
+        run.stdout
+    );
+    assert!(
+        !run.stdout.contains("must-not-be-sent") && !run.stderr.contains("must-not-be-sent"),
+        "the credential must not appear anywhere"
+    );
 }
 
 #[test]

@@ -104,14 +104,23 @@ impl Backend {
         }
     }
 
-    /// The inverse of [`Self::label`], tolerating surrounding whitespace, in the
-    /// same shape as [`PermissionMode::parse`].
+    /// The inverse of [`Self::label`], tolerating padding and any casing.
+    ///
+    /// Case-insensitive because the consequence of *not* recognizing a name was
+    /// out of all proportion to the typo: `"Llmux"` used to resolve to nothing,
+    /// fall back to the compiled default, and send the prompt and the Vercel
+    /// credential to a remote paid endpoint. Recognizing the name the operator
+    /// obviously meant is the cheap half of fixing that; refusing to run on a
+    /// name nobody can mean is the other half.
     pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "gateway" => Some(Self::Gateway),
-            "llmux" => Some(Self::Llmux),
-            _ => None,
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("gateway") {
+            return Some(Self::Gateway);
         }
+        if raw.eq_ignore_ascii_case("llmux") {
+            return Some(Self::Llmux);
+        }
+        None
     }
 }
 
@@ -483,6 +492,15 @@ pub struct RuntimeConfig {
     /// operator who configured a local daemon must not have their prompt sent to
     /// a remote paid endpoint because the URL was missing or mistyped.
     pub backend: Backend,
+    /// The `backend` value xfx could not read, when a layer wrote one.
+    ///
+    /// Kept rather than discarded, because it must **poison the turn**. Falling
+    /// back to the compiled default here would send the prompt and the Gateway
+    /// credential to a remote paid endpoint because a settings value was
+    /// mistyped -- the same silent redirection the `llmux_url` rules exist to
+    /// prevent. `status` and `doctor` still render, because describing a broken
+    /// machine is their whole job; `ask` and the shell refuse and quote it.
+    pub backend_rejected: Option<String>,
     /// The llmux daemon's base URL, present only when a settings layer named one
     /// that passes the endpoint rule. A refused URL is a diagnostic and a `None`,
     /// never a value.
@@ -576,6 +594,7 @@ impl RuntimeConfig {
             permission_mode: settings.permission_mode.unwrap_or_default(),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
             backend: settings.backend.unwrap_or_default(),
+            backend_rejected: settings.backend_rejected,
             llmux_url: settings.llmux_url,
             sources,
             diagnostics,
@@ -605,6 +624,8 @@ struct Settings {
     permission_mode: Option<PermissionMode>,
     max_agent_steps: Option<u32>,
     backend: Option<Backend>,
+    /// The raw `backend` value a layer wrote that could not be read.
+    backend_rejected: Option<String>,
     llmux_url: Option<String>,
 }
 
@@ -628,6 +649,15 @@ impl Settings {
         }
         if let Some(backend) = incoming.backend {
             self.backend = Some(backend);
+            self.backend_rejected = None;
+            sources.backend = source;
+        }
+        // A later layer that writes an unreadable value replaces a readable one:
+        // the operator's most recent word is what they meant, and quietly using
+        // an older layer's backend would be the fallback this exists to stop.
+        if let Some(rejected) = incoming.backend_rejected {
+            self.backend = None;
+            self.backend_rejected = Some(rejected);
             sources.backend = source;
         }
         // The URL has no provenance of its own: it is only ever read together
@@ -678,11 +708,18 @@ fn parse_layer(
         if let Some(value) = object.get("backend") {
             match value.as_str().and_then(Backend::parse) {
                 Some(backend) => settings.backend = Some(backend),
-                None => diagnostics.push(Diagnostic::with_key(
-                    layer,
-                    DiagnosticCause::InvalidValue,
-                    "backend",
-                )),
+                None => {
+                    // The raw value is carried forward so the refusal can quote
+                    // it. A value of the wrong *type* has no spelling worth
+                    // quoting, so it is reported as the empty string.
+                    settings.backend_rejected =
+                        Some(value.as_str().unwrap_or_default().trim().to_string());
+                    diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        "backend",
+                    ));
+                }
             }
         }
         if let Some(value) = object.get("llmux_url") {
@@ -955,6 +992,7 @@ mod tests {
             permission_mode: Some(PermissionMode::Ask),
             max_agent_steps: Some(1),
             backend: Some(Backend::Llmux),
+            backend_rejected: None,
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
         };
         let mut sources = Sources::default();
@@ -1019,6 +1057,55 @@ mod tests {
         let settings = parse_environment(&env, &mut diagnostics);
         assert_eq!(settings.max_agent_steps, Some(0));
         assert!(diagnostics.is_empty(), "0 is valid, not a diagnostic");
+    }
+
+    #[test]
+    fn an_unreadable_backend_is_carried_forward_so_a_turn_can_quote_it() {
+        for (body, expected) in [
+            (r#"{"backend":"anthropic"}"#, "anthropic"),
+            (r#"{"backend":"  weird  "}"#, "weird"),
+            // A value of the wrong type has no spelling worth quoting.
+            (r#"{"backend":7}"#, ""),
+        ] {
+            let object = serde_json::from_str::<Value>(body).unwrap();
+            let mut diagnostics = Vec::new();
+            let settings = parse_layer(
+                object.as_object().unwrap(),
+                LayerKind::Profile,
+                ConfigLayer::User,
+                &mut diagnostics,
+            );
+            assert_eq!(settings.backend, None, "for {body}");
+            assert_eq!(
+                settings.backend_rejected.as_deref(),
+                Some(expected),
+                "for {body}"
+            );
+            assert_eq!(diagnostics.len(), 1, "for {body}");
+        }
+    }
+
+    #[test]
+    fn a_later_layer_that_cannot_be_read_does_not_leave_an_earlier_one_in_charge() {
+        // Otherwise a mistyped `backend` in the workspace entry would silently
+        // run under whatever the profile said, which is the fallback this whole
+        // mechanism exists to refuse.
+        let mut settings = Settings {
+            backend: Some(Backend::Llmux),
+            ..Settings::default()
+        };
+        let mut sources = Sources::default();
+        settings.merge(
+            Settings {
+                backend_rejected: Some("nonsense".to_string()),
+                ..Settings::default()
+            },
+            SettingSource::UserWorkspace,
+            &mut sources,
+        );
+        assert_eq!(settings.backend, None);
+        assert_eq!(settings.backend_rejected.as_deref(), Some("nonsense"));
+        assert_eq!(sources.backend, SettingSource::UserWorkspace);
     }
 
     #[test]
