@@ -22,7 +22,7 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 
-use crate::config::{Credential, RuntimeConfig};
+use crate::config::{Backend, Credential, RuntimeConfig};
 use crate::session::{SessionDetail, SessionList, TurnStep};
 
 /// The help text shown when no credential is configured.
@@ -35,6 +35,14 @@ pub const MISSING_AUTH_HELP: &str =
 
 /// The label used when no credential resolved.
 pub const MISSING_AUTH_LABEL: &str = "missing";
+
+/// What the `auth` field says on the llmux backend.
+///
+/// It names an arrangement rather than a credential source, because on this
+/// backend there is no source: llmux answers a loopback request without one, and
+/// xfx sends none. `missing` would be the wrong word for that -- nothing is
+/// absent and nothing needs to be set.
+pub const LLMUX_AUTH_LABEL: &str = "llmux-keyless-loopback";
 
 /// The sandbox xfx reports.
 ///
@@ -89,6 +97,24 @@ impl AuthSnapshot {
             },
         }
     }
+
+    /// The same, but answering for the backend a turn will actually use.
+    ///
+    /// llmux answers a loopback request without any bearer value, so `missing`
+    /// would be the wrong word there: nothing is absent and nothing needs to be
+    /// set. Saying it anyway -- and pointing at two Vercel environment variables
+    /// -- would diagnose a backend the operator deliberately configured away
+    /// from, and would make `doctor` fail a machine that is working.
+    pub fn for_backend(backend: Backend, credential: Option<&Credential>) -> Self {
+        match backend {
+            Backend::Gateway => Self::from_credential(credential),
+            Backend::Llmux => Self {
+                source: LLMUX_AUTH_LABEL.to_string(),
+                refreshable: false,
+                help: None,
+            },
+        }
+    }
 }
 
 /// What `xfx status` reports.
@@ -96,6 +122,13 @@ impl AuthSnapshot {
 pub struct StatusSnapshot {
     pub kind: &'static str,
     pub model: String,
+    /// Which provider a turn here would talk to. Always present: "which model"
+    /// is only half an answer without "asked of what".
+    pub backend: String,
+    /// The daemon the llmux backend will use, when one resolved. Absent on the
+    /// gateway backend, which has no configured url to report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_url: Option<String>,
     pub build_channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_revision: Option<String>,
@@ -125,10 +158,12 @@ pub struct SessionFacts {
 impl StatusSnapshot {
     /// Builds the snapshot from resolved configuration and build metadata.
     pub fn new(config: &RuntimeConfig, build: crate::BuildInfo, session: SessionFacts) -> Self {
-        let auth = AuthSnapshot::from_credential(config.credential.as_ref());
+        let auth = AuthSnapshot::for_backend(config.backend, config.credential.as_ref());
         Self {
             kind: "status",
             model: config.model.clone(),
+            backend: config.backend.label().to_string(),
+            backend_url: backend_url(config),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -154,6 +189,12 @@ impl StatusSnapshot {
             out.push('\n');
         };
         line("model", &self.model);
+        // Directly after the model, which is the fact it qualifies: a model name
+        // means nothing without the endpoint it is asked of.
+        line("backend", &self.backend);
+        if let Some(url) = &self.backend_url {
+            line("backend_url", url);
+        }
         line("build_channel", &self.build_channel);
         if let Some(revision) = &self.build_revision {
             line("build_revision", revision);
@@ -185,6 +226,19 @@ impl StatusSnapshot {
             OutputFormat::Text => self.render_text(),
             OutputFormat::Json => self.render_json(),
         }
+    }
+}
+
+/// The endpoint a snapshot reports, when the backend has one to report.
+///
+/// Only the llmux backend does. The gateway's endpoint is a compiled default an
+/// environment variable may override, and printing it would put a URL nothing in
+/// the profile chose next to one that was chosen -- which is exactly the
+/// distinction these two fields exist to make.
+fn backend_url(config: &RuntimeConfig) -> Option<String> {
+    match config.backend {
+        Backend::Gateway => None,
+        Backend::Llmux => config.llmux_url.as_deref().map(one_line),
     }
 }
 
@@ -298,6 +352,9 @@ pub struct DoctorSnapshot {
     pub fail_count: usize,
     pub workspace: String,
     pub model: String,
+    pub backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_url: Option<String>,
     pub auth: String,
     pub auth_refreshable: bool,
     pub permission_mode: String,
@@ -309,7 +366,7 @@ impl DoctorSnapshot {
     /// Builds the snapshot, deriving the aggregate counts from the checks so the
     /// two can never disagree.
     pub fn new(config: &RuntimeConfig, checks: Vec<DoctorCheck>) -> Self {
-        let auth = AuthSnapshot::from_credential(config.credential.as_ref());
+        let auth = AuthSnapshot::for_backend(config.backend, config.credential.as_ref());
         let count = |status: CheckStatus| checks.iter().filter(|c| c.status == status).count();
         Self {
             kind: "doctor",
@@ -318,6 +375,8 @@ impl DoctorSnapshot {
             fail_count: count(CheckStatus::Fail),
             workspace: config.workspace_root.display().to_string(),
             model: config.model.clone(),
+            backend: config.backend.label().to_string(),
+            backend_url: backend_url(config),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -334,6 +393,10 @@ impl DoctorSnapshot {
         );
         out.push_str(&format!("[doctor] workspace={}\n", self.workspace));
         out.push_str(&format!("[doctor] model={}\n", self.model));
+        out.push_str(&format!("[doctor] backend={}\n", self.backend));
+        if let Some(url) = &self.backend_url {
+            out.push_str(&format!("[doctor] backend_url={url}\n"));
+        }
         out.push_str(&format!("[doctor] auth={}\n", self.auth));
         out.push_str(&format!(
             "[doctor] auth_refreshable={}\n",

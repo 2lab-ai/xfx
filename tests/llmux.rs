@@ -1447,3 +1447,143 @@ fn a_failed_setup_still_emits_exactly_one_json_document() {
     );
     assert_eq!(run.stderr, "", "a --json failure keeps stderr clean");
 }
+
+// ---------------------------------------------------------------------------
+// what status and doctor say about the backend
+// ---------------------------------------------------------------------------
+
+#[test]
+fn status_names_the_backend_and_the_gateway_stays_the_default() {
+    let sandbox = Sandbox::new();
+    let document = sandbox.run(&["status", "--json"], &[]).json();
+    assert_eq!(document["backend"], "gateway");
+    assert!(
+        document.get("backend_url").is_none(),
+        "the gateway has no configured url to report: {document}"
+    );
+    assert_eq!(document["auth"], "missing");
+    assert!(document.get("auth_help").is_some());
+
+    let text = sandbox.run(&["status"], &[]).stdout;
+    assert!(text.contains("[status] backend=gateway"), "{text}");
+    // Immediately after the model, which is the fact it qualifies.
+    let lines: Vec<&str> = text.lines().collect();
+    let model = lines
+        .iter()
+        .position(|l| l.starts_with("[status] model="))
+        .unwrap();
+    assert_eq!(lines[model + 1], "[status] backend=gateway", "{text}");
+}
+
+#[test]
+fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+
+    let document = sandbox.run(&["status", "--json"], &[]).json();
+    assert_eq!(document["backend"], "llmux");
+    assert_eq!(document["backend_url"], daemon.url());
+    // Not "missing": nothing is missing. Telling an llmux user to set a Vercel
+    // token would be advice for a backend they configured away from.
+    assert_eq!(document["auth"], "llmux-keyless-loopback");
+    assert_eq!(document["auth_refreshable"], json!(false));
+    assert!(
+        document.get("auth_help").is_none(),
+        "there is nothing to fix: {document}"
+    );
+
+    let text = sandbox.run(&["status"], &[]).stdout;
+    let lines: Vec<&str> = text.lines().collect();
+    let model = lines
+        .iter()
+        .position(|l| l.starts_with("[status] model="))
+        .unwrap();
+    assert_eq!(lines[model + 1], "[status] backend=llmux", "{text}");
+    assert_eq!(
+        lines[model + 2],
+        format!("[status] backend_url={}", daemon.url()),
+        "{text}"
+    );
+    assert!(!text.contains("auth_help"), "{text}");
+
+    // status reads no network: the daemon was never contacted.
+    assert!(daemon.requests().is_empty(), "{:?}", daemon.paths());
+}
+
+#[test]
+fn doctor_reports_the_backend_and_adds_no_network_call() {
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+
+    let document = sandbox.run(&["doctor", "--json"], &[]).json();
+    assert_eq!(document["backend"], "llmux");
+    assert_eq!(document["backend_url"], daemon.url());
+    assert_eq!(document["auth"], "llmux-keyless-loopback");
+    assert_eq!(
+        document["fail_count"], 0,
+        "a keyless backend is not a missing credential: {document}"
+    );
+    // `doctor` is the command that is always safe to run, so it stays offline.
+    assert!(daemon.requests().is_empty(), "{:?}", daemon.paths());
+
+    let text = sandbox.run(&["doctor"], &[]).stdout;
+    assert!(text.contains("[doctor] backend=llmux"), "{text}");
+    assert!(
+        text.contains(&format!("[doctor] backend_url={}", daemon.url())),
+        "{text}"
+    );
+}
+
+#[test]
+fn doctor_warns_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"llmux\"}");
+    let document = sandbox.run(&["doctor", "--json"], &[]).json();
+
+    let checks = document["checks"].as_array().expect("checks");
+    let backend = checks
+        .iter()
+        .find(|check| check["name"] == "backend")
+        .unwrap_or_else(|| panic!("no backend check in {document}"));
+    assert_eq!(backend["status"], "warn");
+    let detail = backend["detail"].as_str().expect("a detail");
+    assert!(detail.contains("xfx setup llmux"), "got {detail}");
+    assert!(document["warn_count"].as_u64().unwrap() >= 1);
+
+    // A configured backend is not a warning on its own.
+    let daemon = FakeLlmux::start(Vec::new());
+    sandbox.select_llmux(&daemon);
+    let document = sandbox.run(&["doctor", "--json"], &[]).json();
+    assert!(
+        !document["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|check| check["name"] == "backend"),
+        "a working backend needs no check of its own: {document}"
+    );
+}
+
+#[test]
+fn doctor_still_fails_a_gateway_backend_with_no_credential() {
+    // The gateway path is untouched: a missing bearer token is still a failure
+    // and still names the two variables that fix it.
+    let sandbox = Sandbox::new();
+    let document = sandbox.run(&["doctor", "--json"], &[]).json();
+    assert_eq!(document["backend"], "gateway");
+    assert_eq!(document["auth"], "missing");
+    let auth = document["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "auth")
+        .expect("an auth check")
+        .clone();
+    assert_eq!(auth["status"], "fail");
+    assert!(auth["detail"]
+        .as_str()
+        .unwrap()
+        .contains("AI_GATEWAY_API_KEY"));
+}

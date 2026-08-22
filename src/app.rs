@@ -761,14 +761,15 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
         ));
     }
 
-    checks.push(match &config.credential {
-        Some(credential) => DoctorCheck::new(
-            "auth",
-            CheckStatus::Ok,
-            format!("{} is configured", credential.source_label()),
-        ),
-        None => DoctorCheck::new("auth", CheckStatus::Fail, crate::output::MISSING_AUTH_HELP),
-    });
+    // Only when something is wrong with it. A backend that is configured and
+    // usable is already reported by the snapshot's own `backend` field, and a
+    // check that always fires would be a line that means nothing when it is
+    // green and is therefore not read when it is not.
+    if let Some(check) = backend_check(config) {
+        checks.push(check);
+    }
+
+    checks.push(auth_check(config));
 
     checks.push(permissions_check(config.permission_mode));
     checks.push(sessions_check(config));
@@ -785,6 +786,58 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     ));
 
     checks
+}
+
+/// Reports a backend that cannot run, and nothing when it can.
+///
+/// The one way the llmux backend is broken from `doctor`'s point of view is
+/// having no endpoint: the operator selected it and either never named a URL or
+/// named one the transport rule refused. That is a warning rather than a failure
+/// because it is one command away from fixed, and the detail names that command.
+///
+/// It is decided from configuration alone. `doctor` is the command that is
+/// always safe to run, so it does not probe the daemon to find out whether it is
+/// up -- that is `xfx setup llmux`'s job, and it is the one that writes.
+fn backend_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
+    if config.backend != Backend::Llmux || config.llmux_url.is_some() {
+        return None;
+    }
+    Some(DoctorCheck::new(
+        "backend",
+        CheckStatus::Warn,
+        format!(
+            "backend=llmux, but no usable `llmux_url` is configured, so every turn will \
+             refuse; {}",
+            crate::llmux::SETUP_HINT
+        ),
+    ))
+}
+
+/// Reports whether the configured backend can authenticate at all.
+///
+/// The two backends are asked different questions, because they need different
+/// things. The Gateway needs a bearer credential and a machine without one is a
+/// failure. llmux needs none: a keyless loopback request is what the daemon
+/// accepts, and it holds the operator's model credentials itself -- so failing
+/// that machine, and telling its owner to set two Vercel variables, would be a
+/// diagnosis of a backend they configured away from.
+fn auth_check(config: &RuntimeConfig) -> DoctorCheck {
+    if config.backend == Backend::Llmux {
+        return DoctorCheck::new(
+            "auth",
+            CheckStatus::Ok,
+            "backend=llmux needs no credential: a loopback request is accepted keyless, \
+             and xfx neither reads nor forwards an llmux key",
+        );
+    }
+    match &config.credential {
+        Some(credential) => DoctorCheck::new(
+            "auth",
+            CheckStatus::Ok,
+            format!("{} is configured", credential.source_label()),
+        ),
+        None => DoctorCheck::new("auth", CheckStatus::Fail, crate::output::MISSING_AUTH_HELP),
+    }
 }
 
 /// Reports what the current mode will and will not do without being asked.
