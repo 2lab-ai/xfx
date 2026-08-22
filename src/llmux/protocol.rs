@@ -25,7 +25,7 @@
 //!
 //! Evidence for the round trip, including the `tool_use` / `input_json_delta` /
 //! `stop_reason: "tool_use"` triple this file's decoder counterpart reads back,
-//! is llmux's own end-to-end test (`2lab-ai/llmux tests/e2e.rs:1117-1169`).
+//! is llmux's own end-to-end test (`2lab-ai/llmux@79f66748656b tests/e2e.rs:1117-1169`).
 
 use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::Serialize;
@@ -36,10 +36,19 @@ use crate::gateway::protocol::{CompletionRequest, ContentPart, ProtocolError, Ro
 /// The output ceiling xfx asks for, in tokens.
 ///
 /// Anthropic requires `max_tokens` on every request and llmux forwards the field
-/// as written, so xfx has to name a number. It is compiled in because nothing in
-/// an invocation chooses one: 8192 is inside the output ceiling of every current
-/// Claude model, so it never turns a valid request into a 400, and a completion
-/// that reaches it stops with `max_tokens`, which the decoder reports as
+/// as written, so xfx has to name a number, and it is compiled in because
+/// nothing in an invocation chooses one.
+///
+/// What is actually established about 8192 is narrower than "every Claude
+/// model": it is within the output ceiling of the sixteen entries the live llmux
+/// catalog served when this was measured. xfx does not read a model's ceiling
+/// and cannot, because the catalog does not publish one -- so a model whose
+/// ceiling is lower would answer 400, and that surfaces as a
+/// [`crate::gateway::ProviderError::Status`] naming the daemon and quoting its
+/// body rather than as anything silent.
+///
+/// A completion that *reaches* the ceiling is a different case and is not a
+/// failure: it stops with `max_tokens`, which the decoder reports as
 /// [`crate::gateway::protocol::FinishReason::Length`] rather than as a normal
 /// stop. Truncation is visible, in other words, instead of silent.
 pub const MAX_TOKENS: u32 = 8192;

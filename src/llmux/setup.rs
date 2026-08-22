@@ -58,7 +58,7 @@ const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_PROBE_BODY_BYTES: usize = 1024 * 1024;
 
 /// The body `GET /` answers on a real daemon
-/// (`2lab-ai/llmux src/proxy/server.rs:1240`).
+/// (`2lab-ai/llmux@79f66748656b src/proxy/server.rs:1240`).
 const ROOT_BODY: &str = "llmux";
 
 /// llmux's configuration file name, under whichever directory holds it.

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use xfx::config::{Environment, RuntimeConfig};
+use xfx::config::{Backend, Environment, RuntimeConfig};
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
@@ -1558,6 +1558,39 @@ fn setup_prefers_an_id_when_a_catalog_entry_has_no_alias() {
     let sandbox = Sandbox::new();
     let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
     assert_eq!(run.json()["model"], "only-an-id");
+}
+
+#[test]
+fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
+    // Nothing else binds the two sides. `setup` writes three keys by name and
+    // the config loader reads three keys by name, in different files, and a
+    // rename on either side would leave a setup that reports success and a
+    // machine that ignores it. This is the seam that goes red for that.
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("only-here", &["short"])]));
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    let report = run.json();
+
+    // Loaded from the same HOME, through the real loader, with nothing else set.
+    let config = sandbox.config(&[]);
+    assert_eq!(
+        config.backend,
+        Backend::Llmux,
+        "`backend` did not round-trip"
+    );
+    assert_eq!(
+        config.llmux_url.as_deref(),
+        Some(daemon.url().as_str()),
+        "`llmux_url` did not round-trip"
+    );
+    assert_eq!(config.model, "short", "`model` did not round-trip");
+
+    // And what the loader resolved is exactly what setup reported.
+    assert_eq!(report["url"], config.llmux_url.clone().unwrap());
+    assert_eq!(report["model"], config.model);
+    assert_eq!(report["backend"], config.backend.label());
+    assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
 }
 
 #[test]

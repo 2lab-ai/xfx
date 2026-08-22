@@ -27,7 +27,8 @@
 //!    refused rather than handed on as a completion with an empty call list.
 //!
 //! And one rule this stream needs that the Gateway's does not: an `error` frame
-//! arrives inside an HTTP 200 (`2lab-ai/llmux src/provider/responses.rs:569-583`),
+//! arrives inside an HTTP 200
+//! (`2lab-ai/llmux@79f66748656b src/provider/responses.rs:569-583`),
 //! so a transport that only read the status would call an upstream failure a
 //! successful empty answer. It fails **at the frame**, not at the end, because
 //! consulting it later made the verdict depend on what happened to arrive

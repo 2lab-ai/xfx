@@ -4,7 +4,8 @@
 Not affiliated with or endorsed by Vercel. Apache-2.0, like the original.
 
 xfx is a small terminal coding agent. You ask it something; it streams an answer
-from Vercel AI Gateway, and it can read your workspace, change files in it, and
+from Vercel AI Gateway or from a local llmux daemon, and it can read your
+workspace, change files in it, and
 run a bounded set of commands to answer you -- under a permission mode you choose
 and a session log you can resume.
 
@@ -48,11 +49,15 @@ a source revision. [Install](#install) says how to get it in one command.
 ## What it does not do
 
 Deliberately, and completely -- these produce an error, never a quiet no-op:
-Vercel `login`/`logout`/`setup`, Codex OAuth, a model catalog or provider
-switching, ACP, MCP, skills, subagents, web tools, background or durable
-terminals, images and vision, a full-screen TUI, replay, usage and credits,
-GitHub workflows, the updater, WASM, and N-API. `docs/parity.md` records each
-one with the upstream evidence for what it is.
+Vercel `login`/`logout`, Codex OAuth, a model catalog or provider switching,
+ACP, MCP, skills, subagents, web tools, background or durable terminals, images
+and vision, a full-screen TUI, replay, usage and credits, GitHub workflows, the
+updater, WASM, and N-API. `docs/parity.md` records each one with the upstream
+evidence for what it is.
+
+`xfx setup` exists but is narrower than upstream's, which is interactive
+credential onboarding for the Gateway -- that part is still absent. The only
+target is `llmux`; see [Backends](#backends).
 
 **xfx does not claim parity with `fx`, and it never will claim it in a version
 number.** If a claim in this file disagrees with `docs/parity.md`, the ledger is
@@ -190,8 +195,9 @@ in an evidence directory it prints at the end.
 
 ## Run
 
-xfx needs a Vercel AI Gateway credential in the environment. It reads, in order,
-a nonblank `VERCEL_OIDC_TOKEN`, then a nonblank `AI_GATEWAY_API_KEY`:
+On its default backend xfx needs a Vercel AI Gateway credential in the
+environment. It reads, in order, a nonblank `VERCEL_OIDC_TOKEN`, then a nonblank
+`AI_GATEWAY_API_KEY`:
 
 ```bash
 export AI_GATEWAY_API_KEY=...
@@ -236,9 +242,54 @@ when stdin or stdout is not a terminal -- use `xfx ask` there.
 Later layers override earlier ones, key by key: project `.xfx.json`, then
 `~/.xfx/settings.json`, then that file's exact `workspaces["<root>"]` entry, then
 the environment (`XFX_MODEL`, `XFX_PERMISSION_MODE`, `XFX_MAX_AGENT_STEPS`).
-Three keys are read -- `model`, `permission_mode`, `max_agent_steps` -- because
-those are the three the runtime consumes. A settings file that exists but cannot
-be parsed is reported by `xfx doctor`, not silently ignored.
+
+Five keys are read, because those are the five the runtime consumes:
+`max_agent_steps`, and the four that are **profile-only** -- `model`,
+`permission_mode`, `backend`, and `llmux_url`. Profile-only means a project
+`.xfx.json` cannot set them and is reported by `xfx doctor` when it tries: a
+repository is shared, so cloning one must not be able to choose the model, the
+permission mode, or the endpoint your prompt is sent to.
+
+A settings file that exists but cannot be parsed is reported by `xfx doctor`,
+not silently ignored. So is a value that cannot be read: a `backend` xfx does
+not recognize does not fall back to a default, because falling back would send
+your prompt somewhere you did not choose.
+
+## Backends
+
+Two, chosen by the profile-only `backend` setting.
+
+`gateway` is the default: Vercel AI Gateway over its own wire, authenticated by
+the bearer credential above.
+
+`llmux` talks to a [llmux](https://github.com/2lab-ai/llmux) daemon on this
+machine over the Anthropic Messages wire. Point xfx at it with:
+
+```bash
+xfx setup llmux            # or: xfx setup llmux --url http://127.0.0.1:3456
+```
+
+That finds the daemon -- the url a previous setup recorded, else
+`http://127.0.0.1:3456`, else the `proxy.port` in llmux's own config -- and
+proves it really is llmux before recording anything: `GET /` must answer exactly
+`llmux` and `GET /models` must answer a non-empty catalog. It then writes
+`backend`, `llmux_url` and a model from that catalog into
+`~/.xfx/settings.json`, preserving every other key. It sends **no** completion
+request, so it costs nothing to run, and it reads exactly one field of llmux's
+own configuration -- `proxy.port` -- and no credential.
+
+**xfx sends nothing to authenticate on this backend.** The daemon accepts a
+loopback request without one, and your model credentials stay inside llmux,
+which is why `xfx status` reports `auth=llmux-keyless-loopback` rather than a
+variable name. That is only
+safe while the request does not leave the machine, so it is enforced rather than
+assumed: `llmux_url` must be a loopback address with an explicit port and no
+path, under either scheme, and a remote host is refused -- including an https
+one, because TLS protects a credential and there is no credential here. A remote
+llmux would need its own credential story and xfx does not have one. Neither
+llmux client honours `HTTP_PROXY` or `ALL_PROXY`, for the same reason.
+
+xfx neither reads nor forwards an llmux key at any point.
 
 ## How it works
 
