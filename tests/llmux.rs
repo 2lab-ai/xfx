@@ -93,13 +93,16 @@ fn a_request_carries_the_model_a_token_ceiling_and_a_stream_flag() {
 }
 
 #[test]
-fn a_request_disables_thinking_so_the_decoder_never_has_to_drop_any() {
-    // The decoder drops thinking blocks, which is only safe while no response
-    // can contain one. Today that holds because xfx never asks for extended
-    // thinking -- an absence, not a guarantee. Declaring it makes the decoder's
-    // behaviour a consequence of the request rather than a bet on a default.
+fn a_request_says_nothing_about_thinking_because_the_daemon_refuses_the_pin() {
+    // Measured against the live daemon on 2026-08-22: model `fable` answers
+    // `"thinking":{"type":"disabled"}` with HTTP 400 --
+    // `"thinking.type.disabled" is not supported for this model. Thinking
+    // defaults to adaptive mode when not specified`. `fable` is what `setup`
+    // selects, so pinning the field broke the default configuration. The field
+    // is omitted; adaptive is the server's default and the responses it
+    // produces are preserved rather than suppressed.
     let parsed = body_of(&user_request("hi"));
-    assert_eq!(parsed["thinking"], json!({ "type": "disabled" }));
+    assert!(parsed.get("thinking").is_none(), "got {parsed}");
 }
 
 #[test]

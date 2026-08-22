@@ -4,8 +4,16 @@
 //! I/O, so every wire question can be answered by a test that never opens a
 //! socket -- the same split [`crate::gateway::protocol`] makes for the Gateway.
 //!
-//! The request is `{"model", "max_tokens", "stream", "thinking", "system"?,
-//! "messages", "tools"?, "tool_choice"?}`, in that order. Serialization is written by hand
+//! The request is `{"model", "max_tokens", "stream", "system"?, "messages",
+//! "tools"?, "tool_choice"?}`, in that order.
+//!
+//! There is deliberately **no `thinking` field**. Pinning it to `disabled` was
+//! tried and refused by the daemon for the default model: `fable` answers HTTP
+//! 400 `"thinking.type.disabled" is not supported for this model. Thinking
+//! defaults to adaptive mode when not specified` (measured 2026-08-22). Adaptive
+//! is therefore what xfx gets, responses can carry `thinking` blocks, and the
+//! decoder preserves them rather than suppressing them -- see
+//! [`crate::llmux::sse`] and the replay contract it exists to keep. Serialization is written by hand
 //! rather than derived, for the reason the Gateway writer gives: the shape is an
 //! external contract with another implementation, so it has to be readable next
 //! to the evidence it mirrors, and it must not drift when an internal field is
@@ -137,7 +145,6 @@ impl Serialize for WireRequest<'_> {
         map.serialize_entry("model", &self.0.model)?;
         map.serialize_entry("max_tokens", &MAX_TOKENS)?;
         map.serialize_entry("stream", &true)?;
-        map.serialize_entry("thinking", &ThinkingDisabled)?;
         if let Some(system) = &system {
             map.serialize_entry("system", system)?;
         }
@@ -340,25 +347,6 @@ fn anthropic_tool(tool: &Value) -> Value {
         mapped.insert("input_schema".to_string(), schema.clone());
     }
     Value::Object(mapped)
-}
-
-/// `{"type":"disabled"}`: xfx does not ask for extended thinking.
-///
-/// Declared rather than left to the default, because the decoder *drops*
-/// thinking blocks and that is only sound while no response can contain one.
-/// Relying on the default made the decoder's correctness a bet on a server-side
-/// setting xfx does not control; saying it makes the drop a consequence of the
-/// request. xfx has nowhere to render reasoning -- it streams the assistant's
-/// answer and nothing else -- so asking for it would be paying for tokens that
-/// are then discarded.
-struct ThinkingDisabled;
-
-impl Serialize for ThinkingDisabled {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(1))?;
-        map.serialize_entry("type", "disabled")?;
-        map.end()
-    }
 }
 
 struct ToolChoiceBody(ToolChoice);

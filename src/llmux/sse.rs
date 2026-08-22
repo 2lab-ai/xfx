@@ -67,10 +67,10 @@ enum Block {
     /// or something newer. Tracked rather than ignored so that its deltas are
     /// dropped on purpose instead of being mistaken for another block's.
     ///
-    /// Dropping thinking is sound because the request declares
-    /// `thinking: {"type":"disabled"}` (`crate::llmux::protocol`), so a
-    /// conforming daemon cannot send one at all; this arm is what keeps a
-    /// *non*conforming one from splicing reasoning into the answer.
+    /// Its deltas never reach the answer, which is what keeps reasoning out of
+    /// the assistant's reply -- but the block itself is **preserved** in
+    /// `raw_content`, because Anthropic requires a tool continuation to return
+    /// prior thinking blocks unchanged.
     Opaque,
 }
 
