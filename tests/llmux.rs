@@ -1587,3 +1587,50 @@ fn doctor_still_fails_a_gateway_backend_with_no_credential() {
         .unwrap()
         .contains("AI_GATEWAY_API_KEY"));
 }
+
+#[test]
+fn a_resumed_llmux_turn_replays_its_history_back_through_the_anthropic_mapping() {
+    // The deepest integration risk in this backend: history is stored in xfx's
+    // own message shape, and every resume re-renders all of it -- so the merge
+    // rule and the role mapping run over real recorded turns rather than over a
+    // prompt a test built by hand.
+    let daemon = FakeLlmux::start(vec![
+        Reply::Sse(anthropic_answer(&["first answer"])),
+        Reply::Sse(anthropic_answer(&["second answer"])),
+    ]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+
+    let first = sandbox.run(&["ask", "--json", "first question"], &[]);
+    assert_eq!(first.code, Some(0), "stderr={:?}", first.stderr);
+    let second = sandbox.run(
+        &["ask", "--json", "--resume", "last", "second question"],
+        &[],
+    );
+    assert_eq!(second.code, Some(0), "stderr={:?}", second.stderr);
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 2);
+    let messages = requests[1].json()["messages"].clone();
+    let messages = messages.as_array().expect("a message array");
+
+    // Alternation is what Anthropic requires, and it is what the merge rule
+    // exists to guarantee once history is replayed.
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|message| message["role"].as_str().expect("a role"))
+        .collect();
+    assert_eq!(roles, ["user", "assistant", "user"], "got {messages:?}");
+    for pair in roles.windows(2) {
+        assert_ne!(pair[0], pair[1], "two messages of one role in a row");
+    }
+
+    assert_eq!(messages[0]["content"][0]["text"], "first question");
+    assert_eq!(messages[1]["content"][0]["text"], "first answer");
+    assert_eq!(messages[2]["content"][0]["text"], "second question");
+    // The system prompt is still the top-level field, never a replayed message.
+    assert!(
+        !roles.contains(&"system"),
+        "a system message must not enter `messages`: {messages:?}"
+    );
+}
