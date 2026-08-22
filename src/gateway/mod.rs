@@ -539,8 +539,15 @@ impl ProviderError {
         match self {
             // The connection never opened, so the payload never left.
             Self::Connect { .. } => true,
-            // The Gateway rejected the request outright and streamed nothing.
+            // The endpoint rejected the request outright and streamed nothing.
             Self::Status { retryable, .. } => *retryable,
+            // A provider failure delivered in-band. Anthropic sends an overload
+            // or a rate limit as an `error` frame inside a 200, where the
+            // Gateway sends the same condition as a 429 -- so the transport a
+            // failure happened to arrive over must not decide how many attempts
+            // it is worth. The turn still refuses to replay anything that was
+            // already delivered.
+            Self::Protocol(SseError::ProviderFailure { retryable, .. }) => *retryable,
             _ => false,
         }
     }

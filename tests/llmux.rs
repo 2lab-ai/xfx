@@ -93,6 +93,16 @@ fn a_request_carries_the_model_a_token_ceiling_and_a_stream_flag() {
 }
 
 #[test]
+fn a_request_disables_thinking_so_the_decoder_never_has_to_drop_any() {
+    // The decoder drops thinking blocks, which is only safe while no response
+    // can contain one. Today that holds because xfx never asks for extended
+    // thinking -- an absence, not a guarantee. Declaring it makes the decoder's
+    // behaviour a consequence of the request rather than a bet on a default.
+    let parsed = body_of(&user_request("hi"));
+    assert_eq!(parsed["thinking"], json!({ "type": "disabled" }));
+}
+
+#[test]
 fn system_messages_become_the_top_level_system_field_and_leave_the_prompt() {
     let request = CompletionRequest {
         model: "fable".to_string(),
@@ -446,14 +456,7 @@ fn a_ping_and_an_unknown_event_carry_nothing_and_stop_nothing() {
         "{}{}{}{}",
         anthropic_event("ping", json!({ "type": "ping" })),
         anthropic_event("something_new", json!({ "type": "something_new", "x": 1 })),
-        anthropic_event(
-            "content_block_delta",
-            json!({
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": { "type": "text_delta", "text": "hi" },
-            })
-        ),
+        anthropic_text_block(0, &["hi"]),
         anthropic_stop("end_turn", 1, 2),
     );
     let (completion, deltas) = decode(&body);
@@ -617,6 +620,96 @@ fn a_thinking_block_is_tracked_and_its_deltas_reach_nobody() {
 }
 
 #[test]
+fn a_text_delta_on_a_block_that_is_not_text_never_reaches_the_answer() {
+    // `Block::Text` and `Block::Opaque` were tracked and never consulted: any
+    // text_delta appended to the answer whatever index it named. A daemon that
+    // streamed reasoning as `text_delta` on a thinking block would have had it
+    // silently spliced into the assistant's reply.
+    let body = format!(
+        "{}{}{}{}",
+        anthropic_event(
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "thinking", "thinking": "" },
+            })
+        ),
+        anthropic_event(
+            "content_block_delta",
+            json!({
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": { "type": "text_delta", "text": "private reasoning" },
+            })
+        ),
+        anthropic_text_block(1, &["the answer"]),
+        anthropic_stop("end_turn", 1, 1),
+    );
+    let (completion, deltas) = decode(&body);
+    assert_eq!(
+        deltas,
+        ["the answer"],
+        "only the text block reaches the sink"
+    );
+    assert_eq!(completion.expect("finish").text, "the answer");
+}
+
+#[test]
+fn a_text_delta_for_a_block_nobody_opened_is_dropped() {
+    let body = format!(
+        "{}{}",
+        anthropic_event(
+            "content_block_delta",
+            json!({
+                "type": "content_block_delta",
+                "index": 7,
+                "delta": { "type": "text_delta", "text": "from nowhere" },
+            })
+        ),
+        anthropic_stop("end_turn", 1, 1),
+    );
+    let (completion, deltas) = decode(&body);
+    assert!(deltas.is_empty(), "got {deltas:?}");
+    assert_eq!(completion.expect("finish").text, "");
+}
+
+#[tokio::test]
+async fn a_transient_in_band_error_is_replayable_and_a_client_error_is_not() {
+    // Anthropic delivers `overloaded_error` and `rate_limit_error` as HTTP 200
+    // plus an `error` frame. Treating every in-band error as unreplayable gave
+    // llmux zero retries for the most common transient failure, while the same
+    // upstream condition arriving as a 429 on the Gateway path got three.
+    for (kind, replayable) in [
+        ("overloaded_error", true),
+        ("rate_limit_error", true),
+        ("api_error", true),
+        ("invalid_request_error", false),
+        ("authentication_error", false),
+        ("permission_error", false),
+        ("not_found_error", false),
+        ("something_new", false),
+    ] {
+        let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_event(
+            "error",
+            json!({
+                "type": "error",
+                "error": { "type": kind, "message": "upstream said so" },
+            }),
+        ))]);
+        let err = stream_once(&daemon, &user_request("hi"))
+            .await
+            .0
+            .expect_err("an error frame is not a completion");
+        assert_eq!(err.is_replayable(), replayable, "for `{kind}`: {err}");
+        assert!(
+            err.to_string().contains("upstream said so"),
+            "for `{kind}`: {err}"
+        );
+    }
+}
+
+#[test]
 fn every_stop_reason_maps_to_a_reason_this_version_knows() {
     for (raw, expected) in [
         ("end_turn", FinishReason::Stop),
@@ -683,7 +776,7 @@ fn an_error_event_under_a_two_hundred_is_still_a_provider_failure() {
         }),
     );
     match decode(&body).0 {
-        Err(SseError::ProviderFailure { detail }) => {
+        Err(SseError::ProviderFailure { detail, .. }) => {
             assert_eq!(detail, "upstream is overloaded");
         }
         other => panic!("expected a provider failure, got {other:?}"),
@@ -695,7 +788,12 @@ fn a_frame_with_no_event_name_still_decodes() {
     // The `event:` line is optional in SSE and the payload carries the type, so
     // a bare `data:` frame has to decode identically.
     let body = format!(
-        "data: {}\n\ndata: {}\n\n",
+        "data: {}\n\ndata: {}\n\ndata: {}\n\n",
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "text", "text": "" },
+        }),
         json!({
             "type": "content_block_delta",
             "index": 0,
@@ -789,7 +887,7 @@ fn an_error_frame_fails_the_attempt_whatever_arrives_after_it() {
         anthropic_event("message_stop", json!({ "type": "message_stop" })),
     );
     match decode(&body).0 {
-        Err(SseError::ProviderFailure { detail }) => assert_eq!(detail, "upstream refused"),
+        Err(SseError::ProviderFailure { detail, .. }) => assert_eq!(detail, "upstream refused"),
         other => panic!("expected a provider failure, got {other:?}"),
     }
 }
@@ -835,6 +933,17 @@ fn a_completion_that_never_stops_growing_is_bounded() {
     );
     let mut reader = AnthropicReader::new();
     let mut deltas = Collected::default();
+    let opened = anthropic_event(
+        "content_block_start",
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "text", "text": "" },
+        }),
+    );
+    reader
+        .push(opened.as_bytes(), &mut deltas)
+        .expect("open the block the flood names");
     let mut pushes = 0usize;
     let outcome = loop {
         pushes += 1;
@@ -991,7 +1100,7 @@ async fn a_connection_that_dies_mid_body_is_never_replayed() {
 async fn an_error_frame_inside_a_two_hundred_fails_the_attempt_with_its_message() {
     let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_error("model is overloaded"))]);
     match stream_once(&daemon, &user_request("hi")).await.0 {
-        Err(ProviderError::Protocol(SseError::ProviderFailure { detail })) => {
+        Err(ProviderError::Protocol(SseError::ProviderFailure { detail, .. })) => {
             assert_eq!(detail, "model is overloaded");
         }
         other => panic!("expected a provider failure, got {other:?}"),

@@ -538,7 +538,7 @@ fn an_error_event_is_reported_as_a_provider_failure() {
 fn an_error_event_without_a_finish_is_still_a_provider_failure() {
     let body = sse_body(&[json!({ "type": "error", "error": { "message": "boom" } })]);
     match decode_byte_by_byte(&body).0 {
-        Err(SseError::ProviderFailure { detail }) => {
+        Err(SseError::ProviderFailure { detail, .. }) => {
             assert!(detail.contains("boom"), "got {detail}")
         }
         other => panic!("expected a provider failure, got {other:?}"),

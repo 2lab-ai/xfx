@@ -57,6 +57,14 @@ use crate::gateway::{CancelToken, DeltaSink};
 /// should have: invisible in use, decisive under abuse.
 pub const MAX_COMPLETION_BYTES: usize = 8 * 1024 * 1024;
 
+/// The most content blocks a single message may have open or tracked at once.
+///
+/// A stream of `content_block_start` frames with distinct indexes grows the
+/// block map without bound, and their ids and names are strings the daemon
+/// chooses. Real messages use single digits; 64 is far past anything Anthropic
+/// emits and far short of a number that costs a machine anything.
+pub const MAX_OPEN_BLOCKS: usize = 64;
+
 /// What an open content block is accumulating.
 #[derive(Debug)]
 enum Block {
@@ -71,6 +79,11 @@ enum Block {
     /// A block this version does not act on -- `thinking`, `redacted_thinking`,
     /// or something newer. Tracked rather than ignored so that its deltas are
     /// dropped on purpose instead of being mistaken for another block's.
+    ///
+    /// Dropping thinking is sound because the request declares
+    /// `thinking: {"type":"disabled"}` (`crate::llmux::protocol`), so a
+    /// conforming daemon cannot send one at all; this arm is what keeps a
+    /// *non*conforming one from splicing reasoning into the answer.
     Opaque,
 }
 
@@ -99,7 +112,6 @@ pub struct AnthropicReader {
     accumulated: usize,
     finish_reason: Option<FinishReason>,
     usage: Usage,
-    provider_detail: Option<String>,
     complete: bool,
     cancel: CancelToken,
 }
@@ -126,7 +138,6 @@ impl AnthropicReader {
             accumulated: 0,
             finish_reason: None,
             usage: Usage::default(),
-            provider_detail: None,
             complete: false,
             cancel,
         }
@@ -193,14 +204,12 @@ impl AnthropicReader {
                 tool_calls: self.tool_calls,
                 finish_reason,
                 usage: self.usage,
-                provider_detail: self.provider_detail,
+                // Never set on this wire: an `error` frame fails the decode
+                // where it arrives, so a stream that reaches here reported no
+                // failure to carry.
+                provider_detail: None,
             }),
-            // The provider said why it failed, so report that rather than the
-            // generic truncation.
-            None => match self.provider_detail {
-                Some(detail) => Err(SseError::ProviderFailure { detail }),
-                None => Err(SseError::MissingFinish),
-            },
+            None => Err(SseError::MissingFinish),
         }
     }
 
@@ -244,6 +253,10 @@ impl AnthropicReader {
             if event_name.as_deref() == Some("error") {
                 return Err(SseError::ProviderFailure {
                     detail: "the daemon reported an unreadable error".to_string(),
+                    // Unreadable means unclassifiable, and replaying a failure
+                    // that might have been a rejected request is the expensive
+                    // direction to be wrong in.
+                    retryable: false,
                 });
             }
             return Ok(());
@@ -258,10 +271,7 @@ impl AnthropicReader {
                 self.on_message_start(&event);
                 Ok(())
             }
-            "content_block_start" => {
-                self.on_block_start(&event);
-                Ok(())
-            }
+            "content_block_start" => self.on_block_start(&event),
             "content_block_delta" => self.on_block_delta(&event, deltas),
             "content_block_stop" => self.on_block_stop(&event),
             "message_delta" => self.on_message_delta(&event),
@@ -276,6 +286,7 @@ impl AnthropicReader {
             "error" => Err(SseError::ProviderFailure {
                 detail: failure_detail(&event)
                     .unwrap_or_else(|| "the daemon reported an error".to_string()),
+                retryable: is_transient_error(&event),
             }),
             // `ping` and every future event carry nothing xfx acts on.
             _ => Ok(()),
@@ -295,25 +306,37 @@ impl AnthropicReader {
         }
     }
 
-    fn on_block_start(&mut self, event: &Map<String, Value>) {
+    fn on_block_start(&mut self, event: &Map<String, Value>) -> Result<(), SseError> {
         let Some(index) = event.get("index").and_then(Value::as_u64) else {
-            return;
+            return Ok(());
         };
         let kind = match event.get("content_block") {
             Some(Value::Object(block)) => block,
-            _ => return,
+            _ => return Ok(()),
         };
+        // A flood of distinct indexes would grow this map without bound, and the
+        // ids and names inside are strings the daemon chooses.
+        if self.blocks.len() >= MAX_OPEN_BLOCKS
+            && !self.blocks.iter().any(|open| open.index == index)
+        {
+            return Err(SseError::CompletionTooLarge {
+                limit: MAX_COMPLETION_BYTES,
+            });
+        }
         let block = match kind.get("type").and_then(Value::as_str) {
             Some("text") => Block::Text,
             Some("tool_use") => {
                 // A tool call with no identity cannot be correlated to a result,
                 // so it is tracked as opaque rather than invented.
                 match (string_field(kind, "id"), string_field(kind, "name")) {
-                    (Some(id), Some(name)) => Block::ToolUse {
-                        id: id.to_string(),
-                        name: name.to_string(),
-                        arguments: String::new(),
-                    },
+                    (Some(id), Some(name)) => {
+                        self.charge(id.len() + name.len())?;
+                        Block::ToolUse {
+                            id: id.to_string(),
+                            name: name.to_string(),
+                            arguments: String::new(),
+                        }
+                    }
                     _ => Block::Opaque,
                 }
             }
@@ -323,6 +346,18 @@ impl AnthropicReader {
         // numbering, and keeping a stale entry would misroute later deltas.
         self.blocks.retain(|open| open.index != index);
         self.blocks.push(OpenBlock { index, block });
+        Ok(())
+    }
+
+    /// Charges `bytes` against the completion ceiling.
+    fn charge(&mut self, bytes: usize) -> Result<(), SseError> {
+        self.accumulated = self.accumulated.saturating_add(bytes);
+        if self.accumulated > MAX_COMPLETION_BYTES {
+            return Err(SseError::CompletionTooLarge {
+                limit: MAX_COMPLETION_BYTES,
+            });
+        }
+        Ok(())
     }
 
     fn on_block_delta(
@@ -341,15 +376,26 @@ impl AnthropicReader {
                 let Some(text) = string_field(delta, "text") else {
                     return Ok(());
                 };
-                // A delta for a block that was never opened is still the
-                // answer's text; the index only decides where a *tool* input
-                // accumulates.
-                self.accumulated = self.accumulated.saturating_add(text.len());
-                if self.accumulated > MAX_COMPLETION_BYTES {
-                    return Err(SseError::CompletionTooLarge {
-                        limit: MAX_COMPLETION_BYTES,
-                    });
+                // Routed by index, not accepted on sight. `Block::Text` and
+                // `Block::Opaque` were tracked and never consulted, so a
+                // `text_delta` naming a thinking block -- or naming nothing --
+                // was spliced into the assistant's reply. Dropping it is the
+                // documented meaning of an opaque block: xfx tracks the index
+                // precisely so that its deltas go nowhere. Dropping rather than
+                // failing, because a nonconforming daemon sending reasoning
+                // this way is a stream xfx can still answer from correctly,
+                // and refusing the turn would be a harsher response to the
+                // daemon's mistake than the operator's problem warrants.
+                if !matches!(
+                    self.blocks.iter().find(|open| open.index == index),
+                    Some(OpenBlock {
+                        block: Block::Text,
+                        ..
+                    })
+                ) {
+                    return Ok(());
                 }
+                self.charge(text.len())?;
                 self.text.push_str(text);
                 // Handed to the sink borrowed: this is the hot path of every
                 // streamed answer, and a fresh allocation per token buys nothing.
@@ -359,12 +405,7 @@ impl AnthropicReader {
                 let Some(fragment) = string_field(delta, "partial_json") else {
                     return Ok(());
                 };
-                self.accumulated = self.accumulated.saturating_add(fragment.len());
-                if self.accumulated > MAX_COMPLETION_BYTES {
-                    return Err(SseError::CompletionTooLarge {
-                        limit: MAX_COMPLETION_BYTES,
-                    });
-                }
+                self.charge(fragment.len())?;
                 // A fragment for an unopened block is dropped: correlating it
                 // would invent a call the daemon never opened.
                 if let Some(OpenBlock {
@@ -503,6 +544,27 @@ fn string_field<'a>(event: &'a Map<String, Value>, key: &str) -> Option<&'a str>
         Some(Value::String(value)) if !value.is_empty() => Some(value),
         _ => None,
     }
+}
+
+/// Whether an `error` frame describes a condition worth another attempt.
+///
+/// Anthropic's transient family, mapped onto the same verdict the Gateway path
+/// reaches when the identical upstream condition arrives as a 429 or a 5xx. A
+/// type this version does not recognize is **not** replayable: an unknown error
+/// might be a rejected request, and paying for it twice is the expensive
+/// direction to be wrong in. The turn still refuses to replay anything once a
+/// delta has been delivered, so this only widens what may be retried from a
+/// clean start.
+fn is_transient_error(event: &Map<String, Value>) -> bool {
+    let kind = event
+        .get("error")
+        .and_then(Value::as_object)
+        .and_then(|error| error.get("type"))
+        .and_then(Value::as_str);
+    matches!(
+        kind,
+        Some("overloaded_error" | "rate_limit_error" | "api_error")
+    )
 }
 
 /// The daemon's own description of a failure, if it gave one.
@@ -665,8 +727,15 @@ mod tests {
             }
         }
         let mut reader = AnthropicReader::new();
-        let frame = format!(
-            "data: {}\n\n",
+        // The block has to be opened first: a `text_delta` is routed by index,
+        // so one naming no open text block never reaches a sink at all.
+        let frames = format!(
+            "data: {}\n\ndata: {}\n\n",
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "text", "text": "" },
+            }),
             json!({
                 "type": "content_block_delta",
                 "index": 0,
@@ -674,7 +743,7 @@ mod tests {
             })
         );
         assert!(matches!(
-            reader.push(frame.as_bytes(), &mut Broken),
+            reader.push(frames.as_bytes(), &mut Broken),
             Err(SseError::Sink(_))
         ));
     }

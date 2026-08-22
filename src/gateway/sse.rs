@@ -62,7 +62,17 @@ pub enum SseError {
     /// Two tool calls in one stream claimed the same identifier.
     DuplicateToolCallId { call_id: String },
     /// The provider reported its own failure and never finished.
-    ProviderFailure { detail: String },
+    ProviderFailure {
+        detail: String,
+        /// Whether the condition is transient, so the turn may replay the
+        /// attempt when nothing was delivered.
+        ///
+        /// Anthropic delivers `overloaded_error` and `rate_limit_error` inside
+        /// an HTTP 200, where the Gateway would deliver the same upstream
+        /// condition as a 429. Without this the two backends disagree about how
+        /// many attempts the identical failure is worth.
+        retryable: bool,
+    },
     /// The consumer of the assistant text could not accept it.
     Sink(io::Error),
 }
@@ -91,7 +101,7 @@ impl fmt::Display for SseError {
             Self::DuplicateToolCallId { call_id } => {
                 write!(f, "the stream reused tool call id `{call_id}`")
             }
-            Self::ProviderFailure { detail } => write!(f, "the provider failed: {detail}"),
+            Self::ProviderFailure { detail, .. } => write!(f, "the provider failed: {detail}"),
             Self::Sink(err) => write!(f, "cannot write assistant output: {err}"),
         }
     }
@@ -214,7 +224,14 @@ impl SseReader {
             // The provider said why it failed, so report that rather than the
             // generic truncation.
             None => match self.provider_detail {
-                Some(detail) => Err(SseError::ProviderFailure { detail }),
+                Some(detail) => Err(SseError::ProviderFailure {
+                    detail,
+                    // The Vercel wire carries no error taxonomy this decoder
+                    // could classify, and upstream records the detail and
+                    // decides nothing (`client.zig:2902-2903`). An unclassified
+                    // failure is not replayed.
+                    retryable: false,
+                }),
                 None => Err(SseError::MissingFinish),
             },
         }
@@ -602,7 +619,7 @@ mod tests {
             json!({ "type": "error", "error": "rate limited" })
         );
         match decode(&body).0 {
-            Err(SseError::ProviderFailure { detail }) => assert_eq!(detail, "rate limited"),
+            Err(SseError::ProviderFailure { detail, .. }) => assert_eq!(detail, "rate limited"),
             other => panic!("expected a provider failure, got {other:?}"),
         }
     }
