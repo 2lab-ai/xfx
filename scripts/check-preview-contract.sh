@@ -16,10 +16,11 @@
 # So the contract is checked as *structure*: the workflow is parsed as YAML and
 # interrogated -- triggers, the job graph, the exact four native rows, the order
 # of the gates against the build, the environment the binary is stamped with,
-# the five assets, the release flags, the tap push and its freshness guard --
-# rather than grepped as text. A `grep` cannot see that `publish` depends on
-# `build`, that the smoke test runs after the binary was built and not before,
-# or that a step is `continue-on-error`.
+# the five assets, the release flags, the tap push and its freshness guard, and
+# the version of the linter the workflow gates itself with -- rather than
+# grepped as text. A `grep` cannot see that `publish` depends on `build`, that
+# the smoke test runs after the binary was built and not before, or that a step
+# is `continue-on-error`.
 #
 # The comparator that keeps the tap from being rolled back is not asserted at
 # all: it is extracted from the workflow and executed here over real versions,
@@ -85,6 +86,16 @@ cargo test --locked --all-targets
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh'
+
+# The oldest actionlint this workflow may pin. A linter is only worth running
+# if it fails what GitHub would fail; one that predates the runner images the
+# matrix above names does the opposite -- it rejects a machine GitHub has
+# already built on. v1.7.7 (released 2025-01-19) has no `macos-15-intel` in its
+# label table and failed run 32538186453 on all three workflows for it; the
+# label first appears in v1.7.8 (2025-10-11). The floor is the current release
+# rather than that first one, because a stale label table is exactly the
+# failure mode, and pinning the newest known-good is what keeps it fresh.
+export CONTRACT_ACTIONLINT_MINIMUM='1.7.12'
 
 export CONTRACT_PLACEHOLDERS='@VERSION@
 @TAG@
@@ -181,6 +192,22 @@ def needs_of(job)
   value.nil? ? [] : Array(value)
 end
 
+# Dot-separated version fields compared as numbers, never as text. The pair this
+# exists for is exactly the pair a lexical compare gets backwards: "1.7.7" sorts
+# after "1.7.12" as a string, and answering that question wrongly is what a
+# floor on the linter is supposed to prevent.
+def version_at_least(actual, minimum)
+  left = actual.split(".").map(&:to_i)
+  right = minimum.split(".").map(&:to_i)
+  [left.length, right.length].max.times do |i|
+    a = left[i] || 0
+    b = right[i] || 0
+    return true if a > b
+    return false if a < b
+  end
+  true
+end
+
 def uses_step(job, action)
   steps_of(job).find { |step| step["uses"].to_s.start_with?(action) }
 end
@@ -249,6 +276,27 @@ if preflight
          "the tag's timestamp is not UTC to the second")
   check.(text.include?("actionlint"),
          "no run lints the workflows; a syntactically valid file can still name a step nothing runs")
+
+  # The linter's *version* is part of the contract, not an implementation
+  # detail of the step. Every version it knows about is a table compiled into
+  # it, so an old one is not a weaker gate but a wrong one: it fails a runner
+  # label GitHub already accepts, which is a publication blocked by the tool
+  # that was supposed to protect it. The pin is read out of the install line
+  # rather than assumed, and an unpinned install is its own failure -- a linter
+  # that can change under the workflow it guards is the reason the step pins at
+  # all.
+  minimum = ENV.fetch("CONTRACT_ACTIONLINT_MINIMUM")
+  pins = text.scan(/actionlint@v?([0-9]+(?:\.[0-9]+)*)/).flatten.uniq
+  if pins.empty?
+    problems << "the workflow lint does not install actionlint at a pinned version; the gate that guards a publishing workflow must not be able to change under it"
+  else
+    pins.each do |pin|
+      check.(version_at_least(pin, minimum),
+             "the workflow lint pins actionlint v#{pin}, older than the required v#{minimum}; " \
+             "a linter that predates this matrix's runner images rejects labels GitHub already runs, so the publication fails on a machine that works")
+    end
+  end
+
   check.(text.include?("./scripts/check-preview-contract.sh"),
          "the publication does not re-run its own contract check")
 end
@@ -727,7 +775,11 @@ fi
 
 if command -v actionlint >/dev/null 2>&1; then
 	if ! actionlint "$workflow" >"$work/actionlint.txt" 2>&1; then
-		fail 'actionlint rejects the preview workflow:'
+		# Which actionlint said so, named in the failure rather than left to be
+		# guessed: a rejection of a runner label this repository already builds
+		# on is far more often a stale local binary than a bad workflow, and
+		# that is the same mistake the pinned floor above exists for.
+		fail "actionlint $(actionlint --version | head -1) rejects the preview workflow (the workflow pins v$CONTRACT_ACTIONLINT_MINIMUM or newer):"
 		cat "$work/actionlint.txt" >&2
 	fi
 fi
