@@ -35,7 +35,7 @@ use serde_json::{Map, Value};
 use crate::config::{
     Environment, RuntimeConfig, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME, MAX_SETTINGS_BYTES,
 };
-use crate::gateway::{EndpointError, USER_AGENT};
+use crate::gateway::{read_bounded, EndpointError, USER_AGENT};
 
 use super::DEFAULT_URL;
 
@@ -225,11 +225,24 @@ fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
     candidates
 }
 
+/// The client the probe uses: short timeouts, and no proxy, ever.
+///
+/// Its own builder rather than the provider's, because the timeouts are the
+/// point: what is being probed is on this machine, so a connect that has not
+/// completed in three seconds is not slow, it is absent, and discovery has
+/// another candidate to try.
+///
+/// `no_proxy` for the same reason [`crate::gateway::build_loopback_client`] has
+/// it: a machine with a corporate `HTTP_PROXY` would attempt every `127.0.0.1`
+/// connection through the proxy, so a daemon that is running would be reported
+/// as absent -- and a probe that did reach a proxy would be asking a third party
+/// about a service that is supposed to be local.
 fn probe_client() -> Result<reqwest::Client, SetupError> {
     reqwest::Client::builder()
         .connect_timeout(PROBE_CONNECT_TIMEOUT)
         .read_timeout(PROBE_READ_TIMEOUT)
         .timeout(PROBE_READ_TIMEOUT)
+        .no_proxy()
         .user_agent(USER_AGENT)
         .build()
         .map_err(|err| SetupError::NotLlmux {
@@ -272,6 +285,12 @@ async fn probe(client: &reqwest::Client, base: &str) -> Result<Vec<CatalogEntry>
 }
 
 /// One bounded GET that must answer 2xx.
+///
+/// Bounded while it reads, not after: `read_bounded` streams and stops at the
+/// limit, so whatever is on that port cannot decide how much memory `xfx setup`
+/// uses by answering with a body of its own choosing. Collecting the whole body
+/// and clipping afterwards honoured the ceiling in the message and ignored it in
+/// the allocation.
 async fn fetch(client: &reqwest::Client, url: &str) -> Result<String, String> {
     let response = client
         .get(url)
@@ -282,9 +301,7 @@ async fn fetch(client: &reqwest::Client, url: &str) -> Result<String, String> {
     if !status.is_success() {
         return Err(format!("HTTP {}", status.as_u16()));
     }
-    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
-    let take = bytes.len().min(MAX_PROBE_BODY_BYTES);
-    Ok(String::from_utf8_lossy(&bytes[..take]).into_owned())
+    Ok(read_bounded(response, MAX_PROBE_BODY_BYTES).await)
 }
 
 /// The `{"models":[{id,name,aliases,...}]}` document, reduced to names.

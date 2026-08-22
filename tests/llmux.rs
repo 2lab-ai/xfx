@@ -903,6 +903,14 @@ const CONTROLLED_VARS: &[&str] = &[
     "XFX_GATEWAY_URL",
     "LLMUX_CONFIG",
     "XDG_CONFIG_HOME",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
 ];
 
 struct Sandbox {
@@ -1438,6 +1446,55 @@ fn setup_refuses_a_server_that_does_not_identify_itself_as_the_daemon() {
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
     assert!(!sandbox.settings_path().exists());
     assert!(run.stderr.contains("llmux"), "got {:?}", run.stderr);
+}
+
+#[test]
+fn setup_does_not_buffer_an_unbounded_probe_body() {
+    // Whatever is on that port decides how many bytes it sends. A probe that
+    // materialized the whole body before clipping would let a hostile or merely
+    // broken local server choose how much memory `xfx setup` uses.
+    let huge = "x".repeat(4 * 1024 * 1024);
+    let daemon = FakeLlmux::start(Vec::new()).with_root_body(200, &huge);
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    // The quoted body is clipped, so the refusal is readable rather than four
+    // megabytes of `x`.
+    assert!(
+        run.stderr.len() < 4096,
+        "the refusal quoted {} bytes",
+        run.stderr.len()
+    );
+    assert!(!sandbox.settings_path().exists());
+}
+
+#[test]
+fn a_proxy_in_the_environment_never_applies_to_a_loopback_daemon() {
+    // The keyless story is that the request stays on the machine. A corporate
+    // `HTTP_PROXY` would both break discovery and route the prompt through a
+    // third party, so neither llmux client may honour one.
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["direct"]))]);
+    let sandbox = Sandbox::new();
+    // A proxy pointing at a port nothing is listening on: if it were honoured,
+    // every request below would fail to connect.
+    let dead_proxy = "http://127.0.0.1:1";
+    let proxied = [
+        ("HTTP_PROXY", dead_proxy),
+        ("http_proxy", dead_proxy),
+        ("ALL_PROXY", dead_proxy),
+        ("all_proxy", dead_proxy),
+    ];
+
+    let setup = sandbox.run(
+        &["setup", "llmux", "--url", &daemon.url(), "--json"],
+        &proxied,
+    );
+    assert_eq!(setup.code, Some(0), "stderr={:?}", setup.stderr);
+    assert_eq!(setup.json()["url"], daemon.url());
+
+    let ask = sandbox.run(&["ask", "--json", "--no-save", "hello"], &proxied);
+    assert_eq!(ask.code, Some(0), "stderr={:?}", ask.stderr);
+    assert_eq!(ask.events().last().unwrap()["output"], "direct");
 }
 
 #[test]

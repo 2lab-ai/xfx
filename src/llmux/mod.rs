@@ -31,8 +31,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::gateway::protocol::{Completion, CompletionRequest};
 use crate::gateway::{
-    build_client, is_retryable_status, parse_retry_after, read_bounded, CancelToken, DeltaSink,
-    Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError, CANCEL_POLL,
+    build_loopback_client, is_retryable_status, parse_retry_after, read_bounded, CancelToken,
+    DeltaSink, Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError, CANCEL_POLL,
     MAX_ERROR_BODY_BYTES,
 };
 use futures_util::StreamExt;
@@ -89,7 +89,7 @@ pub struct LlmuxProvider {
 impl LlmuxProvider {
     pub fn new(endpoint: Endpoint, cancel: CancelToken) -> Result<Self, ProviderError> {
         Ok(Self {
-            client: build_client()?,
+            client: build_loopback_client()?,
             base: trim_base(endpoint.url()),
             cancel,
         })

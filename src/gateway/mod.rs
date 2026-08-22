@@ -70,20 +70,43 @@ pub(crate) const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 /// The product's own user agent. xfx does not claim to be `fx`.
 pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 
-/// The HTTP client every provider streams over.
+/// The HTTP client a remote provider streams over.
 ///
 /// One builder rather than one per backend: the timeouts and the user agent are
 /// facts about xfx as a client, not about which wire it happens to be speaking,
 /// and two copies would be two places for them to drift apart.
+///
+/// It honours the system proxy environment, which is correct for an endpoint on
+/// the internet -- reaching it may require one.
 pub(crate) fn build_client() -> Result<reqwest::Client, ProviderError> {
+    finish_client(base_client_builder())
+}
+
+/// The same client for a service on this machine, with proxies refused.
+///
+/// A loopback backend must never route through a proxy, for two reasons that
+/// point the same way. It would be wrong: the request carries the prompt and the
+/// project context with no credential, and the only thing making that safe is
+/// that it does not leave the machine -- an `ALL_PROXY` would hand all of it to
+/// a third party while `status` went on reporting a keyless loopback
+/// arrangement. And it would be broken: on a machine with a corporate
+/// `HTTP_PROXY` set, every connection to `127.0.0.1` would be attempted through
+/// the proxy, so a daemon that is running would look like a daemon that is not.
+pub(crate) fn build_loopback_client() -> Result<reqwest::Client, ProviderError> {
+    finish_client(base_client_builder().no_proxy())
+}
+
+fn base_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .user_agent(USER_AGENT)
-        .build()
-        .map_err(|err| ProviderError::Transport {
-            detail: err.to_string(),
-        })
+}
+
+fn finish_client(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, ProviderError> {
+    builder.build().map_err(|err| ProviderError::Transport {
+        detail: err.to_string(),
+    })
 }
 
 /// Where a turn's assistant text goes as it is decoded.
