@@ -853,6 +853,7 @@ impl Provider for ScriptedProvider {
 /// A retryable edge status, optionally carrying the server's own delay.
 fn edge_status(retry_after: Option<Duration>) -> ProviderError {
     ProviderError::Status {
+        subject: xfx::gateway::GATEWAY_SUBJECT,
         status: 503,
         body: "try later".to_string(),
         retryable: true,
@@ -949,6 +950,7 @@ async fn the_turn_sends_the_user_prompt_and_the_configured_model() {
 #[tokio::test]
 async fn a_provider_failure_emits_exactly_one_error_and_no_final() {
     let provider = ScriptedProvider::new(vec![ScriptedResult::Failed(ProviderError::Status {
+        subject: xfx::gateway::GATEWAY_SUBJECT,
         status: 401,
         body: "unauthorized".to_string(),
         retryable: false,
@@ -986,6 +988,7 @@ async fn a_failure_after_partial_delivery_still_finalizes_exactly_once() {
 async fn a_replayable_failure_is_retried_up_to_max_attempts() {
     let provider = ScriptedProvider::new(vec![
         ScriptedResult::Failed(ProviderError::Connect {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection refused".to_string(),
         }),
         ScriptedResult::Streamed(vec!["ok".to_string()], stopped("ok")),
@@ -1003,6 +1006,7 @@ async fn a_replayable_failure_is_retried_up_to_max_attempts() {
 async fn a_replayable_failure_stops_at_max_attempts() {
     let failures = || {
         ScriptedResult::Failed(ProviderError::Connect {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection refused".to_string(),
         })
     };
@@ -1141,6 +1145,7 @@ async fn a_failure_that_may_have_been_delivered_is_never_replayed() {
     // ambiguous delivery can duplicate model intent, so it does not happen.
     for err in [
         ProviderError::Transport {
+            subject: xfx::gateway::GATEWAY_SUBJECT,
             detail: "connection reset".to_string(),
         },
         ProviderError::Protocol(SseError::MissingFinish),

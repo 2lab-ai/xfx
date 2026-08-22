@@ -287,6 +287,40 @@ fn advertised_tools_are_renamed_into_the_anthropic_envelope() {
 }
 
 #[test]
+fn a_tool_without_a_usable_schema_is_refused_before_the_socket_opens() {
+    // The rename reverse-engineers the registry's envelope. If that envelope is
+    // ever renamed, emitting the tool without `input_schema` would leave the
+    // model to invent arguments for a tool that runs on the operator's machine.
+    // Silent corruption; a refusal naming the tool is the only honest outcome.
+    for tool in [
+        json!({ "name": "read_file", "description": "d" }),
+        json!({ "name": "read_file", "description": "d", "inputSchema": "not an object" }),
+        json!({ "description": "d", "inputSchema": {} }),
+        json!({ "name": "", "description": "d", "inputSchema": {} }),
+        json!("an opaque tool"),
+    ] {
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![Message::user("hi")],
+            tools: vec![tool.clone()],
+            tool_choice: ToolChoice::Auto,
+        };
+        let err = protocol::body(&request).expect_err("`{tool}` is not advertisable");
+        assert!(err.to_string().contains("tool"), "for {tool}: {err}");
+    }
+
+    // The registry's real advertisement still passes, which is what makes the
+    // check a guard rather than a wall.
+    let request = CompletionRequest {
+        model: "fable".to_string(),
+        messages: vec![Message::user("hi")],
+        tools: xfx::tools::Registry::builtin().advertisement(),
+        tool_choice: ToolChoice::Auto,
+    };
+    assert!(protocol::body(&request).is_ok());
+}
+
+#[test]
 fn the_tool_choice_table_is_the_anthropic_vocabulary() {
     for (choice, expected) in [
         (ToolChoice::Auto, json!({ "type": "auto" })),
@@ -972,6 +1006,36 @@ async fn a_non_success_status_carries_the_bounded_body_and_its_replay_verdict() 
         !err.is_replayable(),
         "a rejected request must not be resent"
     );
+}
+
+#[tokio::test]
+async fn a_llmux_failure_names_the_daemon_rather_than_the_gateway() {
+    // Every runtime failure rendered in the Gateway's vocabulary, so a stopped
+    // daemon printed "cannot reach the Gateway: Connection refused" and sent the
+    // operator to look at Vercel.
+    let provider = LlmuxProvider::new(
+        xfx::llmux::endpoint("http://127.0.0.1:1", xfx::llmux::URL_KEY).unwrap(),
+        CancelToken::new(),
+    )
+    .expect("build the provider");
+    let mut deltas = Collected::default();
+    let message = provider
+        .stream(&user_request("hi"), &mut deltas)
+        .await
+        .expect_err("nothing is listening")
+        .to_string();
+    assert!(message.contains("llmux"), "got {message}");
+    assert!(!message.contains("Gateway"), "got {message}");
+
+    // A non-2xx from the daemon says so too.
+    let daemon = FakeLlmux::start(vec![Reply::Status(503, "down".to_string())]);
+    let message = stream_once(&daemon, &user_request("hi"))
+        .await
+        .0
+        .expect_err("a 503 is not a completion")
+        .to_string();
+    assert!(message.contains("llmux"), "got {message}");
+    assert!(!message.contains("Gateway"), "got {message}");
 }
 
 #[tokio::test]

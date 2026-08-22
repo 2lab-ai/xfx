@@ -31,9 +31,9 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::gateway::protocol::{Completion, CompletionRequest};
 use crate::gateway::{
-    build_loopback_client, is_retryable_status, parse_retry_after, read_bounded, CancelToken,
-    DeltaSink, Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError, CANCEL_POLL,
-    MAX_ERROR_BODY_BYTES,
+    build_loopback_client, is_retryable_status, parse_retry_after, read_bounded, transport_failure,
+    CancelToken, DeltaSink, Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError,
+    CANCEL_POLL, MAX_ERROR_BODY_BYTES,
 };
 use futures_util::StreamExt;
 use sse::AnthropicReader;
@@ -50,6 +50,13 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// What xfx tells the user to run when the backend has no endpoint to use.
 pub const SETUP_HINT: &str = "run `xfx setup llmux` to point xfx at the local llmux daemon";
+
+/// How an llmux failure names the endpoint it was talking to.
+///
+/// Without this every runtime failure rendered in the Gateway's vocabulary, so a
+/// stopped local daemon printed "cannot reach the Gateway: Connection refused"
+/// and sent the operator to look at Vercel.
+pub const SUBJECT: &str = "the llmux daemon";
 
 /// The settings key that names the daemon, and the subject of its refusals.
 pub const URL_KEY: &str = "llmux_url";
@@ -142,7 +149,10 @@ impl Provider for LlmuxProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = protocol::body(request).map_err(ProviderError::Request)?;
+        let body = protocol::body(request).map_err(|source| ProviderError::Request {
+            subject: SUBJECT,
+            source,
+        })?;
 
         let response = self
             .client
@@ -151,22 +161,14 @@ impl Provider for LlmuxProvider {
             .body(body)
             .send()
             .await
-            .map_err(|err| {
-                let detail = err.to_string();
-                if err.is_connect() {
-                    ProviderError::Connect { detail }
-                } else {
-                    // Anything past connection setup may already have been
-                    // received and acted on.
-                    ProviderError::Transport { detail }
-                }
-            })?;
+            .map_err(|err| transport_failure(SUBJECT, &err))?;
 
         let status = response.status();
         if !status.is_success() {
             // Read the header before the body: consuming the response moves it.
             let retry_after = parse_retry_after(response.headers());
             return Err(ProviderError::Status {
+                subject: SUBJECT,
                 status: status.as_u16(),
                 body: read_bounded(response, MAX_ERROR_BODY_BYTES).await,
                 retryable: is_retryable_status(status.as_u16()),
@@ -197,6 +199,7 @@ impl Provider for LlmuxProvider {
                 return Err(ProviderError::Cancelled);
             }
             let chunk = chunk.map_err(|err| ProviderError::Transport {
+                subject: SUBJECT,
                 detail: err.to_string(),
             })?;
             reader.push(&chunk, deltas)?;
@@ -271,7 +274,10 @@ mod tests {
             .expect_err("an orphan tool result is not sendable");
         assert!(matches!(
             err,
-            ProviderError::Request(ProtocolError::UnmatchedToolResult { .. })
+            ProviderError::Request {
+                source: ProtocolError::UnmatchedToolResult { .. },
+                ..
+            }
         ));
     }
 

@@ -67,6 +67,14 @@ pub(crate) const CANCEL_POLL: Duration = Duration::from_millis(50);
 /// How much of a failed response body is quoted back to the user.
 pub(crate) const MAX_ERROR_BODY_BYTES: usize = 4 * 1024;
 
+/// How a Gateway failure names the endpoint it was talking to.
+///
+/// A failure has to say *which* endpoint could not be reached. Hard-coding one
+/// name into the messages made every llmux failure read as a Gateway failure --
+/// a stopped local daemon printed "cannot reach the Gateway: Connection
+/// refused" and sent the operator to look at Vercel.
+pub const GATEWAY_SUBJECT: &str = "the Gateway";
+
 /// The product's own user agent. xfx does not claim to be `fx`.
 pub const USER_AGENT: &str = concat!("xfx/", env!("CARGO_PKG_VERSION"));
 
@@ -105,6 +113,7 @@ fn base_client_builder() -> reqwest::ClientBuilder {
 
 fn finish_client(builder: reqwest::ClientBuilder) -> Result<reqwest::Client, ProviderError> {
     builder.build().map_err(|err| ProviderError::Transport {
+        subject: GATEWAY_SUBJECT,
         detail: err.to_string(),
     })
 }
@@ -450,16 +459,26 @@ pub enum ProviderError {
     /// The endpoint itself was refused, before any credential was sent.
     Endpoint(EndpointError),
     /// The request could not be built from the prompt it was given.
-    Request(ProtocolError),
+    Request {
+        subject: &'static str,
+        source: ProtocolError,
+    },
     /// A header value could not be transmitted.
     InvalidHeader { name: &'static str },
     /// The connection could not be established, so the request was never sent.
-    Connect { detail: String },
+    Connect {
+        subject: &'static str,
+        detail: String,
+    },
     /// The exchange failed at a point where the request may already have been
     /// processed.
-    Transport { detail: String },
-    /// The Gateway answered with a non-success status.
+    Transport {
+        subject: &'static str,
+        detail: String,
+    },
+    /// The endpoint answered with a non-success status.
     Status {
+        subject: &'static str,
         status: u16,
         body: String,
         retryable: bool,
@@ -509,19 +528,24 @@ impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Endpoint(err) => write!(f, "{err}"),
-            Self::Request(err) => write!(f, "cannot build the Gateway request: {err}"),
+            Self::Request { subject, source } => {
+                write!(f, "cannot build the request for {subject}: {source}")
+            }
             Self::InvalidHeader { name } => {
                 write!(f, "the `{name}` header value cannot be transmitted")
             }
-            Self::Connect { detail } => write!(f, "cannot reach the Gateway: {detail}"),
-            Self::Transport { detail } => write!(f, "the Gateway connection failed: {detail}"),
+            Self::Connect { subject, detail } => write!(f, "cannot reach {subject}: {detail}"),
+            Self::Transport { subject, detail } => {
+                write!(f, "the connection to {subject} failed: {detail}")
+            }
             Self::Status {
+                subject,
                 status,
                 body,
                 retryable: _,
                 retry_after,
             } => {
-                write!(f, "the Gateway returned HTTP {status}")?;
+                write!(f, "{subject} returned HTTP {status}")?;
                 if let Some(delay) = retry_after {
                     write!(f, " (retry after {}s)", delay.as_secs())?;
                 }
@@ -541,7 +565,7 @@ impl std::error::Error for ProviderError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Endpoint(err) => Some(err),
-            Self::Request(err) => Some(err),
+            Self::Request { source, .. } => Some(source),
             Self::Protocol(err) => Some(err),
             Self::Sink(err) => Some(err),
             _ => None,
@@ -662,7 +686,10 @@ impl Provider for GatewayProvider {
         }
         // Built and validated before the socket opens, so an invalid prompt
         // never costs a round trip.
-        let body = request.body().map_err(ProviderError::Request)?;
+        let body = request.body().map_err(|source| ProviderError::Request {
+            subject: GATEWAY_SUBJECT,
+            source,
+        })?;
         let headers = self.headers(&request.model)?;
 
         let response = self
@@ -672,22 +699,14 @@ impl Provider for GatewayProvider {
             .body(body)
             .send()
             .await
-            .map_err(|err| {
-                let detail = err.to_string();
-                if err.is_connect() {
-                    ProviderError::Connect { detail }
-                } else {
-                    // Anything past connection setup may already have been
-                    // received and acted on.
-                    ProviderError::Transport { detail }
-                }
-            })?;
+            .map_err(|err| transport_failure(GATEWAY_SUBJECT, &err))?;
 
         let status = response.status();
         if !status.is_success() {
             // Read the header before the body: consuming the response moves it.
             let retry_after = parse_retry_after(response.headers());
             return Err(ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: status.as_u16(),
                 body: read_bounded(response, MAX_ERROR_BODY_BYTES).await,
                 retryable: is_retryable_status(status.as_u16()),
@@ -721,6 +740,7 @@ impl Provider for GatewayProvider {
                 return Err(ProviderError::Cancelled);
             }
             let chunk = chunk.map_err(|err| ProviderError::Transport {
+                subject: GATEWAY_SUBJECT,
                 detail: err.to_string(),
             })?;
             reader.push(&chunk, deltas)?;
@@ -756,6 +776,20 @@ pub(crate) fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
             .map(Duration::from_secs)
             .unwrap_or(Duration::MAX),
     )
+}
+
+/// Classifies one `reqwest` send failure for `subject`.
+///
+/// The line it draws is the one the turn depends on: a connection that never
+/// opened provably delivered nothing, and anything past connection setup may
+/// already have been received and acted on.
+pub(crate) fn transport_failure(subject: &'static str, err: &reqwest::Error) -> ProviderError {
+    let detail = err.to_string();
+    if err.is_connect() {
+        ProviderError::Connect { subject, detail }
+    } else {
+        ProviderError::Transport { subject, detail }
+    }
 }
 
 /// Statuses the Gateway edge returns without having produced a completion
@@ -983,6 +1017,7 @@ mod tests {
     fn only_a_status_error_carries_a_server_delay() {
         assert_eq!(
             ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: 429,
                 body: String::new(),
                 retryable: true,
@@ -993,6 +1028,7 @@ mod tests {
         );
         assert_eq!(
             ProviderError::Connect {
+                subject: GATEWAY_SUBJECT,
                 detail: "refused".to_string()
             }
             .retry_after(),
@@ -1003,6 +1039,7 @@ mod tests {
     #[test]
     fn a_status_message_names_the_server_delay_it_will_wait_for() {
         let message = ProviderError::Status {
+            subject: GATEWAY_SUBJECT,
             status: 429,
             body: "slow down".to_string(),
             retryable: true,
@@ -1027,10 +1064,12 @@ mod tests {
     #[test]
     fn only_a_connection_setup_failure_and_an_edge_status_are_replayable() {
         assert!(ProviderError::Connect {
+            subject: GATEWAY_SUBJECT,
             detail: "refused".to_string()
         }
         .is_replayable());
         assert!(ProviderError::Status {
+            subject: GATEWAY_SUBJECT,
             status: 503,
             body: String::new(),
             retryable: true,
@@ -1039,9 +1078,11 @@ mod tests {
         .is_replayable());
         for err in [
             ProviderError::Transport {
+                subject: GATEWAY_SUBJECT,
                 detail: "reset".to_string(),
             },
             ProviderError::Status {
+                subject: GATEWAY_SUBJECT,
                 status: 401,
                 body: String::new(),
                 retryable: false,
@@ -1118,7 +1159,10 @@ mod tests {
             .expect_err("an orphan tool result is not sendable");
         assert!(matches!(
             err,
-            ProviderError::Request(ProtocolError::UnmatchedToolResult { .. })
+            ProviderError::Request {
+                source: ProtocolError::UnmatchedToolResult { .. },
+                ..
+            }
         ));
     }
 

@@ -51,8 +51,53 @@ pub const MAX_TOKENS: u32 = 8192;
 /// validators would be two things to keep in step.
 pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
     request.validate()?;
+    for tool in &request.tools {
+        check_tool(tool)?;
+    }
     Ok(serde_json::to_string(&WireRequest(request))
         .expect("a validated request is always serializable"))
+}
+
+/// Refuses an advertised tool this wire cannot render honestly.
+///
+/// The mapping below reverse-engineers the registry's envelope by key name. That
+/// is fine while the two agree and silently corrupting when they stop: a renamed
+/// `inputSchema` used to produce a tool with **no** `input_schema` at all, and a
+/// model handed a schema-less tool invents arguments for something that runs on
+/// the operator's machine. Refusing before the socket opens turns a future
+/// rename into a failed request instead of a wrong one.
+fn check_tool(tool: &Value) -> Result<(), ProtocolError> {
+    let quoted = |tool: &Value| {
+        tool.get("name")
+            .and_then(Value::as_str)
+            .map(|name| format!("`{name}`"))
+            .unwrap_or_else(|| "with no name".to_string())
+    };
+    let Some(object) = tool.as_object() else {
+        return Err(ProtocolError::UnusableTool {
+            tool: "of an unreadable shape".to_string(),
+            reason: "is not a JSON object, so its schema cannot be found",
+        });
+    };
+    if !matches!(object.get("name"), Some(Value::String(name)) if !name.is_empty()) {
+        return Err(ProtocolError::UnusableTool {
+            tool: quoted(tool),
+            reason: "has no name, so the provider could not correlate a call to it",
+        });
+    }
+    if !matches!(schema_of(object), Some(Value::Object(_))) {
+        return Err(ProtocolError::UnusableTool {
+            tool: quoted(tool),
+            reason: "carries no `inputSchema` object, and a tool advertised without \
+                     one invites the model to invent its arguments",
+        });
+    }
+    Ok(())
+}
+
+/// The registry's schema, under either spelling.
+fn schema_of(tool: &Map<String, Value>) -> Option<&Value> {
+    tool.get("inputSchema").or_else(|| tool.get("input_schema"))
 }
 
 /// The request body, in the key order above.
@@ -257,9 +302,8 @@ impl Serialize for WireTools<'_> {
 /// Gateway's `function` marker, nothing more -- the schema itself belongs to the
 /// registry that owns each tool and is copied through untouched.
 ///
-/// A tool value that is not an object is passed through as it was given: the
-/// list is the caller's contract, and this module's job is only the one key
-/// Anthropic spells differently.
+/// Every tool reaching here has passed [`check_tool`], so the name and the
+/// schema are known to be present: this function renames, it does not decide.
 fn anthropic_tool(tool: &Value) -> Value {
     let Some(object) = tool.as_object() else {
         return tool.clone();
@@ -270,10 +314,7 @@ fn anthropic_tool(tool: &Value) -> Value {
             mapped.insert(key.to_string(), value.clone());
         }
     }
-    if let Some(schema) = object
-        .get("inputSchema")
-        .or_else(|| object.get("input_schema"))
-    {
+    if let Some(schema) = schema_of(object) {
         mapped.insert("input_schema".to_string(), schema.clone());
     }
     Value::Object(mapped)
@@ -313,16 +354,21 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_value_that_is_not_an_object_is_passed_through_unchanged() {
-        assert_eq!(anthropic_tool(&json!("opaque")), json!("opaque"));
-    }
-
-    #[test]
     fn a_tool_already_spelling_input_schema_is_not_renamed_twice() {
         assert_eq!(
             anthropic_tool(&json!({ "name": "t", "input_schema": { "type": "object" } })),
             json!({ "name": "t", "input_schema": { "type": "object" } })
         );
+        assert!(check_tool(&json!({ "name": "t", "input_schema": {} })).is_ok());
+    }
+
+    #[test]
+    fn a_refusal_names_the_tool_it_could_not_advertise() {
+        let err =
+            check_tool(&json!({ "name": "read_file", "description": "d" })).expect_err("no schema");
+        let message = err.to_string();
+        assert!(message.contains("read_file"), "{message}");
+        assert!(message.contains("inputSchema"), "{message}");
     }
 
     #[test]

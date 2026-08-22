@@ -213,6 +213,14 @@ pub enum ProtocolError {
         role: &'static str,
         part: &'static str,
     },
+    /// An advertised tool could not be rendered for the provider's wire.
+    ///
+    /// The tool list is opaque JSON because the schema belongs to the registry,
+    /// but a wire that has to *rename* a key inside it has to be able to find
+    /// that key. A tool sent without its schema is not a smaller tool: the model
+    /// is left to invent arguments for something that runs on the operator's
+    /// machine.
+    UnusableTool { tool: String, reason: &'static str },
 }
 
 impl fmt::Display for ProtocolError {
@@ -228,6 +236,9 @@ impl fmt::Display for ProtocolError {
             ),
             Self::MisplacedPart { role, part } => {
                 write!(f, "a `{part}` part cannot appear on a `{role}` message")
+            }
+            Self::UnusableTool { tool, reason } => {
+                write!(f, "the advertised tool {tool} {reason}")
             }
         }
     }
