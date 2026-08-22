@@ -12,12 +12,14 @@ use std::time::Duration;
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{Backend, ConfigError, PermissionMode, RuntimeConfig, SettingSource};
+use crate::config::{
+    Backend, ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource,
+};
 use crate::gateway::{CancelToken, Endpoint, GatewayProvider, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::llmux::{LlmuxProvider, MISSING_URL_HELP};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
-    SessionDetailSnapshot, SessionFacts, SessionsSnapshot, StatusSnapshot, TextSink,
+    SessionDetailSnapshot, SessionFacts, SessionsSnapshot, SetupSnapshot, StatusSnapshot, TextSink,
     MISSING_AUTH_HELP,
 };
 use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
@@ -161,6 +163,10 @@ pub async fn run_with(
                 resume,
             };
             ask(&config, request, stdout, stderr).await
+        }
+        Command::Setup { url, json } => {
+            let (env, config) = load_config_with_env()?;
+            setup_llmux(&config, &env, url.as_deref(), json, stdout, stderr).await
         }
         Command::Status { json } => {
             let config = load_config()?;
@@ -686,8 +692,55 @@ fn session_facts(config: &RuntimeConfig) -> SessionFacts {
 
 /// Resolves configuration for the current directory.
 fn load_config() -> Result<RuntimeConfig, AppError> {
+    Ok(load_config_with_env()?.1)
+}
+
+/// The same, keeping the environment it was resolved from.
+///
+/// Only `setup` needs it: finding the daemon means reading llmux's own
+/// configuration file, whose location comes from `LLMUX_CONFIG` or
+/// `XDG_CONFIG_HOME`. Those are llmux's and XDG's variables rather than xfx's,
+/// and passing them through the same injected [`Environment`] every other
+/// setting travels in is what keeps that reading testable without a test having
+/// to mutate the process environment.
+fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     let workspace = std::env::current_dir().map_err(ConfigError::Workspace)?;
-    Ok(RuntimeConfig::load(&workspace)?)
+    let env = Environment::from_process();
+    let config = RuntimeConfig::load_with(&env, &workspace)?;
+    Ok((env, config))
+}
+
+/// Runs `xfx setup llmux` and reports what it did, or why it did not.
+///
+/// A failure is reported in whichever shape the caller asked for, matching
+/// `ask`: text goes to stderr so stdout stays empty, and `--json` puts exactly
+/// one terminal document on stdout so a caller parsing it gets a document
+/// whatever happened.
+async fn setup_llmux(
+    config: &RuntimeConfig,
+    env: &Environment,
+    url: Option<&str>,
+    json: bool,
+    stdout: &mut dyn Write,
+    stderr: &mut dyn Write,
+) -> Result<ExitCode, AppError> {
+    let format = OutputFormat::from_json_flag(json);
+    match crate::llmux::setup::run(config, env, url).await {
+        Ok(report) => {
+            write!(stdout, "{}", SetupSnapshot::new(&report).render(format))?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => match format {
+            OutputFormat::Json => {
+                let mut sink = JsonlSink::new(stdout);
+                sink.emit(&Event::Error {
+                    message: err.to_string(),
+                })?;
+                Ok(ExitCode::from(TURN_FAILURE_EXIT_CODE))
+            }
+            OutputFormat::Text => fail_command(stderr, &err.to_string()),
+        },
+    }
 }
 
 /// Builds the diagnostic checks in a fixed order: what xfx is looking at, what

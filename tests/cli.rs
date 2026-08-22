@@ -25,7 +25,6 @@ const DEFERRED_COMMAND_NAMES: &[&str] = &[
     "issue",
     "login",
     "logout",
-    "setup",
     "permissions",
     "models",
     "provider",

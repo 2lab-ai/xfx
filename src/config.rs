@@ -55,6 +55,16 @@ const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
+/// The variable llmux uses to name its own configuration file.
+///
+/// Public so [`crate::llmux::setup`] reads one spelling of it rather than two.
+/// It is not an xfx knob: no configuration layer reads it, and nothing here sets
+/// it. `xfx setup llmux` consults it only to find out which port to talk to.
+pub const ENV_LLMUX_CONFIG: &str = "LLMUX_CONFIG";
+
+/// The XDG base directory that holds `llmux.json` when nothing names it outright.
+pub const ENV_XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
+
 /// Settings keys that only the profile may set.
 ///
 /// A repository is shared, so it must not be able to choose the model, the
@@ -382,6 +392,13 @@ impl Environment {
             ENV_MAX_AGENT_STEPS,
             ENV_OIDC_TOKEN,
             ENV_GATEWAY_KEY,
+            // Not xfx knobs and not read by any layer below: `xfx setup llmux`
+            // consults them to find *llmux's* configuration file, which is where
+            // the daemon's port is written. They are captured here so that
+            // reading is a pure function of this struct like everything else,
+            // rather than a second, untestable read of the process environment.
+            ENV_LLMUX_CONFIG,
+            ENV_XDG_CONFIG_HOME,
         ] {
             if let Ok(value) = std::env::var(key) {
                 vars.insert(key.to_string(), value);

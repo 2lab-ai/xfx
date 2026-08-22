@@ -32,7 +32,7 @@ use xfx::llmux::LlmuxProvider;
 use support::fake_gateway::Reply;
 use support::fake_llmux::{
     anthropic_answer, anthropic_error, anthropic_event, anthropic_stop, anthropic_text_block,
-    anthropic_tool_answer, FakeLlmux,
+    anthropic_tool_answer, catalog, FakeLlmux,
 };
 
 // ---------------------------------------------------------------------------
@@ -1131,4 +1131,319 @@ fn the_gateway_backend_is_unchanged_when_nothing_selects_llmux() {
     let message = events[0]["message"].as_str().expect("a message");
     assert!(message.contains("AI_GATEWAY_API_KEY"), "got {message}");
     assert!(!message.contains("llmux"), "got {message}");
+}
+
+// ---------------------------------------------------------------------------
+// `xfx setup llmux`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[
+        ("claude-fable-5[1m]", &["fable"]),
+        ("gpt-x", &[]),
+    ]));
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let document = run.json();
+    assert_eq!(document["kind"], "setup");
+    assert_eq!(document["backend"], "llmux");
+    assert_eq!(document["url"], daemon.url());
+    assert_eq!(document["models"], 2, "the catalog size, not the catalog");
+    assert_eq!(document["model"], "fable", "the first entry's first alias");
+    assert_eq!(
+        document["settings_path"],
+        sandbox.settings_path().display().to_string()
+    );
+
+    // Both probes ran, and no completion was asked for: setup must not spend a
+    // token to prove a daemon is there.
+    assert_eq!(daemon.paths(), ["/", "/models"]);
+    assert!(daemon.message_requests().is_empty());
+
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["backend"], "llmux");
+    assert_eq!(settings["llmux_url"], daemon.url());
+    assert_eq!(settings["model"], "fable");
+}
+
+#[test]
+fn setup_writes_a_profile_that_the_next_turn_actually_uses() {
+    // The receipt that matters: the file setup wrote is the file the loader
+    // reads, so a turn right afterwards goes to the daemon with no further
+    // configuration and no credential.
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["configured"]))]);
+    let sandbox = Sandbox::new();
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.events().last().unwrap()["output"], "configured");
+    assert_eq!(daemon.only_message_request().json()["model"], "fable");
+}
+
+#[test]
+fn setup_prints_the_daemon_the_catalog_size_the_model_and_the_file_it_wrote() {
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    for expected in [
+        format!("[setup] url={}", daemon.url()),
+        "[setup] models=1".to_string(),
+        "[setup] model=fable".to_string(),
+        format!(
+            "[setup] settings_path={}",
+            sandbox.settings_path().display()
+        ),
+    ] {
+        assert!(
+            run.stdout.contains(&expected),
+            "missing `{expected}` in {:?}",
+            run.stdout
+        );
+    }
+    assert_eq!(run.stderr, "", "a success writes no diagnostic");
+}
+
+#[test]
+fn setup_keeps_a_configured_model_the_catalog_actually_has() {
+    let daemon =
+        FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("a-id", &["a"]), ("b-id", &["b"])]));
+    let sandbox = Sandbox::new();
+
+    // Named by alias.
+    sandbox.write_user_settings("{\"model\":\"b\"}");
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(
+        run.json()["model"],
+        "b",
+        "a configured model that exists is kept"
+    );
+
+    // Named by id.
+    sandbox.write_user_settings("{\"model\":\"b-id\"}");
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.json()["model"], "b-id");
+
+    // Not in the catalog at all: the daemon's own first entry wins, and setup
+    // says which of the two happened.
+    sandbox.write_user_settings("{\"model\":\"vendor/not-here\"}");
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.json()["model"], "a");
+    assert!(
+        run.json()["model_reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()),
+        "setup must say why it chose: {:?}",
+        run.json()
+    );
+}
+
+#[test]
+fn setup_prefers_an_id_when_a_catalog_entry_has_no_alias() {
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("only-an-id", &[])]));
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.json()["model"], "only-an-id");
+}
+
+#[test]
+fn setup_merges_into_existing_settings_without_touching_an_unrelated_key() {
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"permission_mode\":\"ask\",\"max_agent_steps\":7,\
+         \"workspaces\":{\"/somewhere\":{\"model\":\"kept\"}}}",
+    );
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["permission_mode"], "ask");
+    assert_eq!(settings["max_agent_steps"], 7);
+    assert_eq!(settings["workspaces"]["/somewhere"]["model"], "kept");
+    assert_eq!(settings["backend"], "llmux");
+}
+
+#[test]
+fn setup_refuses_to_clobber_settings_it_cannot_read() {
+    // The file is the operator's. xfx does not get to replace bytes it failed to
+    // understand, because "could not parse" and "is not worth keeping" are not
+    // the same claim.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{ this is not json");
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(
+        run.stderr
+            .contains(&sandbox.settings_path().display().to_string()),
+        "the refusal must name the file: {:?}",
+        run.stderr
+    );
+    assert_eq!(
+        std::fs::read_to_string(sandbox.settings_path()).unwrap(),
+        "{ this is not json",
+        "the operator's bytes are untouched"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_creates_a_private_profile_home_and_a_private_settings_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    assert!(!sandbox.profile_dir().exists(), "nothing exists yet");
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+
+    let dir_mode = std::fs::metadata(sandbox.profile_dir())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(dir_mode, 0o700, "the profile home is owner-only");
+    let file_mode = std::fs::metadata(sandbox.settings_path())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(file_mode, 0o600, "settings are owner-only");
+
+    // Nothing staged is left behind by a write that completed.
+    let leftovers: Vec<String> = std::fs::read_dir(sandbox.profile_dir())
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "settings.json")
+        .collect();
+    assert!(leftovers.is_empty(), "got {leftovers:?}");
+}
+
+#[test]
+fn setup_refuses_a_url_the_endpoint_rule_would_not_accept() {
+    let sandbox = Sandbox::new();
+    for url in [
+        "http://example.com/",
+        "http://127.0.0.1",
+        "ftp://127.0.0.1:3456",
+        "not a url",
+    ] {
+        let run = sandbox.run(&["setup", "llmux", "--url", url], &[]);
+        assert_eq!(run.code, Some(1), "`{url}` must be refused");
+        assert!(
+            !sandbox.settings_path().exists(),
+            "`{url}` must not be recorded"
+        );
+    }
+}
+
+#[test]
+fn setup_refuses_a_server_that_does_not_identify_itself_as_the_daemon() {
+    // Any HTTP server on loopback can answer 200. Only llmux answers `llmux`,
+    // and recording a URL that is something else would point every later turn at
+    // whatever happened to be listening on that port.
+    let daemon = FakeLlmux::start(Vec::new()).with_root_body(200, "nginx");
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+    assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+    assert!(!sandbox.settings_path().exists());
+    assert!(run.stderr.contains("llmux"), "got {:?}", run.stderr);
+}
+
+#[test]
+fn setup_refuses_a_daemon_whose_catalog_is_unusable() {
+    let sandbox = Sandbox::new();
+    for daemon in [
+        FakeLlmux::start(Vec::new()).with_catalog_response(500, "boom"),
+        FakeLlmux::start(Vec::new()).with_catalog_response(200, "not json"),
+        FakeLlmux::start(Vec::new()).with_catalog(json!({ "models": [] })),
+        FakeLlmux::start(Vec::new()).with_catalog(json!({ "nothing": true })),
+    ] {
+        let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url()], &[]);
+        assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
+        assert!(!sandbox.settings_path().exists());
+    }
+}
+
+// Discovery with no `--url` is deliberately *not* exercised here. Its first
+// candidate is `http://127.0.0.1:3456`, which on a developer's machine is a real
+// llmux daemon: a test of it would reach live infrastructure, and its outcome
+// would depend on whether that daemon happened to be running. The rule itself --
+// the default port first, then the port llmux's own configuration names, never a
+// scan and never anything off this machine -- is a pure function proven in
+// `src/llmux/setup.rs`, and the reading of `proxy.port` out of each documented
+// config location is proven there too.
+
+#[test]
+fn setup_never_copies_a_field_of_the_llmux_configuration_but_the_port() {
+    // llmux's configuration file holds OAuth tokens and admin keys beside the
+    // port. `--url` is used so the probe never reaches the real daemon; what is
+    // under test is that the config is read for one `u16` and nothing else
+    // reaches an output or the settings file.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let xdg = sandbox.home.join("xdg");
+    std::fs::create_dir_all(&xdg).unwrap();
+    std::fs::write(
+        xdg.join("llmux.json"),
+        json!({
+            "proxy": { "port": daemon.port() },
+            "accounts": [{ "oauth_token": "must-not-be-read" }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let run = sandbox.run(
+        &["setup", "llmux", "--url", &daemon.url(), "--json"],
+        &[("XDG_CONFIG_HOME", xdg.to_str().unwrap())],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.json()["url"], daemon.url());
+    assert!(!run.stdout.contains("must-not-be-read"), "{:?}", run.stdout);
+    assert!(!run.stderr.contains("must-not-be-read"), "{:?}", run.stderr);
+
+    let settings = std::fs::read_to_string(sandbox.settings_path()).unwrap();
+    assert!(
+        !settings.contains("must-not-be-read"),
+        "no llmux config field may be persisted: {settings}"
+    );
+}
+
+#[test]
+fn a_failed_setup_still_emits_exactly_one_json_document() {
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(
+        &["setup", "llmux", "--url", "http://example.com/", "--json"],
+        &[],
+    );
+    assert_eq!(run.code, Some(1));
+    let document = run.json();
+    assert_eq!(document["kind"], "error");
+    assert!(
+        document["message"].as_str().is_some_and(|m| !m.is_empty()),
+        "got {document}"
+    );
+    assert_eq!(run.stderr, "", "a --json failure keeps stderr clean");
 }

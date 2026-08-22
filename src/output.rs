@@ -188,6 +188,70 @@ impl StatusSnapshot {
     }
 }
 
+/// What `xfx setup llmux` reports.
+///
+/// `models` is the catalog size rather than the catalog. A setup receipt is
+/// something a person reads to confirm what happened, and a document that grew
+/// with the daemon's model list would be unbounded output for a fact nobody
+/// asked for; `xfx status` names the one model that was actually chosen.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetupSnapshot {
+    pub kind: &'static str,
+    pub backend: &'static str,
+    pub url: String,
+    pub models: usize,
+    pub model: String,
+    /// Why that model, so a replaced one is a decision the operator can see
+    /// rather than something they discover later.
+    pub model_reason: String,
+    pub settings_path: String,
+}
+
+impl SetupSnapshot {
+    pub fn new(report: &crate::llmux::setup::SetupReport) -> Self {
+        Self {
+            kind: "setup",
+            backend: crate::config::Backend::Llmux.label(),
+            url: one_line(&report.url),
+            models: report.models,
+            model: one_line(&report.model),
+            model_reason: one_line(&report.model_reason),
+            settings_path: report.settings_path.display().to_string(),
+        }
+    }
+
+    /// One `[setup] key=value` line per fact, in a fixed order.
+    pub fn render_text(&self) -> String {
+        let mut out = String::new();
+        let mut line = |key: &str, value: &str| {
+            out.push_str("[setup] ");
+            out.push_str(key);
+            out.push('=');
+            out.push_str(value);
+            out.push('\n');
+        };
+        line("backend", self.backend);
+        line("url", &self.url);
+        line("models", &self.models.to_string());
+        line("model", &self.model);
+        line("model_reason", &self.model_reason);
+        line("settings_path", &self.settings_path);
+        out
+    }
+
+    /// Exactly one newline-terminated JSON document.
+    pub fn render_json(&self) -> String {
+        render_json_document(self)
+    }
+
+    pub fn render(&self, format: OutputFormat) -> String {
+        match format {
+            OutputFormat::Text => self.render_text(),
+            OutputFormat::Json => self.render_json(),
+        }
+    }
+}
+
 /// The outcome of one diagnostic check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

@@ -18,6 +18,7 @@
 
 pub mod protocol;
 
+pub mod setup;
 pub mod sse;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
