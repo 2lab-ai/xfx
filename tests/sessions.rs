@@ -172,6 +172,7 @@ fn evidence_events() -> Vec<SessionEvent> {
                     input: json!({ "action": "exec", "command": "cat greeting.txt" }),
                 },
             ],
+            raw_content: Vec::new(),
         },
         SessionEvent::ToolResult {
             call_id: "c1".to_string(),
@@ -194,6 +195,7 @@ fn evidence_events() -> Vec<SessionEvent> {
         SessionEvent::AssistantMessage {
             text: "done".to_string(),
             tool_calls: Vec::new(),
+            raw_content: Vec::new(),
         },
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
@@ -686,6 +688,7 @@ fn a_second_writer_is_refused_while_the_first_holds_the_session() {
             SessionEvent::AssistantMessage {
                 text: "still mine".to_string(),
                 tool_calls: Vec::new(),
+                raw_content: Vec::new(),
             },
         )
         .expect("the holder keeps writing");
@@ -2174,6 +2177,7 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                         .to_string(),
                     input: json!({}),
                 }],
+                            raw_content: Vec::new(),
             },
             SessionEvent::ToolResult {
                 call_id: "c9".to_string(),

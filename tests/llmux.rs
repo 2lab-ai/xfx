@@ -45,7 +45,8 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 use support::fake_llmux::{
-    anthropic_answer, anthropic_error, anthropic_event, anthropic_stop, anthropic_text_block,
+    anthropic_answer, anthropic_error, anthropic_event, anthropic_redacted_block, anthropic_start,
+    anthropic_stop, anthropic_text_block, anthropic_thinking_block, anthropic_thinking_then_tool,
     anthropic_tool_answer, anthropic_tool_block, catalog, FakeLlmux,
 };
 
@@ -642,6 +643,127 @@ fn two_tool_blocks_claiming_one_id_are_refused() {
         decode(&body).0,
         Err(SseError::DuplicateToolCallId { .. })
     ));
+}
+
+#[test]
+fn every_content_block_is_reconstructed_in_arrival_order() {
+    // Anthropic requires a tool continuation to return prior thinking blocks
+    // unchanged, in order, signatures intact. That is only possible if the
+    // decoder keeps them, so it rebuilds each block in the non-streaming shape
+    // the next request has to send back.
+    let body = format!(
+        "{}{}{}{}{}",
+        anthropic_start("claude-fake", 3),
+        anthropic_thinking_block(0, &["step one. ", "step two."], "sig-abc123"),
+        anthropic_text_block(1, &["the ", "answer"]),
+        anthropic_tool_block(2, "toolu_1", "read_file", &["{\"path\":\"a.txt\"}"]),
+        anthropic_stop("tool_use", 3, 5),
+    );
+    let (completion, deltas) = decode(&body);
+    let completion = completion.expect("finish");
+
+    assert_eq!(
+        deltas,
+        ["the ", "answer"],
+        "reasoning never reaches the sink"
+    );
+    assert_eq!(completion.text, "the answer");
+    assert_eq!(
+        completion.raw_content,
+        vec![
+            json!({
+                "type": "thinking",
+                "thinking": "step one. step two.",
+                "signature": "sig-abc123",
+            }),
+            json!({ "type": "text", "text": "the answer" }),
+            json!({
+                "type": "tool_use",
+                "id": "toolu_1",
+                "name": "read_file",
+                "input": { "path": "a.txt" },
+            }),
+        ]
+    );
+}
+
+#[test]
+fn a_redacted_thinking_block_survives_with_its_payload() {
+    // It carries no deltas at all -- the data arrives whole at block start --
+    // so a decoder that only listened for deltas dropped it entirely.
+    let body = format!(
+        "{}{}{}",
+        anthropic_redacted_block(0, "EncryptedPayload=="),
+        anthropic_text_block(1, &["ok"]),
+        anthropic_stop("end_turn", 1, 1),
+    );
+    let completion = decode(&body).0.expect("finish");
+    assert_eq!(
+        completion.raw_content[0],
+        json!({ "type": "redacted_thinking", "data": "EncryptedPayload==" })
+    );
+}
+
+#[test]
+fn a_block_type_this_version_does_not_know_is_preserved_verbatim() {
+    // Forward compatibility: xfx cannot replay what it threw away, and it must
+    // not guess at a shape Anthropic added after this build.
+    let body = format!(
+        "{}{}{}",
+        anthropic_event(
+            "content_block_start",
+            json!({
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": { "type": "something_new", "payload": { "a": 1 } },
+            })
+        ),
+        anthropic_event(
+            "content_block_stop",
+            json!({ "type": "content_block_stop", "index": 0 })
+        ),
+        anthropic_stop("end_turn", 1, 1),
+    );
+    let completion = decode(&body).0.expect("finish");
+    assert_eq!(
+        completion.raw_content,
+        vec![json!({ "type": "something_new", "payload": { "a": 1 } })]
+    );
+}
+
+#[test]
+fn a_thinking_stream_is_bounded_like_any_other_accumulation() {
+    let mut reader = AnthropicReader::new();
+    let mut deltas = Collected::default();
+    let opened = anthropic_event(
+        "content_block_start",
+        json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "thinking", "thinking": "" },
+        }),
+    );
+    reader.push(opened.as_bytes(), &mut deltas).expect("open");
+    let frame = anthropic_event(
+        "content_block_delta",
+        json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "thinking_delta", "thinking": "x".repeat(64 * 1024) },
+        }),
+    );
+    let mut pushes = 0usize;
+    let outcome = loop {
+        pushes += 1;
+        assert!(pushes < 1024, "the ceiling was never reached");
+        if let Err(err) = reader.push(frame.as_bytes(), &mut deltas) {
+            break err;
+        }
+    };
+    assert!(
+        matches!(outcome, SseError::CompletionTooLarge { .. }),
+        "got {outcome:?}"
+    );
 }
 
 #[test]
@@ -2370,6 +2492,149 @@ fn doctor_still_fails_a_gateway_backend_with_no_credential() {
         .as_str()
         .unwrap()
         .contains("AI_GATEWAY_API_KEY"));
+}
+
+#[test]
+fn a_tool_continuation_replays_the_assistant_thinking_block_verbatim() {
+    // The load-bearing one. Anthropic verifies the signature on a replayed
+    // thinking block: a continuation that drops it, reorders it, or rebuilds an
+    // approximation of it from `text` is answered with a 400 at step two, and
+    // the whole tool loop stops working at the default model.
+    let thoughts = "I should read the file before answering.";
+    let signature = "ErUBCkYIBRgCIkDdeadbeefSIGNATURE==";
+    let daemon = FakeLlmux::start(vec![
+        Reply::Sse(anthropic_thinking_then_tool(
+            thoughts,
+            signature,
+            "toolu_1",
+            "read_file",
+            "{\"path\":\"a.txt\"}",
+        )),
+        Reply::Sse(anthropic_answer(&["it says hello"])),
+    ]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    std::fs::write(sandbox.workspace.join("a.txt"), "hello\n").expect("seed the file");
+
+    let run = sandbox.run(&["ask", "--json", "--no-save", "--auto", "read a.txt"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let requests = daemon.message_requests();
+    assert_eq!(requests.len(), 2, "the tool round takes two requests");
+    let messages = requests[1].json()["messages"].clone();
+    let messages = messages.as_array().expect("a message array");
+
+    // The assistant turn is the blocks as they arrived, in order, untouched.
+    let assistant = messages
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .unwrap_or_else(|| panic!("no assistant turn in {messages:?}"));
+    let content = assistant["content"].as_array().expect("content blocks");
+    assert_eq!(
+        content[0]["type"], "thinking",
+        "thinking leads, as it arrived"
+    );
+    assert_eq!(
+        content[0]["thinking"], thoughts,
+        "the reasoning must be byte-identical"
+    );
+    assert_eq!(
+        content[0]["signature"], signature,
+        "the signature is what anthropic verifies"
+    );
+    assert_eq!(content[1]["type"], "tool_use");
+    assert_eq!(content[1]["id"], "toolu_1");
+    assert_eq!(content[1]["input"], json!({ "path": "a.txt" }));
+
+    // And the tool result follows on a user turn, as before.
+    let last = messages.last().expect("a last message");
+    assert_eq!(last["role"], "user");
+    assert_eq!(last["content"][0]["type"], "tool_result");
+    assert_eq!(last["content"][0]["tool_use_id"], "toolu_1");
+}
+
+#[test]
+fn a_resumed_conversation_replays_the_recorded_thinking_blocks() {
+    // A resumed conversation faces the same signature check a same-process
+    // continuation does, so the blocks have to survive the session log too.
+    let thoughts = "remembering across processes";
+    let signature = "ErUBCkYIBRgCIkDresumeSIGNATURE==";
+    let daemon = FakeLlmux::start(vec![
+        Reply::Sse(anthropic_thinking_then_tool(
+            thoughts,
+            signature,
+            "toolu_9",
+            "read_file",
+            "{\"path\":\"a.txt\"}",
+        )),
+        Reply::Sse(anthropic_answer(&["done"])),
+        Reply::Sse(anthropic_answer(&["and again"])),
+    ]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    std::fs::write(sandbox.workspace.join("a.txt"), "hello\n").expect("seed the file");
+
+    let first = sandbox.run(&["ask", "--json", "--auto", "read a.txt"], &[]);
+    assert_eq!(first.code, Some(0), "stderr={:?}", first.stderr);
+
+    // A separate process, reading the log back off disk.
+    let second = sandbox.run(
+        &["ask", "--json", "--resume", "last", "anything else?"],
+        &[],
+    );
+    assert_eq!(second.code, Some(0), "stderr={:?}", second.stderr);
+
+    let requests = daemon.message_requests();
+    let replayed = requests.last().expect("a third request").json();
+    let assistant = replayed["messages"]
+        .as_array()
+        .expect("messages")
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .unwrap_or_else(|| panic!("no assistant turn in {replayed}"))
+        .clone();
+    assert_eq!(assistant["content"][0]["type"], "thinking");
+    assert_eq!(assistant["content"][0]["thinking"], thoughts);
+    assert_eq!(
+        assistant["content"][0]["signature"], signature,
+        "the signature must survive the session log"
+    );
+}
+
+#[test]
+fn a_session_listing_never_shows_the_reasoning_it_preserved() {
+    // Preserved for the wire, never for a reader: `xfx session` shows what the
+    // user and the tools said.
+    let thoughts = "this must not be displayed";
+    let daemon = FakeLlmux::start(vec![
+        Reply::Sse(anthropic_thinking_then_tool(
+            thoughts,
+            "sig",
+            "toolu_1",
+            "read_file",
+            "{\"path\":\"a.txt\"}",
+        )),
+        Reply::Sse(anthropic_answer(&["ok"])),
+    ]);
+    let sandbox = Sandbox::new();
+    sandbox.select_llmux(&daemon);
+    std::fs::write(sandbox.workspace.join("a.txt"), "hello\n").expect("seed the file");
+    assert_eq!(
+        sandbox
+            .run(&["ask", "--json", "--auto", "read a.txt"], &[])
+            .code,
+        Some(0)
+    );
+
+    for args in [vec!["session", "last"], vec!["session", "last", "--json"]] {
+        let shown = sandbox.run(&args, &[]);
+        assert_eq!(shown.code, Some(0), "stderr={:?}", shown.stderr);
+        assert!(
+            !shown.stdout.contains(thoughts),
+            "{args:?} displayed the reasoning: {}",
+            shown.stdout
+        );
+    }
 }
 
 #[test]

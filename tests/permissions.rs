@@ -2521,6 +2521,7 @@ fn calls_step(calls: Vec<ToolCall>) -> Completion {
         finish_reason: FinishReason::ToolCalls,
         usage: Usage::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     }
 }
 
@@ -2531,6 +2532,7 @@ fn answer_step(text: &str) -> Completion {
         finish_reason: FinishReason::Stop,
         usage: Usage::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     }
 }
 

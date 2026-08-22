@@ -351,6 +351,13 @@ pub enum TurnStep {
     Assistant {
         text: String,
         tool_calls: Vec<RecordedToolCall>,
+        /// The provider's own content blocks, when it sent them.
+        ///
+        /// Replayed rather than rendered: no renderer reads this, and
+        /// `xfx session` never displays it. It exists so a resumed conversation
+        /// can put back the signed reasoning blocks the Anthropic wire verifies.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        raw_content: Vec<serde_json::Value>,
     },
     ToolResult {
         call_id: String,
@@ -432,8 +439,12 @@ impl DurableState {
             let mut awaiting: Vec<String> = Vec::new();
             for step in &turn.steps {
                 match step {
-                    TurnStep::Assistant { text, tool_calls } => {
-                        if text.is_empty() && tool_calls.is_empty() {
+                    TurnStep::Assistant {
+                        text,
+                        tool_calls,
+                        raw_content,
+                    } => {
+                        if text.is_empty() && tool_calls.is_empty() && raw_content.is_empty() {
                             continue;
                         }
                         let calls: Vec<ToolCall> = tool_calls
@@ -445,7 +456,15 @@ impl DurableState {
                             })
                             .collect();
                         awaiting.extend(calls.iter().map(|call| call.id.clone()));
-                        pending.push(Message::assistant(Some(text), calls));
+                        // A recorded turn that carried the provider's own blocks
+                        // is replayed as those blocks: a resumed conversation
+                        // has to satisfy the same signature check a same-process
+                        // continuation does.
+                        pending.push(if raw_content.is_empty() {
+                            Message::assistant(Some(text), calls)
+                        } else {
+                            Message::assistant_raw(raw_content.clone(), calls)
+                        });
                     }
                     TurnStep::ToolResult {
                         call_id,
@@ -1646,12 +1665,17 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             steps: Vec::new(),
             outcome: None,
         }),
-        SessionEvent::AssistantMessage { text, tool_calls } => {
+        SessionEvent::AssistantMessage {
+            text,
+            tool_calls,
+            raw_content,
+        } => {
             open_turn(state, "an assistant step")?
                 .steps
                 .push(TurnStep::Assistant {
                     text: text.clone(),
                     tool_calls: tool_calls.clone(),
+                    raw_content: raw_content.clone(),
                 });
         }
         SessionEvent::ToolResult {
@@ -2028,6 +2052,7 @@ mod tests {
             SessionEvent::AssistantMessage {
                 text: "a".to_string(),
                 tool_calls: Vec::new(),
+                raw_content: Vec::new(),
             },
             SessionEvent::ToolResult {
                 call_id: "c".to_string(),
@@ -2144,6 +2169,7 @@ mod tests {
                     name: "read_file".to_string(),
                     input: serde_json::json!({ "path": "a.txt" }),
                 }],
+                raw_content: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
@@ -2171,6 +2197,7 @@ mod tests {
                     name: "read_file".to_string(),
                     input: serde_json::json!({}),
                 }],
+                raw_content: Vec::new(),
             },
             SessionEvent::ToolResult {
                 call_id: "c1".to_string(),
@@ -2185,6 +2212,7 @@ mod tests {
                     name: "read_file".to_string(),
                     input: serde_json::json!({}),
                 }],
+                raw_content: Vec::new(),
             },
         ])
         .expect("reduces");

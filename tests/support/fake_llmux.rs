@@ -340,6 +340,81 @@ pub fn anthropic_text_block(index: u64, fragments: &[&str]) -> String {
     out
 }
 
+/// One `thinking` block: start, thinking deltas, a signature delta, stop.
+///
+/// The signature is what Anthropic verifies on replay, so a fixture without one
+/// would not exercise the thing that actually breaks.
+pub fn anthropic_thinking_block(index: u64, thoughts: &[&str], signature: &str) -> String {
+    let mut out = anthropic_event(
+        "content_block_start",
+        json!({
+            "type": "content_block_start",
+            "index": index,
+            "content_block": { "type": "thinking", "thinking": "" },
+        }),
+    );
+    for fragment in thoughts {
+        out.push_str(&anthropic_event(
+            "content_block_delta",
+            json!({
+                "type": "content_block_delta",
+                "index": index,
+                "delta": { "type": "thinking_delta", "thinking": fragment },
+            }),
+        ));
+    }
+    out.push_str(&anthropic_event(
+        "content_block_delta",
+        json!({
+            "type": "content_block_delta",
+            "index": index,
+            "delta": { "type": "signature_delta", "signature": signature },
+        }),
+    ));
+    out.push_str(&anthropic_event(
+        "content_block_stop",
+        json!({ "type": "content_block_stop", "index": index }),
+    ));
+    out
+}
+
+/// A `redacted_thinking` block, whose payload arrives whole at block start.
+pub fn anthropic_redacted_block(index: u64, data: &str) -> String {
+    let mut out = anthropic_event(
+        "content_block_start",
+        json!({
+            "type": "content_block_start",
+            "index": index,
+            "content_block": { "type": "redacted_thinking", "data": data },
+        }),
+    );
+    out.push_str(&anthropic_event(
+        "content_block_stop",
+        json!({ "type": "content_block_stop", "index": index }),
+    ));
+    out
+}
+
+/// A complete answer that thinks first, then calls a tool -- the shape whose
+/// continuation Anthropic rejects if the thinking is not replayed.
+pub fn anthropic_thinking_then_tool(
+    thoughts: &str,
+    signature: &str,
+    id: &str,
+    name: &str,
+    input: &str,
+) -> String {
+    let mut out = anthropic_start("claude-fake", 3);
+    out.push_str(&anthropic_thinking_block(0, &[thoughts], signature));
+    out.push_str(&anthropic_tool_block(1, id, name, &[input]));
+    out.push_str(&anthropic_stop("tool_use", 3, 5));
+    out.push_str(&anthropic_event(
+        "message_stop",
+        json!({ "type": "message_stop" }),
+    ));
+    out
+}
+
 /// One `tool_use` block whose input arrives as JSON fragments.
 pub fn anthropic_tool_block(index: u64, id: &str, name: &str, fragments: &[&str]) -> String {
     let mut out = anthropic_event(

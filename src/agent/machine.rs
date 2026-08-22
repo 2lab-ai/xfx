@@ -355,6 +355,11 @@ impl TurnMachine {
                     journal.record(SessionEvent::AssistantMessage {
                         text: completion.text.clone(),
                         tool_calls: Vec::new(),
+                        // The final step has no continuation to satisfy, so the
+                        // blocks are not needed -- but a resumed conversation
+                        // replays this turn too, and Anthropic checks the
+                        // signature there as well.
+                        raw_content: completion.raw_content.clone(),
                     });
                 }
                 return match completion.finish_reason {
@@ -422,10 +427,20 @@ impl TurnMachine {
         // The assistant turn goes in exactly as the provider sent it: its text,
         // then its calls in order. The next request has to show the model what
         // it asked for, not xfx's paraphrase of it.
-        self.suffix.push(Message::assistant(
-            Some(&completion.text),
-            completion.tool_calls.clone(),
-        ));
+        //
+        // When the provider sent its own content blocks, "exactly as it sent
+        // them" stops being a figure of speech. Anthropic signs its reasoning
+        // blocks and verifies the signature when they come back in a tool
+        // continuation, so a rebuilt-from-text assistant turn is answered with a
+        // 400 at the next step. The blocks are replayed verbatim instead.
+        self.suffix.push(if completion.raw_content.is_empty() {
+            Message::assistant(Some(&completion.text), completion.tool_calls.clone())
+        } else {
+            Message::assistant_raw(
+                completion.raw_content.clone(),
+                completion.tool_calls.clone(),
+            )
+        });
         journal.record(SessionEvent::AssistantMessage {
             text: completion.text.clone(),
             tool_calls: completion
@@ -437,6 +452,7 @@ impl TurnMachine {
                     input: call.input.clone(),
                 })
                 .collect(),
+            raw_content: completion.raw_content.clone(),
         });
 
         for call in &completion.tool_calls {

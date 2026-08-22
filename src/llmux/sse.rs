@@ -56,28 +56,71 @@ pub const MAX_OPEN_BLOCKS: usize = 64;
 #[derive(Debug)]
 enum Block {
     /// A text block. Its deltas are the answer.
-    Text,
+    Text { text: String },
     /// A tool call whose arguments are arriving as JSON fragments.
     ToolUse {
         id: String,
         name: String,
         arguments: String,
+        /// The parsed arguments, once the block closes.
+        input: Value,
     },
-    /// A block this version does not act on -- `thinking`, `redacted_thinking`,
-    /// or something newer. Tracked rather than ignored so that its deltas are
-    /// dropped on purpose instead of being mistaken for another block's.
+    /// Reasoning. Never rendered, always preserved: Anthropic verifies the
+    /// signature when the block is replayed in a continuation.
+    Thinking { thinking: String, signature: String },
+    /// A block this version does not act on and cannot interpret --
+    /// `redacted_thinking`, or a type added after this build.
     ///
-    /// Its deltas never reach the answer, which is what keeps reasoning out of
-    /// the assistant's reply -- but the block itself is **preserved** in
-    /// `raw_content`, because Anthropic requires a tool continuation to return
-    /// prior thinking blocks unchanged.
-    Opaque,
+    /// The `content_block` object from the start frame is kept exactly as it
+    /// arrived. xfx cannot replay what it threw away, and it must not guess at
+    /// a shape it does not know, so verbatim is the only safe representation.
+    Opaque { block: Value },
+}
+
+impl Block {
+    /// The block in the non-streaming shape a follow-up request sends back.
+    fn rendered(&self) -> Option<Value> {
+        match self {
+            Self::Text { text } => Some(json_block([
+                ("type", Value::from("text")),
+                ("text", Value::from(text.as_str())),
+            ])),
+            Self::ToolUse {
+                id, name, input, ..
+            } => Some(json_block([
+                ("type", Value::from("tool_use")),
+                ("id", Value::from(id.as_str())),
+                ("name", Value::from(name.as_str())),
+                ("input", input.clone()),
+            ])),
+            Self::Thinking {
+                thinking,
+                signature,
+            } => Some(json_block([
+                ("type", Value::from("thinking")),
+                ("thinking", Value::from(thinking.as_str())),
+                ("signature", Value::from(signature.as_str())),
+            ])),
+            Self::Opaque { block } => Some(block.clone()),
+        }
+    }
+}
+
+fn json_block<const N: usize>(entries: [(&str, Value); N]) -> Value {
+    let mut map = Map::with_capacity(N);
+    for (key, value) in entries {
+        map.insert(key.to_string(), value);
+    }
+    Value::Object(map)
 }
 
 /// One open content block and the index the stream addresses it by.
 #[derive(Debug)]
-struct OpenBlock {
+struct TrackedBlock {
     index: u64,
+    /// Whether the stream has closed it. A closed block still has to be kept:
+    /// `raw_content` is the whole message, not the part still arriving.
+    closed: bool,
     block: Block,
 }
 
@@ -93,7 +136,7 @@ pub struct AnthropicReader {
     /// how an `error` frame can still be recognized.
     pending_event: Option<String>,
     text: String,
-    blocks: Vec<OpenBlock>,
+    blocks: Vec<TrackedBlock>,
     tool_calls: Vec<ToolCall>,
     /// Bytes counted against [`MAX_COMPLETION_BYTES`]: text plus tool arguments.
     accumulated: usize,
@@ -191,6 +234,11 @@ impl AnthropicReader {
                 tool_calls: self.tool_calls,
                 finish_reason,
                 usage: self.usage,
+                raw_content: self
+                    .blocks
+                    .iter()
+                    .filter_map(|tracked| tracked.block.rendered())
+                    .collect(),
                 // Never set on this wire: an `error` frame fails the decode
                 // where it arrives, so a stream that reaches here reported no
                 // failure to carry.
@@ -310,11 +358,20 @@ impl AnthropicReader {
                 limit: MAX_COMPLETION_BYTES,
             });
         }
+        let opaque = || Block::Opaque {
+            block: Value::Object(kind.clone()),
+        };
         let block = match kind.get("type").and_then(Value::as_str) {
-            Some("text") => Block::Text,
+            Some("text") => Block::Text {
+                text: String::new(),
+            },
+            Some("thinking") => Block::Thinking {
+                thinking: String::new(),
+                signature: String::new(),
+            },
             Some("tool_use") => {
                 // A tool call with no identity cannot be correlated to a result,
-                // so it is tracked as opaque rather than invented.
+                // so it is kept verbatim rather than invented.
                 match (string_field(kind, "id"), string_field(kind, "name")) {
                     (Some(id), Some(name)) => {
                         self.charge(id.len() + name.len())?;
@@ -322,18 +379,42 @@ impl AnthropicReader {
                             id: id.to_string(),
                             name: name.to_string(),
                             arguments: String::new(),
+                            input: Value::Object(Map::new()),
                         }
                     }
-                    _ => Block::Opaque,
+                    _ => opaque(),
                 }
             }
-            _ => Block::Opaque,
+            // `redacted_thinking` lands here and that is deliberate: its payload
+            // arrives whole at block start and it has no deltas, so keeping the
+            // start object verbatim keeps all of it. Anything newer is kept the
+            // same way, for the same reason.
+            _ => {
+                self.charge(
+                    kind.iter()
+                        .map(|(k, v)| k.len() + v.to_string().len())
+                        .sum(),
+                )?;
+                opaque()
+            }
         };
         // A reused index replaces the block it addresses: the stream owns the
         // numbering, and keeping a stale entry would misroute later deltas.
-        self.blocks.retain(|open| open.index != index);
-        self.blocks.push(OpenBlock { index, block });
+        self.blocks.retain(|tracked| tracked.index != index);
+        self.blocks.push(TrackedBlock {
+            index,
+            closed: false,
+            block,
+        });
         Ok(())
+    }
+
+    /// The still-open block a delta at `index` addresses.
+    fn open_at(&mut self, index: u64) -> Option<&mut Block> {
+        self.blocks
+            .iter_mut()
+            .find(|tracked| tracked.index == index && !tracked.closed)
+            .map(|tracked| &mut tracked.block)
     }
 
     /// Charges `bytes` against the completion ceiling.
@@ -373,16 +454,13 @@ impl AnthropicReader {
                 // this way is a stream xfx can still answer from correctly,
                 // and refusing the turn would be a harsher response to the
                 // daemon's mistake than the operator's problem warrants.
-                if !matches!(
-                    self.blocks.iter().find(|open| open.index == index),
-                    Some(OpenBlock {
-                        block: Block::Text,
-                        ..
-                    })
-                ) {
+                if !matches!(self.open_at(index), Some(Block::Text { .. })) {
                     return Ok(());
                 }
                 self.charge(text.len())?;
+                if let Some(Block::Text { text: block }) = self.open_at(index) {
+                    block.push_str(text);
+                }
                 self.text.push_str(text);
                 // Handed to the sink borrowed: this is the hot path of every
                 // streamed answer, and a fresh allocation per token buys nothing.
@@ -395,17 +473,33 @@ impl AnthropicReader {
                 self.charge(fragment.len())?;
                 // A fragment for an unopened block is dropped: correlating it
                 // would invent a call the daemon never opened.
-                if let Some(OpenBlock {
-                    block: Block::ToolUse { arguments, .. },
-                    ..
-                }) = self.blocks.iter_mut().find(|open| open.index == index)
-                {
+                if let Some(Block::ToolUse { arguments, .. }) = self.open_at(index) {
                     arguments.push_str(fragment);
                 }
                 Ok(())
             }
-            // `thinking_delta` and `signature_delta` are reasoning, not the
-            // answer, and xfx does not render them.
+            // Reasoning is never rendered and always kept: the continuation has
+            // to send it back, and the signature is what Anthropic verifies.
+            Some("thinking_delta") => {
+                let Some(fragment) = string_field(delta, "thinking") else {
+                    return Ok(());
+                };
+                self.charge(fragment.len())?;
+                if let Some(Block::Thinking { thinking, .. }) = self.open_at(index) {
+                    thinking.push_str(fragment);
+                }
+                Ok(())
+            }
+            Some("signature_delta") => {
+                let Some(fragment) = string_field(delta, "signature") else {
+                    return Ok(());
+                };
+                self.charge(fragment.len())?;
+                if let Some(Block::Thinking { signature, .. }) = self.open_at(index) {
+                    signature.push_str(fragment);
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -418,18 +512,26 @@ impl AnthropicReader {
             // tool, and the turn would be handed `ToolCalls` with no calls in it.
             return self.refuse_open_tool_block("a `content_block_stop` carried no usable `index`");
         };
-        let Some(position) = self.blocks.iter().position(|open| open.index == index) else {
+        let Some(position) = self
+            .blocks
+            .iter()
+            .position(|tracked| tracked.index == index && !tracked.closed)
+        else {
             return Ok(());
         };
-        let closed = self.blocks.remove(position);
+        // Marked closed rather than removed: `raw_content` is the whole message,
+        // so a block that finished still has to be replayable.
+        self.blocks[position].closed = true;
         let Block::ToolUse {
             id,
             name,
             arguments,
-        } = closed.block
+            ..
+        } = &self.blocks[position].block
         else {
             return Ok(());
         };
+        let (id, name, arguments) = (id.clone(), name.clone(), arguments.clone());
 
         if self.tool_calls.iter().any(|call| call.id == id) {
             return Err(SseError::DuplicateToolCallId { call_id: id });
@@ -438,14 +540,21 @@ impl AnthropicReader {
         // "nothing arrived" is an empty object rather than a failure. Anything
         // that did arrive has to parse: guessing at half a JSON document would
         // run a tool with arguments the model did not send.
-        let input = if arguments.trim().is_empty() {
+        let parsed = if arguments.trim().is_empty() {
             Value::Object(Map::new())
         } else {
             serde_json::from_str(&arguments).map_err(|err| SseError::InvalidToolCall {
                 detail: format!("tool call `{id}` streamed unusable input: {err}"),
             })?
         };
-        self.tool_calls.push(ToolCall { id, name, input });
+        if let Block::ToolUse { input, .. } = &mut self.blocks[position].block {
+            *input = parsed.clone();
+        }
+        self.tool_calls.push(ToolCall {
+            id,
+            name,
+            input: parsed,
+        });
         Ok(())
     }
 
@@ -454,8 +563,8 @@ impl AnthropicReader {
     /// Nothing to assemble means nothing to lie about, so this is a no-op unless
     /// a `tool_use` block is still open.
     fn refuse_open_tool_block(&self, reason: &str) -> Result<(), SseError> {
-        let open = self.blocks.iter().find_map(|open| match &open.block {
-            Block::ToolUse { id, .. } => Some(id.as_str()),
+        let open = self.blocks.iter().find_map(|tracked| match &tracked.block {
+            Block::ToolUse { id, .. } if !tracked.closed => Some(id.as_str()),
             _ => None,
         });
         match open {

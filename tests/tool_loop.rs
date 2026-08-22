@@ -1145,6 +1145,7 @@ fn calls_step(calls: Vec<ToolCall>) -> ScriptedStep {
             finish_reason: FinishReason::ToolCalls,
             usage: Usage::default(),
             provider_detail: None,
+            raw_content: Vec::new(),
         },
     }
 }
@@ -1158,6 +1159,7 @@ fn final_step(text: &str) -> ScriptedStep {
             finish_reason: FinishReason::Stop,
             usage: Usage::default(),
             provider_detail: None,
+            raw_content: Vec::new(),
         },
     }
 }

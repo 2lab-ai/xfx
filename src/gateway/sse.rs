@@ -247,6 +247,9 @@ impl SseReader {
                 finish_reason,
                 usage: self.usage,
                 provider_detail: self.provider_detail,
+                // The Vercel wire has no replay contract and no signed blocks,
+                // so there is nothing here to preserve.
+                raw_content: Vec::new(),
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.

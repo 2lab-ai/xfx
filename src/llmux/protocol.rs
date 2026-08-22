@@ -223,6 +223,10 @@ fn wire_messages(messages: &[crate::gateway::protocol::Message]) -> Vec<WireMess
 
 /// One xfx message's content blocks, before merging.
 fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
+    // When the provider's own blocks are present they *are* the message, tool
+    // calls included; emitting the parallel `ToolCall` parts as well would send
+    // every call twice.
+    let raw = message.raw_blocks().is_some();
     // A tool result is answered by the *user* on this wire: Anthropic has no
     // `tool` role, and the result of a call the assistant made comes back as
     // user content.
@@ -244,12 +248,19 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 ("type", Value::from("text")),
                 ("text", Value::from(text.as_str())),
             ])),
+            ContentPart::ToolCall(_) if raw => {}
             ContentPart::ToolCall(call) => wire.blocks.push(json_block([
                 ("type", Value::from("tool_use")),
                 ("id", Value::from(call.id.as_str())),
                 ("name", Value::from(call.name.as_str())),
                 ("input", call.input.clone()),
             ])),
+            // The provider's own blocks go back exactly as they arrived: this
+            // wire verifies a signature on the thinking blocks it sent, and a
+            // signature cannot survive being paraphrased. The tool calls that
+            // travel alongside them are skipped below, because these blocks
+            // already contain them.
+            ContentPart::RawBlocks(blocks) => wire.blocks.extend(blocks.iter().cloned()),
             ContentPart::ToolResult {
                 call_id,
                 tool: _,

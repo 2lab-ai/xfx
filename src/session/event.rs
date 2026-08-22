@@ -116,9 +116,21 @@ pub enum SessionEvent {
     /// The user's message. This is what opens a turn.
     UserMessage { text: String },
     /// One assistant step: its text, then the tools it asked for, in order.
+    ///
+    /// `raw_content` is the provider's own content blocks when it sent them,
+    /// and it is recorded for one reason: the Anthropic wire verifies the
+    /// signature on a reasoning block replayed in a continuation, so a resumed
+    /// conversation that rebuilt the assistant turn from `text` would be
+    /// answered with a 400. It can be **large** -- reasoning is not bounded by
+    /// the answer's length -- and it is never displayed by any renderer; it
+    /// exists to go back on the wire. Absent on old records and on the Gateway
+    /// wire, which has no such contract; those rebuild from text and calls as
+    /// before.
     AssistantMessage {
         text: String,
         tool_calls: Vec<RecordedToolCall>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        raw_content: Vec<serde_json::Value>,
     },
     /// The evidence one tool call produced, correlated by `call_id`.
     ///
@@ -344,6 +356,7 @@ mod tests {
                     name: "read_file".to_string(),
                     input: json!({ "path": "a.txt" }),
                 }],
+                raw_content: Vec::new(),
             },
         );
         assert_eq!(frame.encode().unwrap(), frame.encode().unwrap());
@@ -449,6 +462,7 @@ mod tests {
             SessionEvent::AssistantMessage {
                 text: "a".to_string(),
                 tool_calls: Vec::new(),
+                raw_content: Vec::new(),
             },
             SessionEvent::ToolResult {
                 call_id: "c".to_string(),

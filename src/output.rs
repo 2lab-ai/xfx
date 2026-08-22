@@ -721,7 +721,12 @@ impl SessionDetailSnapshot {
                     .steps
                     .iter()
                     .map(|step| match step {
-                        TurnStep::Assistant { text, tool_calls } => SessionStepRow::Assistant {
+                        // `raw_content` is deliberately not read: a session
+                        // renderer shows what the user and the tools said, and
+                        // reasoning is preserved for the wire, never displayed.
+                        TurnStep::Assistant {
+                            text, tool_calls, ..
+                        } => SessionStepRow::Assistant {
                             text: clip_text(text),
                             // A tool name is a string out of the log, and the
                             // log is read as untrusted whatever a live provider

@@ -102,6 +102,65 @@ fn tool_choice_labels_match_the_gateway_vocabulary() {
 }
 
 #[test]
+fn an_assistant_message_carrying_another_wire_s_blocks_degrades_to_this_one() {
+    // A session recorded against the llmux backend and continued on the Gateway
+    // must not panic and must not forward the other provider's private
+    // reasoning. The text survives; the thinking does not travel.
+    let request = CompletionRequest {
+        model: "vendor/model".to_string(),
+        messages: vec![
+            Message::user("go"),
+            Message::assistant_raw(
+                vec![
+                    json!({
+                        "type": "thinking",
+                        "thinking": "private reasoning",
+                        "signature": "sig-abc",
+                    }),
+                    json!({ "type": "text", "text": "the answer" }),
+                    json!({
+                        "type": "tool_use",
+                        "id": "c1",
+                        "name": "read_file",
+                        "input": { "path": "a.txt" },
+                    }),
+                ],
+                vec![ToolCall {
+                    id: "c1".to_string(),
+                    name: "read_file".to_string(),
+                    input: json!({ "path": "a.txt" }),
+                }],
+            ),
+            Message::tool_result("c1", "read_file", "hello"),
+        ],
+        tools: Vec::new(),
+        tool_choice: ToolChoice::Auto,
+    };
+    let body = request.body().expect("serialize");
+    assert!(
+        !body.contains("private reasoning") && !body.contains("sig-abc"),
+        "another provider's reasoning must not travel here: {body}"
+    );
+
+    let parsed: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        parsed["prompt"][1],
+        json!({
+            "role": "assistant",
+            "content": [
+                { "type": "text", "text": "the answer" },
+                {
+                    "type": "tool-call",
+                    "toolCallId": "c1",
+                    "toolName": "read_file",
+                    "input": { "path": "a.txt" },
+                },
+            ],
+        })
+    );
+}
+
+#[test]
 fn a_system_message_serializes_as_a_bare_string_not_a_part_array() {
     // Upstream writes system content as a string and every other role as a
     // typed part array (`src/core/gateway/gateway_json.zig:552-560`).
@@ -925,6 +984,7 @@ fn stopped(text: &str) -> Completion {
         finish_reason: FinishReason::Stop,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     }
 }
 
@@ -1234,6 +1294,7 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
         finish_reason: FinishReason::ToolCalls,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1256,6 +1317,7 @@ async fn a_provider_error_finish_fails_the_turn_with_its_detail() {
         finish_reason: FinishReason::ProviderError,
         usage: Default::default(),
         provider_detail: Some("model overloaded".to_string()),
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(
         vec!["half".to_string()],
@@ -1280,6 +1342,7 @@ async fn a_tool_call_finish_that_names_no_tool_is_rejected() {
         finish_reason: FinishReason::ToolCalls,
         usage: Default::default(),
         provider_detail: None,
+        raw_content: Vec::new(),
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
