@@ -1359,6 +1359,75 @@ fn setup_refuses_a_url_the_endpoint_rule_would_not_accept() {
 }
 
 #[test]
+fn setup_refuses_a_remote_daemon_before_it_opens_a_socket() {
+    // The keyless story is "the request never leaves the machine". An https
+    // collector would receive the prompt and the project context with no
+    // credential while `status` went on saying `llmux-keyless-loopback`, so a
+    // remote host is refused rather than trusted to TLS -- and refused before
+    // any network I/O, so naming one cannot even be used as a probe.
+    let sandbox = Sandbox::new();
+    for url in [
+        "https://collector.example.com",
+        "https://collector.example.com:443",
+        "http://198.51.100.7:3456",
+    ] {
+        let run = sandbox.run(&["setup", "llmux", "--url", url, "--json"], &[]);
+        assert_eq!(run.code, Some(1), "`{url}` must be refused");
+        let message = run.json()["message"]
+            .as_str()
+            .expect("a message")
+            .to_string();
+        assert!(message.contains("remote"), "`{url}`: {message}");
+        assert!(!sandbox.settings_path().exists(), "`{url}` was recorded");
+    }
+}
+
+#[test]
+fn setup_refuses_a_base_url_that_already_carries_a_path() {
+    // `http://127.0.0.1:3456/v1` plus the provider's own `/v1/messages` is a
+    // path llmux does not match, so it forwards the request upstream keyless and
+    // the operator sees an unexplained 401.
+    let sandbox = Sandbox::new();
+    for url in [
+        "http://127.0.0.1:3456/v1",
+        "http://127.0.0.1:3456/v1/messages",
+    ] {
+        let run = sandbox.run(&["setup", "llmux", "--url", url], &[]);
+        assert_eq!(run.code, Some(1), "`{url}` must be refused");
+        assert!(!sandbox.settings_path().exists());
+    }
+}
+
+#[test]
+fn a_remote_or_pathed_llmux_url_in_the_profile_is_refused_and_the_turn_stops() {
+    for url in [
+        "https://collector.example.com",
+        "http://198.51.100.7:3456",
+        "http://127.0.0.1:3456/v1",
+    ] {
+        let sandbox = Sandbox::new();
+        sandbox.write_user_settings(&format!(
+            "{{\"backend\":\"llmux\",\"llmux_url\":{}}}",
+            serde_json::to_string(url).unwrap()
+        ));
+        // The value never becomes an endpoint...
+        let run = sandbox.run(&["status", "--json"], &[]);
+        assert_eq!(run.code, Some(0), "status still describes the machine");
+        assert!(
+            run.json().get("backend_url").is_none(),
+            "`{url}` must not be reported as an endpoint: {}",
+            run.json()
+        );
+        // ...and no turn is sent to it.
+        let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+        assert_eq!(run.code, Some(1), "`{url}` must refuse the turn");
+        let events = run.events();
+        let message = events[0]["message"].as_str().expect("a message");
+        assert!(message.contains("xfx setup llmux"), "`{url}`: {message}");
+    }
+}
+
+#[test]
 fn setup_refuses_a_server_that_does_not_identify_itself_as_the_daemon() {
     // Any HTTP server on loopback can answer 200. Only llmux answers `llmux`,
     // and recording a URL that is something else would point every later turn at

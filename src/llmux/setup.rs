@@ -35,7 +35,7 @@ use serde_json::{Map, Value};
 use crate::config::{
     Environment, RuntimeConfig, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME, MAX_SETTINGS_BYTES,
 };
-use crate::gateway::{Endpoint, EndpointError, USER_AGENT};
+use crate::gateway::{EndpointError, USER_AGENT};
 
 use super::DEFAULT_URL;
 
@@ -189,7 +189,7 @@ async fn discover(
     let client = probe_client()?;
 
     if let Some(url) = explicit_url {
-        let endpoint = Endpoint::checked(url, "--url").map_err(SetupError::Endpoint)?;
+        let endpoint = super::endpoint(url, "--url").map_err(SetupError::Endpoint)?;
         let url = trim_base(endpoint.url());
         let catalog = probe(&client, &url).await?;
         return Ok((url, catalog));

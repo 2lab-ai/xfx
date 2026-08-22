@@ -622,8 +622,9 @@ pub(crate) fn build_provider(
                 .ok_or_else(|| MISSING_URL_HELP.to_string())?;
             // Re-checked here rather than trusted: the value reached this point
             // through configuration, and the rule that decides what may receive
-            // a prompt belongs to the transport.
-            let endpoint = Endpoint::checked(url, "llmux_url").map_err(|err| err.to_string())?;
+            // a keyless prompt belongs to the module that made the promise.
+            let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY)
+                .map_err(|err| err.to_string())?;
             let provider =
                 LlmuxProvider::new(endpoint, cancel.clone()).map_err(|err| err.to_string())?;
             Ok(Box::new(provider))

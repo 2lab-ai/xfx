@@ -13,8 +13,14 @@
 //! `messages`/`tools`/`tool_choice` -- and the decoders disagree about what a
 //! finished answer even looks like. What they *do* share is the transport
 //! discipline, and that is shared rather than copied: one attempt per call, the
-//! same timeouts, the same bounded error body, the same `Retry-After` reading,
-//! and the same rule about which URL is allowed to receive a request.
+//! same timeouts, the same bounded error body, and the same `Retry-After`
+//! reading.
+//!
+//! What they do **not** share is which URL may receive a request. The Gateway's
+//! rule protects a credential, so https is acceptable anywhere. This one has no
+//! credential to protect, and the only reason that is safe is that the request
+//! never leaves the machine -- so the endpoint must be a loopback address with
+//! an explicit port and no path, whatever the scheme. See [`endpoint`].
 
 pub mod protocol;
 
@@ -26,7 +32,8 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use crate::gateway::protocol::{Completion, CompletionRequest};
 use crate::gateway::{
     build_client, is_retryable_status, parse_retry_after, read_bounded, CancelToken, DeltaSink,
-    Endpoint, Provider, ProviderError, CANCEL_POLL, MAX_ERROR_BODY_BYTES,
+    Endpoint, EndpointError, EndpointPolicy, Provider, ProviderError, CANCEL_POLL,
+    MAX_ERROR_BODY_BYTES,
 };
 use futures_util::StreamExt;
 use sse::AnthropicReader;
@@ -43,6 +50,26 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// What xfx tells the user to run when the backend has no endpoint to use.
 pub const SETUP_HINT: &str = "run `xfx setup llmux` to point xfx at the local llmux daemon";
+
+/// The settings key that names the daemon, and the subject of its refusals.
+pub const URL_KEY: &str = "llmux_url";
+
+/// Accepts a URL that may be used as an llmux base address.
+///
+/// **The single gate.** Configuration, `setup --url`, and provider construction
+/// all come through here, so the policy cannot be enforced in one of them and
+/// forgotten in another -- which is exactly how a remote URL would reach the
+/// wire while `status` went on reporting a keyless loopback arrangement.
+///
+/// The policy is [`EndpointPolicy::LoopbackService`] rather than the bearer rule
+/// the Gateway uses: this request carries the prompt and the project context
+/// with **no credential**, and the only reason that is safe is that it does not
+/// leave the machine. TLS does not substitute for that, so an https host off
+/// this machine is refused too. A remote llmux is a feature with its own
+/// credential story and xfx does not have one.
+pub fn endpoint(url: &str, subject: &'static str) -> Result<Endpoint, EndpointError> {
+    Endpoint::checked_with(url, subject, EndpointPolicy::LoopbackService)
+}
 
 /// The message a turn fails with when `backend` is `llmux` and no url resolved.
 pub const MISSING_URL_HELP: &str = "xfx is configured to use the llmux backend but no valid \
@@ -198,7 +225,7 @@ mod tests {
 
     fn provider(url: &str) -> LlmuxProvider {
         LlmuxProvider::new(
-            Endpoint::checked(url, "llmux_url").expect("a loopback url"),
+            endpoint(url, URL_KEY).expect("a loopback url"),
             CancelToken::new(),
         )
         .expect("build the provider")
@@ -252,11 +279,8 @@ mod tests {
     async fn a_cancelled_provider_does_not_open_a_socket() {
         let cancel = CancelToken::new();
         cancel.cancel();
-        let provider = LlmuxProvider::new(
-            Endpoint::checked("http://127.0.0.1:1", "llmux_url").unwrap(),
-            cancel,
-        )
-        .expect("build the provider");
+        let provider = LlmuxProvider::new(endpoint("http://127.0.0.1:1", URL_KEY).unwrap(), cancel)
+            .expect("build the provider");
         let request = CompletionRequest {
             model: "fable".to_string(),
             messages: vec![Message::user("hi")],

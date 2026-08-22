@@ -122,9 +122,6 @@ impl Default for Backend {
     }
 }
 
-/// The name the `llmux_url` refusals use, so a message names the settings key.
-const LLMUX_URL_KEY: &str = "llmux_url";
-
 /// How much authority the agent has before it must ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PermissionMode {
@@ -689,18 +686,20 @@ fn parse_layer(
             }
         }
         if let Some(value) = object.get("llmux_url") {
-            // The transport owns what a URL is allowed to be, because the URL
-            // receives the prompt. A refused one is dropped rather than kept as
-            // a string somebody downstream might decide to trust.
+            // The llmux module owns what one of its URLs is allowed to be,
+            // because that policy is what makes the keyless story true: the
+            // request carries the prompt and no credential, so the endpoint has
+            // to be on this machine. A refused one is dropped rather than kept
+            // as a string somebody downstream might decide to trust.
             match value
                 .as_str()
-                .and_then(|raw| crate::gateway::Endpoint::checked(raw, LLMUX_URL_KEY).ok())
+                .and_then(|raw| crate::llmux::endpoint(raw, crate::llmux::URL_KEY).ok())
             {
                 Some(endpoint) => settings.llmux_url = Some(endpoint.url().to_string()),
                 None => diagnostics.push(Diagnostic::with_key(
                     layer,
                     DiagnosticCause::InvalidValue,
-                    LLMUX_URL_KEY,
+                    crate::llmux::URL_KEY,
                 )),
             }
         }

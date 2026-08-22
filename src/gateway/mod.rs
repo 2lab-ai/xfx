@@ -153,15 +153,28 @@ impl Endpoint {
         Self::checked(candidate, GATEWAY_URL_ENV)
     }
 
-    /// Applies the same rule to a URL that came from somewhere else.
+    /// Applies the bearer-transport rule to a URL that came from somewhere else.
     ///
-    /// The rule belongs to this module because it is a transport rule, and it is
-    /// one rule: whatever names the endpoint, the request body goes there. Only
-    /// the *name of the knob* differs, so `subject` is carried into the refusal
+    /// The rule belongs to this module because it is a transport rule. Only the
+    /// *name of the knob* differs, so `subject` is carried into the refusal
     /// rather than the environment variable this module happens to own -- a
     /// message that told an operator to fix `XFX_GATEWAY_URL` when they had
     /// mistyped `llmux_url` would send them to edit a variable they never set.
     pub fn checked(url: &str, subject: &'static str) -> Result<Self, EndpointError> {
+        Self::checked_with(url, subject, EndpointPolicy::BearerTransport)
+    }
+
+    /// Accepts a URL under the policy that fits what will be sent to it.
+    ///
+    /// Both policies refuse a malformed URL, a scheme outside http/https, and
+    /// embedded userinfo. They part company on *why* an endpoint is allowed to
+    /// receive a request at all, and that is a question about the promise xfx has
+    /// made to the operator rather than about URLs -- see [`EndpointPolicy`].
+    pub fn checked_with(
+        url: &str,
+        subject: &'static str,
+        policy: EndpointPolicy,
+    ) -> Result<Self, EndpointError> {
         let candidate = url.trim();
         let Some(parsed) = ParsedUrl::parse(candidate) else {
             return Err(EndpointError::Malformed {
@@ -182,11 +195,30 @@ impl Endpoint {
                 url: candidate.to_string(),
             });
         }
-        if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
-            return Err(EndpointError::NonLoopbackHttp {
-                subject,
-                url: candidate.to_string(),
-            });
+        match policy {
+            EndpointPolicy::BearerTransport => {
+                if parsed.scheme == "http" && !parsed.is_loopback_with_port() {
+                    return Err(EndpointError::NonLoopbackHttp {
+                        subject,
+                        url: candidate.to_string(),
+                    });
+                }
+            }
+            EndpointPolicy::LoopbackService => {
+                if !parsed.is_loopback_with_port() {
+                    return Err(EndpointError::NotLoopback {
+                        subject,
+                        url: candidate.to_string(),
+                    });
+                }
+                if !parsed.path.is_empty() && parsed.path != "/" {
+                    return Err(EndpointError::UnexpectedPath {
+                        subject,
+                        url: candidate.to_string(),
+                        path: parsed.path,
+                    });
+                }
+            }
         }
         Ok(Self {
             url: candidate.to_string(),
@@ -206,6 +238,30 @@ impl Endpoint {
     pub fn url(&self) -> &str {
         &self.url
     }
+}
+
+/// What an endpoint is allowed to be, given what will be sent to it.
+///
+/// Two policies, because xfx makes two different promises.
+///
+/// [`Self::BearerTransport`] guards a URL that receives a **credential**. TLS is
+/// what protects it, so https is acceptable anywhere and cleartext http only to
+/// a loopback address with an explicit port.
+///
+/// [`Self::LoopbackService`] guards a URL that receives a **prompt with no
+/// credential at all**. The reason that is safe is that the request never leaves
+/// the machine -- so "it never leaves the machine" has to be enforced rather than
+/// assumed, and TLS does not substitute for it: an https collector on the
+/// internet would receive the prompt and the project context, keyless, while
+/// `status` went on reporting `llmux-keyless-loopback`. The label is true by
+/// construction only if a remote host cannot be named in the first place. The
+/// base URL must also carry no path, because a provider appends its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EndpointPolicy {
+    /// https anywhere, http only on loopback with an explicit port.
+    BearerTransport,
+    /// http or https, loopback host with an explicit port, and no path.
+    LoopbackService,
 }
 
 /// Why an endpoint was refused.
@@ -230,6 +286,17 @@ pub enum EndpointError {
     NonLoopbackHttp {
         subject: &'static str,
         url: String,
+    },
+    /// A local-service endpoint named a host that is not on this machine.
+    NotLoopback {
+        subject: &'static str,
+        url: String,
+    },
+    /// A local-service base URL carried a path, which a provider would append to.
+    UnexpectedPath {
+        subject: &'static str,
+        url: String,
+        path: String,
     },
 }
 
@@ -257,6 +324,19 @@ impl fmt::Display for EndpointError {
                  explicit port, because the request travels in cleartext; \
                  `{url}` is not one"
             ),
+            Self::NotLoopback { subject, url } => write!(
+                f,
+                "{subject} must name a service on this machine -- a loopback address \
+                 with an explicit port, such as `http://127.0.0.1:3456` -- because the \
+                 request carries the prompt with no credential and is safe only while \
+                 it does not leave the machine; `{url}` is remote, and a remote llmux \
+                 is not supported"
+            ),
+            Self::UnexpectedPath { subject, url, path } => write!(
+                f,
+                "{subject} must be a base address with no path, because xfx appends \
+                 the API path itself; `{url}` carries `{path}`"
+            ),
         }
     }
 }
@@ -273,6 +353,12 @@ struct ParsedUrl {
     has_userinfo: bool,
     host: String,
     has_port: bool,
+    /// Everything after the authority, including a query or fragment.
+    ///
+    /// Read only by [`EndpointPolicy::LoopbackService`], which needs a base
+    /// address: a provider appends its own path, so anything here would be
+    /// doubled onto the request.
+    path: String,
 }
 
 impl ParsedUrl {
@@ -287,6 +373,7 @@ impl ParsedUrl {
         }
         let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
         let authority = &rest[..authority_end];
+        let path = rest[authority_end..].to_string();
         if authority.is_empty() {
             return None;
         }
@@ -320,6 +407,7 @@ impl ParsedUrl {
             has_userinfo,
             host,
             has_port,
+            path,
         })
     }
 
@@ -717,6 +805,88 @@ mod tests {
             .expect_err("the same rule refuses the override")
             .to_string();
         assert!(message.contains(GATEWAY_URL_ENV), "{message}");
+    }
+
+    #[test]
+    fn the_loopback_service_policy_refuses_a_remote_host_whatever_the_scheme() {
+        // The bearer rule lets https go anywhere, because TLS is what it is
+        // protecting. A local daemon is a different promise: xfx tells the
+        // operator the request is keyless *because* it never leaves the machine,
+        // so a remote host has to be refused rather than trusted to TLS.
+        for url in [
+            "https://collector.example.com:443",
+            "https://collector.example.com",
+            "http://198.51.100.7:3456",
+            "http://127.0.0.1.example.com:3456",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("`{url}` is not on this machine");
+            assert!(
+                matches!(err, EndpointError::NotLoopback { .. }),
+                "`{url}` got {err:?}"
+            );
+            let message = err.to_string();
+            assert!(message.contains("llmux_url"), "{message}");
+            assert!(message.contains("remote"), "{message}");
+        }
+        // The same URLs are still fine for the bearer rule, which is a different
+        // question about a different endpoint.
+        assert!(Endpoint::checked("https://collector.example.com", GATEWAY_URL_ENV).is_ok());
+    }
+
+    #[test]
+    fn the_loopback_service_policy_accepts_https_on_loopback() {
+        for url in [
+            "http://127.0.0.1:3456",
+            "https://127.0.0.1:3456",
+            "http://localhost:3456",
+            "http://[::1]:3456",
+            "http://127.0.0.1:3456/",
+        ] {
+            assert!(
+                Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService).is_ok(),
+                "`{url}` is a local service"
+            );
+        }
+        // A port is still required: an implicit one names a service by accident.
+        assert!(matches!(
+            Endpoint::checked_with(
+                "http://127.0.0.1",
+                "llmux_url",
+                EndpointPolicy::LoopbackService
+            ),
+            Err(EndpointError::NotLoopback { .. })
+        ));
+        // And the scheme set is still closed.
+        assert!(matches!(
+            Endpoint::checked_with(
+                "ftp://127.0.0.1:3456",
+                "llmux_url",
+                EndpointPolicy::LoopbackService
+            ),
+            Err(EndpointError::UnsupportedScheme { .. })
+        ));
+    }
+
+    #[test]
+    fn a_local_service_base_url_may_not_carry_a_path() {
+        // `http://127.0.0.1:3456/v1` plus the provider's own `/v1/messages`
+        // makes `/v1/v1/messages`, which llmux does not match and therefore
+        // forwards upstream -- keyless -- surfacing as a confusing 401.
+        for url in [
+            "http://127.0.0.1:3456/v1",
+            "http://127.0.0.1:3456/v1/messages",
+            "http://127.0.0.1:3456/?x=1",
+            "http://127.0.0.1:3456/#frag",
+        ] {
+            let err = Endpoint::checked_with(url, "llmux_url", EndpointPolicy::LoopbackService)
+                .expect_err("a base url carries no path");
+            assert!(
+                matches!(err, EndpointError::UnexpectedPath { .. }),
+                "`{url}` got {err:?}"
+            );
+            assert!(err.to_string().contains("llmux_url"), "{err}");
+        }
     }
 
     #[test]
