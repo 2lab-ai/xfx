@@ -17,6 +17,7 @@
 //! and the same rule about which URL is allowed to receive a request.
 
 pub mod protocol;
+pub mod sse;
 
 /// Where a llmux daemon listens unless the operator moved it.
 pub const DEFAULT_URL: &str = "http://127.0.0.1:3456";
