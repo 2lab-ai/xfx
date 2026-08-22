@@ -33,7 +33,8 @@ use std::time::Duration;
 use serde_json::{Map, Value};
 
 use crate::config::{
-    Environment, RuntimeConfig, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME, MAX_SETTINGS_BYTES,
+    Environment, RuntimeConfig, SettingSource, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME,
+    MAX_SETTINGS_BYTES,
 };
 use crate::gateway::{read_bounded, EndpointError, USER_AGENT};
 
@@ -78,6 +79,13 @@ pub struct SetupReport {
     pub model_reason: String,
     /// The settings file that was written.
     pub settings_path: PathBuf,
+    /// What will still outrank the file setup just wrote, when something does.
+    ///
+    /// The profile is one layer of five. An `XFX_MODEL` in the shell, or an
+    /// exact-workspace entry for this directory, outranks it -- so a receipt
+    /// that only reported what was written would be telling the operator their
+    /// next turn will use something it will not.
+    pub overridden_by: Option<String>,
 }
 
 /// Why `setup` could not finish.
@@ -137,19 +145,56 @@ pub async fn run(
     explicit_url: Option<&str>,
 ) -> Result<SetupReport, SetupError> {
     let (url, catalog) = discover(config, env, explicit_url).await?;
-    let (model, model_reason) = select_model(&config.model, &catalog);
     let settings_path = config
         .user_settings_path
         .clone()
         .ok_or(SetupError::NoProfile)?;
-    record(&settings_path, &url, &model)?;
+
+    // The file, read once, before anything is decided. The keep-or-replace
+    // decision has to be about the layer being *written*: reading the fully
+    // resolved `config.model` meant an `XFX_MODEL` in the shell got persisted
+    // into the profile -- destroying the profile's own value -- and the write
+    // was then a no-op for that shell, because the environment outranks it.
+    // Reported, of course, as "kept".
+    let existing = read_existing(&settings_path)?;
+    let configured = existing
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or(crate::config::DEFAULT_MODEL);
+    let (model, model_reason) = select_model(configured, &catalog);
+
+    record(&settings_path, existing, &url, &model)?;
     Ok(SetupReport {
         url,
         models: catalog.len(),
         model,
         model_reason,
         settings_path,
+        overridden_by: overriding_layers(config),
     })
+}
+
+/// What will still outrank the profile once setup has written it.
+///
+/// Setup writes one layer, and two others sit above it. Silence here would make
+/// the receipt a lie in the two cases that are hardest to notice from the
+/// outside: a shell variable that keeps winning, and a workspace entry pinning
+/// this directory to something else. Neither is an error -- both are things the
+/// operator set on purpose -- so this is a warning, not a refusal.
+fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
+    let mut layers: Vec<String> = Vec::new();
+    if config.sources.model == SettingSource::ProcessOverride {
+        layers.push(crate::config::ENV_MODEL.to_string());
+    }
+    if config.sources.model == SettingSource::UserWorkspace
+        || config.sources.backend == SettingSource::UserWorkspace
+    {
+        layers.push(format!(
+            "the workspaces entry for {}",
+            config.workspace_root.display()
+        ));
+    }
+    (!layers.is_empty()).then(|| layers.join(", "))
 }
 
 /// One catalog entry, reduced to the two names a model may be called by.
@@ -405,8 +450,15 @@ fn llmux_config_path(config: &RuntimeConfig, env: &Environment) -> Option<PathBu
 }
 
 /// Merges the three keys into the profile settings and writes them privately.
-fn record(path: &Path, url: &str, model: &str) -> Result<(), SetupError> {
-    let mut settings = read_existing(path)?;
+///
+/// `settings` is the document that was already read, so the file is read once
+/// and the model decision and the write cannot disagree about what was in it.
+fn record(
+    path: &Path,
+    mut settings: Map<String, Value>,
+    url: &str,
+    model: &str,
+) -> Result<(), SetupError> {
     settings.insert("backend".to_string(), Value::from("llmux"));
     settings.insert("llmux_url".to_string(), Value::from(url));
     settings.insert("model".to_string(), Value::from(model));

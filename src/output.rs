@@ -259,6 +259,10 @@ pub struct SetupSnapshot {
     /// rather than something they discover later.
     pub model_reason: String,
     pub settings_path: String,
+    /// What will still outrank the file that was just written, when anything
+    /// does. Absent when the profile is the last word, which is the usual case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overridden_by: Option<String>,
 }
 
 impl SetupSnapshot {
@@ -271,7 +275,23 @@ impl SetupSnapshot {
             model: one_line(&report.model),
             model_reason: one_line(&report.model_reason),
             settings_path: report.settings_path.display().to_string(),
+            overridden_by: report.overridden_by.as_deref().map(one_line),
         }
+    }
+
+    /// The warning an operator has to see even when they asked for JSON.
+    ///
+    /// It is a fact about their shell rather than about the setup, so it goes to
+    /// stderr in both output modes: a `--json` caller's stdout stays exactly one
+    /// document, and a person watching the terminal is still told that what they
+    /// just configured is not what the next turn will use.
+    pub fn override_warning(&self) -> Option<String> {
+        self.overridden_by.as_ref().map(|source| {
+            format!(
+                "xfx: {source} outranks the profile, so this configuration is not what \
+                 the next turn in this shell will use"
+            )
+        })
     }
 
     /// One `[setup] key=value` line per fact, in a fixed order.
@@ -290,6 +310,9 @@ impl SetupSnapshot {
         line("model", &self.model);
         line("model_reason", &self.model_reason);
         line("settings_path", &self.settings_path);
+        if let Some(source) = &self.overridden_by {
+            line("overridden_by", source);
+        }
         out
     }
 

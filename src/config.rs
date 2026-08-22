@@ -49,7 +49,12 @@ pub const PROJECT_SETTINGS_FILE: &str = ".xfx.json";
 
 const USER_SETTINGS_FILE: &str = "settings.json";
 
-const ENV_MODEL: &str = "XFX_MODEL";
+/// The environment override for the model.
+///
+/// Public so `xfx setup llmux` can *name* it: setup writes the profile, and an
+/// operator whose shell overrides what was just written has to be told which
+/// variable is doing it.
+pub const ENV_MODEL: &str = "XFX_MODEL";
 const ENV_PERMISSION_MODE: &str = "XFX_PERMISSION_MODE";
 const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";

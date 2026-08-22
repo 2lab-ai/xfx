@@ -735,7 +735,14 @@ async fn setup_llmux(
     let format = OutputFormat::from_json_flag(json);
     match crate::llmux::setup::run(config, env, url).await {
         Ok(report) => {
-            write!(stdout, "{}", SetupSnapshot::new(&report).render(format))?;
+            let snapshot = SetupSnapshot::new(&report);
+            write!(stdout, "{}", snapshot.render(format))?;
+            // On stderr in both modes: it is a fact about the operator's shell
+            // rather than about the setup, and a `--json` caller's stdout has to
+            // stay exactly one document.
+            if let Some(warning) = snapshot.override_warning() {
+                writeln!(stderr, "{warning}")?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(err) => match format {

@@ -1448,6 +1448,83 @@ fn setup_keeps_a_configured_model_the_catalog_actually_has() {
 }
 
 #[test]
+fn setup_decides_the_model_from_the_file_it_is_writing_not_from_an_env_override() {
+    // The keep-or-replace decision used to read the fully layered model, so an
+    // `XFX_MODEL` in the shell was persisted into the profile -- destroying the
+    // profile's own value -- and the write was then a no-op for that shell,
+    // because the env outranks it. Reported, of course, as "kept".
+    let daemon =
+        FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("a-id", &["a"]), ("b-id", &["b"])]));
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"model\":\"b\"}");
+
+    let run = sandbox.run(
+        &["setup", "llmux", "--url", &daemon.url(), "--json"],
+        &[("XFX_MODEL", "a")],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(
+        run.json()["model"],
+        "b",
+        "the profile's own model is what setup is deciding about"
+    );
+
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(
+        settings["model"], "b",
+        "the env value must not be persisted"
+    );
+
+    // And the operator is told that what they just configured is not what the
+    // next turn in this shell will use.
+    assert!(
+        run.stderr.contains("XFX_MODEL"),
+        "the override must be named: {:?}",
+        run.stderr
+    );
+    assert_eq!(run.json()["overridden_by"], "XFX_MODEL");
+}
+
+#[test]
+fn setup_warns_when_a_workspace_entry_will_outrank_what_it_just_wrote() {
+    // An exact-workspace entry pinning this directory to the gateway silently
+    // outranks the profile setup just wrote, so the receipt would be a lie.
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
+    sandbox.write_user_settings(&format!(
+        "{{\"workspaces\":{{{}:{{\"backend\":\"gateway\"}}}}}}",
+        serde_json::to_string(&workspace_key).unwrap()
+    ));
+
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert!(
+        run.stderr.contains("workspace"),
+        "the overriding layer must be named: {:?}",
+        run.stderr
+    );
+    assert!(
+        run.json()["overridden_by"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "got {}",
+        run.json()
+    );
+}
+
+#[test]
+fn setup_says_nothing_about_overrides_when_there_are_none() {
+    let daemon = FakeLlmux::start(Vec::new());
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "llmux", "--url", &daemon.url(), "--json"], &[]);
+    assert_eq!(run.code, Some(0));
+    assert_eq!(run.stderr, "");
+    assert!(run.json().get("overridden_by").is_none(), "{}", run.json());
+}
+
+#[test]
 fn setup_prefers_an_id_when_a_catalog_entry_has_no_alias() {
     let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("only-an-id", &[])]));
     let sandbox = Sandbox::new();
