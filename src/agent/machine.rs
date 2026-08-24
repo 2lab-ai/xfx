@@ -112,8 +112,14 @@ fn record_assistant(journal: &mut dyn TurnJournal, completion: &Completion) {
             })
             .collect(),
         // A terminal step has no continuation to satisfy, but a resumed
-        // conversation replays it too, and the signature is checked there.
+        // conversation replays it too, and the authority is checked there.
         raw_content: completion.raw_content.clone(),
+        // Nothing on either of today's wires produces Responses items. The field
+        // is written empty rather than omitted from the code, so the day a
+        // Responses decoder exists there is one line to change and no second
+        // recording path to discover.
+        responses_state: Vec::new(),
+        wire: (!completion.raw_content.is_empty()).then(|| completion.wire.clone()),
     });
 }
 

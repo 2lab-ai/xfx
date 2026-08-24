@@ -30,6 +30,8 @@ use tempfile::TempDir;
 
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::Role;
+use xfx::provider::Wire;
+use xfx::session::store::DurableState;
 use xfx::session::{
     Clock, ListFilter, ListScope, NewSession, RecordedToolCall, Selector, SessionError,
     SessionEvent, SessionId, SessionStore, TurnConclusion, TurnStep, EVENTS_FILE, MANIFEST_FILE,
@@ -173,6 +175,8 @@ fn evidence_events() -> Vec<SessionEvent> {
                 },
             ],
             raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
         },
         SessionEvent::ToolResult {
             call_id: "c1".to_string(),
@@ -196,6 +200,8 @@ fn evidence_events() -> Vec<SessionEvent> {
             text: "done".to_string(),
             tool_calls: Vec::new(),
             raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
         },
         SessionEvent::UsageRecorded {
             input_tokens: Some(11),
@@ -278,8 +284,8 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
     assert_eq!(log.len() as u64, published);
 
     // History is replayed in wire order: user, assistant+calls, results, answer.
-    let messages = state.history_messages();
-    let roles: Vec<Role> = messages.iter().map(|message| message.role).collect();
+    let replay = state.history_messages(Wire::AnthropicMessages);
+    let roles: Vec<Role> = replay.messages.iter().map(|message| message.role).collect();
     assert_eq!(
         roles,
         [
@@ -291,8 +297,8 @@ fn a_committed_turn_replays_exactly_through_the_published_boundary() {
             Role::Assistant
         ]
     );
-    assert_eq!(messages[0].text(), "fix the greeting");
-    assert_eq!(messages[5].text(), "done");
+    assert_eq!(replay.messages[0].text(), "fix the greeting");
+    assert_eq!(replay.messages[5].text(), "done");
 }
 
 #[test]
@@ -689,6 +695,8 @@ fn a_second_writer_is_refused_while_the_first_holds_the_session() {
                 text: "still mine".to_string(),
                 tool_calls: Vec::new(),
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
         )
         .expect("the holder keeps writing");
@@ -1194,7 +1202,13 @@ fn resume_by_exact_id_restores_history_and_preferences() {
     assert_eq!(state.permission_mode, PermissionMode::Auto);
     assert_eq!(state.turns.len(), 1);
     assert_eq!(state.grants.len(), 1);
-    assert_eq!(state.history_messages().len(), 6);
+    assert_eq!(
+        state
+            .history_messages(Wire::AnthropicMessages)
+            .messages
+            .len(),
+        6
+    );
 }
 
 #[test]
@@ -2216,7 +2230,9 @@ fn a_forged_tool_name_or_finish_reason_cannot_forge_a_row() {
                         .to_string(),
                     input: json!({}),
                 }],
-                            raw_content: Vec::new(),
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
             SessionEvent::ToolResult {
                 call_id: "c9".to_string(),
@@ -2489,6 +2505,279 @@ fn an_unknown_session_is_a_named_refusal_rather_than_a_new_session() {
     );
     assert_eq!(gateway.request_count(), 0, "nothing was asked of the model");
     assert!(sandbox.saved_ids().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// provenance and replay tests
+// ---------------------------------------------------------------------------
+
+/// One recorded turn whose assistant step carries the provenance a test names.
+///
+/// Hand-built rather than produced by a turn, because the cases that matter are
+/// exactly the ones this binary cannot produce: a record from a version that
+/// speaks a wire this one does not.
+fn provenance_events(
+    raw_content: Vec<Value>,
+    responses_state: Vec<Value>,
+    wire: Option<Wire>,
+) -> Vec<SessionEvent> {
+    vec![
+        SessionEvent::UserMessage {
+            text: "ask".to_string(),
+        },
+        SessionEvent::AssistantMessage {
+            text: "answered".to_string(),
+            tool_calls: Vec::new(),
+            raw_content,
+            responses_state,
+            wire,
+        },
+    ]
+}
+
+/// Records `events` into a fresh session and hands back its replayable state.
+fn recorded_state(
+    profile: &Profile,
+    workspace: &Workspace,
+    events: Vec<SessionEvent>,
+) -> DurableState {
+    let store = profile.store();
+    let mut session = store
+        .create(id("provenance"), new_session(workspace.path()))
+        .expect("create the session");
+    for event in events {
+        store.append(&mut session, event).expect("append");
+        store.publish(&mut session).expect("publish");
+    }
+    session.state().clone()
+}
+
+fn thinking_block() -> Value {
+    json!({"type": "thinking", "signature": "sig", "thinking": "…"})
+}
+
+fn reasoning_item() -> Value {
+    json!({"type": "reasoning", "encrypted_content": "sealed"})
+}
+
+#[test]
+fn a_legacy_record_with_blocks_and_no_wire_replays_on_the_messages_wire() {
+    // The only wire that ever wrote `raw_content` is Anthropic Messages, so a
+    // record that has it and names no wire can only have come from there.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(vec![thinking_block()], Vec::new(), None),
+    );
+
+    let replay = state.history_messages(Wire::AnthropicMessages);
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+    assert_eq!(
+        replay.messages[1].raw_blocks().expect("blocks replayed")[0]["signature"],
+        "sig"
+    );
+}
+
+#[test]
+fn a_legacy_record_is_dropped_with_a_notice_on_any_other_wire() {
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(vec![thinking_block()], Vec::new(), None),
+    );
+
+    let replay = state.history_messages(Wire::VercelGateway);
+    assert!(
+        replay.messages[1].raw_blocks().is_none(),
+        "a Gateway turn has no replay contract to satisfy"
+    );
+    // The turn still replays as text and tool calls: dropped state degrades a
+    // request, it never deletes a turn.
+    assert_eq!(replay.messages[1].text(), "answered");
+    assert_eq!(replay.notices.len(), 1);
+    let notice = &replay.notices[0];
+    assert!(notice.contains("anthropic_messages"), "{notice}");
+    assert!(notice.contains("vercel_gateway"), "{notice}");
+}
+
+#[test]
+fn responses_state_recorded_under_one_authority_is_never_sent_to_another() {
+    // Codex and Grok share a serialization and not its issuer. This binary can
+    // reach neither, which is exactly why the rule is written now: the record it
+    // is reading was written by a binary that could.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(
+            Vec::new(),
+            vec![reasoning_item()],
+            Some(Wire::CodexResponses),
+        ),
+    );
+
+    for active in [
+        Wire::GrokResponses,
+        Wire::AnthropicMessages,
+        Wire::VercelGateway,
+    ] {
+        let replay = state.history_messages(active.clone());
+        assert!(replay.messages[1].raw_blocks().is_none(), "for {active:?}");
+        assert_eq!(replay.notices.len(), 1, "for {active:?}");
+        assert!(
+            replay.notices[0].contains("codex_responses"),
+            "for {active:?}: {:?}",
+            replay.notices
+        );
+    }
+}
+
+#[test]
+fn a_wire_this_version_does_not_know_drops_rather_than_guessing() {
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(
+            Vec::new(),
+            vec![reasoning_item()],
+            Some(Wire::Unrecognized("some_future_wire".to_string())),
+        ),
+    );
+
+    let replay = state.history_messages(Wire::AnthropicMessages);
+    assert!(replay.messages[1].raw_blocks().is_none());
+    assert!(
+        replay.notices[0].contains("some_future_wire"),
+        "{:?}",
+        replay.notices
+    );
+}
+
+#[test]
+fn a_wire_less_responses_state_record_drops_rather_than_replaying_under_active() {
+    // A record with responses_state but no wire is invalid: no pre-wire binary
+    // wrote responses_state, so it must be from a future wire this binary does
+    // not know. It must drop with a notice, never replay under the active wire.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(Vec::new(), vec![reasoning_item()], None),
+    );
+
+    // Replay on CodexResponses: wire-less responses_state must NOT replay here
+    let replay = state.history_messages(Wire::CodexResponses);
+    assert!(
+        replay.messages[1].raw_blocks().is_none(),
+        "wire-less responses_state must not replay under active CodexResponses"
+    );
+    assert_eq!(replay.notices.len(), 1, "must generate a drop notice");
+    assert!(
+        replay.notices[0].contains("responses"),
+        "notice should mention responses_state: {:?}",
+        replay.notices
+    );
+}
+
+#[test]
+fn codex_responses_wire_replays_state_verbatim_under_codex() {
+    // A Codex-signed responses_state record replayed on Codex must carry the
+    // state verbatim, with no notice.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(
+            Vec::new(),
+            vec![reasoning_item()],
+            Some(Wire::CodexResponses),
+        ),
+    );
+
+    let replay = state.history_messages(Wire::CodexResponses);
+    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
+    let blocks = replay.messages[1]
+        .raw_blocks()
+        .expect("Codex→Codex carries state");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0]["type"], "reasoning");
+    assert_eq!(blocks[0]["encrypted_content"], "sealed");
+}
+
+#[test]
+fn grok_responses_wire_replays_state_verbatim_under_grok() {
+    // A Grok-signed responses_state record replayed on Grok must carry the
+    // state verbatim, with no notice.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(
+            Vec::new(),
+            vec![reasoning_item()],
+            Some(Wire::GrokResponses),
+        ),
+    );
+
+    let replay = state.history_messages(Wire::GrokResponses);
+    assert_eq!(replay.notices.len(), 0, "same-authority replay: no notice");
+    let blocks = replay.messages[1]
+        .raw_blocks()
+        .expect("Grok→Grok carries state");
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(blocks[0]["type"], "reasoning");
+    assert_eq!(blocks[0]["encrypted_content"], "sealed");
+}
+
+#[test]
+fn a_dropped_state_is_not_deleted_from_the_log() {
+    // Dropping shapes a request; it never mutates a record. A later resume back
+    // onto the original authority replays it -- from a different store object,
+    // as a new process would.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let state = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(
+            vec![thinking_block()],
+            Vec::new(),
+            Some(Wire::AnthropicMessages),
+        ),
+    );
+    let _ = state.history_messages(Wire::VercelGateway);
+
+    let reread = profile
+        .read_only_store()
+        .detail(&Selector::Id(id("provenance")), workspace.path())
+        .expect("read the session back");
+    let replay = reread.state.history_messages(Wire::AnthropicMessages);
+    assert!(replay.notices.is_empty());
+    assert_eq!(
+        replay.messages[1].raw_blocks().expect("still on disk")[0]["signature"],
+        "sig"
+    );
+}
+
+#[test]
+fn a_record_this_version_wrote_carries_no_new_field_when_there_is_nothing_to_replay() {
+    // Byte-compatibility with an older reader is only free if the fields stay
+    // absent when they are empty.
+    let (profile, workspace) = (Profile::new(), Workspace::new());
+    let _ = recorded_state(
+        &profile,
+        &workspace,
+        provenance_events(Vec::new(), Vec::new(), None),
+    );
+
+    let log = fs::read_to_string(profile.sessions_dir().join("provenance").join(EVENTS_FILE))
+        .expect("read the log");
+    assert!(log.contains("assistant_message"), "{log}");
+    assert!(!log.contains("responses_state"), "{log}");
+    assert!(!log.contains("\"wire\""), "{log}");
+    assert!(!log.contains("raw_content"), "{log}");
 }
 
 // ---------------------------------------------------------------------------

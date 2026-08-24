@@ -10,6 +10,7 @@
 //! - [`workspace`]: the roots a turn may read, canonical path proofs, and the
 //!   bounded project instructions a turn carries
 //! - [`permission`]: modes, policies, and one-use execution authorities
+//! - [`provider`]: provider identity, the selected bundle, and model catalogs
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
@@ -29,6 +30,7 @@ pub mod interactive;
 pub mod llmux;
 pub mod output;
 pub mod permission;
+pub mod provider;
 pub mod session;
 pub mod tools;
 pub mod workspace;

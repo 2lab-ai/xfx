@@ -43,6 +43,7 @@ use serde_json::{Map, Value};
 use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
 use crate::gateway::sse::{SseError, MAX_COMPLETION_BYTES, MAX_EVENT_BYTES};
 use crate::gateway::{CancelToken, DeltaSink};
+use crate::provider::Wire;
 
 /// The most content blocks a single message may have open or tracked at once.
 ///
@@ -243,6 +244,7 @@ impl AnthropicReader {
                 // where it arrives, so a stream that reaches here reported no
                 // failure to carry.
                 provider_detail: None,
+                wire: Wire::AnthropicMessages,
             }),
             None => Err(SseError::MissingFinish),
         }

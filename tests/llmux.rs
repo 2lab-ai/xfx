@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use xfx::config::{Backend, Environment, RuntimeConfig};
+use xfx::config::{Environment, RuntimeConfig};
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
@@ -29,6 +29,8 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
 use xfx::llmux::{protocol, setup};
+use xfx::provider::model::ModelCatalog;
+use xfx::provider::{ProviderId, Wire};
 
 use support::fake_gateway::Reply;
 
@@ -489,6 +491,11 @@ fn the_live_daemon_stream_decodes_into_one_completion() {
     assert_eq!(completion.usage.output_tokens, Some(4));
     assert!(completion.tool_calls.is_empty());
     assert_eq!(completion.provider_detail, None);
+    assert_eq!(
+        completion.wire,
+        Wire::AnthropicMessages,
+        "the decoder stamps the wire that answered"
+    );
 }
 
 #[test]
@@ -1714,7 +1721,7 @@ fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
 
     let document = run.json();
     assert_eq!(document["kind"], "setup");
-    assert_eq!(document["backend"], "llmux");
+    assert_eq!(document["provider"], "llmux");
     assert_eq!(document["url"], daemon.url());
     assert_eq!(document["models"], 2, "the catalog size, not the catalog");
     assert_eq!(document["model"], "fable", "the first entry's first alias");
@@ -1730,7 +1737,7 @@ fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
 
     let settings: Value =
         serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
-    assert_eq!(settings["backend"], "llmux");
+    assert_eq!(settings["provider"], "llmux");
     assert_eq!(settings["llmux_url"], daemon.url());
     assert_eq!(settings["model"], "fable");
 }
@@ -1913,9 +1920,9 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     // Loaded from the same HOME, through the real loader, with nothing else set.
     let config = sandbox.config(&[]);
     assert_eq!(
-        config.backend,
-        Backend::Llmux,
-        "`backend` did not round-trip"
+        config.provider,
+        ProviderId::Llmux,
+        "`provider` did not round-trip"
     );
     assert_eq!(
         config.llmux_url.as_deref(),
@@ -1927,8 +1934,102 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     // And what the loader resolved is exactly what setup reported.
     assert_eq!(report["url"], config.llmux_url.clone().unwrap());
     assert_eq!(report["model"], config.model);
-    assert_eq!(report["backend"], config.backend.label());
+    assert_eq!(report["provider"], config.provider.label());
     assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+
+    // Extended: verify the loader actually reads each family independently.
+    // Create two variant profiles from what setup wrote:
+    // (a) new-only: keep only `provider` and `models`, delete legacy keys
+    // (b) legacy-only: keep only `backend`, `model`, `llmux_url`, delete new keys
+    // Load each variant and verify both resolve to the same endpoint.
+    // This catches cases where the loader ignores an entire family.
+
+    let settings_json: Value = serde_json::from_str(
+        &std::fs::read_to_string(sandbox.settings_path()).expect("read profile"),
+    )
+    .expect("parse profile");
+    let settings = settings_json
+        .as_object()
+        .expect("profile is a JSON object")
+        .clone();
+
+    // Sanity: both families present in what setup wrote.
+    assert_eq!(
+        settings.get("provider").and_then(Value::as_str),
+        Some("llmux")
+    );
+    assert_eq!(
+        settings
+            .get("models")
+            .and_then(Value::as_object)
+            .and_then(|m| m.get("llmux"))
+            .and_then(Value::as_str),
+        Some("short")
+    );
+    assert_eq!(
+        settings.get("backend").and_then(Value::as_str),
+        Some("llmux")
+    );
+    assert_eq!(settings.get("model").and_then(Value::as_str), Some("short"));
+
+    // Variant (a): new-only — loader must read `provider` and `models[llmux]`
+    // when legacy keys are absent.
+    let mut new_only = settings.clone();
+    new_only.remove("backend");
+    new_only.remove("model");
+    sandbox.write_user_settings(&serde_json::to_string(&new_only).unwrap());
+    let config_new_only = sandbox.config(&[]);
+    assert_eq!(
+        config_new_only.provider,
+        ProviderId::Llmux,
+        "loader reads `provider` key when `backend` absent"
+    );
+    assert_eq!(
+        config_new_only.model, "short",
+        "loader reads `models[llmux]` when flat `model` absent"
+    );
+    assert_eq!(
+        config_new_only.llmux_url.as_deref(),
+        Some(daemon.url().as_str()),
+        "loader still reads `llmux_url` in new-only variant"
+    );
+
+    // Variant (b): legacy-only — loader must read `backend` and flat `model`
+    // when new keys are absent.
+    let mut legacy_only = settings.clone();
+    legacy_only.remove("provider");
+    legacy_only.remove("models");
+    sandbox.write_user_settings(&serde_json::to_string(&legacy_only).unwrap());
+    let config_legacy_only = sandbox.config(&[]);
+    assert_eq!(
+        config_legacy_only.provider,
+        ProviderId::Llmux,
+        "loader reads `backend` key when `provider` absent"
+    );
+    assert_eq!(
+        config_legacy_only.model, "short",
+        "loader reads flat `model` when `models` absent"
+    );
+    assert_eq!(
+        config_legacy_only.llmux_url.as_deref(),
+        Some(daemon.url().as_str()),
+        "loader still reads `llmux_url` in legacy-only variant"
+    );
+
+    // Both variants resolve to the same endpoint the writer chose.
+    assert_eq!(
+        (
+            config_new_only.provider,
+            config_new_only.model.as_str(),
+            config_new_only.llmux_url.as_deref()
+        ),
+        (
+            config_legacy_only.provider,
+            config_legacy_only.model.as_str(),
+            config_legacy_only.llmux_url.as_deref()
+        ),
+        "new and legacy paths resolve to the same endpoint"
+    );
 }
 
 #[test]
@@ -1952,6 +2053,30 @@ fn setup_merges_into_existing_settings_without_touching_an_unrelated_key() {
     assert_eq!(settings["max_agent_steps"], 7);
     assert_eq!(settings["workspaces"]["/somewhere"]["model"], "kept");
     assert_eq!(settings["backend"], "llmux");
+}
+
+#[test]
+fn setup_writes_the_new_keys_and_leaves_an_older_binarys_view_correct() {
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("m-1", &["short"])]));
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"permission_mode\":\"auto\"}");
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "llmux");
+    assert_eq!(settings["models"]["llmux"], "short");
+    // What a v0.1.0 binary reads. It ignores the two keys above, so these have
+    // to say the same thing or an older binary would send the prompt somewhere
+    // the operator did not choose.
+    assert_eq!(settings["backend"], "llmux");
+    assert_eq!(settings["model"], "short");
+    assert_eq!(settings["permission_mode"], "auto");
 }
 
 #[test]
@@ -2309,39 +2434,39 @@ fn a_failed_setup_still_emits_exactly_one_json_document() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn status_names_the_backend_and_the_gateway_stays_the_default() {
+fn status_names_the_provider_and_the_gateway_stays_the_default() {
     let sandbox = Sandbox::new();
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "gateway");
+    assert_eq!(document["provider"], "gateway");
     assert!(
-        document.get("backend_url").is_none(),
+        document.get("provider_url").is_none(),
         "the gateway has no configured url to report: {document}"
     );
     assert_eq!(document["auth"], "missing");
     assert!(document.get("auth_help").is_some());
 
     let text = sandbox.run(&["status"], &[]).stdout;
-    assert!(text.contains("[status] backend=gateway"), "{text}");
+    assert!(text.contains("[status] provider=gateway"), "{text}");
     // Immediately after the model, which is the fact it qualifies.
     let lines: Vec<&str> = text.lines().collect();
     let model = lines
         .iter()
         .position(|l| l.starts_with("[status] model="))
         .unwrap();
-    assert_eq!(lines[model + 1], "[status] backend=gateway", "{text}");
+    assert_eq!(lines[model + 1], "[status] provider=gateway", "{text}");
 }
 
 #[test]
-fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
+fn status_reports_a_llmux_provider_as_keyless_rather_than_unauthenticated() {
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();
     sandbox.select_llmux(&daemon);
 
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert_eq!(document["backend_url"], daemon.url());
+    assert_eq!(document["provider"], "llmux");
+    assert_eq!(document["provider_url"], daemon.url());
     // Not "missing": nothing is missing. Telling an llmux user to set a Vercel
-    // token would be advice for a backend they configured away from.
+    // token would be advice for a provider they configured away from.
     assert_eq!(document["auth"], "llmux-keyless-loopback");
     assert_eq!(document["auth_refreshable"], json!(false));
     assert!(
@@ -2355,10 +2480,10 @@ fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
         .iter()
         .position(|l| l.starts_with("[status] model="))
         .unwrap();
-    assert_eq!(lines[model + 1], "[status] backend=llmux", "{text}");
+    assert_eq!(lines[model + 1], "[status] provider=llmux", "{text}");
     assert_eq!(
         lines[model + 2],
-        format!("[status] backend_url={}", daemon.url()),
+        format!("[status] provider_url={}", daemon.url()),
         "{text}"
     );
     assert!(!text.contains("auth_help"), "{text}");
@@ -2369,7 +2494,7 @@ fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
 
 #[test]
 fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
-    // `backend_rejected` left the snapshot reading the defaulted `Backend`, so
+    // `provider_rejected` left the snapshot reading the defaulted `ProviderId`, so
     // status printed a perfectly ordinary gateway machine -- credential advice
     // and all -- while every `ask` refused.
     let sandbox = Sandbox::new();
@@ -2378,8 +2503,8 @@ fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
     assert_eq!(run.code, Some(0), "status must still render");
 
     let document = run.json();
-    assert_eq!(document["backend"], "rejected");
-    assert_eq!(document["backend_rejected"], "anthropc");
+    assert_eq!(document["provider"], "rejected");
+    assert_eq!(document["provider_rejected"], "anthropc");
     let help = document["auth_help"].as_str().unwrap_or_default();
     assert!(
         help.contains("backend"),
@@ -2387,13 +2512,13 @@ fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
     );
     assert!(
         !help.contains("AI_GATEWAY_API_KEY"),
-        "no credential advice for a backend nobody chose: {document}"
+        "no credential advice for a provider nobody chose: {document}"
     );
 
     let text = sandbox.run(&["status"], &[]).stdout;
-    assert!(text.contains("[status] backend=rejected"), "{text}");
+    assert!(text.contains("[status] provider=rejected"), "{text}");
     assert!(
-        text.contains("[status] backend_rejected=anthropc"),
+        text.contains("[status] provider_rejected=anthropc"),
         "{text}"
     );
 }
@@ -2405,60 +2530,63 @@ fn status_carries_the_refusal_when_llmux_has_no_endpoint() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"backend\":\"llmux\"}");
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert!(document.get("backend_url").is_none(), "{document}");
+    assert_eq!(document["provider"], "llmux");
+    assert!(document.get("provider_url").is_none(), "{document}");
     let help = document["auth_help"].as_str().unwrap_or_default();
     assert!(help.contains("xfx setup llmux"), "got {document}");
+    // There is no keyless arrangement when there is no endpoint to be keyless
+    // toward; the help line is what says how to get one.
+    assert_eq!(document["auth"], "missing");
 }
 
 #[test]
-fn doctor_reports_the_backend_and_adds_no_network_call() {
+fn doctor_reports_the_provider_and_adds_no_network_call() {
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();
     sandbox.select_llmux(&daemon);
 
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert_eq!(document["backend_url"], daemon.url());
+    assert_eq!(document["provider"], "llmux");
+    assert_eq!(document["provider_url"], daemon.url());
     assert_eq!(document["auth"], "llmux-keyless-loopback");
     assert_eq!(
         document["fail_count"], 0,
-        "a keyless backend is not a missing credential: {document}"
+        "a keyless provider is not a missing credential: {document}"
     );
     // `doctor` is the command that is always safe to run, so it stays offline.
     assert!(daemon.requests().is_empty(), "{:?}", daemon.paths());
 
     let text = sandbox.run(&["doctor"], &[]).stdout;
-    assert!(text.contains("[doctor] backend=llmux"), "{text}");
+    assert!(text.contains("[doctor] provider=llmux"), "{text}");
     assert!(
-        text.contains(&format!("[doctor] backend_url={}", daemon.url())),
+        text.contains(&format!("[doctor] provider_url={}", daemon.url())),
         "{text}"
     );
 }
 
 #[test]
-fn doctor_fails_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
+fn doctor_fails_when_the_llmux_provider_has_no_endpoint_and_names_the_fix() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"backend\":\"llmux\"}");
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
 
     let checks = document["checks"].as_array().expect("checks");
-    let backend = checks
+    let provider = checks
         .iter()
-        .find(|check| check["name"] == "backend")
-        .unwrap_or_else(|| panic!("no backend check in {document}"));
+        .find(|check| check["name"] == "provider")
+        .unwrap_or_else(|| panic!("no provider check in {document}"));
     // Fail, not warn. Every turn on this machine refuses, so a doctor that
     // reported `fail=0` would be telling the operator their setup is fine while
     // `xfx ask` refuses one hundred percent of the time.
-    assert_eq!(backend["status"], "fail");
-    let detail = backend["detail"].as_str().expect("a detail");
+    assert_eq!(provider["status"], "fail");
+    let detail = provider["detail"].as_str().expect("a detail");
     assert!(detail.contains("xfx setup llmux"), "got {detail}");
     assert!(
         document["fail_count"].as_u64().unwrap() >= 1,
         "got {document}"
     );
 
-    // A configured backend is not a warning on its own.
+    // A configured provider is not a warning on its own.
     let daemon = FakeLlmux::start(Vec::new());
     sandbox.select_llmux(&daemon);
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
@@ -2467,18 +2595,18 @@ fn doctor_fails_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|check| check["name"] == "backend"),
-        "a working backend needs no check of its own: {document}"
+            .any(|check| check["name"] == "provider"),
+        "a working provider needs no check of its own: {document}"
     );
 }
 
 #[test]
-fn doctor_still_fails_a_gateway_backend_with_no_credential() {
+fn doctor_still_fails_a_gateway_provider_with_no_credential() {
     // The gateway path is untouched: a missing bearer token is still a failure
     // and still names the two variables that fix it.
     let sandbox = Sandbox::new();
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
-    assert_eq!(document["backend"], "gateway");
+    assert_eq!(document["provider"], "gateway");
     assert_eq!(document["auth"], "missing");
     let auth = document["checks"]
         .as_array()
@@ -2732,4 +2860,155 @@ fn a_resumed_llmux_turn_replays_its_history_back_through_the_anthropic_mapping()
         !roles.contains(&"system"),
         "a system message must not enter `messages`: {messages:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// catalog: model discovery
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_catalog_reader_sees_what_the_daemon_publishes() {
+    use xfx::provider::model::LlmuxCatalog;
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "claude-fable-5[1m]", "aliases": ["fable"], "name": "Claude Fable 5",
+         "efforts": ["low", "high"], "max_context": 1_000_000, "group": "claude"}
+    ]}));
+    let endpoint = xfx::llmux::endpoint(&daemon.url(), "test").expect("a loopback endpoint");
+    let catalog = LlmuxCatalog::new(endpoint);
+    let entries = block_on(catalog.fetch()).expect("the daemon answers its catalog");
+    assert_eq!(entries[0].preferred_name(), "fable");
+    assert_eq!(entries[0].max_context, Some(1_000_000));
+    assert_eq!(entries[0].efforts, ["low", "high"]);
+    assert_eq!(daemon.paths(), ["/models"], "a catalog load is not a ping");
+}
+
+#[test]
+fn a_daemon_that_is_not_listening_is_a_catalog_that_is_unavailable_not_empty() {
+    use xfx::provider::model::{CatalogError, LlmuxCatalog};
+    // "The daemon has no models" and "xfx could not ask" are different facts and
+    // only one of them is a reason to change the recorded model.
+    let endpoint = xfx::llmux::endpoint("http://127.0.0.1:1", "test").expect("endpoint");
+    let err = block_on(LlmuxCatalog::new(endpoint).fetch()).expect_err("nothing is listening");
+    assert!(matches!(err, CatalogError::Unavailable { .. }), "{err:?}");
+}
+
+#[test]
+fn bundle_select_with_gateway_credential_yields_gateway_bundle() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Gateway is the default provider; just provide the credential
+    let env = sandbox.environment(&[("AI_GATEWAY_API_KEY", "test-token-123")]);
+
+    let config =
+        RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config with gateway token");
+    let cancel = CancelToken::new();
+
+    let bundle =
+        Bundle::select(&config, &cancel).expect("gateway credential should allow selection");
+    assert_eq!(bundle.entry().id, ProviderId::Gateway);
+    assert_eq!(
+        bundle.wire(),
+        Wire::VercelGateway,
+        "gateway bundle speaks VercelGateway wire"
+    );
+}
+
+#[test]
+fn bundle_select_with_llmux_url_yields_llmux_bundle() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Write settings to select llmux provider with a URL
+    sandbox.write_user_settings(r#"{"provider":"llmux","llmux_url":"http://127.0.0.1:3456"}"#);
+    let env = sandbox.environment(&[]);
+
+    let config =
+        RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config with llmux url");
+    let cancel = CancelToken::new();
+
+    let bundle = Bundle::select(&config, &cancel).expect("llmux url should allow selection");
+    assert_eq!(bundle.entry().id, ProviderId::Llmux);
+    assert_eq!(
+        bundle.wire(),
+        Wire::AnthropicMessages,
+        "llmux bundle speaks AnthropicMessages wire"
+    );
+}
+
+#[test]
+fn bundle_select_without_credential_for_gateway_fails() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Gateway is the default provider, but with no credential
+    let env = sandbox.environment(&[]);
+
+    let config = RuntimeConfig::load_with(&env, &sandbox.workspace)
+        .expect("load config without gateway token");
+    let cancel = CancelToken::new();
+
+    match Bundle::select(&config, &cancel) {
+        Ok(_) => panic!("expected gateway without credential to fail"),
+        Err(err) => {
+            assert!(
+                err.contains("credential")
+                    || err.contains("auth")
+                    || err.to_lowercase().contains("token"),
+                "error should mention missing auth: {err}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bundle_select_without_url_for_llmux_fails() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Select llmux provider but omit the URL
+    sandbox.write_user_settings(r#"{"provider":"llmux"}"#);
+    let env = sandbox.environment(&[]);
+
+    let config = RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config for llmux");
+    let cancel = CancelToken::new();
+
+    match Bundle::select(&config, &cancel) {
+        Ok(_) => panic!("expected llmux without url to fail"),
+        Err(err) => {
+            assert!(
+                err.contains("url") || err.contains("setup"),
+                "error should mention setup or url: {err}"
+            );
+        }
+    }
+}
+
+#[test]
+fn switching_to_the_gateway_and_back_keeps_each_providers_model() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["back"]))])
+        .with_catalog(catalog(&[("m-1", &["fable"])]));
+    let sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+    assert_eq!(sandbox.run(&["setup", "gateway"], &[]).code, Some(0));
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["models"]["llmux"], "fable", "kept while unused");
+    assert_eq!(settings["models"]["gateway"], xfx::config::DEFAULT_MODEL);
+
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(daemon.only_message_request().json()["model"], "fable");
 }

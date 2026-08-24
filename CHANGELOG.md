@@ -9,6 +9,26 @@ upstream `fx`.** What is and is not implemented lives in
 
 ## [Unreleased]
 
+### Added
+
+- **`xfx setup <gateway|llmux>` switches providers.** `setup` now names the
+  provider it is configuring, and the profile records `provider` plus a
+  `models` object keyed by provider, so each provider keeps its own model across
+  a switch. The keys a v0.1.0 binary reads -- `backend` and `model` -- are
+  written alongside them and kept in sync, so an older binary reading the same
+  profile still resolves the endpoint the operator chose. `setup gateway` is a
+  selection, not credential onboarding: it reads no key and writes none.
+
+### Changed
+
+- **`status` and `doctor` report `provider` where they reported `backend`.**
+  The fields are `provider`, `provider_url` and `provider_rejected`, and the
+  `doctor` check is named `provider`. The settings key that selects it is still
+  `backend` and is read exactly as before; what changed is that the product now
+  has one word for the axis instead of two, which is what lets a later release
+  report a disagreement between two keys without inventing a third name for the
+  thing they disagree about.
+
 ### Fixed
 
 - **`read_file` no longer parks a turn on a FIFO.** Only directories were

@@ -26,36 +26,21 @@
 //! next to the port, and exactly one `u16` is read out of it.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::config::{
     Environment, RuntimeConfig, SettingSource, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME,
     MAX_SETTINGS_BYTES,
 };
-use crate::gateway::{read_bounded, EndpointError, USER_AGENT};
+use crate::provider::model;
+use crate::provider::profile;
 
 use super::DEFAULT_URL;
 
-/// How long the probe may take to open a connection.
-///
-/// Short, because the thing being probed is on this machine: a loopback connect
-/// that has not completed in three seconds is not slow, it is absent, and the
-/// discovery path has another candidate to try.
-const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// How long the probe waits for a local daemon to answer.
-const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// The largest probe response xfx will read.
-///
-/// The catalog is a list of model descriptors; a body past this is not a catalog
-/// and reading it would let whatever is on that port decide how much memory this
-/// command uses.
-const MAX_PROBE_BODY_BYTES: usize = 1024 * 1024;
+// Re-export the shared setup types from provider::setup
+pub use crate::provider::setup::{SetupError, SetupReport};
 
 /// The body `GET /` answers on a real daemon
 /// (`2lab-ai/llmux@79f66748656b src/proxy/server.rs:1240`).
@@ -63,105 +48,6 @@ const ROOT_BODY: &str = "llmux";
 
 /// llmux's configuration file name, under whichever directory holds it.
 const LLMUX_CONFIG_FILE: &str = "llmux.json";
-
-/// What `setup` decided, once it has decided it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetupReport {
-    /// The daemon xfx will talk to.
-    pub url: String,
-    /// How many models the daemon offers. A count rather than the catalog: the
-    /// human line says "catalog size" and the two surfaces must agree, and a
-    /// document that grew with the daemon's model list would be unbounded output.
-    pub models: usize,
-    /// The model that was recorded.
-    pub model: String,
-    /// Why that model, in one line.
-    pub model_reason: String,
-    /// The settings file that was written.
-    pub settings_path: PathBuf,
-    /// What will still outrank the file setup just wrote, when something does.
-    ///
-    /// The profile is one layer of five. An `XFX_MODEL` in the shell, or an
-    /// exact-workspace entry for this directory, outranks it -- so a receipt
-    /// that only reported what was written would be telling the operator their
-    /// next turn will use something it will not.
-    pub overridden_by: Option<String>,
-}
-
-/// Why `setup` could not finish.
-#[derive(Debug)]
-pub enum SetupError {
-    /// The `--url` the invocation named is not one xfx may send a prompt to.
-    Endpoint(EndpointError),
-    /// No daemon answered, and nothing named another place to look.
-    NotFound {
-        tried: Vec<String>,
-        /// What the most informative candidate actually said, when one answered
-        /// and was not llmux. "No daemon answered" is true and useless when the
-        /// operator has a port conflict: it sends them to start something that
-        /// is already running.
-        answered: Option<String>,
-    },
-    /// Something answered, but it is not llmux.
-    NotLlmux { url: String, detail: String },
-    /// xfx could not build its own HTTP client, so nothing was contacted.
-    ///
-    /// Its own variant because reporting it as a daemon that did not answer
-    /// blamed a daemon that was never asked -- and rendered as
-    /// ``did not answer as an llmux daemon`` with an empty URL.
-    Client { detail: String },
-    /// There is no home directory, so there is no profile to write.
-    NoProfile,
-    /// The existing settings file could not be read, so it must not be replaced.
-    UnreadableSettings { path: PathBuf, detail: String },
-    /// The settings file could not be written.
-    Write { path: PathBuf, detail: String },
-}
-
-impl std::fmt::Display for SetupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Endpoint(err) => write!(f, "{err}"),
-            Self::NotFound { tried, answered } => {
-                write!(
-                    f,
-                    "no llmux daemon answered. xfx tried {}",
-                    tried.join(", ")
-                )?;
-                if let Some(answered) = answered {
-                    write!(f, ". {answered}")?;
-                }
-                write!(
-                    f,
-                    ". Start llmux, or name it with \
-                     `xfx setup llmux --url http://127.0.0.1:<port>`"
-                )
-            }
-            Self::NotLlmux { url, detail } => {
-                write!(f, "`{url}` did not answer as an llmux daemon: {detail}")
-            }
-            Self::Client { detail } => {
-                write!(f, "xfx could not build its HTTP client: {detail}")
-            }
-            Self::NoProfile => write!(
-                f,
-                "xfx cannot record the daemon because no home directory is set, \
-                 so there is no `~/.xfx/settings.json` to write"
-            ),
-            Self::UnreadableSettings { path, detail } => write!(
-                f,
-                "xfx will not replace {}: {detail}. Fix or move the file and run \
-                 `xfx setup llmux` again -- xfx does not overwrite settings it could not read",
-                path.display()
-            ),
-            Self::Write { path, detail } => {
-                write!(f, "cannot write {}: {detail}", path.display())
-            }
-        }
-    }
-}
-
-impl std::error::Error for SetupError {}
 
 /// Runs the whole command: discover, probe, choose, record.
 pub async fn run(
@@ -173,7 +59,9 @@ pub async fn run(
     let settings_path = config
         .user_settings_path
         .clone()
-        .ok_or(SetupError::NoProfile)?;
+        .ok_or(SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        })?;
 
     // The file, read once, before anything is decided. The keep-or-replace
     // decision has to be about the layer being *written*: reading the fully
@@ -181,21 +69,44 @@ pub async fn run(
     // into the profile -- destroying the profile's own value -- and the write
     // was then a no-op for that shell, because the environment outranks it.
     // Reported, of course, as "kept".
-    let existing = read_existing(&settings_path)?;
+    let existing =
+        profile::read_existing(&settings_path).map_err(|err| SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path.clone(),
+            detail: err.to_string(),
+        })?;
+
+    // Configured model follows the same precedence as the loader: models[llmux]
+    // when present, else the flat model, else the default.
     let configured = existing
-        .get("model")
+        .get("models")
+        .and_then(Value::as_object)
+        .and_then(|models| models.get("llmux"))
         .and_then(Value::as_str)
+        .or_else(|| existing.get("model").and_then(Value::as_str))
         .unwrap_or(crate::config::DEFAULT_MODEL);
     let (model, model_reason) = select_model(configured, &catalog);
 
-    record(&settings_path, existing, &url, &model)?;
+    let selection = profile::Selection {
+        provider: crate::provider::ProviderId::Llmux,
+        model: &model,
+        llmux_url: Some(&url),
+    };
+    profile::write(&settings_path, existing, &selection).map_err(|err| SetupError::Write {
+        provider: crate::provider::ProviderId::Llmux,
+        path: settings_path.clone(),
+        detail: err.to_string(),
+    })?;
     Ok(SetupReport {
-        url,
-        models: catalog.len(),
+        provider: crate::provider::ProviderId::Llmux,
+        url: Some(url),
+        models: Some(catalog.len()),
         model,
         model_reason,
+        credential: Some(crate::provider::setup::CredentialSource::KeylessLoopback),
         settings_path,
         overridden_by: overriding_layers(config),
+        credential_warning: None,
     })
 }
 
@@ -212,7 +123,7 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
         layers.push(crate::config::ENV_MODEL.to_string());
     }
     if config.sources.model == SettingSource::UserWorkspace
-        || config.sources.backend == SettingSource::UserWorkspace
+        || config.sources.provider == SettingSource::UserWorkspace
         || config.sources.llmux_url == SettingSource::UserWorkspace
     {
         layers.push(format!(
@@ -221,29 +132,6 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
         ));
     }
     (!layers.is_empty()).then(|| layers.join(", "))
-}
-
-/// One catalog entry, reduced to the two names a model may be called by.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CatalogEntry {
-    id: String,
-    aliases: Vec<String>,
-}
-
-impl CatalogEntry {
-    /// Whether `name` selects this entry, as an id or as an alias.
-    fn matches(&self, name: &str) -> bool {
-        self.id == name || self.aliases.iter().any(|alias| alias == name)
-    }
-
-    /// How xfx will ask for this model.
-    ///
-    /// The first alias when there is one, because that is the short name the
-    /// daemon publishes for it and the one an operator recognizes; the id
-    /// otherwise. Either resolves at the daemon.
-    fn preferred_name(&self) -> &str {
-        self.aliases.first().map(String::as_str).unwrap_or(&self.id)
-    }
 }
 
 /// Finds a daemon and returns it with the catalog that proved it.
@@ -256,17 +144,15 @@ async fn discover(
     config: &RuntimeConfig,
     env: &Environment,
     explicit_url: Option<&str>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
-    let client = probe_client()?;
-
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
     if let Some(url) = explicit_url {
         let endpoint = super::endpoint(url, "--url").map_err(SetupError::Endpoint)?;
         let url = trim_base(endpoint.url());
-        let catalog = probe(&client, &url).await?;
+        let catalog = probe(&url).await?;
         return Ok((url, catalog));
     }
 
-    probe_candidates(&client, candidates(config, env)).await
+    probe_candidates(candidates(config, env)).await
 }
 
 /// Probes `candidates` in order and returns the first that answers as llmux.
@@ -279,19 +165,18 @@ async fn discover(
 /// be running. Over an injected list it is hermetic.
 pub async fn discover_in(
     candidates: Vec<String>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
-    probe_candidates(&probe_client()?, candidates).await
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
+    probe_candidates(candidates).await
 }
 
-/// The candidate loop, over a client the caller already built.
+/// The candidate loop.
 async fn probe_candidates(
-    client: &reqwest::Client,
     candidates: Vec<String>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
     let mut tried: Vec<String> = Vec::new();
     let mut answered: Option<String> = None;
     for candidate in candidates {
-        match probe(client, &candidate).await {
+        match probe(&candidate).await {
             Ok(catalog) => return Ok((candidate, catalog)),
             Err(err) => {
                 // A candidate that answered and was not llmux is the one worth
@@ -343,42 +228,15 @@ pub fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
     candidates
 }
 
-/// The client the probe uses: short timeouts, and no proxy, ever.
-///
-/// Its own builder rather than the provider's, because the timeouts are the
-/// point: what is being probed is on this machine, so a connect that has not
-/// completed in three seconds is not slow, it is absent, and discovery has
-/// another candidate to try.
-///
-/// `no_proxy` and `Policy::none` for the same reasons
-/// [`crate::gateway::build_loopback_client`] has them: a corporate `HTTP_PROXY`
-/// would attempt every `127.0.0.1` connection through the proxy, so a daemon
-/// that is running would be reported as absent; and a redirect would let
-/// whatever holds the port send the probe somewhere else and have *that* answer
-/// identify itself as llmux, which is the identification this whole function
-/// exists to perform.
-fn probe_client() -> Result<reqwest::Client, SetupError> {
-    reqwest::Client::builder()
-        .connect_timeout(PROBE_CONNECT_TIMEOUT)
-        .read_timeout(PROBE_READ_TIMEOUT)
-        .timeout(PROBE_READ_TIMEOUT)
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|err| SetupError::Client {
-            detail: err.to_string(),
-        })
-}
-
 /// Both halves of the identification, in order.
-async fn probe(client: &reqwest::Client, base: &str) -> Result<Vec<CatalogEntry>, SetupError> {
+async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
     let refuse = |detail: String| SetupError::NotLlmux {
         url: base.to_string(),
         detail,
     };
 
-    let root = fetch(client, &format!("{base}/")).await.map_err(&refuse)?;
+    // Check that GET / returns "llmux" to identify the daemon.
+    let root = fetch_root(base).await.map_err(&refuse)?;
     if root.trim() != ROOT_BODY {
         return Err(refuse(format!(
             "`GET /` answered {:?} rather than `{ROOT_BODY}`, so something else is on this port",
@@ -386,81 +244,25 @@ async fn probe(client: &reqwest::Client, base: &str) -> Result<Vec<CatalogEntry>
         )));
     }
 
-    let body = fetch(client, &format!("{base}/models"))
-        .await
-        .map_err(&refuse)?;
-    let catalog = parse_catalog(&body).ok_or_else(|| {
-        refuse(format!(
-            "`GET /models` did not answer a model catalog: {:?}",
-            clip(&body)
-        ))
-    })?;
-    if catalog.is_empty() {
-        return Err(refuse(
-            "`GET /models` answered an empty catalog, so the daemon has no model to use"
-                .to_string(),
-        ));
-    }
-    Ok(catalog)
+    // Fetch the catalog using the shared fetch_catalog function.
+    let catalog_url = format!("{base}/models");
+    model::fetch_catalog(&catalog_url).await.map_err(|err| {
+        refuse(match err {
+            model::CatalogError::Empty => {
+                "`GET /models` answered an empty catalog, so the daemon has no model to use"
+                    .to_string()
+            }
+            model::CatalogError::Malformed { detail } => {
+                format!("`GET /models` did not answer a model catalog: {detail}")
+            }
+            model::CatalogError::Unavailable { detail } => detail,
+        })
+    })
 }
 
-/// One bounded GET that must answer 2xx.
-///
-/// Bounded while it reads, not after: `read_bounded` streams and stops at the
-/// limit, so whatever is on that port cannot decide how much memory `xfx setup`
-/// uses by answering with a body of its own choosing. Collecting the whole body
-/// and clipping afterwards honoured the ceiling in the message and ignored it in
-/// the allocation.
-async fn fetch(client: &reqwest::Client, url: &str) -> Result<String, String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("HTTP {}", status.as_u16()));
-    }
-    Ok(read_bounded(response, MAX_PROBE_BODY_BYTES).await)
-}
-
-/// The `{"models":[{id,name,aliases,...}]}` document, reduced to names.
-///
-/// `None` when the body is not that document at all. An entry without a usable
-/// id is skipped rather than invented: a model xfx cannot name is a model it
-/// cannot ask for.
-fn parse_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
-    let Ok(Value::Object(document)) = serde_json::from_str::<Value>(body) else {
-        return None;
-    };
-    let Some(Value::Array(models)) = document.get("models") else {
-        return None;
-    };
-    Some(
-        models
-            .iter()
-            .filter_map(|model| {
-                let object = model.as_object()?;
-                let id = object.get("id")?.as_str()?;
-                if id.is_empty() {
-                    return None;
-                }
-                let aliases = match object.get("aliases") {
-                    Some(Value::Array(aliases)) => aliases
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter(|alias| !alias.is_empty())
-                        .map(str::to_string)
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                Some(CatalogEntry {
-                    id: id.to_string(),
-                    aliases,
-                })
-            })
-            .collect(),
-    )
+/// Fetches the root endpoint to identify the daemon using the shared loopback helper.
+async fn fetch_root(base: &str) -> Result<String, String> {
+    model::fetch_loopback_bounded(&format!("{base}/"), 1024 * 1024).await
 }
 
 /// Keeps the configured model when the daemon has it, else takes the first.
@@ -470,7 +272,7 @@ fn parse_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
 /// replaced it would be a setup command that undid a decision. Replacing it when
 /// the daemon does not have it matters for the same reason in reverse: leaving a
 /// model the daemon will reject would record a configuration that cannot run.
-fn select_model(configured: &str, catalog: &[CatalogEntry]) -> (String, String) {
+fn select_model(configured: &str, catalog: &[model::CatalogEntry]) -> (String, String) {
     if catalog.iter().any(|entry| entry.matches(configured)) {
         return (
             configured.to_string(),
@@ -524,206 +326,6 @@ fn llmux_config_path(config: &RuntimeConfig, env: &Environment) -> Option<PathBu
     Some(home.join(".config").join(LLMUX_CONFIG_FILE))
 }
 
-/// Merges the three keys into the profile settings and writes them privately.
-///
-/// `settings` is the document that was already read, so the file is read once
-/// and the model decision and the write cannot disagree about what was in it.
-fn record(
-    path: &Path,
-    mut settings: Map<String, Value>,
-    url: &str,
-    model: &str,
-) -> Result<(), SetupError> {
-    settings.insert("backend".to_string(), Value::from("llmux"));
-    settings.insert("llmux_url".to_string(), Value::from(url));
-    settings.insert("model".to_string(), Value::from(model));
-
-    let mut body = serde_json::to_string_pretty(&Value::Object(settings))
-        .expect("a settings object is always serializable");
-    body.push('\n');
-
-    let dir = path.parent().ok_or_else(|| SetupError::Write {
-        path: path.to_path_buf(),
-        detail: "the settings path has no parent directory".to_string(),
-    })?;
-    create_private_dir(dir).map_err(|err| SetupError::Write {
-        path: dir.to_path_buf(),
-        detail: err.to_string(),
-    })?;
-    replace_private_file(dir, path, body.as_bytes()).map_err(|err| SetupError::Write {
-        path: path.to_path_buf(),
-        detail: err.to_string(),
-    })
-}
-
-/// The settings object already on disk, or an empty one when there is none.
-///
-/// A file that exists and cannot be read is a refusal, never an empty object.
-/// "xfx could not parse this" and "this is not worth keeping" are different
-/// claims, and only the operator gets to make the second one.
-fn read_existing(path: &Path) -> Result<Map<String, Value>, SetupError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Map::new()),
-        Err(err) => {
-            return Err(SetupError::UnreadableSettings {
-                path: path.to_path_buf(),
-                detail: err.to_string(),
-            })
-        }
-    };
-    if !metadata.is_file() {
-        return Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: "it is not a regular file".to_string(),
-        });
-    }
-    if metadata.len() > MAX_SETTINGS_BYTES as u64 {
-        return Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: format!("it is larger than {MAX_SETTINGS_BYTES} bytes"),
-        });
-    }
-    let text = fs::read_to_string(path).map_err(|err| SetupError::UnreadableSettings {
-        path: path.to_path_buf(),
-        detail: err.to_string(),
-    })?;
-    match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) => Ok(object),
-        Ok(_) => Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: "it is not a JSON object".to_string(),
-        }),
-        Err(err) => Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: format!("it is not valid JSON: {err}"),
-        }),
-    }
-}
-
-/// Creates the profile home owner-only, if it is not already there.
-fn create_private_dir(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        // Created `0700` rather than created and then tightened: between the two
-        // there would be a window in which the profile home is world-readable.
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
-    }
-}
-
-/// A stage name no other writer can own.
-///
-/// This process's id **and** a fresh nonce, which is the session store's shape
-/// (`src/session/store.rs` `replace_private_file`). The pid alone is not unique:
-/// two writes from this same process share it, so the second wrote through a
-/// file the first was still filling.
-fn stage_path(dir: &Path) -> PathBuf {
-    // Taken by characters rather than sliced by byte index. `new_identifier`
-    // returns lowercase hex today, so the two agree -- but a byte slice that is
-    // only correct because of what another module happens to return is a panic
-    // waiting for that module to change, in the one code path whose job is not
-    // to destroy a settings file.
-    let nonce: String = crate::session::new_identifier().chars().take(16).collect();
-    dir.join(format!(
-        "settings.json.{}.{nonce}{}",
-        std::process::id(),
-        crate::session::STAGE_SUFFIX
-    ))
-}
-
-/// A staged file that removes itself unless it was renamed into place.
-///
-/// The store's guard, for the store's reason. The stage exists for the few
-/// microseconds between "written" and "renamed", and if anything in between
-/// fails the partial file must not be left behind to be mistaken for state --
-/// but it must not be cleaned up by deleting a *fixed* name either, because a
-/// fixed name is something another process might own. That is not hypothetical
-/// here: the previous version removed exactly the pid-shaped name on a failed
-/// rename, so a concurrent writer's stage was deleted by this one's error path.
-/// The path this guard holds is this write's own, nonce and all.
-struct StagedFile {
-    path: PathBuf,
-    committed: bool,
-}
-
-impl StagedFile {
-    fn commit(mut self) {
-        self.committed = true;
-    }
-}
-
-impl Drop for StagedFile {
-    fn drop(&mut self) {
-        if !self.committed {
-            // Only ever this write's own uniquely named stage.
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
-/// Writes `bytes` to `path` atomically and privately.
-///
-/// The discipline is the session store's, for the same reasons: the stage lives
-/// in the target directory so the rename cannot cross a filesystem, it is opened
-/// `create_new` so a name this write did not create is never written through,
-/// the file is created `0600` rather than tightened afterwards, and the
-/// directory is synced so the *name* is durable and not only the bytes it points
-/// at.
-///
-/// A reader of `settings.json` therefore sees either the old document or the new
-/// one -- never a half-written file, which for a settings file would mean the
-/// next `xfx` run silently loses every key past the truncation.
-fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let staged = StagedFile {
-        path: stage_path(dir),
-        committed: false,
-    };
-    {
-        let mut options = fs::OpenOptions::new();
-        // `create_new`, never `create().truncate()`: writing through a name this
-        // write did not create is how a concurrent writer's in-flight file gets
-        // destroyed.
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&staged.path)?;
-        io::Write::write_all(&mut file, bytes)?;
-        file.sync_all()?;
-    }
-    // A rename onto the target replaces its inode atomically. On failure the
-    // guard removes this write's own stage on the way out -- and only that one.
-    fs::rename(&staged.path, path)?;
-    staged.commit();
-    sync_directory(dir)
-}
-
-/// Flushes the directory entry, so the rename survives a crash.
-fn sync_directory(dir: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        fs::File::open(dir)?.sync_all()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = dir;
-        Ok(())
-    }
-}
-
 /// A base URL with any trailing `/` removed.
 fn trim_base(url: &str) -> String {
     url.trim_end_matches('/').to_string()
@@ -746,14 +348,17 @@ fn clip(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Map};
 
-    fn entries(pairs: &[(&str, &[&str])]) -> Vec<CatalogEntry> {
+    fn entries(pairs: &[(&str, &[&str])]) -> Vec<model::CatalogEntry> {
         pairs
             .iter()
-            .map(|(id, aliases)| CatalogEntry {
+            .map(|(id, aliases)| model::CatalogEntry {
                 id: (*id).to_string(),
                 aliases: aliases.iter().map(|a| (*a).to_string()).collect(),
+                name: None,
+                efforts: Vec::new(),
+                max_context: None,
             })
             .collect()
     }
@@ -771,7 +376,7 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            parse_catalog(&body),
+            model::parse_llmux_catalog(&body),
             Some(entries(&[
                 ("claude-fable-5[1m]", &["fable"]),
                 ("bare", &[])
@@ -782,11 +387,14 @@ mod tests {
 
     #[test]
     fn a_body_that_is_not_a_catalog_is_not_one() {
-        assert_eq!(parse_catalog("not json"), None);
-        assert_eq!(parse_catalog("[]"), None);
-        assert_eq!(parse_catalog(&json!({ "models": 7 }).to_string()), None);
+        assert_eq!(model::parse_llmux_catalog("not json"), None);
+        assert_eq!(model::parse_llmux_catalog("[]"), None);
         assert_eq!(
-            parse_catalog(&json!({ "models": [] }).to_string()),
+            model::parse_llmux_catalog(&json!({ "models": 7 }).to_string()),
+            None
+        );
+        assert_eq!(
+            model::parse_llmux_catalog(&json!({ "models": [] }).to_string()),
             Some(Vec::new()),
             "an empty catalog is a readable answer; the probe is what refuses it"
         );
@@ -975,16 +583,16 @@ mod tests {
         for body in ["{ broken", "[]", "\"a string\""] {
             fs::write(&path, body).expect("write settings");
             assert!(
-                matches!(
-                    read_existing(&path),
-                    Err(SetupError::UnreadableSettings { .. })
-                ),
+                profile::read_existing(&path).is_err(),
                 "`{body}` must be a refusal"
             );
             assert_eq!(fs::read_to_string(&path).unwrap(), body, "bytes untouched");
         }
         fs::remove_file(&path).expect("remove");
-        assert_eq!(read_existing(&path).expect("absent is empty"), Map::new());
+        assert_eq!(
+            profile::read_existing(&path).expect("absent is empty"),
+            Map::new()
+        );
     }
 
     /// Every `*.staged` name directly under `dir`, sorted.
@@ -1017,7 +625,8 @@ mod tests {
         let foreign = pid_only_stage(dir.path());
         fs::write(&foreign, b"another writer owns this").expect("plant a stage");
 
-        replace_private_file(dir.path(), &path, b"{\"ok\":true}\n").expect("the write succeeds");
+        profile::replace_private_file(dir.path(), &path, b"{\"ok\":true}\n")
+            .expect("the write succeeds");
 
         assert_eq!(
             fs::read_to_string(&foreign).unwrap(),
@@ -1031,7 +640,7 @@ mod tests {
     fn a_successful_write_leaves_no_stage_of_its_own_behind() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
-        replace_private_file(dir.path(), &path, b"{}\n").expect("the write succeeds");
+        profile::replace_private_file(dir.path(), &path, b"{}\n").expect("the write succeeds");
         assert!(
             staged_files(dir.path()).is_empty(),
             "{:?}",
@@ -1051,7 +660,7 @@ mod tests {
         let foreign = pid_only_stage(dir.path());
         fs::write(&foreign, b"another writer owns this").expect("plant a stage");
 
-        replace_private_file(dir.path(), &path, b"{}\n")
+        profile::replace_private_file(dir.path(), &path, b"{}\n")
             .expect_err("renaming onto a directory fails");
 
         assert_eq!(
@@ -1071,6 +680,137 @@ mod tests {
         let clipped = clip(&"한".repeat(200));
         assert!(clipped.ends_with("..."), "{clipped}");
         assert!(clipped.len() <= 123, "{}", clipped.len());
+    }
+
+    #[test]
+    fn llmux_error_messages_name_the_provider() {
+        // Verify that error messages are provider-aware and mention "llmux"
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+
+        // UnreadableSettings
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path.clone(),
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        assert!(
+            unreadable.contains("xfx setup llmux"),
+            "UnreadableSettings should mention llmux: {unreadable}"
+        );
+        assert!(
+            !unreadable.contains("gateway"),
+            "UnreadableSettings should not mention gateway: {unreadable}"
+        );
+
+        // Write
+        let write_err = SetupError::Write {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path.clone(),
+            detail: "no space".to_string(),
+        }
+        .to_string();
+        assert!(
+            write_err.contains("cannot write"),
+            "Write should contain error: {write_err}"
+        );
+
+        // NoProfile
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        }
+        .to_string();
+        assert!(
+            no_profile.contains("daemon"),
+            "NoProfile should mention daemon for llmux: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("gateway"),
+            "NoProfile should not mention gateway: {no_profile}"
+        );
+    }
+
+    #[test]
+    fn llmux_unreadable_settings_exact_message() {
+        // Exact-string regression test: llmux UnreadableSettings message byte-identical
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path,
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        // This exact message must not change without a migration notice
+        assert_eq!(
+            unreadable,
+            "xfx will not replace /tmp/settings.json: permission denied. Fix or move the file and run `xfx setup llmux` again -- xfx does not overwrite settings it could not read"
+        );
+    }
+
+    #[test]
+    fn llmux_noprofile_exact_message() {
+        // Exact-string regression test: llmux NoProfile message must preserve legacy "record the daemon" text
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        }
+        .to_string();
+        // Legacy message must be preserved byte-identical for llmux
+        assert_eq!(
+            no_profile,
+            "xfx cannot record the daemon because no home directory is set, so there is no `~/.xfx/settings.json` to write"
+        );
+    }
+
+    #[test]
+    fn gateway_error_messages_name_the_provider_all_variants() {
+        // Verify that gateway errors mention "gateway", not "llmux" or "daemon"
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+
+        // Gateway UnreadableSettings
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Gateway,
+            path: settings_path.clone(),
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        assert!(
+            unreadable.contains("xfx setup gateway"),
+            "UnreadableSettings should mention gateway: {unreadable}"
+        );
+        assert!(
+            !unreadable.contains("daemon"),
+            "UnreadableSettings should not mention daemon: {unreadable}"
+        );
+
+        // Gateway Write error
+        let write_err = SetupError::Write {
+            provider: crate::provider::ProviderId::Gateway,
+            path: settings_path.clone(),
+            detail: "no space".to_string(),
+        }
+        .to_string();
+        assert!(
+            write_err.contains("cannot write"),
+            "Write should contain error: {write_err}"
+        );
+
+        // Gateway NoProfile
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Gateway,
+        }
+        .to_string();
+        assert!(
+            no_profile.contains("gateway"),
+            "NoProfile should mention gateway: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("daemon"),
+            "NoProfile should not mention daemon: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("llmux"),
+            "NoProfile should not mention llmux: {no_profile}"
+        );
     }
 
     /// A config rooted at `home`, built the way the loader builds one.

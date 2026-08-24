@@ -11,8 +11,8 @@
 //! upstream refusal to run without a terminal at all).
 //!
 //! Everything below the prompt is the same product as the command line: one
-//! [`crate::agent::TurnMachine`] per prompt, a provider from the same
-//! [`crate::app::build_provider`], the same [`crate::tools`] registry under the
+//! [`crate::agent::TurnMachine`] per prompt, a bundle from the same
+//! [`crate::provider::Bundle::select`], the same [`crate::tools`] registry under the
 //! same [`crate::permission`] authority, and the same
 //! [`crate::session::SessionStore`]. The shell adds a loop, six slash commands,
 //! and an interrupt policy -- not a second way to talk to a model, and not a
@@ -24,11 +24,13 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
-use crate::app::{build_provider, spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{safe_one_line, Event, EventSink, TextSink, SANDBOX_LABEL};
 use crate::permission::YOLO_WARNING;
+use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
+use crate::provider::Bundle;
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
 use crate::tools::ToolContext;
 use crate::workspace::{AccessScope, ProjectContext};
@@ -75,12 +77,6 @@ const INTERRUPTED_EXIT_CODE: i32 = 130;
 /// user needs to see in full -- it is something pasted, and the part of the
 /// refusal worth reading is the guidance at the end of the line.
 const MAX_QUOTED_COMMAND_BYTES: usize = 60;
-
-/// The most bytes a `/model` argument may have.
-///
-/// A model id becomes an HTTP header value and a durable session field. It is
-/// bounded here so that neither has to deal with an unbounded one.
-const MAX_MODEL_BYTES: usize = 200;
 
 /// Erase the screen, the scrollback, and put the cursor home.
 ///
@@ -211,23 +207,6 @@ pub fn help_text() -> String {
     }
     out.push_str("Anything else is a prompt. Ctrl-C stops a running turn; Ctrl-D leaves.\n");
     out
-}
-
-/// Whether `candidate` can be used as a model id.
-fn model_id_problem(candidate: &str) -> Option<&'static str> {
-    if candidate.is_empty() {
-        return Some("name a model");
-    }
-    if candidate.len() > MAX_MODEL_BYTES {
-        return Some("that model id is too long");
-    }
-    if candidate.split_whitespace().count() != 1 {
-        return Some("/model takes one model id, with no spaces in it");
-    }
-    if candidate.chars().any(char::is_control) {
-        return Some("a model id cannot contain control characters");
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -413,12 +392,13 @@ pub async fn run(
     let signal_target = Arc::clone(&interrupts);
     spawn_interrupt_thread(move || signal_target.signalled());
 
-    let mut model = config.model.clone();
+    let mut selector = ModelSelector::new(config);
+    let mut model = selector.model().to_string();
     let mut conversation: Option<Conversation> = None;
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
-    let mut provider: Option<Box<dyn Provider>> = None;
+    let mut bundle: Option<Bundle> = None;
 
     write!(io::stdout(), "{}", banner(config, &model))?;
     io::stdout().flush()?;
@@ -451,7 +431,8 @@ pub async fn run(
                         writeln!(io::stdout(), "{}", version_line())?;
                     }
                     Slash::Model => {
-                        model = apply_model(&argument, model, conversation.as_mut(), config)?;
+                        model =
+                            apply_model(&argument, &mut selector, conversation.as_mut()).await?;
                     }
                     Slash::Clear => {
                         let mut stdout = io::stdout();
@@ -473,8 +454,8 @@ pub async fn run(
                 io::stdout().flush()?;
             }
             Submitted::Prompt(prompt) => {
-                let provider = match ensure_provider(&mut provider, config, &cancel) {
-                    Ok(provider) => provider,
+                let bundle_ref = match ensure_provider(&mut bundle, config, &cancel) {
+                    Ok(bundle) => bundle,
                     Err(message) => {
                         report_turn_failure(message)?;
                         continue;
@@ -490,7 +471,15 @@ pub async fn run(
                         }
                     },
                 };
-                one_turn(provider, conversation, &model, prompt, config, &interrupts).await?;
+                one_turn(
+                    bundle_ref.stream.as_ref(),
+                    conversation,
+                    &model,
+                    prompt,
+                    config,
+                    &interrupts,
+                )
+                .await?;
             }
         }
     }
@@ -519,10 +508,14 @@ async fn one_turn(
             bytes: context.total_bytes() as u64,
         });
 
+    let replay = conversation
+        .recorder
+        .state()
+        .history_messages(config.provider.wire());
     let request = TurnRequest {
         model: model.to_string(),
         prompt,
-        history: conversation.recorder.state().history_messages(),
+        history: replay.messages,
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         cancel: conversation.tools.cancel().clone(),
@@ -532,6 +525,11 @@ async fn one_turn(
     let known_grants = conversation.tools.permissions().grants().to_vec();
     let stdout = io::stdout();
     let stderr = io::stderr();
+    let mut stderr_lock = stderr.lock();
+    for notice in &replay.notices {
+        writeln!(stderr_lock, "{notice}")?;
+    }
+    drop(stderr_lock);
     let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
 
     interrupts.begin_turn();
@@ -571,20 +569,20 @@ async fn one_turn(
     Ok(())
 }
 
-/// Builds the provider once, or explains why there can not be one.
+/// Builds the bundle once, or explains why there can not be one.
 ///
-/// The decision itself belongs to [`build_provider`], which `ask` uses too: the
+/// The decision itself belongs to [`Bundle::select`], which `ask` uses too: the
 /// shell caches the result for the life of the session, it does not choose a
 /// backend of its own.
 fn ensure_provider<'a>(
-    slot: &'a mut Option<Box<dyn Provider>>,
+    slot: &'a mut Option<Bundle>,
     config: &RuntimeConfig,
     cancel: &CancelToken,
-) -> Result<&'a dyn Provider, String> {
+) -> Result<&'a Bundle, String> {
     if slot.is_none() {
-        *slot = Some(build_provider(config, cancel)?);
+        *slot = Some(Bundle::select(config, cancel)?);
     }
-    Ok(slot.as_deref().expect("the provider was just built"))
+    Ok(slot.as_ref().expect("the bundle was just built"))
 }
 
 /// Reports a prompt that never became a request, in the shape a turn failure has.
@@ -614,42 +612,129 @@ fn read_line() -> io::Result<Option<String>> {
     }
 }
 
+/// Gets the label for a provider id.
+fn provider_label(provider: crate::provider::ProviderId) -> &'static str {
+    match provider {
+        crate::provider::ProviderId::Gateway => "gateway",
+        crate::provider::ProviderId::Llmux => "llmux",
+    }
+}
+
+/// Prints the catalog to stdout, bounded at MAX_RENDERED_MODELS.
+fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<()> {
+    use crate::provider::model::{CatalogState, MAX_RENDERED_MODELS};
+
+    match catalog {
+        CatalogState::Unavailable => {
+            writeln!(
+                io::stdout(),
+                "[shell] catalog=unavailable (this provider advertises none)"
+            )?;
+        }
+        CatalogState::NotLoaded => {
+            // Not printed if not loaded yet.
+        }
+        CatalogState::Loaded(entries) => {
+            writeln!(io::stdout(), "[shell] catalog={} models", entries.len())?;
+            for entry in entries.iter().take(MAX_RENDERED_MODELS) {
+                let context_str = entry
+                    .max_context
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let efforts_str = if entry.efforts.is_empty() {
+                    "none".to_string()
+                } else {
+                    entry.efforts.join(",")
+                };
+                writeln!(
+                    io::stdout(),
+                    "[shell]   {} context={} efforts={}",
+                    entry.preferred_name(),
+                    context_str,
+                    efforts_str
+                )?;
+            }
+            let remaining = entries.len().saturating_sub(MAX_RENDERED_MODELS);
+            if remaining > 0 {
+                writeln!(io::stdout(), "[shell]   ... and {remaining} more")?;
+            }
+        }
+        CatalogState::Failed(reason) => {
+            writeln!(io::stdout(), "[shell] catalog=unread ({reason})")?;
+        }
+    }
+    Ok(())
+}
+
 /// Applies `/model`, returning the model in force afterwards.
-fn apply_model(
+///
+/// The rules live in [`crate::provider::model::ModelSelector`] so the shell and
+/// any other front end cannot disagree about what `/model` means; what stays
+/// here is the printing, which is this surface's own business.
+async fn apply_model(
     argument: &str,
-    current: String,
+    selector: &mut ModelSelector,
     conversation: Option<&mut Conversation>,
-    config: &RuntimeConfig,
 ) -> io::Result<String> {
     if argument.is_empty() {
-        writeln!(
-            io::stdout(),
-            "[shell] model={current} source={}",
-            config.sources.model.label()
-        )?;
-        return Ok(current);
+        // The one place `/model` is allowed to touch the network: the catalog
+        // load is where a provider that is not answering legitimately surfaces,
+        // and `status` and `doctor` are where it must not.
+        selector.ensure_catalog().await;
     }
-    if let Some(problem) = model_id_problem(argument) {
-        writeln!(io::stderr(), "xfx: {problem}")?;
-        return Ok(current);
+    match selector.apply(if argument.is_empty() {
+        ModelRequest::Report
+    } else {
+        ModelRequest::Select(argument)
+    }) {
+        ModelOutcome::Reported {
+            provider,
+            model,
+            source,
+        } => {
+            writeln!(
+                io::stdout(),
+                "[shell] model={model} provider={} source={}",
+                provider_label(provider),
+                source.label()
+            )?;
+            print_catalog(selector.catalog())?;
+            Ok(model)
+        }
+        ModelOutcome::Selected {
+            model,
+            previous: _,
+            unverified,
+            ..
+        } => {
+            writeln!(io::stdout(), "[shell] model={model}")?;
+            if let Some(reason) = unverified {
+                writeln!(
+                    io::stderr(),
+                    "xfx: {reason}, so this model was not checked against the provider's catalog"
+                )?;
+            }
+            // Durable when there is something to record it in: a resumed session must
+            // continue with the model the conversation was actually held in.
+            if let Some(conversation) = conversation {
+                conversation
+                    .recorder
+                    .commit(SessionEvent::PreferencesChanged {
+                        model: Some(model.clone()),
+                        permission_mode: None,
+                    });
+            }
+            Ok(model)
+        }
+        ModelOutcome::Unchanged { model } => {
+            writeln!(io::stdout(), "[shell] model={model} unchanged")?;
+            Ok(model)
+        }
+        ModelOutcome::Refused { reason } => {
+            writeln!(io::stderr(), "xfx: {reason}")?;
+            Ok(selector.model().to_string())
+        }
     }
-    if argument == current {
-        writeln!(io::stdout(), "[shell] model={current} unchanged")?;
-        return Ok(current);
-    }
-    let chosen = argument.to_string();
-    // Durable when there is something to record it in: a resumed session must
-    // continue with the model the conversation was actually held in.
-    if let Some(conversation) = conversation {
-        conversation
-            .recorder
-            .commit(SessionEvent::PreferencesChanged {
-                model: Some(chosen.clone()),
-                permission_mode: None,
-            });
-    }
-    writeln!(io::stdout(), "[shell] model={chosen}")?;
-    Ok(chosen)
 }
 
 /// What `/clear` says about the conversation it did not touch.
@@ -866,15 +951,6 @@ mod tests {
         ] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
-    }
-
-    #[test]
-    fn a_model_id_is_one_bounded_printable_word() {
-        assert_eq!(model_id_problem("acme/model-9"), None);
-        assert!(model_id_problem("").is_some());
-        assert!(model_id_problem("one two").is_some());
-        assert!(model_id_problem("bad\u{7}name").is_some());
-        assert!(model_id_problem(&"x".repeat(MAX_MODEL_BYTES + 1)).is_some());
     }
 
     #[test]

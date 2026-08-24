@@ -22,6 +22,8 @@ use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::provider::Wire;
+
 /// Who a message is from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -564,6 +566,13 @@ pub struct Completion {
     /// a signature it did not keep, so it keeps the blocks verbatim rather than
     /// rebuilding an approximation of them from `text` and `tool_calls`.
     pub raw_content: Vec<Value>,
+    /// Which wire produced this completion, and therefore which authority
+    /// sealed anything replayable in it.
+    ///
+    /// Set by the decoder rather than by the caller: the caller knows which
+    /// provider it *asked*, the decoder knows which wire actually answered, and
+    /// the second is the one a replay contract is written against.
+    pub wire: Wire,
 }
 
 #[cfg(test)]

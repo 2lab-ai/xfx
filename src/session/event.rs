@@ -117,20 +117,36 @@ pub enum SessionEvent {
     UserMessage { text: String },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
-    /// `raw_content` is the provider's own content blocks when it sent them,
-    /// and it is recorded for one reason: the Anthropic wire verifies the
-    /// signature on a reasoning block replayed in a continuation, so a resumed
-    /// conversation that rebuilt the assistant turn from `text` would be
-    /// answered with a 400. It can be **large** -- reasoning is not bounded by
-    /// the answer's length -- and it is never displayed by any renderer; it
-    /// exists to go back on the wire. Absent on old records and on the Gateway
-    /// wire, which has no such contract; those rebuild from text and calls as
-    /// before.
     AssistantMessage {
         text: String,
         tool_calls: Vec<RecordedToolCall>,
+        /// Anthropic Messages content blocks, verbatim, in arrival order.
+        ///
+        /// **Only ever written by the `anthropic_messages` wire** -- which is
+        /// why an older record that has it can only have come from that wire,
+        /// and why a second wire's replay state does not go here. Anthropic
+        /// signs its reasoning blocks and verifies the signature when they come
+        /// back in a continuation, so a rebuilt-from-text assistant turn is a
+        /// 400 at the next step: xfx cannot reconstruct a signature it did not
+        /// keep. Never displayed by any renderer; it exists to go back on the
+        /// wire, and it can be large.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         raw_content: Vec<serde_json::Value>,
+        /// OpenAI Responses replay items (`reasoning` with `encrypted_content`),
+        /// verbatim, in arrival order.
+        ///
+        /// Disjoint from `raw_content` by construction: a turn writes at most
+        /// one of the two. A separate field rather than a tagged shared one,
+        /// because a tag's compatibility argument is **syntactic only** -- an
+        /// older binary ignores an unknown tag, finds a non-empty `raw_content`,
+        /// concludes "Anthropic blocks", and replays Responses items onto the
+        /// Messages wire. Separated storage makes that binary see nothing at all
+        /// and rebuild from text: degraded, never mis-wired.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        responses_state: Vec<serde_json::Value>,
+        /// Which wire *and which authority* produced the state above.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wire: Option<crate::provider::Wire>,
     },
     /// The evidence one tool call produced, correlated by `call_id`.
     ///
@@ -357,6 +373,8 @@ mod tests {
                     input: json!({ "path": "a.txt" }),
                 }],
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
         );
         assert_eq!(frame.encode().unwrap(), frame.encode().unwrap());
@@ -463,6 +481,8 @@ mod tests {
                 text: "a".to_string(),
                 tool_calls: Vec::new(),
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
             SessionEvent::ToolResult {
                 call_id: "c".to_string(),

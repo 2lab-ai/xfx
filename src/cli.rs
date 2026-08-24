@@ -13,6 +13,7 @@ use clap::error::ErrorKind;
 use clap::{ArgAction, ColorChoice, CommandFactory, Parser, Subcommand};
 
 use crate::config::PermissionMode;
+use crate::provider::ProviderId;
 use crate::session::Selector;
 
 /// Every command name the parser accepts, including clap's built-in `help`.
@@ -105,15 +106,14 @@ pub enum Command {
     },
     /// Show one saved session.
     Session { json: bool, selector: Selector },
-    /// Point xfx at the local llmux daemon and record the result.
+    /// Point xfx at a provider and record the result.
     ///
-    /// The target is validated by the parser rather than carried here: `llmux`
-    /// is the only thing xfx knows how to set up, so a variant with a target
-    /// field would be a field with exactly one legal value and a handler that
-    /// had to re-check it.
+    /// The provider is determined by the invocation.
     Setup {
+        /// The provider to set up.
+        provider: ProviderId,
         /// The daemon URL the invocation named, if it named one. `None` means
-        /// discover it.
+        /// discover it. Only valid for llmux.
         url: Option<String>,
         json: bool,
     },
@@ -240,12 +240,40 @@ impl RawCli {
                     resume,
                 }
             }
-            Some(RawCommand::Setup { target, url, json }) => match target.as_deref() {
-                Some(SETUP_TARGET) => Command::Setup { url, json },
-                _ => Command::Rejected {
-                    message: SETUP_USAGE.to_string(),
-                },
-            },
+            Some(RawCommand::Setup { target, url, json }) => {
+                // Parse the target as a provider ID
+                let provider = match target.as_deref() {
+                    Some(raw) => match ProviderId::parse(raw) {
+                        Some(id) => id,
+                        None => {
+                            return Command::Rejected {
+                                message: SETUP_USAGE.to_string(),
+                            }
+                        }
+                    },
+                    None => {
+                        return Command::Rejected {
+                            message: SETUP_USAGE.to_string(),
+                        }
+                    }
+                };
+
+                // Check that --url is only used with llmux
+                if url.is_some() && provider != ProviderId::Llmux {
+                    return Command::Rejected {
+                        message: format!(
+                            "xfx setup: --url is only valid for `llmux`, not `{}`",
+                            provider.label()
+                        ),
+                    };
+                }
+
+                Command::Setup {
+                    provider,
+                    url,
+                    json,
+                }
+            }
             Some(RawCommand::Status { json }) => Command::Status { json },
             Some(RawCommand::Doctor { json }) => Command::Doctor { json },
             Some(RawCommand::Sessions { json, all, limit }) => Command::Sessions {
@@ -274,16 +302,14 @@ impl RawCli {
     }
 }
 
-/// The only thing `xfx setup` knows how to configure.
-const SETUP_TARGET: &str = "llmux";
-
 /// What `xfx setup` says when it was not given a target it can perform.
 ///
-/// It names the one target rather than listing a menu, because there is one:
-/// upstream's `setup` is interactive credential onboarding, which xfx defers,
-/// and pretending otherwise would advertise a surface that does not exist.
-const SETUP_USAGE: &str = "xfx setup: name what to set up; the only target is `llmux` \
-     (usage: xfx setup llmux [--url URL] [--json])";
+/// It lists the providers this build can actually configure. A target for a
+/// provider whose login xfx cannot perform would advertise a surface that does
+/// not exist -- which is why `codex` and `grok` are not here and are not
+/// mentioned as coming.
+const SETUP_USAGE: &str = "xfx setup: name the provider to set up -- `gateway` or `llmux` \
+     (usage: xfx setup <gateway|llmux> [--url URL] [--json]; --url is llmux only)";
 
 /// Turns the two spellings of "which session" into one answer.
 ///
@@ -348,12 +374,12 @@ enum RawCommand {
         #[arg(trailing_var_arg = true, num_args = 1..)]
         prompt: Vec<String>,
     },
-    /// Connect xfx to a local llmux daemon and record it in the profile
+    /// Switch providers and record the selection
     Setup {
-        /// What to set up. The only target is `llmux`
-        #[arg(value_name = "llmux")]
+        /// What to set up: gateway or llmux
+        #[arg(value_name = "gateway|llmux")]
         target: Option<String>,
-        /// The daemon's base URL, when it is not on the default loopback port
+        /// The daemon's base URL, when it is not on the default loopback port (llmux only)
         #[arg(long, value_name = "URL")]
         url: Option<String>,
         /// Emit one JSON document instead of text
@@ -401,6 +427,7 @@ enum RawCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::ProviderId;
 
     fn parse(args: &[&str]) -> Command {
         let mut argv = vec!["xfx"];
@@ -720,44 +747,51 @@ mod tests {
     }
 
     #[test]
-    fn setup_names_exactly_one_target_and_carries_only_its_two_flags() {
-        assert_eq!(
-            parse(&["setup", "llmux"]),
+    fn setup_names_every_provider_it_can_configure_and_nothing_else() {
+        assert!(matches!(
+            parse(&["setup", "gateway"]),
             Command::Setup {
+                provider: ProviderId::Gateway,
                 url: None,
                 json: false
             }
-        );
-        assert_eq!(
-            parse(&["setup", "llmux", "--url", "http://127.0.0.1:9999", "--json"]),
+        ));
+        assert!(matches!(
+            parse(&["setup", "llmux", "--json"]),
             Command::Setup {
-                url: Some("http://127.0.0.1:9999".to_string()),
-                json: true
+                provider: ProviderId::Llmux,
+                json: true,
+                ..
             }
-        );
+        ));
+        // A bare `setup` is not a menu, and a provider this build cannot reach
+        // is not a target: `codex` parsing here would promise a login xfx
+        // cannot perform.
+        for rejected in [
+            vec!["setup"],
+            vec!["setup", "codex"],
+            vec!["setup", "login"],
+            vec!["setup", "llmux", "extra"],
+            vec!["setup", "llmux", "--url"],
+        ] {
+            assert!(
+                matches!(parse(&rejected), Command::Rejected { .. }),
+                "{rejected:?} must be rejected"
+            );
+        }
     }
 
     #[test]
-    fn setup_without_a_target_it_can_perform_is_rejected_and_says_what_it_does() {
-        // `setup` is not a menu: xfx configures exactly one thing, and a bare
-        // invocation or a target it does not have must say so rather than pick.
-        for args in [
-            vec!["setup"],
-            vec!["setup", "gateway"],
-            vec!["setup", "login"],
-            vec!["setup", "llmux", "extra"],
-            // A flag with no value is a usage error, not an empty url.
-            vec!["setup", "llmux", "--url"],
-        ] {
-            let Command::Rejected { message } = parse(&args) else {
-                panic!("{args:?} must be rejected");
-            };
-            assert!(!message.is_empty(), "{args:?} must explain the rejection");
-        }
-        let Command::Rejected { message } = parse(&["setup"]) else {
-            panic!("a bare setup must be rejected");
+    fn a_url_is_refused_for_a_provider_that_has_no_endpoint_to_name() {
+        // A flag that means nothing for the named target is a typo worth
+        // reporting, not a value to ignore.
+        let Command::Rejected { message } =
+            parse(&["setup", "gateway", "--url", "http://127.0.0.1:1"])
+        else {
+            panic!("a url on the gateway target must be rejected");
         };
-        assert!(message.contains("llmux"), "got {message}");
+        assert!(message.contains("--url"), "{message}");
+        assert!(message.contains("llmux"), "{message}");
     }
 
     #[test]

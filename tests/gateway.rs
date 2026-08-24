@@ -28,6 +28,7 @@ use xfx::gateway::protocol::{
 use xfx::gateway::sse::{SseError, SseReader, MAX_EVENT_BYTES};
 use xfx::gateway::{CancelToken, DeltaSink, Endpoint, EndpointError, Provider, ProviderError};
 use xfx::output::{Event, RecordingSink};
+use xfx::provider::Wire;
 
 use support::fake_gateway::{
     content_only, finish, finish_with_usage, sse_body, sse_body_without_done, text_delta,
@@ -413,6 +414,7 @@ fn usage_and_finish_reason_are_extracted_from_the_finish_event() {
     assert_eq!(completion.finish_reason, FinishReason::Length);
     assert_eq!(completion.usage.input_tokens, Some(10));
     assert_eq!(completion.usage.output_tokens, Some(5));
+    assert_eq!(completion.wire, Wire::VercelGateway);
 }
 
 #[test]
@@ -985,6 +987,7 @@ fn stopped(text: &str) -> Completion {
         usage: Default::default(),
         provider_detail: None,
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     }
 }
 
@@ -1295,6 +1298,7 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
         usage: Default::default(),
         provider_detail: None,
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1318,6 +1322,7 @@ async fn a_provider_error_finish_fails_the_turn_with_its_detail() {
         usage: Default::default(),
         provider_detail: Some("model overloaded".to_string()),
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(
         vec!["half".to_string()],
@@ -1343,6 +1348,7 @@ async fn a_tool_call_finish_that_names_no_tool_is_rejected() {
         usage: Default::default(),
         provider_detail: None,
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();

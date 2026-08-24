@@ -90,6 +90,16 @@ which is why the whole suite runs with no credential and no network.
     failures are reported *beside* the answer, never instead of it: the answer
     did arrive.
 
+## Session log design and replay fidelity
+
+An `assistant_message` event records the provider's own replayable state in two disjoint fields: `raw_content` carries Anthropic Messages content blocks (signed reasoning blocks), and `responses_state` carries OpenAI Responses items (encrypted reasoning). A turn writes at most one, because only one provider's state is present. A `wire` field names the provider **and authority** that produced the state and is written only when there is state to replay, so byte-parity with older records is free: missing `wire` and missing `responses_state` are byte-identical to records from binaries that do not know these fields at all.
+
+Replay is **keyed by authority, not by shape**. Two wires can serialize reasoning identically and still not be interchangeable, because the reasoning is sealed by the provider that issued the credential — Anthropic seals its blocks with signatures that it verifies on replay, and OpenAI encrypts its items with keys only it holds. The replay decision is therefore never "does this look like something I could send" but always "did the provider I am about to talk to produce it". When a session recorded under one wire is resumed under another, the state is **dropped** — with a one-line notice on stderr naming both wires — and the turn replays with text and tool calls only, degraded but correct. The stored items remain on disk (not deleted), so a later resume back onto the original authority replays them: dropping shapes a *request*, never a record.
+
+Legacy records (pre-wire) are handled by authority inference: a record with non-empty `raw_content` and no `wire` field can only have come from Anthropic (the only provider that ever wrote that field), so it replays on Anthropic. A record with non-empty `responses_state` and no `wire` is invalid — no pre-wire binary produced this field — and drops with a notice rather than being guessed at. A record with neither field and no wire replays under the active provider.
+
+Unknown future wires (a record naming a `wire` this binary does not know) are dropped for the same reason rather than being guessed at, and the notice names the unknown wire and the active one the user is asking for.
+
 ## One shell prompt
 
 The shell is the same pipeline with a loop around it.
