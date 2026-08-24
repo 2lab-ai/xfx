@@ -207,6 +207,68 @@ pub const PROVIDERS: &[ProviderEntry] = &[
     },
 ];
 
+/// A credential resolved for one provider.
+///
+/// `fx` threads a bearer string into every request and into catalog access;
+/// llmux is keyless, so this is a sum type rather than an `Option<String>`.
+#[derive(Clone)]
+pub enum ProviderCredential {
+    /// A bearer credential from the environment.
+    Bearer(crate::config::Credential),
+    /// A loopback endpoint that answers without one.
+    KeylessLoopback,
+}
+
+impl ProviderCredential {
+    pub fn source(&self) -> crate::config::CredentialSource {
+        match self {
+            Self::Bearer(credential) => credential.source(),
+            Self::KeylessLoopback => crate::config::CredentialSource::LlmuxLoopback,
+        }
+    }
+}
+
+/// Resolves the credential for one provider, doing no I/O at all.
+///
+/// **Provider-scoped resolution bypasses precedence entirely**
+/// (`vercel-labs/fx@ef1d0d0 src/core/auth/credentials.zig:271-303`): each
+/// provider is asked only for its own credential, and there is no fallback from
+/// one down to another's. Switching providers is the only path.
+///
+/// No I/O, because `status` and `doctor` call this and must stay commands that
+/// are always safe to run. A daemon that is down still has a *present*
+/// credential and fails at the ping, the catalog load, or the turn, each of
+/// which reports in its own vocabulary.
+pub fn resolve_credential_for(
+    provider: ProviderId,
+    config: &crate::config::RuntimeConfig,
+) -> Option<ProviderCredential> {
+    match provider {
+        ProviderId::Gateway => config.credential.clone().map(ProviderCredential::Bearer),
+        // Present when a loopback `llmux_url` is configured and passed the
+        // endpoint rule on the way in -- which is a fact about the file, not
+        // about the daemon.
+        ProviderId::Llmux => config
+            .llmux_url
+            .is_some()
+            .then_some(ProviderCredential::KeylessLoopback),
+    }
+}
+
+/// Whether `provider` will accept a credential from `source`.
+///
+/// The one rule that joins the two axes
+/// (`vercel-labs/fx@ef1d0d0 src/core/config/model_provider.zig:22-29`). It is
+/// trivially satisfiable with two non-subscription providers and it is written
+/// as a rule anyway, because it is the thing a subscription provider makes
+/// load-bearing and the thing a *missing* guard makes silently wrong.
+pub fn authorizes(provider: ProviderId, source: crate::config::CredentialSource) -> bool {
+    match provider {
+        ProviderId::Gateway => !matches!(source, crate::config::CredentialSource::LlmuxLoopback),
+        ProviderId::Llmux => matches!(source, crate::config::CredentialSource::LlmuxLoopback),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +361,38 @@ mod tests {
     fn each_provider_names_the_wire_it_speaks() {
         assert_eq!(ProviderId::Gateway.wire(), Wire::VercelGateway);
         assert_eq!(ProviderId::Llmux.wire(), Wire::AnthropicMessages);
+    }
+
+    #[test]
+    fn the_gateway_accepts_any_source_that_is_not_a_subscription() {
+        use crate::config::CredentialSource;
+        for source in [
+            CredentialSource::VercelOidcToken,
+            CredentialSource::AiGatewayApiKey,
+        ] {
+            assert!(authorizes(ProviderId::Gateway, source), "for {source:?}");
+        }
+        // A loopback arrangement is not a Gateway credential: it authenticates
+        // nothing to a remote endpoint, and passing it as one is how an empty
+        // secret becomes a confusing 401 later.
+        assert!(!authorizes(
+            ProviderId::Gateway,
+            CredentialSource::LlmuxLoopback
+        ));
+    }
+
+    #[test]
+    fn llmux_accepts_only_its_own_loopback_arrangement() {
+        use crate::config::CredentialSource;
+        assert!(authorizes(
+            ProviderId::Llmux,
+            CredentialSource::LlmuxLoopback
+        ));
+        for source in [
+            CredentialSource::VercelOidcToken,
+            CredentialSource::AiGatewayApiKey,
+        ] {
+            assert!(!authorizes(ProviderId::Llmux, source), "for {source:?}");
+        }
     }
 }

@@ -342,6 +342,13 @@ pub struct ProviderRejection {
 pub enum CredentialSource {
     VercelOidcToken,
     AiGatewayApiKey,
+    /// llmux's keyless loopback arrangement: authenticated-but-tokenless.
+    ///
+    /// Not "the daemon is up" -- that is a reachability probe wearing a
+    /// credential's clothes -- and not an empty secret passed through a guard
+    /// written for a non-empty one, which is how this becomes a confusing 401
+    /// later. It resolves from configuration alone.
+    LlmuxLoopback,
 }
 
 impl CredentialSource {
@@ -350,6 +357,7 @@ impl CredentialSource {
         match self {
             Self::VercelOidcToken => ENV_OIDC_TOKEN,
             Self::AiGatewayApiKey => ENV_GATEWAY_KEY,
+            Self::LlmuxLoopback => crate::provider::LLMUX_LOOPBACK_LABEL,
         }
     }
 }

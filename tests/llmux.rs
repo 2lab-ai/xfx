@@ -2415,6 +2415,9 @@ fn status_carries_the_refusal_when_llmux_has_no_endpoint() {
     assert!(document.get("provider_url").is_none(), "{document}");
     let help = document["auth_help"].as_str().unwrap_or_default();
     assert!(help.contains("xfx setup llmux"), "got {document}");
+    // There is no keyless arrangement when there is no endpoint to be keyless
+    // toward; the help line is what says how to get one.
+    assert_eq!(document["auth"], "missing");
 }
 
 #[test]

@@ -23,6 +23,7 @@ use std::io::{self, Write};
 use serde::Serialize;
 
 use crate::config::{Credential, ProviderRejection, RuntimeConfig};
+use crate::provider::resolve_credential_for;
 use crate::provider::ProviderId;
 use crate::session::{SessionDetail, SessionList, TurnStep};
 
@@ -126,17 +127,23 @@ impl AuthSnapshot {
                 help: Some(rejected_provider_help(rejected)),
             };
         }
-        match config.provider {
-            ProviderId::Gateway => Self::from_credential(config.credential.as_ref()),
-            ProviderId::Llmux => Self {
-                source: LLMUX_AUTH_LABEL.to_string(),
+        match resolve_credential_for(config.provider, config) {
+            Some(credential) => Self {
+                source: credential.source().label().to_string(),
+                // No refreshable source exists in this build: no login is
+                // implemented, so nothing here can be refreshed. Landing one
+                // flips this field and rewrites `UPSTREAM.md` deviation #5 in
+                // the same change -- the ledger is the contract, not this line.
                 refreshable: false,
-                // The endpoint is what this provider needs, so a missing one is
-                // reported on the same line a missing credential would be.
-                help: config
-                    .llmux_url
-                    .is_none()
-                    .then(|| crate::llmux::MISSING_URL_HELP.to_string()),
+                help: None,
+            },
+            None => Self {
+                source: MISSING_AUTH_LABEL.to_string(),
+                refreshable: false,
+                help: Some(match config.provider {
+                    ProviderId::Gateway => MISSING_AUTH_HELP.to_string(),
+                    ProviderId::Llmux => crate::llmux::MISSING_URL_HELP.to_string(),
+                }),
             },
         }
     }

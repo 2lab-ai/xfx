@@ -14,7 +14,7 @@ use tempfile::TempDir;
 use xfx::config::{
     CredentialSource, DiagnosticCause, Environment, PermissionMode, RuntimeConfig, SettingSource,
 };
-use xfx::provider::ProviderId;
+use xfx::provider::{resolve_credential_for, ProviderCredential, ProviderId};
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
@@ -1962,6 +1962,48 @@ fn every_deferred_command_row_stays_out_of_the_parser() {
             "`{name}` is documented as deferred but the parser advertises it"
         );
     }
+}
+
+#[test]
+fn a_provider_scoped_resolution_never_falls_back_to_another_providers_credential() {
+    // Provider-scoped resolution bypasses precedence entirely. There is no
+    // fallback from one provider's arrangement down to another's key; switching
+    // providers is the only path.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"provider\":\"llmux\"}");
+    let config = RuntimeConfig::load_with(
+        &environment(&sandbox.home, &[("AI_GATEWAY_API_KEY", "not-a-real-key")]),
+        &sandbox.workspace,
+    )
+    .unwrap();
+
+    assert!(
+        resolve_credential_for(ProviderId::Llmux, &config).is_none(),
+        "no llmux_url is configured, so llmux has no credential -- and the \
+         Gateway key is not a substitute for one"
+    );
+    assert!(matches!(
+        resolve_credential_for(ProviderId::Gateway, &config),
+        Some(ProviderCredential::Bearer(_))
+    ));
+}
+
+#[test]
+fn a_configured_llmux_url_is_a_present_credential_without_anything_being_probed() {
+    // Credential *presence* is a configuration fact; *reachability* is a network
+    // fact, and they must not merge. Nothing is listening on this port.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:1\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert!(matches!(
+        resolve_credential_for(ProviderId::Llmux, &config),
+        Some(ProviderCredential::KeylessLoopback)
+    ));
+
+    let status = sandbox.run(&["status", "--json"]).json();
+    assert_eq!(status["auth"], "llmux-keyless-loopback");
+    assert_eq!(status["auth_refreshable"], false);
 }
 
 #[test]
