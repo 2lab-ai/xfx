@@ -29,7 +29,7 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
 use xfx::llmux::{protocol, setup};
-use xfx::provider::ProviderId;
+use xfx::provider::{ProviderId, Wire};
 
 use support::fake_gateway::Reply;
 
@@ -490,6 +490,11 @@ fn the_live_daemon_stream_decodes_into_one_completion() {
     assert_eq!(completion.usage.output_tokens, Some(4));
     assert!(completion.tool_calls.is_empty());
     assert_eq!(completion.provider_detail, None);
+    assert_eq!(
+        completion.wire,
+        Wire::AnthropicMessages,
+        "the decoder stamps the wire that answered"
+    );
 }
 
 #[test]

@@ -28,6 +28,7 @@ use serde_json::{Map, Value};
 
 use super::{CancelToken, DeltaSink};
 use crate::gateway::protocol::{Completion, FinishReason, ToolCall, Usage};
+use crate::provider::Wire;
 
 /// The largest single SSE event xfx will buffer, in bytes.
 pub const MAX_EVENT_BYTES: usize = 32 * 1024 * 1024;
@@ -250,6 +251,7 @@ impl SseReader {
                 // The Vercel wire has no replay contract and no signed blocks,
                 // so there is nothing here to preserve.
                 raw_content: Vec::new(),
+                wire: Wire::VercelGateway,
             }),
             // The provider said why it failed, so report that rather than the
             // generic truncation.

@@ -40,6 +40,7 @@ use xfx::permission::{
     CommandEffect, CommandPlan, CommandRoute, DeniedEffect, Grant, PermissionMode, PermissionRules,
     PermissionSession, PolicyDecision, ProposedAction, Rule, YOLO_WARNING,
 };
+use xfx::provider::Wire;
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
 use xfx::workspace::AccessScope;
 
@@ -2522,6 +2523,7 @@ fn calls_step(calls: Vec<ToolCall>) -> Completion {
         usage: Usage::default(),
         provider_detail: None,
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     }
 }
 
@@ -2533,6 +2535,7 @@ fn answer_step(text: &str) -> Completion {
         usage: Usage::default(),
         provider_detail: None,
         raw_content: Vec::new(),
+        wire: Wire::VercelGateway,
     }
 }
 

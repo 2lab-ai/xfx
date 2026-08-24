@@ -30,6 +30,7 @@ use xfx::gateway::protocol::{
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::output::{Event, RecordingSink};
+use xfx::provider::Wire;
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
 use xfx::workspace::{AccessScope, PathError};
 
@@ -1264,6 +1265,7 @@ fn calls_step(calls: Vec<ToolCall>) -> ScriptedStep {
             usage: Usage::default(),
             provider_detail: None,
             raw_content: Vec::new(),
+            wire: Wire::VercelGateway,
         },
     }
 }
@@ -1278,6 +1280,7 @@ fn final_step(text: &str) -> ScriptedStep {
             usage: Usage::default(),
             provider_detail: None,
             raw_content: Vec::new(),
+            wire: Wire::VercelGateway,
         },
     }
 }

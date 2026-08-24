@@ -12,6 +12,76 @@
 //! provider a profile can select, and selecting one with no transport behind it
 //! would be a promise the binary cannot keep.
 
+use serde::{Deserialize, Serialize};
+
+/// Which wire *and which authority* produced a piece of replayable state.
+///
+/// The authority is part of the name because the credential's issuer is part of
+/// the replay contract and not a detail: Codex and Grok share a serialization
+/// but a Codex `encrypted_content` item is opaque state sealed by OpenAI, and
+/// handing it to xAI is handing one provider's sealed blob to another. Folding
+/// them into one `openai_responses` value would leave that as a future decision;
+/// naming them apart makes it a non-question.
+///
+/// The two Responses values are unreachable in this build -- Codex and Grok are
+/// deferred rows -- and they are here anyway because this type is a **reader**
+/// as much as a writer: a record produced by a later binary must be understood
+/// well enough to be refused, and refusing it correctly means knowing what it
+/// says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum Wire {
+    /// Anthropic Messages, as llmux speaks it.
+    AnthropicMessages,
+    /// The Vercel AI Gateway's own wire, which has no replay contract.
+    VercelGateway,
+    /// OpenAI Responses, authorized by a ChatGPT subscription.
+    CodexResponses,
+    /// OpenAI Responses, authorized by an xAI subscription.
+    GrokResponses,
+    /// A wire a later binary recorded and this one does not know.
+    ///
+    /// Kept verbatim rather than collapsed: it never equals an active wire, so
+    /// it always drops with a notice, and it is written back unchanged so a
+    /// binary that *does* know it can still replay the state after this one has
+    /// read the record.
+    Unrecognized(String),
+}
+
+impl Wire {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::AnthropicMessages => "anthropic_messages",
+            Self::VercelGateway => "vercel_gateway",
+            Self::CodexResponses => "codex_responses",
+            Self::GrokResponses => "grok_responses",
+            Self::Unrecognized(raw) => raw,
+        }
+    }
+
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "anthropic_messages" => Self::AnthropicMessages,
+            "vercel_gateway" => Self::VercelGateway,
+            "codex_responses" => Self::CodexResponses,
+            "grok_responses" => Self::GrokResponses,
+            other => Self::Unrecognized(other.to_string()),
+        }
+    }
+}
+
+impl From<String> for Wire {
+    fn from(raw: String) -> Self {
+        Self::parse(&raw)
+    }
+}
+
+impl From<Wire> for String {
+    fn from(wire: Wire) -> Self {
+        wire.label().to_string()
+    }
+}
+
 /// What `status` calls the arrangement llmux answers a loopback request under.
 ///
 /// It names an arrangement rather than a credential source, because on this
@@ -77,6 +147,15 @@ impl ProviderId {
         match self {
             Self::Gateway => Some("gateway"),
             Self::Llmux => Some("llmux"),
+        }
+    }
+
+    /// The wire this provider speaks, which is also the authority its replayable
+    /// state is sealed by.
+    pub fn wire(self) -> Wire {
+        match self {
+            Self::Gateway => Wire::VercelGateway,
+            Self::Llmux => Wire::AnthropicMessages,
         }
     }
 }
@@ -180,5 +259,45 @@ mod tests {
     fn both_providers_have_a_legacy_backend_value_an_older_binary_can_reach() {
         assert_eq!(ProviderId::Gateway.legacy_backend(), Some("gateway"));
         assert_eq!(ProviderId::Llmux.legacy_backend(), Some("llmux"));
+    }
+
+    #[test]
+    fn every_wire_round_trips_through_its_json_string() {
+        for wire in [
+            Wire::AnthropicMessages,
+            Wire::VercelGateway,
+            Wire::CodexResponses,
+            Wire::GrokResponses,
+        ] {
+            let json = serde_json::to_string(&wire).expect("serialize");
+            assert_eq!(json, format!("\"{}\"", wire.label()));
+            assert_eq!(
+                serde_json::from_str::<Wire>(&json).expect("deserialize"),
+                wire
+            );
+        }
+    }
+
+    #[test]
+    fn a_wire_this_version_does_not_know_is_kept_rather_than_refused_or_forgotten() {
+        // A record written by a later binary must not refuse a whole session,
+        // and it must not decay into `None` either: `None` means "legacy
+        // Anthropic" in the replay table, so an unknown wire read as absent
+        // would be replayed onto the Messages wire -- the exact mis-wiring the
+        // provenance field exists to prevent.
+        let parsed: Wire = serde_json::from_str("\"openai_responses\"").expect("deserialize");
+        assert_eq!(parsed, Wire::Unrecognized("openai_responses".to_string()));
+        assert_eq!(parsed.label(), "openai_responses");
+        assert_eq!(
+            serde_json::to_string(&parsed).expect("serialize"),
+            "\"openai_responses\"",
+            "an unknown wire is written back exactly as it was read"
+        );
+    }
+
+    #[test]
+    fn each_provider_names_the_wire_it_speaks() {
+        assert_eq!(ProviderId::Gateway.wire(), Wire::VercelGateway);
+        assert_eq!(ProviderId::Llmux.wire(), Wire::AnthropicMessages);
     }
 }
