@@ -33,10 +33,11 @@ use rustix::termios::{
     tcgetattr, tcgetwinsize, ControlModes, InputModes, LocalModes, OutputModes, SpecialCodeIndex,
     Termios, Winsize,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use tempfile::TempDir;
 
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
+use support::fake_llmux::FakeLlmux;
 
 /// Environment variables that must never leak in from the developer's shell.
 const CONTROLLED_VARS: &[&str] = &[
@@ -414,6 +415,31 @@ impl Sandbox {
         command
     }
 
+    /// A command whose profile points at a scripted local llmux daemon.
+    ///
+    /// Written into the profile rather than passed as a flag, because the
+    /// provider is a property of the machine and that is where a real one is
+    /// configured -- and because writing it is what proves the shell reads it.
+    fn command_with_llmux(&self, daemon: &FakeLlmux) -> Command {
+        let dir = self.home.join(".xfx");
+        fs::create_dir_all(&dir).expect("create the profile dir");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+                .expect("tighten the profile dir");
+        }
+        fs::write(
+            dir.join("settings.json"),
+            format!(
+                "{{\"provider\":\"llmux\",\"llmux_url\":{},\"models\":{{\"llmux\":\"m-1\"}}}}",
+                serde_json::to_string(&daemon.url()).expect("a url is serializable")
+            ),
+        )
+        .expect("write the profile");
+        self.command()
+    }
+
     fn sessions_dir(&self) -> PathBuf {
         self.home.join(".xfx").join("sessions")
     }
@@ -741,6 +767,117 @@ fn slash_model_refuses_an_unusable_name_rather_than_sending_it() {
     session.type_line("/model");
     let text = session.wait_for("model=");
     assert!(text.contains("zai/glm-5.2"), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_reports_the_provider_and_says_the_gateway_has_no_catalog_to_browse() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/model");
+    let text = session.wait_for("catalog=");
+    assert!(text.contains("provider=gateway"), "{text}");
+    // A fact about the provider, not a missing feature -- and not a network
+    // call: nothing was contacted to find this out.
+    assert!(text.contains("catalog=unavailable"), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_browses_the_catalog_the_daemon_publishes() {
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "m-1", "aliases": ["fable"], "name": "Claude Fable 5",
+         "efforts": ["low", "high"], "max_context": 1_000_000}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    session.type_line("/model");
+    let text = session.wait_for("catalog=");
+    assert!(text.contains("provider=llmux"), "{text}");
+    assert!(text.contains("catalog=1 models"), "{text}");
+    assert!(text.contains("fable"), "{text}");
+    assert!(text.contains("context=1000000"), "{text}");
+    assert!(text.contains("efforts=low,high"), "{text}");
+    assert_eq!(daemon.paths(), ["/models"], "browsing is not a ping");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_refuses_an_id_the_daemon_does_not_publish() {
+    let daemon = FakeLlmux::start(Vec::new())
+        .with_catalog(json!({"models": [{"id": "m-1", "aliases": ["fable"]}]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    // Load the catalog first, the way a user does: the refusal is only possible
+    // against a catalog xfx actually read.
+    session.type_line("/model");
+    session.wait_for("catalog=1 models");
+    session.type_line("/model not-published");
+    let text = session.wait_for("does not publish");
+    assert!(text.contains("not-published"), "{text}");
+    assert!(text.contains("llmux"), "{text}");
+
+    session.type_line("/model");
+    let text = session.wait_for("model=");
+    assert!(text.contains("m-1"), "a refusal changes nothing: {text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_caps_the_catalog_at_100_entries_and_names_the_remainder() {
+    let mut models = vec![];
+    for i in 0..105 {
+        models.push(json!({"id": format!("m-{}", i), "aliases": [format!("m{}", i)]}));
+    }
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": models}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    session.type_line("/model");
+    let text = session.wait_for("... and 5 more");
+    assert!(text.contains("catalog=105 models"), "{text}");
+    // Verify the remainder line is shown for the 5 models not rendered.
+    assert!(
+        text.contains("... and 5 more"),
+        "should show remainder line for 5 models: {text}"
+    );
+    // Verify the last rendered model entries are in the output.
+    assert!(text.contains("[shell]   m95"), "should render m95: {text}");
+    // Verify m100+ is NOT in the output.
+    assert!(
+        !text.contains("[shell]   m100"),
+        "should not render m100: {text}"
+    );
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_model_accepts_a_direct_selection_before_browsing_with_a_warning() {
+    // Direct `/model <id>` before `/model` loads the catalog warns the user
+    // that the selection was not checked, because CatalogState::NotLoaded has
+    // not yet been resolved.
+    let daemon = FakeLlmux::start(Vec::new())
+        .with_catalog(serde_json::json!({"models": [{"id": "m-1", "aliases": ["fable"]}]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
+
+    // Direct selection before any /model load (catalog is NotLoaded).
+    session.type_line("/model unverified-model");
+    let text = session.wait_for("not checked against the provider's catalog");
+    assert!(text.contains("unverified-model"), "{text}");
 
     assert_eq!(session.quit().code(), Some(0));
 }

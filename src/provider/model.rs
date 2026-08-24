@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::RuntimeConfig;
+use crate::config::{RuntimeConfig, SettingSource};
 use crate::gateway::{read_bounded, Endpoint, USER_AGENT};
 use crate::provider::ProviderId;
 
@@ -278,6 +278,228 @@ pub async fn catalog_for_url(base: &str) -> Result<Vec<CatalogEntry>, CatalogErr
     fetch_catalog(&catalog_url).await
 }
 
+/// What the caller must render after applying a `/model` request.
+#[derive(Debug)]
+pub enum ModelOutcome {
+    /// `/model` with no argument: the current model and its source are reported.
+    Reported {
+        provider: ProviderId,
+        model: String,
+        source: SettingSource,
+    },
+    /// `/model <id>` was applied: the caller must persist this choice.
+    Selected {
+        provider: ProviderId,
+        model: String,
+        previous: String,
+        /// Set when the catalog could not be consulted, so the caller can say the
+        /// selection was accepted unverified.
+        unverified: Option<String>,
+    },
+    /// The model was already in force; no change was made.
+    Unchanged { model: String },
+    /// The model id was rejected.
+    Refused { reason: String },
+}
+
+/// The state of a provider's model catalog, as far as it is known to xfx.
+#[derive(Debug, Clone)]
+pub enum CatalogState {
+    /// This provider advertises no catalog.
+    Unavailable,
+    /// Not loaded in this process yet.
+    NotLoaded,
+    /// Loaded, with the entries in the order the provider published them.
+    Loaded(Vec<CatalogEntry>),
+    /// A load was attempted and failed. Carries the one-line reason.
+    Failed(String),
+}
+
+/// A request to apply model selection or report the current model.
+pub enum ModelRequest<'a> {
+    /// `/model` with no argument.
+    Report,
+    /// `/model <id>`.
+    Select(&'a str),
+}
+
+/// The most catalog rows a caller renders in one go, matching `list_files`'
+/// ceiling; a caller that hits it says how many were left out.
+pub const MAX_RENDERED_MODELS: usize = 100;
+
+/// Selects, changes, and renders model choices from a catalog when one exists.
+///
+/// The selector for the configured provider and its active model. Does no I/O
+/// at construction: constructing one on a machine with no credential and no
+/// daemon must work, because that is the machine whose user needs `/model`.
+pub struct ModelSelector {
+    provider: ProviderId,
+    model: String,
+    source: SettingSource,
+    catalog_fetcher: Option<Box<dyn ModelCatalog>>,
+    catalog_state: CatalogState,
+}
+
+impl ModelSelector {
+    /// Creates a selector for the model in force according to the configuration.
+    /// Does no I/O: constructing one on a machine with no credential and no
+    /// daemon must work, because that is the machine whose user needs `/model`.
+    pub fn new(config: &RuntimeConfig) -> Self {
+        let catalog_fetcher = catalog_for(config);
+        let catalog_state = if catalog_fetcher.is_some() {
+            CatalogState::NotLoaded
+        } else {
+            CatalogState::Unavailable
+        };
+        Self {
+            provider: config.provider,
+            model: config.model.clone(),
+            source: config.sources.model,
+            catalog_fetcher,
+            catalog_state,
+        }
+    }
+
+    /// The provider whose catalog this selector browses.
+    pub fn provider(&self) -> ProviderId {
+        self.provider
+    }
+
+    /// The model in force right now.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Which settings layer chose it.
+    pub fn source(&self) -> SettingSource {
+        self.source
+    }
+
+    /// The catalog as far as it is known. Never performs I/O.
+    pub fn catalog(&self) -> &CatalogState {
+        &self.catalog_state
+    }
+
+    /// Loads the catalog once, if the provider advertises one and it has not
+    /// been loaded in this process. **This is the only method that opens a
+    /// socket**; call it where a network call is already legitimate.
+    pub async fn ensure_catalog(&mut self) -> &CatalogState {
+        if !matches!(self.catalog_state, CatalogState::NotLoaded) {
+            return &self.catalog_state;
+        }
+        let Some(fetcher) = &self.catalog_fetcher else {
+            return &self.catalog_state;
+        };
+        match fetcher.fetch().await {
+            Ok(entries) => self.catalog_state = CatalogState::Loaded(entries),
+            Err(err) => {
+                self.catalog_state = CatalogState::Failed(err.to_string());
+            }
+        }
+        &self.catalog_state
+    }
+
+    /// Applies one `/model` request and returns what the caller must render.
+    /// Never performs I/O: it decides against whatever `catalog()` holds.
+    pub fn apply(&mut self, request: ModelRequest<'_>) -> ModelOutcome {
+        match request {
+            ModelRequest::Report => ModelOutcome::Reported {
+                provider: self.provider,
+                model: self.model.clone(),
+                source: self.source,
+            },
+            ModelRequest::Select(id) => {
+                // Validate the id before doing anything else.
+                if let Some(problem) = model_id_problem(id) {
+                    return ModelOutcome::Refused {
+                        reason: problem.to_string(),
+                    };
+                }
+
+                // If already the current model, say so.
+                if id == self.model {
+                    return ModelOutcome::Unchanged {
+                        model: self.model.clone(),
+                    };
+                }
+
+                // Check the catalog state to decide whether to refuse or accept unverified.
+                if let CatalogState::Loaded(entries) = &self.catalog_state {
+                    // Catalog is loaded: refuse if the id is not in it.
+                    if !entries.iter().any(|e| e.matches(id)) {
+                        return ModelOutcome::Refused {
+                            reason: format!(
+                                "{} does not publish {} in its catalog",
+                                self.provider_name(),
+                                id
+                            ),
+                        };
+                    }
+                }
+
+                let previous = self.model.clone();
+                let unverified = match &self.catalog_state {
+                    CatalogState::Unavailable => None,
+                    CatalogState::NotLoaded => {
+                        Some("the catalog has not been loaded in this process".to_string())
+                    }
+                    CatalogState::Loaded(_) => None,
+                    CatalogState::Failed(reason) => Some(reason.clone()),
+                };
+
+                self.model = id.to_string();
+                ModelOutcome::Selected {
+                    provider: self.provider,
+                    model: self.model.clone(),
+                    previous,
+                    unverified,
+                }
+            }
+        }
+    }
+
+    fn provider_name(&self) -> &'static str {
+        match self.provider {
+            ProviderId::Gateway => "gateway",
+            ProviderId::Llmux => "llmux",
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test(provider: ProviderId, model: &str, source: SettingSource) -> Self {
+        Self {
+            provider,
+            model: model.to_string(),
+            source,
+            catalog_fetcher: None,
+            catalog_state: CatalogState::Unavailable,
+        }
+    }
+
+    #[cfg(test)]
+    fn set_catalog_for_test(&mut self, state: CatalogState) {
+        self.catalog_state = state;
+    }
+}
+
+/// Whether `candidate` can be used as a model id.
+/// Maximum 200 bytes; one printable word; no control characters.
+fn model_id_problem(candidate: &str) -> Option<&'static str> {
+    if candidate.is_empty() {
+        return Some("name a model");
+    }
+    if candidate.len() > 200 {
+        return Some("that model id is too long");
+    }
+    if candidate.split_whitespace().count() != 1 {
+        return Some("/model takes one model id, with no spaces in it");
+    }
+    if candidate.chars().any(char::is_control) {
+        return Some("a model id cannot contain control characters");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,6 +511,263 @@ mod tests {
          "efforts":["low","medium","high","xhigh","max"],"max_context":1000000,"group":"claude"},
         {"id":"grok-4.5","aliases":["grok"],"name":"Grok 4.5",
          "efforts":["low","medium","high"],"max_context":500000,"group":"grok"}]}"#;
+
+    fn entry(id: &str, aliases: &[&str]) -> CatalogEntry {
+        CatalogEntry {
+            id: id.to_string(),
+            aliases: aliases.iter().map(|a| (*a).to_string()).collect(),
+            name: None,
+            efforts: Vec::new(),
+            max_context: None,
+        }
+    }
+
+    /// A mock catalog that tracks how many times fetch is called.
+    #[derive(Clone)]
+    struct CountingCatalog {
+        call_count: std::sync::Arc<std::sync::Mutex<usize>>,
+        result: std::sync::Arc<Result<Vec<CatalogEntry>, CatalogError>>,
+    }
+
+    impl CountingCatalog {
+        fn new(result: Result<Vec<CatalogEntry>, CatalogError>) -> Self {
+            Self {
+                call_count: std::sync::Arc::new(std::sync::Mutex::new(0)),
+                result: std::sync::Arc::new(result),
+            }
+        }
+
+        fn count(&self) -> usize {
+            *self.call_count.lock().expect("mutex")
+        }
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl ModelCatalog for CountingCatalog {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, CatalogError> {
+            *self.call_count.lock().expect("mutex") += 1;
+            match &*self.result {
+                Ok(entries) => Ok(entries.clone()),
+                Err(err) => Err(match err {
+                    CatalogError::Unavailable { detail } => CatalogError::Unavailable {
+                        detail: detail.clone(),
+                    },
+                    CatalogError::Empty => CatalogError::Empty,
+                    CatalogError::Malformed { detail } => CatalogError::Malformed {
+                        detail: detail.clone(),
+                    },
+                }),
+            }
+        }
+    }
+
+    #[test]
+    fn a_report_names_the_provider_the_model_and_the_layer_that_chose_it() {
+        let selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        let mut selector = selector;
+        match selector.apply(ModelRequest::Report) {
+            ModelOutcome::Reported {
+                provider,
+                model,
+                source,
+            } => {
+                assert_eq!(provider, ProviderId::Llmux);
+                assert_eq!(model, "fable");
+                assert_eq!(source, SettingSource::UserGlobal);
+            }
+            other => panic!("expected a report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_selection_the_loaded_catalog_does_not_have_is_refused_by_name() {
+        // The provider published what it can run. An id it did not publish is a
+        // turn that fails at the provider, and failing here says why.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Loaded(vec![entry("m-1", &["fable"])]));
+        match selector.apply(ModelRequest::Select("not-published")) {
+            ModelOutcome::Refused { reason } => {
+                assert!(reason.contains("not-published"), "{reason}");
+                assert!(reason.contains("llmux"), "{reason}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert_eq!(selector.model(), "fable", "a refusal changes nothing");
+    }
+
+    #[test]
+    fn an_alias_selects_the_entry_it_belongs_to() {
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "other", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Loaded(vec![entry("m-1", &["fable"])]));
+        match selector.apply(ModelRequest::Select("fable")) {
+            ModelOutcome::Selected {
+                model,
+                previous,
+                unverified,
+                ..
+            } => {
+                assert_eq!(model, "fable");
+                assert_eq!(previous, "other");
+                assert_eq!(unverified, None);
+            }
+            other => panic!("expected a selection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_selection_is_accepted_unverified_when_the_catalog_could_not_be_read() {
+        // A daemon that is down must not stop an operator from changing a
+        // preference. It stops xfx from *checking* it, which is a different
+        // sentence and the one the user gets.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.set_catalog_for_test(CatalogState::Failed(
+            "the daemon did not answer".to_string(),
+        ));
+        match selector.apply(ModelRequest::Select("anything")) {
+            ModelOutcome::Selected {
+                model,
+                unverified: Some(reason),
+                ..
+            } => {
+                assert_eq!(model, "anything");
+                assert!(reason.contains("did not answer"), "{reason}");
+            }
+            other => panic!("expected an unverified selection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_provider_with_no_catalog_accepts_any_well_formed_id() {
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "zai/glm-5.2",
+            SettingSource::CompiledDefault,
+        );
+        assert!(matches!(selector.catalog(), CatalogState::Unavailable));
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("openai/gpt-5")),
+            ModelOutcome::Selected {
+                unverified: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_direct_selection_before_browsing_is_accepted_with_a_warning() {
+        // Direct `/model <id>` before `/model` is typed warns the user that the
+        // catalog was not consulted, distinguishing from a catalog error.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        // Set catalog state to NotLoaded (the default for llmux when constructed normally).
+        selector.set_catalog_for_test(CatalogState::NotLoaded);
+        match selector.apply(ModelRequest::Select("any-id")) {
+            ModelOutcome::Selected {
+                model,
+                unverified: Some(reason),
+                ..
+            } => {
+                assert_eq!(model, "any-id");
+                assert!(reason.contains("not been loaded"), "{reason}");
+            }
+            other => panic!("expected an unverified selection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_model_id_is_one_bounded_printable_word_whatever_the_provider() {
+        // The id becomes an HTTP header value and a durable session field.
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "zai/glm-5.2",
+            SettingSource::CompiledDefault,
+        );
+        for bad in ["", "two words", "with\u{0}control"] {
+            assert!(
+                matches!(
+                    selector.apply(ModelRequest::Select(bad)),
+                    ModelOutcome::Refused { .. }
+                ),
+                "for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_model_id_200_bytes_is_accepted_and_201_bytes_is_refused() {
+        // The boundary is exactly 200 bytes. Verify both sides.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "a", SettingSource::CompiledDefault);
+
+        // 200 bytes should be accepted.
+        let id_200 = "x".repeat(200);
+        assert!(matches!(
+            selector.apply(ModelRequest::Select(&id_200)),
+            ModelOutcome::Selected {
+                unverified: None,
+                ..
+            }
+        ));
+
+        // Reset the selector for the next test.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Gateway, "a", SettingSource::CompiledDefault);
+
+        // 201 bytes should be refused.
+        let id_201 = "x".repeat(201);
+        assert!(matches!(
+            selector.apply(ModelRequest::Select(&id_201)),
+            ModelOutcome::Refused { .. }
+        ));
+    }
+
+    #[test]
+    fn the_catalog_is_bounded_at_100_rendered_rows() {
+        // A catalog with more than 100 entries is clipped by the renderer,
+        // but both the count and remainder are reported.
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        let mut entries = Vec::new();
+        for i in 0..105 {
+            entries.push(CatalogEntry {
+                id: format!("model-{}", i),
+                aliases: vec![],
+                name: None,
+                efforts: vec![],
+                max_context: None,
+            });
+        }
+        selector.set_catalog_for_test(CatalogState::Loaded(entries));
+        match selector.apply(ModelRequest::Report) {
+            ModelOutcome::Reported { .. } => {
+                // The catalog() call will return Loaded(105 entries).
+                // The display logic is tested in interactive.rs via PTY tests.
+                // Here we just verify the state is correct.
+                assert!(matches!(
+                    selector.catalog(),
+                    CatalogState::Loaded(es) if es.len() == 105
+                ));
+            }
+            other => panic!("expected a report, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn selecting_the_model_already_in_force_changes_nothing() {
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "zai/glm-5.2",
+            SettingSource::UserGlobal,
+        );
+        assert!(matches!(
+            selector.apply(ModelRequest::Select("zai/glm-5.2")),
+            ModelOutcome::Unchanged { .. }
+        ));
+    }
 
     #[test]
     fn a_catalog_row_carries_everything_the_daemon_publishes_about_a_model() {
@@ -365,5 +844,52 @@ mod tests {
         // Clipping to safe_len should succeed and produce valid UTF-8
         let clipped_body = &body[..safe_len];
         assert_eq!(clipped_body, "x".repeat(98));
+    }
+
+    #[tokio::test]
+    async fn ensure_catalog_fetches_exactly_once_on_success() {
+        // Multiple calls to ensure_catalog must not re-fetch.
+        let catalog = CountingCatalog::new(Ok(vec![entry("m-1", &["fable"])]));
+        let initial_count = catalog.count();
+
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_state = CatalogState::NotLoaded;
+
+        // First call should fetch.
+        selector.ensure_catalog().await;
+        let count_after_first = catalog.count();
+        assert_eq!(count_after_first, initial_count + 1);
+
+        // Second call should not fetch (state is no longer NotLoaded).
+        selector.ensure_catalog().await;
+        let count_after_second = catalog.count();
+        assert_eq!(count_after_second, count_after_first);
+    }
+
+    #[tokio::test]
+    async fn ensure_catalog_does_not_retry_after_failure() {
+        // A failed load is not retried within the same process.
+        let catalog = CountingCatalog::new(Err(CatalogError::Empty));
+        let initial_count = catalog.count();
+
+        let mut selector =
+            ModelSelector::for_test(ProviderId::Llmux, "fable", SettingSource::UserGlobal);
+        selector.catalog_fetcher = Some(Box::new(catalog.clone()));
+        selector.catalog_state = CatalogState::NotLoaded;
+
+        // First call should fetch and fail.
+        selector.ensure_catalog().await;
+        let count_after_first = catalog.count();
+        assert_eq!(count_after_first, initial_count + 1);
+
+        // Verify the state is now Failed, not NotLoaded.
+        assert!(matches!(selector.catalog_state, CatalogState::Failed(_)));
+
+        // Second call should not fetch (state is Failed, not NotLoaded).
+        selector.ensure_catalog().await;
+        let count_after_second = catalog.count();
+        assert_eq!(count_after_second, count_after_first);
     }
 }

@@ -13,6 +13,12 @@
 //!    are left at their previous values rather than given invented ones: an old
 //!    binary then keeps talking to the backend it was last told about, which is
 //!    a previously operator-chosen endpoint and never a compiled default.
+//!
+//! **Atomicity scope:** File replacement is atomic (stage + rename), so a reader
+//! never sees a half-written file. However, the read-modify-write transaction is
+//! NOT atomic: concurrent `xfx setup` invocations are last-writer-wins and may
+//! lose the other setup's `models{}` or `llmux_url` updates. Recovery is simple:
+//! re-run `xfx setup` to overwrite with the intended configuration.
 
 use std::fs;
 use std::io;
@@ -249,7 +255,9 @@ impl Drop for StagedFile {
 /// so the *name* is durable and not only the bytes it points at.
 ///
 /// A reader of `settings.json` therefore sees either the old document or the new
-/// one -- never a half-written file.
+/// one -- never a half-written file. Note: this is file-replacement atomicity.
+/// The read-modify-write transaction that calls this is NOT atomic; concurrent
+/// writers are last-writer-wins (recoverable by re-running the operation).
 pub fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let staged = StagedFile {
         path: stage_path(dir),
