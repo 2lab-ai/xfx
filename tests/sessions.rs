@@ -728,6 +728,45 @@ fn the_writer_lock_is_released_when_the_handle_is_dropped() {
     assert_eq!(resumed.session.id().as_str(), "released");
 }
 
+/// The grace period a resume now gives a held lock does not soften the refusal
+/// a real second writer gets: an open `WritableSession` is still `Busy`, and
+/// still promptly.
+///
+/// The holder here is not on a timer. It is a live `WritableSession` dropped
+/// only after the refusal has already been returned, so the lock is held for
+/// the whole grace period by construction rather than by timing, which is what
+/// makes this assertable from here at all. The other direction -- a hold that
+/// clears inside the grace is waited out rather than refused -- is not testable
+/// this way, because when a real holder lets go belongs to the scheduler; it is
+/// proven in `src/session/store.rs`, where the grace period is a state machine
+/// over injected attempt, sleep, and clock effects.
+#[cfg(unix)]
+#[test]
+fn a_genuine_second_writer_is_still_refused_within_the_bounded_wait() {
+    use std::time::{Duration, Instant};
+
+    let profile = Profile::new();
+    let workspace = Workspace::new();
+    let store = profile.store();
+    let held = store
+        .create(id("still-busy"), new_session(workspace.path()))
+        .expect("create");
+
+    let started = Instant::now();
+    let err = profile
+        .store()
+        .resume(&Selector::Id(id("still-busy")), workspace.path())
+        .expect_err("a session has one writer");
+    let waited = started.elapsed();
+    drop(held);
+    assert!(matches!(err, SessionError::Busy { .. }), "{err:?}");
+    assert!(err.to_string().contains("still-busy"), "{err}");
+    assert!(
+        waited < Duration::from_secs(1),
+        "a holder that is really writing must be reported, not waited on: {waited:?}"
+    );
+}
+
 #[test]
 fn a_log_that_changed_underneath_an_open_writer_refuses_the_next_append() {
     // The backstop for everything an advisory lock cannot stop: an editor, a

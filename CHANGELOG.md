@@ -17,6 +17,20 @@ upstream `fx`.** What is and is not implemented lives in
   not a regular file is now refused by name before it can be opened: a socket or
   a device is refused for that same reason, though those usually fail fast
   rather than hang. Upstream `fx` 0.0.5 refuses them all the same way.
+- **A session is much less often reported busy because something forked.** A
+  writer's `flock` lives on the open file description, and `fork` hands a copy
+  of that description to every child -- `O_CLOEXEC` closes the copy at `execve`,
+  not at `fork`. xfx forks for every `terminal` command, so a session closed
+  while some child was still on its way to `exec` stayed locked for that window,
+  and a resume landing inside it was told another xfx was writing a session
+  nobody was writing. Taking the lock now opens a bounded grace period of about
+  a quarter second instead of refusing on the first attempt: a window of that
+  kind is over long before the grace is, and short-lived contention is
+  serialized rather than refused. Two things it does not buy: a `Busy` that is
+  really warranted now arrives about a grace period later, and a forked child
+  descheduled past the grace can still produce one. This makes the race rare; it
+  cannot tell one holder from another, because `flock` reports that a lock is
+  held and never by whom.
 
 ## [0.1.0] - 2026-08-24
 

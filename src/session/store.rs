@@ -40,6 +40,9 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+// Only the `flock` grace period measures time, and only unix has `flock`.
+#[cfg(unix)]
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1945,19 +1948,157 @@ fn replace_private_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Sess
 /// It is advisory: it stops xfx, not `cat`. That is why [`SessionStore::append`]
 /// also verifies the log's length before every write -- the lock is the polite
 /// mechanism, the length check is the one that cannot be talked out of.
+///
+/// # Why a refusal is not immediate
+///
+/// The same property that makes the lock crash-safe -- it lives on the open
+/// file description, and the kernel drops it when the *last* descriptor for
+/// that description closes -- means a `fork` can outlive the writer that took
+/// it. `fork` duplicates every open descriptor into the child, and `O_CLOEXEC`
+/// closes those copies at `execve`, not at `fork`. xfx forks constantly: every
+/// `terminal` command is a child, and a child forked by one thread inherits the
+/// session another thread has open. In the window between that `fork` and its
+/// `exec`, the lock is held by a process that is not writing to the session and
+/// never will, and it stays held even after the real writer closes.
+///
+/// So `WOULDBLOCK` opens a **bounded grace period** rather than a refusal: the
+/// lock is retried across [`LOCK_RETRY_BUDGET`] by [`acquire_with_grace`], and
+/// only a lock still held when the budget runs out is reported as
+/// [`SessionError::Busy`]. What that buys, exactly:
+///
+/// - A fork-inheritance window of ordinary length is suppressed, because it is
+///   over long before the budget is.
+/// - Contention that clears inside the budget is serialized instead of refused
+///   -- including a genuine writer that finishes in that time. That is the
+///   right outcome for a lock: the second writer waited its turn and then had
+///   it.
+/// - A `Busy` that is really warranted is reported roughly a budget later than
+///   it used to be -- a budget, plus whatever the last `sleep` overslept by.
+///   That is the price, and it is why the budget is milliseconds rather than
+///   seconds.
+///
+/// What it does **not** do is tell the two kinds of holder apart. Nothing here
+/// can: `flock` says a lock is held, never by whom or why. A forked child that
+/// is descheduled long enough will still produce a `Busy` about a session
+/// nobody is writing, and this only makes that rarer. The grace period is a
+/// reduction in a race's blast radius, not a classifier.
+///
+/// Blocking `flock` is a different instrument, and the wrong one: it would wait
+/// out a writer that holds the session for a whole turn instead of reporting
+/// it, which is the answer a person needs.
 #[cfg(unix)]
 fn lock_exclusive(file: &File, path: &Path, id: &SessionId) -> Result<(), SessionError> {
     use rustix::fs::{flock, FlockOperation};
-    match flock(file, FlockOperation::NonBlockingLockExclusive) {
+
+    let outcome = acquire_with_grace(
+        || match flock(file, FlockOperation::NonBlockingLockExclusive) {
+            Ok(()) => AttemptOutcome::Acquired,
+            // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform
+            // xfx builds for, so matching one covers both.
+            Err(rustix::io::Errno::WOULDBLOCK) => AttemptOutcome::WouldBlock,
+            Err(err) => AttemptOutcome::Failed(io::Error::from(err)),
+        },
+        std::thread::sleep,
+        Instant::now,
+    );
+    match outcome {
         Ok(()) => Ok(()),
-        // `EAGAIN` and `EWOULDBLOCK` are the same value on every platform xfx
-        // builds for, so matching one covers both.
-        Err(rustix::io::Errno::WOULDBLOCK) => Err(SessionError::Busy {
+        Err(AcquireFailure::HeldThroughGrace) => Err(SessionError::Busy {
             id: id.as_str().to_string(),
         }),
-        Err(err) => Err(io_error(path, io::Error::from(err))),
+        Err(AcquireFailure::Failed(err)) => Err(io_error(path, err)),
     }
 }
+
+/// What one attempt at a lock did, in the only three shapes the grace period
+/// distinguishes.
+#[cfg(unix)]
+enum AttemptOutcome {
+    /// The lock is now held by the caller.
+    Acquired,
+    /// Someone else holds it at this instant.
+    WouldBlock,
+    /// The attempt could not be made at all, which is not a lock question.
+    Failed(io::Error),
+}
+
+/// Why a grace period ended without the lock.
+#[cfg(unix)]
+enum AcquireFailure {
+    /// Someone held it for the whole budget. The caller names the session and
+    /// reports [`SessionError::Busy`].
+    HeldThroughGrace,
+    Failed(io::Error),
+}
+
+/// Retries `attempt` across [`LOCK_RETRY_BUDGET`], waiting through `sleep`.
+///
+/// Separate from [`lock_exclusive`], with all three of its effects injected --
+/// the attempt, the pause, and the clock -- because the part worth being sure
+/// about is arithmetic: the backoff sequence, that a failure is not retried,
+/// and that no pause is ever requested once the deadline has passed. Arithmetic
+/// should be provable without a lock, a real clock, or a second thread to race,
+/// and the tests below drive this directly.
+///
+/// The deadline is fixed once, from the clock, and the time left is re-read
+/// from the clock before every pause. That matters because neither a `sleep`
+/// nor a thread is punctual: an oversleeping pause, or a descheduling long
+/// enough to cross the deadline, ends the grace at the next look instead of
+/// asking for another pause the deadline can no longer pay for. That is the
+/// guarantee, and it is deliberately the modest one -- this function never
+/// *asks* to wait past the budget, and it cannot promise that the elapsed time
+/// stayed under it, because a `sleep` returns when the OS says so. A caller who
+/// has a real refusal coming is kept waiting for one budget plus whatever the
+/// last pause overran by.
+#[cfg(unix)]
+fn acquire_with_grace(
+    mut attempt: impl FnMut() -> AttemptOutcome,
+    mut sleep: impl FnMut(Duration),
+    mut now: impl FnMut() -> Instant,
+) -> Result<(), AcquireFailure> {
+    let deadline = now() + LOCK_RETRY_BUDGET;
+    let mut backoff = LOCK_FIRST_BACKOFF;
+    loop {
+        match attempt() {
+            AttemptOutcome::Acquired => return Ok(()),
+            AttemptOutcome::Failed(err) => return Err(AcquireFailure::Failed(err)),
+            AttemptOutcome::WouldBlock => {
+                let remaining = deadline.saturating_duration_since(now());
+                if remaining.is_zero() {
+                    return Err(AcquireFailure::HeldThroughGrace);
+                }
+                // Clamped, so the last pause of a grace period cannot spend
+                // time the deadline does not have.
+                let pause = backoff.min(remaining);
+                sleep(pause);
+                backoff = (backoff * 2).min(LOCK_MAX_BACKOFF);
+            }
+        }
+    }
+}
+
+/// How long [`lock_exclusive`] waits out a held lock before calling it `Busy`.
+///
+/// A compromise between two costs, not a threshold with meaning. Longer covers
+/// more fork windows on a loaded machine; longer also delays every `Busy` a
+/// person is actually waiting on, and blurs a real refusal further into a
+/// wait. This is enough for a child that reaches `execve` promptly, and short
+/// enough to stay under the time a keystroke feels answered -- give or take
+/// however long the final `sleep` overran, which is not this code's to bound.
+#[cfg(unix)]
+const LOCK_RETRY_BUDGET: Duration = Duration::from_millis(250);
+
+/// The first pause between attempts, doubled up to [`LOCK_MAX_BACKOFF`].
+///
+/// It starts small because the hold this is aimed at is usually already
+/// closing, and grows so that a longer hold is not spun on.
+#[cfg(unix)]
+const LOCK_FIRST_BACKOFF: Duration = Duration::from_millis(1);
+
+/// The longest pause between attempts, so the budget is spent on several looks
+/// rather than one long nap that could end well after the lock was released.
+#[cfg(unix)]
+const LOCK_MAX_BACKOFF: Duration = Duration::from_millis(50);
 
 /// No advisory locking is available, so concurrent writers are caught by the
 /// length check in [`SessionStore::append`] instead of being prevented.
@@ -2318,5 +2459,150 @@ mod tests {
         assert_eq!(hex(&[0x00, 0x0f, 0xff]), "000fff");
         assert!(is_digest(&hex(&Sha256::digest(b"x"))));
         assert!(!is_digest("abc"));
+    }
+
+    // --- the lock's grace period ------------------------------------------
+    //
+    // Driven through `acquire_with_grace`'s injected effects, so every case
+    // here is a decision the machine made rather than a race it won: no lock,
+    // no real clock, no second thread. The clock is a cell these tests move,
+    // and how far it moves for a requested pause is the interesting variable --
+    // a punctual sleep advances it by exactly what was asked, and a real one is
+    // free not to.
+
+    /// Runs the grace period against a scripted sequence of attempts on a
+    /// punctual clock, and reports what it decided, every pause it asked for,
+    /// and how many looks it took.
+    #[cfg(unix)]
+    fn grace(outcomes: Vec<AttemptOutcome>) -> (Result<(), AcquireFailure>, Vec<Duration>, usize) {
+        grace_on_a_clock(outcomes, |pause| pause)
+    }
+
+    /// The same, with `advance` deciding how much time each requested pause
+    /// really costs -- which is where an oversleep is expressed.
+    #[cfg(unix)]
+    fn grace_on_a_clock(
+        outcomes: Vec<AttemptOutcome>,
+        mut advance: impl FnMut(Duration) -> Duration,
+    ) -> (Result<(), AcquireFailure>, Vec<Duration>, usize) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        // Only the origin comes from the real clock; every reading after it is
+        // arithmetic these tests did.
+        let clock = Rc::new(Cell::new(Instant::now()));
+        let reader = Rc::clone(&clock);
+        let mut remaining = outcomes.into_iter();
+        let mut attempts = 0usize;
+        let mut slept = Vec::new();
+        let result = acquire_with_grace(
+            || {
+                attempts += 1;
+                remaining
+                    .next()
+                    .unwrap_or_else(|| panic!("the machine attempted more times than scripted"))
+            },
+            |pause| {
+                slept.push(pause);
+                clock.set(clock.get() + advance(pause));
+            },
+            move || reader.get(),
+        );
+        (result, slept, attempts)
+    }
+
+    #[cfg(unix)]
+    fn would_block(times: usize) -> Vec<AttemptOutcome> {
+        (0..times).map(|_| AttemptOutcome::WouldBlock).collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_that_frees_during_the_grace_is_acquired_after_the_documented_backoff() {
+        let mut script = would_block(6);
+        script.push(AttemptOutcome::Acquired);
+        let (result, slept, attempts) = grace(script);
+
+        assert!(result.is_ok(), "the lock came free inside the budget");
+        assert_eq!(
+            slept,
+            [1, 2, 4, 8, 16, 32].map(Duration::from_millis),
+            "the backoff doubles from `LOCK_FIRST_BACKOFF`"
+        );
+        assert_eq!(attempts, 7, "one attempt more than there were pauses");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_lock_held_throughout_spends_the_budget_exactly_and_then_reports_busy() {
+        let (result, slept, attempts) = grace(would_block(32));
+
+        assert!(
+            matches!(result, Err(AcquireFailure::HeldThroughGrace)),
+            "a lock held for the whole budget is the caller's `Busy`"
+        );
+        assert_eq!(
+            slept,
+            [1, 2, 4, 8, 16, 32, 50, 50, 50, 37].map(Duration::from_millis),
+            "the backoff caps at `LOCK_MAX_BACKOFF`, and the last pause is \
+             clamped to what the budget had left"
+        );
+        assert_eq!(
+            slept.iter().sum::<Duration>(),
+            LOCK_RETRY_BUDGET,
+            "on a punctual clock the pauses add up to the budget, and no further"
+        );
+        assert_eq!(
+            attempts,
+            slept.len() + 1,
+            "every pause is followed by a look"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pause_that_overshoots_the_deadline_ends_the_grace_instead_of_pausing_again() {
+        // One 1ms pause that really costs twice the whole budget: a sleep that
+        // overslept, or a thread that was descheduled through it.
+        let (result, slept, attempts) =
+            grace_on_a_clock(would_block(32), |_| LOCK_RETRY_BUDGET * 2);
+
+        assert!(
+            matches!(result, Err(AcquireFailure::HeldThroughGrace)),
+            "past the deadline there is nothing left to wait with"
+        );
+        assert_eq!(
+            slept,
+            [Duration::from_millis(1)],
+            "the machine must not issue pauses the deadline can no longer pay for"
+        );
+        assert_eq!(attempts, 2, "one look, one pause, one look that gives up");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_free_lock_costs_no_wait_at_all() {
+        let (result, slept, attempts) = grace(vec![AttemptOutcome::Acquired]);
+
+        assert!(result.is_ok());
+        assert!(slept.is_empty(), "an uncontended lock must not pause");
+        assert_eq!(attempts, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_error_that_is_not_contention_is_not_retried() {
+        let (result, slept, attempts) = grace(vec![AttemptOutcome::Failed(io::Error::from(
+            io::ErrorKind::PermissionDenied,
+        ))]);
+
+        match result {
+            Err(AcquireFailure::Failed(err)) => {
+                assert_eq!(err.kind(), io::ErrorKind::PermissionDenied)
+            }
+            _ => panic!("a failed attempt is the caller's io error, not a wait"),
+        }
+        assert!(slept.is_empty(), "waiting cannot fix a refused syscall");
+        assert_eq!(attempts, 1);
     }
 }
