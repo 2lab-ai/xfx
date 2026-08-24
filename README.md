@@ -24,15 +24,20 @@ upstream installation.
 
 ## Status
 
-Experimental. Version 0.1.0, and 0.1.0 is unreleased: there is no tagged
-release and no stable package. Linux and macOS, on x86_64 and aarch64. There is
-no Windows build.
+Experimental. Linux and macOS, on x86_64 and aarch64. There is no Windows
+build.
 
-What there is instead is a **preview channel**. Every push to `main` publishes a
+Stable builds are cut as `v*` tags, `v0.1.0` being the first. A tag publishes
+four native target archives with their checksums and the `2lab-ai/tap/xfx`
+Homebrew formula, which selects and installs the archive matching your OS and
+architecture.
+
+The **preview channel** runs alongside that. Every push to `main` publishes a
 prerelease of that exact commit -- four native binaries and their checksums --
 and each binary reports `build_channel=preview` along with the twelve characters
 of the commit it was compiled from, so what you are running can be tied back to
-a source revision. [Install](#install) says how to get it in one command.
+a source revision; a build from a tag answers `build_channel=release` instead.
+[Install](#install) says how to get either in one command.
 
 ## What it does
 
@@ -101,6 +106,24 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
 
 ## Install
 
+### Homebrew, from the stable channel
+
+Once a stable release is published, one command adds the `2lab-ai/tap` tap and
+installs the newest `v*` release from it:
+
+```bash
+brew install 2lab-ai/tap/xfx
+```
+
+If the tap is already added, `brew install xfx` and `brew upgrade xfx` are
+enough. The formula is named `xfx` and so is the executable it installs, and it
+selects and installs the archive matching your OS and architecture.
+
+Both channels install `bin/xfx`, so you have one of them at a time. Run
+`brew uninstall xfx-preview` before installing this one, and the reverse before
+going back. `xfx status --json` says which one you are holding: a stable build
+answers `"build_channel":"release"`, a preview one `"build_channel":"preview"`.
+
 ### Homebrew, from the preview channel
 
 ```bash
@@ -150,9 +173,18 @@ install -m 0755 xfx-macos-aarch64 ~/.local/bin/xfx
 
 ### From a tagged release
 
-There is not one yet. When there is, it carries one archive per target --
-`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`,
-`aarch64-apple-darwin` -- and the archive is verified before it is installed:
+Each `v*` tag carries one archive per target -- `x86_64-unknown-linux-gnu`,
+`aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin` --
+each with its own `.sha256`, and one `SHA256SUMS` covering all four. The example
+below is `v0.1.0` for Apple Silicon macOS; substitute the tag you want and the
+one of those four targets that matches your machine:
+
+```bash
+curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.1.0/xfx-aarch64-apple-darwin.tar.gz
+curl -LO https://github.com/2lab-ai/xfx/releases/download/v0.1.0/xfx-aarch64-apple-darwin.tar.gz.sha256
+```
+
+The archive is verified before it is installed:
 
 ```bash
 tar -xzf xfx-<target>.tar.gz

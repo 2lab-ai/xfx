@@ -7,7 +7,9 @@ worth stating out loud: **a version number here never encodes closeness to
 upstream `fx`.** What is and is not implemented lives in
 [`docs/parity.md`](docs/parity.md) and nowhere else.
 
-## [0.1.0] - unreleased
+## [Unreleased]
+
+## [0.1.0] - 2026-08-24
 
 The first vertical slice, delivered as one bounded loop rather than a broad
 facade: the CLI and configuration core, the Gateway transport and its bounded
@@ -34,6 +36,52 @@ slices before it.
 - **Tool notices in the shell.** Each tool call is announced on stderr as it
   starts and finishes, with a refusal's reason flattened to one bounded line.
   `xfx ask` is unchanged: its output is its answer.
+- **The llmux backend.** Streaming completions from a local
+  [llmux](https://github.com/2lab-ai/llmux) daemon over the Anthropic Messages
+  wire, chosen by the profile-only `backend` and `llmux_url` settings. It is
+  **keyless**: a loopback request carries no `authorization` and no `x-api-key`,
+  because that is what the daemon accepts, and xfx never reads or forwards an
+  llmux key. That is enforced rather than assumed -- the endpoint must be a
+  loopback address literal with an explicit port and no path, under either
+  scheme, and neither llmux client honours `HTTP_PROXY` or `ALL_PROXY` -- so
+  neither a remote url nor a proxy can carry a keyless prompt off the machine.
+  Thinking is not pinned, so responses really can carry reasoning, and every
+  content block is preserved verbatim in arrival order -- `thinking` with its
+  signature, `redacted_thinking` with its payload, `tool_use` with its parsed
+  input, and an unknown type exactly as it arrived -- because Anthropic verifies
+  the signature when a tool continuation or a resumed conversation replays the
+  assistant's prior reasoning. Reasoning is never rendered: it is preserved for
+  the wire and no renderer reads it. The response is a bounded SSE decode --
+  bounded per frame, per completion, and by tracked-block count -- that requires
+  a `message_delta` stop reason and routes every delta by block index. An
+  `error` frame arriving inside an HTTP 200 fails the attempt where it arrives
+  and is replayable when its type is transient (`overloaded_error`,
+  `rate_limit_error`, `api_error`), so the same upstream condition is worth the
+  same number of attempts whether it arrives in band here or as a 429 on the
+  Gateway.
+- **`xfx setup llmux`**, which points xfx at that daemon. It discovers it --
+  an explicit `--url`, else the url a previous setup recorded, else
+  `http://127.0.0.1:3456`, else the `proxy.port` in llmux's own config; never a
+  scan, never off this machine -- and proves it really is llmux before recording
+  anything: `GET /` must answer exactly `llmux` and `GET /models` a non-empty
+  catalog, each read through a bounded stream. It then merges `backend`,
+  `llmux_url` and a model from that catalog into `~/.xfx/settings.json` through
+  a staged `0600` file and a rename, preserving every unrelated key and refusing
+  rather than replacing settings it could not parse, and it says on stderr and
+  in `overridden_by` when a higher layer will still outrank the file it just
+  wrote. It sends **no completion request**, so it costs nothing to run, and it
+  reads exactly one field of llmux's own configuration -- `proxy.port` -- and no
+  credential.
+- **The backend is visible in `status` and `doctor`.** `backend`, and
+  `backend_url` when the backend has a configured one, follow `model` directly,
+  because a model name means nothing without the endpoint it is asked of; a
+  `backend` setting that could not be read is quoted back as `backend_rejected`
+  rather than replaced by a default. On llmux, `auth` is
+  `llmux-keyless-loopback` rather than a variable name. `doctor` gains a
+  `backend` check that appears only when the configured backend cannot run and
+  **fails** when it does, because every turn on such a machine refuses; it names
+  `xfx setup llmux` or quotes the unreadable value, and it does no network I/O,
+  so `doctor` stays a command that is always safe to run.
 - **A `sessions` check in `xfx doctor`**, reporting how many sessions are
   recorded, how many session directories could not be trusted, and how many
   staged manifest files an interrupted write left behind. A report, never a
@@ -68,10 +116,10 @@ slices before it.
   template is in it. Whether the update itself is accepted is decided when the
   push is attempted and is not promised in advance: that push is a hard failure,
   and the tap's scheduled bump remains the recovery path. The prerelease is never
-  marked latest, and `0.1.0` stays unreleased: a preview is a provenance claim,
-  not a version. `scripts/check-preview-contract.sh` holds the workflow to all
-  of that, including running its no-downgrade comparator rather than grepping
-  for it.
+  marked latest, and its version is the timestamp of the run that produced it
+  rather than a release number: a preview is a provenance claim, not a version.
+  `scripts/check-preview-contract.sh` holds the workflow to all of that,
+  including running its no-downgrade comparator rather than grepping for it.
 - **Documentation**: `README.md`, `CONTRIBUTING.md`, `docs/architecture.md`, and
   this file.
 
@@ -94,6 +142,53 @@ slices before it.
 - **The unknown-command refusal cannot be used to paint on the terminal.** A
   shell line beginning `/` is quoted back in the refusal; an escape sequence in
   it was quoted verbatim and obeyed. The quote is now flattened and bounded.
+
+- **Thinking is no longer pinned to `disabled` on llmux.** The pin was there so
+  that dropping thinking blocks would be a consequence of the request rather
+  than a bet on a server default, but the daemon refuses it for the model
+  `xfx setup llmux` selects: `fable` answers HTTP 400, "thinking.type.disabled
+  is not supported for this model" (measured on the live wire, 2026-08-22), so
+  the pin broke the default configuration outright. The field is omitted, xfx
+  takes the adaptive thinking it is given, and preservation rather than
+  suppression is the requirement that follows.
+- **A tool round survives its own continuation.** A continuation that rebuilt
+  the assistant turn from text and tool calls dropped the `thinking` block and
+  its signature, and step two of every tool round at the default model was then
+  a 400. The decoder now reconstructs every content block in arrival order, in
+  the shape the next request has to send back -- accumulating the signature from
+  `signature_delta`, keeping a `redacted_thinking` payload that arrives whole at
+  block start, and keeping a type this build does not know exactly as it
+  arrived. Sessions record them additively, so `ask --resume` puts the same
+  blocks back; a record written before this has no field and rebuilds from text
+  as before, and a session continued on the Gateway degrades to its
+  text-and-tool-call shape instead of failing.
+- **An assistant step that reasoned but said nothing visible is still
+  recorded.** The terminal path asked one question -- is there text -- where
+  there are three, so a completion that reasoned and hit `max_tokens` before
+  producing any visible output recorded nothing at all. The session lost a block
+  Anthropic requires back unchanged, and with the assistant turn gone the user
+  messages on either side of the hole became adjacent, so the rule that merges
+  same-role messages folded two separate prompts into a conversation that never
+  happened. Both record sites now go through one point that asks all three
+  questions. Nothing at all is still not evidence and is still not recorded.
+- **A refused `llmux_url` clears rather than defers.** The merge only overwrote
+  the key on a value it could accept, so a later layer naming a remote daemon
+  was rejected with a diagnostic while the earlier layer's daemon quietly kept
+  deciding where the prompt went -- the exact fallback that `backend_rejected`
+  exists to refuse, arriving through the other key. A refused value now clears
+  the accumulated one, so the operator's most recent word is never silently
+  overridden by an older one, and `llmux_url` gained its own layer-source entry
+  so `setup` can tell the operator which layer their next turn actually reads.
+  Three smaller honesty defects went with it: a client that failed to build on
+  the llmux path blamed the Gateway in its error, the integration tests
+  constructed providers through the bearer rule rather than the product's own
+  loopback gate -- so every loopback property was untested at that level -- and
+  the one code path whose job is not to destroy a settings file took a byte
+  slice of an identifier where it meant characters.
+- **The workflows are linted by a linter that knows their runners.** The pinned
+  `actionlint` predated the `macos-15-intel` label and rejected it as unknown,
+  failing the preview channel in preflight before anything was built; the pin
+  stays, but its version is now part of the contract and checked numerically.
 
 ### Changed
 

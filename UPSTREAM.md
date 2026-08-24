@@ -28,6 +28,31 @@ Credential variables are the exception. `VERCEL_OIDC_TOKEN` and
 `AI_GATEWAY_API_KEY` name a Vercel service, not the fx product, so renaming them
 would break the integration rather than disambiguate it.
 
+## Upstream has moved since the pin
+
+The pin is the evidence base for every claim in this file and in
+`docs/parity.md`: each cited file and line is read at
+`580a0c5da9386317251968c09c1cee69e763487a`, not at whatever upstream is on
+today.
+
+Upstream has gone on without it. As of 2026-08-24 `vercel-labs/fx` is at
+`ef1d0d0c6a1a`, and upstream has released 0.0.5, whose headline items are Codex
+subscription OAuth (`fx login codex`), Grok subscription OAuth
+(`fx login grok`), provider switching moved into `/setup`, host command
+execution in place of sandbox configuration, workspace skills under
+`.fx/skills`, and ACP and WASM SDK surfaces. **None of that is ported to xfx.**
+Some of those names already have deferred rows -- `acp`, `provider` (provider
+switching, including Codex), the Codex subscription credential, skills, the WASM
+core -- but each row cites the pinned commit and describes the surface as that
+commit had it, not as 0.0.5 ships it. The rest have no row at all, because a
+surface upstream added after the pin is not yet something this ledger has read,
+and an unread surface is not one it can claim to be missing.
+
+The pin advances deliberately, and the ledger moves with it when it does: the
+citations are re-read at the new commit, and the rows the new commit needs are
+added there. Until then this file describes a port of one commit, which is the
+only claim its evidence supports.
+
 ## Behavior taken from upstream
 
 | xfx behavior | Upstream evidence |
@@ -104,9 +129,10 @@ Each of these is a decision, not an omission.
    name. `/exit` is not aliased to `/quit`, because a seventh accepted spelling
    is a seventh promise.
 8. **Settings surface is a small subset.** Upstream's `Settings` carries ~35
-   keys (`src/core/config/config_runtime.zig:68-129`). xfx implements `model`,
-   `permission_mode`, and `max_agent_steps`, which are the keys its runtime
-   actually consumes. An unread key is not configuration; it is decoration.
+   keys (`src/core/config/config_runtime.zig:68-129`). xfx implements five --
+   `model`, `permission_mode`, `max_agent_steps`, and the two the llmux backend
+   added, `backend` and `llmux_url` -- which are the keys its runtime actually
+   consumes. An unread key is not configuration; it is decoration.
 9. **The default permission mode asks for less.** Upstream's `auto` runs
    "routine understood development actions" directly and gives an unresolved
    sensitive action one bounded automatic review (`README.md:96-98`). xfx's
