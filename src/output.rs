@@ -315,41 +315,64 @@ fn provider_url(config: &RuntimeConfig) -> Option<String> {
     }
 }
 
-/// What `xfx setup llmux` reports.
+/// What `xfx setup <provider>` reports.
 ///
-/// `models` is the catalog size rather than the catalog. A setup receipt is
-/// something a person reads to confirm what happened, and a document that grew
-/// with the daemon's model list would be unbounded output for a fact nobody
-/// asked for; `xfx status` names the one model that was actually chosen.
+/// For providers with a catalog, `models` is the catalog size rather than the catalog.
+/// A setup receipt is something a person reads to confirm what happened, and a
+/// document that grew with a daemon's model list would be unbounded output for a fact
+/// nobody asked for; `xfx status` names the one model that was actually chosen.
 #[derive(Debug, Clone, Serialize)]
 pub struct SetupSnapshot {
     pub kind: &'static str,
-    pub backend: &'static str,
-    pub url: String,
-    pub models: usize,
+    pub provider: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<usize>,
     pub model: String,
     /// Why that model, so a replaced one is a decision the operator can see
     /// rather than something they discover later.
     pub model_reason: String,
+    pub auth: String,
     pub settings_path: String,
     /// What will still outrank the file that was just written, when anything
     /// does. Absent when the profile is the last word, which is the usual case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overridden_by: Option<String>,
+    /// A warning about missing credential or configuration.
+    /// Warnings are stderr-only; this field is never serialized to JSON.
+    #[serde(skip)]
+    pub credential_warning: Option<String>,
 }
 
 impl SetupSnapshot {
-    pub fn new(report: &crate::llmux::setup::SetupReport) -> Self {
+    pub fn new(report: &crate::provider::setup::SetupReport) -> Self {
+        let auth = report
+            .credential
+            .as_ref()
+            .map(|cred| cred.label())
+            .unwrap_or_else(|| MISSING_AUTH_LABEL.to_string());
+
         Self {
             kind: "setup",
-            backend: ProviderId::Llmux.label(),
-            url: one_line(&report.url),
+            provider: report.provider.label(),
+            url: report.url.as_ref().map(|s| one_line(s)),
             models: report.models,
             model: one_line(&report.model),
             model_reason: one_line(&report.model_reason),
+            auth,
             settings_path: report.settings_path.display().to_string(),
-            overridden_by: report.overridden_by.as_deref().map(one_line),
+            overridden_by: report.overridden_by.as_ref().map(|s| one_line(s)),
+            credential_warning: report.credential_warning.clone(),
         }
+    }
+
+    /// A warning about missing credential or configuration.
+    ///
+    /// It is a fact about their setup rather than about the override layer,
+    /// so it goes to stderr in both output modes.
+    pub fn credential_warning(&self) -> Option<String> {
+        self.credential_warning.clone()
     }
 
     /// The warning an operator has to see even when they asked for JSON.
@@ -377,11 +400,16 @@ impl SetupSnapshot {
             out.push_str(value);
             out.push('\n');
         };
-        line("backend", self.backend);
-        line("url", &self.url);
-        line("models", &self.models.to_string());
+        line("provider", self.provider);
+        if let Some(url) = &self.url {
+            line("url", url);
+        }
+        if let Some(models) = self.models {
+            line("models", &models.to_string());
+        }
         line("model", &self.model);
         line("model_reason", &self.model_reason);
+        line("auth", &self.auth);
         line("settings_path", &self.settings_path);
         if let Some(source) = &self.overridden_by {
             line("overridden_by", source);

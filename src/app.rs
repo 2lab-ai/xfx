@@ -161,9 +161,22 @@ pub async fn run_with(
             };
             ask(&config, request, stdout, stderr).await
         }
-        Command::Setup { url, json } => {
+        Command::Setup {
+            provider,
+            url,
+            json,
+        } => {
             let (env, config) = load_config_with_env()?;
-            setup_llmux(&config, &env, url.as_deref(), json, stdout, stderr).await
+            setup_provider(
+                &config,
+                &env,
+                provider,
+                url.as_deref(),
+                json,
+                stdout,
+                stderr,
+            )
+            .await
         }
         Command::Status { json } => {
             let config = load_config()?;
@@ -693,30 +706,34 @@ fn load_config_with_env() -> Result<(Environment, RuntimeConfig), AppError> {
     Ok((env, config))
 }
 
-/// Runs `xfx setup llmux` and reports what it did, or why it did not.
+/// Runs `xfx setup <provider>` and reports what it did, or why it did not.
 ///
 /// A failure is reported in whichever shape the caller asked for, matching
 /// `ask`: text goes to stderr so stdout stays empty, and `--json` puts exactly
 /// one terminal document on stdout so a caller parsing it gets a document
 /// whatever happened.
-async fn setup_llmux(
+async fn setup_provider(
     config: &RuntimeConfig,
     env: &Environment,
+    provider: ProviderId,
     url: Option<&str>,
     json: bool,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<ExitCode, AppError> {
     let format = OutputFormat::from_json_flag(json);
-    match crate::llmux::setup::run(config, env, url).await {
+    match crate::provider::setup::run(config, env, provider, url).await {
         Ok(report) => {
             let snapshot = SetupSnapshot::new(&report);
             write!(stdout, "{}", snapshot.render(format))?;
-            // On stderr in both modes: it is a fact about the operator's shell
-            // rather than about the setup, and a `--json` caller's stdout has to
-            // stay exactly one document.
+            // On stderr in both modes: credentials and overrides are facts about the
+            // operator's shell rather than about the setup, and a `--json` caller's
+            // stdout has to stay exactly one document.
             if let Some(warning) = snapshot.override_warning() {
                 writeln!(stderr, "{warning}")?;
+            }
+            if let Some(warning) = snapshot.credential_warning() {
+                writeln!(stderr, "{}", warning)?;
             }
             Ok(ExitCode::SUCCESS)
         }

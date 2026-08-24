@@ -36,6 +36,11 @@ pub struct Selection<'a> {
 /// an older binary can reach, the legacy `backend` and `model` keys are updated
 /// to match the new ones. When the provider has no such value, the legacy keys
 /// are left at their previous values.
+///
+/// Data preservation rule: if there is a flat `model` with a recognizable `backend`,
+/// and the backend provider is NOT yet in the `models` object, migrate it there.
+/// This prevents data loss when switching providers while a flat model from a
+/// previous setup is still present.
 pub fn merge_selection(
     mut existing: Map<String, Value>,
     selection: &Selection<'_>,
@@ -47,19 +52,37 @@ pub fn merge_selection(
         Value::String(selection.provider.label().to_string()),
     );
 
-    // Ensure `models` is an object.
+    // Ensure `models` is an object. Migrate flat `model` to its owning provider if needed.
     {
         let models_key = crate::config::MODELS_KEY.to_string();
-        if !existing.contains_key(&models_key) || !existing[&models_key].is_object() {
-            // Replace a non-object with an empty object, or create if absent.
-            existing.insert(models_key.clone(), Map::new().into());
+        let mut models_obj =
+            if existing.contains_key(&models_key) && existing[&models_key].is_object() {
+                existing[&models_key].as_object().unwrap().clone()
+            } else {
+                Map::new()
+            };
+
+        // Migrate flat `model` if it exists with a recognizable `backend`
+        // AND that backend provider is NOT yet in the models object.
+        if let (Some(flat_model), Some(backend)) = (
+            existing.get("model").and_then(Value::as_str),
+            existing.get("backend").and_then(Value::as_str),
+        ) {
+            if let Some(backend_provider) = ProviderId::parse(backend) {
+                let backend_label = backend_provider.label().to_string();
+                // Only migrate if this provider is not already in models.
+                if !models_obj.contains_key(&backend_label) {
+                    models_obj.insert(backend_label, Value::String(flat_model.to_string()));
+                }
+            }
         }
-        if let Some(models_obj) = existing[&models_key].as_object_mut() {
-            models_obj.insert(
-                selection.provider.label().to_string(),
-                Value::String(selection.model.to_string()),
-            );
-        }
+
+        // Insert the new selection's model into its provider's entry.
+        models_obj.insert(
+            selection.provider.label().to_string(),
+            Value::String(selection.model.to_string()),
+        );
+        existing.insert(models_key, Value::Object(models_obj));
     }
 
     // Update legacy keys if the provider has a legacy value.

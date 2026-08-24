@@ -1721,7 +1721,7 @@ fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
 
     let document = run.json();
     assert_eq!(document["kind"], "setup");
-    assert_eq!(document["backend"], "llmux");
+    assert_eq!(document["provider"], "llmux");
     assert_eq!(document["url"], daemon.url());
     assert_eq!(document["models"], 2, "the catalog size, not the catalog");
     assert_eq!(document["model"], "fable", "the first entry's first alias");
@@ -1737,7 +1737,7 @@ fn setup_probes_an_explicit_url_and_records_it_in_the_profile() {
 
     let settings: Value =
         serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
-    assert_eq!(settings["backend"], "llmux");
+    assert_eq!(settings["provider"], "llmux");
     assert_eq!(settings["llmux_url"], daemon.url());
     assert_eq!(settings["model"], "fable");
 }
@@ -1934,7 +1934,7 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     // And what the loader resolved is exactly what setup reported.
     assert_eq!(report["url"], config.llmux_url.clone().unwrap());
     assert_eq!(report["model"], config.model);
-    assert_eq!(report["backend"], config.provider.label());
+    assert_eq!(report["provider"], config.provider.label());
     assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
 
     // Extended: verify the loader actually reads each family independently.
@@ -2982,4 +2982,33 @@ fn bundle_select_without_url_for_llmux_fails() {
             );
         }
     }
+}
+
+#[test]
+fn switching_to_the_gateway_and_back_keeps_each_providers_model() {
+    let daemon = FakeLlmux::start(vec![Reply::Sse(anthropic_answer(&["back"]))])
+        .with_catalog(catalog(&[("m-1", &["fable"])]));
+    let sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+    assert_eq!(sandbox.run(&["setup", "gateway"], &[]).code, Some(0));
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["models"]["llmux"], "fable", "kept while unused");
+    assert_eq!(settings["models"]["gateway"], xfx::config::DEFAULT_MODEL);
+
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+    let run = sandbox.run(&["ask", "--json", "--no-save", "hello"], &[]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(daemon.only_message_request().json()["model"], "fable");
 }

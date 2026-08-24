@@ -98,6 +98,10 @@ impl Sandbox {
         self.home.join(".xfx")
     }
 
+    fn settings_path(&self) -> PathBuf {
+        self.profile_dir().join("settings.json")
+    }
+
     fn write_user_settings(&self, body: &str) {
         let dir = self.profile_dir();
         fs::create_dir_all(&dir).expect("create profile dir");
@@ -2004,6 +2008,187 @@ fn a_configured_llmux_url_is_a_present_credential_without_anything_being_probed(
     let status = sandbox.run(&["status", "--json"]).json();
     assert_eq!(status["auth"], "llmux-keyless-loopback");
     assert_eq!(status["auth_refreshable"], false);
+}
+
+#[test]
+fn setup_gateway_records_the_selection_and_says_what_credential_will_be_used() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\"model\":\"fable\"}",
+    );
+    let run = sandbox.run_with_env(
+        &["setup", "gateway", "--json"],
+        &[("AI_GATEWAY_API_KEY", "planted-key-not-a-real-one")],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let document = run.json();
+    assert_eq!(document["kind"], "setup");
+    assert_eq!(document["provider"], "gateway");
+    assert_eq!(document["auth"], "AI_GATEWAY_API_KEY");
+    assert!(
+        document.get("url").is_none(),
+        "the gateway has no daemon url"
+    );
+    assert!(
+        document.get("models").is_none(),
+        "and advertises no catalog"
+    );
+    // The credential is named, never printed.
+    assert!(!run.stdout.contains("planted-key"), "{}", run.stdout);
+    assert!(!run.stderr.contains("planted-key"), "{}", run.stderr);
+
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "gateway");
+    assert_eq!(settings["backend"], "gateway");
+    // Every unrelated key survives, including the other provider's parameters.
+    assert_eq!(settings["llmux_url"], "http://127.0.0.1:3456");
+    assert_eq!(settings["models"]["llmux"], "fable");
+}
+
+#[test]
+fn setup_gateway_records_the_selection_and_warns_when_no_credential_is_set() {
+    // The profile is machine state and the environment is shell state: refusing
+    // a durable write because of an ephemeral shell would be the same defect as
+    // persisting an XFX_MODEL that outranks the file.
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "gateway"]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert!(
+        run.stdout.contains("[setup] provider=gateway"),
+        "{}",
+        run.stdout
+    );
+    assert!(run.stderr.contains("VERCEL_OIDC_TOKEN"), "{}", run.stderr);
+
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "gateway");
+}
+
+#[test]
+fn setup_does_not_offer_a_provider_this_build_cannot_reach() {
+    let help = Sandbox::new().run(&["setup", "--help"]).stdout;
+    for absent in ["codex", "grok", "chatgpt"] {
+        assert!(!help.contains(absent), "`{absent}` is deferred: {help}");
+    }
+}
+
+#[test]
+fn setup_migrates_legacy_gateway_profile_to_models_object() {
+    // A profile with backend:gateway and a flat model should promote that model
+    // to models["gateway"] when setup runs.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(r#"{"backend":"gateway","model":"custom-model"}"#);
+    let run = sandbox.run(&["setup", "gateway"]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "gateway");
+    assert_eq!(settings["backend"], "gateway");
+    // The flat model should be promoted to models["gateway"]
+    assert_eq!(
+        settings["models"]["gateway"], "custom-model",
+        "legacy flat model must migrate to provider's entry"
+    );
+}
+
+#[test]
+fn setup_with_mixed_profile_keeps_other_providers_models() {
+    // A profile that has models for some providers but not the one we're setting up
+    // should preserve those and add the new one.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        r#"{"provider":"llmux","models":{"llmux":"fable"},"backend":"llmux","llmux_url":"http://127.0.0.1:3456"}"#,
+    );
+    let run = sandbox.run(&["setup", "gateway"]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "gateway");
+    // The llmux model should be preserved
+    assert_eq!(settings["models"]["llmux"], "fable");
+    // The gateway model should be set
+    assert!(settings["models"]["gateway"].is_string());
+}
+
+#[test]
+fn setup_does_not_lose_flat_model_when_switching_providers_with_mixed_models() {
+    // A profile with backend:llmux, a flat model, and models for a different provider
+    // (e.g., models:{"gateway":"x"}) should preserve the llmux flat model by migrating
+    // it to models["llmux"] when switching to gateway.
+    //
+    // This is the RED case: without the fix, llmux's flat model "fable" is lost
+    // because models already exists, so the migration logic skips it.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        r#"{"backend":"llmux","model":"fable","models":{"gateway":"custom-gw"}}"#,
+    );
+    let run = sandbox.run(&["setup", "gateway"]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let settings: Value =
+        serde_json::from_str(&fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "gateway");
+    // The gateway model should be updated (not kept as custom-gw since no catalog in gateway setup)
+    assert!(settings["models"]["gateway"].is_string());
+    // The llmux flat model should be preserved in models["llmux"], not lost
+    assert_eq!(
+        settings["models"]["llmux"], "fable",
+        "flat model from llmux backend must migrate to models[\"llmux\"], even when models exists"
+    );
+}
+
+#[test]
+fn setup_gateway_error_when_no_home_does_not_mention_daemon_or_llmux() {
+    // Regression test: NoProfile error must be provider-aware and not mention "daemon" or "llmux" for Gateway.
+    let sandbox = Sandbox::new();
+    let mut command = sandbox.command();
+    command.args(["setup", "gateway"]);
+    // Remove HOME to trigger NoProfile error
+    command.env_remove("HOME");
+    let run = Run::of(command.output().expect("spawn xfx"));
+    assert_eq!(run.code, Some(1), "setup gateway must fail without home");
+    let error = run.stderr + &run.stdout;
+    assert!(
+        !error.contains("daemon"),
+        "error should not mention daemon: {error}"
+    );
+    assert!(
+        !error.contains("llmux"),
+        "error should not mention llmux: {error}"
+    );
+    assert!(
+        error.contains("gateway"),
+        "error should mention gateway: {error}"
+    );
+    assert!(
+        error.contains("~/.xfx/settings.json"),
+        "error should mention the settings path: {error}"
+    );
+}
+
+#[test]
+fn setup_gateway_credential_warning_is_not_serialized_to_json() {
+    let sandbox = Sandbox::new();
+    let run = sandbox.run(&["setup", "gateway", "--json"]);
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+
+    let document = run.json();
+    // credential_warning must not appear in JSON output even if the warning exists in stderr
+    assert!(
+        document.get("credential_warning").is_none(),
+        "JSON output must not include credential_warning field"
+    );
+    // But the warning should reach stderr
+    assert!(
+        run.stderr.contains("VERCEL_OIDC_TOKEN") || run.stderr.contains("AI_GATEWAY_API_KEY"),
+        "warning about missing credential should appear on stderr: {stderr}",
+        stderr = run.stderr
+    );
 }
 
 #[test]

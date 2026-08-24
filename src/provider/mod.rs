@@ -14,6 +14,7 @@
 
 pub mod model;
 pub mod profile;
+pub mod setup;
 
 use serde::{Deserialize, Serialize};
 

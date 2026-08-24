@@ -271,6 +271,13 @@ pub fn catalog_for(config: &RuntimeConfig) -> Option<Box<dyn ModelCatalog>> {
     }
 }
 
+/// Async variant: fetch catalog from a URL during provider discovery.
+/// The discovery phase uses this before the config's provider/url are set.
+pub async fn catalog_for_url(base: &str) -> Result<Vec<CatalogEntry>, CatalogError> {
+    let catalog_url = format!("{base}/models");
+    fetch_catalog(&catalog_url).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

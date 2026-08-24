@@ -9,6 +9,16 @@ upstream `fx`.** What is and is not implemented lives in
 
 ## [Unreleased]
 
+### Added
+
+- **`xfx setup <gateway|llmux>` switches providers.** `setup` now names the
+  provider it is configuring, and the profile records `provider` plus a
+  `models` object keyed by provider, so each provider keeps its own model across
+  a switch. The keys a v0.1.0 binary reads -- `backend` and `model` -- are
+  written alongside them and kept in sync, so an older binary reading the same
+  profile still resolves the endpoint the operator chose. `setup gateway` is a
+  selection, not credential onboarding: it reads no key and writes none.
+
 ### Changed
 
 - **`status` and `doctor` report `provider` where they reported `backend`.**

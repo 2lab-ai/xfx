@@ -34,11 +34,13 @@ use crate::config::{
     Environment, RuntimeConfig, SettingSource, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME,
     MAX_SETTINGS_BYTES,
 };
-use crate::gateway::EndpointError;
 use crate::provider::model;
 use crate::provider::profile;
 
 use super::DEFAULT_URL;
+
+// Re-export the shared setup types from provider::setup
+pub use crate::provider::setup::{SetupError, SetupReport};
 
 /// The body `GET /` answers on a real daemon
 /// (`2lab-ai/llmux@79f66748656b src/proxy/server.rs:1240`).
@@ -46,105 +48,6 @@ const ROOT_BODY: &str = "llmux";
 
 /// llmux's configuration file name, under whichever directory holds it.
 const LLMUX_CONFIG_FILE: &str = "llmux.json";
-
-/// What `setup` decided, once it has decided it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetupReport {
-    /// The daemon xfx will talk to.
-    pub url: String,
-    /// How many models the daemon offers. A count rather than the catalog: the
-    /// human line says "catalog size" and the two surfaces must agree, and a
-    /// document that grew with the daemon's model list would be unbounded output.
-    pub models: usize,
-    /// The model that was recorded.
-    pub model: String,
-    /// Why that model, in one line.
-    pub model_reason: String,
-    /// The settings file that was written.
-    pub settings_path: PathBuf,
-    /// What will still outrank the file setup just wrote, when something does.
-    ///
-    /// The profile is one layer of five. An `XFX_MODEL` in the shell, or an
-    /// exact-workspace entry for this directory, outranks it -- so a receipt
-    /// that only reported what was written would be telling the operator their
-    /// next turn will use something it will not.
-    pub overridden_by: Option<String>,
-}
-
-/// Why `setup` could not finish.
-#[derive(Debug)]
-pub enum SetupError {
-    /// The `--url` the invocation named is not one xfx may send a prompt to.
-    Endpoint(EndpointError),
-    /// No daemon answered, and nothing named another place to look.
-    NotFound {
-        tried: Vec<String>,
-        /// What the most informative candidate actually said, when one answered
-        /// and was not llmux. "No daemon answered" is true and useless when the
-        /// operator has a port conflict: it sends them to start something that
-        /// is already running.
-        answered: Option<String>,
-    },
-    /// Something answered, but it is not llmux.
-    NotLlmux { url: String, detail: String },
-    /// xfx could not build its own HTTP client, so nothing was contacted.
-    ///
-    /// Its own variant because reporting it as a daemon that did not answer
-    /// blamed a daemon that was never asked -- and rendered as
-    /// ``did not answer as an llmux daemon`` with an empty URL.
-    Client { detail: String },
-    /// There is no home directory, so there is no profile to write.
-    NoProfile,
-    /// The existing settings file could not be read, so it must not be replaced.
-    UnreadableSettings { path: PathBuf, detail: String },
-    /// The settings file could not be written.
-    Write { path: PathBuf, detail: String },
-}
-
-impl std::fmt::Display for SetupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Endpoint(err) => write!(f, "{err}"),
-            Self::NotFound { tried, answered } => {
-                write!(
-                    f,
-                    "no llmux daemon answered. xfx tried {}",
-                    tried.join(", ")
-                )?;
-                if let Some(answered) = answered {
-                    write!(f, ". {answered}")?;
-                }
-                write!(
-                    f,
-                    ". Start llmux, or name it with \
-                     `xfx setup llmux --url http://127.0.0.1:<port>`"
-                )
-            }
-            Self::NotLlmux { url, detail } => {
-                write!(f, "`{url}` did not answer as an llmux daemon: {detail}")
-            }
-            Self::Client { detail } => {
-                write!(f, "xfx could not build its HTTP client: {detail}")
-            }
-            Self::NoProfile => write!(
-                f,
-                "xfx cannot record the daemon because no home directory is set, \
-                 so there is no `~/.xfx/settings.json` to write"
-            ),
-            Self::UnreadableSettings { path, detail } => write!(
-                f,
-                "xfx will not replace {}: {detail}. Fix or move the file and run \
-                 `xfx setup llmux` again -- xfx does not overwrite settings it could not read",
-                path.display()
-            ),
-            Self::Write { path, detail } => {
-                write!(f, "cannot write {}: {detail}", path.display())
-            }
-        }
-    }
-}
-
-impl std::error::Error for SetupError {}
 
 /// Runs the whole command: discover, probe, choose, record.
 pub async fn run(
@@ -156,7 +59,9 @@ pub async fn run(
     let settings_path = config
         .user_settings_path
         .clone()
-        .ok_or(SetupError::NoProfile)?;
+        .ok_or(SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        })?;
 
     // The file, read once, before anything is decided. The keep-or-replace
     // decision has to be about the layer being *written*: reading the fully
@@ -166,6 +71,7 @@ pub async fn run(
     // Reported, of course, as "kept".
     let existing =
         profile::read_existing(&settings_path).map_err(|err| SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
             path: settings_path.clone(),
             detail: err.to_string(),
         })?;
@@ -187,16 +93,20 @@ pub async fn run(
         llmux_url: Some(&url),
     };
     profile::write(&settings_path, existing, &selection).map_err(|err| SetupError::Write {
+        provider: crate::provider::ProviderId::Llmux,
         path: settings_path.clone(),
         detail: err.to_string(),
     })?;
     Ok(SetupReport {
-        url,
-        models: catalog.len(),
+        provider: crate::provider::ProviderId::Llmux,
+        url: Some(url),
+        models: Some(catalog.len()),
         model,
         model_reason,
+        credential: Some(crate::provider::setup::CredentialSource::KeylessLoopback),
         settings_path,
         overridden_by: overriding_layers(config),
+        credential_warning: None,
     })
 }
 
@@ -770,6 +680,137 @@ mod tests {
         let clipped = clip(&"한".repeat(200));
         assert!(clipped.ends_with("..."), "{clipped}");
         assert!(clipped.len() <= 123, "{}", clipped.len());
+    }
+
+    #[test]
+    fn llmux_error_messages_name_the_provider() {
+        // Verify that error messages are provider-aware and mention "llmux"
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+
+        // UnreadableSettings
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path.clone(),
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        assert!(
+            unreadable.contains("xfx setup llmux"),
+            "UnreadableSettings should mention llmux: {unreadable}"
+        );
+        assert!(
+            !unreadable.contains("gateway"),
+            "UnreadableSettings should not mention gateway: {unreadable}"
+        );
+
+        // Write
+        let write_err = SetupError::Write {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path.clone(),
+            detail: "no space".to_string(),
+        }
+        .to_string();
+        assert!(
+            write_err.contains("cannot write"),
+            "Write should contain error: {write_err}"
+        );
+
+        // NoProfile
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        }
+        .to_string();
+        assert!(
+            no_profile.contains("daemon"),
+            "NoProfile should mention daemon for llmux: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("gateway"),
+            "NoProfile should not mention gateway: {no_profile}"
+        );
+    }
+
+    #[test]
+    fn llmux_unreadable_settings_exact_message() {
+        // Exact-string regression test: llmux UnreadableSettings message byte-identical
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Llmux,
+            path: settings_path,
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        // This exact message must not change without a migration notice
+        assert_eq!(
+            unreadable,
+            "xfx will not replace /tmp/settings.json: permission denied. Fix or move the file and run `xfx setup llmux` again -- xfx does not overwrite settings it could not read"
+        );
+    }
+
+    #[test]
+    fn llmux_noprofile_exact_message() {
+        // Exact-string regression test: llmux NoProfile message must preserve legacy "record the daemon" text
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Llmux,
+        }
+        .to_string();
+        // Legacy message must be preserved byte-identical for llmux
+        assert_eq!(
+            no_profile,
+            "xfx cannot record the daemon because no home directory is set, so there is no `~/.xfx/settings.json` to write"
+        );
+    }
+
+    #[test]
+    fn gateway_error_messages_name_the_provider_all_variants() {
+        // Verify that gateway errors mention "gateway", not "llmux" or "daemon"
+        let settings_path = std::path::PathBuf::from("/tmp/settings.json");
+
+        // Gateway UnreadableSettings
+        let unreadable = SetupError::UnreadableSettings {
+            provider: crate::provider::ProviderId::Gateway,
+            path: settings_path.clone(),
+            detail: "permission denied".to_string(),
+        }
+        .to_string();
+        assert!(
+            unreadable.contains("xfx setup gateway"),
+            "UnreadableSettings should mention gateway: {unreadable}"
+        );
+        assert!(
+            !unreadable.contains("daemon"),
+            "UnreadableSettings should not mention daemon: {unreadable}"
+        );
+
+        // Gateway Write error
+        let write_err = SetupError::Write {
+            provider: crate::provider::ProviderId::Gateway,
+            path: settings_path.clone(),
+            detail: "no space".to_string(),
+        }
+        .to_string();
+        assert!(
+            write_err.contains("cannot write"),
+            "Write should contain error: {write_err}"
+        );
+
+        // Gateway NoProfile
+        let no_profile = SetupError::NoProfile {
+            provider: crate::provider::ProviderId::Gateway,
+        }
+        .to_string();
+        assert!(
+            no_profile.contains("gateway"),
+            "NoProfile should mention gateway: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("daemon"),
+            "NoProfile should not mention daemon: {no_profile}"
+        );
+        assert!(
+            !no_profile.contains("llmux"),
+            "NoProfile should not mention llmux: {no_profile}"
+        );
     }
 
     /// A config rooted at `home`, built the way the loader builds one.
