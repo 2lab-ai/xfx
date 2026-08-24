@@ -11,10 +11,12 @@
 mod support;
 
 use std::fs::OpenOptions;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 
+use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
-use support::pty::{modes, open_slave, Pty, Session, TerminalState};
+use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait};
 use support::sandbox::Sandbox;
 
 /// A bare `xfx` that opts into the TUI.
@@ -46,6 +48,14 @@ const RESTORE: &str = "\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
 const RESTORE_TMUX: &str = "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+
+/// The restore an exit that is **not** the planned one writes, which leads with
+/// `1049l` defensively (`app_lifecycle.zig:36-38`).
+///
+/// Response-only, like `READY`: no test types these bytes, so waiting for them
+/// cannot be satisfied by the pty echoing the suite's own keystrokes.
+const ABNORMAL_RESTORE: &str =
+    "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
@@ -300,5 +310,215 @@ fn a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken() {
         before,
         modes(&pty),
         "the refused invocation took the terminal"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the signal contract
+// ---------------------------------------------------------------------------
+//
+// One row per exit path of `.prd/03-tui-port.md` §"Signals". Each case asserts
+// two things that only the real contract can satisfy together: the terminal is
+// byte-identical to what it was before the child ran, and the child's *own*
+// wait status says the signal killed it. A handler that restored the terminal
+// and then called `exit(0)` would pass the first and fail the second, and a
+// handler that re-raised without restoring would pass the second and fail the
+// first.
+
+/// Starts a TUI child that is signalled rather than typed at.
+///
+/// The child is given a process group of its own **inside this process's
+/// session**, which is load-bearing rather than tidy: POSIX requires `SIGTSTP`
+/// sent to a member of an *orphaned* process group to be discarded, and a child
+/// that merely inherited the test runner's group is orphaned whenever that
+/// group's leader is also its session leader -- which is what a `cargo test`
+/// launched from a non-interactive shell looks like, and what this suite was
+/// first written against, where the stop simply never happened. `setsid` is not
+/// the fix but the same bug: a fresh session leader's group has no member whose
+/// parent is in the session at all, so it is orphaned by construction. Own
+/// group, same session, parent outside it is the shape a job-controlling shell
+/// puts a real job in, and the only one in which a stop signal means anything.
+fn started(sandbox: &Sandbox, pty: &Pty) -> Session {
+    let mut command = tui(sandbox);
+    // SAFETY: `setpgid` is async-signal-safe and touches nothing outside the
+    // child that is about to `exec`.
+    unsafe {
+        command.pre_exec(|| {
+            rustix::process::setpgid(None, None)?;
+            Ok(())
+        });
+    }
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(READY);
+    session
+}
+
+#[test]
+fn sigterm_restores_the_line_discipline_and_dies_by_the_signal() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let session = started(&sandbox, &pty);
+    session.signal(Signal::TERM);
+
+    let state = session.wait_state("the child to die", |state| !matches!(state, Wait::Running));
+    // WIFSIGNALED, not a fabricated exit code: the handler reset the
+    // disposition to default and re-raised, so the parent sees a signal death.
+    assert_eq!(state, Wait::Signalled(Signal::TERM.as_raw()));
+    // Both halves of the restore, because each has a mutant the other misses.
+    // `tcsetattr` alone leaves the screen in bracketed paste with autowrap off;
+    // the escape bytes alone leave the line discipline raw.
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+}
+
+#[test]
+fn sighup_restores_the_line_discipline_and_dies_by_the_signal() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let session = started(&sandbox, &pty);
+    session.signal(Signal::HUP);
+
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::HUP.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty));
+}
+
+#[test]
+fn an_external_sigint_is_not_swallowed_because_isig_is_off() {
+    // `ISIG` only suppresses *terminal-generated* SIGINT. A `kill -INT` still
+    // arrives, and there is no `xfx-interrupt` thread in this session to catch
+    // it, so the handler must do the same restore-and-die as TERM.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let session = started(&sandbox, &pty);
+    session.signal(Signal::INT);
+
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::INT.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty));
+}
+
+#[test]
+fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
+    // The startup window, at the acceptance level. `SIGTSTP` is blocked from
+    // before the terminal is taken until the session is inside its wait, so a
+    // stop aimed at a starting xfx cannot be *taken* anywhere in between -- it
+    // is either handled by the default disposition before the block goes on, or
+    // held and delivered inside the first wait. Both are legitimate; what may
+    // never happen is coming back from the stop onto a cooked terminal that the
+    // session believes is raw.
+    //
+    // The sync point is the child's own process group, which `started` sets in
+    // `pre_exec` immediately before `exec`: once the parent can see it, the
+    // child has just begun and has certainly not announced itself yet. It is an
+    // honest edge -- the parent observes a fact the kernel already had, and the
+    // product emits nothing for the test's benefit. It does **not** pin which of
+    // the two paths above was taken, and no edge inside the process could: the
+    // window has no observable boundary, which is the reason it needed a mask
+    // rather than a check. What it pins is the outcome, which is the claim.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+
+    let mut command = tui(&sandbox);
+    // SAFETY: `setpgid` is async-signal-safe and touches only this child.
+    unsafe {
+        command.pre_exec(|| {
+            rustix::process::setpgid(None, None)?;
+            Ok(())
+        });
+    }
+    let session = Session::spawn_without_taking_the_terminal(&pty, command);
+
+    // Its own process group is also what makes the stop deliverable at all: a
+    // child still in the runner's group is in an orphaned one, and POSIX
+    // discards a stop sent there.
+    let pid = session.pid();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while rustix::process::getpgid(Some(pid)).ok() != Some(pid) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child never took a process group of its own"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+
+    session.signal(Signal::TSTP);
+    assert!(
+        matches!(
+            session.wait_state("the child to stop", |state| matches!(
+                state,
+                Wait::Stopped(_)
+            )),
+            Wait::Stopped(_)
+        ),
+        "a stop aimed at a starting session was swallowed"
+    );
+
+    session.signal(Signal::CONT);
+    session.wait_for(READY);
+    assert_raw(modes(&pty));
+
+    // And it is a live session afterwards rather than a survivor: Ctrl-D still
+    // leaves, and the exit still gives the terminal back byte for byte.
+    session.type_bytes(&[0x04]);
+    // `Exited`, not `!Running`: this child has been resumed, so the kernel still
+    // has a `Continued` notification standing for it, and `!Running` would be
+    // satisfied by that the instant it was asked -- reading the terminal before
+    // the exit had restored anything. The harness models the two apart for
+    // exactly this reason.
+    assert_eq!(
+        session.wait_state("the child to exit", |state| matches!(
+            state,
+            Wait::Exited(_)
+        )),
+        Wait::Exited(0)
+    );
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
+fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let before = modes(&pty);
+    let session = started(&sandbox, &pty);
+
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the child to stop", |state| matches!(
+            state,
+            Wait::Stopped(_)
+        )),
+        Wait::Stopped(Signal::STOP.as_raw()),
+        "only raise(SIGSTOP) after SIG_DFL produces a genuine stop"
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
+
+    session.signal(Signal::CONT);
+    session.wait_for_count(READY, 2);
+    assert_raw(modes(&pty));
+
+    // The reinstall gate. Without it the second SIGTSTP hits the default
+    // disposition and stops the process with the terminal still raw.
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the second stop", |state| matches!(state, Wait::Stopped(_))),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    assert_eq!(
+        before,
+        modes(&pty),
+        "the SIGTSTP handler was not reinstalled on resume"
     );
 }

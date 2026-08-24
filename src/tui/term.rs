@@ -151,10 +151,9 @@ fn restore_attrs(owned: &Owned) -> io::Result<()> {
 /// `tcsetattr` restores the line discipline, on the input descriptor, and POSIX
 /// lists it among the async-signal-safe functions. Both return values are
 /// ignored on purpose: there is no one left to report to.
-// Called from the signal handlers (Task 3) and the panic hook (Task 4). It is
+// Called from the signal handlers, and from the panic hook in Task 4. It is
 // written here because it is the half of the restore contract that reads what
 // `adopt` recorded, and the two belong to one another.
-#[allow(dead_code)]
 pub(crate) fn restore_pair() {
     let Some(owned) = OWNED.get() else { return };
     let bytes = if TMUX.load(Ordering::Acquire) {
