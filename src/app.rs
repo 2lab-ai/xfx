@@ -12,9 +12,7 @@ use std::time::Duration;
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
-use crate::config::{
-    Backend, ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource,
-};
+use crate::config::{ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource};
 use crate::gateway::{CancelToken, Endpoint, GatewayProvider, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::llmux::{LlmuxProvider, MISSING_URL_HELP};
 use crate::output::{
@@ -23,6 +21,7 @@ use crate::output::{
     MISSING_AUTH_HELP,
 };
 use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
+use crate::provider::ProviderId;
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
     SessionRecorder, SessionStore,
@@ -579,21 +578,21 @@ where
     }
 }
 
-/// Builds the provider the configured backend selects.
+/// Builds the provider the configured provider selects.
 ///
-/// The one place a backend becomes a socket. `ask` and the shell both come
-/// through here, so "which backend am I talking to" is decided once rather than
+/// The one place a provider becomes a socket. `ask` and the shell both come
+/// through here, so "which provider am I talking to" is decided once rather than
 /// in two dispatch sites that could disagree about it -- and a third caller that
 /// forgot one of them could not exist.
 ///
-/// The two backends need different things from the machine, and each failure is
-/// reported in the vocabulary of the backend that actually failed:
+/// The two providers need different things from the machine, and each failure is
+/// reported in the vocabulary of the provider that actually failed:
 ///
 /// - the Gateway needs a bearer credential, so a machine without one is told
 ///   which environment variables to set;
 /// - llmux needs a daemon URL and no credential at all, so a machine without a
 ///   usable one is told to run `xfx setup llmux` -- naming the Gateway's
-///   variables there would be advice for a backend the operator deliberately
+///   variables there would be advice for a provider the operator deliberately
 ///   configured away from.
 ///
 /// An `llmux_url` that is missing or was refused by the endpoint rule is a
@@ -604,15 +603,15 @@ pub(crate) fn build_provider(
     config: &RuntimeConfig,
     cancel: &CancelToken,
 ) -> Result<Box<dyn Provider>, String> {
-    // Before either backend: a `backend` value xfx could not read means no
-    // backend was chosen, and the compiled default is not a safe guess. Guessing
+    // Before either provider: a provider selection xfx could not read means no
+    // provider was chosen, and the compiled default is not a safe guess. Guessing
     // would put the prompt and the Gateway credential on a remote paid endpoint
     // because a settings value was mistyped.
-    if let Some(rejected) = &config.backend_rejected {
-        return Err(unreadable_backend_message(rejected));
+    if let Some(rejected) = &config.provider_rejected {
+        return Err(unreadable_provider_message(rejected));
     }
-    match config.backend {
-        Backend::Gateway => {
+    match config.provider {
+        ProviderId::Gateway => {
             let credential = config
                 .credential
                 .clone()
@@ -622,7 +621,7 @@ pub(crate) fn build_provider(
                 .map_err(|err| err.to_string())?;
             Ok(Box::new(provider))
         }
-        Backend::Llmux => {
+        ProviderId::Llmux => {
             let url = config
                 .llmux_url
                 .as_deref()
@@ -776,11 +775,11 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
         ));
     }
 
-    // Only when something is wrong with it. A backend that is configured and
-    // usable is already reported by the snapshot's own `backend` field, and a
+    // Only when something is wrong with it. A provider that is configured and
+    // usable is already reported by the snapshot's own `provider` field, and a
     // check that always fires would be a line that means nothing when it is
     // green and is therefore not read when it is not.
-    if let Some(check) = backend_check(config) {
+    if let Some(check) = provider_check(config) {
         checks.push(check);
     }
 
@@ -803,18 +802,18 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks
 }
 
-/// What a turn says when the `backend` setting cannot be read.
+/// What a turn says when a provider selection cannot be read.
 ///
 /// It quotes the value, because the operator has to be able to find it: the
-/// setting lives in a file xfx will not edit for them, and "your backend is
+/// setting lives in a file xfx will not edit for them, and "your provider is
 /// invalid" without the spelling is a message that sends someone hunting.
-fn unreadable_backend_message(rejected: &str) -> String {
-    crate::output::rejected_backend_help(rejected)
+fn unreadable_provider_message(rejected: &crate::config::ProviderRejection) -> String {
+    crate::output::rejected_provider_help(rejected)
 }
 
-/// Reports a backend that cannot run, and nothing when it can.
+/// Reports a provider that cannot run, and nothing when it can.
 ///
-/// The one way the llmux backend is broken from `doctor`'s point of view is
+/// The one way the llmux provider is broken from `doctor`'s point of view is
 /// having no endpoint: the operator selected it and either never named a URL or
 /// named one the endpoint policy refused. It is a failure rather than a warning
 /// because no turn can run at all, however easy it is to fix, and the detail
@@ -823,59 +822,59 @@ fn unreadable_backend_message(rejected: &str) -> String {
 /// It is decided from configuration alone. `doctor` is the command that is
 /// always safe to run, so it does not probe the daemon to find out whether it is
 /// up -- that is `xfx setup llmux`'s job, and it is the one that writes.
-fn backend_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
-    // An unreadable `backend` fails rather than warns: nothing selected a
+fn provider_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
+    // An unreadable provider selection fails rather than warns: nothing selected a
     // provider, so there is no turn this machine can run at all.
-    if let Some(rejected) = &config.backend_rejected {
+    if let Some(rejected) = &config.provider_rejected {
         return Some(DoctorCheck::new(
-            "backend",
+            "provider",
             CheckStatus::Fail,
-            unreadable_backend_message(rejected),
+            unreadable_provider_message(rejected),
         ));
     }
-    if config.backend != Backend::Llmux || config.llmux_url.is_some() {
+    if config.provider != ProviderId::Llmux || config.llmux_url.is_some() {
         return None;
     }
     // Fail rather than warn. `auth` is a separate axis and stays accurate -- this
-    // backend really does need no credential -- but every turn on this machine
+    // provider really does need no credential -- but every turn on this machine
     // refuses, and a `doctor` that reported `fail=0` would be telling its owner
     // the setup is fine while `xfx ask` refuses one hundred percent of the time.
     Some(DoctorCheck::new(
-        "backend",
+        "provider",
         CheckStatus::Fail,
         format!(
-            "backend=llmux, but no usable `llmux_url` is configured, so every turn \
+            "provider=llmux, but no usable `llmux_url` is configured, so every turn \
              refuses; {}",
             crate::llmux::SETUP_HINT
         ),
     ))
 }
 
-/// Reports whether the configured backend can authenticate at all.
+/// Reports whether the configured provider can authenticate at all.
 ///
-/// The two backends are asked different questions, because they need different
+/// The two providers are asked different questions, because they need different
 /// things. The Gateway needs a bearer credential and a machine without one is a
 /// failure. llmux needs none: a keyless loopback request is what the daemon
 /// accepts, and it holds the operator's model credentials itself -- so failing
 /// that machine, and telling its owner to set two Vercel variables, would be a
-/// diagnosis of a backend they configured away from.
+/// diagnosis of a provider they configured away from.
 fn auth_check(config: &RuntimeConfig) -> DoctorCheck {
-    if config.backend == Backend::Llmux {
+    if config.provider == ProviderId::Llmux {
         return DoctorCheck::new(
             "auth",
             CheckStatus::Ok,
-            "backend=llmux needs no credential: a loopback request is accepted keyless, \
+            "provider=llmux needs no credential: a loopback request is accepted keyless, \
              and xfx neither reads nor forwards an llmux key",
         );
     }
-    if config.backend_rejected.is_some() {
-        // The `backend` check already fails and names the setting; saying
+    if config.provider_rejected.is_some() {
+        // The `provider` check already fails and names the setting; saying
         // anything about a credential here would be advice about the wrong
         // problem, and a second Fail would double-count one broken setting.
         return DoctorCheck::new(
             "auth",
             CheckStatus::Warn,
-            "no backend was validly chosen, so there is no credential question to answer",
+            "no provider was validly chosen, so there is no credential question to answer",
         );
     }
     match &config.credential {

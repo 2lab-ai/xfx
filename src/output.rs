@@ -22,7 +22,8 @@ use std::io::{self, Write};
 
 use serde::Serialize;
 
-use crate::config::{Backend, Credential, RuntimeConfig};
+use crate::config::{Credential, ProviderRejection, RuntimeConfig};
+use crate::provider::ProviderId;
 use crate::session::{SessionDetail, SessionList, TurnStep};
 
 /// The help text shown when no credential is configured.
@@ -36,20 +37,20 @@ pub const MISSING_AUTH_HELP: &str =
 /// The label used when no credential resolved.
 pub const MISSING_AUTH_LABEL: &str = "missing";
 
-/// What the `backend` field says when no backend was validly chosen.
+/// What the `provider` field says when no provider was validly chosen.
 ///
 /// Not `gateway`. The compiled default is what xfx falls back to when *nothing*
-/// selects a backend; a value it could not read is not nothing, and reporting it
+/// selects a provider; a value it could not read is not nothing, and reporting it
 /// as the default described a healthy gateway machine while every turn refused.
-pub const REJECTED_BACKEND_LABEL: &str = "rejected";
+pub const REJECTED_PROVIDER_LABEL: &str = "rejected";
 
-/// What the `auth` field says on the llmux backend.
+/// What the `auth` field says on the llmux provider.
 ///
 /// It names an arrangement rather than a credential source, because on this
-/// backend there is no source: llmux answers a loopback request without one, and
+/// provider there is no source: llmux answers a loopback request without one, and
 /// xfx sends none. `missing` would be the wrong word for that -- nothing is
 /// absent and nothing needs to be set.
-pub const LLMUX_AUTH_LABEL: &str = "llmux-keyless-loopback";
+pub const LLMUX_AUTH_LABEL: &str = crate::provider::LLMUX_LOOPBACK_LABEL;
 
 /// The sandbox xfx reports.
 ///
@@ -105,32 +106,32 @@ impl AuthSnapshot {
         }
     }
 
-    /// The same, but answering for the backend a turn will actually use.
+    /// The same, but answering for the provider a turn will actually use.
     ///
     /// llmux answers a loopback request without any bearer value, so `missing`
     /// would be the wrong word there: nothing is absent and nothing needs to be
     /// set. Saying it anyway -- and pointing at two Vercel environment variables
-    /// -- would diagnose a backend the operator deliberately configured away
+    /// -- would diagnose a provider the operator deliberately configured away
     /// from, and would make `doctor` fail a machine that is working.
     ///
     /// The two unrunnable states answer differently again, and the `help` line
-    /// is where they say so. Credential advice for a backend nobody validly
+    /// is where they say so. Credential advice for a provider nobody validly
     /// chose is advice about the wrong problem, and on a machine where every
     /// turn refuses, silence here is the lie.
     pub fn for_config(config: &RuntimeConfig) -> Self {
-        if let Some(rejected) = &config.backend_rejected {
+        if let Some(rejected) = &config.provider_rejected {
             return Self {
                 source: MISSING_AUTH_LABEL.to_string(),
                 refreshable: false,
-                help: Some(rejected_backend_help(rejected)),
+                help: Some(rejected_provider_help(rejected)),
             };
         }
-        match config.backend {
-            Backend::Gateway => Self::from_credential(config.credential.as_ref()),
-            Backend::Llmux => Self {
+        match config.provider {
+            ProviderId::Gateway => Self::from_credential(config.credential.as_ref()),
+            ProviderId::Llmux => Self {
                 source: LLMUX_AUTH_LABEL.to_string(),
                 refreshable: false,
-                // The endpoint is what this backend needs, so a missing one is
+                // The endpoint is what this provider needs, so a missing one is
                 // reported on the same line a missing credential would be.
                 help: config
                     .llmux_url
@@ -148,14 +149,14 @@ pub struct StatusSnapshot {
     pub model: String,
     /// Which provider a turn here would talk to. Always present: "which model"
     /// is only half an answer without "asked of what".
-    pub backend: String,
-    /// The daemon the llmux backend will use, when one resolved. Absent on the
-    /// gateway backend, which has no configured url to report.
+    pub provider: String,
+    /// The daemon the llmux provider will use, when one resolved. Absent on the
+    /// gateway provider, which has no configured url to report.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_url: Option<String>,
-    /// The `backend` value xfx could not read, quoted, when a layer wrote one.
+    pub provider_url: Option<String>,
+    /// A provider selection xfx could not read, quoted, when a layer wrote one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_rejected: Option<String>,
+    pub provider_rejected: Option<String>,
     pub build_channel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build_revision: Option<String>,
@@ -189,9 +190,12 @@ impl StatusSnapshot {
         Self {
             kind: "status",
             model: config.model.clone(),
-            backend: backend_label(config),
-            backend_url: backend_url(config),
-            backend_rejected: config.backend_rejected.as_deref().map(one_line),
+            provider: provider_label(config),
+            provider_url: provider_url(config),
+            provider_rejected: config
+                .provider_rejected
+                .as_ref()
+                .map(|r| one_line(&r.value)),
             build_channel: build.channel.to_string(),
             build_revision: build.revision.map(str::to_string),
             auth: auth.source,
@@ -219,12 +223,12 @@ impl StatusSnapshot {
         line("model", &self.model);
         // Directly after the model, which is the fact it qualifies: a model name
         // means nothing without the endpoint it is asked of.
-        line("backend", &self.backend);
-        if let Some(url) = &self.backend_url {
-            line("backend_url", url);
+        line("provider", &self.provider);
+        if let Some(url) = &self.provider_url {
+            line("provider_url", url);
         }
-        if let Some(rejected) = &self.backend_rejected {
-            line("backend_rejected", rejected);
+        if let Some(rejected) = &self.provider_rejected {
+            line("provider_rejected", rejected);
         }
         line("build_channel", &self.build_channel);
         if let Some(revision) = &self.build_revision {
@@ -260,46 +264,47 @@ impl StatusSnapshot {
     }
 }
 
-/// What `status` and `doctor` say about a `backend` value xfx could not read.
+/// What `status` and `doctor` say about a provider selection xfx could not read.
 ///
 /// It names the setting and quotes the value, because the operator has to be
 /// able to find it in a file xfx will not edit for them.
-pub fn rejected_backend_help(rejected: &str) -> String {
-    let quoted = if rejected.is_empty() {
+pub fn rejected_provider_help(rejected: &ProviderRejection) -> String {
+    let quoted = if rejected.value.is_empty() {
         "a value that is not a string".to_string()
     } else {
-        format!("`{rejected}`")
+        format!("`{}`", rejected.value)
     };
     format!(
-        "the `backend` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
+        "provider=rejected: the `{}` setting is {quoted}, which xfx cannot read; set it to `{}` or `{}`. \
          Until then every turn refuses, because guessing would send the prompt to an \
          endpoint you did not choose",
-        Backend::Gateway.label(),
-        Backend::Llmux.label()
+        rejected.key,
+        ProviderId::Gateway.label(),
+        ProviderId::Llmux.label()
     )
 }
 
-/// The label a snapshot uses for the configured backend.
-fn backend_label(config: &RuntimeConfig) -> String {
-    match config.backend_rejected {
-        Some(_) => REJECTED_BACKEND_LABEL.to_string(),
-        None => config.backend.label().to_string(),
+/// The label a snapshot uses for the configured provider.
+fn provider_label(config: &RuntimeConfig) -> String {
+    match config.provider_rejected {
+        Some(_) => REJECTED_PROVIDER_LABEL.to_string(),
+        None => config.provider.label().to_string(),
     }
 }
 
-/// The endpoint a snapshot reports, when the backend has one to report.
+/// The endpoint a snapshot reports, when the provider has one to report.
 ///
-/// Only the llmux backend does. The gateway's endpoint is a compiled default an
+/// Only the llmux provider does. The gateway's endpoint is a compiled default an
 /// environment variable may override, and printing it would put a URL nothing in
 /// the profile chose next to one that was chosen -- which is exactly the
 /// distinction these two fields exist to make.
-fn backend_url(config: &RuntimeConfig) -> Option<String> {
-    if config.backend_rejected.is_some() {
+fn provider_url(config: &RuntimeConfig) -> Option<String> {
+    if config.provider_rejected.is_some() {
         return None;
     }
-    match config.backend {
-        Backend::Gateway => None,
-        Backend::Llmux => config.llmux_url.as_deref().map(one_line),
+    match config.provider {
+        ProviderId::Gateway => None,
+        ProviderId::Llmux => config.llmux_url.as_deref().map(one_line),
     }
 }
 
@@ -330,7 +335,7 @@ impl SetupSnapshot {
     pub fn new(report: &crate::llmux::setup::SetupReport) -> Self {
         Self {
             kind: "setup",
-            backend: crate::config::Backend::Llmux.label(),
+            backend: ProviderId::Llmux.label(),
             url: one_line(&report.url),
             models: report.models,
             model: one_line(&report.model),
@@ -436,11 +441,11 @@ pub struct DoctorSnapshot {
     pub fail_count: usize,
     pub workspace: String,
     pub model: String,
-    pub backend: String,
+    pub provider: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_url: Option<String>,
+    pub provider_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend_rejected: Option<String>,
+    pub provider_rejected: Option<String>,
     pub auth: String,
     pub auth_refreshable: bool,
     pub permission_mode: String,
@@ -461,9 +466,12 @@ impl DoctorSnapshot {
             fail_count: count(CheckStatus::Fail),
             workspace: config.workspace_root.display().to_string(),
             model: config.model.clone(),
-            backend: backend_label(config),
-            backend_url: backend_url(config),
-            backend_rejected: config.backend_rejected.as_deref().map(one_line),
+            provider: provider_label(config),
+            provider_url: provider_url(config),
+            provider_rejected: config
+                .provider_rejected
+                .as_ref()
+                .map(|r| one_line(&r.value)),
             auth: auth.source,
             auth_refreshable: auth.refreshable,
             permission_mode: config.permission_mode.label().to_string(),
@@ -480,12 +488,12 @@ impl DoctorSnapshot {
         );
         out.push_str(&format!("[doctor] workspace={}\n", self.workspace));
         out.push_str(&format!("[doctor] model={}\n", self.model));
-        out.push_str(&format!("[doctor] backend={}\n", self.backend));
-        if let Some(url) = &self.backend_url {
-            out.push_str(&format!("[doctor] backend_url={url}\n"));
+        out.push_str(&format!("[doctor] provider={}\n", self.provider));
+        if let Some(url) = &self.provider_url {
+            out.push_str(&format!("[doctor] provider_url={url}\n"));
         }
-        if let Some(rejected) = &self.backend_rejected {
-            out.push_str(&format!("[doctor] backend_rejected={rejected}\n"));
+        if let Some(rejected) = &self.provider_rejected {
+            out.push_str(&format!("[doctor] provider_rejected={rejected}\n"));
         }
         out.push_str(&format!("[doctor] auth={}\n", self.auth));
         out.push_str(&format!(

@@ -212,7 +212,7 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
         layers.push(crate::config::ENV_MODEL.to_string());
     }
     if config.sources.model == SettingSource::UserWorkspace
-        || config.sources.backend == SettingSource::UserWorkspace
+        || config.sources.provider == SettingSource::UserWorkspace
         || config.sources.llmux_url == SettingSource::UserWorkspace
     {
         layers.push(format!(

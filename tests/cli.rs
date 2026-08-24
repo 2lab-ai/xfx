@@ -11,9 +11,8 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 use tempfile::TempDir;
-use xfx::config::{
-    Backend, CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource,
-};
+use xfx::config::{CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource};
+use xfx::provider::ProviderId;
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
 ///
@@ -1099,25 +1098,25 @@ fn project_settings_cannot_set_profile_only_keys() {
 }
 
 #[test]
-fn the_backend_defaults_to_the_gateway_and_the_profile_may_select_llmux() {
+fn the_provider_defaults_to_the_gateway_and_the_profile_may_select_llmux() {
     let sandbox = Sandbox::new();
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.backend, Backend::Gateway);
+    assert_eq!(config.provider, ProviderId::Gateway);
     assert_eq!(config.llmux_url, None);
-    assert_eq!(config.sources.backend, SettingSource::CompiledDefault);
+    assert_eq!(config.sources.provider, SettingSource::CompiledDefault);
 
     sandbox.write_user_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\"}");
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.provider, ProviderId::Llmux);
     assert_eq!(config.llmux_url.as_deref(), Some("http://127.0.0.1:3456"));
-    assert_eq!(config.sources.backend, SettingSource::UserGlobal);
+    assert_eq!(config.sources.provider, SettingSource::UserGlobal);
     assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
 }
 
 #[test]
-fn an_exact_workspace_entry_may_choose_a_different_backend() {
+fn an_exact_workspace_entry_may_choose_a_different_provider() {
     let sandbox = Sandbox::new();
     let workspace_key = sandbox.workspace.to_str().unwrap().to_string();
     sandbox.write_user_settings(&format!(
@@ -1127,20 +1126,20 @@ fn an_exact_workspace_entry_may_choose_a_different_backend() {
     ));
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.provider, ProviderId::Llmux);
     assert_eq!(config.llmux_url.as_deref(), Some("http://127.0.0.1:4000"));
-    assert_eq!(config.sources.backend, SettingSource::UserWorkspace);
+    assert_eq!(config.sources.provider, SettingSource::UserWorkspace);
 }
 
 #[test]
-fn project_settings_cannot_choose_the_backend_or_point_at_an_endpoint() {
+fn project_settings_cannot_choose_the_provider_or_point_at_an_endpoint() {
     // A repository is shared. If `.xfx.json` could set these, cloning one would
     // be enough to redirect a prompt at an endpoint of its author's choosing.
     let sandbox = Sandbox::new();
     sandbox.write_project_settings("{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:9\"}");
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(config.backend, Backend::Gateway);
+    assert_eq!(config.provider, ProviderId::Gateway);
     assert_eq!(config.llmux_url, None);
 
     let ignored: Vec<&str> = config
@@ -1162,9 +1161,9 @@ fn a_refused_llmux_url_is_a_diagnostic_and_never_becomes_an_endpoint() {
         config.llmux_url, None,
         "a url the transport rule refuses must not survive as a string"
     );
-    // The backend the operator chose is kept: a turn that cannot name an
+    // The provider the operator chose is kept: a turn that cannot name an
     // endpoint has to refuse, not quietly send the prompt to the Gateway.
-    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.provider, ProviderId::Llmux);
     assert!(
         config
             .diagnostics
@@ -1195,7 +1194,7 @@ fn a_refused_llmux_url_in_a_later_layer_clears_the_one_below_it() {
         config.llmux_url, None,
         "the refused later layer must clear the earlier value, not defer to it"
     );
-    assert_eq!(config.backend, Backend::Llmux);
+    assert_eq!(config.provider, ProviderId::Llmux);
     assert!(config
         .diagnostics
         .iter()
@@ -1223,7 +1222,7 @@ fn a_workspace_entry_url_records_its_own_provenance() {
 }
 
 #[test]
-fn a_backend_name_is_read_without_regard_to_case_or_padding() {
+fn a_provider_name_is_read_without_regard_to_case_or_padding() {
     let sandbox = Sandbox::new();
     for spelling in ["llmux", "Llmux", "LLMUX", "  llmux \n"] {
         sandbox.write_user_settings(&format!(
@@ -1232,13 +1231,13 @@ fn a_backend_name_is_read_without_regard_to_case_or_padding() {
         ));
         let config =
             RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-        assert_eq!(config.backend, Backend::Llmux, "for {spelling:?}");
+        assert_eq!(config.provider, ProviderId::Llmux, "for {spelling:?}");
         assert!(config.diagnostics.is_empty(), "for {spelling:?}");
     }
 }
 
 #[test]
-fn an_unreadable_backend_poisons_turns_rather_than_falling_back_to_the_gateway() {
+fn an_unreadable_provider_selection_poisons_turns_rather_than_falling_back_to_the_gateway() {
     // The fallback this replaces would have sent the prompt *and the Vercel
     // credential* to a remote paid endpoint because a settings value was
     // mistyped -- the same silent redirection the llmux url rules forbid.
@@ -1246,11 +1245,12 @@ fn an_unreadable_backend_poisons_turns_rather_than_falling_back_to_the_gateway()
     sandbox.write_user_settings("{\"backend\":\"definitely-not-a-backend\"}");
     let config =
         RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
-    assert_eq!(
-        config.backend_rejected.as_deref(),
-        Some("definitely-not-a-backend"),
-        "the unusable value is kept so a turn can name it"
-    );
+    let rejection = config
+        .provider_rejected
+        .as_ref()
+        .expect("an unreadable selection is kept, never defaulted");
+    assert_eq!(rejection.key, "backend");
+    assert_eq!(rejection.value, "definitely-not-a-backend");
     assert!(
         config
             .diagnostics
@@ -1262,7 +1262,8 @@ fn an_unreadable_backend_poisons_turns_rather_than_falling_back_to_the_gateway()
 
     // status still describes the machine: a broken setting is a fact to report,
     // not a reason to refuse to run.
-    assert_eq!(sandbox.run(&["status"]).code, Some(0));
+    let status_run = sandbox.run(&["status"]);
+    assert_eq!(status_run.code, Some(0));
 
     // But no turn is sent anywhere, even with a credential available.
     let run = sandbox.run_with_env(
@@ -1270,7 +1271,11 @@ fn an_unreadable_backend_poisons_turns_rather_than_falling_back_to_the_gateway()
         &[("AI_GATEWAY_API_KEY", "must-not-be-sent")],
     );
     assert_eq!(run.code, Some(1), "stdout={:?}", run.stdout);
-    assert!(run.stdout.contains("backend"), "{}", run.stdout);
+    // The refusal names the provider axis (the runtime axis) and quotes what it
+    // could not read, including both the settings key and the rejected value.
+    // It appears in the error message of the JSON error event.
+    assert!(run.stdout.contains("provider=rejected"), "{}", run.stdout);
+    assert!(run.stdout.contains("`backend`"), "{}", run.stdout);
     assert!(
         run.stdout.contains("definitely-not-a-backend"),
         "the refusal must quote the value: {}",

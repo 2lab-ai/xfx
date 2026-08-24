@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use xfx::config::{Backend, Environment, RuntimeConfig};
+use xfx::config::{Environment, RuntimeConfig};
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, FinishReason, Message, ToolCall, ToolChoice,
 };
@@ -29,6 +29,7 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
 use xfx::llmux::{protocol, setup};
+use xfx::provider::ProviderId;
 
 use support::fake_gateway::Reply;
 
@@ -1913,9 +1914,9 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     // Loaded from the same HOME, through the real loader, with nothing else set.
     let config = sandbox.config(&[]);
     assert_eq!(
-        config.backend,
-        Backend::Llmux,
-        "`backend` did not round-trip"
+        config.provider,
+        ProviderId::Llmux,
+        "`provider` did not round-trip"
     );
     assert_eq!(
         config.llmux_url.as_deref(),
@@ -1927,7 +1928,7 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     // And what the loader resolved is exactly what setup reported.
     assert_eq!(report["url"], config.llmux_url.clone().unwrap());
     assert_eq!(report["model"], config.model);
-    assert_eq!(report["backend"], config.backend.label());
+    assert_eq!(report["backend"], config.provider.label());
     assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
 }
 
@@ -2309,39 +2310,39 @@ fn a_failed_setup_still_emits_exactly_one_json_document() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn status_names_the_backend_and_the_gateway_stays_the_default() {
+fn status_names_the_provider_and_the_gateway_stays_the_default() {
     let sandbox = Sandbox::new();
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "gateway");
+    assert_eq!(document["provider"], "gateway");
     assert!(
-        document.get("backend_url").is_none(),
+        document.get("provider_url").is_none(),
         "the gateway has no configured url to report: {document}"
     );
     assert_eq!(document["auth"], "missing");
     assert!(document.get("auth_help").is_some());
 
     let text = sandbox.run(&["status"], &[]).stdout;
-    assert!(text.contains("[status] backend=gateway"), "{text}");
+    assert!(text.contains("[status] provider=gateway"), "{text}");
     // Immediately after the model, which is the fact it qualifies.
     let lines: Vec<&str> = text.lines().collect();
     let model = lines
         .iter()
         .position(|l| l.starts_with("[status] model="))
         .unwrap();
-    assert_eq!(lines[model + 1], "[status] backend=gateway", "{text}");
+    assert_eq!(lines[model + 1], "[status] provider=gateway", "{text}");
 }
 
 #[test]
-fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
+fn status_reports_a_llmux_provider_as_keyless_rather_than_unauthenticated() {
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();
     sandbox.select_llmux(&daemon);
 
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert_eq!(document["backend_url"], daemon.url());
+    assert_eq!(document["provider"], "llmux");
+    assert_eq!(document["provider_url"], daemon.url());
     // Not "missing": nothing is missing. Telling an llmux user to set a Vercel
-    // token would be advice for a backend they configured away from.
+    // token would be advice for a provider they configured away from.
     assert_eq!(document["auth"], "llmux-keyless-loopback");
     assert_eq!(document["auth_refreshable"], json!(false));
     assert!(
@@ -2355,10 +2356,10 @@ fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
         .iter()
         .position(|l| l.starts_with("[status] model="))
         .unwrap();
-    assert_eq!(lines[model + 1], "[status] backend=llmux", "{text}");
+    assert_eq!(lines[model + 1], "[status] provider=llmux", "{text}");
     assert_eq!(
         lines[model + 2],
-        format!("[status] backend_url={}", daemon.url()),
+        format!("[status] provider_url={}", daemon.url()),
         "{text}"
     );
     assert!(!text.contains("auth_help"), "{text}");
@@ -2369,7 +2370,7 @@ fn status_reports_a_llmux_backend_as_keyless_rather_than_unauthenticated() {
 
 #[test]
 fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
-    // `backend_rejected` left the snapshot reading the defaulted `Backend`, so
+    // `provider_rejected` left the snapshot reading the defaulted `ProviderId`, so
     // status printed a perfectly ordinary gateway machine -- credential advice
     // and all -- while every `ask` refused.
     let sandbox = Sandbox::new();
@@ -2378,8 +2379,8 @@ fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
     assert_eq!(run.code, Some(0), "status must still render");
 
     let document = run.json();
-    assert_eq!(document["backend"], "rejected");
-    assert_eq!(document["backend_rejected"], "anthropc");
+    assert_eq!(document["provider"], "rejected");
+    assert_eq!(document["provider_rejected"], "anthropc");
     let help = document["auth_help"].as_str().unwrap_or_default();
     assert!(
         help.contains("backend"),
@@ -2387,13 +2388,13 @@ fn status_does_not_describe_an_unrunnable_machine_as_a_healthy_gateway() {
     );
     assert!(
         !help.contains("AI_GATEWAY_API_KEY"),
-        "no credential advice for a backend nobody chose: {document}"
+        "no credential advice for a provider nobody chose: {document}"
     );
 
     let text = sandbox.run(&["status"], &[]).stdout;
-    assert!(text.contains("[status] backend=rejected"), "{text}");
+    assert!(text.contains("[status] provider=rejected"), "{text}");
     assert!(
-        text.contains("[status] backend_rejected=anthropc"),
+        text.contains("[status] provider_rejected=anthropc"),
         "{text}"
     );
 }
@@ -2405,60 +2406,60 @@ fn status_carries_the_refusal_when_llmux_has_no_endpoint() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"backend\":\"llmux\"}");
     let document = sandbox.run(&["status", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert!(document.get("backend_url").is_none(), "{document}");
+    assert_eq!(document["provider"], "llmux");
+    assert!(document.get("provider_url").is_none(), "{document}");
     let help = document["auth_help"].as_str().unwrap_or_default();
     assert!(help.contains("xfx setup llmux"), "got {document}");
 }
 
 #[test]
-fn doctor_reports_the_backend_and_adds_no_network_call() {
+fn doctor_reports_the_provider_and_adds_no_network_call() {
     let daemon = FakeLlmux::start(Vec::new());
     let sandbox = Sandbox::new();
     sandbox.select_llmux(&daemon);
 
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
-    assert_eq!(document["backend"], "llmux");
-    assert_eq!(document["backend_url"], daemon.url());
+    assert_eq!(document["provider"], "llmux");
+    assert_eq!(document["provider_url"], daemon.url());
     assert_eq!(document["auth"], "llmux-keyless-loopback");
     assert_eq!(
         document["fail_count"], 0,
-        "a keyless backend is not a missing credential: {document}"
+        "a keyless provider is not a missing credential: {document}"
     );
     // `doctor` is the command that is always safe to run, so it stays offline.
     assert!(daemon.requests().is_empty(), "{:?}", daemon.paths());
 
     let text = sandbox.run(&["doctor"], &[]).stdout;
-    assert!(text.contains("[doctor] backend=llmux"), "{text}");
+    assert!(text.contains("[doctor] provider=llmux"), "{text}");
     assert!(
-        text.contains(&format!("[doctor] backend_url={}", daemon.url())),
+        text.contains(&format!("[doctor] provider_url={}", daemon.url())),
         "{text}"
     );
 }
 
 #[test]
-fn doctor_fails_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
+fn doctor_fails_when_the_llmux_provider_has_no_endpoint_and_names_the_fix() {
     let sandbox = Sandbox::new();
     sandbox.write_user_settings("{\"backend\":\"llmux\"}");
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
 
     let checks = document["checks"].as_array().expect("checks");
-    let backend = checks
+    let provider = checks
         .iter()
-        .find(|check| check["name"] == "backend")
-        .unwrap_or_else(|| panic!("no backend check in {document}"));
+        .find(|check| check["name"] == "provider")
+        .unwrap_or_else(|| panic!("no provider check in {document}"));
     // Fail, not warn. Every turn on this machine refuses, so a doctor that
     // reported `fail=0` would be telling the operator their setup is fine while
     // `xfx ask` refuses one hundred percent of the time.
-    assert_eq!(backend["status"], "fail");
-    let detail = backend["detail"].as_str().expect("a detail");
+    assert_eq!(provider["status"], "fail");
+    let detail = provider["detail"].as_str().expect("a detail");
     assert!(detail.contains("xfx setup llmux"), "got {detail}");
     assert!(
         document["fail_count"].as_u64().unwrap() >= 1,
         "got {document}"
     );
 
-    // A configured backend is not a warning on its own.
+    // A configured provider is not a warning on its own.
     let daemon = FakeLlmux::start(Vec::new());
     sandbox.select_llmux(&daemon);
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
@@ -2467,18 +2468,18 @@ fn doctor_fails_when_the_llmux_backend_has_no_endpoint_and_names_the_fix() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|check| check["name"] == "backend"),
-        "a working backend needs no check of its own: {document}"
+            .any(|check| check["name"] == "provider"),
+        "a working provider needs no check of its own: {document}"
     );
 }
 
 #[test]
-fn doctor_still_fails_a_gateway_backend_with_no_credential() {
+fn doctor_still_fails_a_gateway_provider_with_no_credential() {
     // The gateway path is untouched: a missing bearer token is still a failure
     // and still names the two variables that fix it.
     let sandbox = Sandbox::new();
     let document = sandbox.run(&["doctor", "--json"], &[]).json();
-    assert_eq!(document["backend"], "gateway");
+    assert_eq!(document["provider"], "gateway");
     assert_eq!(document["auth"], "missing");
     let auth = document["checks"]
         .as_array()

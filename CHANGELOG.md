@@ -9,6 +9,16 @@ upstream `fx`.** What is and is not implemented lives in
 
 ## [Unreleased]
 
+### Changed
+
+- **`status` and `doctor` report `provider` where they reported `backend`.**
+  The fields are `provider`, `provider_url` and `provider_rejected`, and the
+  `doctor` check is named `provider`. The settings key that selects it is still
+  `backend` and is read exactly as before; what changed is that the product now
+  has one word for the axis instead of two, which is what lets a later release
+  report a disagreement between two keys without inventing a third name for the
+  thing they disagree about.
+
 ### Fixed
 
 - **`read_file` no longer parks a turn on a FIFO.** Only directories were

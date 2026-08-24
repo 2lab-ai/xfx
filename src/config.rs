@@ -23,6 +23,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::provider::ProviderId;
+
 /// The model xfx requests when nothing selects one.
 ///
 /// Matches upstream's Gateway default
@@ -84,57 +86,6 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "permission_mode",
     "workspaces",
 ];
-
-/// Which provider a turn talks to.
-///
-/// An xfx choice rather than an upstream one: upstream's second provider family
-/// is a `provider` command (`src/core/shared/types.zig:90-96`), which xfx defers.
-/// This is a setting because the two backends differ in what they need from the
-/// machine -- the Gateway needs a bearer credential, llmux needs a loopback
-/// daemon -- and that is a property of the machine, not of one invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend {
-    /// The Vercel AI Gateway over its own wire, authenticated by a bearer token.
-    Gateway,
-    /// A local llmux daemon over the Anthropic Messages wire, keyless.
-    Llmux,
-}
-
-impl Backend {
-    /// The stable label every renderer and settings file uses.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Gateway => "gateway",
-            Self::Llmux => "llmux",
-        }
-    }
-
-    /// The inverse of [`Self::label`], tolerating padding and any casing.
-    ///
-    /// Case-insensitive because the consequence of *not* recognizing a name was
-    /// out of all proportion to the typo: `"Llmux"` used to resolve to nothing,
-    /// fall back to the compiled default, and send the prompt and the Vercel
-    /// credential to a remote paid endpoint. Recognizing the name the operator
-    /// obviously meant is the cheap half of fixing that; refusing to run on a
-    /// name nobody can mean is the other half.
-    pub fn parse(raw: &str) -> Option<Self> {
-        let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("gateway") {
-            return Some(Self::Gateway);
-        }
-        if raw.eq_ignore_ascii_case("llmux") {
-            return Some(Self::Llmux);
-        }
-        None
-    }
-}
-
-impl Default for Backend {
-    /// The Gateway, which is what xfx has always talked to.
-    fn default() -> Self {
-        Self::Gateway
-    }
-}
 
 /// How much authority the agent has before it must ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,11 +160,11 @@ pub struct Sources {
     pub model: SettingSource,
     pub permission_mode: SettingSource,
     pub max_agent_steps: SettingSource,
-    pub backend: SettingSource,
+    pub provider: SettingSource,
     /// Where the daemon URL came from.
     ///
-    /// It has its own entry rather than riding on `backend`'s, because a
-    /// workspace entry can pin the URL without touching the backend -- and
+    /// It has its own entry rather than riding on `provider`'s, because a
+    /// workspace entry can pin the URL without touching the provider -- and
     /// `setup` has to be able to tell the operator that the file it just wrote
     /// is not the layer their next turn will read.
     pub llmux_url: SettingSource,
@@ -225,7 +176,7 @@ impl Default for Sources {
             model: SettingSource::CompiledDefault,
             permission_mode: SettingSource::CompiledDefault,
             max_agent_steps: SettingSource::CompiledDefault,
-            backend: SettingSource::CompiledDefault,
+            provider: SettingSource::CompiledDefault,
             llmux_url: SettingSource::CompiledDefault,
         }
     }
@@ -334,6 +285,20 @@ impl Diagnostic {
         }
         detail
     }
+}
+
+/// A provider selection xfx could not read, and which key wrote it.
+///
+/// Kept rather than discarded, because it must **poison the turn**. Falling back
+/// to the compiled default would send the prompt and the Gateway credential to a
+/// remote paid endpoint because a settings value was mistyped. The key travels
+/// with the value because the refusal has to name the key the operator actually
+/// wrote -- there are two that select a provider, and quoting the wrong one
+/// sends them to edit a line that is fine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderRejection {
+    pub key: &'static str,
+    pub value: String,
 }
 
 /// Which environment variable supplied the active credential.
@@ -499,13 +464,13 @@ pub struct RuntimeConfig {
     pub max_agent_steps: u32,
     /// The provider a turn will talk to.
     ///
-    /// This is the *configured* backend, never silently downgraded. When it is
-    /// [`Backend::Llmux`] and [`Self::llmux_url`] is `None`, xfx refuses the turn
+    /// This is the *configured* provider, never silently downgraded. When it is
+    /// [`ProviderId::Llmux`] and [`Self::llmux_url`] is `None`, xfx refuses the turn
     /// and names `xfx setup llmux` rather than falling back to the Gateway: an
     /// operator who configured a local daemon must not have their prompt sent to
     /// a remote paid endpoint because the URL was missing or mistyped.
-    pub backend: Backend,
-    /// The `backend` value xfx could not read, when a layer wrote one.
+    pub provider: ProviderId,
+    /// A provider selection xfx could not read, when a layer wrote one.
     ///
     /// Kept rather than discarded, because it must **poison the turn**. Falling
     /// back to the compiled default here would send the prompt and the Gateway
@@ -513,7 +478,7 @@ pub struct RuntimeConfig {
     /// mistyped -- the same silent redirection the `llmux_url` rules exist to
     /// prevent. `status` and `doctor` still render, because describing a broken
     /// machine is their whole job; `ask` and the shell refuse and quote it.
-    pub backend_rejected: Option<String>,
+    pub provider_rejected: Option<ProviderRejection>,
     /// The llmux daemon's base URL, present only when a settings layer named one
     /// that passes the endpoint rule. A refused URL is a diagnostic and a `None`,
     /// never a value.
@@ -606,8 +571,11 @@ impl RuntimeConfig {
             model: settings.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             permission_mode: settings.permission_mode.unwrap_or_default(),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
-            backend: settings.backend.unwrap_or_default(),
-            backend_rejected: settings.backend_rejected,
+            provider: settings.backend.unwrap_or_default(),
+            provider_rejected: settings.backend_rejected.map(|value| ProviderRejection {
+                key: "backend",
+                value,
+            }),
             llmux_url: settings.llmux_url,
             sources,
             diagnostics,
@@ -636,7 +604,7 @@ struct Settings {
     model: Option<String>,
     permission_mode: Option<PermissionMode>,
     max_agent_steps: Option<u32>,
-    backend: Option<Backend>,
+    backend: Option<ProviderId>,
     /// The raw `backend` value a layer wrote that could not be read.
     backend_rejected: Option<String>,
     llmux_url: Option<String>,
@@ -665,7 +633,7 @@ impl Settings {
         if let Some(backend) = incoming.backend {
             self.backend = Some(backend);
             self.backend_rejected = None;
-            sources.backend = source;
+            sources.provider = source;
         }
         // A later layer that writes an unreadable value replaces a readable one:
         // the operator's most recent word is what they meant, and quietly using
@@ -673,7 +641,7 @@ impl Settings {
         if let Some(rejected) = incoming.backend_rejected {
             self.backend = None;
             self.backend_rejected = Some(rejected);
-            sources.backend = source;
+            sources.provider = source;
         }
         if let Some(url) = incoming.llmux_url {
             self.llmux_url = Some(url);
@@ -730,7 +698,7 @@ fn parse_layer(
             }
         }
         if let Some(value) = object.get("backend") {
-            match value.as_str().and_then(Backend::parse) {
+            match value.as_str().and_then(ProviderId::parse) {
                 Some(backend) => settings.backend = Some(backend),
                 None => {
                     // The raw value is carried forward so the refusal can quote
@@ -1018,7 +986,7 @@ mod tests {
             model: Some("first".to_string()),
             permission_mode: Some(PermissionMode::Ask),
             max_agent_steps: Some(1),
-            backend: Some(Backend::Llmux),
+            backend: Some(ProviderId::Llmux),
             backend_rejected: None,
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
             llmux_url_rejected: false,
@@ -1035,7 +1003,7 @@ mod tests {
         assert_eq!(settings.model.as_deref(), Some("first"));
         assert_eq!(settings.permission_mode, Some(PermissionMode::Ask));
         assert_eq!(settings.max_agent_steps, Some(2));
-        assert_eq!(settings.backend, Some(Backend::Llmux));
+        assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(
             settings.llmux_url.as_deref(),
             Some("http://127.0.0.1:3456"),
@@ -1043,7 +1011,7 @@ mod tests {
         );
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
-        assert_eq!(sources.backend, SettingSource::CompiledDefault);
+        assert_eq!(sources.provider, SettingSource::CompiledDefault);
     }
 
     #[test]
@@ -1119,7 +1087,7 @@ mod tests {
         // run under whatever the profile said, which is the fallback this whole
         // mechanism exists to refuse.
         let mut settings = Settings {
-            backend: Some(Backend::Llmux),
+            backend: Some(ProviderId::Llmux),
             ..Settings::default()
         };
         let mut sources = Sources::default();
@@ -1133,24 +1101,16 @@ mod tests {
         );
         assert_eq!(settings.backend, None);
         assert_eq!(settings.backend_rejected.as_deref(), Some("nonsense"));
-        assert_eq!(sources.backend, SettingSource::UserWorkspace);
+        assert_eq!(sources.provider, SettingSource::UserWorkspace);
     }
 
     #[test]
-    fn the_compiled_default_backend_is_the_gateway() {
-        assert_eq!(Backend::default(), Backend::Gateway);
-        assert_eq!(Backend::Gateway.label(), "gateway");
-        assert_eq!(Backend::Llmux.label(), "llmux");
-        for backend in [Backend::Gateway, Backend::Llmux] {
-            assert_eq!(Backend::parse(backend.label()), Some(backend));
-        }
-        assert_eq!(Backend::parse("  llmux \n"), Some(Backend::Llmux));
-        assert_eq!(Backend::parse("anthropic"), None);
-        assert_eq!(Backend::parse(""), None);
+    fn the_compiled_default_provider_is_the_gateway() {
+        assert_eq!(ProviderId::default(), ProviderId::Gateway);
     }
 
     #[test]
-    fn a_profile_layer_selects_the_backend_and_its_url() {
+    fn a_profile_layer_selects_the_provider_and_its_url() {
         let object = serde_json::from_str::<Value>(
             r#"{"backend":"llmux","llmux_url":"http://127.0.0.1:3456"}"#,
         )
@@ -1162,13 +1122,13 @@ mod tests {
             ConfigLayer::User,
             &mut diagnostics,
         );
-        assert_eq!(settings.backend, Some(Backend::Llmux));
+        assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(settings.llmux_url.as_deref(), Some("http://127.0.0.1:3456"));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]
-    fn a_project_layer_cannot_choose_the_backend_or_its_url() {
+    fn a_project_layer_cannot_choose_the_provider_or_its_url() {
         // A checked-in repository must not be able to redirect whoever clones
         // it at an endpoint of its choosing.
         let object = serde_json::from_str::<Value>(
@@ -1195,7 +1155,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_backend_or_url_is_a_diagnostic_rather_than_a_value() {
+    fn an_unreadable_provider_or_url_is_a_diagnostic_rather_than_a_value() {
         // The URL goes through the same transport rule as the environment
         // override: a plaintext http endpoint that is not loopback would carry
         // the whole prompt to a machine the operator did not mean to name.
