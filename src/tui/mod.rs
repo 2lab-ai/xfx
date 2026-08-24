@@ -22,10 +22,16 @@
 //! restore instead of escaping above it -- and the mask lifts as they go on.
 //! The mode set is announced last, because it is the first byte a terminal sees
 //! and every path that could still fail is now behind a restore.
+//!
+//! The launch probe follows that order rather than joining it: only once the
+//! terminal is raw can a `CSI 6n` be asked and its answer read back off
+//! standard input, which is what tells the session how much of the shell's
+//! output to push above the band (see [`probe`]).
 
 use std::io::{self, IsTerminal, Write};
 use std::os::fd::{AsFd, AsRawFd};
 use std::process::ExitCode;
+use std::time::Instant;
 
 use crate::cli::{Cli, Command};
 
@@ -191,6 +197,32 @@ fn hold(tmux: bool, wakeup: &signals::Wakeup, blocked: signals::Blocked) -> io::
         announce(tmux)?;
     }
 
+    // Where the shell left the cursor decides how much of its output has to be
+    // pushed above the band, and a terminal that does not answer within the
+    // deadline is treated as row 1 -- xfx starts at the bottom of what it can
+    // prove rather than painting over something it cannot see.
+    //
+    // It happens here, after the mode set and before anything is drawn, for the
+    // same reason the handler installation does: it reads and writes, either
+    // can fail, and a failure inside `hold` travels back through the caller's
+    // restore instead of escaping above it with the terminal still raw.
+    let mut cursor = probe::CursorProbe::new();
+    let start_row = cursor
+        .read_reply(Instant::now() + probe::DEADLINE)?
+        .map_or(1, |(row, _column)| row);
+    let (rows, _columns) = term::window_size();
+    push_scrollback(start_row, rows)?;
+
+    // What the user typed while the query was in flight was read by the probe,
+    // off a terminal that was already raw, and no second read will produce it
+    // again. So it is answered here, before the first wait, by the same rule the
+    // loop below applies: a Ctrl-D is a Ctrl-D whichever read happened to take
+    // it. Everything else is discarded exactly as the loop discards it, because
+    // there is nothing yet that a keystroke could mean.
+    if cursor.take_deferred().contains(&END_OF_TRANSMISSION) {
+        return Ok(());
+    }
+
     // One byte of input, and the exit path. The poll loop, the band, and the
     // turn arrive in the later tasks of this plan; Ctrl-D leaving is the
     // shell's own contract and survives all of them.
@@ -213,7 +245,7 @@ fn hold(tmux: bool, wakeup: &signals::Wakeup, blocked: signals::Blocked) -> io::
             // End of input, and Ctrl-D: the shell's own contract is that
             // Ctrl-D leaves, and it survives every later task.
             Ok(0) => return Ok(()),
-            Ok(_) if byte[0] == 0x04 => return Ok(()),
+            Ok(_) if byte[0] == END_OF_TRANSMISSION => return Ok(()),
             Ok(_) => continue,
             // A signal, not a failure. The handlers are installed without
             // `SA_RESTART` precisely so that the wait and the read return
@@ -228,6 +260,22 @@ fn hold(tmux: bool, wakeup: &signals::Wakeup, blocked: signals::Blocked) -> io::
             Err(err) => return Err(err),
         }
     }
+}
+
+/// Ctrl-D. With `ISIG` cleared it is a byte like any other, and it is the one
+/// byte Phase 1 acts on -- from whichever read took it.
+const END_OF_TRANSMISSION: u8 = 0x04;
+
+/// Scrolls the shell's output above the band into scrollback, on the screen.
+///
+/// The mechanics and the amount both live in [`probe::push`], against a writer
+/// it is handed, so that what the push does to a screen is a test rather than a
+/// claim; this is the two lines that hand it the real one. Nothing is erased
+/// here -- what leaves the top of the screen goes into the terminal's own
+/// scrollback, where the user can still reach it.
+fn push_scrollback(cursor_row: u16, rows: u16) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    probe::push(&mut out, cursor_row, rows)
 }
 
 /// Announces the session on the wire.
@@ -279,5 +327,6 @@ fn fail(message: &str) -> ExitCode {
 #[cfg(feature = "fault-injection")]
 mod fault;
 mod panic;
+mod probe;
 mod signals;
 mod term;

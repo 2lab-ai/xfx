@@ -52,6 +52,16 @@ impl Sandbox {
 
     pub fn command(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
+        self.apply_env(&mut command);
+        command
+    }
+
+    /// The same controlled environment on a command this sandbox did not build.
+    ///
+    /// Extracted rather than duplicated: a test that reaches xfx through a
+    /// shell builds its own `Command`, and the two must be the same environment
+    /// or the shelled case is running somewhere else than every other case.
+    pub fn apply_env(&self, command: &mut Command) {
         command.current_dir(&self.workspace);
         command.env("HOME", &self.home);
         // A shell is a terminal program; a terminal that claims to be nothing
@@ -60,7 +70,6 @@ impl Sandbox {
         for key in CONTROLLED_VARS {
             command.env_remove(key);
         }
-        command
     }
 
     /// A command wired to a scripted local Gateway.

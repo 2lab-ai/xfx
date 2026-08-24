@@ -34,6 +34,13 @@ fn tui(sandbox: &Sandbox) -> Command {
 /// cannot be satisfied by the pty's echo of the test's own keystrokes.
 const READY: &str = "\u{1b}[?2004h";
 
+/// The cursor position query the launch asks the terminal (`CSI 6n`).
+///
+/// Response-only in the same sense as [`READY`]: it is written by xfx and never
+/// typed by this suite, so waiting for it means the query is really on the wire
+/// and the reply that follows cannot be racing it.
+const PROBE: &str = "\u{1b}[6n";
+
 /// The whole interactive mode sequence, in order (`terminal.zig:4-13`).
 ///
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
@@ -586,6 +593,109 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
         before,
         modes(&pty),
         "the SIGTSTP handler was not reinstalled on resume"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the launch, on a screen that was not empty
+// ---------------------------------------------------------------------------
+//
+// The band opens at the bottom of the *normal* buffer, which the shell has
+// already been writing to. These three cases are the whole of what that costs:
+// the session asks the terminal where the cursor is, it treats what shares that
+// read with the answer as the user's, and it starts below what was already
+// there.
+
+#[test]
+fn the_launch_probe_asks_where_the_cursor_is_and_does_not_eat_the_answer() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    // The pty answers nothing on its own, so the harness plays the terminal:
+    // the query must be on the wire before the reply is typed back.
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[7;1R");
+    session.wait_for(READY);
+
+    // The reply was consumed, not routed: the session is still alive and still
+    // leaves on Ctrl-D, which a decoder desynchronized by six stray bytes
+    // would not do.
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed() {
+    // The reply and a Ctrl-D in **one** write, which is what a user who pressed
+    // a key while the query was in flight really produces: both land in the
+    // read the probe is doing, and the terminal will never deliver either
+    // again. A session that dropped what it did not parse would sit here until
+    // the harness gave up.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[7;1R\x04");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Fixed before the child is spawned, so the row the push moves to is the
+    // terminal's own answer rather than the 24x80 a pty with no size falls
+    // back to -- and so the assertion below is about geometry.
+    pty.resize(24, 80);
+    let mut command = Command::new("/bin/sh");
+    command.arg("-c").arg(format!(
+        "printf 'PRIOR-OUTPUT-MARKER\\n'; exec {}",
+        env!("CARGO_BIN_EXE_xfx")
+    ));
+    // The same controlled environment `Sandbox::command` builds, plus the
+    // opt-in.
+    sandbox.apply_env(&mut command);
+    command.env("XFX_TUI", "1");
+
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(READY);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    assert!(
+        text.contains("PRIOR-OUTPUT-MARKER"),
+        "the shell's output was erased: {text:?}"
+    );
+    let marker = text.find("PRIOR-OUTPUT-MARKER").expect("the marker");
+    let band = text.find(READY).expect("the band");
+    assert!(
+        marker < band,
+        "xfx painted over output that was there first"
+    );
+    // Row 2 of the 24 this terminal really has: one line of shell output above
+    // the cursor, so the push is a move to the bottom row and exactly one
+    // newline. The move is the load-bearing half -- a linefeed from row 2
+    // scrolls nothing at all -- so the bytes are asserted whole and in order.
+    // Counted after the mode set, because the shell's own newline is on the
+    // terminal before xfx starts.
+    let after = &text[band..];
+    assert!(
+        after.contains("\u{1b}[24;1H"),
+        "the push never moved the cursor to the bottom margin, so nothing scrolled: {text:?}"
+    );
+    let to_bottom = after.find("\u{1b}[24;1H").expect("the move to the bottom");
+    let first_newline = after.find('\n').expect("the newline that scrolls");
+    assert!(
+        to_bottom < first_newline,
+        "the newline was written before the cursor reached the bottom margin: {text:?}"
+    );
+    assert_eq!(
+        after.matches('\n').count(),
+        1,
+        "the push was not the row the terminal reported: {text:?}"
     );
 }
 

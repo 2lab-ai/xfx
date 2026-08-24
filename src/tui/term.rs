@@ -219,8 +219,6 @@ fn shutdown_with(
 /// The terminal's dimensions, or 24x80 when it will not say. A terminal query,
 /// so it lives here; `layout::solve` takes rows and columns as arguments and
 /// stays pure, which is what makes its unit tests possible.
-// The layout is Task 5; this is the query it will call.
-#[allow(dead_code)]
 pub(crate) fn window_size() -> (u16, u16) {
     size_or_default(tcgetwinsize(io::stdout()))
 }
