@@ -1107,6 +1107,10 @@ impl WalkResult {
 /// a walk unable to leave the scope even though only the root was proven in it.
 /// `.gitignore` is applied, and the always-ignored directory names are pruned,
 /// so a search sees the project rather than its build output.
+///
+/// "Regular files" is load-bearing rather than tidy: every caller either reads
+/// what this yields or offers it to the model as something to read, and opening
+/// a writer-less FIFO parks the turn for as long as it lasts.
 fn walk_files(root: &Path, limits: &ToolLimits, hidden: bool) -> WalkResult {
     let mut builder = WalkBuilder::new(root);
     builder
