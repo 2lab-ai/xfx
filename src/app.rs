@@ -687,7 +687,7 @@ fn session_facts(config: &RuntimeConfig) -> SessionFacts {
 }
 
 /// Resolves configuration for the current directory.
-fn load_config() -> Result<RuntimeConfig, AppError> {
+pub(crate) fn load_config() -> Result<RuntimeConfig, AppError> {
     Ok(load_config_with_env()?.1)
 }
 

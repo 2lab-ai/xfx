@@ -38,15 +38,40 @@ serde_json = "1.0"
 # device/inode, and the digest is re-derived immediately before the rename.
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt", "macros", "net", "signal", "sync", "time"] }
+# The awaitable half of cancellation. An `AtomicBool` cannot be awaited: a task
+# parked on a full channel or a quiet socket needs a future that *wakes* it, and
+# polling a flag between awaits cannot do that. `default-features = false` keeps
+# it to `sync::CancellationToken`.
+tokio-util = { version = "0.7", default-features = false }
+# Grapheme motion and cell width. Measurement and painting must agree cell for
+# cell or the band's geometry lies about where the cursor is.
+unicode-segmentation = "1"
+unicode-width = "0.2"
 
-# Directory-descriptor traversal, and process-group signalling. A mutation
-# resolves its target component by component with `openat(..., O_NOFOLLOW)`, so
-# no component can be substituted between the check and the write; a timed-out
-# command is killed by process group, so a grandchild cannot outlive it holding
-# the pipe xfx is reading. `std` exposes neither a path-relative `openat` nor a
-# group kill.
+# Directory-descriptor traversal, process-group signalling, and the terminal the
+# TUI borrows and gives back. A mutation resolves its target component by
+# component with `openat(..., O_NOFOLLOW)`, so no component can be substituted
+# between the check and the write; a timed-out command is killed by process
+# group, so a grandchild cannot outlive it holding the pipe xfx is reading;
+# `termios` is how raw mode is entered and left on the exact descriptor it was
+# captured from, and `event`, `pipe`, and `stdio` are the input loop's `poll(2)`,
+# its self-pipe wakeup, and the standard descriptors it polls. `std` exposes
+# none of these.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "process"] }
+rustix = { version = "1", features = [
+  "fs",
+  "process",
+  "termios",
+  "event",
+  "pipe",
+  "stdio",
+] }
+# POSIX signal dispositions. rustix exposes no portable `sigaction` (its
+# `runtime` module is Linux-only and explicitly internal), and the TUI's restore
+# contract is written in handlers: `sigaction` without `SA_RESTART`, `raise`,
+# and a `write(2)` that is async-signal-safe. Already in the lock file as a
+# transitive dependency of rustix; this makes it direct.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.10"
