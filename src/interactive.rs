@@ -519,10 +519,14 @@ async fn one_turn(
             bytes: context.total_bytes() as u64,
         });
 
+    let replay = conversation
+        .recorder
+        .state()
+        .history_messages(config.provider.wire());
     let request = TurnRequest {
         model: model.to_string(),
         prompt,
-        history: conversation.recorder.state().history_messages(),
+        history: replay.messages,
         max_steps: config.max_agent_steps,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         cancel: conversation.tools.cancel().clone(),
@@ -532,6 +536,11 @@ async fn one_turn(
     let known_grants = conversation.tools.permissions().grants().to_vec();
     let stdout = io::stdout();
     let stderr = io::stderr();
+    let mut stderr_lock = stderr.lock();
+    for notice in &replay.notices {
+        writeln!(stderr_lock, "{notice}")?;
+    }
+    drop(stderr_lock);
     let mut sink = TextSink::new(stdout, stderr).with_tool_notices();
 
     interrupts.begin_turn();

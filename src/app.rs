@@ -292,11 +292,6 @@ async fn run_ask(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(ExitCode, Option<String>), AppError> {
-    let mut sink: Box<dyn EventSink + '_> = if request.json {
-        Box::new(JsonlSink::new(stdout))
-    } else {
-        Box::new(TextSink::new(stdout, stderr))
-    };
     let quiet = |code: Result<ExitCode, AppError>| code.map(|code| (code, None));
 
     // The authority the turn's tools will run under, resolved before anything
@@ -304,7 +299,14 @@ async fn run_ask(
     // invocation, and reporting it here costs no credential and no round trip.
     let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
         Ok(scope) => scope,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
+        Err(err) => {
+            let mut sink: Box<dyn EventSink> = if request.json {
+                Box::new(JsonlSink::new(stdout))
+            } else {
+                Box::new(TextSink::new(stdout, stderr))
+            };
+            return quiet(fail_turn(sink.as_mut(), err.to_string()));
+        }
     };
 
     // The provider is built next because it is free, it leaks nothing, and it is
@@ -315,14 +317,40 @@ async fn run_ask(
     let cancel = CancelToken::new();
     let provider = match build_provider(config, &cancel) {
         Ok(provider) => provider,
-        Err(message) => return quiet(fail_turn(sink.as_mut(), message)),
+        Err(message) => {
+            let mut sink: Box<dyn EventSink> = if request.json {
+                Box::new(JsonlSink::new(stdout))
+            } else {
+                Box::new(TextSink::new(stdout, stderr))
+            };
+            return quiet(fail_turn(sink.as_mut(), message));
+        }
     };
 
     // The session, before anything is asked of a model. A resume that names a
     // session that does not exist must fail before a token is spent.
     let mut opened = match open_session(config, &request, mode) {
         Ok(opened) => opened,
-        Err(err) => return quiet(fail_turn(sink.as_mut(), err.to_string())),
+        Err(err) => {
+            let mut sink: Box<dyn EventSink> = if request.json {
+                Box::new(JsonlSink::new(stdout))
+            } else {
+                Box::new(TextSink::new(stdout, stderr))
+            };
+            return quiet(fail_turn(sink.as_mut(), err.to_string()));
+        }
+    };
+
+    // Report any notices about dropped state before the turn starts.
+    for notice in &opened.notices {
+        writeln!(stderr, "{notice}")?;
+    }
+
+    // Now create the sink after notices are printed.
+    let mut sink: Box<dyn EventSink + '_> = if request.json {
+        Box::new(JsonlSink::new(stdout))
+    } else {
+        Box::new(TextSink::new(stdout, stderr))
     };
 
     // A restored model preference applies only when nothing this run chose one:
@@ -440,6 +468,7 @@ async fn run_ask(
 struct OpenedSession {
     recorder: Option<SessionRecorder>,
     history: Vec<crate::gateway::protocol::Message>,
+    notices: Vec<String>,
     restored_grants: Vec<Grant>,
     restored_model: Option<String>,
 }
@@ -457,6 +486,7 @@ fn open_session(
     let empty = OpenedSession {
         recorder: None,
         history: Vec::new(),
+        notices: Vec::new(),
         restored_grants: Vec::new(),
         restored_model: None,
     };
@@ -476,12 +506,13 @@ fn open_session(
         Some(selector) => {
             let resumed = store.resume(selector, &config.workspace_root)?;
             let state = resumed.session.state();
-            let history = state.history_messages();
+            let replay = state.history_messages(config.provider.wire());
             let restored_grants = state.grants.clone();
             let restored_model = Some(state.model.clone());
             Ok(OpenedSession {
                 recorder: Some(SessionRecorder::new(store, resumed.session)),
-                history,
+                history: replay.messages,
+                notices: replay.notices,
                 restored_grants,
                 restored_model,
             })

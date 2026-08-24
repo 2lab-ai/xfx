@@ -51,6 +51,7 @@ use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
 use crate::gateway::protocol::{Message, ToolCall};
 use crate::permission::Grant;
+use crate::provider::Wire;
 
 use super::event::{
     new_identifier, system_now_ms, EventEnvelope, RecordedToolCall, SessionEvent, TurnConclusion,
@@ -354,13 +355,33 @@ pub enum TurnStep {
     Assistant {
         text: String,
         tool_calls: Vec<RecordedToolCall>,
-        /// The provider's own content blocks, when it sent them.
+        /// Anthropic Messages content blocks, verbatim, in arrival order.
         ///
-        /// Replayed rather than rendered: no renderer reads this, and
-        /// `xfx session` never displays it. It exists so a resumed conversation
-        /// can put back the signed reasoning blocks the Anthropic wire verifies.
+        /// **Only ever written by the `anthropic_messages` wire** -- which is
+        /// why an older record that has it can only have come from that wire,
+        /// and why a second wire's replay state does not go here. Anthropic
+        /// signs its reasoning blocks and verifies the signature when they come
+        /// back in a continuation, so a rebuilt-from-text assistant turn is a
+        /// 400 at the next step: xfx cannot reconstruct a signature it did not
+        /// keep. Never displayed by any renderer; it exists to go back on the
+        /// wire, and it can be large.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         raw_content: Vec<serde_json::Value>,
+        /// OpenAI Responses replay items (`reasoning` with `encrypted_content`),
+        /// verbatim, in arrival order.
+        ///
+        /// Disjoint from `raw_content` by construction: a turn writes at most
+        /// one of the two. A separate field rather than a tagged shared one,
+        /// because a tag's compatibility argument is **syntactic only** -- an
+        /// older binary ignores an unknown tag, finds a non-empty `raw_content`,
+        /// concludes "Anthropic blocks", and replays Responses items onto the
+        /// Messages wire. Separated storage makes that binary see nothing at all
+        /// and rebuild from text: degraded, never mis-wired.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        responses_state: Vec<serde_json::Value>,
+        /// Which wire *and which authority* produced the state above.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wire: Option<crate::provider::Wire>,
     },
     ToolResult {
         call_id: String,
@@ -368,6 +389,18 @@ pub enum TurnStep {
         ok: bool,
         output: String,
     },
+}
+
+/// A history rebuilt for one active wire, and what the user has to be told
+/// about what did not survive the rebuild.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplayedHistory {
+    pub messages: Vec<Message>,
+    /// One line per assistant turn whose recorded state was not carried over.
+    ///
+    /// A drop is never silent: the user is entitled to know that the model
+    /// resumed with less context than the log holds.
+    pub notices: Vec<String>,
 }
 
 /// One complete exchange: what was asked, what happened, and how it ended.
@@ -427,15 +460,20 @@ impl DurableState {
         self.turns.first().and_then(|turn| title_of(&turn.user))
     }
 
-    /// The durable history, as the messages a next request would carry.
+    /// The durable history, as the messages a next request would carry on
+    /// `active`.
     ///
-    /// A turn contributes its user message, then each complete assistant/result
-    /// group. An *incomplete* group -- an assistant message whose tool calls
-    /// never got their results, which is what an interrupted turn leaves -- is
-    /// dropped rather than replayed: a prompt that announces a call nobody
-    /// answered invites the model to assume it succeeded.
-    pub fn history_messages(&self) -> Vec<Message> {
+    /// Replay is keyed by **authority, not by shape**. Two wires can serialize
+    /// state identically and still not be interchangeable, because the state is
+    /// sealed by whoever issued the credential -- so the question is never "does
+    /// this look like something I could send", it is "did the provider I am
+    /// about to talk to produce it".
+    ///
+    /// Dropping shapes a *request*; it never mutates a record. The items stay on
+    /// disk and a later resume back onto the original authority replays them.
+    pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
         let mut out = Vec::new();
+        let mut notices = Vec::new();
         for turn in &self.turns {
             out.push(Message::user(turn.user.clone()));
             let mut pending: Vec<Message> = Vec::new();
@@ -446,8 +484,14 @@ impl DurableState {
                         text,
                         tool_calls,
                         raw_content,
+                        responses_state,
+                        wire,
                     } => {
-                        if text.is_empty() && tool_calls.is_empty() && raw_content.is_empty() {
+                        if text.is_empty()
+                            && tool_calls.is_empty()
+                            && raw_content.is_empty()
+                            && responses_state.is_empty()
+                        {
                             continue;
                         }
                         let calls: Vec<ToolCall> = tool_calls
@@ -459,14 +503,41 @@ impl DurableState {
                             })
                             .collect();
                         awaiting.extend(calls.iter().map(|call| call.id.clone()));
-                        // A recorded turn that carried the provider's own blocks
-                        // is replayed as those blocks: a resumed conversation
-                        // has to satisfy the same signature check a same-process
-                        // continuation does.
-                        pending.push(if raw_content.is_empty() {
+                        // The replay table of `.prd/04-providers.md` §Provenance,
+                        // in one expression. `None` with blocks is legacy
+                        // Anthropic, because that is the only wire that ever
+                        // wrote the field; everything else must match exactly.
+                        let recorded = wire.clone().unwrap_or_else(|| {
+                            if !raw_content.is_empty() {
+                                Wire::AnthropicMessages
+                            } else if !responses_state.is_empty() {
+                                // Wire-less responses_state is invalid: no pre-wire binary
+                                // wrote this field. Treat as unknown wire so it drops.
+                                Wire::Unrecognized("unknown_wire_with_responses_state".to_string())
+                            } else {
+                                active.clone()
+                            }
+                        });
+                        let state: &[serde_json::Value] = match (&recorded, &active) {
+                            (Wire::AnthropicMessages, Wire::AnthropicMessages) => raw_content,
+                            (Wire::CodexResponses, Wire::CodexResponses)
+                            | (Wire::GrokResponses, Wire::GrokResponses) => responses_state,
+                            _ => &[],
+                        };
+                        if state.is_empty()
+                            && !(raw_content.is_empty() && responses_state.is_empty())
+                        {
+                            notices.push(format!(
+                                "xfx: this session recorded reasoning on the {} wire and is \
+                                 resuming on {}, so that reasoning was not carried over",
+                                recorded.label(),
+                                active.label()
+                            ));
+                        }
+                        pending.push(if state.is_empty() {
                             Message::assistant(Some(text), calls)
                         } else {
-                            Message::assistant_raw(raw_content.clone(), calls)
+                            Message::assistant_raw(state.to_vec(), calls)
                         });
                     }
                     TurnStep::ToolResult {
@@ -484,7 +555,10 @@ impl DurableState {
                 }
             }
         }
-        out
+        ReplayedHistory {
+            messages: out,
+            notices,
+        }
     }
 }
 
@@ -1672,6 +1746,8 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             text,
             tool_calls,
             raw_content,
+            responses_state,
+            wire,
         } => {
             open_turn(state, "an assistant step")?
                 .steps
@@ -1679,6 +1755,8 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     text: text.clone(),
                     tool_calls: tool_calls.clone(),
                     raw_content: raw_content.clone(),
+                    responses_state: responses_state.clone(),
+                    wire: wire.clone(),
                 });
         }
         SessionEvent::ToolResult {
@@ -2194,6 +2272,8 @@ mod tests {
                 text: "a".to_string(),
                 tool_calls: Vec::new(),
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
             SessionEvent::ToolResult {
                 call_id: "c".to_string(),
@@ -2311,6 +2391,8 @@ mod tests {
                     input: serde_json::json!({ "path": "a.txt" }),
                 }],
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
@@ -2319,9 +2401,9 @@ mod tests {
             },
         ])
         .expect("reduces");
-        let messages = state.history_messages();
-        assert_eq!(messages.len(), 1, "{messages:?}");
-        assert_eq!(messages[0].text(), "go");
+        let replay = state.history_messages(Wire::AnthropicMessages);
+        assert_eq!(replay.messages.len(), 1, "{:?}", replay.messages);
+        assert_eq!(replay.messages[0].text(), "go");
     }
 
     #[test]
@@ -2339,6 +2421,8 @@ mod tests {
                     input: serde_json::json!({}),
                 }],
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
             SessionEvent::ToolResult {
                 call_id: "c1".to_string(),
@@ -2354,12 +2438,14 @@ mod tests {
                     input: serde_json::json!({}),
                 }],
                 raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
             },
         ])
         .expect("reduces");
-        let messages = state.history_messages();
-        assert_eq!(messages.len(), 3, "{messages:?}");
-        assert_eq!(messages[1].text(), "first");
+        let replay = state.history_messages(Wire::AnthropicMessages);
+        assert_eq!(replay.messages.len(), 3, "{:?}", replay.messages);
+        assert_eq!(replay.messages[1].text(), "first");
     }
 
     #[test]
