@@ -453,6 +453,7 @@ fn fail(message: &str) -> ExitCode {
     ExitCode::FAILURE
 }
 
+mod bridge;
 mod editor;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
