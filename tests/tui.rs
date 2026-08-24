@@ -13,10 +13,11 @@ mod support;
 use std::fs::OpenOptions;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
-use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait};
+use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::Sandbox;
 
 /// A bare `xfx` that opts into the TUI.
@@ -74,29 +75,86 @@ fn assert_no_mode_bytes(text: &str) {
     }
 }
 
+/// The local modes raw mode clears (`shell_runtime.zig:108-138`).
+///
+/// Named once, because [`assert_raw`] and [`is_raw`] have to mean the same
+/// thing by "raw": a predicate that drifted from the assertion would let a
+/// bounded wait return on a terminal the assertion then rejects.
+const RAW_LOCAL_OFF: [LocalModes; 4] = [
+    LocalModes::ECHO,
+    LocalModes::ICANON,
+    LocalModes::IEXTEN,
+    LocalModes::ISIG,
+];
+
+/// The input modes raw mode clears.
+const RAW_INPUT_OFF: [InputModes; 5] = [
+    InputModes::IXON,
+    InputModes::ICRNL,
+    InputModes::BRKINT,
+    InputModes::INPCK,
+    InputModes::ISTRIP,
+];
+
+/// Whether every raw-mode bit upstream sets is set.
+fn is_raw(state: &TerminalState) -> bool {
+    RAW_LOCAL_OFF
+        .iter()
+        .all(|mode| !state.local.contains(*mode))
+        && RAW_INPUT_OFF
+            .iter()
+            .all(|mode| !state.input.contains(*mode))
+        && state.control.contains(ControlModes::CS8)
+        && state.min == 1
+        && state.time == 0
+}
+
 /// Requires the raw-mode bits upstream sets, read from the child's own terminal
 /// while it runs (`shell_runtime.zig:108-138`).
 fn assert_raw(state: TerminalState) {
-    for mode in [
-        LocalModes::ECHO,
-        LocalModes::ICANON,
-        LocalModes::IEXTEN,
-        LocalModes::ISIG,
-    ] {
+    for mode in RAW_LOCAL_OFF {
         assert!(!state.local.contains(mode), "{mode:?} is still set");
     }
-    for mode in [
-        InputModes::IXON,
-        InputModes::ICRNL,
-        InputModes::BRKINT,
-        InputModes::INPCK,
-        InputModes::ISTRIP,
-    ] {
+    for mode in RAW_INPUT_OFF {
         assert!(!state.input.contains(mode), "{mode:?} is still set");
     }
     assert!(state.control.contains(ControlModes::CS8), "CS8 is not set");
     assert_eq!(state.min, 1, "VMIN");
     assert_eq!(state.time, 0, "VTIME");
+}
+
+/// The child's terminal, once the session has finished taking it back.
+///
+/// Every other raw-mode assertion in this suite waits on a byte that the child
+/// writes *after* the `tcsetattr` in question -- the mode set, which `resume`
+/// emits only once raw mode is back (`src/tui/mod.rs:269-270`). That works
+/// whenever the wire says which mode set is which. After a stop whose timing
+/// the test does not control, it does not: a session stopped *after* it
+/// announced itself has already put one mode set on the wire, so waiting for
+/// "a mode set" is satisfied by the one from before the stop and the assertion
+/// runs while the terminal is still cooked.
+///
+/// Counting the ones already there does not fix it. The child is frozen when
+/// the count is taken, but the harness's reader thread is not, so a mode set
+/// written before the stop can still be in flight and be miscounted as the one
+/// that comes after it -- which fails in the silent direction.
+///
+/// So the terminal itself is asked, until it answers. Bounded, and loud when it
+/// never does: a session that does not take its terminal back fails here with
+/// the state it was last seen in.
+fn wait_until_raw(pty: &Pty) -> TerminalState {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let state = modes(pty);
+        if is_raw(&state) {
+            return state;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the session never took the terminal back; it is still {state:?}"
+        );
+        std::thread::sleep(IDLE_POLL);
+    }
 }
 
 #[test]
@@ -468,11 +526,16 @@ fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     );
 
     session.signal(Signal::CONT);
-    session.wait_for(READY);
-    assert_raw(modes(&pty));
+    // Not `wait_for(READY)`: which mode set that would match depends on whether
+    // the stop landed before or after the first one, and this test deliberately
+    // does not control that. See `wait_until_raw`.
+    assert_raw(wait_until_raw(&pty));
 
     // And it is a live session afterwards rather than a survivor: Ctrl-D still
-    // leaves, and the exit still gives the terminal back byte for byte.
+    // leaves, and the exit still gives the terminal back byte for byte. Typing
+    // it only once the terminal is raw is part of the same fix -- a Ctrl-D sent
+    // into a still-cooked terminal is eaten by the line discipline, and the
+    // session waits for input that was already spent.
     session.type_bytes(&[0x04]);
     // `Exited`, not `!Running`: this child has been resumed, so the kernel still
     // has a `Continued` notification standing for it, and `!Running` would be
