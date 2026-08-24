@@ -1936,6 +1936,100 @@ fn every_key_setup_writes_is_a_key_the_loader_reads_back() {
     assert_eq!(report["model"], config.model);
     assert_eq!(report["backend"], config.provider.label());
     assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+
+    // Extended: verify the loader actually reads each family independently.
+    // Create two variant profiles from what setup wrote:
+    // (a) new-only: keep only `provider` and `models`, delete legacy keys
+    // (b) legacy-only: keep only `backend`, `model`, `llmux_url`, delete new keys
+    // Load each variant and verify both resolve to the same endpoint.
+    // This catches cases where the loader ignores an entire family.
+
+    let settings_json: Value = serde_json::from_str(
+        &std::fs::read_to_string(sandbox.settings_path()).expect("read profile"),
+    )
+    .expect("parse profile");
+    let settings = settings_json
+        .as_object()
+        .expect("profile is a JSON object")
+        .clone();
+
+    // Sanity: both families present in what setup wrote.
+    assert_eq!(
+        settings.get("provider").and_then(Value::as_str),
+        Some("llmux")
+    );
+    assert_eq!(
+        settings
+            .get("models")
+            .and_then(Value::as_object)
+            .and_then(|m| m.get("llmux"))
+            .and_then(Value::as_str),
+        Some("short")
+    );
+    assert_eq!(
+        settings.get("backend").and_then(Value::as_str),
+        Some("llmux")
+    );
+    assert_eq!(settings.get("model").and_then(Value::as_str), Some("short"));
+
+    // Variant (a): new-only — loader must read `provider` and `models[llmux]`
+    // when legacy keys are absent.
+    let mut new_only = settings.clone();
+    new_only.remove("backend");
+    new_only.remove("model");
+    sandbox.write_user_settings(&serde_json::to_string(&new_only).unwrap());
+    let config_new_only = sandbox.config(&[]);
+    assert_eq!(
+        config_new_only.provider,
+        ProviderId::Llmux,
+        "loader reads `provider` key when `backend` absent"
+    );
+    assert_eq!(
+        config_new_only.model, "short",
+        "loader reads `models[llmux]` when flat `model` absent"
+    );
+    assert_eq!(
+        config_new_only.llmux_url.as_deref(),
+        Some(daemon.url().as_str()),
+        "loader still reads `llmux_url` in new-only variant"
+    );
+
+    // Variant (b): legacy-only — loader must read `backend` and flat `model`
+    // when new keys are absent.
+    let mut legacy_only = settings.clone();
+    legacy_only.remove("provider");
+    legacy_only.remove("models");
+    sandbox.write_user_settings(&serde_json::to_string(&legacy_only).unwrap());
+    let config_legacy_only = sandbox.config(&[]);
+    assert_eq!(
+        config_legacy_only.provider,
+        ProviderId::Llmux,
+        "loader reads `backend` key when `provider` absent"
+    );
+    assert_eq!(
+        config_legacy_only.model, "short",
+        "loader reads flat `model` when `models` absent"
+    );
+    assert_eq!(
+        config_legacy_only.llmux_url.as_deref(),
+        Some(daemon.url().as_str()),
+        "loader still reads `llmux_url` in legacy-only variant"
+    );
+
+    // Both variants resolve to the same endpoint the writer chose.
+    assert_eq!(
+        (
+            config_new_only.provider,
+            config_new_only.model.as_str(),
+            config_new_only.llmux_url.as_deref()
+        ),
+        (
+            config_legacy_only.provider,
+            config_legacy_only.model.as_str(),
+            config_legacy_only.llmux_url.as_deref()
+        ),
+        "new and legacy paths resolve to the same endpoint"
+    );
 }
 
 #[test]
@@ -1959,6 +2053,30 @@ fn setup_merges_into_existing_settings_without_touching_an_unrelated_key() {
     assert_eq!(settings["max_agent_steps"], 7);
     assert_eq!(settings["workspaces"]["/somewhere"]["model"], "kept");
     assert_eq!(settings["backend"], "llmux");
+}
+
+#[test]
+fn setup_writes_the_new_keys_and_leaves_an_older_binarys_view_correct() {
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(catalog(&[("m-1", &["short"])]));
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"permission_mode\":\"auto\"}");
+    assert_eq!(
+        sandbox
+            .run(&["setup", "llmux", "--url", &daemon.url()], &[])
+            .code,
+        Some(0)
+    );
+
+    let settings: Value =
+        serde_json::from_str(&std::fs::read_to_string(sandbox.settings_path()).unwrap()).unwrap();
+    assert_eq!(settings["provider"], "llmux");
+    assert_eq!(settings["models"]["llmux"], "short");
+    // What a v0.1.0 binary reads. It ignores the two keys above, so these have
+    // to say the same thing or an older binary would send the prompt somewhere
+    // the operator did not choose.
+    assert_eq!(settings["backend"], "llmux");
+    assert_eq!(settings["model"], "short");
+    assert_eq!(settings["permission_mode"], "auto");
 }
 
 #[test]

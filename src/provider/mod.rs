@@ -13,6 +13,7 @@
 //! would be a promise the binary cannot keep.
 
 pub mod model;
+pub mod profile;
 
 use serde::{Deserialize, Serialize};
 

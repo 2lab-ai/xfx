@@ -26,10 +26,9 @@
 //! next to the port, and exactly one `u16` is read out of it.
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::config::{
     Environment, RuntimeConfig, SettingSource, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME,
@@ -37,6 +36,7 @@ use crate::config::{
 };
 use crate::gateway::EndpointError;
 use crate::provider::model;
+use crate::provider::profile;
 
 use super::DEFAULT_URL;
 
@@ -164,14 +164,32 @@ pub async fn run(
     // into the profile -- destroying the profile's own value -- and the write
     // was then a no-op for that shell, because the environment outranks it.
     // Reported, of course, as "kept".
-    let existing = read_existing(&settings_path)?;
+    let existing =
+        profile::read_existing(&settings_path).map_err(|err| SetupError::UnreadableSettings {
+            path: settings_path.clone(),
+            detail: err.to_string(),
+        })?;
+
+    // Configured model follows the same precedence as the loader: models[llmux]
+    // when present, else the flat model, else the default.
     let configured = existing
-        .get("model")
+        .get("models")
+        .and_then(Value::as_object)
+        .and_then(|models| models.get("llmux"))
         .and_then(Value::as_str)
+        .or_else(|| existing.get("model").and_then(Value::as_str))
         .unwrap_or(crate::config::DEFAULT_MODEL);
     let (model, model_reason) = select_model(configured, &catalog);
 
-    record(&settings_path, existing, &url, &model)?;
+    let selection = profile::Selection {
+        provider: crate::provider::ProviderId::Llmux,
+        model: &model,
+        llmux_url: Some(&url),
+    };
+    profile::write(&settings_path, existing, &selection).map_err(|err| SetupError::Write {
+        path: settings_path.clone(),
+        detail: err.to_string(),
+    })?;
     Ok(SetupReport {
         url,
         models: catalog.len(),
@@ -398,206 +416,6 @@ fn llmux_config_path(config: &RuntimeConfig, env: &Environment) -> Option<PathBu
     Some(home.join(".config").join(LLMUX_CONFIG_FILE))
 }
 
-/// Merges the three keys into the profile settings and writes them privately.
-///
-/// `settings` is the document that was already read, so the file is read once
-/// and the model decision and the write cannot disagree about what was in it.
-fn record(
-    path: &Path,
-    mut settings: Map<String, Value>,
-    url: &str,
-    model: &str,
-) -> Result<(), SetupError> {
-    settings.insert("backend".to_string(), Value::from("llmux"));
-    settings.insert("llmux_url".to_string(), Value::from(url));
-    settings.insert("model".to_string(), Value::from(model));
-
-    let mut body = serde_json::to_string_pretty(&Value::Object(settings))
-        .expect("a settings object is always serializable");
-    body.push('\n');
-
-    let dir = path.parent().ok_or_else(|| SetupError::Write {
-        path: path.to_path_buf(),
-        detail: "the settings path has no parent directory".to_string(),
-    })?;
-    create_private_dir(dir).map_err(|err| SetupError::Write {
-        path: dir.to_path_buf(),
-        detail: err.to_string(),
-    })?;
-    replace_private_file(dir, path, body.as_bytes()).map_err(|err| SetupError::Write {
-        path: path.to_path_buf(),
-        detail: err.to_string(),
-    })
-}
-
-/// The settings object already on disk, or an empty one when there is none.
-///
-/// A file that exists and cannot be read is a refusal, never an empty object.
-/// "xfx could not parse this" and "this is not worth keeping" are different
-/// claims, and only the operator gets to make the second one.
-fn read_existing(path: &Path) -> Result<Map<String, Value>, SetupError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Map::new()),
-        Err(err) => {
-            return Err(SetupError::UnreadableSettings {
-                path: path.to_path_buf(),
-                detail: err.to_string(),
-            })
-        }
-    };
-    if !metadata.is_file() {
-        return Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: "it is not a regular file".to_string(),
-        });
-    }
-    if metadata.len() > MAX_SETTINGS_BYTES as u64 {
-        return Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: format!("it is larger than {MAX_SETTINGS_BYTES} bytes"),
-        });
-    }
-    let text = fs::read_to_string(path).map_err(|err| SetupError::UnreadableSettings {
-        path: path.to_path_buf(),
-        detail: err.to_string(),
-    })?;
-    match serde_json::from_str::<Value>(&text) {
-        Ok(Value::Object(object)) => Ok(object),
-        Ok(_) => Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: "it is not a JSON object".to_string(),
-        }),
-        Err(err) => Err(SetupError::UnreadableSettings {
-            path: path.to_path_buf(),
-            detail: format!("it is not valid JSON: {err}"),
-        }),
-    }
-}
-
-/// Creates the profile home owner-only, if it is not already there.
-fn create_private_dir(dir: &Path) -> io::Result<()> {
-    if dir.is_dir() {
-        return Ok(());
-    }
-    #[cfg(unix)]
-    {
-        // Created `0700` rather than created and then tightened: between the two
-        // there would be a window in which the profile home is world-readable.
-        use std::os::unix::fs::DirBuilderExt;
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-    }
-    #[cfg(not(unix))]
-    {
-        fs::create_dir_all(dir)
-    }
-}
-
-/// A stage name no other writer can own.
-///
-/// This process's id **and** a fresh nonce, which is the session store's shape
-/// (`src/session/store.rs` `replace_private_file`). The pid alone is not unique:
-/// two writes from this same process share it, so the second wrote through a
-/// file the first was still filling.
-fn stage_path(dir: &Path) -> PathBuf {
-    // Taken by characters rather than sliced by byte index. `new_identifier`
-    // returns lowercase hex today, so the two agree -- but a byte slice that is
-    // only correct because of what another module happens to return is a panic
-    // waiting for that module to change, in the one code path whose job is not
-    // to destroy a settings file.
-    let nonce: String = crate::session::new_identifier().chars().take(16).collect();
-    dir.join(format!(
-        "settings.json.{}.{nonce}{}",
-        std::process::id(),
-        crate::session::STAGE_SUFFIX
-    ))
-}
-
-/// A staged file that removes itself unless it was renamed into place.
-///
-/// The store's guard, for the store's reason. The stage exists for the few
-/// microseconds between "written" and "renamed", and if anything in between
-/// fails the partial file must not be left behind to be mistaken for state --
-/// but it must not be cleaned up by deleting a *fixed* name either, because a
-/// fixed name is something another process might own. That is not hypothetical
-/// here: the previous version removed exactly the pid-shaped name on a failed
-/// rename, so a concurrent writer's stage was deleted by this one's error path.
-/// The path this guard holds is this write's own, nonce and all.
-struct StagedFile {
-    path: PathBuf,
-    committed: bool,
-}
-
-impl StagedFile {
-    fn commit(mut self) {
-        self.committed = true;
-    }
-}
-
-impl Drop for StagedFile {
-    fn drop(&mut self) {
-        if !self.committed {
-            // Only ever this write's own uniquely named stage.
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
-/// Writes `bytes` to `path` atomically and privately.
-///
-/// The discipline is the session store's, for the same reasons: the stage lives
-/// in the target directory so the rename cannot cross a filesystem, it is opened
-/// `create_new` so a name this write did not create is never written through,
-/// the file is created `0600` rather than tightened afterwards, and the
-/// directory is synced so the *name* is durable and not only the bytes it points
-/// at.
-///
-/// A reader of `settings.json` therefore sees either the old document or the new
-/// one -- never a half-written file, which for a settings file would mean the
-/// next `xfx` run silently loses every key past the truncation.
-fn replace_private_file(dir: &Path, path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let staged = StagedFile {
-        path: stage_path(dir),
-        committed: false,
-    };
-    {
-        let mut options = fs::OpenOptions::new();
-        // `create_new`, never `create().truncate()`: writing through a name this
-        // write did not create is how a concurrent writer's in-flight file gets
-        // destroyed.
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&staged.path)?;
-        io::Write::write_all(&mut file, bytes)?;
-        file.sync_all()?;
-    }
-    // A rename onto the target replaces its inode atomically. On failure the
-    // guard removes this write's own stage on the way out -- and only that one.
-    fs::rename(&staged.path, path)?;
-    staged.commit();
-    sync_directory(dir)
-}
-
-/// Flushes the directory entry, so the rename survives a crash.
-fn sync_directory(dir: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        fs::File::open(dir)?.sync_all()
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = dir;
-        Ok(())
-    }
-}
-
 /// A base URL with any trailing `/` removed.
 fn trim_base(url: &str) -> String {
     url.trim_end_matches('/').to_string()
@@ -620,7 +438,7 @@ fn clip(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Map};
 
     fn entries(pairs: &[(&str, &[&str])]) -> Vec<model::CatalogEntry> {
         pairs
@@ -855,16 +673,16 @@ mod tests {
         for body in ["{ broken", "[]", "\"a string\""] {
             fs::write(&path, body).expect("write settings");
             assert!(
-                matches!(
-                    read_existing(&path),
-                    Err(SetupError::UnreadableSettings { .. })
-                ),
+                profile::read_existing(&path).is_err(),
                 "`{body}` must be a refusal"
             );
             assert_eq!(fs::read_to_string(&path).unwrap(), body, "bytes untouched");
         }
         fs::remove_file(&path).expect("remove");
-        assert_eq!(read_existing(&path).expect("absent is empty"), Map::new());
+        assert_eq!(
+            profile::read_existing(&path).expect("absent is empty"),
+            Map::new()
+        );
     }
 
     /// Every `*.staged` name directly under `dir`, sorted.
@@ -897,7 +715,8 @@ mod tests {
         let foreign = pid_only_stage(dir.path());
         fs::write(&foreign, b"another writer owns this").expect("plant a stage");
 
-        replace_private_file(dir.path(), &path, b"{\"ok\":true}\n").expect("the write succeeds");
+        profile::replace_private_file(dir.path(), &path, b"{\"ok\":true}\n")
+            .expect("the write succeeds");
 
         assert_eq!(
             fs::read_to_string(&foreign).unwrap(),
@@ -911,7 +730,7 @@ mod tests {
     fn a_successful_write_leaves_no_stage_of_its_own_behind() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
-        replace_private_file(dir.path(), &path, b"{}\n").expect("the write succeeds");
+        profile::replace_private_file(dir.path(), &path, b"{}\n").expect("the write succeeds");
         assert!(
             staged_files(dir.path()).is_empty(),
             "{:?}",
@@ -931,7 +750,7 @@ mod tests {
         let foreign = pid_only_stage(dir.path());
         fs::write(&foreign, b"another writer owns this").expect("plant a stage");
 
-        replace_private_file(dir.path(), &path, b"{}\n")
+        profile::replace_private_file(dir.path(), &path, b"{}\n")
             .expect_err("renaming onto a directory fails");
 
         assert_eq!(
