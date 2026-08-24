@@ -468,6 +468,8 @@ mod render_request;
 mod shell;
 mod signals;
 mod term;
+mod transcript;
+mod wrap;
 
 #[cfg(test)]
 mod tests {

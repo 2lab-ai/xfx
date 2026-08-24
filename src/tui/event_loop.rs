@@ -42,7 +42,11 @@
 //! * **Commit last, and only if something asked.** An idle tick writes no
 //!   bytes at all. A frame the screen refused is owed again, and only up to
 //!   [`FRAME_BUDGET`] of wall-clock time: past that the session leaves through
-//!   the same restore every other failure travels through.
+//!   the same restore every other failure travels through. The document
+//!   appends the shell owes go out **first, inside the same commit**: an
+//!   append scrolls the whole screen -- the band's own rows with it -- so a
+//!   frame painted before one would be carried a row up and left there until
+//!   something else asked for a repaint.
 
 use std::io::{self, Write};
 use std::os::fd::AsFd;
@@ -237,7 +241,8 @@ fn collect_facts(shell: &mut Shell, launch: &Launch<'_>) -> io::Result<Reconcile
     Ok(Reconciled)
 }
 
-/// Paints the frame this turn owes, if it owes one.
+/// Writes the document appends this turn owes, and then paints the frame it
+/// owes, if it owes one.
 ///
 /// A screen that refused one write is usually still there, so the reasons go
 /// back and the next tick tries again -- but only until the run of failures has
@@ -259,6 +264,25 @@ fn commit_frame(
     now: Instant,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
+    // Before the frame, and before the `begin` below, for two reasons. An
+    // append scrolls the screen, so a band painted first ends up a row above
+    // where it belongs. And the rows are the *document's*, not the band's: a
+    // tick that had nothing to repaint would otherwise hold them forever.
+    //
+    // A refused append is **not** owed again. Its bytes are a scroll followed
+    // by the rows it made room for, and a write that failed partway through one
+    // may have moved the screen already: repeating it would put the rows in the
+    // document twice, one of them below a blank row. The failure counts against
+    // the same budget a frame's does, which is what ends a session on a screen
+    // that is really gone.
+    for append in shell.take_pending() {
+        if let Err(err) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
+            return match failures.failed(err, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(()),
+            };
+        }
+    }
     let Some(attempt) = shell.render.begin() else {
         return Ok(());
     };
@@ -588,6 +612,97 @@ mod tests {
             screen.written.len(),
             after_first,
             "an idle tick repainted the band"
+        );
+    }
+
+    #[test]
+    fn the_document_append_is_written_before_the_frame_it_scrolls() {
+        // The append moves the whole screen up, the band's own rows included.
+        // A frame written first is a band drawn on rows the scroll then takes,
+        // and nothing repaints it until something else changes.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = FlakyScreen {
+            refusals: 0,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        shell.write_transcript("answered");
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the append and the frame");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.starts_with("\u{1b}[24;1H\n\u{1b}[21;1Hanswered"),
+            "the append did not scroll the screen and place the row: {text:?}"
+        );
+        let appended = text.find("answered").expect("the appended row");
+        let frame = text.find("\u{1b}[?2026h").expect("the frame");
+        assert!(
+            appended < frame,
+            "the band was painted before the append that scrolls it: {text:?}"
+        );
+        assert!(
+            text[frame..].contains("\u{1b}[22;1H"),
+            "the band was never repainted onto the rows the scroll left it: {text:?}"
+        );
+    }
+
+    #[test]
+    fn an_append_the_screen_refused_is_not_written_a_second_time() {
+        // A scroll cannot be replayed: the write that failed may have moved the
+        // screen before it did, and a second one would put the row in the
+        // document twice with a blank row between. The frame is still owed,
+        // because a repaint of the band is the one write that *is* idempotent.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        shell.write_transcript("answered");
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("one refusal is not the end of a session");
+        assert!(screen.written.is_empty());
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the next tick");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            !text.contains("answered"),
+            "the refused append was replayed onto a screen that may already \
+             have taken it: {text:?}"
+        );
+        assert!(
+            text.contains("\u{1b}[22;1H"),
+            "the frame the refused append asked for was never painted: {text:?}"
         );
     }
 
