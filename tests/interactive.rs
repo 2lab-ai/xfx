@@ -15,448 +15,22 @@
 
 mod support;
 
-use std::ffi::CString;
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, BorrowedFd};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::fs::{self, OpenOptions};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
 
-use rustix::fs::{fcntl_getfl, fcntl_setfl, Mode, OFlags};
-use rustix::pty::{grantpt, openpt, ptsname, unlockpt, OpenptFlags};
-use rustix::termios::{
-    tcgetattr, tcgetwinsize, ControlModes, InputModes, LocalModes, OutputModes, SpecialCodeIndex,
-    Termios, Winsize,
-};
+use rustix::process::{Pid, Signal};
+use rustix::termios::{ControlModes, InputModes, LocalModes, OutputModes};
 use serde_json::{json, Value};
-use tempfile::TempDir;
 
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
-
-/// Environment variables that must never leak in from the developer's shell.
-const CONTROLLED_VARS: &[&str] = &[
-    "VERCEL_OIDC_TOKEN",
-    "AI_GATEWAY_API_KEY",
-    "XFX_MODEL",
-    "XFX_PERMISSION_MODE",
-    "XFX_MAX_AGENT_STEPS",
-    "XFX_GATEWAY_URL",
-];
-
-/// A test secret that must never appear on the terminal.
-const TEST_KEY: &str = "xfx-test-interactive-key-must-not-appear";
-
-/// How long a test waits for expected output before failing.
-const WAIT: Duration = Duration::from_secs(20);
-
-/// How long the harness sleeps when a non-blocking descriptor has nothing yet.
-const IDLE_POLL: Duration = Duration::from_millis(2);
+use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
+use support::sandbox::{Sandbox, TEST_KEY};
 
 /// The prompt the shell writes before reading a line.
 const PROMPT: &str = "> ";
-
-// ---------------------------------------------------------------------------
-// the pseudoterminal harness
-// ---------------------------------------------------------------------------
-
-/// A pty pair: the side a test writes to and reads from, the device name the
-/// child opens as its stdin, stdout, and stderr, and **one slave descriptor
-/// held open for the pty's whole life**.
-///
-/// That retained descriptor is the difference between a real test and a
-/// comforting one. A pty's line discipline is reinitialized to the system
-/// defaults when its **last** slave descriptor closes, so a harness that opened
-/// a slave, read `termios`, and closed it again was measuring freshly reset
-/// defaults both before the child ran and after it exited -- and would have
-/// reported "the terminal was left exactly as it was found" for a child that
-/// left it in raw mode with echo off.
-/// `the_harness_can_tell_when_a_child_leaves_the_terminal_changed` is the proof
-/// that it no longer does.
-///
-/// The master is non-blocking. With a slave held open the child's exit no
-/// longer closes the last one, so a read on the master never reaches EOF; a
-/// blocking reader thread would then never return and every `Session` would
-/// hang on drop.
-struct Pty {
-    master: Arc<File>,
-    /// Held, never read from. Its only job is to exist.
-    ///
-    /// `None` only in the harness's own self-test, which reproduces the earlier
-    /// version's blind spot deliberately.
-    slave: Option<File>,
-    slave_path: PathBuf,
-}
-
-impl Pty {
-    fn open() -> Self {
-        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).expect("open a pty master");
-        grantpt(&master).expect("grant the pty slave");
-        unlockpt(&master).expect("unlock the pty slave");
-        let name: CString = ptsname(&master, Vec::new()).expect("name the pty slave");
-        let slave_path = PathBuf::from(name.to_str().expect("the slave name is utf-8").to_string());
-        let flags = fcntl_getfl(&master).expect("read the master's flags");
-        fcntl_setfl(&master, flags | OFlags::NONBLOCK).expect("make the master non-blocking");
-        let slave = open_slave(&slave_path);
-        Self {
-            master: Arc::new(File::from(master)),
-            slave: Some(slave),
-            slave_path,
-        }
-    }
-
-    /// The pty as an earlier version of this harness had it: nothing retained,
-    /// every reading opening a slave and closing it again.
-    ///
-    /// It exists so that the blind spot can be demonstrated rather than
-    /// described. See
-    /// `on_macos_a_harness_that_retains_nothing_cannot_see_the_change`, which is
-    /// its only caller and, for the reason given there, runs only on macOS --
-    /// hence the `cfg`, which keeps this from being dead code elsewhere.
-    #[cfg(target_os = "macos")]
-    fn open_without_a_retained_slave() -> Self {
-        let mut pty = Self::open();
-        pty.slave = None;
-        pty
-    }
-
-    /// The line-discipline state of the terminal, as a caller would see it.
-    ///
-    /// Read through the retained slave. Not through the master: BSD-derived
-    /// kernels, macOS among them, answer `tcgetattr` on a pty master with
-    /// `ENOTTY`. Not through a freshly opened one either, for the reason in the
-    /// type's own documentation.
-    fn try_termios(&self) -> Result<Termios, rustix::io::Errno> {
-        match &self.slave {
-            Some(slave) => tcgetattr(slave.as_fd()),
-            None => tcgetattr(open_slave(&self.slave_path).as_fd()),
-        }
-    }
-
-    /// The terminal's dimensions. A shell that resized the window would be
-    /// changing state it was lent, exactly like a mode flag.
-    fn try_winsize(&self) -> Result<Winsize, rustix::io::Errno> {
-        match &self.slave {
-            Some(slave) => tcgetwinsize(slave.as_fd()),
-            None => tcgetwinsize(open_slave(&self.slave_path).as_fd()),
-        }
-    }
-}
-
-/// Opens a pty slave without letting it become this process's terminal.
-///
-/// `O_NOCTTY` matters on both sides: the test process must not acquire the
-/// child's terminal by holding a descriptor on it, and the child claims it
-/// deliberately with `TIOCSCTTY` rather than by accident of opening.
-fn open_slave(path: &Path) -> File {
-    let fd = rustix::fs::open(path, OFlags::RDWR | OFlags::NOCTTY, Mode::empty())
-        .expect("open the pty slave");
-    File::from(fd)
-}
-
-/// The real `xfx` binary running on a pty, with everything it wrote captured.
-struct Session {
-    child: Child,
-    master: Arc<File>,
-    output: Arc<Mutex<Vec<u8>>>,
-    reading: Arc<AtomicBool>,
-    reader: Option<JoinHandle<()>>,
-    exited: Option<ExitStatus>,
-}
-
-impl Session {
-    /// Spawns `command` with a pty on all three standard streams.
-    ///
-    /// The child gets its own session and claims the pty as its controlling
-    /// terminal, because that is what makes a typed Ctrl-C become a real SIGINT
-    /// in the child's foreground process group rather than a byte in a buffer.
-    fn spawn(pty: &Pty, command: Command) -> Self {
-        Self::spawn_owning(pty, command, true)
-    }
-
-    /// Spawns a child on the pty that does **not** take it as a controlling
-    /// terminal.
-    ///
-    /// Only the harness's own self-tests use this. A session leader's terminal
-    /// is revoked when it exits on BSD-derived kernels, which makes "what did
-    /// the child leave behind" unanswerable there; a child that never claimed
-    /// the terminal leaves it inspectable, which is what makes the harness's
-    /// blind spot demonstrable.
-    fn spawn_without_taking_the_terminal(pty: &Pty, command: Command) -> Self {
-        Self::spawn_owning(pty, command, false)
-    }
-
-    fn spawn_owning(pty: &Pty, mut command: Command, take_terminal: bool) -> Self {
-        let slave = open_slave(&pty.slave_path);
-        let stdin = slave.try_clone().expect("clone the pty slave");
-        let stdout = slave.try_clone().expect("clone the pty slave");
-        command
-            .stdin(Stdio::from(stdin))
-            .stdout(Stdio::from(stdout))
-            .stderr(Stdio::from(slave));
-        if take_terminal {
-            // SAFETY: both calls are async-signal-safe and touch only this
-            // child's own session and controlling terminal. `std` has already
-            // dup'd the pty onto 0/1/2 by the time a `pre_exec` closure runs,
-            // so fd 0 is the terminal being claimed.
-            unsafe {
-                command.pre_exec(|| {
-                    rustix::process::setsid()?;
-                    rustix::process::ioctl_tiocsctty(BorrowedFd::borrow_raw(0))?;
-                    Ok(())
-                });
-            }
-        }
-        let child = command.spawn().expect("spawn xfx on the pty");
-
-        let master = Arc::clone(&pty.master);
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let reading = Arc::new(AtomicBool::new(true));
-        let thread_master = Arc::clone(&master);
-        let thread_output = Arc::clone(&output);
-        let thread_reading = Arc::clone(&reading);
-        let reader = thread::spawn(move || {
-            let mut buffer = [0u8; 4096];
-            while thread_reading.load(Ordering::SeqCst) {
-                match (&*thread_master).read(&mut buffer) {
-                    // A pty whose last slave has closed reads as EOF on some
-                    // platforms and as EIO on others. Neither happens here --
-                    // the harness holds a slave open on purpose -- so the loop
-                    // ends on the flag instead, which is why the master is
-                    // non-blocking. Both cases are still handled: the reader
-                    // must not spin on a descriptor that is genuinely finished.
-                    Ok(0) => break,
-                    Ok(read) => thread_output
-                        .lock()
-                        .expect("output lock")
-                        .extend_from_slice(&buffer[..read]),
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                        thread::sleep(IDLE_POLL);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        Self {
-            child,
-            master,
-            output,
-            reading,
-            reader: Some(reader),
-            exited: None,
-        }
-    }
-
-    /// Everything the terminal has received so far, decoded leniently: a test
-    /// asserts on text, and a partially read multibyte character is not a
-    /// failure.
-    fn text(&self) -> String {
-        String::from_utf8_lossy(&self.output.lock().expect("output lock")).into_owned()
-    }
-
-    /// Types `bytes` on the terminal, exactly as a keyboard would.
-    ///
-    /// Written in a loop because the master is non-blocking: a full input queue
-    /// is a `WouldBlock`, not a failure, and the reader on the other side is a
-    /// real process that will get to it.
-    fn type_bytes(&self, bytes: &[u8]) {
-        let deadline = Instant::now() + WAIT;
-        let mut rest = bytes;
-        while !rest.is_empty() {
-            match (&*self.master).write(rest) {
-                Ok(0) => panic!("the terminal accepted nothing"),
-                Ok(written) => rest = &rest[written..],
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    assert!(
-                        Instant::now() < deadline,
-                        "the terminal never accepted input; terminal so far:\n{}",
-                        self.text()
-                    );
-                    thread::sleep(IDLE_POLL);
-                }
-                Err(err) => panic!("write to the terminal: {err}"),
-            }
-        }
-    }
-
-    /// Types a line and presses Return. Return is a carriage return on a
-    /// terminal; the line discipline is what turns it into a newline.
-    fn type_line(&self, line: &str) {
-        self.type_bytes(line.as_bytes());
-        self.type_bytes(b"\r");
-    }
-
-    /// Waits until the terminal has received `needle`, and returns everything
-    /// received so far.
-    fn wait_for(&self, needle: &str) -> String {
-        self.wait_until(&format!("{needle:?} on the terminal"), |text| {
-            text.contains(needle)
-        })
-    }
-
-    /// Waits until `needle` has been received `count` times.
-    fn wait_for_count(&self, needle: &str, count: usize) -> String {
-        self.wait_until(&format!("{count} x {needle:?} on the terminal"), |text| {
-            text.matches(needle).count() >= count
-        })
-    }
-
-    fn wait_until(&self, what: &str, ready: impl Fn(&str) -> bool) -> String {
-        let deadline = Instant::now() + WAIT;
-        loop {
-            let text = self.text();
-            if ready(&text) {
-                return text;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "timed out waiting for {what}; terminal so far:\n{text}"
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    /// Waits for the process to exit and returns its status.
-    fn wait_exit(&mut self) -> ExitStatus {
-        if let Some(status) = self.exited {
-            return status;
-        }
-        let deadline = Instant::now() + WAIT;
-        loop {
-            match self.child.try_wait().expect("poll the child") {
-                Some(status) => {
-                    self.exited = Some(status);
-                    return status;
-                }
-                None => {
-                    assert!(
-                        Instant::now() < deadline,
-                        "xfx did not exit; terminal so far:\n{}",
-                        self.text()
-                    );
-                    thread::sleep(Duration::from_millis(10));
-                }
-            }
-        }
-    }
-
-    /// Exits through `/quit` and requires a clean status.
-    fn quit(&mut self) -> ExitStatus {
-        self.type_line("/quit");
-        self.wait_exit()
-    }
-}
-
-impl Drop for Session {
-    fn drop(&mut self) {
-        if self.exited.is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-        self.reading.store(false, Ordering::SeqCst);
-        if let Some(reader) = self.reader.take() {
-            // The reader ends when the last slave descriptor closes, which the
-            // child's exit guarantees.
-            let _ = reader.join();
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
-struct Sandbox {
-    _root: TempDir,
-    home: PathBuf,
-    workspace: PathBuf,
-}
-
-impl Sandbox {
-    fn new() -> Self {
-        let root = TempDir::new().expect("create a sandbox root");
-        let home = root.path().join("home");
-        let workspace = root.path().join("workspace");
-        fs::create_dir_all(&home).expect("create home");
-        fs::create_dir_all(&workspace).expect("create workspace");
-        let home = home.canonicalize().expect("canonicalize home");
-        let workspace = workspace.canonicalize().expect("canonicalize workspace");
-        Self {
-            _root: root,
-            home,
-            workspace,
-        }
-    }
-
-    fn command(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_xfx"));
-        command.current_dir(&self.workspace);
-        command.env("HOME", &self.home);
-        // A shell is a terminal program; a terminal that claims to be nothing
-        // is still a terminal, and the shell must not depend on this.
-        command.env("TERM", "dumb");
-        for key in CONTROLLED_VARS {
-            command.env_remove(key);
-        }
-        command
-    }
-
-    /// A command wired to a scripted local Gateway.
-    fn command_with(&self, gateway: &FakeGateway) -> Command {
-        let mut command = self.command();
-        command.env("AI_GATEWAY_API_KEY", TEST_KEY);
-        command.env("XFX_GATEWAY_URL", gateway.chat_url());
-        command
-    }
-
-    /// A command whose profile points at a scripted local llmux daemon.
-    ///
-    /// Written into the profile rather than passed as a flag, because the
-    /// provider is a property of the machine and that is where a real one is
-    /// configured -- and because writing it is what proves the shell reads it.
-    fn command_with_llmux(&self, daemon: &FakeLlmux) -> Command {
-        let dir = self.home.join(".xfx");
-        fs::create_dir_all(&dir).expect("create the profile dir");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
-                .expect("tighten the profile dir");
-        }
-        fs::write(
-            dir.join("settings.json"),
-            format!(
-                "{{\"provider\":\"llmux\",\"llmux_url\":{},\"models\":{{\"llmux\":\"m-1\"}}}}",
-                serde_json::to_string(&daemon.url()).expect("a url is serializable")
-            ),
-        )
-        .expect("write the profile");
-        self.command()
-    }
-
-    fn sessions_dir(&self) -> PathBuf {
-        self.home.join(".xfx").join("sessions")
-    }
-
-    /// Every session directory currently in the store, sorted.
-    fn session_ids(&self) -> Vec<String> {
-        let Ok(entries) = fs::read_dir(self.sessions_dir()) else {
-            return Vec::new();
-        };
-        let mut ids: Vec<String> = entries
-            .map(|entry| entry.expect("read a session directory"))
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect();
-        ids.sort();
-        ids
-    }
-}
 
 /// Starts a shell and waits for its first prompt.
 fn start(sandbox: &Sandbox, pty: &Pty, command: Command) -> Session {
@@ -1124,48 +698,6 @@ fn end_of_input_leaves_the_shell_cleanly() {
 // what the terminal looks like afterwards
 // ---------------------------------------------------------------------------
 
-/// Every terminal fact a shell must not silently change.
-///
-/// Compared field by field as an exact tuple. An earlier version OR-ed the
-/// input and output flags into one integer before comparing, which was wrong in
-/// the direction that matters: the two words have overlapping bit values, so a
-/// bit gained in one and lost in the other cancels out and a changed terminal
-/// compares equal. There is no reason to fold them at all.
-///
-/// `VMIN` and `VTIME` are in here because they are precisely what raw mode
-/// rewrites -- a shell can leave `ICANON` looking untouched and still have left
-/// the read behaviour changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TerminalState {
-    input: InputModes,
-    output: OutputModes,
-    control: ControlModes,
-    local: LocalModes,
-    min: u8,
-    time: u8,
-    size: (u16, u16),
-}
-
-/// The terminal's state, when the kernel still allows the question to be asked.
-fn try_modes(pty: &Pty) -> Option<TerminalState> {
-    let state = pty.try_termios().ok()?;
-    let size = pty.try_winsize().ok()?;
-    Some(TerminalState {
-        input: state.input_modes,
-        output: state.output_modes,
-        control: state.control_modes,
-        local: state.local_modes,
-        min: state.special_codes[SpecialCodeIndex::VMIN],
-        time: state.special_codes[SpecialCodeIndex::VTIME],
-        size: (size.ws_row, size.ws_col),
-    })
-}
-
-/// The terminal's state, for a terminal that is still one.
-fn modes(pty: &Pty) -> TerminalState {
-    try_modes(pty).expect("the pty is still a terminal")
-}
-
 /// Requires that xfx left the terminal alone, given a reading taken while it
 /// was still running and, where the platform still permits one, a second
 /// reading taken after it exited.
@@ -1804,4 +1336,95 @@ fn a_during_run_reading_sees_a_terminal_the_running_child_has_changed() {
     assert!(!during.local.contains(LocalModes::ICANON), "{during:?}");
     // Dropping the session kills the child, which is the point: nothing here
     // waits for a `sleep 30`.
+}
+
+/// A stop, a resume, and an exit are three different answers, and none of them
+/// may come back as a plain `Running`.
+///
+/// The regression this pins: the first version of `wait_state` asked with
+/// `waitpid`, which *consumes* the event it reports. The second reading of a
+/// child that was still stopped came back `Wait::Running`, and the resume after
+/// it was invisible -- so a test waiting for "the second stop" was satisfied by
+/// the first one still sitting there, and proved nothing about the resume in
+/// between.
+#[test]
+fn a_stop_a_resume_and_an_exit_are_three_states_the_harness_keeps_apart() {
+    let pty = Pty::open();
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "echo ready; read line; exit 7"]);
+    let mut session = Session::spawn(&pty, command);
+    session.wait_for("ready");
+    assert_eq!(
+        session.state(),
+        Wait::Running,
+        "a live child before any signal"
+    );
+
+    session.signal(Signal::STOP);
+    assert_eq!(
+        session.wait_state("the stop", |state| matches!(state, Wait::Stopped(_))),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    // Read it again. The child has not moved, so the answer must not either.
+    assert_eq!(
+        session.state(),
+        Wait::Stopped(Signal::STOP.as_raw()),
+        "a second reading of a still-stopped child changed its story"
+    );
+
+    session.signal(Signal::CONT);
+    assert_eq!(
+        session.wait_state("the resume", |state| !matches!(state, Wait::Stopped(_))),
+        Wait::Continued,
+        "a resumed child must stay distinguishable from one never stopped"
+    );
+
+    session.type_line("go");
+    assert_eq!(
+        session.wait_state("the exit", |state| matches!(state, Wait::Exited(_))),
+        Wait::Exited(7)
+    );
+    // Reading the exit did not steal it: `wait_exit` still has a status to
+    // collect, which every other test in this file depends on.
+    assert_eq!(session.wait_exit().code(), Some(7));
+}
+
+/// A child that exited before anyone asked is reported as exited, its status is
+/// still there for `wait_exit` to collect, and it stays readable afterwards.
+///
+/// The regression this pins: reading the state used to reap the child, so
+/// `Child::try_wait` inside `wait_exit` was left with `ECHILD` on a process this
+/// harness had buried itself.
+#[test]
+fn an_early_exit_is_reported_and_the_status_survives_the_reading() {
+    let pty = Pty::open();
+    let mut command = Command::new("/bin/sh");
+    command.args(["-c", "echo ready; exit 3"]);
+    let mut session = Session::spawn(&pty, command);
+    session.wait_for("ready");
+
+    assert_eq!(
+        session.wait_state("the exit", |state| matches!(state, Wait::Exited(_))),
+        Wait::Exited(3)
+    );
+    assert_eq!(
+        session.wait_exit().code(),
+        Some(3),
+        "the reading consumed the status the session was still owed"
+    );
+    // And once `std` has collected it, the session answers from what it kept:
+    // the kernel has nothing left to be asked about a child that is gone.
+    assert_eq!(session.state(), Wait::Exited(3));
+}
+
+/// pid 1 is never a child of a test binary.
+///
+/// The regression this pins: the first version answered `Wait::Running` for
+/// every error `waitpid` could return, so it reported a healthy child where
+/// there was no child at all, and the timeout that followed blamed the process
+/// under test. A harness may fail; it may not lie.
+#[test]
+#[should_panic(expected = "is not a child of this process")]
+fn asking_about_a_process_that_is_not_a_child_fails_loudly() {
+    let _ = wait_state(Pid::from_raw(1).expect("pid 1 is a pid"));
 }
