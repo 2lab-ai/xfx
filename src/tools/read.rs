@@ -849,6 +849,21 @@ fn execute_read_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
             "read_file cannot read `{display}`: it is a directory; use list_files"
         ));
     }
+    // Everything that is not a regular file is refused here rather than in the
+    // read below: opening a writer-less FIFO -- or a device that answers slowly,
+    // or a socket -- parks the thread for as long as the turn lasts, and a tool
+    // call that never returns is a turn the user cannot get out of. `metadata`
+    // follows symlinks, so a symlink to a regular file is still a regular file;
+    // which paths may be reached at all is `resolve_existing`'s business. This
+    // stat and the read below are two separate pathname resolutions, so a target
+    // swapped for a FIFO between them can still block: what this closes is the
+    // stable-path hazard, not the race, which is the bargain a cooperative
+    // workspace makes everywhere else too.
+    if !metadata.is_file() {
+        return ToolResult::failure(format!(
+            "read_file cannot read `{display}`: it is not a regular file"
+        ));
+    }
 
     let bytes = match fs::read(resolved.absolute()) {
         Ok(bytes) => bytes,

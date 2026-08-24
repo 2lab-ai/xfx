@@ -524,6 +524,43 @@ fn read_file_rejects_arguments_that_do_not_match_its_schema() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
+    // A FIFO is not a directory, so the directory refusal lets it through, and
+    // with no writer on the other end `fs::read` never returns: a tool call
+    // that never returns is a turn the user cannot get out of. The call runs
+    // off the test thread so that "an answer arrived at all" is an assertion
+    // rather than a hope.
+    let tree = Tree::new();
+    // `mkfifo(1)` rather than a crate call: rustix does not expose `mkfifoat`
+    // on Apple targets, and the fixture has to exist on every unix the tests
+    // run on.
+    let status = Command::new("mkfifo")
+        .arg(tree.root().join("pipe"))
+        .status()
+        .expect("run mkfifo");
+    assert!(status.success(), "mkfifo failed: {status:?}");
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let root = tree.root().to_path_buf();
+    std::thread::spawn(move || {
+        let scope = AccessScope::primary_only(&root).expect("a usable primary root");
+        let context = ToolContext::new(scope);
+        let _ = sender.send(call(&context, "read_file", json!({ "path": "pipe" })));
+    });
+    let result = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("read_file blocked on a FIFO");
+
+    assert!(!result.ok, "expected a refusal, got {result:?}");
+    assert!(result.output.contains("pipe"), "{result:?}");
+    assert!(
+        result.output.contains("it is not a regular file"),
+        "{result:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // list_files
 // ---------------------------------------------------------------------------

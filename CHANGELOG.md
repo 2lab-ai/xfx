@@ -9,6 +9,15 @@ upstream `fx`.** What is and is not implemented lives in
 
 ## [Unreleased]
 
+### Fixed
+
+- **`read_file` no longer parks a turn on a FIFO.** Only directories were
+  refused before the read, so a named pipe with no writer passed the check and
+  blocked the whole turn inside `fs::read`, with no way out. Any target that is
+  not a regular file is now refused by name before it can be opened: a socket or
+  a device is refused for that same reason, though those usually fail fast
+  rather than hang. Upstream `fx` 0.0.5 refuses them all the same way.
+
 ## [0.1.0] - 2026-08-24
 
 The first vertical slice, delivered as one bounded loop rather than a broad
