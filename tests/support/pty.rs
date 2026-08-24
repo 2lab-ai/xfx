@@ -10,7 +10,7 @@
 use std::ffi::CString;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -32,6 +32,26 @@ pub const WAIT: Duration = Duration::from_secs(20);
 
 /// How long the harness sleeps when a non-blocking descriptor has nothing yet.
 pub const IDLE_POLL: Duration = Duration::from_millis(2);
+
+/// How many times a pty allocation is attempted before the harness gives up.
+///
+/// Allocating a pty is not purely a function of this process: `/dev/ptmx` is a
+/// shared, bounded resource, and on a host running several test suites (and
+/// several terminals) at once the kernel can refuse an allocation that would
+/// succeed a few milliseconds later. Observed on macOS as
+/// `open a pty master: Os { code: -6 }` in roughly one full
+/// `--features fault-injection --test tui` run in eighteen, taking two tests
+/// down in the same run, with `kern.tty.ptmx_max` at 511 and a steady draw of
+/// about 160 -- spike contention, not exhaustion.
+///
+/// Ten attempts spaced by `PTY_RETRY_PAUSE` cover such a spike without hiding
+/// anything: a shortage that is real outlives eighty milliseconds, and
+/// `retrying` still panics with the kernel's own error and the number of
+/// attempts behind it.
+const PTY_ATTEMPTS: u32 = 10;
+
+/// How long the harness waits before re-attempting a refused pty allocation.
+const PTY_RETRY_PAUSE: Duration = Duration::from_millis(8);
 
 // ---------------------------------------------------------------------------
 // the pseudoterminal harness
@@ -67,9 +87,7 @@ pub struct Pty {
 
 impl Pty {
     pub fn open() -> Self {
-        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).expect("open a pty master");
-        grantpt(&master).expect("grant the pty slave");
-        unlockpt(&master).expect("unlock the pty slave");
+        let master = retrying("allocate a pty master", Self::allocate);
         let name: CString = ptsname(&master, Vec::new()).expect("name the pty slave");
         let slave_path = PathBuf::from(name.to_str().expect("the slave name is utf-8").to_string());
         let flags = fcntl_getfl(&master).expect("read the master's flags");
@@ -80,6 +98,21 @@ impl Pty {
             slave: Some(slave),
             slave_path,
         }
+    }
+
+    /// One attempt at a fresh, granted, unlocked master.
+    ///
+    /// The three calls are retried as a single unit rather than one by one: a
+    /// `grantpt` or `unlockpt` that failed did so for the master this attempt
+    /// had just been handed, and re-running it against that same master asks
+    /// the kernel the question it has already refused. Returning the error
+    /// drops the `OwnedFd`, which hands the pty back before the next attempt --
+    /// so a retry cannot itself become the contention it is waiting out.
+    fn allocate() -> Result<OwnedFd, rustix::io::Errno> {
+        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY)?;
+        grantpt(&master)?;
+        unlockpt(&master)?;
+        Ok(master)
     }
 
     /// The pty as an earlier version of this harness had it: nothing retained,
@@ -125,10 +158,48 @@ impl Pty {
 /// `O_NOCTTY` matters on both sides: the test process must not acquire the
 /// child's terminal by holding a descriptor on it, and the child claims it
 /// deliberately with `TIOCSCTTY` rather than by accident of opening.
+///
+/// Retried like the master's allocation, and for the same reason: the pressure
+/// that makes `/dev/ptmx` refuse an allocation is descriptor and device
+/// pressure, and opening the slave it just handed out draws on the same pool.
+/// A slave device that is genuinely not there is still an error -- eighty
+/// milliseconds later, with the count in the message.
 pub fn open_slave(path: &Path) -> File {
-    let fd = rustix::fs::open(path, OFlags::RDWR | OFlags::NOCTTY, Mode::empty())
-        .expect("open the pty slave");
+    let fd = retrying("open the pty slave", || {
+        rustix::fs::open(path, OFlags::RDWR | OFlags::NOCTTY, Mode::empty())
+    });
     File::from(fd)
+}
+
+/// Runs `attempt` until it succeeds, up to `PTY_ATTEMPTS` times, and panics
+/// with the kernel's own error and the number of attempts when it never does.
+///
+/// The panic is the point. A harness that quietly returned something usable
+/// after a failure -- or that retried without a bound -- would turn "this host
+/// cannot allocate a pty" into a mystery somewhere downstream, or into a suite
+/// that hangs instead of failing. Retrying only widens the window in which a
+/// *transient* shortage resolves; a persistent one still ends the test, and the
+/// attempt count in the message is what tells the two apart afterwards.
+///
+/// There is no unit test below this. Making `openpt` fail on demand means
+/// substituting the syscall, and a test against a substituted `openpt` would
+/// prove that the substitute returns what it was told to -- not that this
+/// harness survives a real shortage. The evidence for that is the field
+/// observation quoted on `PTY_ATTEMPTS` and the suite runs that no longer
+/// reproduce it.
+fn retrying<T>(what: &str, mut attempt: impl FnMut() -> Result<T, rustix::io::Errno>) -> T {
+    let mut refused = None;
+    for tried in 1..=PTY_ATTEMPTS {
+        if tried > 1 {
+            thread::sleep(PTY_RETRY_PAUSE);
+        }
+        match attempt() {
+            Ok(value) => return value,
+            Err(err) => refused = Some(err),
+        }
+    }
+    let refused = refused.expect("a pty is attempted at least once");
+    panic!("{what}: {refused:?}, after {PTY_ATTEMPTS} attempts {PTY_RETRY_PAUSE:?} apart")
 }
 
 /// The real `xfx` binary running on a pty, with everything it wrote captured.
