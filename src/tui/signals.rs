@@ -36,6 +36,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::time::Duration;
 
 use rustix::io::FdFlags;
 
@@ -104,17 +105,18 @@ impl Wakeup {
         Ok(Self { read, write })
     }
 
-    // The read end is the event loop's second `PollFd`, which is Task 5 of this
-    // plan; the pipe is created here because the handlers that poke it are.
-    #[allow(dead_code)]
+    /// The second descriptor the event loop waits on: a handler's poke wakes
+    /// the wait now rather than at the next tick.
     pub(crate) fn read_fd(&self) -> BorrowedFd<'_> {
         self.read.as_fd()
     }
 
     /// Reads until `EAGAIN` and discards everything: the bytes are a wakeup,
     /// never data.
-    // Called by `collect_facts`, Task 6.
-    #[allow(dead_code)]
+    ///
+    /// It runs in the same turn of the loop that waits on the read end, and
+    /// that pairing is not optional: a poked pipe nobody read stays readable,
+    /// and the wait it is part of returns immediately, forever.
     pub(crate) fn drain(&self) {
         let mut scratch = [0u8; 64];
         while let Ok(read) = rustix::io::read(&self.read, &mut scratch) {
@@ -316,54 +318,83 @@ pub(crate) fn install(wakeup: &Wakeup, blocked: Blocked) -> io::Result<Held> {
     })
 }
 
-/// Waits until `fd` has something to read, letting the stop signal in for the
-/// length of the wait and no longer.
+/// Waits until one of `fds` has something to read or `timeout` passes, letting
+/// the stop signal in for the length of the wait and no longer.
 ///
 /// `pselect(2)` rather than `poll(2)`, because the unmask and the wait have to
 /// be **one** operation. With a plain `poll` the sequence would be unmask, then
 /// wait, and a `SIGTSTP` arriving between the two would be delivered outside the
 /// wait -- exactly the window this call exists to close. `pselect` installs the
 /// mask, waits, and puts the old mask back, and the kernel does not let anything
-/// in between.
+/// in between. The event loop's fixed tick is expressed as this call's
+/// `timeout` for that reason and no other: a `poll` with an 8 ms timeout would
+/// be the same wait with the window back in it.
 ///
 /// `pselect` and not `ppoll`, because macOS has no `ppoll(2)`. `pselect` is
 /// POSIX, is a real syscall on both targets (Darwin links `pselect$1050`), and
 /// is the portable spelling of the same atomicity.
 ///
-/// `Ok(())` means readable. `ErrorKind::Interrupted` means a signal was
-/// delivered *inside* the wait, which is where every stop and every resume in
-/// this design happens.
-pub(crate) fn wait_for_input(fd: BorrowedFd<'_>, held: &Held) -> io::Result<()> {
-    let raw = fd.as_raw_fd();
-    // `FD_SET` on a descriptor at or past `FD_SETSIZE` writes outside the set.
-    // The TUI only ever waits on standard input, but the check is what makes the
-    // `unsafe` below true for every caller rather than for the current one.
-    if raw < 0 || raw as usize >= libc::FD_SETSIZE {
+/// `Ok(true)` means at least one descriptor is readable; `Ok(false)` means the
+/// timeout passed with nothing to read. `ErrorKind::Interrupted` means a signal
+/// was delivered *inside* the wait, which is where every stop and every resume
+/// in this design happens. A `None` timeout waits without a deadline.
+pub(crate) fn wait_for_input(
+    fds: &[BorrowedFd<'_>],
+    timeout: Option<Duration>,
+    held: &Held,
+) -> io::Result<bool> {
+    let mut highest = -1;
+    for fd in fds {
+        let raw = fd.as_raw_fd();
+        // `FD_SET` on a descriptor at or past `FD_SETSIZE` writes outside the
+        // set. The TUI only ever waits on standard input and its own self-pipe,
+        // but the check is what makes the `unsafe` below true for every caller
+        // rather than for the current one.
+        if raw < 0 || raw as usize >= libc::FD_SETSIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the descriptor is out of range for pselect",
+            ));
+        }
+        highest = highest.max(raw);
+    }
+    if highest < 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "the descriptor is out of range for pselect",
+            "a wait on no descriptors would never end",
         ));
     }
-    // SAFETY: `readable` is zeroed before use and `raw` was just range-checked;
-    // the mask is a set this thread wrote; the null timeout means "no deadline"
-    // and the null write/error sets mean "not interested".
+    let deadline = timeout.map(|timeout| libc::timespec {
+        tv_sec: libc::time_t::try_from(timeout.as_secs()).unwrap_or(libc::time_t::MAX),
+        // `subsec_nanos` is under a billion by construction, so this is the
+        // whole remainder rather than a clamp of it.
+        tv_nsec: libc::c_long::from(timeout.subsec_nanos()),
+    });
+    // SAFETY: `readable` is zeroed before use and every descriptor in it was
+    // just range-checked; the mask is a set this thread wrote; `deadline` is
+    // owned here and lives across the call, and a null one means "no deadline";
+    // the null write/error sets mean "not interested".
     let waited = unsafe {
         let mut readable: libc::fd_set = std::mem::zeroed();
         libc::FD_ZERO(&mut readable);
-        libc::FD_SET(raw, &mut readable);
+        for fd in fds {
+            libc::FD_SET(fd.as_raw_fd(), &mut readable);
+        }
         libc::pselect(
-            raw + 1,
+            highest + 1,
             &mut readable,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            std::ptr::null(),
+            deadline
+                .as_ref()
+                .map_or(std::ptr::null(), |deadline| deadline),
             &held.during_wait,
         )
     };
     if waited < 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(())
+    Ok(waited > 0)
 }
 
 /// Every `sigaction` the TUI owns.
@@ -501,12 +532,14 @@ pub(crate) fn take_resumed() -> bool {
     RESUMED.swap(false, Ordering::AcqRel)
 }
 
-/// Phase 1 records the resize and acts on nothing: re-layout is Phase 2 item 12,
-/// and `docs/parity.md` says so. The flag exists here because the signal
-/// contract is one unit and a half-installed handler set is the bug this
-/// section exists to avoid.
-// Taken and dropped by `collect_facts`, Task 6.
-#[allow(dead_code)]
+/// Whether the window changed size since this was last asked.
+///
+/// Phase 1 does not re-layout: the event loop takes the flag and drops it, and
+/// `docs/parity.md` says so. The one thing that does act on it is the *launch*
+/// measurement, which cannot: it reads where the cursor is and how big the
+/// screen is and pushes the shell's output above the band from both, so a
+/// resize landing between the two readings would aim the push at a row that no
+/// longer exists. Re-layout is Phase 2 item 12.
 pub(crate) fn take_winch() -> bool {
     WINCH.swap(false, Ordering::AcqRel)
 }
@@ -788,7 +821,7 @@ mod tests {
             let _ = rustix::io::write(&write, b"x");
         });
 
-        let outcome = wait_for_input(read.as_fd(), &held);
+        let outcome = wait_for_input(&[read.as_fd()], None, &held);
 
         writer.join().expect("the writer thread");
         // SAFETY: `outside_the_wait` is the mask this thread had before the test

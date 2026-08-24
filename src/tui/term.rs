@@ -179,8 +179,9 @@ pub(crate) fn restore_pair() {
 /// `band_top` is `None` for a session that drew no band, and then the last step
 /// is **skipped entirely**: with no band the only row to clear from is the
 /// screen's first, and `CUP(1,1)` + `ED` would erase a screen xfx never drew
-/// on. Task 6 solves a real band and passes its top, at which point the step is
-/// upstream's again.
+/// on. The caller supplies the top of what its band actually painted
+/// (`frame::Band::painted_top`), so a session that left before its first frame
+/// still erases nothing.
 ///
 /// Every step is attempted even when an earlier one failed, and the first error
 /// is the one returned. A terminal left raw is worse than an unreported write
@@ -219,6 +220,29 @@ fn shutdown_with(
 /// The terminal's dimensions, or 24x80 when it will not say. A terminal query,
 /// so it lives here; `layout::solve` takes rows and columns as arguments and
 /// stays pure, which is what makes its unit tests possible.
+///
+/// **Asked of standard output, and that is the ruling rather than the
+/// accident.** This module keeps the two descriptors apart because a redirected
+/// session can put them on different terminals, and each fact then belongs to
+/// whichever descriptor it is a fact *about*:
+///
+/// * The line discipline is a property of the descriptor input arrives on, so
+///   `termios` is captured from, and restored onto, standard input.
+/// * Screen state -- the mode set, the band, the restore -- is a property of
+///   the descriptor output leaves by, so those bytes go to standard output.
+/// * A band's geometry is screen state. It is the *output* terminal the band
+///   has to fit inside, so its size is asked of standard output. Asking
+///   standard input would size the band to a screen it will never be drawn on,
+///   which is why "the raw-mode descriptor" is not automatically the right
+///   answer here.
+///
+/// The launch cursor probe is the one query that spans both -- it writes `CSI
+/// 6n` to standard output and reads the answer off standard input -- and it can
+/// only be answered when the two are the same terminal. When they are not, the
+/// query goes to one device and nothing arrives from the other, the probe's
+/// deadline passes, and the session starts at row 1: it pushes nothing and
+/// paints over nothing. That is the correct degradation and it needs no
+/// detection, which is why this phase does not try to tell the two cases apart.
 pub(crate) fn window_size() -> (u16, u16) {
     size_or_default(tcgetwinsize(io::stdout()))
 }

@@ -41,6 +41,25 @@ const READY: &str = "\u{1b}[?2004h";
 /// and the reply that follows cannot be racing it.
 const PROBE: &str = "\u{1b}[6n";
 
+/// The first bytes of a band frame: synchronized output on, cursor hidden.
+///
+/// Response-only, like [`READY`].
+const FRAME_BEGIN: &str = "\u{1b}[?2026h\u{1b}[?25l";
+
+/// The last bytes of one. Waiting on **this** rather than on any byte inside
+/// the frame is what makes "a band is on the screen" a fact rather than a race:
+/// a needle that matched a row's `CUP` would be satisfied by half a frame.
+const FRAME_END: &str = "\u{1b}[?2026l\u{1b}[?25h";
+
+/// The band's top row on a 24-row screen: the divider, and therefore the row
+/// the exit clears from.
+///
+/// Spelled out rather than imported, for the same reason [`MODE_SET`] is:
+/// `src/tui/layout.rs` is not visible to an integration test, and a test that
+/// read the number it is checking would pass for any layout the module happened
+/// to solve.
+const BAND_TOP: &str = "\u{1b}[22;1H";
+
 /// The whole interactive mode sequence, in order (`terminal.zig:4-13`).
 ///
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
@@ -200,11 +219,20 @@ fn the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer() {
 fn a_normal_exit_gives_the_terminal_back_byte_for_byte() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
+    // The band's rows are the screen's, so the size is fixed before the child
+    // is spawned and the row the exit clears from is arithmetic rather than
+    // whatever window the developer happened to have open.
+    pty.resize(24, 80);
     let before = modes(&pty);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(READY);
     let during = modes(&pty);
     assert_ne!(before, during, "the TUI never took the terminal at all");
+    // Ctrl-D is typed only once a whole frame is on the wire. Typed before
+    // that it lands in the launch probe's own read, the session leaves without
+    // ever drawing a band, and this case would be asserting about the exit of a
+    // session that had nothing to clear -- which is the *next* test.
+    session.wait_for(FRAME_END);
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -219,12 +247,12 @@ fn a_normal_exit_gives_the_terminal_back_byte_for_byte() {
         !text.contains("\u{1b}[?1049l"),
         "the normal exit restored an alternate screen it never entered"
     );
-    // A session that drew no band has no band top to clear from, and clearing
-    // from the screen's first row would erase what the user had before xfx ran.
-    // Task 6 solves a real band and this becomes an assertion about its top.
+    // A band was drawn, so the exit clears from **its** top row downward:
+    // upstream's own order (`app_lifecycle.zig:578-593`), and the reason the
+    // band leaves no wreckage on a screen the shell goes on using.
     assert!(
-        !text.contains("\u{1b}[J"),
-        "the exit erased a screen xfx never drew on: {text:?}"
+        text.contains(&format!("{RESTORE}{BAND_TOP}\u{1b}[J")),
+        "the exit did not clear from the band's top row, after the restore: {text:?}"
     );
     assert!(
         !text.contains("\u{1b}[1;1H"),
@@ -406,7 +434,7 @@ fn a_bare_invocation_whose_output_is_not_a_terminal_is_refused_not_taken() {
 /// parent is in the session at all, so it is orphaned by construction. Own
 /// group, same session, parent outside it is the shape a job-controlling shell
 /// puts a real job in, and the only one in which a stop signal means anything.
-fn started(sandbox: &Sandbox, pty: &Pty) -> Session {
+fn in_its_own_process_group(sandbox: &Sandbox, pty: &Pty) -> Session {
     let mut command = tui(sandbox);
     // SAFETY: `setpgid` is async-signal-safe and touches nothing outside the
     // child that is about to `exec`.
@@ -417,7 +445,31 @@ fn started(sandbox: &Sandbox, pty: &Pty) -> Session {
         });
     }
     let session = Session::spawn_without_taking_the_terminal(pty, command);
+
+    // Waited for rather than assumed: a stop aimed before `setpgid` has landed
+    // goes to the runner's group. It is also an honest sync point -- the parent
+    // observes a fact the kernel already had, and the product emits nothing for
+    // the test's benefit.
+    let pid = session.pid();
+    let deadline = Instant::now() + WAIT;
+    while rustix::process::getpgid(Some(pid)).ok() != Some(pid) {
+        assert!(
+            Instant::now() < deadline,
+            "the child never took a process group of its own"
+        );
+        std::thread::sleep(IDLE_POLL);
+    }
+    session
+}
+
+/// The same, once it has announced itself and painted its band.
+fn started(sandbox: &Sandbox, pty: &Pty) -> Session {
+    let session = in_its_own_process_group(sandbox, pty);
     session.wait_for(READY);
+    // And its band, so that every case below starts from a session that has
+    // painted exactly one frame. Counting frames is only sound when the test
+    // controls how many preceded it, and this is where that control comes from.
+    session.wait_for(FRAME_END);
     session
 }
 
@@ -497,28 +549,10 @@ fn a_stop_that_lands_during_startup_still_comes_back_to_a_raw_terminal() {
     let pty = Pty::open();
     let before = modes(&pty);
 
-    let mut command = tui(&sandbox);
-    // SAFETY: `setpgid` is async-signal-safe and touches only this child.
-    unsafe {
-        command.pre_exec(|| {
-            rustix::process::setpgid(None, None)?;
-            Ok(())
-        });
-    }
-    let session = Session::spawn_without_taking_the_terminal(&pty, command);
-
     // Its own process group is also what makes the stop deliverable at all: a
     // child still in the runner's group is in an orphaned one, and POSIX
     // discards a stop sent there.
-    let pid = session.pid();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while rustix::process::getpgid(Some(pid)).ok() != Some(pid) {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the child never took a process group of its own"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
+    let session = in_its_own_process_group(&sandbox, &pty);
 
     session.signal(Signal::TSTP);
     assert!(
@@ -581,6 +615,12 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     session.signal(Signal::CONT);
     session.wait_for_count(READY, 2);
     assert_raw(modes(&pty));
+    // The band comes back too. While the process was stopped the terminal was
+    // the shell's, and whatever it wrote is on the rows the band had; a session
+    // that only re-entered raw mode would resume onto a screen with no band on
+    // it and no reason to draw one. The count is exact because `started` waited
+    // for the first frame and nothing between then and here asks for another.
+    session.wait_for_count(FRAME_END, 2);
 
     // The reinstall gate. Without it the second SIGTSTP hits the default
     // disposition and stops the process with the terminal still raw.
@@ -594,6 +634,72 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
         modes(&pty),
         "the SIGTSTP handler was not reinstalled on resume"
     );
+}
+
+#[test]
+fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() {
+    // The ordering the loop's two reconciles exist for. Every other resume case
+    // in this suite starts from a session that has already painted, so none of
+    // them can see a frame that is *still owed* when the terminal is handed
+    // back -- and that is precisely the frame a loop which reconciled once, at
+    // the top of a turn, would paint onto a cooked terminal before answering
+    // the resume.
+    //
+    // It is deterministic rather than a race, by construction. The stop is
+    // aimed while the launch probe is still waiting for a cursor report this
+    // test never sends, and `SIGTSTP` is blocked for the whole of that wait --
+    // so it is *held* until the loop's first tick wait, which is strictly
+    // before the loop's first commit. The session is therefore stopped owing
+    // the frame it has not yet painted, and the assertion below confirms that
+    // rather than trusting it.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let session = in_its_own_process_group(&sandbox, &pty);
+
+    session.wait_for(PROBE);
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the child to stop", |state| matches!(
+            state,
+            Wait::Stopped(_)
+        )),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    assert_eq!(before, modes(&pty), "a stopped job left the terminal raw");
+    assert!(
+        !session.text().contains(FRAME_BEGIN),
+        "the session painted before it was stopped, so this case is not the \
+         one it claims to be"
+    );
+
+    session.signal(Signal::CONT);
+    session.wait_for(FRAME_END);
+
+    let text = session.text();
+    let resumed = text
+        .match_indices(READY)
+        .nth(1)
+        .expect("the resume's mode set")
+        .0;
+    let painted = text.find(FRAME_BEGIN).expect("the first frame");
+    assert!(
+        resumed < painted,
+        "the band was painted before the resume took the terminal back, so the \
+         frame landed on a cooked terminal the user's shell owned: {text:?}"
+    );
+    assert_raw(wait_until_raw(&pty));
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(
+        session.wait_state("the child to exit", |state| matches!(
+            state,
+            Wait::Exited(_)
+        )),
+        Wait::Exited(0)
+    );
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
 }
 
 // ---------------------------------------------------------------------------
@@ -633,10 +739,26 @@ fn a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed() 
     // the harness gave up.
     let sandbox = Sandbox::new();
     let pty = Pty::open();
+    pty.resize(24, 80);
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(PROBE);
     session.type_bytes(b"\x1b[7;1R\x04");
     assert_eq!(session.wait_exit().code(), Some(0));
+
+    // And it left before it drew, which is the half of the exit contract the
+    // test above cannot reach: with no band there is no top row to clear from,
+    // and clearing from the screen's first row would erase what the shell put
+    // there before xfx ran. Read after the child was reaped, because this is a
+    // claim about bytes that were never written.
+    let text = session.settled_text();
+    assert!(
+        !text.contains(FRAME_BEGIN),
+        "a session that left in the probe still painted a band: {text:?}"
+    );
+    assert!(
+        !text.contains("\u{1b}[J"),
+        "the exit erased a screen xfx never drew on: {text:?}"
+    );
 }
 
 #[test]
@@ -660,7 +782,9 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(PROBE);
     session.type_bytes(b"\x1b[2;1R");
-    session.wait_for(READY);
+    // The band, not the mode set: `READY` is written before the probe and would
+    // be satisfied by the announce this test is already past.
+    session.wait_for(FRAME_END);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
@@ -670,9 +794,9 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
         "the shell's output was erased: {text:?}"
     );
     let marker = text.find("PRIOR-OUTPUT-MARKER").expect("the marker");
-    let band = text.find(READY).expect("the band");
+    let announced = text.find(READY).expect("the session's announce");
     assert!(
-        marker < band,
+        marker < announced,
         "xfx painted over output that was there first"
     );
     // Row 2 of the 24 this terminal really has: one line of shell output above
@@ -681,22 +805,123 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     // scrolls nothing at all -- so the bytes are asserted whole and in order.
     // Counted after the mode set, because the shell's own newline is on the
     // terminal before xfx starts.
-    let after = &text[band..];
+    let after = &text[announced..];
+    // Bounded at the first frame: the band writes to the bottom row too, and
+    // the exit writes a newline of its own, so a slice that ran to the end of
+    // the session would be counting the push and the paint together.
+    let launch = &after[..after.find(FRAME_BEGIN).expect("the band's first frame")];
     assert!(
-        after.contains("\u{1b}[24;1H"),
+        launch.contains("\u{1b}[24;1H"),
         "the push never moved the cursor to the bottom margin, so nothing scrolled: {text:?}"
     );
-    let to_bottom = after.find("\u{1b}[24;1H").expect("the move to the bottom");
-    let first_newline = after.find('\n').expect("the newline that scrolls");
+    let to_bottom = launch.find("\u{1b}[24;1H").expect("the move to the bottom");
+    let first_newline = launch.find('\n').expect("the newline that scrolls");
     assert!(
         to_bottom < first_newline,
         "the newline was written before the cursor reached the bottom margin: {text:?}"
     );
     assert_eq!(
-        after.matches('\n').count(),
+        launch.matches('\n').count(),
         1,
         "the push was not the row the terminal reported: {text:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// the band
+// ---------------------------------------------------------------------------
+//
+// The session owns three rows at the bottom of the normal buffer and repaints
+// all three inside one synchronized frame. These two cases are the whole of
+// what that promises: a band appears where the geometry says it does, and a
+// screen that cannot hold one is refused by name rather than painted over.
+
+#[test]
+fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Counted on the settled terminal rather than on a live snapshot: "no frame
+    // was left open" is a claim about the whole session, and a snapshot taken
+    // mid-frame would report an imbalance the session does not have.
+    let text = session.settled_text();
+    let open = text.matches(FRAME_BEGIN).count();
+    let close = text.matches(FRAME_END).count();
+    assert!(open > 0, "no frame was synchronized: {text:?}");
+    assert_eq!(open, close, "a synchronized frame was left open");
+
+    // Everything below is asserted *inside* the first frame, because the exit
+    // also moves the cursor to the band's top row and erases from it: bytes
+    // outside the frame would prove the exit ran, not that a band was drawn.
+    let begins = text.find(FRAME_BEGIN).expect("a synchronized frame");
+    let ends = text[begins..].find(FRAME_END).expect("a closed frame") + begins;
+    let frame = &text[begins..ends];
+    assert!(
+        frame.contains(&format!("{BAND_TOP}\u{1b}[J")),
+        "the frame did not clear the band before painting it: {frame:?}"
+    );
+    for (row, what) in [
+        ("\u{1b}[22;1H", "the divider"),
+        ("\u{1b}[23;1H", "the composer"),
+        ("\u{1b}[24;1H", "the hint row"),
+    ] {
+        assert!(
+            frame.contains(row),
+            "{what} was never placed at {row:?}: {frame:?}"
+        );
+    }
+    // The caret, after the composer's two-cell prompt marker on row 23. It is
+    // the last thing the frame places, which is what leaves the terminal's own
+    // cursor where the user is typing rather than where the paint ended.
+    assert!(
+        frame.ends_with("\u{1b}[23;3H"),
+        "the frame did not end by placing the caret in the composer: {frame:?}"
+    );
+    // The band is the bottom of the screen and nothing above it: a row placed
+    // in the document would be painting over the terminal's own scrollback.
+    for row in 1..=21 {
+        assert!(
+            !frame.contains(&format!("\u{1b}[{row};1H")),
+            "the band painted on document row {row}: {frame:?}"
+        );
+    }
+}
+
+#[test]
+fn a_terminal_too_small_for_a_band_is_refused_with_a_reason() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(4, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    assert_eq!(session.wait_exit().code(), Some(1));
+
+    let text = session.settled_text();
+    assert!(
+        text.contains("xfx: "),
+        "a terminal too small was refused without saying so: {text:?}"
+    );
+    assert!(
+        text.contains("4x80"),
+        "the refusal does not say what the terminal is: {text:?}"
+    );
+    // Refused *before* the terminal was taken, which is the whole of the
+    // ordering: not one byte of the mode set, and a line discipline nobody
+    // touched. A refusal discovered after raw mode would have to give back a
+    // terminal it had no reason to take.
+    assert_no_mode_bytes(&text);
+    assert!(
+        !text.contains(FRAME_BEGIN),
+        "a band was painted onto a screen that cannot hold one: {text:?}"
+    );
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
 }
 
 // ---------------------------------------------------------------------------
