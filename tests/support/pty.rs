@@ -389,6 +389,59 @@ impl Session {
         }
     }
 
+    /// Everything the terminal will **ever** receive, for assertions about what
+    /// is *absent*.
+    ///
+    /// [`text`](Self::text) is a snapshot of a stream that is still being read,
+    /// and an absence asserted against a snapshot is not an absence: a child
+    /// that wrote the forbidden bytes an instant later passes it. Waiting for
+    /// some other marker first does not fix that either -- the marker arrives
+    /// when it arrives, and the bytes after it are exactly the ones in
+    /// question.
+    ///
+    /// This is the same text with the race removed, and it can only be answered
+    /// once the child has been **reaped**: with the writer gone, what is still
+    /// in the pty is all there will ever be. So the reader thread is stopped
+    /// and joined -- two readers on one non-blocking master would each take
+    /// part of the remainder -- and then the master is drained until it would
+    /// block, which with no writer left means empty.
+    ///
+    /// There is no EOF to drain to, and there cannot be: the harness holds a
+    /// slave open for the pty's whole life on purpose (see [`Pty`]), so the
+    /// master never reports one. `EAGAIN` after the writer is reaped is the
+    /// same fact, and the only one this pty can offer.
+    pub fn settled_text(&mut self) -> String {
+        assert!(
+            self.exited.is_some(),
+            "settled_text before the child was reaped: a live writer has no last byte"
+        );
+        self.reading.store(false, Ordering::SeqCst);
+        if let Some(reader) = self.reader.take() {
+            reader.join().expect("join the pty reader");
+        }
+        let mut buffer = [0u8; 4096];
+        let deadline = Instant::now() + WAIT;
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "the pty never ran dry after the child was reaped; terminal so far:\n{}",
+                self.text()
+            );
+            match (&*self.master).read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => self
+                    .output
+                    .lock()
+                    .expect("output lock")
+                    .extend_from_slice(&buffer[..read]),
+                // The writer is gone, so "nothing right now" is "nothing ever".
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) => panic!("read the pty master dry: {err}"),
+            }
+        }
+        self.text()
+    }
+
     /// Exits through `/quit` and requires a clean status.
     pub fn quit(&mut self) -> ExitStatus {
         self.type_line("/quit");

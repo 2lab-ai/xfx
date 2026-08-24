@@ -7,6 +7,21 @@
 //! thread and it owns the terminal exclusively: nothing else writes a byte to
 //! stdout, which is what makes "what is on the terminal is what this module
 //! wrote" a property rather than a hope (`.prd/03-tui-port.md`).
+//!
+//! Startup has one order, and every step of it is there because the step before
+//! it opens a window that the step itself closes:
+//!
+//! > **mask** -> **hook** -> **raw** -> **handlers** -> **announce**
+//!
+//! The signal mask goes on first, so no owned signal can be *taken* by a
+//! default disposition while the terminal is being transformed. The panic hook
+//! is armed next, against ownership recorded a statement earlier, so there is
+//! no instant in which the terminal is raw with nothing behind a panic. Only
+//! then does the terminal become raw. The handlers are installed after that --
+//! inside `hold`, where a `sigaction` that fails travels back through the
+//! restore instead of escaping above it -- and the mask lifts as they go on.
+//! The mode set is announced last, because it is the first byte a terminal sees
+//! and every path that could still fail is now behind a restore.
 
 use std::io::{self, IsTerminal, Write};
 use std::os::fd::{AsFd, AsRawFd};
@@ -49,6 +64,14 @@ pub fn run_blocking(_cli: Cli) -> ExitCode {
 /// invocation they are the same terminal; when they are not, restoring the
 /// wrong one would leave the input raw.
 fn session(_config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
+    // The matrix row for a startup that fails before the terminal is touched:
+    // nothing has been captured, nothing has been set, and the exit must write
+    // no restore bytes for state it never took.
+    #[cfg(feature = "fault-injection")]
+    if fault::injected(fault::Fault::BeforeRaw) {
+        return Err(io::Error::other("the session store could not be opened"));
+    }
+
     let stdin = io::stdin();
     let stdout = io::stdout();
     // Made before the terminal is taken and held until after it is given back,
@@ -69,14 +92,52 @@ fn session(_config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // `capture` restores the mask this thread arrived with.
     let blocked = signals::block_owned()?;
     let saved = term::capture(stdin.as_fd())?;
-    term::enter_raw(stdin.as_fd(), &saved)?;
     let tmux = term::under_tmux();
+    // Ownership is recorded, and the panic hook armed, **before** the terminal
+    // becomes raw -- so that there is no instant in which the terminal is raw
+    // and nothing is behind a panic. The alternative was to prove that the two
+    // statements between an earlier `enter_raw` and this hook could not panic,
+    // and a proof that has to be re-done by every future edit is not one worth
+    // having.
+    //
+    // Arming it early costs only this: a panic in the sliver before `enter_raw`
+    // now writes the *abnormal* restore for screen state that was never set,
+    // and puts back a `termios` the terminal already has. Both are harmless --
+    // the escape sequence is upstream's deliberately defensive one
+    // (`app_lifecycle.zig:36-38`), written on an exit that by definition does
+    // not know what is on the screen, and the `tcsetattr` is a no-op. A raw
+    // terminal nobody will cook again is not harmless, which is the trade.
     term::adopt(
         stdin.as_fd().as_raw_fd(),
         stdout.as_fd().as_raw_fd(),
-        saved,
+        saved.clone(),
         tmux,
     );
+    panic::install_hook();
+    term::enter_raw(stdin.as_fd(), &saved)?;
+
+    // The matrix row for a panic on a thread that owns nothing. It has to be
+    // taken while the terminal is raw, because "the hook left the terminal
+    // alone" is only a claim about a terminal that was in a state to be left.
+    #[cfg(feature = "fault-injection")]
+    if fault::injected(fault::Fault::NonOwnerPanic) {
+        fault::panic_off_the_ui_thread();
+    }
+    // The matrix row for a startup that fails on the far side of raw mode, and
+    // the rule this whole hook exists for: a failure after raw mode restores
+    // before it reports. The `?` is the restore's own failure, not an escape
+    // around it -- `shutdown` has already run either way.
+    #[cfg(feature = "fault-injection")]
+    if fault::injected(fault::Fault::AfterRaw) {
+        term::shutdown(BAND_TOP)?;
+        return Err(io::Error::other("the poll set could not be created"));
+    }
+    // The matrix row for a panic while the terminal is raw. It unwinds past
+    // every restore below, which is the point: only the hook can answer it.
+    #[cfg(feature = "fault-injection")]
+    if fault::injected(fault::Fault::UiFrame) {
+        panic!("a frame commit failed");
+    }
 
     // The terminal is raw from here on, and `term::shutdown` is the only thing
     // that gives it back, so this function must not return before it runs --
@@ -215,5 +276,8 @@ fn fail(message: &str) -> ExitCode {
     ExitCode::FAILURE
 }
 
+#[cfg(feature = "fault-injection")]
+mod fault;
+mod panic;
 mod signals;
 mod term;

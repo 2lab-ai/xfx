@@ -16,6 +16,13 @@ path = "src/main.rs"
 name = "xfx"
 path = "src/lib.rs"
 
+[features]
+# Deliberate failures the terminal-restoration matrix has to drive: a panic on
+# the thread that owns the terminal, and an initialization that fails on either
+# side of raw mode. Off by default, so a release build contains none of it; CI
+# runs the acceptance suite once more with it on.
+fault-injection = []
+
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }

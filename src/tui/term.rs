@@ -110,10 +110,12 @@ pub(crate) fn enter_raw(fd: BorrowedFd<'_>, saved: &Termios) -> io::Result<()> {
 /// Records what a handler will need, and who owns the terminal.
 ///
 /// Write-once and never written again, so a handler can reach it without a lock
-/// (`.prd/03-tui-port.md` §"Signals"). Called immediately after raw mode is
-/// entered, which is also the moment the UI thread takes ownership for panic
-/// purposes. `input` must be the descriptor `saved` was read from and raw mode
-/// was entered on; `output` is where the mode sequences went.
+/// (`.prd/03-tui-port.md` §"Signals"). Called immediately **before** raw mode is
+/// entered, not after: this is the moment the UI thread takes ownership for
+/// panic purposes, and a panic hook armed against it has to already be in place
+/// when the `tcsetattr` lands. `input` must be the descriptor `saved` was read
+/// from and raw mode is about to be entered on; `output` is where the mode
+/// sequences will go.
 pub(crate) fn adopt(input: RawFd, output: RawFd, saved: Termios, tmux: bool) {
     TMUX.store(tmux, Ordering::Release);
     let _ = OWNED.set(Owned {
@@ -126,9 +128,9 @@ pub(crate) fn adopt(input: RawFd, output: RawFd, saved: Termios, tmux: bool) {
 
 /// The thread that took the terminal, for a panic hook that must tell whether
 /// it is running on it.
-// Wired up by the panic hook, which is Task 4 of this plan; the recording it
-// reads is made here, at the one moment the ownership is decided.
-#[allow(dead_code)]
+///
+/// `None` before [`adopt`], which is what makes a panic from a process that
+/// never took the terminal restore nothing.
 pub(crate) fn ui_thread() -> Option<ThreadId> {
     OWNED.get().map(|owned| owned.ui_thread)
 }
@@ -151,9 +153,9 @@ fn restore_attrs(owned: &Owned) -> io::Result<()> {
 /// `tcsetattr` restores the line discipline, on the input descriptor, and POSIX
 /// lists it among the async-signal-safe functions. Both return values are
 /// ignored on purpose: there is no one left to report to.
-// Called from the signal handlers, and from the panic hook in Task 4. It is
-// written here because it is the half of the restore contract that reads what
-// `adopt` recorded, and the two belong to one another.
+// Called from the signal handlers and from the panic hook. It is written here
+// because it is the half of the restore contract that reads what `adopt`
+// recorded, and the two belong to one another.
 pub(crate) fn restore_pair() {
     let Some(owned) = OWNED.get() else { return };
     let bytes = if TMUX.load(Ordering::Acquire) {

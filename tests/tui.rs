@@ -108,7 +108,13 @@ fn the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer() {
 
     assert_raw(modes(&pty));
 
-    let text = session.text();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Read after the child was reaped and the pty drained, because the three
+    // claims below are about bytes the TUI must *never* write and a snapshot
+    // taken off a running child cannot tell "never" from "not yet".
+    let text = session.settled_text();
     assert!(
         text.contains(MODE_SET),
         "the interactive mode sequence is not on the terminal, in order: {text:?}"
@@ -123,9 +129,6 @@ fn the_tui_positively_enters_raw_mode_and_owns_the_normal_buffer() {
         !text.contains("\u{1b}[?1049h"),
         "the main surface took the alternate screen"
     );
-
-    session.type_bytes(&[0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
@@ -142,7 +145,7 @@ fn a_normal_exit_gives_the_terminal_back_byte_for_byte() {
     assert_eq!(session.wait_exit().code(), Some(0));
 
     assert_eq!(before, modes(&pty), "the terminal was left changed");
-    let text = session.text();
+    let text = session.settled_text();
     assert!(
         text.contains(RESTORE),
         "the restore sequence is not on the terminal, in order: {text:?}"
@@ -174,7 +177,7 @@ fn under_tmux_the_kitty_keyboard_push_is_omitted() {
     session.wait_for(READY);
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
-    let text = session.text();
+    let text = session.settled_text();
     assert!(
         !text.contains("\u{1b}[>1u"),
         "pushing kitty flags under tmux breaks key input (terminal.zig:29-34)"
@@ -199,7 +202,7 @@ fn without_the_variable_a_bare_xfx_is_still_the_line_shell() {
     assert_eq!(before, modes(&pty), "the line shell changed the terminal");
     session.type_line("/quit");
     assert_eq!(session.wait_exit().code(), Some(0));
-    assert_no_mode_bytes(&session.text());
+    assert_no_mode_bytes(&session.settled_text());
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +230,7 @@ fn any_other_value_of_the_variable_is_the_line_shell() {
     );
     session.type_line("/quit");
     assert_eq!(session.wait_exit().code(), Some(0));
-    assert_no_mode_bytes(&session.text());
+    assert_no_mode_bytes(&session.settled_text());
 }
 
 #[test]
@@ -239,7 +242,7 @@ fn a_subcommand_is_never_the_tui_however_the_variable_is_set() {
     command.arg("status");
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     assert_eq!(session.wait_exit().code(), Some(0));
-    let text = session.text();
+    let text = session.settled_text();
     assert!(
         text.contains("[status]"),
         "the command did not run: {text:?}"
@@ -521,4 +524,138 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
         modes(&pty),
         "the SIGTSTP handler was not reinstalled on resume"
     );
+}
+
+// ---------------------------------------------------------------------------
+// the failures a shipped build cannot produce
+// ---------------------------------------------------------------------------
+//
+// Two rows of the restoration matrix need the binary to fail on purpose: a
+// panic while the terminal is raw, and an initialization that dies on one side
+// or the other of raw mode. Nothing a user can type produces either, so they
+// come from the `fault-injection` cargo feature, which is off by default and
+// therefore absent from every shipped build -- and from this suite except in
+// the one CI run that turns it on.
+
+#[cfg(feature = "fault-injection")]
+mod faults {
+    use super::*;
+
+    /// A TUI invocation that has been asked to fail at `fault`.
+    fn faulty(sandbox: &Sandbox, fault: &str) -> Command {
+        let mut command = tui(sandbox);
+        command.env("XFX_TUI_FAULT", fault);
+        command
+    }
+
+    #[test]
+    fn a_panic_on_the_ui_thread_restores_before_the_message_is_printed() {
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "ui-frame"));
+        let status = session.wait_exit();
+        assert!(!status.success(), "a panic exited zero");
+
+        let text = session.settled_text();
+        let restore = text.find("\u{1b}[?2004l").expect("the restore ran");
+        let message = text
+            .find("panicked")
+            .expect("the panic message reached the terminal");
+        assert!(
+            restore < message,
+            "the message was painted into a torn band instead of onto a cooked terminal: {text:?}"
+        );
+        assert_eq!(before, modes(&pty));
+    }
+
+    #[test]
+    fn a_panic_off_the_ui_thread_leaves_the_terminal_to_its_owner() {
+        // The other half of the hook's contract, and the half that a
+        // single-threaded phase would otherwise leave untested: the restore is
+        // the *owner's* to perform. A hook that ran for any thread would cook
+        // this terminal while the thread actually holding it still believed it
+        // was raw -- the same double-writer bug the single-writer rule exists
+        // to prevent, arriving through the one path that is not a signal.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "non-owner-panic"));
+
+        // The session joins the worker before it goes on, so the report on the
+        // terminal means the panic is over rather than in flight.
+        session.wait_until("the worker's panic to be reported", |text| {
+            text.contains("panicked")
+        });
+        // The claim, read from the terminal itself rather than from the stream.
+        assert_raw(modes(&pty));
+
+        // And what follows is a live session rather than a survivor: it still
+        // announces, still leaves on Ctrl-D, and still gives the terminal back.
+        session.wait_for(READY);
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+
+        let text = session.settled_text();
+        // The two restores are distinguishable, which is what makes this
+        // assertion sharp: only the abnormal one leads with `1049l`, and the
+        // owner's ordinary exit never writes it. Its presence anywhere in the
+        // whole settled stream means something restored that owned nothing.
+        assert!(
+            !text.contains("\u{1b}[?1049l"),
+            "a thread that owned nothing ran the abnormal restore: {text:?}"
+        );
+        assert!(
+            text.contains(RESTORE),
+            "the owner's own exit did not restore: {text:?}"
+        );
+        assert_eq!(before, modes(&pty), "the terminal was left changed");
+    }
+
+    #[test]
+    fn a_failure_after_raw_mode_still_gives_the_terminal_back() {
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "after-raw"));
+        assert_eq!(session.wait_exit().code(), Some(1));
+        assert!(
+            session.settled_text().contains("xfx: "),
+            "a half-initialized TUI said nothing"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "a half-initialized TUI left a raw terminal"
+        );
+    }
+
+    #[test]
+    fn a_failure_before_raw_mode_writes_no_restore_bytes_at_all() {
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "before-raw"));
+        assert_eq!(session.wait_exit().code(), Some(1));
+
+        // Settled, not snapshotted: this case is entirely about bytes that must
+        // never appear, and "not there yet" would satisfy every one of the
+        // assertions below.
+        let text = session.settled_text();
+        assert!(
+            text.contains("xfx: "),
+            "the refusal never reached the terminal, so the absences below prove nothing: {text:?}"
+        );
+        for sequence in ["\u{1b}[?2004l", "\u{1b}[?7h", "\u{1b}[<u"] {
+            assert!(
+                !text.contains(sequence),
+                "restored {sequence:?} that was never set: {text:?}"
+            );
+        }
+        assert_eq!(before, modes(&pty));
+    }
 }
