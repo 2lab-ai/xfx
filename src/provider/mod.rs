@@ -12,7 +12,12 @@
 //! provider a profile can select, and selecting one with no transport behind it
 //! would be a promise the binary cannot keep.
 
+pub mod model;
+
 use serde::{Deserialize, Serialize};
+
+use crate::config::RuntimeConfig;
+use crate::gateway::{CancelToken, Provider};
 
 /// Which wire *and which authority* produced a piece of replayable state.
 ///
@@ -266,6 +271,99 @@ pub fn authorizes(provider: ProviderId, source: crate::config::CredentialSource)
     match provider {
         ProviderId::Gateway => !matches!(source, crate::config::CredentialSource::LlmuxLoopback),
         ProviderId::Llmux => matches!(source, crate::config::CredentialSource::LlmuxLoopback),
+    }
+}
+
+/// A selected provider and the transport that talks to it.
+///
+/// Upstream's bundle also carries the catalog fetcher
+/// (`vercel-labs/fx@ef1d0d0 src/core/config/provider_set.zig:14-45`). xfx keeps
+/// the catalog out of it on purpose: `/model` has to work in a shell opened on a
+/// machine with **no credential** -- that is exactly the machine whose user
+/// needs it -- and a bundle carries a built transport, which that machine cannot
+/// build. Catalog access is [`model::catalog_for`], which needs only the
+/// configuration.
+pub struct Bundle {
+    pub id: ProviderId,
+    pub stream: Box<dyn Provider>,
+}
+
+impl Bundle {
+    pub fn entry(&self) -> &'static ProviderEntry {
+        self.id.entry()
+    }
+
+    pub fn wire(&self) -> Wire {
+        self.id.wire()
+    }
+
+    /// The one place a configured provider becomes a socket.
+    ///
+    /// `ask` and the shell both come through here, so "which provider am I
+    /// talking to" is decided once rather than in two dispatch sites that could
+    /// disagree -- and a third caller that forgot one of them could not exist.
+    pub fn select(config: &RuntimeConfig, cancel: &CancelToken) -> Result<Self, String> {
+        // Before either provider: a provider selection xfx could not read means no
+        // provider was chosen, and the compiled default is not a safe guess. Guessing
+        // would put the prompt and the Gateway credential on a remote paid endpoint
+        // because a settings value was mistyped.
+        if let Some(rejected) = &config.provider_rejected {
+            return Err(crate::output::rejected_provider_help(rejected));
+        }
+
+        let provider_id = config.provider;
+        let credential = match resolve_credential_for(provider_id, config) {
+            Some(cred) => cred,
+            None => {
+                return Err(match provider_id {
+                    ProviderId::Gateway => crate::output::MISSING_AUTH_HELP.to_string(),
+                    ProviderId::Llmux => crate::llmux::MISSING_URL_HELP.to_string(),
+                });
+            }
+        };
+
+        // Verify the credential is authorized for this provider.
+        let cred_source = credential.source();
+        if !authorizes(provider_id, cred_source) {
+            return Err(format!(
+                "provider `{}` does not accept credentials from {}",
+                provider_id.label(),
+                cred_source.label()
+            ));
+        }
+
+        let stream: Box<dyn Provider> = match provider_id {
+            ProviderId::Gateway => {
+                let crate::provider::ProviderCredential::Bearer(credential) = credential else {
+                    return Err("unexpected credential type for Gateway".to_string());
+                };
+                let endpoint =
+                    crate::gateway::Endpoint::from_process().map_err(|err| err.to_string())?;
+                let provider =
+                    crate::gateway::GatewayProvider::new(endpoint, credential, cancel.clone())
+                        .map_err(|err| err.to_string())?;
+                Box::new(provider)
+            }
+            ProviderId::Llmux => {
+                let url = config
+                    .llmux_url
+                    .as_deref()
+                    .ok_or_else(|| crate::llmux::MISSING_URL_HELP.to_string())?;
+                // Re-checked here rather than trusted: the value reached this point
+                // through configuration, and the rule that decides what may receive
+                // a keyless prompt belongs to the module that made the promise.
+                let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY)
+                    .map_err(|err| err.to_string())?;
+                let provider = crate::llmux::LlmuxProvider::new(endpoint, cancel.clone())
+                    .map_err(|err| err.to_string())?;
+                Box::new(provider)
+            }
+        };
+
+        Ok(Bundle {
+            id: provider_id,
+            stream,
+        })
     }
 }
 

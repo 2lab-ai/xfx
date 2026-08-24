@@ -13,15 +13,13 @@ use std::time::Duration;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::cli::{Cli, Command};
 use crate::config::{ConfigError, Environment, PermissionMode, RuntimeConfig, SettingSource};
-use crate::gateway::{CancelToken, Endpoint, GatewayProvider, Provider, DEFAULT_MAX_ATTEMPTS};
-use crate::llmux::{LlmuxProvider, MISSING_URL_HELP};
+use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{
     CheckStatus, DoctorCheck, DoctorSnapshot, Event, EventSink, JsonlSink, OutputFormat,
     SessionDetailSnapshot, SessionFacts, SessionsSnapshot, SetupSnapshot, StatusSnapshot, TextSink,
-    MISSING_AUTH_HELP,
 };
 use crate::permission::{Grant, PermissionSession, TtyPrompter, YOLO_WARNING};
-use crate::provider::ProviderId;
+use crate::provider::{Bundle, ProviderId};
 use crate::session::{
     ListFilter, ListScope, NewSession, Selector, SessionError, SessionEvent, SessionId,
     SessionRecorder, SessionStore,
@@ -315,8 +313,8 @@ async fn run_ask(
     // session is opened is also what keeps such a machine from accumulating one
     // empty session per failed attempt.
     let cancel = CancelToken::new();
-    let provider = match build_provider(config, &cancel) {
-        Ok(provider) => provider,
+    let bundle = match Bundle::select(config, &cancel) {
+        Ok(bundle) => bundle,
         Err(message) => {
             let mut sink: Box<dyn EventSink> = if request.json {
                 Box::new(JsonlSink::new(stdout))
@@ -421,14 +419,21 @@ async fn run_ask(
     // The turn writes its own terminal event, including on failure.
     let outcome = match opened.recorder.as_mut() {
         Some(recorder) => {
-            run_turn_saved(turn, context, provider.as_ref(), sink.as_mut(), recorder).await
+            run_turn_saved(
+                turn,
+                context,
+                bundle.stream.as_ref(),
+                sink.as_mut(),
+                recorder,
+            )
+            .await
         }
         None => {
             let mut journal = crate::agent::NoJournal;
             run_turn_saved(
                 turn,
                 context,
-                provider.as_ref(),
+                bundle.stream.as_ref(),
                 sink.as_mut(),
                 &mut journal,
             )
@@ -609,66 +614,6 @@ where
     }
 }
 
-/// Builds the provider the configured provider selects.
-///
-/// The one place a provider becomes a socket. `ask` and the shell both come
-/// through here, so "which provider am I talking to" is decided once rather than
-/// in two dispatch sites that could disagree about it -- and a third caller that
-/// forgot one of them could not exist.
-///
-/// The two providers need different things from the machine, and each failure is
-/// reported in the vocabulary of the provider that actually failed:
-///
-/// - the Gateway needs a bearer credential, so a machine without one is told
-///   which environment variables to set;
-/// - llmux needs a daemon URL and no credential at all, so a machine without a
-///   usable one is told to run `xfx setup llmux` -- naming the Gateway's
-///   variables there would be advice for a provider the operator deliberately
-///   configured away from.
-///
-/// An `llmux_url` that is missing or was refused by the endpoint rule is a
-/// refusal rather than a silent fall back to the Gateway. Falling back would
-/// send the prompt to a remote paid endpoint because a local port was mistyped,
-/// which is the one outcome the endpoint rule exists to prevent.
-pub(crate) fn build_provider(
-    config: &RuntimeConfig,
-    cancel: &CancelToken,
-) -> Result<Box<dyn Provider>, String> {
-    // Before either provider: a provider selection xfx could not read means no
-    // provider was chosen, and the compiled default is not a safe guess. Guessing
-    // would put the prompt and the Gateway credential on a remote paid endpoint
-    // because a settings value was mistyped.
-    if let Some(rejected) = &config.provider_rejected {
-        return Err(unreadable_provider_message(rejected));
-    }
-    match config.provider {
-        ProviderId::Gateway => {
-            let credential = config
-                .credential
-                .clone()
-                .ok_or_else(|| MISSING_AUTH_HELP.to_string())?;
-            let endpoint = Endpoint::from_process().map_err(|err| err.to_string())?;
-            let provider = GatewayProvider::new(endpoint, credential, cancel.clone())
-                .map_err(|err| err.to_string())?;
-            Ok(Box::new(provider))
-        }
-        ProviderId::Llmux => {
-            let url = config
-                .llmux_url
-                .as_deref()
-                .ok_or_else(|| MISSING_URL_HELP.to_string())?;
-            // Re-checked here rather than trusted: the value reached this point
-            // through configuration, and the rule that decides what may receive
-            // a keyless prompt belongs to the module that made the promise.
-            let endpoint = crate::llmux::endpoint(url, crate::llmux::URL_KEY)
-                .map_err(|err| err.to_string())?;
-            let provider =
-                LlmuxProvider::new(endpoint, cancel.clone()).map_err(|err| err.to_string())?;
-            Ok(Box::new(provider))
-        }
-    }
-}
-
 /// Builds the permission session one `ask` runs under.
 ///
 /// The approval channel is attached only when there is a real terminal on both
@@ -833,15 +778,6 @@ fn doctor_checks(config: &RuntimeConfig) -> Vec<DoctorCheck> {
     checks
 }
 
-/// What a turn says when a provider selection cannot be read.
-///
-/// It quotes the value, because the operator has to be able to find it: the
-/// setting lives in a file xfx will not edit for them, and "your provider is
-/// invalid" without the spelling is a message that sends someone hunting.
-fn unreadable_provider_message(rejected: &crate::config::ProviderRejection) -> String {
-    crate::output::rejected_provider_help(rejected)
-}
-
 /// Reports a provider that cannot run, and nothing when it can.
 ///
 /// The one way the llmux provider is broken from `doctor`'s point of view is
@@ -860,7 +796,7 @@ fn provider_check(config: &RuntimeConfig) -> Option<DoctorCheck> {
         return Some(DoctorCheck::new(
             "provider",
             CheckStatus::Fail,
-            unreadable_provider_message(rejected),
+            crate::output::rejected_provider_help(rejected),
         ));
     }
     if config.provider != ProviderId::Llmux || config.llmux_url.is_some() {

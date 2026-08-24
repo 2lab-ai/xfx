@@ -28,7 +28,6 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde_json::{Map, Value};
 
@@ -36,26 +35,10 @@ use crate::config::{
     Environment, RuntimeConfig, SettingSource, ENV_LLMUX_CONFIG, ENV_XDG_CONFIG_HOME,
     MAX_SETTINGS_BYTES,
 };
-use crate::gateway::{read_bounded, EndpointError, USER_AGENT};
+use crate::gateway::EndpointError;
+use crate::provider::model;
 
 use super::DEFAULT_URL;
-
-/// How long the probe may take to open a connection.
-///
-/// Short, because the thing being probed is on this machine: a loopback connect
-/// that has not completed in three seconds is not slow, it is absent, and the
-/// discovery path has another candidate to try.
-const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// How long the probe waits for a local daemon to answer.
-const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// The largest probe response xfx will read.
-///
-/// The catalog is a list of model descriptors; a body past this is not a catalog
-/// and reading it would let whatever is on that port decide how much memory this
-/// command uses.
-const MAX_PROBE_BODY_BYTES: usize = 1024 * 1024;
 
 /// The body `GET /` answers on a real daemon
 /// (`2lab-ai/llmux@79f66748656b src/proxy/server.rs:1240`).
@@ -223,29 +206,6 @@ fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
     (!layers.is_empty()).then(|| layers.join(", "))
 }
 
-/// One catalog entry, reduced to the two names a model may be called by.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CatalogEntry {
-    id: String,
-    aliases: Vec<String>,
-}
-
-impl CatalogEntry {
-    /// Whether `name` selects this entry, as an id or as an alias.
-    fn matches(&self, name: &str) -> bool {
-        self.id == name || self.aliases.iter().any(|alias| alias == name)
-    }
-
-    /// How xfx will ask for this model.
-    ///
-    /// The first alias when there is one, because that is the short name the
-    /// daemon publishes for it and the one an operator recognizes; the id
-    /// otherwise. Either resolves at the daemon.
-    fn preferred_name(&self) -> &str {
-        self.aliases.first().map(String::as_str).unwrap_or(&self.id)
-    }
-}
-
 /// Finds a daemon and returns it with the catalog that proved it.
 ///
 /// The candidates are tried in order and the first that *answers as llmux* wins.
@@ -256,17 +216,15 @@ async fn discover(
     config: &RuntimeConfig,
     env: &Environment,
     explicit_url: Option<&str>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
-    let client = probe_client()?;
-
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
     if let Some(url) = explicit_url {
         let endpoint = super::endpoint(url, "--url").map_err(SetupError::Endpoint)?;
         let url = trim_base(endpoint.url());
-        let catalog = probe(&client, &url).await?;
+        let catalog = probe(&url).await?;
         return Ok((url, catalog));
     }
 
-    probe_candidates(&client, candidates(config, env)).await
+    probe_candidates(candidates(config, env)).await
 }
 
 /// Probes `candidates` in order and returns the first that answers as llmux.
@@ -279,19 +237,18 @@ async fn discover(
 /// be running. Over an injected list it is hermetic.
 pub async fn discover_in(
     candidates: Vec<String>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
-    probe_candidates(&probe_client()?, candidates).await
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
+    probe_candidates(candidates).await
 }
 
-/// The candidate loop, over a client the caller already built.
+/// The candidate loop.
 async fn probe_candidates(
-    client: &reqwest::Client,
     candidates: Vec<String>,
-) -> Result<(String, Vec<CatalogEntry>), SetupError> {
+) -> Result<(String, Vec<model::CatalogEntry>), SetupError> {
     let mut tried: Vec<String> = Vec::new();
     let mut answered: Option<String> = None;
     for candidate in candidates {
-        match probe(client, &candidate).await {
+        match probe(&candidate).await {
             Ok(catalog) => return Ok((candidate, catalog)),
             Err(err) => {
                 // A candidate that answered and was not llmux is the one worth
@@ -343,42 +300,15 @@ pub fn candidates(config: &RuntimeConfig, env: &Environment) -> Vec<String> {
     candidates
 }
 
-/// The client the probe uses: short timeouts, and no proxy, ever.
-///
-/// Its own builder rather than the provider's, because the timeouts are the
-/// point: what is being probed is on this machine, so a connect that has not
-/// completed in three seconds is not slow, it is absent, and discovery has
-/// another candidate to try.
-///
-/// `no_proxy` and `Policy::none` for the same reasons
-/// [`crate::gateway::build_loopback_client`] has them: a corporate `HTTP_PROXY`
-/// would attempt every `127.0.0.1` connection through the proxy, so a daemon
-/// that is running would be reported as absent; and a redirect would let
-/// whatever holds the port send the probe somewhere else and have *that* answer
-/// identify itself as llmux, which is the identification this whole function
-/// exists to perform.
-fn probe_client() -> Result<reqwest::Client, SetupError> {
-    reqwest::Client::builder()
-        .connect_timeout(PROBE_CONNECT_TIMEOUT)
-        .read_timeout(PROBE_READ_TIMEOUT)
-        .timeout(PROBE_READ_TIMEOUT)
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|err| SetupError::Client {
-            detail: err.to_string(),
-        })
-}
-
 /// Both halves of the identification, in order.
-async fn probe(client: &reqwest::Client, base: &str) -> Result<Vec<CatalogEntry>, SetupError> {
+async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
     let refuse = |detail: String| SetupError::NotLlmux {
         url: base.to_string(),
         detail,
     };
 
-    let root = fetch(client, &format!("{base}/")).await.map_err(&refuse)?;
+    // Check that GET / returns "llmux" to identify the daemon.
+    let root = fetch_root(base).await.map_err(&refuse)?;
     if root.trim() != ROOT_BODY {
         return Err(refuse(format!(
             "`GET /` answered {:?} rather than `{ROOT_BODY}`, so something else is on this port",
@@ -386,81 +316,25 @@ async fn probe(client: &reqwest::Client, base: &str) -> Result<Vec<CatalogEntry>
         )));
     }
 
-    let body = fetch(client, &format!("{base}/models"))
-        .await
-        .map_err(&refuse)?;
-    let catalog = parse_catalog(&body).ok_or_else(|| {
-        refuse(format!(
-            "`GET /models` did not answer a model catalog: {:?}",
-            clip(&body)
-        ))
-    })?;
-    if catalog.is_empty() {
-        return Err(refuse(
-            "`GET /models` answered an empty catalog, so the daemon has no model to use"
-                .to_string(),
-        ));
-    }
-    Ok(catalog)
+    // Fetch the catalog using the shared fetch_catalog function.
+    let catalog_url = format!("{base}/models");
+    model::fetch_catalog(&catalog_url).await.map_err(|err| {
+        refuse(match err {
+            model::CatalogError::Empty => {
+                "`GET /models` answered an empty catalog, so the daemon has no model to use"
+                    .to_string()
+            }
+            model::CatalogError::Malformed { detail } => {
+                format!("`GET /models` did not answer a model catalog: {detail}")
+            }
+            model::CatalogError::Unavailable { detail } => detail,
+        })
+    })
 }
 
-/// One bounded GET that must answer 2xx.
-///
-/// Bounded while it reads, not after: `read_bounded` streams and stops at the
-/// limit, so whatever is on that port cannot decide how much memory `xfx setup`
-/// uses by answering with a body of its own choosing. Collecting the whole body
-/// and clipping afterwards honoured the ceiling in the message and ignored it in
-/// the allocation.
-async fn fetch(client: &reqwest::Client, url: &str) -> Result<String, String> {
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|err| err.to_string())?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("HTTP {}", status.as_u16()));
-    }
-    Ok(read_bounded(response, MAX_PROBE_BODY_BYTES).await)
-}
-
-/// The `{"models":[{id,name,aliases,...}]}` document, reduced to names.
-///
-/// `None` when the body is not that document at all. An entry without a usable
-/// id is skipped rather than invented: a model xfx cannot name is a model it
-/// cannot ask for.
-fn parse_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
-    let Ok(Value::Object(document)) = serde_json::from_str::<Value>(body) else {
-        return None;
-    };
-    let Some(Value::Array(models)) = document.get("models") else {
-        return None;
-    };
-    Some(
-        models
-            .iter()
-            .filter_map(|model| {
-                let object = model.as_object()?;
-                let id = object.get("id")?.as_str()?;
-                if id.is_empty() {
-                    return None;
-                }
-                let aliases = match object.get("aliases") {
-                    Some(Value::Array(aliases)) => aliases
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter(|alias| !alias.is_empty())
-                        .map(str::to_string)
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                Some(CatalogEntry {
-                    id: id.to_string(),
-                    aliases,
-                })
-            })
-            .collect(),
-    )
+/// Fetches the root endpoint to identify the daemon using the shared loopback helper.
+async fn fetch_root(base: &str) -> Result<String, String> {
+    model::fetch_loopback_bounded(&format!("{base}/"), 1024 * 1024).await
 }
 
 /// Keeps the configured model when the daemon has it, else takes the first.
@@ -470,7 +344,7 @@ fn parse_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
 /// replaced it would be a setup command that undid a decision. Replacing it when
 /// the daemon does not have it matters for the same reason in reverse: leaving a
 /// model the daemon will reject would record a configuration that cannot run.
-fn select_model(configured: &str, catalog: &[CatalogEntry]) -> (String, String) {
+fn select_model(configured: &str, catalog: &[model::CatalogEntry]) -> (String, String) {
     if catalog.iter().any(|entry| entry.matches(configured)) {
         return (
             configured.to_string(),
@@ -748,12 +622,15 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn entries(pairs: &[(&str, &[&str])]) -> Vec<CatalogEntry> {
+    fn entries(pairs: &[(&str, &[&str])]) -> Vec<model::CatalogEntry> {
         pairs
             .iter()
-            .map(|(id, aliases)| CatalogEntry {
+            .map(|(id, aliases)| model::CatalogEntry {
                 id: (*id).to_string(),
                 aliases: aliases.iter().map(|a| (*a).to_string()).collect(),
+                name: None,
+                efforts: Vec::new(),
+                max_context: None,
             })
             .collect()
     }
@@ -771,7 +648,7 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            parse_catalog(&body),
+            model::parse_llmux_catalog(&body),
             Some(entries(&[
                 ("claude-fable-5[1m]", &["fable"]),
                 ("bare", &[])
@@ -782,11 +659,14 @@ mod tests {
 
     #[test]
     fn a_body_that_is_not_a_catalog_is_not_one() {
-        assert_eq!(parse_catalog("not json"), None);
-        assert_eq!(parse_catalog("[]"), None);
-        assert_eq!(parse_catalog(&json!({ "models": 7 }).to_string()), None);
+        assert_eq!(model::parse_llmux_catalog("not json"), None);
+        assert_eq!(model::parse_llmux_catalog("[]"), None);
         assert_eq!(
-            parse_catalog(&json!({ "models": [] }).to_string()),
+            model::parse_llmux_catalog(&json!({ "models": 7 }).to_string()),
+            None
+        );
+        assert_eq!(
+            model::parse_llmux_catalog(&json!({ "models": [] }).to_string()),
             Some(Vec::new()),
             "an empty catalog is a readable answer; the probe is what refuses it"
         );

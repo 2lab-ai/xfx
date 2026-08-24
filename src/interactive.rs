@@ -11,8 +11,8 @@
 //! upstream refusal to run without a terminal at all).
 //!
 //! Everything below the prompt is the same product as the command line: one
-//! [`crate::agent::TurnMachine`] per prompt, a provider from the same
-//! [`crate::app::build_provider`], the same [`crate::tools`] registry under the
+//! [`crate::agent::TurnMachine`] per prompt, a bundle from the same
+//! [`crate::provider::Bundle::select`], the same [`crate::tools`] registry under the
 //! same [`crate::permission`] authority, and the same
 //! [`crate::session::SessionStore`]. The shell adds a loop, six slash commands,
 //! and an interrupt policy -- not a second way to talk to a model, and not a
@@ -24,11 +24,12 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
-use crate::app::{build_provider, spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{safe_one_line, Event, EventSink, TextSink, SANDBOX_LABEL};
 use crate::permission::YOLO_WARNING;
+use crate::provider::Bundle;
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
 use crate::tools::ToolContext;
 use crate::workspace::{AccessScope, ProjectContext};
@@ -418,7 +419,7 @@ pub async fn run(
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
-    let mut provider: Option<Box<dyn Provider>> = None;
+    let mut bundle: Option<Bundle> = None;
 
     write!(io::stdout(), "{}", banner(config, &model))?;
     io::stdout().flush()?;
@@ -473,8 +474,8 @@ pub async fn run(
                 io::stdout().flush()?;
             }
             Submitted::Prompt(prompt) => {
-                let provider = match ensure_provider(&mut provider, config, &cancel) {
-                    Ok(provider) => provider,
+                let bundle_ref = match ensure_provider(&mut bundle, config, &cancel) {
+                    Ok(bundle) => bundle,
                     Err(message) => {
                         report_turn_failure(message)?;
                         continue;
@@ -490,7 +491,15 @@ pub async fn run(
                         }
                     },
                 };
-                one_turn(provider, conversation, &model, prompt, config, &interrupts).await?;
+                one_turn(
+                    bundle_ref.stream.as_ref(),
+                    conversation,
+                    &model,
+                    prompt,
+                    config,
+                    &interrupts,
+                )
+                .await?;
             }
         }
     }
@@ -580,20 +589,20 @@ async fn one_turn(
     Ok(())
 }
 
-/// Builds the provider once, or explains why there can not be one.
+/// Builds the bundle once, or explains why there can not be one.
 ///
-/// The decision itself belongs to [`build_provider`], which `ask` uses too: the
+/// The decision itself belongs to [`Bundle::select`], which `ask` uses too: the
 /// shell caches the result for the life of the session, it does not choose a
 /// backend of its own.
 fn ensure_provider<'a>(
-    slot: &'a mut Option<Box<dyn Provider>>,
+    slot: &'a mut Option<Bundle>,
     config: &RuntimeConfig,
     cancel: &CancelToken,
-) -> Result<&'a dyn Provider, String> {
+) -> Result<&'a Bundle, String> {
     if slot.is_none() {
-        *slot = Some(build_provider(config, cancel)?);
+        *slot = Some(Bundle::select(config, cancel)?);
     }
-    Ok(slot.as_deref().expect("the provider was just built"))
+    Ok(slot.as_ref().expect("the bundle was just built"))
 }
 
 /// Reports a prompt that never became a request, in the shape a turn failure has.

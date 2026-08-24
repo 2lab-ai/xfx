@@ -29,6 +29,7 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux::sse::AnthropicReader;
 use xfx::llmux::LlmuxProvider;
 use xfx::llmux::{protocol, setup};
+use xfx::provider::model::ModelCatalog;
 use xfx::provider::{ProviderId, Wire};
 
 use support::fake_gateway::Reply;
@@ -2741,4 +2742,126 @@ fn a_resumed_llmux_turn_replays_its_history_back_through_the_anthropic_mapping()
         !roles.contains(&"system"),
         "a system message must not enter `messages`: {messages:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// catalog: model discovery
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_catalog_reader_sees_what_the_daemon_publishes() {
+    use xfx::provider::model::LlmuxCatalog;
+    let daemon = FakeLlmux::start(Vec::new()).with_catalog(json!({"models": [
+        {"id": "claude-fable-5[1m]", "aliases": ["fable"], "name": "Claude Fable 5",
+         "efforts": ["low", "high"], "max_context": 1_000_000, "group": "claude"}
+    ]}));
+    let endpoint = xfx::llmux::endpoint(&daemon.url(), "test").expect("a loopback endpoint");
+    let catalog = LlmuxCatalog::new(endpoint);
+    let entries = block_on(catalog.fetch()).expect("the daemon answers its catalog");
+    assert_eq!(entries[0].preferred_name(), "fable");
+    assert_eq!(entries[0].max_context, Some(1_000_000));
+    assert_eq!(entries[0].efforts, ["low", "high"]);
+    assert_eq!(daemon.paths(), ["/models"], "a catalog load is not a ping");
+}
+
+#[test]
+fn a_daemon_that_is_not_listening_is_a_catalog_that_is_unavailable_not_empty() {
+    use xfx::provider::model::{CatalogError, LlmuxCatalog};
+    // "The daemon has no models" and "xfx could not ask" are different facts and
+    // only one of them is a reason to change the recorded model.
+    let endpoint = xfx::llmux::endpoint("http://127.0.0.1:1", "test").expect("endpoint");
+    let err = block_on(LlmuxCatalog::new(endpoint).fetch()).expect_err("nothing is listening");
+    assert!(matches!(err, CatalogError::Unavailable { .. }), "{err:?}");
+}
+
+#[test]
+fn bundle_select_with_gateway_credential_yields_gateway_bundle() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Gateway is the default provider; just provide the credential
+    let env = sandbox.environment(&[("AI_GATEWAY_API_KEY", "test-token-123")]);
+
+    let config =
+        RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config with gateway token");
+    let cancel = CancelToken::new();
+
+    let bundle =
+        Bundle::select(&config, &cancel).expect("gateway credential should allow selection");
+    assert_eq!(bundle.entry().id, ProviderId::Gateway);
+    assert_eq!(
+        bundle.wire(),
+        Wire::VercelGateway,
+        "gateway bundle speaks VercelGateway wire"
+    );
+}
+
+#[test]
+fn bundle_select_with_llmux_url_yields_llmux_bundle() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Write settings to select llmux provider with a URL
+    sandbox.write_user_settings(r#"{"provider":"llmux","llmux_url":"http://127.0.0.1:3456"}"#);
+    let env = sandbox.environment(&[]);
+
+    let config =
+        RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config with llmux url");
+    let cancel = CancelToken::new();
+
+    let bundle = Bundle::select(&config, &cancel).expect("llmux url should allow selection");
+    assert_eq!(bundle.entry().id, ProviderId::Llmux);
+    assert_eq!(
+        bundle.wire(),
+        Wire::AnthropicMessages,
+        "llmux bundle speaks AnthropicMessages wire"
+    );
+}
+
+#[test]
+fn bundle_select_without_credential_for_gateway_fails() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Gateway is the default provider, but with no credential
+    let env = sandbox.environment(&[]);
+
+    let config = RuntimeConfig::load_with(&env, &sandbox.workspace)
+        .expect("load config without gateway token");
+    let cancel = CancelToken::new();
+
+    match Bundle::select(&config, &cancel) {
+        Ok(_) => panic!("expected gateway without credential to fail"),
+        Err(err) => {
+            assert!(
+                err.contains("credential")
+                    || err.contains("auth")
+                    || err.to_lowercase().contains("token"),
+                "error should mention missing auth: {err}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bundle_select_without_url_for_llmux_fails() {
+    use xfx::provider::Bundle;
+
+    let sandbox = Sandbox::new();
+    // Select llmux provider but omit the URL
+    sandbox.write_user_settings(r#"{"provider":"llmux"}"#);
+    let env = sandbox.environment(&[]);
+
+    let config = RuntimeConfig::load_with(&env, &sandbox.workspace).expect("load config for llmux");
+    let cancel = CancelToken::new();
+
+    match Bundle::select(&config, &cancel) {
+        Ok(_) => panic!("expected llmux without url to fail"),
+        Err(err) => {
+            assert!(
+                err.contains("url") || err.contains("setup"),
+                "error should mention setup or url: {err}"
+            );
+        }
+    }
 }
