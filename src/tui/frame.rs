@@ -42,13 +42,29 @@ const ERASE_LINE: &str = "\x1b[K";
 pub(crate) struct Band {
     /// Kept across frames so building one allocates nothing after the first.
     buffer: Vec<u8>,
-    /// The band's top row as of the last frame this band began writing, or
-    /// `None` while it has written none.
+    /// The band's top row as of the last thing this band began writing, or
+    /// `None` while it has written nothing.
     ///
     /// It is what the exit clears from ([`super::term::shutdown`]), and the
     /// distinction it carries is load-bearing: a session that drew no band has
     /// no row to clear from, and clearing from the screen's first row instead
     /// would erase output the shell wrote before xfx ran.
+    ///
+    /// It is also what a **shrinking** band gives back. The composer grows and
+    /// shrinks with what is typed into it (`super::shell`), so the divider
+    /// moves; the rows above a divider that moved *down* were the band's a
+    /// moment ago and are the document's now, and nothing else would ever
+    /// rewrite them -- Phase 1 repaints no transcript. So they are erased, once,
+    /// by whatever this band writes next ([`Band::release`]).
+    ///
+    /// Which is why this field moves in **two directions on two different
+    /// clocks**. It is lowered *before* a write, because a frame that failed
+    /// halfway still put bytes on the rows it had begun painting and the exit
+    /// has to clear from the top of them. It is raised -- to a divider that has
+    /// moved down -- only *after* a write that landed, because until those
+    /// erasures are really on the screen the old rows are still on it: a band
+    /// that recorded the new top from bytes it never delivered would erase them
+    /// never, and the exit would clear from below them.
     painted: Option<u16>,
 }
 
@@ -86,6 +102,14 @@ impl Band {
     ) -> Vec<u8> {
         self.buffer.clear();
         self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        self.release(geometry);
+        // The top of what this frame is about to write, which on a band that
+        // shrank is still the *old* top: the erasures for the rows between the
+        // two are in this buffer and have not been delivered. Recorded before
+        // the write, because a frame that fails halfway has still written some
+        // of it; raised to the divider by the write that lands
+        // ([`Self::delivered`]).
+        self.painted = Some(self.top(geometry));
         // The band's own rows and nothing above them: the erase starts at the
         // divider, so the document keeps every row it has.
         cup(&mut self.buffer, geometry.divider, 1);
@@ -124,13 +148,11 @@ impl Band {
         geometry: &Geometry,
         cursor: (u16, u16),
     ) -> io::Result<()> {
-        // Published before the write rather than after it: a frame whose write
-        // failed halfway still put bytes on those rows, and the exit has to
-        // clear from the top of what was written rather than from nothing.
-        self.painted = Some(geometry.divider);
         let frame = self.render(rows, geometry, cursor);
         out.write_all(&frame)?;
-        out.flush()
+        out.flush()?;
+        self.delivered(geometry);
+        Ok(())
     }
 
     /// Builds the bytes that put completed rows into the terminal's own
@@ -174,6 +196,11 @@ impl Band {
     /// outruns the document area, one order of magnitude further out.
     fn render_append(&mut self, scroll: usize, rows: &[String], geometry: &Geometry) -> Vec<u8> {
         self.buffer.clear();
+        // Before anything scrolls. The rows a shrinking band gave back are at
+        // the numbers they were painted at only until the first linefeed of
+        // this append moves the whole screen up, and a stale composer row that
+        // scrolled into the document is a row nothing will ever repaint.
+        self.release(geometry);
         if scroll == 0 && rows.is_empty() {
             return self.buffer.clone();
         }
@@ -229,6 +256,46 @@ impl Band {
         self.buffer.clone()
     }
 
+    /// Erases the rows a band that shrank no longer owns.
+    ///
+    /// Nothing when the band grew or stayed where it was: growing paints over
+    /// the rows it took, and [`render`](Self::render)'s own erase covers every
+    /// row at or below the divider. It is the other direction that leaves
+    /// something behind -- the composer's old rows, above a divider that has
+    /// moved down, in a document area no transcript will repaint.
+    ///
+    /// One `EL` per row rather than one `ED` from the top: an `ED` would erase
+    /// the band's own rows too, and this runs *before* an append's rows are
+    /// placed as often as it runs before a frame repaints them.
+    ///
+    /// **It records nothing.** These bytes are owed until they are delivered,
+    /// so a screen that refused this write gets them again on the next one --
+    /// which is what [`Self::top`] keeps true, and what makes the failure a
+    /// repaint rather than a document permanently holding a dead composer row.
+    fn release(&mut self, geometry: &Geometry) {
+        let Some(top) = self.painted else {
+            return;
+        };
+        for line in top..geometry.divider {
+            cup(&mut self.buffer, line, 1);
+            self.buffer.extend_from_slice(ERASE_LINE.as_bytes());
+        }
+    }
+
+    /// The topmost row this band has begun writing on, given where its divider
+    /// is now: the higher of the two, because a band that has moved down still
+    /// owns the rows above it until the erasures land.
+    fn top(&self, geometry: &Geometry) -> u16 {
+        self.painted
+            .map_or(geometry.divider, |top| top.min(geometry.divider))
+    }
+
+    /// Records that everything the band built reached the screen, so the rows
+    /// it gave back are blank and its top really is its divider.
+    fn delivered(&mut self, geometry: &Geometry) {
+        self.painted = Some(geometry.divider);
+    }
+
     /// [`render_append`](Self::render_append) plus exactly one write and one
     /// flush, for the same reason [`commit`](Self::commit) is one of each.
     pub(crate) fn append_document(
@@ -243,7 +310,11 @@ impl Band {
             return Ok(());
         }
         out.write_all(&appended)?;
-        out.flush()
+        out.flush()?;
+        // The release rode along at the head of those bytes, so the same rule
+        // applies: delivered, and only then is the band's top its divider.
+        self.delivered(geometry);
+        Ok(())
     }
 }
 
@@ -798,6 +869,136 @@ mod tests {
             screen.document().join("\n"),
             "the quick brown fox \njumps over the lazy \ndog\nand then it rested",
             "the answer did not survive the screen it was streamed onto"
+        );
+    }
+
+    /// A screen that refuses `refusals` writes and then takes them.
+    struct Fussy {
+        refusals: usize,
+        written: Vec<u8>,
+    }
+
+    impl Write for Fussy {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.refusals > 0 {
+                self.refusals -= 1;
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"));
+            }
+            self.written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The bytes a band gives back one row with.
+    fn released(line: u16) -> String {
+        format!("\u{1b}[{line};1H{ERASE_LINE}")
+    }
+
+    #[test]
+    fn a_band_that_shrank_erases_the_rows_it_gave_back() {
+        // The composer grows and shrinks with the draft, so the divider moves.
+        // Moving it *down* hands rows back to a document that nothing repaints:
+        // without an erase the old composer rows stay on the screen for the
+        // rest of the session, and are still there after the exit.
+        let tall = crate::tui::layout::solve(12, 20, 5).expect("a five-row composer");
+        let short = crate::tui::layout::solve(12, 20, 1).expect("a one-row composer");
+        let mut band = Band::new();
+        let mut screen = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        band.commit(&mut screen, &vec![String::new(); 7], &tall, (11, 2))
+            .expect("the tall band");
+        assert_eq!(band.painted_top(), Some(6));
+
+        screen.written.clear();
+        band.commit(&mut screen, &band_rows(), &short, (11, 2))
+            .expect("the short band");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        // Rows 6 to 9, each cleared to its end, and then the band's own erase
+        // from the divider it has now.
+        let mut expected = String::from(BEGIN_FRAME);
+        for line in short.divider - 4..short.divider {
+            expected.push_str(&released(line));
+        }
+        expected.push_str(&format!("\u{1b}[{};1H{ERASE_BELOW}", short.divider));
+        assert!(
+            text.starts_with(&expected),
+            "the rows the band gave back were not erased before it repainted: {text:?}"
+        );
+        assert_eq!(
+            band.painted_top(),
+            Some(10),
+            "the band kept clearing from rows it has given back and blanked"
+        );
+    }
+
+    #[test]
+    fn erasures_the_screen_refused_are_owed_again_rather_than_recorded_as_done() {
+        // The rows are given back by *bytes*, and a band that recorded the new
+        // top from bytes it never delivered would never erase them again -- and
+        // the exit would clear from below them. That is a document permanently
+        // holding a dead composer row, which is worse than the frame that was
+        // refused. So the top stays where it was until a write lands.
+        let tall = crate::tui::layout::solve(12, 20, 5).expect("a five-row composer");
+        let short = crate::tui::layout::solve(12, 20, 1).expect("a one-row composer");
+        let mut band = Band::new();
+        let mut screen = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        band.commit(&mut screen, &vec![String::new(); 7], &tall, (11, 2))
+            .expect("the tall band");
+
+        screen.refusals = 1;
+        screen.written.clear();
+        band.commit(&mut screen, &band_rows(), &short, (11, 2))
+            .expect_err("the screen refused the frame");
+        assert!(screen.written.is_empty());
+        assert_eq!(
+            band.painted_top(),
+            Some(6),
+            "the band forgot rows whose erasure never reached the screen, so \
+             the exit would clear from below them"
+        );
+
+        band.commit(&mut screen, &band_rows(), &short, (11, 2))
+            .expect("the next frame");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        for line in short.divider - 4..short.divider {
+            assert!(
+                text.contains(&released(line)),
+                "row {line} was never erased on the frame that landed: {text:?}"
+            );
+        }
+        assert_eq!(band.painted_top(), Some(10));
+    }
+
+    #[test]
+    fn the_rows_a_shrinking_band_gave_back_are_erased_before_an_append_scrolls_them() {
+        // Order, not just presence: a submission clears the composer *and*
+        // writes what was submitted into the document, and the append's first
+        // linefeed moves the whole screen. An erase after it would rub out a
+        // row of the answer; no erase at all would scroll a stale composer row
+        // into the document, where it stays forever.
+        let tall = crate::tui::layout::solve(12, 20, 5).expect("a five-row composer");
+        let short = crate::tui::layout::solve(12, 20, 1).expect("a one-row composer");
+        let mut band = Band::new();
+        let mut screen = Screen::under_a_painted_band(&tall);
+        let _painted = band.render(&vec![String::new(); 7], &tall, (11, 2));
+        // The band has given the rows back: what is on them is the document's
+        // problem now, and this append is the next thing written.
+        screen.divider = short.divider;
+
+        screen.feed(&band.render_append(1, &["ok".to_string()], &short));
+        assert_eq!(
+            screen.visible_document(),
+            vec!["", "", "", "", "", "", "", "", "ok"],
+            "a row of the old composer survived into the terminal's document"
         );
     }
 

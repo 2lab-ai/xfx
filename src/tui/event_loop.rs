@@ -108,6 +108,10 @@ pub(crate) struct Launch<'a> {
 
 /// Runs the session until it leaves.
 pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io::Result<ExitCode> {
+    // The probe's leftovers are the session's first bytes, and they go into the
+    // same decoder every later read does -- `Shell::route_bytes` is that
+    // decoder's only door -- so a sequence the user typed across the report's
+    // own read is decoded rather than scanned.
     shell.route_bytes(launch.deferred);
     if shell.leaving() {
         // A Ctrl-D that shared a read with the cursor report ends the session
@@ -140,6 +144,13 @@ pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io
         // decoding.
         let reconciled = collect_facts(shell, launch)?;
         read_burst(shell, &stdin, &mut buffer, launch, reconciled)?;
+        // What the bytes could not settle by themselves. A lone `ESC` is both a
+        // key and the first byte of every sequence, so it is the Escape key only
+        // once it has been alone for `input::Decoder::ESC_TIMEOUT`; asking here,
+        // every turn, is what makes that a 50 ms wait rather than a wait for the
+        // next keystroke. It reads no terminal and writes none, which is why it
+        // is outside the two reconciles rather than between them.
+        shell.settle_input(Instant::now());
         // Before a frame is painted: the burst's own readiness checks are waits
         // too, so a stop could have landed inside one of them. The first token
         // was spent on the read, so this reconcile is not optional -- it is the

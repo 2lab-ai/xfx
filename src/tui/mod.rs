@@ -394,10 +394,6 @@ fn settle_screen(
     Ok(screen)
 }
 
-/// Ctrl-D. With `ISIG` cleared it is a byte like any other, and it is the one
-/// byte Phase 1 acts on -- from whichever read took it.
-pub(crate) const END_OF_TRANSMISSION: u8 = 0x04;
-
 /// Scrolls the shell's output above the band into scrollback, on the screen.
 ///
 /// The mechanics and the amount both live in [`probe::push`], against a writer
@@ -457,6 +453,7 @@ fn fail(message: &str) -> ExitCode {
     ExitCode::FAILURE
 }
 
+mod editor;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;

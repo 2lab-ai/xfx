@@ -762,6 +762,25 @@ fn a_keystroke_that_arrives_with_the_answer_is_deferred_rather_than_swallowed() 
 }
 
 #[test]
+fn a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned() {
+    // The other half of the deferred-bytes contract, and the half a session
+    // that only looked for a Ctrl-D in them would fail: what the probe read is
+    // fed to the session's decoder, in arrival order, ahead of everything the
+    // loop reads afterwards -- so a character typed while the query was in
+    // flight is in the composer, in the order it was typed.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[7;1Rhi");
+    session.wait_for("> hi\u{1b}[24;1H");
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
@@ -892,6 +911,94 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
             "the band painted on document row {row}: {frame:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// the composer
+// ---------------------------------------------------------------------------
+//
+// What the band's middle rows are *for*: text typed into a raw terminal by a
+// session that owns every keystroke, edited by grapheme, wrapped by the band,
+// and capped so that a long draft cannot eat the terminal's own document.
+//
+// The needles here are frame-local byte strings rather than bare text, because
+// everything the session ever painted is still in the harness's buffer: a
+// needle that were merely a prefix of an earlier frame's composer row would be
+// satisfied by that frame and would assert nothing at all.
+
+#[test]
+fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    // The composer row, and the hint row's own placement right after it: the
+    // pair is what makes this the whole row rather than a prefix of a longer
+    // one.
+    session.type_bytes("hello \u{d55c}\u{ae00}".as_bytes());
+    session.wait_for("> hello \u{d55c}\u{ae00}\u{1b}[24;1H");
+    // Backspace removes the whole grapheme, not a byte of it.
+    session.type_bytes(&[0x7f]);
+    session.wait_for("> hello \u{d55c}\u{1b}[24;1H");
+
+    // C-a: the caret goes home, which is the composer's first column -- two
+    // cells of prompt marker in, on the composer's own row.
+    session.type_bytes(&[0x01]);
+    session.wait_for("> hello \u{d55c}\u{1b}[24;1H\u{1b}[23;3H");
+    // C-d with text under the caret: a forward delete, and the session stays.
+    session.type_bytes(&[0x04]);
+    session.wait_for("> ello \u{d55c}\u{1b}[24;1H");
+    assert!(matches!(session.state(), Wait::Running));
+
+    // C-e to the end, C-u to kill the line back to its start, and C-d on the
+    // empty composer leaves. The kill takes the line the caret is on, so the
+    // move is part of clearing it rather than decoration.
+    session.type_bytes(&[0x05, 0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_composer_stops_growing_at_half_the_content_area() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // content_bottom 9 => at most 5 composer rows, so a band whose divider is
+    // row 6 is a composer at its cap.
+    pty.resize(12, 20);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    for _ in 0..8 {
+        session.type_bytes(b"0123456789012345678");
+        session.type_bytes(&[0x0a]); // C-j: a newline in the composer
+    }
+    // The band at its cap: the divider on row 6, and the erase that begins
+    // every frame from there. Sixteen rows of draft are in the composer and it
+    // is showing five of them.
+    session.wait_for("\u{1b}[6;1H\u{1b}[J");
+    session.wait_for("\u{1b}[12;1H"); // the hint row is still the last row
+    let text = session.text();
+    for row in 1..=5 {
+        assert!(
+            !text.contains(&format!("\u{1b}[{row};1H")),
+            "the composer grew past its cap and painted over the transcript \
+             on row {row}: {text:?}"
+        );
+    }
+
+    // Submitting is what empties a draft this tall -- a kill takes one line --
+    // and an empty composer is what Ctrl-D leaves from.
+    session.type_bytes(&[0x0d]);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // And what was submitted is in the terminal's own document, above the band.
+    let text = session.settled_text();
+    assert!(
+        text.contains("0123456789012345678"),
+        "the submitted draft never reached the document: {text:?}"
+    );
 }
 
 #[test]
