@@ -11,7 +11,9 @@ use std::process::{Command, Output};
 
 use serde_json::Value;
 use tempfile::TempDir;
-use xfx::config::{CredentialSource, Environment, PermissionMode, RuntimeConfig, SettingSource};
+use xfx::config::{
+    CredentialSource, DiagnosticCause, Environment, PermissionMode, RuntimeConfig, SettingSource,
+};
 use xfx::provider::ProviderId;
 
 /// Upstream command names that xfx deliberately does not implement in v0.1.
@@ -1285,6 +1287,567 @@ fn an_unreadable_provider_selection_poisons_turns_rather_than_falling_back_to_th
         !run.stdout.contains("must-not-be-sent") && !run.stderr.contains("must-not-be-sent"),
         "the credential must not appear anywhere"
     );
+}
+
+#[test]
+fn a_provider_key_is_read_and_a_flat_model_seeds_that_providers_entry() {
+    // Rule 1 and rule 2: the derived provider is the one named, and a flat
+    // `model` seeds `models[<provider>]` in memory only.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\"model\":\"fable\"}",
+    );
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.provider, ProviderId::Llmux);
+    assert_eq!(config.model, "fable");
+    assert_eq!(
+        config.models.get("llmux").map(String::as_str),
+        Some("fable")
+    );
+}
+
+#[test]
+fn a_models_entry_outranks_a_flat_model_inside_one_layer() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\
+          \"model\":\"flat\",\"models\":{\"llmux\":\"chosen\",\"gateway\":\"other\"}}",
+    );
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(
+        config.model, "chosen",
+        "the newer key is the deliberate one"
+    );
+    // The other provider's preference is kept, not discarded: switching back
+    // must not lose what was chosen for it.
+    assert_eq!(
+        config.models.get("gateway").map(String::as_str),
+        Some("other")
+    );
+}
+
+#[test]
+fn a_higher_layer_flat_model_still_outranks_a_lower_layer_models_entry() {
+    // Layer order is untouched by the new key. A workspace entry that pins this
+    // directory's model must not stop working because the global file grew a
+    // `models` object.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"gateway\",\"models\":{{\"gateway\":\"global\"}},\
+          \"workspaces\":{{{}:{{\"model\":\"pinned\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.model, "pinned");
+    assert_eq!(config.sources.model, SettingSource::UserWorkspace);
+}
+
+#[test]
+fn an_environment_model_still_outranks_every_layer_including_models() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"provider\":\"gateway\",\"models\":{\"gateway\":\"file\"}}");
+    let config = RuntimeConfig::load_with(
+        &Environment::new(
+            Some(sandbox.home.clone()),
+            [("XFX_MODEL".to_string(), "shell".to_string())]
+                .into_iter()
+                .collect(),
+        ),
+        &sandbox.workspace,
+    )
+    .expect("load config");
+    assert_eq!(config.model, "shell");
+    assert_eq!(config.sources.model, SettingSource::ProcessOverride);
+}
+
+#[test]
+fn a_provider_key_outranks_a_legacy_backend_key_and_the_disagreement_is_reported() {
+    // Coexistence: the newer key is the one a newer binary wrote deliberately.
+    // A machine whose profile says two different things about where prompts go
+    // is exactly the machine an operator should be told about.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"backend\":\"gateway\",\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\"}",
+    );
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.provider, ProviderId::Llmux);
+
+    let details: Vec<String> = config.diagnostics.iter().map(|d| d.detail()).collect();
+    let conflict = details
+        .iter()
+        .find(|detail| detail.contains("conflicting_provider_selection"))
+        .unwrap_or_else(|| panic!("no conflict reported: {details:?}"));
+    assert!(conflict.contains("provider=llmux"), "{conflict}");
+    assert!(conflict.contains("backend=gateway"), "{conflict}");
+}
+
+#[test]
+fn two_keys_that_agree_are_not_reported_as_a_disagreement() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(
+        "{\"backend\":\"llmux\",\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\"}",
+    );
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert!(
+        !config
+            .diagnostics
+            .iter()
+            .any(|d| d.cause == DiagnosticCause::ConflictingProviderSelection),
+        "agreement is not a problem to report"
+    );
+}
+
+#[test]
+fn an_unreadable_provider_poisons_the_turn_even_when_backend_is_readable() {
+    // The operator's most recent word is what they meant. Quietly using the
+    // older key would be exactly the fallback this mechanism exists to refuse.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"gateway\",\"provider\":\"not-a-provider\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    let rejection = config.provider_rejected.expect("kept, never defaulted");
+    assert_eq!(rejection.key, "provider");
+    assert_eq!(rejection.value, "not-a-provider");
+
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
+    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+}
+
+#[test]
+fn an_unreadable_backend_still_poisons_the_turn_when_no_provider_key_exists() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"backend\":\"definitely-not-a-backend\"}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    let rejection = config.provider_rejected.expect("kept, never defaulted");
+    assert_eq!(rejection.key, "backend");
+}
+
+#[test]
+fn a_project_file_cannot_choose_the_provider_or_a_models_entry() {
+    let sandbox = Sandbox::new();
+    sandbox.write_project_settings("{\"provider\":\"llmux\",\"models\":{\"llmux\":\"whatever\"}}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.provider, ProviderId::Gateway);
+    assert!(config.models.is_empty());
+
+    let ignored: Vec<&str> = config
+        .diagnostics
+        .iter()
+        .filter_map(|d| d.ignored_setting_key())
+        .collect();
+    assert!(ignored.contains(&"provider"), "got {ignored:?}");
+    assert!(ignored.contains(&"models"), "got {ignored:?}");
+}
+
+#[test]
+fn reading_a_profile_never_rewrites_it() {
+    // A diagnostic command that edits the profile it is describing is the
+    // opposite of the contract.
+    let sandbox = Sandbox::new();
+    let body =
+        "{\"backend\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\"model\":\"fable\"}";
+    sandbox.write_user_settings(body);
+    let path = sandbox.profile_dir().join("settings.json");
+    let before = fs::metadata(&path).unwrap().modified().unwrap();
+
+    assert_eq!(sandbox.run(&["status", "--json"]).code, Some(0));
+    assert_eq!(sandbox.run(&["doctor", "--json"]).code, Some(0));
+
+    assert_eq!(fs::read_to_string(&path).unwrap(), body);
+    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
+}
+
+#[test]
+fn a_models_value_that_is_not_a_string_is_a_diagnostic_and_not_a_model() {
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings("{\"provider\":\"gateway\",\"models\":{\"gateway\":7}}");
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.model, xfx::config::DEFAULT_MODEL);
+    assert!(config
+        .diagnostics
+        .iter()
+        .any(|d| d.setting_key.as_deref() == Some("models")));
+}
+
+#[test]
+fn a_newer_backend_overrides_an_older_provider() {
+    // Layer order decides when keys are on different layers.
+    // Global has provider=llmux, workspace has backend=gateway.
+    // Workspace (newer) wins.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\
+          \"workspaces\":{{{}:{{\"backend\":\"gateway\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(
+        config.provider,
+        ProviderId::Gateway,
+        "workspace backend wins over global provider"
+    );
+}
+
+#[test]
+fn a_newer_rejected_backend_poisons_even_when_an_older_provider_is_readable() {
+    // An unreadable newer value poisons over an older readable one.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\
+          \"workspaces\":{{{}:{{\"backend\":\"not-a-backend\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    let rejection = config.provider_rejected.expect("kept, never defaulted");
+    assert_eq!(rejection.key, "backend", "newer rejected backend poisons");
+    assert_eq!(rejection.value, "not-a-backend");
+}
+
+#[test]
+fn a_higher_layer_flat_model_updates_the_models_entry() {
+    // When a flat model from a higher layer outranks a lower-layer models entry,
+    // it should update config.models[provider] to the effective value.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"gateway\",\"models\":{{\"gateway\":\"global-model\"}},\
+          \"workspaces\":{{{}:{{\"model\":\"workspace-model\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    assert_eq!(config.model, "workspace-model");
+    assert_eq!(
+        config.models.get("gateway").map(String::as_str),
+        Some("workspace-model"),
+        "higher-layer flat model should update models[provider]"
+    );
+}
+
+#[test]
+fn disagreement_diagnostic_surfaces_in_doctor_json() {
+    // Test that cross-layer conflict is reported end-to-end in doctor --json output.
+    // Global: provider=llmux; Workspace: backend=gateway
+    // Expected: workspace backend (newer) wins, but disagreement is diagnosed with both values
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\
+          \"workspaces\":{{{}:{{\"backend\":\"gateway\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let run = sandbox.run(&["doctor", "--json"]);
+    assert_eq!(run.code, Some(0));
+
+    let output: serde_json::Value =
+        serde_json::from_str(&run.stdout).expect("doctor --json output is valid JSON");
+
+    // Verify the winning provider is gateway (workspace backend)
+    assert_eq!(
+        output["provider"].as_str(),
+        Some("gateway"),
+        "workspace backend should win"
+    );
+
+    // Verify the conflict diagnostic contains both values and explains layer precedence
+    let found_conflict = output["checks"]
+        .as_array()
+        .map(|checks| {
+            checks.iter().any(|check| {
+                let detail = check["detail"].as_str().unwrap_or("");
+                detail.contains("conflicting_provider_selection")
+                    && detail.contains("provider=llmux")
+                    && detail.contains("backend=gateway")
+                    && detail.contains("layer order decides")
+            })
+        })
+        .unwrap_or(false);
+    assert!(
+        found_conflict,
+        "cross-layer conflict should appear with both values and layer explanation, got: {}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_cross_layer_disagreement_in_readable_values_is_diagnosed() {
+    // Cross-layer disagreement (global provider vs workspace backend) must be visible.
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\
+          \"workspaces\":{{{}:{{\"backend\":\"gateway\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let config =
+        RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace).unwrap();
+    // Workspace backend wins (newer layer)
+    assert_eq!(config.provider, ProviderId::Gateway);
+    // But the disagreement must be diagnosed
+    let conflict_diagnosed = config.diagnostics.iter().any(|d| {
+        d.cause == DiagnosticCause::ConflictingProviderSelection
+            && d.note
+                .as_ref()
+                .is_some_and(|n| n.contains("provider=llmux") && n.contains("backend=gateway"))
+    });
+    assert!(
+        conflict_diagnosed,
+        "cross-layer disagreement must be diagnosed; got: {:?}",
+        config.diagnostics
+    );
+}
+
+#[test]
+fn provider_backend_cross_layer_matrix() {
+    // Table-driven test: all combinations of {provider,backend} × {older,newer} × {readable,rejected}
+    // Row: (older_key, older_state, newer_key, newer_state, expected_provider, should_diagnose)
+    #[derive(Clone, Copy, Debug)]
+    enum KeyState {
+        Readable(&'static str),
+        Rejected,
+    }
+
+    let test_cases = vec![
+        // (older_layer_key, older_state, newer_layer_key, newer_state, expected_provider, should_diagnose_readable_conflict, description)
+        // Cross-layer: Provider global (older), backend workspace (newer)
+        (
+            "provider",
+            KeyState::Readable("llmux"),
+            "backend",
+            KeyState::Readable("gateway"),
+            ProviderId::Gateway,
+            true,
+            "older readable provider vs newer readable backend → backend wins, diagnose",
+        ),
+        (
+            "provider",
+            KeyState::Readable("llmux"),
+            "backend",
+            KeyState::Rejected,
+            ProviderId::default(),
+            false,
+            "older readable provider vs newer rejected backend → poisoned",
+        ),
+        (
+            "provider",
+            KeyState::Rejected,
+            "backend",
+            KeyState::Readable("gateway"),
+            ProviderId::Gateway,
+            false,
+            "older rejected provider vs newer readable backend → backend wins",
+        ),
+        (
+            "provider",
+            KeyState::Rejected,
+            "backend",
+            KeyState::Rejected,
+            ProviderId::default(),
+            false,
+            "older rejected provider vs newer rejected backend → poisoned by newer",
+        ),
+        // Cross-layer: Backend global (older), provider workspace (newer)
+        (
+            "backend",
+            KeyState::Readable("gateway"),
+            "provider",
+            KeyState::Readable("llmux"),
+            ProviderId::Llmux,
+            true,
+            "older readable backend vs newer readable provider → provider wins, diagnose",
+        ),
+        (
+            "backend",
+            KeyState::Readable("gateway"),
+            "provider",
+            KeyState::Rejected,
+            ProviderId::default(),
+            false,
+            "older readable backend vs newer rejected provider → poisoned",
+        ),
+        (
+            "backend",
+            KeyState::Rejected,
+            "provider",
+            KeyState::Readable("llmux"),
+            ProviderId::Llmux,
+            false,
+            "older rejected backend vs newer readable provider → provider wins",
+        ),
+        (
+            "backend",
+            KeyState::Rejected,
+            "provider",
+            KeyState::Rejected,
+            ProviderId::default(),
+            false,
+            "older rejected backend vs newer rejected provider → poisoned by newer",
+        ),
+    ];
+
+    for (older_key, older_state, newer_key, newer_state, expected, should_diagnose, desc) in
+        test_cases
+    {
+        let sandbox = Sandbox::new();
+        let workspace_workspace = sandbox.workspace.clone();
+
+        // Build the settings JSON dynamically
+        let mut global_json = serde_json::json!({});
+        match older_key {
+            "provider" => match older_state {
+                KeyState::Readable(val) => {
+                    global_json["provider"] = serde_json::json!(val);
+                }
+                KeyState::Rejected => {
+                    global_json["provider"] = serde_json::json!("not-a-provider");
+                }
+            },
+            "backend" => match older_state {
+                KeyState::Readable(val) => {
+                    global_json["backend"] = serde_json::json!(val);
+                }
+                KeyState::Rejected => {
+                    global_json["backend"] = serde_json::json!("not-a-backend");
+                }
+            },
+            _ => {}
+        }
+        global_json["llmux_url"] = serde_json::json!("http://127.0.0.1:3456");
+
+        // Add workspace-level setting
+        let mut workspace_json = serde_json::json!({});
+        match newer_key {
+            "provider" => match newer_state {
+                KeyState::Readable(val) => {
+                    workspace_json["provider"] = serde_json::json!(val);
+                }
+                KeyState::Rejected => {
+                    workspace_json["provider"] = serde_json::json!("not-a-provider");
+                }
+            },
+            "backend" => match newer_state {
+                KeyState::Readable(val) => {
+                    workspace_json["backend"] = serde_json::json!(val);
+                }
+                KeyState::Rejected => {
+                    workspace_json["backend"] = serde_json::json!("not-a-backend");
+                }
+            },
+            _ => {}
+        }
+
+        global_json["workspaces"] = serde_json::json!({
+            workspace_workspace.display().to_string(): workspace_json
+        });
+
+        sandbox.write_user_settings(&global_json.to_string());
+
+        let config = RuntimeConfig::load_with(&environment(&sandbox.home, &[]), &sandbox.workspace)
+            .unwrap_or_else(|_| panic!("config load for: {}", desc));
+
+        // Assert provider outcome
+        // Check if the newer state is rejected; if so, we expect poisoning
+        let newer_is_rejected = matches!(newer_state, KeyState::Rejected);
+
+        // Assert poisoning vs readable outcomes
+        if newer_is_rejected {
+            // Poisoned case: assert the newer key is stored with its raw value
+            let rejection_msg = format!(
+                "test case '{}': expected poisoning from newer rejected key but got none",
+                desc
+            );
+            let rejection = config.provider_rejected.as_ref().expect(&rejection_msg);
+            assert_eq!(
+                rejection.key, newer_key,
+                "test case '{}': poisoning should carry the newer key name",
+                desc
+            );
+            // Check that the raw invalid value is stored
+            let expected_value = match newer_key {
+                "provider" => "not-a-provider",
+                "backend" => "not-a-backend",
+                _ => panic!("unknown key"),
+            };
+            assert_eq!(
+                rejection.value, expected_value,
+                "test case '{}': poisoning should carry the raw invalid value",
+                desc
+            );
+        } else {
+            // Readable winner: no poisoning
+            assert!(
+                config.provider_rejected.is_none(),
+                "test case '{}': expected readable winner but got poisoned: {:?}",
+                desc,
+                config.provider_rejected
+            );
+            // Also verify the correct provider won
+            assert_eq!(
+                config.provider, expected,
+                "test case '{}': expected provider {:?}, got {:?}",
+                desc, expected, config.provider
+            );
+        }
+
+        // Assert diagnostic presence/absence
+        let has_readable_conflict = config
+            .diagnostics
+            .iter()
+            .any(|d| d.cause == DiagnosticCause::ConflictingProviderSelection);
+
+        if should_diagnose {
+            assert!(
+                has_readable_conflict,
+                "test case '{}': should diagnose readable conflict but didn't. diagnostics: {:?}",
+                desc, config.diagnostics
+            );
+        } else {
+            assert!(
+                !has_readable_conflict,
+                "test case '{}': should NOT diagnose conflict but did. diagnostics: {:?}",
+                desc, config.diagnostics
+            );
+        }
+    }
+}
+
+#[test]
+fn a_rejected_provider_from_newer_layer_poisons_at_binary_level() {
+    // Test: newer workspace provider rejection refuses the turn, mirroring Task-1 poison pattern
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"backend\":\"gateway\",\"workspaces\":{{{}:{{\"provider\":\"not-a-provider\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("`provider`"), "{}", run.stderr);
+    assert!(run.stderr.contains("not-a-provider"), "{}", run.stderr);
+    assert!(run.stderr.contains("provider=rejected"), "{}", run.stderr);
+}
+
+#[test]
+fn a_rejected_backend_from_newer_layer_poisons_at_binary_level() {
+    // Test: newer workspace backend rejection refuses the turn, mirroring Task-1 poison pattern
+    let sandbox = Sandbox::new();
+    sandbox.write_user_settings(&format!(
+        "{{\"provider\":\"llmux\",\"llmux_url\":\"http://127.0.0.1:3456\",\"workspaces\":{{{}:{{\"backend\":\"not-a-backend\"}}}}}}",
+        serde_json::to_string(&sandbox.workspace.display().to_string()).unwrap()
+    ));
+    let run = sandbox.run(&["ask", "--no-save", "hello"]);
+    assert_eq!(run.code, Some(1));
+    assert!(run.stderr.contains("`backend`"), "{}", run.stderr);
+    assert!(run.stderr.contains("not-a-backend"), "{}", run.stderr);
+    assert!(run.stderr.contains("provider=rejected"), "{}", run.stderr);
 }
 
 #[test]

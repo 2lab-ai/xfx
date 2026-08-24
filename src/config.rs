@@ -51,6 +51,13 @@ pub const PROJECT_SETTINGS_FILE: &str = ".xfx.json";
 
 const USER_SETTINGS_FILE: &str = "settings.json";
 
+/// The settings key that names the provider directly.
+pub const PROVIDER_KEY: &str = "provider";
+/// The settings key holding one model preference per provider tag.
+pub const MODELS_KEY: &str = "models";
+/// The v0.1.0 key that selected a backend, still read and still written.
+pub const BACKEND_KEY: &str = "backend";
+
 /// The environment override for the model.
 ///
 /// Public so `xfx setup llmux` can *name* it: setup writes the profile, and an
@@ -83,7 +90,9 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "credential_source",
     "llmux_url",
     "model",
+    "models",
     "permission_mode",
+    "provider",
     "workspaces",
 ];
 
@@ -133,7 +142,11 @@ impl Default for PermissionMode {
 }
 
 /// Which layer supplied the effective value of one setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Ordered: a later variant outranks an earlier one. The order is the layer order, which is
+/// what lets two keys competing for one setting be compared by where each came from rather
+/// than by which was parsed last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SettingSource {
     CompiledDefault,
     Project,
@@ -216,6 +229,8 @@ pub enum DiagnosticCause {
     IgnoredProjectProfileSetting,
     /// A key was present with a value xfx cannot interpret.
     InvalidValue,
+    /// Two keys select a provider and they disagree.
+    ConflictingProviderSelection,
 }
 
 impl DiagnosticCause {
@@ -226,6 +241,7 @@ impl DiagnosticCause {
             Self::UnreadableSettings => "unreadable_settings",
             Self::IgnoredProjectProfileSetting => "ignored_project_profile_setting",
             Self::InvalidValue => "invalid_value",
+            Self::ConflictingProviderSelection => "conflicting_provider_selection",
         }
     }
 }
@@ -239,6 +255,11 @@ pub struct Diagnostic {
     pub layer: ConfigLayer,
     pub cause: DiagnosticCause,
     pub setting_key: Option<String>,
+    /// The facts a reader needs that the cause alone does not carry -- today,
+    /// the two values that disagree. Rendered into `detail`, so a `doctor`
+    /// `config` check names them rather than telling an operator that something
+    /// somewhere conflicts.
+    pub note: Option<String>,
 }
 
 impl Diagnostic {
@@ -247,6 +268,7 @@ impl Diagnostic {
             layer,
             cause,
             setting_key: None,
+            note: None,
         }
     }
 
@@ -255,6 +277,16 @@ impl Diagnostic {
             layer,
             cause,
             setting_key: Some(key.to_string()),
+            note: None,
+        }
+    }
+
+    fn with_note(layer: ConfigLayer, cause: DiagnosticCause, key: &str, note: String) -> Self {
+        Self {
+            layer,
+            cause,
+            setting_key: Some(key.to_string()),
+            note: Some(note),
         }
     }
 
@@ -282,6 +314,10 @@ impl Diagnostic {
         if let Some(key) = &self.setting_key {
             detail.push_str(" key=");
             detail.push_str(key);
+        }
+        if let Some(note) = &self.note {
+            detail.push(' ');
+            detail.push_str(note);
         }
         detail
     }
@@ -483,6 +519,9 @@ pub struct RuntimeConfig {
     /// that passes the endpoint rule. A refused URL is a diagnostic and a `None`,
     /// never a value.
     pub llmux_url: Option<String>,
+    /// Model preferences by provider tag, as merged. Exposed so a writer can preserve the
+    /// entries for providers this invocation is not using.
+    pub models: BTreeMap<String, String>,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
@@ -559,6 +598,210 @@ impl RuntimeConfig {
             &mut sources,
         );
 
+        // Rule 1 and the coexistence rule with layer provenance: compare sources FIRST
+        // (newest layer wins, including newest rejected values that poison), then use
+        // `provider` wins over `backend` precedence ONLY when sources are equal.
+        // An unreadable value of whichever key is newest poisons the turn rather than
+        // being replaced by a default, and a disagreement is reported rather than resolved
+        // silently.
+        let (provider, provider_rejected) = {
+            // Determine which key's source is newest. Both readable and rejected values
+            // carry source information.
+            let provider_source = settings
+                .provider_source
+                .or(settings.provider_rejected_source);
+            let backend_source = settings.backend_source.or(settings.backend_rejected_source);
+
+            // Compare sources: newer layer wins. Use a helper to determine which key wins.
+            match (
+                provider_source.cmp(&backend_source),
+                provider_source,
+                backend_source,
+            ) {
+                (std::cmp::Ordering::Greater, _, _) => {
+                    // Provider source is newer: use provider (readable or rejected).
+                    if let Some(rejected) = &settings.provider_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: PROVIDER_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else {
+                        (settings.provider.unwrap_or_default(), None)
+                    }
+                }
+                (std::cmp::Ordering::Less, _, _) => {
+                    // Backend source is newer: use backend (readable or rejected).
+                    if let Some(rejected) = &settings.backend_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: BACKEND_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else {
+                        (settings.backend.unwrap_or_default(), None)
+                    }
+                }
+                (std::cmp::Ordering::Equal, Some(_), Some(_)) => {
+                    // Equal sources: provider wins over backend within one layer.
+                    if let Some(rejected) = &settings.provider_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: PROVIDER_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else if let Some(provider) = settings.provider {
+                        (provider, None)
+                    } else if let Some(rejected) = &settings.backend_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: BACKEND_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else {
+                        (settings.backend.unwrap_or_default(), None)
+                    }
+                }
+                (std::cmp::Ordering::Equal, Some(_), None) => {
+                    // Only provider source: use it.
+                    if let Some(rejected) = &settings.provider_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: PROVIDER_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else {
+                        (settings.provider.unwrap_or_default(), None)
+                    }
+                }
+                (std::cmp::Ordering::Equal, None, Some(_)) => {
+                    // Only backend source: use it.
+                    if let Some(rejected) = &settings.backend_rejected {
+                        (
+                            ProviderId::default(),
+                            Some(ProviderRejection {
+                                key: BACKEND_KEY,
+                                value: rejected.clone(),
+                            }),
+                        )
+                    } else {
+                        (settings.backend.unwrap_or_default(), None)
+                    }
+                }
+                (std::cmp::Ordering::Equal, None, None) => (ProviderId::default(), None),
+            }
+        };
+
+        // Report disagreement if both keys have readable values that differ.
+        // Any such desync is operator-visible and must be diagnosed, regardless of layer.
+        // The note explains which one wins based on source precedence.
+        if let (Some(provider_val), Some(backend_val)) = (settings.provider, settings.backend) {
+            if provider_val != backend_val {
+                let provider_source = settings.provider_source;
+                let backend_source = settings.backend_source;
+
+                // Determine the explanation of precedence
+                let explanation = match (provider_source, backend_source) {
+                    (Some(p_src), Some(b_src)) if p_src > b_src => format!(
+                        "provider={} backend={}; layer order decides: `provider` source ({}) is \
+                         newer than `backend` source ({})",
+                        provider_val.label(),
+                        backend_val.label(),
+                        p_src.label(),
+                        b_src.label()
+                    ),
+                    (Some(p_src), Some(b_src)) if b_src > p_src => format!(
+                        "provider={} backend={}; layer order decides: `backend` source ({}) is \
+                         newer than `provider` source ({})",
+                        provider_val.label(),
+                        backend_val.label(),
+                        b_src.label(),
+                        p_src.label()
+                    ),
+                    (Some(_), Some(_)) => format!(
+                        "provider={} backend={}; same layer: `provider` key takes precedence, \
+                         and an older binary reading this profile would use `backend`",
+                        provider_val.label(),
+                        backend_val.label()
+                    ),
+                    _ => format!(
+                        "provider={} backend={}; incomplete source information",
+                        provider_val.label(),
+                        backend_val.label()
+                    ),
+                };
+
+                diagnostics.push(Diagnostic::with_note(
+                    ConfigLayer::User,
+                    DiagnosticCause::ConflictingProviderSelection,
+                    PROVIDER_KEY,
+                    explanation,
+                ));
+            }
+        }
+
+        // The per-provider preference wins inside one layer, because the newer
+        // key is the one a newer binary wrote deliberately; across layers the
+        // layer order still decides, because a workspace entry that pins this
+        // directory's model must not stop working when the global file grows a
+        // `models` object. Comparing the two sources is the whole rule.
+        let tag = provider.label();
+        let flat_source = sources.model;
+
+        // Seed the flat model into the models map if it was explicitly set by a layer.
+        // Update the entry if the flat source is newer; keep it if sources are equal.
+        if flat_source != SettingSource::CompiledDefault {
+            if let Some(model) = &settings.model {
+                let tag_str = tag.to_string();
+                match settings.models_sources.get(&tag_str) {
+                    Some(&entry_source) if flat_source > entry_source => {
+                        // Flat source is newer: update the entry.
+                        settings.models.insert(tag_str.clone(), model.clone());
+                        settings.models_sources.insert(tag_str, flat_source);
+                    }
+                    None => {
+                        // No existing entry: seed it.
+                        settings.models.insert(tag_str.clone(), model.clone());
+                        settings.models_sources.insert(tag_str, flat_source);
+                    }
+                    _ => {
+                        // Entry exists with equal or higher source: keep it.
+                    }
+                }
+            }
+        }
+
+        let entry = settings
+            .models
+            .get(tag)
+            .zip(settings.models_sources.get(tag).copied())
+            // `>=` and not `>`: inside one layer the two sources are equal and
+            // the per-provider key is the deliberate one. When no layer wrote a
+            // flat `model`, `flat_source` is `CompiledDefault`, which every real
+            // layer outranks -- so this one comparison covers that case too and
+            // there is no second condition to keep in step with it.
+            .filter(|(_, entry_source)| *entry_source >= flat_source);
+        let model = match entry {
+            Some((model, entry_source)) => {
+                sources.model = entry_source;
+                model.clone()
+            }
+            None => settings
+                .model
+                .clone()
+                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+        };
+
         Ok(Self {
             workspace_root,
             profile_dir,
@@ -568,15 +811,13 @@ impl RuntimeConfig {
             project_settings_present,
             user_settings_loaded,
             project_settings_loaded,
-            model: settings.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            model,
             permission_mode: settings.permission_mode.unwrap_or_default(),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
-            provider: settings.backend.unwrap_or_default(),
-            provider_rejected: settings.backend_rejected.map(|value| ProviderRejection {
-                key: "backend",
-                value,
-            }),
+            provider,
+            provider_rejected,
             llmux_url: settings.llmux_url,
+            models: settings.models,
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -605,8 +846,20 @@ struct Settings {
     permission_mode: Option<PermissionMode>,
     max_agent_steps: Option<u32>,
     backend: Option<ProviderId>,
+    backend_source: Option<SettingSource>,
     /// The raw `backend` value a layer wrote that could not be read.
     backend_rejected: Option<String>,
+    backend_rejected_source: Option<SettingSource>,
+    /// A layer's `provider` value, when it wrote a readable one.
+    provider: Option<ProviderId>,
+    provider_source: Option<SettingSource>,
+    /// The raw `provider` value a layer wrote that could not be read.
+    provider_rejected: Option<String>,
+    provider_rejected_source: Option<SettingSource>,
+    /// Model preferences by provider tag, merged per entry.
+    models: BTreeMap<String, String>,
+    /// Where each surviving `models` entry came from.
+    models_sources: BTreeMap<String, SettingSource>,
     llmux_url: Option<String>,
     /// This layer wrote an `llmux_url` the endpoint policy refused.
     llmux_url_rejected: bool,
@@ -632,7 +885,9 @@ impl Settings {
         }
         if let Some(backend) = incoming.backend {
             self.backend = Some(backend);
+            self.backend_source = Some(source);
             self.backend_rejected = None;
+            self.backend_rejected_source = None;
             sources.provider = source;
         }
         // A later layer that writes an unreadable value replaces a readable one:
@@ -640,8 +895,35 @@ impl Settings {
         // an older layer's backend would be the fallback this exists to stop.
         if let Some(rejected) = incoming.backend_rejected {
             self.backend = None;
+            self.backend_source = None;
             self.backend_rejected = Some(rejected);
+            self.backend_rejected_source = Some(source);
             sources.provider = source;
+        }
+        if let Some(provider) = incoming.provider {
+            self.provider = Some(provider);
+            self.provider_source = Some(source);
+            self.provider_rejected = None;
+            self.provider_rejected_source = None;
+            sources.provider = source;
+        }
+        // A later layer that writes an unreadable value replaces a readable one:
+        // the operator's most recent word is what they meant, and quietly using
+        // an older layer's provider would be the fallback this exists to stop.
+        if let Some(rejected) = incoming.provider_rejected {
+            self.provider = None;
+            self.provider_source = None;
+            self.provider_rejected = Some(rejected);
+            self.provider_rejected_source = Some(source);
+            sources.provider = source;
+        }
+        // Per entry rather than wholesale: a profile that names a model for one
+        // provider and a workspace entry that names one for another are two
+        // different settings, and replacing the map would silently drop the one
+        // the operator is not currently using.
+        for (tag, model) in incoming.models {
+            self.models.insert(tag.clone(), model);
+            self.models_sources.insert(tag, source);
         }
         if let Some(url) = incoming.llmux_url {
             self.llmux_url = Some(url);
@@ -712,6 +994,47 @@ fn parse_layer(
                         "backend",
                     ));
                 }
+            }
+        }
+        if let Some(value) = object.get(PROVIDER_KEY) {
+            match value.as_str().and_then(ProviderId::parse) {
+                Some(provider) => settings.provider = Some(provider),
+                None => {
+                    settings.provider_rejected =
+                        Some(value.as_str().unwrap_or_default().trim().to_string());
+                    diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        PROVIDER_KEY,
+                    ));
+                }
+            }
+        }
+        if let Some(value) = object.get(MODELS_KEY) {
+            match value.as_object() {
+                Some(entries) => {
+                    for (tag, model) in entries {
+                        // An entry keyed by a provider this build cannot reach is
+                        // kept, not dropped: it belongs to a provider a newer
+                        // binary selects, and deleting other people's settings is
+                        // not this reader's job. It is simply never selected.
+                        match model.as_str().map(str::trim) {
+                            Some(model) if !model.is_empty() => {
+                                settings.models.insert(tag.clone(), model.to_string());
+                            }
+                            _ => diagnostics.push(Diagnostic::with_key(
+                                layer,
+                                DiagnosticCause::InvalidValue,
+                                MODELS_KEY,
+                            )),
+                        }
+                    }
+                }
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    MODELS_KEY,
+                )),
             }
         }
         if let Some(value) = object.get("llmux_url") {
@@ -987,7 +1310,15 @@ mod tests {
             permission_mode: Some(PermissionMode::Ask),
             max_agent_steps: Some(1),
             backend: Some(ProviderId::Llmux),
+            backend_source: Some(SettingSource::UserGlobal),
             backend_rejected: None,
+            backend_rejected_source: None,
+            provider: None,
+            provider_source: None,
+            provider_rejected: None,
+            provider_rejected_source: None,
+            models: BTreeMap::new(),
+            models_sources: BTreeMap::new(),
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
             llmux_url_rejected: false,
         };
