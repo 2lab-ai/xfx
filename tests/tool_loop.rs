@@ -19,6 +19,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::mpsc::{self, RecvTimeoutError};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -89,6 +90,22 @@ impl Tree {
         fs::create_dir_all(&path).expect("create the fixture directory");
         path
     }
+
+    /// A named pipe that no one ever writes to: opening it for reading blocks
+    /// until a writer arrives, which in these tests is never.
+    ///
+    /// `mkfifo(1)` rather than a crate call: rustix does not expose `mkfifoat`
+    /// on Apple targets, and the fixture has to exist on every unix the tests
+    /// run on.
+    fn mkfifo(&self, relative: &str) -> PathBuf {
+        let path = self.root.join(relative);
+        let status = Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .expect("run mkfifo");
+        assert!(status.success(), "mkfifo failed: {status:?}");
+        path
+    }
 }
 
 fn context(tree: &Tree) -> ToolContext {
@@ -123,6 +140,34 @@ fn fails(context: &ToolContext, tool: &str, input: Value) -> String {
     let result = call(context, tool, input);
     assert!(!result.ok, "expected a refusal, got {result:?}");
     result.output
+}
+
+/// Runs one tool call off the test thread and requires an answer within two
+/// seconds.
+///
+/// A tool that opens a writer-less FIFO never returns, and a turn that never
+/// returns is the defect these callers are pinning. Waiting on a channel turns
+/// that into a failure with a name instead of a suite that hangs.
+fn answers_within_two_seconds(root: &Path, tool: &'static str, input: Value) -> ToolResult {
+    let (sender, receiver) = mpsc::channel();
+    let root = root.to_path_buf();
+    std::thread::spawn(move || {
+        let scope = AccessScope::primary_only(&root).expect("a usable primary root");
+        let context = ToolContext::new(scope);
+        let _ = sender.send(call(&context, tool, input));
+    });
+    match receiver.recv_timeout(std::time::Duration::from_secs(2)) {
+        Ok(result) => result,
+        // The worker is left parked on the open it will never return from. That
+        // leak is deliberate: a blocking `open` cannot be interrupted from here,
+        // and the process is about to fail this test and exit anyway.
+        Err(RecvTimeoutError::Timeout) => panic!("{tool} blocked on a FIFO"),
+        // A dropped sender means the worker panicked or vanished. Calling that a
+        // block would send the next reader after a defect that is not there.
+        Err(RecvTimeoutError::Disconnected) => {
+            panic!("the {tool} worker disappeared without answering")
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -524,6 +569,25 @@ fn read_file_rejects_arguments_that_do_not_match_its_schema() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn read_file_refuses_a_fifo_rather_than_parking_the_turn_on_it() {
+    // A FIFO is not a directory, so the directory refusal lets it through, and
+    // with no writer on the other end `fs::read` never returns: a tool call
+    // that never returns is a turn the user cannot get out of.
+    let tree = Tree::new();
+    tree.mkfifo("pipe");
+
+    let result = answers_within_two_seconds(tree.root(), "read_file", json!({ "path": "pipe" }));
+
+    assert!(!result.ok, "expected a refusal, got {result:?}");
+    assert!(result.output.contains("pipe"), "{result:?}");
+    assert!(
+        result.output.contains("it is not a regular file"),
+        "{result:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // list_files
 // ---------------------------------------------------------------------------
@@ -584,6 +648,22 @@ fn list_files_reports_a_missing_directory_as_a_failed_result() {
     let result = call(&context(&tree), "list_files", json!({ "path": "gone" }));
     assert!(!result.ok);
     assert!(result.output.contains("gone"), "{result:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn list_files_names_a_fifo_without_ever_opening_it() {
+    // Listing reports what `readdir` and `lstat` already know, so a named pipe
+    // is a name like any other and nothing about it is opened. The bounded wait
+    // is what keeps that a fact rather than an assumption.
+    let tree = Tree::new();
+    tree.write("a.txt", "a");
+    tree.mkfifo("pipe");
+
+    let result = answers_within_two_seconds(tree.root(), "list_files", json!({}));
+
+    assert!(result.ok, "expected a listing, got {result:?}");
+    assert_eq!(result.output, ".:\n- a.txt\n- pipe\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +758,23 @@ fn glob_files_requires_a_pattern() {
         let result = call(&context, "glob_files", bad.clone());
         assert!(!result.ok, "{bad} was accepted: {result:?}");
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn glob_files_never_offers_a_fifo_as_a_match() {
+    // The walk keeps only regular files, so a named pipe is not a candidate for
+    // any pattern -- and a path glob offered would be a path the model may then
+    // ask `read_file` for.
+    let tree = Tree::new();
+    tree.write("kept.txt", "k");
+    tree.mkfifo("pipe.txt");
+
+    let result =
+        answers_within_two_seconds(tree.root(), "glob_files", json!({ "pattern": "*.txt" }));
+
+    assert!(result.ok, "expected a match list, got {result:?}");
+    assert_eq!(result.output, "[glob] 1 matches for *.txt\n - kept.txt\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +943,27 @@ fn grep_files_says_so_when_nothing_matches() {
         json!({ "pattern": "needle" }),
     );
     assert_eq!(output, "[grep] no matches for needle\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn grep_files_walks_past_a_fifo_instead_of_parking_on_it() {
+    // A search reads every candidate it is given, so the guard has to be in the
+    // walk: a named pipe is never a candidate, and the files around it are
+    // searched as if it were not there. Were it a candidate, `read_searchable`
+    // would open it and the search would never end.
+    let tree = Tree::new();
+    tree.write("a.txt", "needle here\n");
+    tree.mkfifo("pipe.txt");
+
+    let result =
+        answers_within_two_seconds(tree.root(), "grep_files", json!({ "pattern": "needle" }));
+
+    assert!(result.ok, "expected a search result, got {result:?}");
+    assert_eq!(
+        result.output,
+        "[grep] 1 matches for needle\n - a.txt:1: needle here\n"
+    );
 }
 
 // ---------------------------------------------------------------------------
