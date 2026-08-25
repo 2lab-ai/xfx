@@ -25,6 +25,7 @@ use std::io::Read;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -2313,6 +2314,30 @@ fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
     );
 }
 
+/// Every process whose whole argv is `sleep <tag>`, with the process group it
+/// is in.
+///
+/// `ps` rather than `pgrep` because one call has to answer both halves of the
+/// question. A test that only counted the children could not tell whether they
+/// were in the group it is about to have killed, and group membership is the
+/// entire claim under test.
+fn sleepers(tag: &str) -> Vec<(String, String)> {
+    let listing = Command::new("ps")
+        .args(["-eo", "pid=,pgid=,args="])
+        .output()
+        .expect("read the process table");
+    String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?;
+            let group = fields.next()?;
+            let argv: Vec<&str> = fields.collect();
+            (argv == ["sleep", tag]).then(|| (pid.to_string(), group.to_string()))
+        })
+        .collect()
+}
+
 #[test]
 fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     let tree = Tree::new();
@@ -2321,9 +2346,45 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
         .with_permissions(session(PermissionMode::Yolo))
         .with_cancel(cancel.clone());
 
+    // A duration unique to this process, so the two children can be picked out
+    // of the process table without mistaking them for the identical pair the
+    // timeout test next door runs, or for another suite binary's.
+    let tag = format!("30.{}", std::process::id());
+    let command = format!("sleep {tag} & sleep {tag}");
+
+    // The cancellation waits for the group to really hold both children. It
+    // used to fire on a fixed 150ms clock, which decided nothing:
+    //
+    // * Too early and the shell is killed before it has forked anything at
+    //   all. The pipe closes, no assertion here fails, and a group kill that
+    //   reached nothing has just been recorded as proof that group kills work.
+    // * Early by a hair -- a cancellation already set by the time `run` spawns,
+    //   which is what a loaded machine produces -- and the kill lands while the
+    //   shell is *mid-fork*. A child forked either side of the kernel's walk of
+    //   the group's members is never signalled, survives holding the pipe, and
+    //   the drain reports `stream still open`. Measured on macOS: no escapes in
+    //   480 cancellations at 0-1ms or at 10ms and beyond, 3 to 5 escapes per
+    //   480 in the 2-5ms window.
+    //
+    // Waiting on the process table instead of on a clock removes both. Nothing
+    // is cancelled until the two children exist *and* share one group, which is
+    // the only state in which the assertion below means what it says.
+    let established = Arc::new(AtomicBool::new(false));
     let watcher = cancel.clone();
+    let watched = tag.clone();
+    let reached = Arc::clone(&established);
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(150));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let found = sleepers(&watched);
+            if found.len() == 2 && found[0].1 == found[1].1 {
+                reached.store(true, Ordering::SeqCst);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // Cancelled either way: a watcher that gave up silently would leave the
+        // command running to its own timeout and blame the delay on the tool.
         watcher.cancel();
     });
 
@@ -2331,7 +2392,12 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     let refusal = fails(
         &context,
         "terminal",
-        json!({ "action": "exec", "command": "sleep 30 & sleep 30" }),
+        json!({ "action": "exec", "command": command }),
+    );
+    assert!(
+        established.load(Ordering::SeqCst),
+        "the two children were never both in one process group, so the \
+         cancellation proved nothing about group kills: {refusal}"
     );
     assert!(refusal.contains("cancelled"), "{refusal}");
     assert!(
