@@ -1774,28 +1774,61 @@ def scenario_3b(run):
     # separately. Here they are one session on a real terminal, and no fault
     # injection is involved: the screen is genuinely, persistently full.
     # Standard output is a *separate file description* opened `O_NONBLOCK`, so a
-    # pty whose buffer nobody drains answers `EAGAIN` -- which is backpressure,
-    # which is what `FRAME_BUDGET` is generous for, and which past half a second
-    # of wall clock must end the session rather than be retried forever.
-    starved = run.trial("starved-screen", nonblocking_output=True).settled()
+    # screen that has no room answers `EAGAIN` -- which is backpressure, which
+    # is what `FRAME_BUDGET` is generous for, and which past half a second of
+    # wall clock must end the session rather than be retried forever.
+    #
+    # **How the screen is made to refuse, on every kernel this gates.** The
+    # first version of this row filled the pty by writing frames at it and not
+    # reading it, which made the row's premise a kernel constant. How much a
+    # pty takes before it answers `EAGAIN` is **1,024 bytes** on macOS 26 and
+    # **17,408** on Linux 6.8 and 7.1 -- measured on each, with a pty and a
+    # non-blocking write -- so four hundred small frames overran one target's
+    # screen and stopped forty-eight bytes short of the other's. That is
+    # exactly what CI reported: green on `x86_64-apple-darwin` and a twenty
+    # second timeout on the three targets whose screens are seventeen times
+    # larger.
+    #
+    # So the premise is a **size** now, and the size is the product's own: a
+    # frame carries the whole band (`src/tui/frame.rs`, "the whole band is
+    # repainted, every frame"), the composer is capped at half the content area
+    # plus one row (`layout::input_row_limit`), and a draft that fills that cap
+    # on this screen is a frame of some thirty kilobytes -- larger than any of
+    # these ptys will take, by 1.7x against the largest of them. A frame is one
+    # `write_all` and `write_all` does not wait, so a frame that cannot fit in
+    # the screen's whole capacity can never land, however fast anyone empties
+    # it. The terminal is therefore read at full speed throughout, which is
+    # what a real terminal does and what leaves room for the exit's own bytes
+    # to arrive.
+    #
+    # The fill stops the moment the session leaves, which on the small screen
+    # is long before the cap: 1,024 bytes is under two composer rows there.
+    starved = run.trial(
+        "starved-screen", rows=STARVING_ROWS, cols=STARVING_COLS, nonblocking_output=True
+    ).settled()
     began = time.time()
-    for _ in range(STARVING_KEYSTROKES):
-        if starved.session.state()[0] != "running":
+    typed = 0
+    while typed < STARVING_FILL and time.time() - began < STARVING_CEILING:
+        if starved.session.state()[0] not in ("running", "continued"):
             break
         try:
-            os.write(starved.terminal.master, b"x")
+            typed += os.write(starved.terminal.master, STARVING_CHUNK)
         except OSError:
-            # The input queue is full too; the child has stopped reading, which
-            # is the state being waited for anyway.
-            break
-        time.sleep(STARVING_PAUSE)
+            # The input queue is full: the session has stopped reading, which
+            # is the state this row is waiting for anyway.
+            pass
+        starved.session.pump(0.001)
     state = starved.session.wait_state(
         "the session to give up on a screen that takes nothing",
         lambda seen: seen[0] not in ("running", "continued"),
         timeout=20,
     )
+    # One, and not merely non-zero: `ExitCode::FAILURE` is what the give-up
+    # path returns (`src/main.rs:44-49`, through `tui::run_blocking`'s `fail`),
+    # and a panic on the way out would leave with 101 and satisfy "non-zero"
+    # while proving the opposite of what this row is about.
     run.require(
-        state[0] == "exited" and state[1] != 0,
+        state == ("exited", 1),
         "a screen that refused every frame ended the session with its error (%r)" % (state,),
     )
     elapsed = time.time() - began
@@ -1809,9 +1842,20 @@ def scenario_3b(run):
         starved.modes() == starved.before,
         "and the terminal it could not write to was still given back byte for byte",
     )
-    text = starved.session.settled_text()
-    run.require(pty.RESTORE in text, "the restore ran even though the screen was refusing")
-    run.require("xfx: " in text, "the session said why it ended")
+    # **The line discipline is the whole contract here, and the bytes are not.**
+    # `docs/parity.md` promises the `termios` back "whether or not the screen
+    # could still be written"; it promises nothing about a restore *sequence*
+    # reaching a screen that is refusing, and it cannot: the exit writes those
+    # bytes at the one instant the screen has no room for them -- the give-up is
+    # decided *by* a frame that just filled the screen and failed -- and this
+    # row's premise is that the room never comes back. An earlier version of
+    # this row asserted them anyway and passed on macOS four runs in five and
+    # on Linux never: it was reading a screen that was not really full, which
+    # is the same lie the deadline was tightened to catch, one layer down. The
+    # wire bytes are asserted where they can be, on screens that take them:
+    # scenario 3's `normal-exit` row for a clean exit and its
+    # `partial-init-after-raw` row for a failing one -- the latter is where
+    # "it says why" lives.
 
 
 # ---------------------------------------------------------------------------
@@ -1828,22 +1872,55 @@ def scenario_3b(run):
 # row accepted fifteen seconds, which bounds nothing: a regression to a
 # fourteen-second retry would have passed it.
 #
-#   typing            <= STARVING_KEYSTROKES * STARVING_PAUSE = 0.40 s
-#                        (and it stops the moment the child does, so this is a
-#                         ceiling rather than a cost; the budget's clock starts
-#                         at the first refusal, which is inside this window)
+#   the fill             <= STARVING_CEILING = 1.50 s
+#                        (a ceiling the harness enforces rather than a cost:
+#                         the loop stops the moment the session leaves, and the
+#                         budget's clock starts at the first refusal, which is
+#                         inside this window)
 #   FRAME_BUDGET         0.50 s   `src/tui/event_loop.rs`
 #   the give-up path     0.50 s   leave through `hold`, `term::shutdown`, exit
-#   CI slack             2.00 s   a loaded hosted runner, four jobs in parallel
+#   CI slack             1.50 s   a loaded hosted runner, four jobs in parallel
 #   ------------------------------------------------------------------
-#   STARVED_DEADLINE     3.40 s
+#   STARVED_DEADLINE     4.00 s
 #
-# Measured on an idle developer machine: 0.6-1.1 s. The slack is generous about
-# the *machine* and strict about the *policy*, which is the split the drain
-# row's own comment argues for -- bound the contract, never the scheduler.
-STARVING_KEYSTROKES = 400
-STARVING_PAUSE = 0.001
-STARVED_DEADLINE = 0.40 + 0.50 + 0.50 + 2.00
+# Measured five consecutive runs on each of the two kernels this was developed
+# against: **0.68-0.70 s** on macOS 26 arm64 and **1.48-1.99 s** on Linux 7.1
+# x86_64. The difference between them is the fill and nothing else -- the
+# larger screen has to be given more of the draft before one frame outgrows it
+# -- which is why the ceiling above is the term the slack is measured against.
+# The slack is generous about the *machine* and strict about the *policy*,
+# which is the split the drain row's own comment argues for -- bound the
+# contract, never the scheduler.
+#
+# The geometry and the fill are the row's premise rather than a taste, and they
+# are the numbers that make the refusal a size rather than a race:
+#
+#   the draft         12,288 characters of `ẋ`, which is 36,864 bytes: a screen
+#                     counts bytes and a composer counts characters, so a
+#                     three-byte letter buys the frame its size at a third of
+#                     the wrapping the session has to do to hold it (a draft is
+#                     re-wrapped on every keystroke, and a row that made the
+#                     session do a hundred thousand characters' worth of it
+#                     would be timing the wrap rather than the budget)
+#   the frame it makes ~ 37 KB, against pty capacities of 17,408 bytes (Linux
+#                     6.8 and 7.1) and 1,024 (macOS 26) -- 2.1x the larger of
+#                     them, so `write_all` cannot land it however fast the
+#                     terminal is read
+#   composer cap      layout::input_row_limit(300) = 149 rows, and the draft
+#                     occupies 62 of them: the cap is headroom here rather than
+#                     the mechanism
+#
+# Two hundred columns rather than more, because the *first* frame -- the one a
+# session opens its band with -- has to fit in the **smallest** of those
+# screens or the row would be testing a session that could never draw at all:
+# at this width it is some six hundred bytes against macOS's 1,024.
+STARVING_ROWS = 300
+STARVING_COLS = 200
+STARVING_LETTER = "ẋ".encode("utf-8")
+STARVING_CHUNK = STARVING_LETTER * 341
+STARVING_FILL = 36864
+STARVING_CEILING = 1.50
+STARVED_DEADLINE = STARVING_CEILING + 0.50 + 0.50 + 1.50
 
 
 def scenario_4(run):
@@ -2177,7 +2254,15 @@ def scenario_8(run):
         run, [fixtures.content_only("answer: " + ordinary_marker)], name="ordinary"
     )
     ordinary = run.trial("ordinary-turn", gateway=ordinary_fixture).settled()
-    discriminate(run, ordinary, ordinary_fixture, ordinary_marker, label="ordinary")
+    ordinary_prompt = "say " + run.nonce
+    discriminate(
+        run,
+        ordinary,
+        ordinary_fixture,
+        ordinary_marker,
+        label="ordinary",
+        prompt=ordinary_prompt,
+    )
     ordinary.send(b"\x04")
     run.require(ordinary.session.wait_exit() == ("exited", 0), "the ordinary turn left at 0")
     ordinary.session.settled_text()
@@ -2189,13 +2274,35 @@ def scenario_8(run):
     )
     # And the whole screen, not only the marker. The exit clears from the
     # band's top row downward, so what is left is the document -- which for one
-    # prompt and one one-line answer is one row. Counting the marker alone is
-    # not enough: a stale, **truncated** copy of the answer's row does not
+    # prompt and one one-line answer is the answer. Counting the marker alone
+    # is not enough: a stale, **truncated** copy of the answer's row does not
     # contain the marker and would be scored as a clean screen.
-    remaining = [grid.row_text(row) for row in range(grid.rows) if grid.row_text(row).strip()]
+    #
+    # The **echo of the prompt** is the one row this does not count, in either
+    # direction, because the product does not promise it in either direction.
+    # `docs/parity.md`'s `full-screen TUI` row says the echo is "not durable":
+    # the activity row a starting turn adds takes its row from the bottom of
+    # the document and paints over it, and Phase 1 repaints no transcript row.
+    # Whether that repaint happened before the answer landed is a question
+    # about how long the turn was visibly *under way* -- a fixture that answers
+    # inside a tick never gets an activity row painted at all -- and the four
+    # targets this suite gates disagree about it for exactly that reason: the
+    # echo survived on `aarch64-apple-darwin` and both Linuxes and was
+    # overpainted on `x86_64-apple-darwin`, from one commit. Asserting on a row
+    # whose survival is a scheduling outcome is pinning the scheduler, which is
+    # what the drain row above refuses to do; every *other* row is still
+    # counted, so a second answer, a truncated one or a band row left behind
+    # fails here exactly as before.
+    echoed = ordinary_prompt
+    remaining = [
+        text
+        for text in (grid.row_text(row) for row in range(grid.rows))
+        if text.strip() and text != echoed
+    ]
     run.require(
         remaining == ["answer: " + ordinary_marker],
-        "a completed turn left exactly its answer on the screen, once: %r" % (remaining,),
+        "a completed turn left exactly its answer on the screen, once (the prompt echo is "
+        "not counted either way): %r" % (remaining,),
     )
     ordinary_fixture.stop()
 
