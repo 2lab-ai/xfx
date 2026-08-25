@@ -1791,15 +1791,28 @@ def scenario_3b(run):
     #
     # So the premise is a **size** now, and the size is the product's own: a
     # frame carries the whole band (`src/tui/frame.rs`, "the whole band is
-    # repainted, every frame"), the composer is capped at half the content area
-    # plus one row (`layout::input_row_limit`), and a draft that fills that cap
-    # on this screen is a frame of some thirty kilobytes -- larger than any of
-    # these ptys will take, by 1.7x against the largest of them. A frame is one
-    # `write_all` and `write_all` does not wait, so a frame that cannot fit in
-    # the screen's whole capacity can never land, however fast anyone empties
-    # it. The terminal is therefore read at full speed throughout, which is
-    # what a real terminal does and what leaves room for the exit's own bytes
-    # to arrive.
+    # repainted, every frame"), and the draft below makes one frame 39,187
+    # bytes -- 2.25x the largest of those screens and 38x the smallest.
+    #
+    # One frame is one `write_all` (`src/tui/frame.rs:145-157`, onto the locked
+    # standard output passed down from `event_loop.rs:286`), and `write_all`
+    # retries `Interrupted` and nothing else: the first `WouldBlock` ends the
+    # frame, and the band owes it again rather than continuing it. So for a
+    # frame this size to *land*, the reader would have to keep freeing room
+    # inside the gaps between consecutive `write(2)` calls of a loop that has
+    # no sleep in it -- twenty-two more kilobytes of it on the larger screen,
+    # thirty-eight on the smaller -- against a harness that reads once per fill
+    # chunk and once per ten milliseconds thereafter. Measured across six full
+    # runs, the largest complete frame either screen ever took is 9,040 bytes
+    # on Linux and 718 on macOS, both a fraction of that kernel's capacity.
+    #
+    # And the residual is safe in the one direction that matters: a frame that
+    # *did* land calls `FrameFailures::succeeded`, the budget starts over, the
+    # session does not give up, and this row **fails** on its wait. There is no
+    # arrangement of the scheduler that turns this into a pass.
+    #
+    # The terminal is therefore read at full speed throughout, which is what a
+    # real terminal does.
     #
     # The fill stops the moment the session leaves, which on the small screen
     # is long before the cap: 1,024 bytes is under two composer rows there.
@@ -1807,16 +1820,24 @@ def scenario_3b(run):
         "starved-screen", rows=STARVING_ROWS, cols=STARVING_COLS, nonblocking_output=True
     ).settled()
     began = time.time()
-    typed = 0
-    while typed < STARVING_FILL and time.time() - began < STARVING_CEILING:
+    pending = b""
+    for _ in range(STARVING_CHUNKS):
         if starved.session.state()[0] not in ("running", "continued"):
             break
+        if time.time() - began >= STARVING_CEILING:
+            break
+        pending += STARVING_CHUNK
         try:
-            typed += os.write(starved.terminal.master, STARVING_CHUNK)
+            pending = pending[os.write(starved.terminal.master, pending) :]
         except OSError:
             # The input queue is full: the session has stopped reading, which
             # is the state this row is waiting for anyway.
             pass
+        # Whatever a short write left over is carried and offered again with
+        # the next chunk rather than dropped, because a write cut **inside** a
+        # three-byte letter would put a replacement character into the draft in
+        # place of the letter -- the same width on the screen, a different
+        # number of bytes on the wire, and this row's premise is a byte count.
         starved.session.pump(0.001)
     state = starved.session.wait_state(
         "the session to give up on a screen that takes nothing",
@@ -1893,32 +1914,35 @@ def scenario_3b(run):
 # contract, never the scheduler.
 #
 # The geometry and the fill are the row's premise rather than a taste, and they
-# are the numbers that make the refusal a size rather than a race:
+# are the numbers that make the refusal a size rather than a race. All four are
+# measured against a screen that takes frames, not estimated:
 #
-#   the draft         12,288 characters of `ẋ`, which is 36,864 bytes: a screen
-#                     counts bytes and a composer counts characters, so a
-#                     three-byte letter buys the frame its size at a third of
-#                     the wrapping the session has to do to hold it (a draft is
-#                     re-wrapped on every keystroke, and a row that made the
-#                     session do a hundred thousand characters' worth of it
-#                     would be timing the wrap rather than the budget)
-#   the frame it makes ~ 37 KB, against pty capacities of 17,408 bytes (Linux
-#                     6.8 and 7.1) and 1,024 (macOS 26) -- 2.1x the larger of
-#                     them, so `write_all` cannot land it however fast the
-#                     terminal is read
+#   the draft         STARVING_CHUNKS x STARVING_CHUNK = 37,851 bytes, which is
+#                     12,617 letters of `ẋ`: a screen counts bytes and a
+#                     composer counts characters, so a three-byte letter buys
+#                     the frame its size at a third of the wrapping the session
+#                     has to do to hold it (a draft is re-wrapped on every
+#                     keystroke, and a row that made the session do a hundred
+#                     thousand characters' worth of it would be timing the wrap
+#                     rather than the budget)
+#   the frame it makes 39,187 bytes, against pty capacities of 17,408 (Linux
+#                     6.8 and 7.1) and 1,024 (macOS 26) -- 2.25x and 38x -- so
+#                     `write_all` cannot land one in a screen of either size
+#                     while anything like a terminal is reading it
 #   composer cap      layout::input_row_limit(300) = 149 rows, and the draft
-#                     occupies 62 of them: the cap is headroom here rather than
+#                     occupies 64 of them: the cap is headroom here rather than
 #                     the mechanism
 #
 # Two hundred columns rather than more, because the *first* frame -- the one a
 # session opens its band with -- has to fit in the **smallest** of those
 # screens or the row would be testing a session that could never draw at all:
-# at this width it is some six hundred bytes against macOS's 1,024.
+# at this width it is **704 bytes** against macOS's 1,024, and it is the only
+# complete frame that screen ever takes.
 STARVING_ROWS = 300
 STARVING_COLS = 200
 STARVING_LETTER = "ẋ".encode("utf-8")
 STARVING_CHUNK = STARVING_LETTER * 341
-STARVING_FILL = 36864
+STARVING_CHUNKS = 37
 STARVING_CEILING = 1.50
 STARVED_DEADLINE = STARVING_CEILING + 0.50 + 0.50 + 1.50
 
