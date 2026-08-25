@@ -136,15 +136,18 @@ impl Editor {
                 self.insert("\n");
             }
             // Not the composer's: submitting, leaving and cancelling are the
-            // session's (`super::shell`), a paste is Task 18's, and an
-            // `Ignore` is a keystroke this session has no binding for. They are
-            // named rather than caught by a wildcard so that an action added
-            // later has to be routed on purpose.
+            // session's (`super::shell`), a paste is Task 18's, `Tab` belongs
+            // to the approval panel (`super::approval`) and the composer has no
+            // completion for it to drive, and an `Ignore` is a keystroke this
+            // session has no binding for. They are named rather than caught by
+            // a wildcard so that an action added later has to be routed on
+            // purpose.
             Action::Submit
             | Action::Escape
             | Action::Cancel
             | Action::Eof
             | Action::Redraw
+            | Action::Tab
             | Action::PasteStart
             | Action::PasteEnd
             | Action::Ignore => {}

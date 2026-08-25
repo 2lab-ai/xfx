@@ -12,7 +12,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-use super::fake_gateway::FakeGateway;
+use super::fake_gateway::{self, FakeGateway, Reply};
 use super::fake_llmux::FakeLlmux;
 
 /// Environment variables that must never leak in from the developer's shell.
@@ -121,4 +121,53 @@ impl Sandbox {
         ids.sort();
         ids
     }
+}
+
+// ---------------------------------------------------------------------------
+// the scripted mutation both terminal suites drive the permission modes with
+// ---------------------------------------------------------------------------
+
+/// A Gateway that reads `notes.txt`, edits it, and then reports what happened.
+///
+/// The read is not decoration. An edit may only replace a file the turn has
+/// already read in full, in *every* mode -- that is a validation rule about
+/// knowing what you are overwriting, not a permission rule, so `yolo` does not
+/// skip it either. A script that jumped straight to the edit would be testing
+/// that rule rather than the permission modes.
+///
+/// Here rather than in one suite because both front ends have to be asked the
+/// same question: `tests/interactive.rs` answers it on the terminal and
+/// `tests/tui.rs` answers it in the band, and two copies of the script would be
+/// two chances for the two surfaces to be tested against different mutations.
+pub fn edit_then_finish() -> Vec<Reply> {
+    vec![
+        Reply::Sse(fake_gateway::sse_body(&[
+            fake_gateway::tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(fake_gateway::sse_body(&[
+            fake_gateway::tool_call(
+                "call-1",
+                "edit_file",
+                serde_json::json!({
+                    "path": "notes.txt",
+                    "old_string": "alpha",
+                    "new_string": "beta",
+                }),
+            ),
+            fake_gateway::finish("tool-calls"),
+        ])),
+        Reply::Sse(fake_gateway::content_only(&["the edit is done"])),
+    ]
+}
+
+/// A workspace with one file the model is scripted to edit.
+pub fn with_notes(sandbox: &Sandbox) -> PathBuf {
+    let path = sandbox.workspace.join("notes.txt");
+    fs::write(&path, "alpha\n").expect("write the fixture");
+    path
 }

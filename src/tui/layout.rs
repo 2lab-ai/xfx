@@ -2,10 +2,12 @@
 //!
 //! The band is three things at the bottom of the **normal** buffer -- a
 //! divider, the composer, and a hint row -- with a fourth above the divider
-//! while a turn is running ([`super::activity`]), and everything above the
-//! band stays the terminal's own document. So a layout is a handful of row
-//! numbers, and [`solve_with`] is the one place they are derived from one
-//! another; nothing else in the TUI may compute a row from `rows - 1`.
+//! while a turn is running ([`super::activity`]) and a block of rows above
+//! *that* while a turn is waiting for a decision ([`super::approval`]), and
+//! everything above the band stays the terminal's own document. So a layout is
+//! a handful of row numbers, and [`solve_band`] is the one place they are
+//! derived from one another; nothing else in the TUI may compute a row from
+//! `rows - 1`.
 //!
 //! Nothing here queries anything. The screen's size arrives as two arguments
 //! ([`super::term::window_size`] is what asks the terminal), which is what makes
@@ -39,11 +41,18 @@ pub(crate) struct Geometry {
     pub(crate) content_bottom: u16,
     /// The row that says what the turn is doing, while there is a turn.
     ///
-    /// Directly above the divider, and `None` whenever nothing is running: the
-    /// row is the evidence that something is happening, so a session with
-    /// nothing in flight does not own it and the document does
-    /// ([`super::activity`]).
+    /// Directly above the divider -- or above the approval panel, when one is
+    /// up -- and `None` whenever nothing is running: the row is the evidence
+    /// that something is happening, so a session with nothing in flight does
+    /// not own it and the document does ([`super::activity`]).
     pub(crate) activity: Option<u16>,
+    /// How many rows the approval panel occupies, and `0` when there is none.
+    ///
+    /// A count rather than a first/last pair, because the panel's rows are the
+    /// only ones in the band that are not addressed individually: they are
+    /// painted in order between the activity row and the divider, from the one
+    /// list [`super::approval::Panel::rows`] produces.
+    pub(crate) panel: u16,
     /// The rule under the document, and the row the composer's first row
     /// follows.
     pub(crate) divider: u16,
@@ -55,11 +64,17 @@ pub(crate) struct Geometry {
 impl Geometry {
     /// The band's top row, and therefore the row an exit clears from.
     ///
-    /// The activity row when there is one, because a band that reported its
-    /// divider while painting a row above it would leave that row on the
-    /// terminal at exit and let an append write over it while the session ran.
+    /// The activity row when there is one, then the panel's first row, then the
+    /// divider: a band that reported its divider while painting rows above it
+    /// would leave them on the terminal at exit and let an append write over
+    /// them while the session ran.
     pub(crate) fn band_top(&self) -> u16 {
-        self.activity.unwrap_or(self.divider)
+        self.activity.unwrap_or_else(|| self.panel_first())
+    }
+
+    /// The panel's first row, or the divider when there is no panel.
+    pub(crate) fn panel_first(&self) -> u16 {
+        self.divider.saturating_sub(self.panel)
     }
 
     /// How many rows the band owns, from its top row to the hint row.
@@ -87,21 +102,47 @@ pub(crate) fn solve(rows: u16, cols: u16, input_rows: u16) -> Option<Geometry> {
     solve_with(rows, cols, input_rows, false)
 }
 
-/// The same, saying whether the turn's activity row is on the screen.
-///
-/// The order is the derivation: the hint row is the last row of the screen, the
-/// composer sits on the rows above it, the divider is the row above the
-/// composer, the activity row -- when there is work -- is the row above *that*,
-/// and the document ends one row above whichever of the two is highest. A
-/// `None` is a refusal the caller reports by name -- a band painted onto a
-/// screen that cannot hold it would write over the user's shell output and then
-/// clear it on the way out, which is the one thing this module exists to
-/// prevent.
+/// The same, with the activity row asked for and no approval panel.
 pub(crate) fn solve_with(
     rows: u16,
     cols: u16,
     input_rows: u16,
     activity: bool,
+) -> Option<Geometry> {
+    solve_band(rows, cols, input_rows, activity, 0)
+}
+
+/// Whether a screen of `rows` x `cols` could hold a `panel`-row approval panel
+/// at all.
+///
+/// Asked with a **one-row** composer and the activity row present, which is the
+/// band a panel always appears in front of: a turn is running, and a draft
+/// taller than one row is something the caller can scroll rather than a reason
+/// to refuse the question. A `false` is not a smaller panel -- it is a screen
+/// on which xfx cannot ask, and `super::shell` refuses on the user's behalf
+/// rather than painting a question with its choices off the bottom.
+pub(crate) fn fits_panel(rows: u16, cols: u16, panel: u16) -> bool {
+    solve_band(rows, cols, 1, true, panel).is_some()
+}
+
+/// The same, saying whether the turn's activity row is on the screen and how
+/// many rows the approval panel is taking.
+///
+/// The order is the derivation: the hint row is the last row of the screen, the
+/// composer sits on the rows above it, the divider is the row above the
+/// composer, the panel -- while a decision is pending -- takes the rows above
+/// *that*, the activity row -- when there is work -- is the row above those,
+/// and the document ends one row above whichever of the three is highest. A
+/// `None` is a refusal the caller reports by name -- a band painted onto a
+/// screen that cannot hold it would write over the user's shell output and then
+/// clear it on the way out, which is the one thing this module exists to
+/// prevent.
+pub(crate) fn solve_band(
+    rows: u16,
+    cols: u16,
+    input_rows: u16,
+    activity: bool,
+    panel: u16,
 ) -> Option<Geometry> {
     if rows < MIN_ROWS || cols < MIN_COLS || input_rows == 0 {
         return None;
@@ -110,16 +151,21 @@ pub(crate) fn solve_with(
     let input_last = rows - 1;
     let input_first = (input_last + 1).checked_sub(input_rows)?;
     let divider = input_first.checked_sub(1)?;
+    // The panel sits directly above the rule, so the question is next to the
+    // keys that answer it and the divider stays where it always is -- the row
+    // above the composer. Its rows come off the document exactly as a taller
+    // composer's do.
+    let panel_first = divider.checked_sub(panel)?;
     // The activity row takes its row from the document, exactly as a composer
     // that grew by one would: it is a row of the band while it exists, and the
     // rows a shrinking band gives back are erased by the next thing painted
     // (`super::frame`'s `release`).
     let activity = if activity {
-        Some(divider.checked_sub(1)?)
+        Some(panel_first.checked_sub(1)?)
     } else {
         None
     };
-    let content_bottom = activity.unwrap_or(divider).checked_sub(1)?;
+    let content_bottom = activity.unwrap_or(panel_first).checked_sub(1)?;
     // A composer tall enough to leave no document at all is refused rather than
     // clamped: the caller asked for rows the screen does not have, and silently
     // giving it fewer would put the caret somewhere it did not ask for.
@@ -131,6 +177,7 @@ pub(crate) fn solve_with(
         cols,
         content_bottom,
         activity,
+        panel,
         divider,
         input_first,
         input_last,
@@ -279,6 +326,64 @@ mod tests {
                 .content_bottom,
             1
         );
+    }
+
+    #[test]
+    fn a_pending_decision_takes_its_rows_from_the_document_and_leaves_the_rule_alone() {
+        // The panel is the band's while it exists, and it sits between the
+        // activity row and the rule: the divider, the composer and the caret
+        // must not move when a question appears, or answering it would mean
+        // first finding where the composer went.
+        let working = solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        let asking = solve_band(24, 80, 1, true, 8).expect("a band with a question in it");
+        assert_eq!(asking.divider, working.divider);
+        assert_eq!(asking.input_first, working.input_first);
+        assert_eq!(asking.hint, working.hint);
+        assert_eq!(asking.panel_first(), asking.divider - 8);
+        assert_eq!(
+            asking.activity,
+            Some(asking.panel_first() - 1),
+            "the activity row is not directly above the panel"
+        );
+        assert_eq!(asking.band_top(), asking.activity.expect("a turn"));
+        assert_eq!(asking.band_rows(), working.band_rows() + 8);
+        assert_eq!(asking.content_bottom, working.content_bottom - 8);
+        assert_eq!(
+            asking.content_bottom + asking.band_rows(),
+            asking.rows,
+            "the document and a band with a question in it do not tile the screen"
+        );
+    }
+
+    #[test]
+    fn a_band_with_no_panel_puts_its_first_panel_row_where_the_divider_is() {
+        // The seam every reader of `panel_first` depends on: with no panel the
+        // rows between it and the divider are none, so a painter counting from
+        // it and a painter counting from the divider write the same rows.
+        let geometry = solve(24, 80, 1).expect("a band");
+        assert_eq!(geometry.panel, 0);
+        assert_eq!(geometry.panel_first(), geometry.divider);
+        assert_eq!(geometry.band_top(), geometry.divider);
+    }
+
+    #[test]
+    fn a_screen_with_no_room_for_the_panel_is_refused_rather_than_squeezed() {
+        // What `fits_panel` is asked before a question is ever painted. A panel
+        // whose choices were off the bottom of the screen would be a question
+        // with no visible answers, on a session that is waiting for one.
+        assert!(fits_panel(24, 80, 8));
+        assert!(fits_panel(11, 80, 6));
+        assert!(!fits_panel(10, 80, 6));
+        assert!(!fits_panel(24, 80, 20));
+        assert!(!fits_panel(24, 19, 8), "a screen too narrow for any band");
+        // The composer is not what decides it: the question is asked against a
+        // one-row composer, because a taller draft scrolls. On a short screen a
+        // composer at its own cap and a panel together want more rows than
+        // there are -- and the panel is still admitted, because `super::shell`
+        // gives the composer's rows back one at a time until it fits.
+        assert_eq!(input_row_limit(14), 6);
+        assert!(solve_band(14, 80, 6, true, 8).is_none());
+        assert!(fits_panel(14, 80, 8));
     }
 
     #[test]

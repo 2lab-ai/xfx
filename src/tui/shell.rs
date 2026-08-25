@@ -74,6 +74,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use super::activity::{Activity, Work, PHASES};
+use super::approval::{self, Panel};
 use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -88,6 +89,7 @@ use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Slash, Submitted};
 use crate::output::safe_one_line;
+use crate::permission::{ApprovalAnswer, ApprovalRequest};
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -139,6 +141,17 @@ const QUEUE_DROPPED: &str = "xfx: dropping what was queued behind it as well.";
 /// throws a draft away without a key that says so -- and this row is the whole
 /// of the warning the user gets before the second tap.
 pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
+
+/// What the user is told when the screen cannot hold the question.
+///
+/// A refusal rather than a squeezed panel, and it is the same rule the panel's
+/// own Esc is: **a decision xfx was never given is a refusal**. A question
+/// whose three choices were off the bottom of the screen would leave the
+/// session waiting for an answer the user has no way to give, which is worse
+/// than a change that did not happen. In the document rather than on the hint
+/// row, because it is about a turn rather than about a keystroke.
+const PANEL_TOO_SMALL: &str =
+    "xfx: this screen is too small to ask for permission, so the change was refused";
 
 /// What the user is told when the runtime thread is not there to take work.
 ///
@@ -278,6 +291,14 @@ pub(crate) struct Shell {
     /// what makes the blink a multiple of that tick rather than a second clock
     /// beside it.
     phase: u8,
+    /// The question the turn is waiting on an answer to, while it is waiting.
+    ///
+    /// `Some` is the whole of "the panel has the focus": the band paints it,
+    /// the geometry gives it rows, the caret sits on its marked choice, and
+    /// every keystroke goes to it rather than to the composer. Held here rather
+    /// than derived from an event, because the answer is a keystroke and the
+    /// keystroke has to find something to be an answer *to*.
+    panel: Option<Panel>,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -361,6 +382,7 @@ impl Shell {
             queued: 0,
             activity: Activity::new(),
             phase: 0,
+            panel: None,
             activity_row: None,
             clearing: false,
             fatal: None,
@@ -383,6 +405,15 @@ impl Shell {
         // off the bottom of the screen.
         if self.geometry.activity.is_some() {
             rows.push(self.activity_row.clone().unwrap_or_default());
+        }
+        // The question, in the rows the geometry gave it and only while it gave
+        // them: the panel's height and the band's are one fact settled together
+        // ([`Self::refit`]), so rows painted without the geometry's agreement
+        // would push the hint row off the bottom of the screen.
+        if self.geometry.panel > 0 {
+            if let Some(panel) = self.panel.as_ref() {
+                rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+            }
         }
         rows.push(self.painted(
             self.palette.divider(),
@@ -487,6 +518,19 @@ impl Shell {
     /// Where the caret goes: the terminal's own row, and the number of cells to
     /// the left of it on that row.
     pub(crate) fn cursor(&self) -> (u16, u16) {
+        // While a question is up the panel has the focus, so the caret sits on
+        // the choice Enter would take. A caret left blinking in the composer
+        // would say the next keystroke goes there, and it does not.
+        if self.geometry.panel > 0 {
+            if let Some(panel) = self.panel.as_ref() {
+                return (
+                    self.geometry
+                        .panel_first()
+                        .saturating_add(panel.caret_row(self.geometry.rows)),
+                    0,
+                );
+            }
+        }
         let (row, column) = self.editor.point(self.text_cols());
         let window = self.window(self.editor.rows(self.text_cols()).len());
         // Here, and nowhere before it, is where a row becomes a **terminal
@@ -609,12 +653,11 @@ impl Shell {
                 self.say(line);
             }
             UiEvent::Notice(text) => self.say(text),
-            // Unreachable in this phase, and provably so rather than by
-            // omission: the runtime thread builds its `PermissionSession` with
-            // no prompter at all (`super::worker`), so nothing on the far side
-            // of this channel can ask a question. Task 17 attaches the prompter
-            // and the panel that answers it.
-            UiEvent::Approval(_) => {}
+            // The turn has stopped and is waiting for a person. Everything
+            // about that -- the panel, the rows it costs the document, the
+            // focus, and the clock that stops while it is up -- follows from
+            // this one field being `Some`.
+            UiEvent::Approval(request) => self.ask(request),
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
@@ -647,6 +690,103 @@ impl Shell {
                 self.leave();
             }
         }
+    }
+
+    /// Puts a question in front of the user, or refuses it on their behalf.
+    ///
+    /// The refusal is not a fallback to be tidied up later: a panel that did
+    /// not fit would be painted with its choices below the last row of the
+    /// screen, and the session would sit waiting for a keystroke about a
+    /// question the user cannot read. `ask` mode's own rule decides it -- a
+    /// decision xfx was never given is a refusal.
+    fn ask(&mut self, request: ApprovalRequest) {
+        let panel = Panel::new(request);
+        let rows = panel.height(self.geometry.cols, self.geometry.rows);
+        if !layout::fits_panel(self.geometry.rows, self.geometry.cols, rows) {
+            self.say(PANEL_TOO_SMALL.to_string());
+            self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
+            return;
+        }
+        self.panel = Some(panel);
+        // The band just grew by the panel's rows, so the divider, the composer
+        // and the caret are all somewhere else.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// One keystroke, while a question has the focus.
+    ///
+    /// **Everything the panel does not bind is swallowed**, and that is the
+    /// difference between a panel and a hint: a `1` typed at a question is an
+    /// answer, not a character in a composer whose caret is somewhere else, and
+    /// a Ctrl-D at one does not end a session that is holding a turn open
+    /// waiting to be told what to do.
+    ///
+    /// **Ctrl-C is the exception to "the panel answers it", and it is the whole
+    /// of why this takes a clock.** A question does not stop being a turn: the
+    /// key means what it means everywhere else on this surface -- stop the work
+    /// and drop what is queued behind it ([`Self::interrupt`]) -- and the
+    /// refusal of the question comes back *with* it rather than instead of it,
+    /// because the prompter is the thing parked on that channel and it turns a
+    /// cancellation into a `Deny` and hands the cancellation on to the loop that
+    /// can act on it (`super::approval::TuiPrompter`). Answering `Deny` here and
+    /// stopping there would leave the user watching the turn they interrupted
+    /// carry on, with the prompt they had queued behind it running next.
+    fn decide(&mut self, event: Input, now: Instant) {
+        let action = match event {
+            Input::Text(character) => approval::Action::Text(character),
+            Input::Action(Action::Up) => approval::Action::Up,
+            Input::Action(Action::Down) => approval::Action::Down,
+            Input::Action(Action::Tab) => approval::Action::Tab,
+            Input::Action(Action::Submit) => approval::Action::Submit,
+            Input::Action(Action::Escape) => approval::Action::Escape,
+            Input::Action(Action::Cancel) => approval::Action::Cancel,
+            // The whole band is repainted every frame, so a redraw is a frame
+            // here as much as anywhere else.
+            Input::Action(Action::Redraw) => {
+                self.render.request(Reason::ExternalDamage);
+                return;
+            }
+            Input::Action(_) | Input::PasteByte(_) => return,
+        };
+        let Some(panel) = self.panel.as_mut() else {
+            return;
+        };
+        let answered = panel.apply(action);
+        let Some(answer) = answered else {
+            // The marker moved, which is a frame and nothing else.
+            self.render.request(Reason::Modal);
+            return;
+        };
+        // The panel goes **before** anything is sent, so the band's next paint
+        // is a band with no question in it whatever the runtime does next --
+        // including asking a second question straight away.
+        self.panel = None;
+        match action {
+            // One message, both meanings. `Deny` is what the prompter answers a
+            // cancellation with on the far side, so sending `Answer(Deny)` here
+            // as well would be the *only* thing the runtime heard -- and the
+            // turn this question belongs to, and whatever was queued behind it,
+            // would go on running after the user asked everything to stop.
+            approval::Action::Cancel => self.interrupt(now),
+            // Esc and the rest are an answer about *this call* and nothing
+            // more: the turn goes on, and is told no.
+            _ => self.work.control(TurnControl::Answer(answer)),
+        }
+        // The band gives the panel's rows back to the document. The clock
+        // starts again on the next settle rather than here, for the reason
+        // every other timed answer on this surface is settled there: what is
+        // painted has to be the same reading that asked for the frame
+        // ([`Self::tick_activity`]).
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// How many rows the band owes the question, and none when there is none.
+    fn panel_rows(&self) -> u16 {
+        self.panel.as_ref().map_or(0, |panel| {
+            panel.height(self.geometry.cols, self.geometry.rows)
+        })
     }
 
     /// Adds answer text to the stream, where the pacer releases it.
@@ -931,6 +1071,17 @@ impl Shell {
         if self.activity.working() && !self.activity.started() {
             self.activity.begin(now);
         }
+        // **The clock stops while the question is up**, because that interval
+        // measures the person rather than the model: a turn that spent four
+        // minutes waiting to be told whether it could edit a file did not spend
+        // four minutes thinking. One place decides it -- the field the panel
+        // lives in -- so the row and the reason for it cannot disagree, and
+        // both calls are idempotent (`super::activity`).
+        if self.panel.is_some() {
+            self.activity.freeze(now);
+        } else {
+            self.activity.thaw(now);
+        }
         if self.render.animate(self.activity.working(), now) {
             self.phase = (self.phase + 1) % PHASES;
         }
@@ -964,6 +1115,14 @@ impl Shell {
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
+            // The panel has the focus while it is up, and this is the whole of
+            // what that means: nothing below runs, so a `1` cannot be typed
+            // into the composer and a Ctrl-D cannot leave a session with a turn
+            // waiting on an answer.
+            if self.panel.is_some() {
+                self.decide(event, now);
+                continue;
+            }
             match event {
                 Input::Text(character) => self.type_character(character),
                 Input::Action(action) => self.act(action, now),
@@ -1040,11 +1199,12 @@ impl Shell {
             }
             // The whole band is repainted every frame, so a redraw is a frame.
             Action::Redraw => self.render.request(Reason::ExternalDamage),
-            // Not this task's: the paste markers are Task 18's, and an `Ignore`
-            // is a keystroke this session has no binding for -- an event rather
-            // than silence precisely so that it accounts for the bytes it was
-            // decoded from.
-            Action::PasteStart | Action::PasteEnd | Action::Ignore => {}
+            // Not this task's: the paste markers are Task 18's, `Tab` is the
+            // approval panel's and the composer has no completion for it to
+            // drive, and an `Ignore` is a keystroke this session has no binding
+            // for -- an event rather than silence precisely so that it accounts
+            // for the bytes it was decoded from.
+            Action::Tab | Action::PasteStart | Action::PasteEnd | Action::Ignore => {}
         }
     }
 
@@ -1345,16 +1505,37 @@ impl Shell {
         // typed while a turn ran would take that row away and the frame after
         // it would put it back.
         let activity = self.activity_row.is_some();
-        if wanted == self.geometry.input_rows() && activity == self.geometry.activity.is_some() {
+        // The band's third height: the rows a pending decision is taking.
+        let panel = self.panel_rows();
+        if wanted == self.geometry.input_rows()
+            && activity == self.geometry.activity.is_some()
+            && panel == self.geometry.panel
+        {
             return;
         }
-        if let Some(geometry) =
-            layout::solve_with(self.geometry.rows, self.geometry.cols, wanted, activity)
-        {
-            self.geometry = geometry;
-            // The divider moved, so every row of the band is somewhere else.
-            self.render.request(Reason::Resize);
-        }
+        // **The composer gives way to the question, one row at a time.** A
+        // panel and a tall draft together can want more rows than the screen
+        // has, and the draft is the half that can afford to lose one: a
+        // composer shown two rows shorter still shows the caret and the text
+        // around it ([`editor::window`]), while a panel with its choices below
+        // the last row of the screen is a question with no visible answers. The
+        // search is bounded by the cap and always finds an answer for a panel
+        // that [`layout::fits_panel`] admitted, because that is the same
+        // question asked of a one-row composer.
+        let Some(geometry) = (1..=wanted).rev().find_map(|input_rows| {
+            layout::solve_band(
+                self.geometry.rows,
+                self.geometry.cols,
+                input_rows,
+                activity,
+                panel,
+            )
+        }) else {
+            return;
+        };
+        self.geometry = geometry;
+        // The divider moved, so every row of the band is somewhere else.
+        self.render.request(Reason::Resize);
     }
 }
 
@@ -1400,7 +1581,9 @@ mod tests {
         shell: Shell,
         /// What the shell handed the runtime, in order.
         sent: Receiver<TurnWork>,
-        _control: UnboundedReceiver<TurnControl>,
+        /// What it told the runtime *about* that work: a cancellation, a
+        /// shutdown, or the answer to a question.
+        control: UnboundedReceiver<TurnControl>,
     }
 
     impl std::ops::Deref for Fixture {
@@ -1482,6 +1665,33 @@ mod tests {
         fn picks_up(&mut self) -> TurnWork {
             self.sent.try_recv().expect("the runtime had work to take")
         }
+
+        /// The next thing the shell said on the control channel, if it said
+        /// anything.
+        fn controlled(&mut self) -> Option<TurnControl> {
+            self.control.try_recv().ok()
+        }
+
+        /// The band row the caret is on.
+        ///
+        /// Asked through the caret rather than by looking for the marker,
+        /// because the claim every panel case makes is that the two agree: the
+        /// marker is what the eye reads and the caret is what the terminal
+        /// says, and a test that read the marker alone would pass with the
+        /// caret left in the composer.
+        fn marked(&self) -> String {
+            let offset = usize::from(
+                self.shell
+                    .cursor()
+                    .0
+                    .saturating_sub(self.shell.geometry.band_top()),
+            );
+            self.shell
+                .band_rows()
+                .get(offset)
+                .cloned()
+                .unwrap_or_else(|| panic!("the caret is not on a row of the band"))
+        }
     }
 
     /// The divider row a `cols`-wide band paints, colour and all.
@@ -1535,7 +1745,7 @@ mod tests {
     fn shell(rows: u16, cols: u16) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
-        let (work, sent, _control) = WorkHandle::detached();
+        let (work, sent, control) = WorkHandle::detached();
         Fixture {
             shell: Shell::new(
                 &config(home.path(), workspace.path()),
@@ -1544,7 +1754,7 @@ mod tests {
                 work,
             ),
             sent,
-            _control,
+            control,
         }
     }
 
@@ -2458,6 +2668,399 @@ mod tests {
         );
     }
 
+    // -----------------------------------------------------------------------
+    // the question
+    // -----------------------------------------------------------------------
+
+    /// The question a scripted edit puts to the user, in the shape
+    /// `crate::permission::PermissionSession::ask` builds one.
+    fn asked() -> ApprovalRequest {
+        ApprovalRequest {
+            tool: "edit_file",
+            target: "notes.txt".to_string(),
+            summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
+            always_scope:
+                "allow every future edit_file to `notes.txt` for the rest of this session"
+                    .to_string(),
+        }
+    }
+
+    /// A shell with a turn running and a question in front of the user.
+    fn asking(shell: &mut Fixture) -> Instant {
+        let started = turn_running(shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        let _ = shell.document();
+        started
+    }
+
+    /// The same, with a second prompt waiting behind the interrupted turn.
+    ///
+    /// Queued **before** the question arrives, because that is the only order a
+    /// session can produce one in: the panel takes the focus when it appears,
+    /// so nothing can be typed into the composer while it is up.
+    fn asking_with_one_waiting(shell: &mut Fixture) -> Instant {
+        let started = turn_running(shell, b"edit the notes\r");
+        shell.route_bytes(b"queued while deciding\r");
+        assert_eq!(shell.hint(), queued_hint(1), "the prompt was not taken");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        let _ = shell.document();
+        started
+    }
+
+    #[test]
+    fn a_question_takes_the_rows_above_the_rule_and_leaves_the_composer_where_it_was() {
+        // The band grows upward for a question exactly as it does for a turn:
+        // the divider, the composer and everything below stay put, and the rows
+        // come off the bottom of the document. A panel that moved the composer
+        // would make answering it start with finding where the caret went.
+        let mut shell = shell(24, 80);
+        let working = {
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            let _ = started;
+            shell.geometry
+        };
+        assert_eq!(working.panel, 0);
+
+        shell.apply(UiEvent::Approval(asked()));
+
+        assert_eq!(
+            shell.geometry.panel, 8,
+            "a 24-row screen gets the compact panel"
+        );
+        assert_eq!(shell.geometry.divider, working.divider);
+        assert_eq!(shell.geometry.input_first, working.input_first);
+        assert_eq!(shell.geometry.hint, working.hint);
+        assert_eq!(shell.geometry.content_bottom, working.content_bottom - 8);
+
+        let rows = shell.band_rows();
+        assert_eq!(
+            rows.len(),
+            usize::from(shell.geometry.band_rows()),
+            "the band painted a different number of rows than it solved for"
+        );
+        let painted = rows.join("\n");
+        assert!(painted.contains("Permission needed"), "{painted}");
+        assert!(
+            painted.contains("replace \"alpha\" with \"beta\""),
+            "{painted}"
+        );
+        assert!(
+            painted.contains("don't ask again for this request"),
+            "{painted}"
+        );
+        assert!(
+            painted.contains("for the rest of this session"),
+            "the panel never said what \"always\" would grant: {painted}"
+        );
+    }
+
+    #[test]
+    fn the_caret_sits_on_the_choice_enter_would_take_rather_than_in_the_composer() {
+        // Where the caret is *is* what the terminal says the focus is, and the
+        // focus really has moved: the next keystroke does not reach the draft.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"a draft");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+
+        assert_eq!(shell.marked(), "> 1. Yes");
+        shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
+        assert!(
+            shell.marked().starts_with("> 2. Yes, and"),
+            "the caret did not follow the marker: {:?}",
+            shell.marked()
+        );
+        assert_eq!(shell.controlled(), None, "moving the marker answered");
+    }
+
+    #[test]
+    fn a_digit_answers_the_question_and_the_band_gives_its_rows_straight_back() {
+        for (typed, answer) in [
+            (b'1', ApprovalAnswer::Once),
+            (b'2', ApprovalAnswer::Always),
+            (b'3', ApprovalAnswer::Deny),
+        ] {
+            let mut shell = shell(24, 80);
+            let before = {
+                asking(&mut shell);
+                shell.geometry
+            };
+            assert_eq!(before.panel, 8);
+
+            shell.route_bytes(&[typed]);
+
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer(answer)),
+                "typing {} did not answer the question",
+                typed as char
+            );
+            assert_eq!(shell.geometry.panel, 0, "the band kept the panel's rows");
+            assert!(
+                !shell.band_rows().join("\n").contains("Permission needed"),
+                "an answered question stayed on the screen"
+            );
+            assert!(
+                shell.editor.is_empty(),
+                "the digit was typed into the composer as well"
+            );
+        }
+    }
+
+    #[test]
+    fn enter_takes_the_marked_choice_and_tab_and_the_arrows_are_what_mark_it() {
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+
+        shell.route_bytes(b"\t"); // the second choice
+        assert_eq!(shell.controlled(), None, "Tab answered instead of moving");
+        shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
+        shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Always)),
+            "Enter did not take the marked choice"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_question_refuses_it_rather_than_arming_the_clear() {
+        // The double-Escape gesture is the composer's, and the composer does
+        // not have the focus. A first Escape that armed it would leave a
+        // question up and a warning about a draft the user is not editing.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"a draft");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+        );
+        assert!(!shell.hint().contains(ESCAPE_ARMED), "the clear was armed");
+        assert_eq!(
+            shell.editor.text(),
+            "a draft",
+            "the refusal threw the draft away"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_a_question_is_the_interrupt_it_is_everywhere_else() {
+        // **The message on the wire is a cancellation, not an answer**, and the
+        // difference is the whole of this case. The refusal of the question
+        // comes back with it: the prompter is what is parked on this channel,
+        // and it turns a cancellation into a `Deny` and hands the cancellation
+        // on to the loop that stops the turn and drops the queue
+        // (`super::approval::TuiPrompter`, and the composed proof in
+        // `tests/tui.rs`). An `Answer(Deny)` sent from here would be the only
+        // thing the runtime ever heard, and the interrupted turn would carry on.
+        let mut shell = shell(24, 80);
+        // A prompt is waiting behind the interrupted turn, so the message this
+        // sends has to carry the watermark that says which waiting work the
+        // keystroke was about.
+        asking_with_one_waiting(&mut shell);
+        let accepted = shell.work.accepted();
+
+        shell.route_bytes(&[0x03]);
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "the panel ate the interrupt and answered for it"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a second message went with it; the prompter answers the question \
+             from the cancellation itself"
+        );
+        // And the user was told, in the two sentences a Ctrl-C is answered with
+        // wherever it is typed.
+        let said = shell.released();
+        assert!(
+            said.contains(&crate::app::INTERRUPT_NOTICE.to_string()),
+            "the interrupt landed silently: {said:?}"
+        );
+        assert!(
+            said.contains(&QUEUE_DROPPED.to_string()),
+            "the queue went with it and nobody said so: {said:?}"
+        );
+        assert_eq!(shell.geometry.panel, 0, "the question stayed on the screen");
+        assert!(
+            !shell.leaving(),
+            "one Ctrl-C at a question left the session"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_question_answers_only_the_question_it_is_about() {
+        // The other half of the pair: Esc is an answer about *this call* and
+        // nothing more. A turn stopped by it would make the two refusals mean
+        // different things, and the panel says `3. No (esc)` about only one.
+        let mut shell = shell(24, 80);
+        asking_with_one_waiting(&mut shell);
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+        );
+        assert_eq!(shell.controlled(), None, "Esc cancelled the turn as well");
+        assert_eq!(
+            shell.hint(),
+            queued_hint(1),
+            "Esc dropped the prompt that was waiting"
+        );
+    }
+
+    #[test]
+    fn a_keystroke_the_question_has_no_binding_for_reaches_nothing_at_all() {
+        // The panel has the focus, so a Ctrl-D at one does not end a session
+        // that is holding a turn open waiting to be told what to do, and typed
+        // text does not accumulate in a composer whose caret is elsewhere.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+
+        shell.route_bytes(b"hello");
+        shell.route_bytes(&[0x04]);
+        shell.route_bytes(&[0x7f]);
+
+        assert!(
+            shell.editor.is_empty(),
+            "the panel leaked into the composer"
+        );
+        assert!(!shell.leaving(), "Ctrl-D left a session with a question up");
+        assert_eq!(shell.controlled(), None);
+        assert!(
+            shell.band_rows().join("\n").contains("Permission needed"),
+            "the question went away without being answered"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_the_question_is_up_and_starts_again_after_it() {
+        // What that interval measures is the person, not the model. A turn that
+        // spent four minutes waiting to be told whether it could edit a file
+        // did not spend four minutes thinking, and a row that said so would be
+        // the one number on the band nobody could trust.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.settle_band(started + Duration::from_secs(2));
+        let before = shell.activity_row.clone().expect("a running turn");
+        assert!(before.contains("2s"), "{before:?}");
+
+        // The question arrives, and the next tick of the loop is what stops the
+        // clock -- the same seam every other timed row is settled on.
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started + Duration::from_secs(2));
+        shell.settle_band(started + Duration::from_secs(30));
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(before.as_str()),
+            "the clock ran while xfx was waiting for the user"
+        );
+
+        shell.route_bytes(b"1");
+        shell.settle_band(started + Duration::from_secs(30));
+        shell.settle_band(started + Duration::from_secs(33));
+        let after = shell.activity_row.clone().expect("the turn goes on");
+        assert!(
+            after.contains("5s"),
+            "the turn was charged for the time it spent waiting for a person: \
+             {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_screen_too_small_to_show_the_question_refuses_it_and_says_so() {
+        // Never an allow. A panel with its choices below the last row of the
+        // screen would leave the session waiting for a keystroke about a
+        // question nobody can read, which is worse than a change that did not
+        // happen.
+        let mut shell = shell(10, 80);
+        turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked()));
+
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+        );
+        assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
+        assert!(!shell.band_rows().join("\n").contains("Permission needed"));
+    }
+
+    #[test]
+    fn a_draft_at_its_cap_gives_rows_back_to_the_question_rather_than_hiding_it() {
+        // A panel and a composer at its own cap can want more rows than a short
+        // screen has. The draft is the half that can afford to lose one --  it
+        // scrolls, and the caret stays visible -- while a question with its
+        // choices off the bottom is a question with no answers.
+        let mut shell = shell(14, 80);
+        let limit = crate::tui::layout::input_row_limit(14);
+        shell.route_bytes("x\n".repeat(usize::from(limit) + 2).as_bytes());
+        assert_eq!(shell.geometry.input_rows(), limit);
+        turn_running(&mut shell, &[]);
+
+        shell.apply(UiEvent::Approval(asked()));
+
+        assert_eq!(shell.geometry.panel, 8, "the question was refused instead");
+        assert!(
+            shell.geometry.input_rows() < limit,
+            "the composer kept every row and the panel was painted off-screen"
+        );
+        assert_eq!(
+            shell.band_rows().len(),
+            usize::from(shell.geometry.band_rows())
+        );
+        assert!(
+            shell.geometry.content_bottom >= 1,
+            "the band took the whole screen"
+        );
+        // And the caret is still on the panel rather than on a composer row
+        // that no longer exists.
+        assert_eq!(shell.marked(), "> 1. Yes");
+    }
+
+    #[test]
+    fn a_question_that_arrives_while_a_prompt_is_queued_is_still_answerable() {
+        // Scenario 10b, on this side of the channel: the answer travels on the
+        // control channel, which the runtime drains *inside* a turn, so it does
+        // not queue behind a submission the turn cannot dequeue until it ends.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        // The composer has no focus, so the queued prompt is submitted the only
+        // way it can be: by the runtime having taken one already.
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("edit the notes".to_string())
+        );
+
+        shell.route_bytes(b"1");
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            "the answer went nowhere"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the answer was sent as work rather than as control"
+        );
+    }
+
     #[test]
     fn a_submission_the_runtime_will_not_take_keeps_the_draft_and_says_so() {
         // The ordering this is really about: the offer comes before the
@@ -2518,7 +3121,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
 
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 })
         );
         assert_eq!(
@@ -2544,7 +3147,7 @@ mod tests {
         shell.route_bytes(&[0x03]);
 
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 2 }),
             "the interrupt did not reach back over both submissions"
         );
@@ -2589,7 +3192,7 @@ mod tests {
         let _running = shell.picks_up();
         shell.route_bytes(&[0x03]);
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 })
         );
 
@@ -2607,7 +3210,7 @@ mod tests {
              it still remembered the one that stopped that turn"
         );
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 }),
             "the keystroke did nothing at all"
         );
@@ -2623,7 +3226,7 @@ mod tests {
         let _first = shell.picks_up();
         shell.route_bytes(&[0x03]);
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 })
         );
 
@@ -2639,7 +3242,7 @@ mod tests {
              session still remembered being asked to stop the last one"
         );
         assert_eq!(
-            shell._control.try_recv(),
+            shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 2 }),
             "the new turn was never asked to stop"
         );
@@ -2670,7 +3273,7 @@ mod tests {
 
         assert!(shell.editor.is_empty(), "the draft survived a Ctrl-C");
         assert!(
-            shell._control.try_recv().is_err(),
+            shell.control.try_recv().is_err(),
             "a cancellation was sent with nothing running"
         );
         assert!(!shell.leaving());
@@ -3045,9 +3648,9 @@ mod tests {
 
     #[test]
     fn a_tool_that_refused_says_so_where_the_user_can_read_it() {
-        // The fail-closed half of this phase: `ask` mode has no approval
-        // channel in the TUI yet, so a mutation is denied -- and a denial
-        // nobody can see is the same as no denial at all.
+        // A denial nobody can see is the same as no denial at all, whatever
+        // the reason for it: a rule in the configuration, a screen too small to
+        // ask on, or a `3` typed at the panel.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::ToolStart {
             call_id: "c1".to_string(),

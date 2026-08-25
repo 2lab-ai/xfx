@@ -513,6 +513,7 @@ fn fail(message: &str) -> ExitCode {
 }
 
 mod activity;
+mod approval;
 mod bridge;
 mod editor;
 mod event_loop;

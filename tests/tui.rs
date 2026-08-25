@@ -1907,6 +1907,300 @@ fn quit_leaves_the_way_ctrl_d_does() {
 }
 
 // ---------------------------------------------------------------------------
+// asking for permission
+// ---------------------------------------------------------------------------
+//
+// `ask` is the default-safe mode, and it is the one this surface could not run
+// in until the band could ask: `TtyPrompter` reads a line from the descriptor
+// the UI thread is sitting in `pselect(2)` on, so a TUI session that attached
+// it would have two readers on one terminal. The cases here are the discriminating
+// ones -- a unit test cannot tell "no prompter" from "a prompter the UI answers"
+// off a terminal, because off a terminal `app::permission_session` attaches
+// nothing either (`src/tui/worker.rs`'s
+// `the_permission_authority_a_turn_runs_under_can_ask_the_band` says so).
+// Only a real pty, a real `1`, and a file that really changed tell them apart.
+
+/// What the panel calls itself. Response-only: nothing this suite types
+/// contains it, so waiting for it cannot be satisfied by the pty's echo.
+const PERMISSION_TITLE: &str = "Permission needed";
+
+/// The second choice's wording for anything that is not a shell command.
+///
+/// Spelled out rather than imported, for the reason [`MODE_SET`] is: a needle
+/// that read the constant it is checking would pass for whatever
+/// `src/tui/approval.rs` happened to declare.
+const ALWAYS_WORDING: &str = "don't ask again for this request";
+
+#[test]
+fn ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through() {
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+
+    session.wait_for(PERMISSION_TITLE);
+    // The disclosure the line shell's prompt makes, made here too: what would
+    // happen, and exactly what the second choice would grant. A panel that
+    // asked a narrower question than the prompt it replaces would be a
+    // regression rather than a port.
+    session.wait_for(ALWAYS_WORDING);
+    session.wait_for("for the rest of this session");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the edit ran before it was approved"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_refusal_in_the_band_leaves_the_file_alone() {
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.type_bytes(b"3");
+    session.wait_for("the edit is done");
+
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n"
+    );
+    // The refusal reached the user as well, on a row of its own: a denial
+    // nobody can see is the same as no denial at all.
+    assert!(
+        session.text().contains("edit_file refused"),
+        "the turn was told no and the user was not: {:?}",
+        session.text()
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_answer_lands_even_with_a_prompt_already_queued() {
+    // Scenario 10b: the answer travels on `TurnControl`, which is unbounded and
+    // drained *inside* the turn, so it cannot queue behind a submission the
+    // turn cannot dequeue until it ends. With one channel this test deadlocks.
+    //
+    // The second prompt is typed **before** the question appears, because the
+    // panel takes the focus when it does -- which is the other half of the same
+    // design, and the reason a `1` typed at a panel is an answer rather than a
+    // character in the composer.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.type_bytes(b"queued while deciding\r");
+    // Response-only: the band is the only thing that writes it.
+    session.wait_for("queued 1");
+    session.wait_for(PERMISSION_TITLE);
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
+
+    session.type_bytes(&[0x03, 0x03]);
+    assert_eq!(session.wait_exit().code(), Some(130));
+}
+
+#[test]
+fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
+    // What that interval measures is the person, not the model.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let _notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+
+    let before = elapsed_on_activity_row(&session.text()).expect("an elapsed time");
+    let frames_before = session.text().matches(FRAME_END).count();
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let text = session.text();
+    let after = elapsed_on_activity_row(&text).expect("an elapsed time");
+    // **The band kept painting**, and this is what keeps the assertion below
+    // from being vacuous: the marker blinks every 500 ms whether or not the
+    // clock is running, so a session that had simply stopped drawing would
+    // trivially report the same number. Frames arrived; the number in them did
+    // not move.
+    assert!(
+        text.matches(FRAME_END).count() > frames_before,
+        "the band stopped painting, so the frozen clock proves nothing"
+    );
+    assert_eq!(
+        before, after,
+        "the clock ran while xfx was waiting for the user"
+    );
+
+    session.type_bytes(b"3");
+    session.wait_for("the edit is done");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
+    // The composed row for the whole gesture, driven the only way it can be
+    // driven honestly: a real `0x03` typed at a real panel on a real pty, with
+    // all three effects asserted on the far side of the input -> shell ->
+    // worker path.
+    //
+    // The three are one keystroke and have to stay one: the prompter answers
+    // the cancellation with a refusal and hands the cancellation on
+    // (`src/tui/approval.rs`), and the loop that receives it stops the turn and
+    // abandons what was queued behind it in the same closure
+    // (`src/tui/worker.rs`'s `raced_against_control`). A shell that answered
+    // `Deny` and stopped there would leave the interrupted turn running with the
+    // queued prompt behind it -- which is what this file pinned before the fix.
+    //
+    // The script carries two spare replies so the *broken* build fails on an
+    // assertion rather than on an unscripted 500: with the interrupt eaten, the
+    // queued prompt runs and takes the first of them.
+    let mut script = support::sandbox::edit_then_finish();
+    for _ in 0..2 {
+        script.push(support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["AFTER-THE-INTERRUPT"]),
+        ));
+    }
+    let gateway = FakeGateway::start(script);
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    // Queued before the question appears, because the panel takes the focus
+    // when it does.
+    session.type_bytes(b"queued while deciding\r");
+    session.wait_for("queued 1");
+    session.wait_for(PERMISSION_TITLE);
+
+    session.type_bytes(&[0x03]);
+
+    // (b) The turn was interrupted, in the words a Ctrl-C is answered with
+    // wherever it is typed (`app::INTERRUPT_NOTICE`). Response-only.
+    session.wait_for("stopping the turn");
+    // (c) ... and the queue went with it, said where the user can read it.
+    session.wait_for("dropping what was queued");
+
+    // Both notices above are written by the **UI** thread at the keystroke, so
+    // neither says the runtime has acted yet. This does: the band stops saying
+    // `queued 1` when the place that prompt was holding is given back, and only
+    // `Queue::abandon` on the runtime thread gives it back. Waited for rather
+    // than assumed, because the prompt below needs the room -- a submission
+    // made while the session still holds two is refused on the hint row and
+    // never sent, which is how this case flaked before the wait was here.
+    session.wait_until("the runtime to give the queued place back", |text| {
+        last_frame(text).is_some_and(|frame| !frame.contains("queued"))
+    });
+
+    // A prompt typed *after* the interrupt is a new intention and still runs.
+    // Waiting for its answer is the synchronisation the assertion below needs:
+    // the work channel is first-in-first-out, so by the time this has been
+    // answered the queued prompt has either run or been dropped.
+    session.type_bytes(b"after the interrupt\r");
+    session.wait_for("AFTER-THE-INTERRUPT");
+
+    // (a) The call was denied: the edit never happened.
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the interrupted question let the edit through"
+    );
+    // (c) again, and this is the half only the runtime thread can produce: the
+    // queued prompt was abandoned rather than run, so it never reached the
+    // provider. Nothing but `Queue::abandon` -- which only the cancellation's
+    // own closure calls -- can make this true.
+    let asked: Vec<String> = gateway
+        .requests()
+        .iter()
+        .map(|request| request.json().to_string())
+        .collect();
+    assert!(
+        !asked
+            .iter()
+            .any(|body| body.contains("queued while deciding")),
+        "the interrupt did not reach the runtime: the queued prompt ran anyway"
+    );
+    assert!(
+        asked
+            .iter()
+            .any(|body| body.contains("after the interrupt")),
+        "the prompt typed after the interrupt was eaten as well: {asked:?}"
+    );
+    // (b) again, from the other side: the interrupted turn never reached its
+    // own conclusion. Settled rather than snapshotted, because this is a claim
+    // about something that must *never* appear.
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert!(
+        !text.contains("the edit is done"),
+        "the interrupted turn ran to completion: {text:?}"
+    );
+}
+
+/// The last elapsed time the activity row has shown, in seconds.
+fn elapsed_on_activity_row(text: &str) -> Option<u64> {
+    let mut latest = None;
+    let bytes = text.as_bytes();
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b's' {
+            continue;
+        }
+        let start = text[..index]
+            .rfind(|c: char| !c.is_ascii_digit())
+            .map_or(0, |boundary| boundary + 1);
+        if start < index {
+            if let Ok(seconds) = text[start..index].parse::<u64>() {
+                latest = Some(seconds);
+            }
+        }
+    }
+    latest
+}
+
+// ---------------------------------------------------------------------------
 // the failures a shipped build cannot produce
 // ---------------------------------------------------------------------------
 //

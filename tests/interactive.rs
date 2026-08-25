@@ -17,7 +17,7 @@ mod support;
 
 use std::fs::{self, OpenOptions};
 use std::os::unix::process::ExitStatusExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use rustix::process::{Pid, Signal};
@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
-use support::sandbox::{Sandbox, TEST_KEY};
+use support::sandbox::{edit_then_finish, with_notes, Sandbox, TEST_KEY};
 
 /// The prompt the shell writes before reading a line.
 const PROMPT: &str = "> ";
@@ -958,46 +958,6 @@ fn a_model_chosen_in_the_shell_is_what_the_session_records() {
 // ---------------------------------------------------------------------------
 // the permission modes, on a terminal
 // ---------------------------------------------------------------------------
-
-/// A Gateway that reads `notes.txt`, edits it, and then reports what happened.
-///
-/// The read is not decoration. An edit may only replace a file the turn has
-/// already read in full, in *every* mode -- that is a validation rule about
-/// knowing what you are overwriting, not a permission rule, so `yolo` does not
-/// skip it either. A script that jumped straight to the edit would be testing
-/// that rule rather than the permission modes.
-fn edit_then_finish() -> Vec<Reply> {
-    vec![
-        Reply::Sse(sse_body(&[
-            support::fake_gateway::tool_call(
-                "call-0",
-                "read_file",
-                serde_json::json!({ "path": "notes.txt" }),
-            ),
-            support::fake_gateway::finish("tool-calls"),
-        ])),
-        Reply::Sse(sse_body(&[
-            support::fake_gateway::tool_call(
-                "call-1",
-                "edit_file",
-                serde_json::json!({
-                    "path": "notes.txt",
-                    "old_string": "alpha",
-                    "new_string": "beta",
-                }),
-            ),
-            support::fake_gateway::finish("tool-calls"),
-        ])),
-        Reply::Sse(content_only(&["the edit is done"])),
-    ]
-}
-
-/// A workspace with one file the model is scripted to edit.
-fn with_notes(sandbox: &Sandbox) -> PathBuf {
-    let path = sandbox.workspace.join("notes.txt");
-    fs::write(&path, "alpha\n").expect("write the fixture");
-    path
-}
 
 #[test]
 fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {

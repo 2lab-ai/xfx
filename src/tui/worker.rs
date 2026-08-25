@@ -40,12 +40,29 @@
 //!
 //! That helper attaches `TtyPrompter`, which reads a line from standard input
 //! -- the descriptor the UI thread owns and is polling. Two readers on one
-//! terminal is precisely the bug this topology exists to prevent, so until
-//! Task 17 lands a prompter that asks through the `TurnControl` channel, the
-//! worker builds a [`PermissionSession`] with **no approval channel at all**.
-//! `ask` mode therefore denies a mutation with the same `no approval channel`
-//! refusal a pipe gets: fail-closed, visible as a tool result rather than
-//! silent, and stated in `docs/parity.md`.
+//! terminal is precisely the bug this topology exists to prevent. So the
+//! worker builds its own [`PermissionSession`] and attaches
+//! [`super::approval::TuiPrompter`], which asks by sending the UI a
+//! [`UiEvent::Approval`] and hears the answer back on the `TurnControl`
+//! channel. Nothing on this thread reads a descriptor, and `ask` -- the
+//! default-safe mode -- runs under the TUI rather than denying every mutation
+//! for want of somewhere to ask.
+//!
+//! The prompter is built **once, with the session**, and not per turn: an
+//! "always" answer is recorded in the `PermissionSession` the conversation
+//! holds, so a session rebuilt per turn would make "for the rest of this
+//! session" mean "for the rest of this turn". `/new` drops the conversation and
+//! with it the grants, which is what that command means on the other front end
+//! too.
+//!
+//! # The control channel has two readers, and only one at a time
+//!
+//! `ApprovalPrompter::request` is synchronous, so it parks this thread while it
+//! waits -- which means [`raced_against_control`] is not running while it does,
+//! and the prompter has to read the control channel itself. That sharing, the
+//! waker it costs and the rule that makes it sound all live in
+//! [`super::approval::ControlChannel`], which is the only thing on either side
+//! that touches the receiver.
 
 use std::future::Future;
 use std::io;
@@ -57,8 +74,9 @@ use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 
+use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{self, Cancellation, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink};
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::config::RuntimeConfig;
@@ -262,7 +280,11 @@ impl WorkHandle {
     /// [`Rejected::Gone`], so a fixture that discarded them would exercise a
     /// path no real session takes.
     #[cfg(test)]
-    pub(crate) fn detached() -> (Self, Receiver<TurnWork>, UnboundedReceiver<TurnControl>) {
+    pub(crate) fn detached() -> (
+        Self,
+        Receiver<TurnWork>,
+        mpsc::UnboundedReceiver<TurnControl>,
+    ) {
         let (work, work_rx) = mpsc::channel(WORK_LIMIT);
         let (control, control_rx) = mpsc::unbounded_channel();
         (
@@ -411,6 +433,11 @@ pub(crate) fn spawn(
     let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
     let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
     let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+    // One receiver, read by the turn loop and -- while it is parked in an
+    // approval -- by the prompter. See `super::approval::ControlChannel` for
+    // why that is sound and what it costs.
+    let control = ControlChannel::new(control_rx);
+    let prompter = TuiPrompter::new(events_tx.clone(), Arc::clone(&control), cancel.clone());
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
     let outstanding = Arc::new(AtomicUsize::new(0));
@@ -434,10 +461,10 @@ pub(crate) fn spawn(
                 return;
             };
             runtime.block_on(turn_loop(
-                Runtime::new(config, model, store),
+                Runtime::new(config, model, store, prompter),
                 &events_tx,
                 &mut work_rx,
-                control_rx,
+                control,
                 session_cancel,
                 &loops_outstanding,
             ));
@@ -494,16 +521,26 @@ struct Runtime {
     store: SessionStore,
     conversation: Option<Conversation>,
     provider: Option<Bundle>,
+    /// The way to ask the person at the terminal, cloned into each
+    /// conversation's authority. Held here rather than made per turn -- see the
+    /// module header on what "always" is worth.
+    prompter: TuiPrompter,
 }
 
 impl Runtime {
-    fn new(config: RuntimeConfig, model: String, store: SessionStore) -> Self {
+    fn new(
+        config: RuntimeConfig,
+        model: String,
+        store: SessionStore,
+        prompter: TuiPrompter,
+    ) -> Self {
         Self {
             config,
             model,
             store,
             conversation: None,
             provider: None,
+            prompter,
         }
     }
 
@@ -529,14 +566,15 @@ impl Runtime {
     /// **Not `app::permission_session`**, and this is the one line of the
     /// module header that is a line of code: that helper attaches a prompter
     /// which reads standard input, and standard input is the descriptor the UI
-    /// thread owns and is polling. With no prompter at all, `ask` mode denies a
-    /// mutation with `NoApprovalChannel` -- fail-closed and visible -- until
-    /// Task 17 lands one that asks through the `TurnControl` channel instead.
+    /// thread owns and is polling. This one asks through the band instead
+    /// ([`super::approval::TuiPrompter`]), so `ask` mode is answerable here
+    /// without a second reader on the terminal.
     ///
     /// A named step rather than an argument written inline, so that what a turn
     /// may say yes with is something a test can hold.
     fn authority(&self) -> PermissionSession {
         PermissionSession::new(self.config.permission_mode)
+            .with_prompter(Box::new(self.prompter.clone()))
     }
 
     /// What `/model <id>` means, with the line shell's own meaning.
@@ -571,7 +609,7 @@ async fn turn_loop(
     mut state: Runtime,
     events: &Sender<UiEvent>,
     work: &mut Receiver<TurnWork>,
-    mut control: UnboundedReceiver<TurnControl>,
+    control: Arc<ControlChannel>,
     cancel: Cancellation,
     outstanding: &AtomicUsize,
 ) {
@@ -595,7 +633,8 @@ async fn turn_loop(
                 Some(TurnControl::Cancel { through }) => Taken::Abandon(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
-                // next one.
+                // next one: the prompter that could have asked one is only
+                // reachable from inside a turn.
                 Some(TurnControl::Answer(_)) => Taken::Nothing,
             },
             item = queue.work.recv() => Taken::Work(item),
@@ -628,15 +667,7 @@ async fn turn_loop(
                 Ended::Turn
             }
             TurnWork::Submit(prompt) => {
-                run_turn(
-                    &mut state,
-                    prompt,
-                    events,
-                    &cancel,
-                    &mut control,
-                    &mut queue,
-                )
-                .await
+                run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
             }
         };
         // **After the terminal event, not before it.** The place `submit`
@@ -769,7 +800,7 @@ async fn run_turn(
     prompt: String,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
-    control: &mut UnboundedReceiver<TurnControl>,
+    control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
@@ -836,9 +867,15 @@ async fn run_turn(
 /// full `UiEvent` channel, which is the exact state a user reaches for Ctrl-C
 /// in. The body is always awaited to completion afterwards -- whatever ended it,
 /// a turn still owes its one terminal event.
+///
+/// **One interval is the exception, and it is answered rather than lost**: while
+/// an approval is up the body has parked this whole thread, so nothing here is
+/// polled at all. The prompter reads the channel itself for exactly that
+/// interval, refuses the question on a `Cancel` or a `Shutdown`, and hands the
+/// message back for this loop to act on ([`super::approval::ControlChannel`]).
 async fn raced_against_control<F: Future>(
     body: F,
-    control: &mut UnboundedReceiver<TurnControl>,
+    control: &ControlChannel,
     mut stop: impl FnMut(usize),
 ) -> (F::Output, Ended) {
     tokio::pin!(body);
@@ -866,11 +903,11 @@ async fn raced_against_control<F: Future>(
                     // later prompt to belong to.
                     stop(usize::MAX);
                 }
-                // Nothing on the far side of this channel can have asked a
-                // question yet: the turn runs under an authority with no
-                // prompter at all (`Runtime::authority`). Consumed rather than
-                // left, so that the task which attaches one does not inherit an
-                // answer to a question from a turn that is over.
+                // An answer to a question that is no longer being asked: the
+                // prompter takes its own answer off this channel while it is
+                // parked (`super::approval`), so anything reaching here is a
+                // second keystroke on a panel that has already gone. Consumed
+                // rather than left, so the next question does not inherit it.
                 Some(TurnControl::Answer(_)) => {}
                 // The UI dropped its sender, which is the same fact as a
                 // shutdown and is treated as one.
@@ -1485,7 +1522,8 @@ mod tests {
         // provider has gone quiet without hanging up, is never. The body below
         // is exactly that turn: it does not end when it is stopped, and the
         // queue still has to be empty by the time this returns.
-        let (handle, mut work_rx, mut control_rx) = WorkHandle::detached();
+        let (handle, mut work_rx, control_rx) = WorkHandle::detached();
+        let control = ControlChannel::new(control_rx);
         handle
             .submit(TurnWork::Submit("running".into()))
             .expect("idle");
@@ -1514,11 +1552,10 @@ mod tests {
             outstanding: &counted,
             taken: 1,
         };
-        let (was_stopped, ended) =
-            on_a_runtime(raced_against_control(body, &mut control_rx, |through| {
-                stopped.store(true, Ordering::Release);
-                queue.abandon(through);
-            }));
+        let (was_stopped, ended) = on_a_runtime(raced_against_control(body, &control, |through| {
+            stopped.store(true, Ordering::Release);
+            queue.abandon(through);
+        }));
 
         assert!(
             was_stopped,
@@ -1605,15 +1642,15 @@ mod tests {
         // by itself -- which, for a provider that has gone quiet without
         // hanging up, may be never.
         let (body, stopped) = stopped_or_not();
-        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
         control_tx
             .send(TurnControl::Cancel { through: 0 })
             .expect("the receiver is alive");
 
-        let (output, ended) =
-            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
-                stopped.store(true, Ordering::Release)
-            }));
+        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
+            stopped.store(true, Ordering::Release)
+        }));
 
         assert_eq!(
             output, STOPPED,
@@ -1629,13 +1666,13 @@ mod tests {
     #[test]
     fn a_shutdown_mid_turn_stops_the_turn_and_the_loop_behind_it() {
         let (body, stopped) = stopped_or_not();
-        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
         control_tx.send(TurnControl::Shutdown).expect("alive");
 
-        let (output, ended) =
-            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
-                stopped.store(true, Ordering::Release)
-            }));
+        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
+            stopped.store(true, Ordering::Release)
+        }));
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
@@ -1649,13 +1686,13 @@ mod tests {
         // is a hang rather than a failure, so the bounded body below is the
         // proof.
         let (body, stopped) = stopped_or_not();
-        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
         drop(control_tx);
 
-        let (output, ended) =
-            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
-                stopped.store(true, Ordering::Release)
-            }));
+        let (output, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
+            stopped.store(true, Ordering::Release)
+        }));
 
         // Deleting the flag **hangs** this case rather than failing it, and
         // that is worth being exact about: a `recv` on a closed channel is
@@ -1669,13 +1706,16 @@ mod tests {
 
     #[test]
     fn an_answer_to_a_question_nobody_asked_neither_stops_a_turn_nor_ends_it() {
-        // No prompter is attached in this phase, so an `Answer` here is a stray.
-        // It is consumed rather than left in the channel, and it does not end
-        // anything -- a turn stopped by a message it did not understand would
-        // be worse than one that ignored it.
+        // The prompter takes its own answer off this channel while it is
+        // parked (`super::approval`), so an `Answer` reaching the loop is a
+        // second keystroke on a panel that has already gone. It is consumed
+        // rather than left in the channel, and it does not end anything -- a
+        // turn stopped by a message it did not understand would be worse than
+        // one that ignored it.
         let stopped = Arc::new(AtomicBool::new(false));
         let watched = Arc::clone(&stopped);
-        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
         control_tx
             .send(TurnControl::Answer(crate::permission::ApprovalAnswer::Deny))
             .expect("alive");
@@ -1683,15 +1723,14 @@ mod tests {
         // makes "the stray changed nothing" observable.
         let body = async move { !watched.load(Ordering::Acquire) };
 
-        let (untouched, ended) =
-            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
-                stopped.store(true, Ordering::Release)
-            }));
+        let (untouched, ended) = on_a_runtime(raced_against_control(body, &control, |_through| {
+            stopped.store(true, Ordering::Release)
+        }));
 
         assert!(untouched, "a stray answer cancelled the turn");
         assert_eq!(ended, Ended::Turn);
         assert!(
-            control_rx.try_recv().is_err(),
+            control.recv().now_or_never().is_none(),
             "the stray was left in the channel for the next turn to misread"
         );
     }
@@ -1752,6 +1791,22 @@ mod tests {
 
     /// A `Runtime` with a real store and a real conversation open in it, which
     /// is what the durable half of `/model` needs to be observable at all.
+    /// A prompter with nothing on either end of it.
+    ///
+    /// The fixtures below never run a turn, so nothing here ever asks anybody
+    /// anything. What matters is that the authority a turn *would* run under is
+    /// built the way production builds it, rather than the way a fixture found
+    /// convenient.
+    fn a_prompter() -> TuiPrompter {
+        let (events, _seen) = mpsc::channel(1);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        TuiPrompter::new(
+            events,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+        )
+    }
+
     fn recording(model: &str) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
@@ -1765,7 +1820,7 @@ mod tests {
             &CancelToken::new(),
         )
         .expect("open a conversation");
-        let mut state = Runtime::new(config, model.to_string(), store);
+        let mut state = Runtime::new(config, model.to_string(), store, a_prompter());
         state.conversation = Some(conversation);
         (home, workspace, state)
     }
@@ -1830,21 +1885,24 @@ mod tests {
     }
 
     #[test]
-    fn the_permission_authority_a_turn_runs_under_has_no_way_to_ask_a_question() {
-        // The fail-closed half of this phase. Asked of `Runtime::authority`,
-        // which is what `ready` hands `open_conversation`, rather than of a
-        // session the fixture built for itself -- a fixture asserting against
-        // its own argument would pass whatever the worker did.
+    fn the_permission_authority_a_turn_runs_under_can_ask_the_band() {
+        // Asked of `Runtime::authority`, which is what `ready` hands
+        // `open_conversation`, rather than of a session the fixture built for
+        // itself -- a fixture asserting against its own argument would pass
+        // whatever the worker did.
         //
         // **What this cannot see**, and it is worth saying: off a terminal
-        // `app::permission_session` attaches no prompter either, so swapping
-        // one spelling for the other here changes nothing a unit test can read.
-        // The two are told apart only by an `ask`-mode tool call on a real pty,
-        // which is Task 17's acceptance to write.
+        // `app::permission_session` attaches no prompter either, so this
+        // assertion would pass for the wrong spelling of the same line as long
+        // as *something* were attached. The two are told apart only by an
+        // `ask`-mode tool call on a real pty, which is what
+        // `tests/tui.rs::ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through`
+        // is: it types `1` into the band, and only a prompter that hears the
+        // band can turn that into an edit.
         let (_home, _workspace, state) = recording("any-model");
         assert!(
-            !state.authority().has_prompter(),
-            "the runtime thread built an approval channel onto the UI's terminal"
+            state.authority().has_prompter(),
+            "`ask` mode has nowhere to ask, so every mutation is refused"
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
     }

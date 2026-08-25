@@ -51,11 +51,15 @@
 //! transcript row is written to the terminal as it stands: an `ESC [ 2 J` typed
 //! into the band would be *obeyed* rather than shown
 //! ([`super::frame::row_text`] strips CR and LF and nothing else). So the table
-//! below is closed -- a C0 byte is a binding or it is [`Action::Ignore`], and
-//! `0x09` is `Ignore` like every other byte the table does not name, rather
-//! than the tab character it would otherwise become. The same rule covers the
-//! C1 range, which arrives as perfectly valid UTF-8: `U+0085` and `U+009B` are
-//! control scalars and are ignored, not typed.
+//! below is closed -- a C0 byte is a **binding** or it is [`Action::Ignore`],
+//! and never text. `0x09` is the one worth naming: it is [`Action::Tab`], a
+//! binding the approval panel walks its choices with
+//! ([`super::approval::Panel`]) and the composer has none for, rather than the
+//! tab character it would otherwise become. Naming it changes nothing about the
+//! policy -- what the policy forbids is a control reaching the composer as
+//! *text*, and an action never does. The same rule covers the C1 range, which
+//! arrives as perfectly valid UTF-8: `U+0085` and `U+009B` are control scalars
+//! and are ignored, not typed.
 //!
 //! That is the first half of the policy the ledger records. The second half is
 //! an allowlist at the render layer, and it belongs there rather than here,
@@ -131,6 +135,11 @@ pub(crate) enum Action {
     KillToStart,
     Submit,
     InsertNewline,
+    /// The tab key. Bound by the approval panel and by nothing else in this
+    /// phase; the composer has no completion for it to drive, so a tab typed at
+    /// a prompt does nothing -- which is what it did before it had a name, with
+    /// the difference that a panel can now hear it.
+    Tab,
     Escape,
     Cancel,
     Eof,
@@ -486,9 +495,10 @@ fn carriable(byte: u8) -> bool {
 /// What one C0 byte or DEL means (`shortcuts.zig:11-30`).
 ///
 /// Closed on purpose: a byte with no row here is [`Action::Ignore`] and never a
-/// character. `0x09` is the one worth naming -- a tab that became text would be
-/// a control in the composer, then in the transcript, and finally on the wire
-/// back to the terminal.
+/// character. `0x09` is the one worth naming -- a tab that became *text* would
+/// be a control in the composer, then in the transcript, and finally on the
+/// wire back to the terminal, so it is a named action instead
+/// ([`Action::Tab`]).
 fn control(byte: u8) -> Action {
     match byte {
         0x01 => Action::Home,
@@ -498,6 +508,7 @@ fn control(byte: u8) -> Action {
         0x05 => Action::End,
         0x06 => Action::Right,
         0x08 | 0x7f => Action::Backspace,
+        0x09 => Action::Tab,
         0x0a => Action::InsertNewline,
         0x0b => Action::KillToEnd,
         0x0c => Action::Redraw,
@@ -958,7 +969,9 @@ mod tests {
         // equality. A test that only sampled the range, or only asserted that
         // nothing became text, would pass with a binding flipped -- `0x11`
         // answering `Cancel` is as wrong as `0x09` answering `Text`, and only
-        // an exhaustive table says so.
+        // an exhaustive table says so. `0x09` is `Tab` and not `Ignore`: the
+        // approval panel walks its choices with it, and the composer has no
+        // binding for it, so it is still a keystroke that types nothing.
         let named = [
             (0x01u8, Action::Home),
             (0x02, Action::Left),
@@ -967,6 +980,7 @@ mod tests {
             (0x05, Action::End),
             (0x06, Action::Right),
             (0x08, Action::Backspace),
+            (0x09, Action::Tab),
             (0x0a, Action::InsertNewline),
             (0x0b, Action::KillToEnd),
             (0x0c, Action::Redraw),
