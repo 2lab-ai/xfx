@@ -520,6 +520,7 @@ mod event_loop;
 mod fault;
 mod frame;
 mod gesture;
+mod hint;
 mod input;
 mod layout;
 mod pacer;

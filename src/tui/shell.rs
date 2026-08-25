@@ -77,6 +77,7 @@ use super::activity::{Activity, Work, PHASES};
 use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
+use super::hint::{self, Hint, Notice};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
@@ -84,7 +85,7 @@ use super::render_request::{Reason, RenderRequest};
 use super::theme::Palette;
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
-use crate::config::RuntimeConfig;
+use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Slash, Submitted};
 use crate::output::safe_one_line;
 
@@ -190,6 +191,22 @@ pub(crate) struct Shell {
     /// replaces it, and both want one field rather than a borrow of the whole
     /// configuration.
     model: String,
+    /// How much authority a turn will have before it has to ask.
+    ///
+    /// Read once and never changed: the mode is settled by the configuration
+    /// and this phase adds no command that moves it -- the six slash names are
+    /// the line shell's and none of them is `/permission`.
+    mode: PermissionMode,
+    /// Whether the configured provider has nothing to authenticate with.
+    ///
+    /// Asked of the **provider** rather than of one field
+    /// ([`crate::provider::resolve_credential_for`]), because the two providers
+    /// need different things and both refuse every turn without them: a Gateway
+    /// session with no bearer credential and a llmux session with no
+    /// `llmux_url` are the same fact on this row. Settled at startup like
+    /// [`Self::model`], because both of its inputs are the environment and the
+    /// profile, and neither moves under a running session.
+    missing_credential: bool,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
     /// The one input machine of the session.
@@ -323,6 +340,9 @@ impl Shell {
                 render
             },
             model: config.model.clone(),
+            mode: config.permission_mode,
+            missing_credential: crate::provider::resolve_credential_for(config.provider, config)
+                .is_none(),
             editor: Editor::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
@@ -383,12 +403,8 @@ impl Shell {
         while rows.len() + 1 < usize::from(self.geometry.band_rows()) {
             rows.push(String::new());
         }
-        // The hint row. Two of its segments exist in this phase -- what the
-        // queue is holding, and whether a second Escape would throw the draft
-        // away -- and a refusal takes the left of it whole, because a refusal
-        // is about the keystroke that just happened and the rest is about the
-        // state. Task 16 replaces the joining with upstream's, on the same
-        // three facts.
+        // The hint row: what a turn will be run with, in upstream's order and
+        // budgeted to the screen ([`super::hint`]).
         rows.push(self.painted(self.palette.hint(), self.hint_row()));
         rows
     }
@@ -423,35 +439,49 @@ impl Shell {
 
     /// What the band's last row says.
     ///
-    /// Not budgeted: a row wider than the screen is clipped by the painter like
-    /// every other band row (`super::frame`'s `row_text`), so nothing overflows
-    /// -- but on a narrow terminal the warning is what falls off the end rather
-    /// than the segment a reader would have chosen to drop. Task 16 is where
-    /// the segments learn to give way from the right.
+    /// **Budgeted rather than clipped**, and by [`super::hint`] rather than
+    /// here: that module owns the segments, the order they are said in and the
+    /// order they give way in on a screen too narrow for all of them. What is
+    /// this method's is the half of the row the shell knows and the hint does
+    /// not -- which facts are true right now, and what colour each one is
+    /// painted in.
+    ///
+    /// The notice is the colour: a refusal is painted in its own role *inside*
+    /// the row's, and the row's colour is put back after it. The two halves are
+    /// handed over **separately** ([`Notice`]) rather than wrapped around the
+    /// text here, and that is the difference between a rule and a hope: the
+    /// budget cuts the text of a notice too wide for its side, and a closing
+    /// sequence written behind that text would be cut with it -- leaving the
+    /// warning to the right of the row painted in the refusal's colour. The
+    /// opening half travels with the text, because a colour costs no columns
+    /// ([`super::wrap::width`], which is what the budget is measured with) and
+    /// a cut that left nothing for it to apply to leaves nothing to look at.
     fn hint_row(&self) -> String {
-        let mut row = String::new();
-        if let Some(notice) = self.notice {
-            // A colour of its own inside the row's, because a refusal is about
-            // the keystroke that just happened and the rest of the row is about
-            // the state -- and closed again with the hint colour rather than
-            // with a reset, so what follows on the row is still the row's own
-            // colour rather than the terminal's default.
-            row.push_str(self.palette.notice());
-            row.push_str(notice);
-            if self.escape_armed {
-                row.push_str(self.palette.hint());
-            }
-        } else if self.queued > 0 {
-            row.push_str("queued ");
-            row.push_str(&self.queued.to_string());
-        }
-        if self.escape_armed {
-            if !row.is_empty() {
-                row.push_str(GUTTER);
-            }
-            row.push_str(ESCAPE_ARMED);
-        }
-        row
+        let notice = self.notice.map(|text| Notice {
+            text,
+            style: self.palette.notice(),
+            resume: self.palette.hint(),
+        });
+        hint::row(
+            &Hint {
+                missing_credential: self.missing_credential,
+                queued: self.queued,
+                mode: self.mode,
+                model: &self.model,
+                // Nothing on the Phase-1 path measures a context: no
+                // [`UiEvent`] carries a usage number, and the Gateway publishes
+                // no window to be the denominator ([`Hint::context_used`]).
+                context_used: None,
+                notice,
+                // The armed half of the double-Escape gesture goes to the
+                // right-hand slot: it is a warning about what the *next*
+                // keystroke would do rather than another fact about the
+                // session, and a warning that moved left and right with the
+                // queue's depth would be one the eye has to look for.
+                right: self.escape_armed.then_some(ESCAPE_ARMED),
+            },
+            self.geometry.cols,
+        )
     }
 
     /// Where the caret goes: the terminal's own row, and the number of cells to
@@ -1464,6 +1494,35 @@ mod tests {
         )
     }
 
+    /// What a fixture's hint row says when nothing has happened on it.
+    ///
+    /// Not "empty": the row carries the session's identity from the first
+    /// frame. [`config`] loads from a home with no settings in it and an empty
+    /// environment, so this fixture is a session with **no credential**, in the
+    /// compiled-in permission mode (`config::PermissionMode::default`) and on
+    /// the compiled-in model (`config::DEFAULT_MODEL`) -- all three of which
+    /// the row is there to say.
+    const IDLE_HINT: &str = "run `xfx setup` · auto · glm-5.2";
+
+    /// The same row with `queued N` in its place in the order.
+    fn queued_hint(depth: usize) -> String {
+        format!("run `xfx setup` · queued {depth} · auto · glm-5.2")
+    }
+
+    /// The same row with the double-Escape warning flush against the last
+    /// column of a `cols`-wide screen.
+    fn armed_hint(cols: u16) -> String {
+        let padding = usize::from(cols)
+            - usize::from(super::super::wrap::width(IDLE_HINT))
+            - usize::from(super::super::wrap::width(ESCAPE_ARMED));
+        format!("{IDLE_HINT}{}{ESCAPE_ARMED}", " ".repeat(padding))
+    }
+
+    /// One hint row, painted the way the band paints it.
+    fn hint_row(text: &str) -> String {
+        format!("{}{text}{}", PALETTE.hint(), PALETTE.reset())
+    }
+
     /// The palette every fixture paints in.
     ///
     /// The default one, so a test that asserts on a band row asserts on what an
@@ -1511,7 +1570,11 @@ mod tests {
         );
         assert_eq!(rows[0], divider(80), "the divider");
         assert_eq!(rows[1], "> ", "the composer's prompt marker");
-        assert_eq!(rows[2], "", "the hint row is owned and empty");
+        assert_eq!(
+            rows[2],
+            hint_row(IDLE_HINT),
+            "the hint row does not say what a turn would be run with"
+        );
     }
 
     #[test]
@@ -1539,6 +1602,49 @@ mod tests {
         assert!(
             hint.ends_with(PALETTE.reset()),
             "the hint row left its colour open: {hint:?}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_that_is_cut_short_does_not_paint_the_warning_beside_it() {
+        // The composed case, on the row a terminal really gets. Two things are
+        // true at once here: a refusal is too wide for the side of the row it
+        // has, and the double-Escape warning is armed on the other side. The
+        // refusal is cut -- and the sequence that puts the row's own colour
+        // back is emitted **after** the cut ([`super::super::hint::Notice`]),
+        // because a closing sequence carried behind the notice's text would be
+        // dropped with the text the clip dropped, and the warning would then be
+        // painted in the refusal's colour.
+        let mut shell = shell(24, 40);
+        shell.notice = Some(QUEUE_REJECTED);
+        shell.escape_armed = true;
+        let rows = shell.band_rows();
+        let row = rows.last().expect("a hint row").clone();
+
+        let warning = row.find(ESCAPE_ARMED).expect("the warning is on the row");
+        let before = &row[..warning];
+        assert!(
+            before.rfind(PALETTE.hint()) > before.rfind(PALETTE.notice()),
+            "the warning is painted in the refusal's colour: {row:?}"
+        );
+        // Non-vacuous in both directions: the refusal really was cut, and it
+        // really was painted in its own colour before it.
+        assert!(
+            !row.contains("was not sent"),
+            "the refusal fit, so this case no longer forces the cut: {row:?}"
+        );
+        assert!(
+            before.contains(PALETTE.notice()),
+            "the refusal was never painted at all: {row:?}"
+        );
+        assert_eq!(
+            super::super::wrap::width(&row),
+            40,
+            "the row is not the screen it was solved for: {row:?}"
+        );
+        assert!(
+            row.ends_with(PALETTE.reset()),
+            "the hint row left its colour open: {row:?}"
         );
     }
 
@@ -2013,11 +2119,11 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"first\r");
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
-        assert_eq!(shell.hint(), "", "an empty queue was announced");
+        assert_eq!(shell.hint(), IDLE_HINT, "an empty queue was announced");
 
         shell.route_bytes(b"second\r");
 
-        assert_eq!(shell.hint(), "queued 1");
+        assert_eq!(shell.hint(), queued_hint(1));
         assert!(
             shell.editor.is_empty(),
             "a submission that was taken kept the draft"
@@ -2076,7 +2182,7 @@ mod tests {
         // takes.
         assert!(rows[0].contains("2s"), "{rows:?}");
         assert_eq!(rows[1], divider(80), "the rule moved");
-        assert_eq!(rows.last().expect("a hint row"), "");
+        assert_eq!(rows.last().expect("a hint row"), &hint_row(IDLE_HINT));
     }
 
     #[test]
@@ -2376,9 +2482,12 @@ mod tests {
         // In the notice's own colour rather than the row's: a refusal is about
         // the keystroke that just happened and the rest of the row is about the
         // state (`render.zig:34,76 system_notice_text_style`).
+        // And closed again with the row's own colour rather than left for the
+        // row's trailing reset to close, so the run this row opened ends where
+        // the refusal does whether or not anything follows it.
         assert_eq!(
             shell.hint(),
-            format!("{}{QUEUE_REJECTED}", PALETTE.notice())
+            format!("{}{QUEUE_REJECTED}{}", PALETTE.notice(), PALETTE.hint())
         );
         assert!(
             shell.document().is_empty(),
@@ -2429,7 +2538,7 @@ mod tests {
         shell.route_bytes(b"first\r");
         let _running = shell.picks_up();
         shell.route_bytes(b"second\r");
-        assert_eq!(shell.hint(), "queued 1");
+        assert_eq!(shell.hint(), queued_hint(1));
         let _ = shell.document();
 
         shell.route_bytes(&[0x03]);
@@ -2612,7 +2721,7 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert_eq!(
             shell.hint(),
-            ESCAPE_ARMED,
+            armed_hint(80),
             "the destructive half of the gesture was not announced"
         );
         assert_eq!(
@@ -2636,7 +2745,11 @@ mod tests {
         shell.route_bytes(b"one two three");
         shell.route_bytes(&[0x1b, 0x7f, 0x1b, 0x7f]);
         assert_eq!(shell.editor.text(), "one ");
-        assert_eq!(shell.hint(), "", "the composer-clearing gesture was armed");
+        assert_eq!(
+            shell.hint(),
+            IDLE_HINT,
+            "the composer-clearing gesture was armed"
+        );
     }
 
     // -----------------------------------------------------------------------

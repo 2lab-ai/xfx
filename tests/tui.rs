@@ -88,6 +88,43 @@ const FRAME_END: &str = "\u{1b}[?2026l\u{1b}[?25h";
 /// to solve.
 const BAND_TOP: &str = "\u{1b}[22;1H";
 
+/// What the hint row of a fresh session says: the permission mode a turn will
+/// run under and the model it will run against.
+///
+/// Spelled out rather than imported, for the reason [`MODE_SET`] is: a needle
+/// that read the constants it is checking (`config::DEFAULT_MODEL`, the
+/// compiled-in permission mode) would pass for whatever those modules happened
+/// to declare. **No colour in it**: the palette's depth depends on what the
+/// machine running this suite claims ([`depth_of_the_test_machine`]), and the
+/// row's text does not.
+const HINT: &str = "auto · glm-5.2";
+
+/// The same row in a session with no credential at all, which is every sandbox
+/// that was not wired to a gateway: the call to action leads, because nothing
+/// else on the row matters on a machine where every turn will refuse.
+const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
+
+/// The bytes that end a hint row and put the caret back on an empty composer.
+///
+/// The reset is the palette's only machine-independent sequence, which is what
+/// makes this needle frame-local without being colour-dependent: it can only
+/// match where a hint row ended and the frame closed.
+const HINT_END: &str = "\u{1b}[0m\u{1b}[23;3H";
+
+/// The last **complete** frame in `text`, if there is one.
+///
+/// The needles here are frame-local on purpose -- everything the session ever
+/// painted is still in the harness's buffer -- and a claim about two rows of
+/// *one* frame stopped being spellable as a single byte string when the row
+/// between them started carrying a colour whose depth depends on the machine.
+/// A frame still open reads as no frame at all, so a predicate over this waits
+/// rather than asserting against half a paint.
+fn last_frame(text: &str) -> Option<&str> {
+    let begins = text.rfind(FRAME_BEGIN)?;
+    let ends = text[begins..].find(FRAME_END)? + begins;
+    Some(&text[begins..ends])
+}
+
 /// The whole interactive mode sequence, in order (`terminal.zig:4-13`).
 ///
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
@@ -1048,6 +1085,72 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
     }
 }
 
+#[test]
+fn the_hint_row_says_what_mode_and_which_model_a_turn_will_use() {
+    // The row is most of the band's identity: the two facts a user checks
+    // before pressing Return, in upstream's order and joined the way upstream
+    // joins them (`render.zig:391-460`). One needle rather than two `contains`,
+    // because the separator between them is the claim -- two segments that had
+    // drifted onto different rows would satisfy a pair of substring checks.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-HINT"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 100);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_MODEL", "anthropic/claude-opus-4-7");
+    // `ask` rather than `auto`: `auto` is what the binary compiles in
+    // (`config::PermissionMode::default`), so a row that ignored the
+    // environment entirely would still say it.
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.wait_for("ask · opus 4-7");
+
+    // And it is still saying it after a turn: the row is the session's, not the
+    // frame's.
+    session.type_bytes(b"say it\r");
+    session.wait_for("MARKER-HINT");
+    session.wait_for(&format!("ask · opus 4-7{HINT_END}"));
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    // The two things this row deliberately does not say, on the settled stream
+    // because they are absences: a session that has a credential is not nagged
+    // to set one up, and nothing measures a context in this phase, so the
+    // meter says nothing rather than reporting a zero nobody measured
+    // (`docs/parity.md`).
+    assert!(
+        !text.contains("run `xfx setup"),
+        "a session with a credential was told to set one up: {text:?}"
+    );
+    assert!(
+        !text.contains("Context:"),
+        "a context nobody measured was reported: {text:?}"
+    );
+}
+
+#[test]
+fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt() {
+    // The segment that leads the row, and the only one that is about the
+    // machine rather than about the turn: this sandbox exports no credential of
+    // any kind (`Sandbox::CONTROLLED_VARS` are removed), so every turn it could
+    // run would refuse -- which is worth knowing before typing a prompt rather
+    // than after sending one.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(&format!("{HINT_WITHOUT_A_CREDENTIAL}{HINT_END}"));
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
 // ---------------------------------------------------------------------------
 // the composer
 // ---------------------------------------------------------------------------
@@ -1079,9 +1182,19 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
     session.wait_for("> hello \u{d55c}\u{1b}[24;1H");
 
     // C-a: the caret goes home, which is the composer's first column -- two
-    // cells of prompt marker in, on the composer's own row.
+    // cells of prompt marker in, on the composer's own row. Taken as a whole
+    // frame rather than as one byte string: the hint row now sits between the
+    // composer row and the caret, and it carries a colour whose spelling
+    // depends on what the machine running this suite claims.
     session.type_bytes(&[0x01]);
-    session.wait_for("> hello \u{d55c}\u{1b}[24;1H\u{1b}[23;3H");
+    session.wait_until(
+        "the caret to go home in the frame that painted the row",
+        |text| {
+            last_frame(text).is_some_and(|frame| {
+                frame.contains("> hello \u{d55c}\u{1b}[24;1H") && frame.ends_with("\u{1b}[23;3H")
+            })
+        },
+    );
     // C-d with text under the caret: a forward delete, and the session stays.
     session.type_bytes(&[0x04]);
     session.wait_for("> ello \u{d55c}\u{1b}[24;1H");
@@ -1372,17 +1485,17 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
     assert!(matches!(session.state(), Wait::Running));
 
     // The band has stopped announcing a queue that no longer exists. Asserted
-    // as the *frame* an empty hint row makes -- the row written at 24;1 with
-    // nothing on it before the caret goes back to the composer -- and counted
-    // from the whole settled stream below rather than waited for, because an
-    // empty hint row is also what every frame before the queue looked like.
+    // as the *frame* a hint row without a queue makes -- the row ending in the
+    // session's own identity before the caret goes back to an empty composer --
+    // and counted from the whole settled stream below rather than waited for,
+    // because that is also what every frame before the queue looked like.
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
     let queued = text.rfind("queued 1").expect("the queue was announced");
     let cleared = text
-        .rfind("\u{1b}[24;1H\u{1b}[23;3H")
-        .expect("a frame with an empty hint row and an empty composer");
+        .rfind(&format!("{HINT}{HINT_END}"))
+        .expect("a frame whose hint row says nothing about a queue");
     assert!(
         queued < cleared,
         "the band was still saying `queued 1` after the interrupt dropped it"
