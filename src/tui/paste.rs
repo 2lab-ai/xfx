@@ -77,8 +77,9 @@ pub(crate) const COLLAPSE_ABOVE: usize = 1000;
 /// names at the end or absent): 5.5 ms for one block, 559 ms for a hundred and
 /// **5.6 s for a thousand** -- a hang rather than a slowdown, and reachable by
 /// pasting repeatedly into one draft without submitting it. Sixty-four bounds
-/// that at some 360 ms, while an ordinary draft holds a handful and pays
-/// single-digit milliseconds.
+/// that at some 360 ms. The cost is per block and linear, so the handful a
+/// draft really holds pays tens of milliseconds rather than single digits --
+/// about five per block against a draft that size.
 ///
 /// A cap rather than the scan that would remove the need for one: every summary
 /// begins `[Pasted text #`, so a single pass that found that prefix and looked
@@ -274,21 +275,43 @@ impl Paste {
         let id = self.next.saturating_add(1);
         let summary = summary(id, lines);
         if !self.refused {
-            // Collapsed: the draft gets the *name*, and the text is held out of
-            // sight behind it -- so the resulting prompt is that draft plus
-            // what its blocks are holding, this paste's own text included. The
-            // blocks this paste damages are already out of `holding`, and the
-            // new one is not in it yet, which is why both are added by hand.
+            // Collapsed: the draft gets the *name* and the text is held out of
+            // sight behind it, so the resulting prompt is that draft plus what
+            // its blocks are holding -- this paste's own text included.
+            //
+            // **The candidate goes into the same arbitration**, not beside it.
+            // Adding its bytes and its slot afterwards would charge for a block
+            // that is not certain to survive: at a saturated id its name can be
+            // one an older block already answers to, and then the run goes to
+            // the older one and `reconcile` throws this block away the moment
+            // it is registered. Charging for that is charging for bytes that
+            // cannot be sent, which refuses pastes that fit.
             let next = draft_with(before, after, &summary);
-            let (held, count) = self.holding(&next);
-            let fits =
-                next.len().saturating_add(held).saturating_add(text.len()) <= MAX_PASTE_BYTES;
+            let mut names = self.names();
+            // Which copy of its own name the candidate will be -- counted the
+            // way `super::shell::Shell::pasted` will count it, in front of the
+            // caret. Last in the list, because that is where it will sit in
+            // `blocks` once it is registered.
+            names.push((summary.as_str(), before.matches(summary.as_str()).count()));
+            let candidate = names.len().saturating_sub(1);
+            let (held, count) = arbitrate(&next, &names).into_iter().fold(
+                (0usize, 0usize),
+                |(bytes, count), (_, index)| {
+                    let own = if index == candidate {
+                        text.len()
+                    } else {
+                        self.blocks[index].text.len()
+                    };
+                    (bytes.saturating_add(own), count.saturating_add(1))
+                },
+            );
+            let fits = next.len().saturating_add(held) <= MAX_PASTE_BYTES;
             // **The other budget, and it is a budget of time**: every block a
             // draft holds is one more read of that draft on every keystroke
-            // ([`MAX_RETAINED_BLOCKS`]). Counted over the draft this paste
-            // leaves too, so a paste that replaces a name it damages does not
-            // have to find a free slot that its own arrival creates.
-            if !fits || count >= MAX_RETAINED_BLOCKS {
+            // ([`MAX_RETAINED_BLOCKS`]). `count` already includes the candidate
+            // when it wins a run, which is why this is `>` where the same
+            // question asked of the blocks alone would be `>=`.
+            if !fits || count > MAX_RETAINED_BLOCKS {
                 self.refused = true;
             }
         }
@@ -346,24 +369,15 @@ impl Paste {
     /// Indices rather than references, so a caller holding `&mut self` can act
     /// on the answer.
     fn claims(&self, draft: &str) -> Vec<(usize, usize)> {
-        let mut found: Vec<(usize, usize)> = self
-            .blocks
+        arbitrate(draft, &self.names())
+    }
+
+    /// Every registered block as the pair [`arbitrate`] judges it by.
+    fn names(&self) -> Vec<(&str, usize)> {
+        self.blocks
             .iter()
-            .enumerate()
-            .filter_map(|(index, block)| {
-                placeholder_at(draft, &block.summary, block.occurrence).map(|at| (at, index))
-            })
-            .collect();
-        found.sort_by_key(|(at, _)| *at);
-        let mut cut = 0usize;
-        found.retain(|(at, index)| {
-            if *at < cut {
-                return false;
-            }
-            cut = at.saturating_add(self.blocks[*index].summary.len());
-            true
-        });
-        found
+            .map(|block| (block.summary.as_str(), block.occurrence))
+            .collect()
     }
 
     /// Whether a draft that looked like this would be inside the budget.
@@ -499,6 +513,42 @@ impl Paste {
 /// paste into pieces.
 pub(crate) fn accepted(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e | 0x80..=0xff)
+}
+
+/// Which of `names` claims a run of `draft`, and where: at most one claim on
+/// any run, earlier claimants first.
+///
+/// **The one arbitration.** Everything that has to agree about which blocks a
+/// draft really names asks this and nothing else -- what is sent
+/// ([`Paste::expand`]), what is kept ([`Paste::reconcile`]), what is charged
+/// ([`Paste::holding`]) and what a paste *would* leave ([`Paste::finish`]) --
+/// so the charged set cannot drift from the expandable one.
+///
+/// A run is claimed twice only at a saturated id, where `next` has stopped
+/// moving and two blocks carry the same name. The earlier of them takes it,
+/// and "earlier" is the order `names` comes in: registration order for blocks
+/// that exist, with a paste's own candidate last, because that is the order
+/// they will sit in once it is registered.
+fn arbitrate(draft: &str, names: &[(&str, usize)]) -> Vec<(usize, usize)> {
+    let mut found: Vec<(usize, usize)> = names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (summary, occurrence))| {
+            placeholder_at(draft, summary, *occurrence).map(|at| (at, index))
+        })
+        .collect();
+    // Stable, so a run two names claim at the same place goes to the earlier
+    // of them here and after registration alike.
+    found.sort_by_key(|(at, _)| *at);
+    let mut cut = 0usize;
+    found.retain(|(at, index)| {
+        if *at < cut {
+            return false;
+        }
+        cut = at.saturating_add(names[*index].0.len());
+        true
+    });
+    found
 }
 
 /// A draft with `inserted` put in at the caret, which is where `before` ends
@@ -1107,6 +1157,71 @@ mod tests {
         assert!(
             !state.refused(),
             "a block that can never be expanded is still charged for"
+        );
+    }
+
+    #[test]
+    fn a_candidate_that_loses_the_run_is_not_charged_for_it_either() {
+        // At a saturated id two blocks share one name. This candidate lands in
+        // *front* of an older placeholder with the same name, so the older
+        // block takes the run and the candidate is discarded the moment it is
+        // registered. Charging admission for bytes that are about to be thrown
+        // away refuses a paste that fits -- admission has to be the same
+        // arbitration the registration is judged by.
+        let mut state = Paste::with_next(u32::MAX - 1);
+        let first = "y".repeat(5_000_000);
+        let second = "z".repeat(5_000_000);
+        let older = collapse(&mut state, &first);
+        state.placed(0);
+
+        state.begin();
+        for byte in second.as_bytes() {
+            state.byte(*byte);
+        }
+        let pasted = state.finish("", &older);
+        assert!(
+            !state.refused(),
+            "a paste was charged for a candidate the arbitration discards"
+        );
+        let Pasted::Collapsed { summary, .. } = pasted else {
+            panic!("{pasted:?}");
+        };
+        assert_eq!(summary, older, "the numbers did not run out");
+
+        // And it really is discarded: the draft's first run belongs to the
+        // older block, so what admission charged is what survives.
+        state.placed(0);
+        let draft = format!("{older}{older}");
+        state.reconcile(&draft);
+        let sent = state.expand(&draft);
+        assert!(sent.contains(&first), "the older block lost its own run");
+        assert!(
+            !sent.contains(&second),
+            "a candidate the arbitration discarded was sent anyway"
+        );
+    }
+
+    #[test]
+    fn a_candidate_that_wins_its_own_run_is_charged_alongside_the_older_one() {
+        // The mirror of the case above. This candidate lands *after* the older
+        // placeholder, so at a saturated id it is the second copy of that name
+        // and takes the second run -- both blocks will be sent, so both have to
+        // be charged. Guessing that a candidate is always the first copy of its
+        // own name would let the older block swallow the run and undercharge
+        // the paste.
+        let mut state = Paste::with_next(u32::MAX - 1);
+        let first = "y".repeat(5_000_000);
+        let older = collapse(&mut state, &first);
+        state.placed(0);
+
+        state.begin();
+        for byte in "z".repeat(5_000_000).as_bytes() {
+            state.byte(*byte);
+        }
+        let _ = state.finish(&older, "");
+        assert!(
+            state.refused(),
+            "two blocks that will both be sent were charged as one"
         );
     }
 
