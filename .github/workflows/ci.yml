@@ -98,6 +98,15 @@ jobs:
       - name: Tests
         run: cargo test --locked --all-targets
 
+      # The restoration matrix has rows that only a deliberate failure can
+      # drive: a panic while the terminal is raw, and an initialization that
+      # dies on either side of raw mode. The feature that produces them is off
+      # in every shipped build, so this is the only place those rows run.
+      - name: Tests, with the fault injector
+        run: |
+          cargo clippy --locked --all-targets --features fault-injection -- -D warnings
+          cargo test --locked --features fault-injection --test tui
+
       - name: No stubs, and the parity ledger reconciles
         run: ./scripts/check-no-stubs.sh
 
@@ -125,5 +134,27 @@ jobs:
         with:
           name: smoke-evidence-${{ matrix.target }}
           path: ${{ runner.temp }}/xfx-smoke
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # The restoration matrix the TUI gate drives has rows only a deliberate
+      # failure can reach, and it drives them against a *release* build of the
+      # same source. Built into its own target directory so the binary the
+      # previous step smoked is still the one a release would ship.
+      - name: Build the binary the restoration matrix drives
+        run: cargo build --locked --release --features fault-injection --target-dir target/faulty
+
+      - name: Smoke the TUI on a real terminal
+        run: |
+          ./scripts/smoke-tui.sh target/release/xfx \
+            --faulty target/faulty/release/xfx \
+            "${RUNNER_TEMP}/xfx-smoke-tui"
+
+      - name: Keep the TUI evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-tui-evidence-${{ matrix.target }}
+          path: ${{ runner.temp }}/xfx-smoke-tui
           if-no-files-found: ignore
           retention-days: 7

@@ -37,11 +37,25 @@ exact restore path. Everything below is written to make that obligation testable
   sequence → restore `termios` → move to the footer top and `\x1b[J\x1b[?25h\n`, leaving the
   transcript in scrollback.
 - **Abnormal exit** writes one compile-time-constant restore string with a single async-signal-safe
-  `write(2)` (`:53-68`). **Ctrl-Z** restores cooked mode, raises SIGTSTP, and on SIGCONT re-captures
-  `termios`, re-enters raw, re-queries layout, and requests a full repaint (`:609-620`, `:646-656`).
+  `write(2)` (`:53-68`). A **`SIGTSTP`** restores cooked mode, raises the stop with the disposition
+  reset, and on SIGCONT re-captures `termios`, re-enters raw, re-queries layout, and requests a full
+  repaint (`:609-620`, `:646-656`). It is a **signal, not a keystroke**: raw mode clears `ISIG` (the
+  entry bits above), so a *typed* Ctrl-Z — like a typed Ctrl-C — generates no signal at all and
+  arrives as a byte for the input decoder, which binds it to nothing. The stop this path answers is
+  the one an operator or a supervisor sends, and in xfx it is either **blocked** or delivered
+  **inside** `signals::wait_for_input` (`pselect(2)` carrying the mask), which is what keeps a stop
+  from landing while the session believes a cooked terminal is raw. `docs/parity.md` states the same
+  contract.
 - **Scrollback preservation** has three mechanisms, all load-bearing:
   1. At launch, query the cursor row (CSI `6n`, 100 ms deadline, `shell_runtime.zig:178-206`) and push
-     the existing shell output above it into scrollback with repeated `\n` (`app_lifecycle.zig:556-583`).
+     the existing shell output above it into scrollback (`app_lifecycle.zig:556-583`). The push is two
+     steps and both are load-bearing: **move the cursor to the bottom row first** (`CUP(rows, 1)`),
+     *then* emit one literal `\n` per row that was above the cursor. A linefeed scrolls a terminal only
+     when the cursor is already on the bottom margin — anywhere else it merely walks the cursor down
+     and the screen does not move — so a burst emitted from where the shell left the cursor displaces
+     `max(0, 2r - R - 1)` rows instead of `r - 1`, which is nothing whatsoever from row 2 of a 24-row
+     screen, and the band opens on top of output that is still there. Same sequence as mechanism 2
+     below, which is not a coincidence: it is the one way a terminal is made to scroll.
   2. During the session, rows that leave the viewport are written to the document — CR-before-LF
      normalized bytes (`frame_scroll_plan.zig:8-12`, `transcript/painter.zig:2720-2752`) appended with
      autowrap temporarily on (`terminal_diff.zig:1348-1397`); the scroll itself is CUP-to-bottom plus
@@ -352,17 +366,31 @@ allocate, take locks, and touch frame state. So:
    layout, and request a full repaint (`app_lifecycle.zig:609-620,646-656`).
 
 **The reinstall is not optional.** The TSTP handler sets `SIG_DFL` before `raise(SIGSTOP)` so the stop
-is genuine — which means that after the first Ctrl-Z the disposition is *default*, and a second Ctrl-Z
-would stop the process **without restoring the terminal**, leaving it raw and unusable. Reinstalling
+is genuine — which means that after the first stop the disposition is *default*, and a second
+`SIGTSTP` would stop the process **without restoring the terminal**, leaving it raw and unusable.
+(Neither stop is delivered by a *typed* Ctrl-Z: raw mode clears `ISIG`, so that keystroke is a byte
+for the input decoder and binds nothing. Both are the operator's or a supervisor's signal, and both
+land inside `signals::wait_for_input` or not at all — see the raw-mode lifecycle above.) Reinstalling
 on resume is what closes that gap, and it belongs on the UI thread because `sigaction` there is
 unconstrained. The same reasoning applies to any signal whose handler resets itself to re-raise: TERM,
 HUP and INT do not need reinstalling because the process does not survive them.
 
-Also note the `poll` interaction: the UI's `poll(2)` must watch **stdin and the self-pipe read end**,
-not stdin alone as v0.1.0's blocking read does. Without the pipe, a SIGCONT or SIGWINCH that arrives
-while `poll` is parked is not observed until the next 8 ms tick — usually harmless, but for resume it
-means a visible stall on a terminal that is still cooked. `EINTR` on `poll` is treated as a normal
-wakeup, not an error.
+Also note the wait's interaction with all of this: the UI must watch **stdin and the self-pipe read
+end**, not stdin alone as v0.1.0's blocking read does. Without the pipe, a SIGCONT or SIGWINCH that
+arrives while the wait is parked is not observed until the next 8 ms tick — usually harmless, but for
+resume it means a visible stall on a terminal that is still cooked. `EINTR` is treated as a normal
+wakeup, not an error: it is how a delivered signal ends the wait and gives the UI thread its turn.
+
+The call doing that watching is **`pselect(2)`, via `signals::wait_for_input`, and not `poll(2)`** —
+earlier drafts of this document said `poll`, and it is unsound here for the reason the stop section
+above turns on. A `poll` unmasks and then waits as **two** operations, so a `SIGTSTP` delivered
+between them is delivered *outside* the wait, and the handler hands the terminal back cooked while the
+session goes on believing it is raw. `pselect` installs the mask, waits, and puts the old mask back,
+and the kernel does not let anything in between; the 8 ms tick is expressed as that call's `timeout`
+for that reason and no other. Not `ppoll` either: it is Linux-only, macOS has no such call, and
+`pselect` is the portable spelling of the same atomicity (Darwin links `pselect$1050`). The invariant
+this buys is the one the rest of the section rests on: *while the terminal is raw, `SIGTSTP` is either
+blocked or the process is inside `wait_for_input`.*
 
 Three consequences, stated because they correct earlier drafts of this document:
 

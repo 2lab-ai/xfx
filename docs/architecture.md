@@ -6,14 +6,16 @@ this file is a bug.
 
 ## The shape
 
-One binary, one crate, ten modules. The dependency direction is one way:
+One binary, one crate, eleven modules. The dependency direction is one way:
 
 ```
-cli ──► app ──► agent ──► gateway ──► (network)
-                  │  └──► tools ──► permission
-                  │           └──► workspace
-                  └──► session ──► (~/.xfx)
-                          output ◄── everything that prints
+cli ─┬─► app ──► agent ──► gateway ──► (network)
+     │            │  └──► tools ──► permission
+     │            │           └──► workspace
+     │            └──► session ──► (~/.xfx)
+     │                    output ◄── everything that prints
+     └─► tui ──► (worker thread) ──► agent ──► …
+          └──► the terminal
 ```
 
 - **`cli`** decides what was asked. It owns the command grammar and nothing
@@ -38,6 +40,10 @@ cli ──► app ──► agent ──► gateway ──► (network)
 - **`session`** owns the durable event log, its published boundary, and resume.
 - **`output`** owns every byte the product writes: immutable snapshots plus a
   text, JSON, and JSONL renderer. Nothing else formats for a user.
+- **`tui`** is the opt-in full-screen surface, and the one branch that does not
+  go through `app::run` (`src/main.rs:22-25`). It is not a command: it owns the
+  main thread and blocks on the terminal, so it cannot be reached from inside
+  the runtime at all.
 
 Provider, filesystem, clock, approval, and output are traits or injected values,
 which is why the whole suite runs with no credential and no network.
@@ -100,16 +106,46 @@ Legacy records (pre-wire) are handled by authority inference: a record with non-
 
 Unknown future wires (a record naming a `wire` this binary does not know) are dropped for the same reason rather than being guessed at, and the notice names the unknown wire and the active one the user is asking for.
 
+## One band at the bottom of the screen
+
+`XFX_TUI=1` on a bare invocation opts into the TUI, and the whole of what is
+different about it is who owns which thread.
+
+**The UI thread is the process's main thread and is not inside a runtime.** It
+takes the terminal into raw mode on the *normal* buffer, waits in `pselect(2)`
+with an 8 ms tick, decodes escape sequences into keystrokes, and commits each
+frame as one write wrapped in synchronized output. It never awaits anything.
+
+**The worker owns the runtime.** A submitted prompt is handed to a worker thread
+that builds its own current-thread runtime and runs exactly the turn `ask` runs
+-- same provider, same registry, same permission authority, same session store.
+
+**Three channels join them**, and the split is what keeps a question answerable
+while a prompt is waiting: `TurnWork` carries submissions to the worker and is
+bounded, so a queue is a queue rather than a surprise; `UiEvent` carries
+everything the turn produces back and is bounded too, so a UI that cannot keep
+up parks the producer instead of growing without limit; and `TurnControl`
+carries cancellations and approval answers, is unbounded, and is drained
+*inside* the turn -- which is why an answer cannot queue behind a prompt the
+turn will not dequeue until it ends.
+
+Thread and runtime ownership is specified in full in
+[`.prd/03-tui-port.md`](../.prd/03-tui-port.md) §"Runtime topology
+(authoritative)"; `.prd/02-architecture.md` §"Concurrency and process model"
+already points there.
+
 ## One shell prompt
 
 The shell is the same pipeline with a loop around it.
 
 - It requires a terminal on both stdin and stdout, and a place to record, and
   refuses precisely when either is missing.
-- It reads a line through the terminal's own canonical mode. xfx never enters
-  raw mode and never takes the alternate screen, so there is no terminal state
-  to restore -- a property the acceptance tests assert by comparing `termios`
-  before and after, on a real pseudoterminal.
+- It reads a line through the terminal's own canonical mode. On this path xfx
+  never enters raw mode and never takes the alternate screen, so there is no
+  terminal state to restore -- a property the acceptance tests assert by
+  comparing `termios` before and after, on a real pseudoterminal. The TUI above
+  is the one surface that does take the terminal, and it is therefore the one
+  that has to give it back on every exit path.
 - The first prompt lazily creates the session and the tool authority bound to
   it. `/new` drops both; `/clear` erases the screen and keeps both.
 - Each prompt runs one `TurnMachine` through the same provider, registry,
@@ -149,7 +185,17 @@ The shell is the same pipeline with a loop around it.
   own session and controlling terminal, and types into it -- which is the only
   way to test a prompt, an echoed Ctrl-C, and a restored line discipline.
 - `tests/parity.rs` reconciles the ledger against the running binary.
+- `tests/tui.rs` is the same idea for the full-screen surface: every case is one
+  row of `.prd/03-tui-port.md` §"Acceptance -- terminal state, positively
+  proven", and the rows that need a deliberate failure run under the
+  `fault-injection` feature, which is off by default and in no shipped binary.
 - `scripts/smoke.sh` does the same for a *release* binary, end to end, and
   leaves raw evidence behind.
+- `scripts/smoke-tui.sh` is the second runner beside it, for the surface whose
+  contract is what is on the screen: it drives a release binary on a real
+  pseudoterminal, rebuilds a cell grid from the bytes the terminal received, and
+  reads the child's `termios` while it runs. Its VT emulator **fails the run on
+  any sequence it does not know**, so the emitted subset is pinned as well as
+  read.
 
 Nothing in any of it uses a live credential or reaches the network.

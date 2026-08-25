@@ -15,6 +15,7 @@
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
 //! - [`interactive`]: the line-oriented shell a bare `xfx` runs
+//! - [`tui`]: the opt-in raw-mode shell `XFX_TUI=1` runs in its place
 //! - [`app`]: composition and dispatch
 //!
 //! xfx is not affiliated with Vercel. It is a behavioral port pinned to
@@ -33,6 +34,8 @@ pub mod permission;
 pub mod provider;
 pub mod session;
 pub mod tools;
+#[cfg(unix)]
+pub mod tui;
 pub mod workspace;
 
 /// The product version.

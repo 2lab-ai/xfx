@@ -1666,6 +1666,40 @@ impl SessionRecorder {
             self.failure = Some(format!("cannot record the `{kind}` session event: {err}"));
         }
     }
+
+    /// Makes durable every approval in `granted` this log does not already
+    /// carry, so an "always" answered during a turn survives to the next
+    /// resume.
+    ///
+    /// **One method rather than one per front end.** `xfx ask`, the line shell
+    /// and the TUI all collect approvals into a shared permission ledger and
+    /// all owe the same step after the turn; three copies of it is three places
+    /// for a surface to quietly stop taking it, which is exactly how the TUI
+    /// shipped without one. Callers pass the ledger's grants (`to_vec` first --
+    /// a commit is a disk write and the ledger is behind a lock) and this
+    /// decides what is new.
+    ///
+    /// **Judged against the log's own grants, not against a snapshot the caller
+    /// took.** The log is what a resume reads, so "already recorded" is a
+    /// question only the log can answer -- and a surface that holds one
+    /// conversation across many turns would otherwise have to keep its snapshot
+    /// in step by hand, turn after turn, forever.
+    pub fn record_new_grants(&mut self, granted: &[Grant]) {
+        let unrecorded: Vec<Grant> = {
+            let recorded = &self.state().grants;
+            granted
+                .iter()
+                .filter(|grant| !recorded.contains(grant))
+                .cloned()
+                .collect()
+        };
+        for grant in unrecorded {
+            self.commit(SessionEvent::PermissionGrantRecorded {
+                tool: grant.tool,
+                target: grant.target,
+            });
+        }
+    }
 }
 
 impl TurnJournal for SessionRecorder {

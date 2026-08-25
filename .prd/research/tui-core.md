@@ -22,7 +22,7 @@ fx의 메인 UI는 **alt screen이 아니라 normal 버퍼의 하단 밴드**를
 ### 1.2 Raw mode 라이프사이클
 - 진입: `bootstrapInteractiveApp` `app_lifecycle.zig:447-530` — `ensureInteractive`(isatty 검사, `shell_runtime.zig:96-101`) → `captureOriginalTermios`(`:103-106`) → `enableRawMode`(`:108-138`: BRKINT/ICRNL/INPCK/ISTRIP/IXON/IXOFF off, CS8, ECHO/ICANON/IEXTEN/**ISIG** off, VMIN=1 VTIME=0) → `installResizeSignal`(SIGWINCH, `:148-161`) → `installAbnormalExitHandlers`(SIGTERM/SIGHUP, `app_lifecycle.zig:81-101`; ISIG off라 SIGINT는 터미널이 안 만들므로 제외 — 주석 `:78-80`).
 - 종료: `shutdownInteractiveShell` `app_lifecycle.zig:578-593` — alt screen 정리 → 시그널 핸들러 원복 → restore 시퀀스 write → `disableRawMode`(`shell_runtime.zig:140-146`, `.FLUSH`로 원래 termios 복원) → 커서를 footer top으로 옮기고 `\x1b[J\x1b[?25h\n` (`emitShutdownCleanupAndResume` `app_lifecycle.zig:1056-1067`) — **transcript는 셸 스크롤백에 그대로 남는다.**
-- Ctrl-Z: `suspendToJobControl` `app_lifecycle.zig:609-620` — cooked 복원 → `raise(SIGTSTP)` → SIGCONT 후 termios 재캡처 + raw 재진입 + 레이아웃 재조회 + full repaint 요청(`resumeTerminalAfterJobControl` `:646-656`).
+- SIGTSTP(작업 제어 정지): `suspendToJobControl` `app_lifecycle.zig:609-620` — cooked 복원 → `raise(SIGTSTP)` → SIGCONT 후 termios 재캡처 + raw 재진입 + 레이아웃 재조회 + full repaint 요청(`resumeTerminalAfterJobControl` `:646-656`). **키가 아니라 시그널이다**: raw mode가 `ISIG`를 끄므로(위 1.2 진입 비트) 사용자가 친 Ctrl-Z는 — 친 Ctrl-C와 마찬가지로 — 시그널을 전혀 만들지 않고 입력 디코더로 가는 바이트가 된다. 이 경로가 답하는 정지는 오퍼레이터/수퍼바이저가 보낸 것이고, xfx 구현 계약은 *터미널이 raw인 동안 SIGTSTP는 블록돼 있거나 `signals::wait_for_input`(마스크를 든 `pselect(2)`) 안에서만 전달된다* — `docs/parity.md`가 같은 문장을 싣는다.
 - 비정상 종료: 시그널 핸들러가 async-signal-safe하게 컴파일타임 상수 restore 문자열 하나를 `write(2)` (`abnormalExitHandlerWithRestore` `app_lifecycle.zig:53-68`).
 
 ### 1.3 스크롤백 보존 메커니즘 ("closer to a Unix shell")

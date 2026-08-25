@@ -28,7 +28,7 @@ use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{safe_one_line, Event, EventSink, TextSink, SANDBOX_LABEL};
-use crate::permission::YOLO_WARNING;
+use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::Bundle;
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
@@ -308,9 +308,13 @@ impl Interrupts {
 /// the user answering "always" -- is sold as being about *this* session id, and
 /// the read proofs that let a file be edited are about what this conversation
 /// has seen. `/new` therefore drops both, and `/clear` keeps both.
-struct Conversation {
-    recorder: SessionRecorder,
-    tools: ToolContext,
+///
+/// Visible to the crate because the TUI's runtime thread opens its conversation
+/// through this same call rather than growing a second one of its own
+/// (`crate::tui::worker`).
+pub(crate) struct Conversation {
+    pub(crate) recorder: SessionRecorder,
+    pub(crate) tools: ToolContext,
 }
 
 /// Creates the session this shell records into, and the authority its tools run
@@ -319,11 +323,20 @@ struct Conversation {
 /// Lazily, on the first prompt: a shell that is opened and closed without asking
 /// anything leaves no empty session behind, and `/new` costs nothing until it is
 /// used.
-fn open_conversation(
+///
+/// **The authority is the caller's to build**, and that is the one thing this
+/// function does not decide. `crate::app::permission_session` attaches a
+/// prompter that reads a line from standard input, which is right for a shell
+/// whose loop is the only reader of that descriptor and wrong for the TUI,
+/// where the UI thread is polling it -- two readers on one terminal is the bug
+/// the TUI's whole topology exists to prevent. So the caller says what may say
+/// yes, and this function only binds it to the session it just created, which
+/// is what makes an "always" answer durable.
+pub(crate) fn open_conversation(
     store: &SessionStore,
     config: &RuntimeConfig,
     model: &str,
-    mode: PermissionMode,
+    permissions: PermissionSession,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
     let scope = AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
@@ -334,12 +347,13 @@ fn open_conversation(
                 origin_workspace_root: config.workspace_root.clone(),
                 workspace_root: config.workspace_root.clone(),
                 model: model.to_string(),
-                permission_mode: mode,
+                // The mode the authority is really in, rather than a second
+                // copy of it the caller could pass a different value for.
+                permission_mode: permissions.mode(),
             },
         )
         .map_err(|err| err.to_string())?;
-    let permissions =
-        crate::app::permission_session(mode).with_durable_session(session.id().as_str());
+    let permissions = permissions.with_durable_session(session.id().as_str());
     let recorder = SessionRecorder::new(store.clone(), session);
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
@@ -463,7 +477,13 @@ pub async fn run(
                 };
                 let conversation = match &mut conversation {
                     Some(existing) => existing,
-                    slot @ None => match open_conversation(&store, config, &model, mode, &cancel) {
+                    slot @ None => match open_conversation(
+                        &store,
+                        config,
+                        &model,
+                        crate::app::permission_session(mode),
+                        &cancel,
+                    ) {
                         Ok(opened) => slot.insert(opened),
                         Err(message) => {
                             report_turn_failure(format!("xfx: {message}"))?;
@@ -522,7 +542,6 @@ async fn one_turn(
         tools: conversation.tools.clone(),
     };
 
-    let known_grants = conversation.tools.permissions().grants().to_vec();
     let stdout = io::stdout();
     let stderr = io::stderr();
     let mut stderr_lock = stderr.lock();
@@ -546,23 +565,12 @@ async fn one_turn(
     interrupts.end_turn();
 
     // Approvals given during the turn become durable once, after it, so an
-    // "always" answer survives to the next `xfx ask --resume-id <id>`.
-    let new_grants: Vec<_> = conversation
-        .tools
-        .permissions()
-        .grants()
-        .iter()
-        .filter(|grant| !known_grants.contains(grant))
-        .cloned()
-        .collect();
-    for grant in new_grants {
-        conversation
-            .recorder
-            .commit(SessionEvent::PermissionGrantRecorded {
-                tool: grant.tool,
-                target: grant.target,
-            });
-    }
+    // "always" answer survives to the next `xfx ask --resume-id <id>`. The step
+    // is the recorder's ([`SessionRecorder::record_new_grants`]), which is what
+    // keeps this shell, `app::ask` and the TUI's worker from drifting into
+    // three meanings of the same sentence.
+    let granted = conversation.tools.permissions().grants().to_vec();
+    conversation.recorder.record_new_grants(&granted);
     if let Some(failure) = conversation.recorder.failure() {
         writeln!(io::stderr(), "xfx: {failure}")?;
     }
@@ -750,7 +758,11 @@ fn kept_line(conversation: Option<&Conversation>) -> String {
 }
 
 /// The version line `/version` prints.
-fn version_line() -> String {
+///
+/// Visible to the crate because the TUI answers the same six commands from the
+/// same declarations rather than growing a second `/version` that could drift
+/// from this one (`crate::tui::shell`).
+pub(crate) fn version_line() -> String {
     let build = crate::build_info();
     match build.revision {
         Some(revision) => format!(

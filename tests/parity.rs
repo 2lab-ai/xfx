@@ -507,6 +507,8 @@ fn every_environment_override_the_binary_reads_is_documented() {
         "XFX_MODEL",
         "XFX_PERMISSION_MODE",
         "XFX_MAX_AGENT_STEPS",
+        "XFX_TUI",
+        "XFX_THEME",
         "VERCEL_OIDC_TOKEN",
         "AI_GATEWAY_API_KEY",
     ] {
