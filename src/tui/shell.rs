@@ -1167,7 +1167,17 @@ impl Shell {
     /// this phase does not, which `docs/parity.md` records.
     fn type_character(&mut self, character: char) {
         let mut encoded = [0u8; 4];
-        if self.editor.insert(character.encode_utf8(&mut encoded)) {
+        let typed = character.encode_utf8(&mut encoded);
+        // **Against the prompt's budget, not the composer's.** What the draft
+        // shows for a collapsed paste is 25 bytes standing for as much as 8
+        // MiB, so a composer that counted only its own text would let a
+        // keystroke build a prompt twice the size of the cap
+        // ([`super::paste::Paste::admits`]). Refused silently, like every other
+        // keystroke the budget refuses.
+        if !self.paste.admits(self.editor.text().len(), typed.len()) {
+            return;
+        }
+        if self.editor.insert(typed) {
             self.edited();
         }
     }
@@ -1216,13 +1226,16 @@ impl Shell {
                 // that is where the insertion lands; anything after it is a
                 // later copy and is not this block's.
                 let occurrence = self.editor.before_caret().matches(&summary).count();
+                // No arm for a composer that refuses the summary, and that is
+                // arithmetic rather than optimism: a block is only collapsed
+                // past `COLLAPSE_ABOVE` codepoints, the budget admitted the
+                // draft plus that text, and the composer's own cap is the same
+                // number -- so the room left over is never smaller than a name
+                // ([`super::paste`]'s
+                // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
                 if self.editor.insert(&summary) {
                     self.paste.placed(occurrence);
                     self.edited();
-                } else {
-                    // The composer refused it, so the summary is nowhere and
-                    // the block stands for nothing.
-                    self.paste.unplaced();
                 }
             }
         }
@@ -1284,7 +1297,7 @@ impl Shell {
             // rather than keys, which is the whole of why a pasted newline does
             // not submit the composer and a pasted `0x03` does not cancel a
             // turn.
-            Action::PasteStart => self.paste.begin(),
+            Action::PasteStart => self.paste.begin(self.editor.text().len()),
             Action::PasteEnd => self.pasted(),
             // Not this task's: `Tab` is the approval panel's and the composer
             // has no completion for it to drive, and an `Ignore` is a keystroke
@@ -1649,6 +1662,7 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
+    use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
     use std::collections::BTreeMap;
@@ -2420,6 +2434,111 @@ mod tests {
             TurnWork::Submit(format!("{block}[Pasted text #1, 1 lines]")),
             "the copies were counted in the whole draft rather than in front \
              of the caret"
+        );
+    }
+
+    #[test]
+    fn a_paste_that_would_make_the_prompt_oversized_is_refused() {
+        // The two halves of a prompt have to be budgeted **together**. What a
+        // collapsed block puts on the screen is 25 bytes, so a draft the user
+        // can read the whole of can be standing in front of megabytes -- and
+        // two ceilings that are 8 MiB each are one prompt of 16.
+        let mut shell = shell(24, 80);
+        // Put in whole rather than a keystroke at a time: the composer
+        // re-wraps on every edit, so half a megabyte of keystrokes would be
+        // quadratic here. This is the same call `type_character` makes.
+        let typed = "x".repeat(500_000);
+        assert!(shell.editor.insert(&typed), "the draft could not be set up");
+
+        let block = "y".repeat(8_000_000);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let draft = shell.editor.text().len();
+        let notice = shell.notice;
+
+        shell.route_bytes(&[0x0d]);
+        let TurnWork::Submit(prompt) = shell.picks_up() else {
+            panic!("the draft was not submitted");
+        };
+        assert!(
+            prompt.len() <= MAX_PASTE_BYTES,
+            "the prompt is {} bytes, past the {MAX_PASTE_BYTES}-byte budget",
+            prompt.len()
+        );
+        assert_eq!(draft, typed.len(), "the refused paste changed the draft");
+        assert_eq!(
+            notice,
+            Some(PASTE_REFUSED),
+            "the paste was dropped without a word"
+        );
+    }
+
+    #[test]
+    fn typing_stops_at_the_budget_the_drafts_hidden_blocks_are_using() {
+        // The other way to the same oversized prompt: paste a block, then go
+        // on typing. The composer's own cap counts what is on the screen, and
+        // what is on the screen is 25 bytes standing for a great deal more.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(8_000_000);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the block was not collapsed, so this case proves nothing"
+        );
+
+        // Enough that the draft and the block it hides are together past the
+        // budget, put in whole for the reason above.
+        assert!(
+            shell.editor.insert(&"x".repeat(400_000)),
+            "the draft could not be set up"
+        );
+        let full = shell.editor.text().len();
+
+        shell.route_bytes(b"a");
+        assert_eq!(
+            shell.editor.text().len(),
+            full,
+            "a keystroke landed past the budget the draft's hidden block is \
+             already using"
+        );
+    }
+
+    #[test]
+    fn a_summary_typed_in_front_of_the_placeholder_moves_it_and_never_doubles_it() {
+        // **The Phase-2 debt, pinned.** Spans are not tracked through edits, so
+        // a copy of a summary that appears in front of the placeholder *after*
+        // the paste landed is expanded in its stead: the block goes to the
+        // wrong copy of its own name. That is the price of not tracking spans,
+        // and it is the acceptable half. The other half -- the block being sent
+        // twice -- must never happen, so both are asserted here and a change
+        // that turns misplacing into multiplying fails this test rather than
+        // passing quietly.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(&[0x01]); // C-a: in front of the placeholder
+        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
+        shell.route_bytes(&[0x0d]);
+
+        let TurnWork::Submit(prompt) = shell.picks_up() else {
+            panic!("nothing was submitted");
+        };
+        assert_eq!(
+            prompt,
+            format!("{block} [Pasted text #1, 1 lines]"),
+            "the copy typed in front of the placeholder is not the one that \
+             was expanded"
+        );
+        assert_eq!(
+            prompt.matches(&block).count(),
+            1,
+            "the block was sent once per copy of its name"
         );
     }
 
