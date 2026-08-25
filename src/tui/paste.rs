@@ -287,6 +287,63 @@ impl Paste {
         self.refused
     }
 
+    /// The blocks a draft really names: where each one's placeholder is, in the
+    /// order they appear, with at most one claim on any run of the draft.
+    ///
+    /// **One source of arbitration**, and that is the whole point of it being a
+    /// function rather than three similar loops. The set that is *charged for*
+    /// ([`Self::reconcile`], [`Self::admits_draft`]) has to be exactly the set
+    /// that is *sent* ([`Self::expand`]); when the two disagreed, a block that
+    /// could never reach a prompt went on spending the budget.
+    ///
+    /// Two blocks needing arbitration at all takes a saturated id -- `next`
+    /// stops at `u32::MAX`, so a session that pasted four billion times names
+    /// every later block the same -- and then one run of the draft is claimed
+    /// twice. The earlier claimant takes it, here and in `expand` alike,
+    /// because they ask this.
+    ///
+    /// Indices rather than references, so a caller holding `&mut self` can act
+    /// on the answer.
+    fn claims(&self, draft: &str) -> Vec<(usize, usize)> {
+        let mut found: Vec<(usize, usize)> = self
+            .blocks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, block)| {
+                placeholder_at(draft, &block.summary, block.occurrence).map(|at| (at, index))
+            })
+            .collect();
+        found.sort_by_key(|(at, _)| *at);
+        let mut cut = 0usize;
+        found.retain(|(at, index)| {
+            if *at < cut {
+                return false;
+            }
+            cut = at.saturating_add(self.blocks[*index].summary.len());
+            true
+        });
+        found
+    }
+
+    /// Whether a draft that looked like this would be inside the budget.
+    ///
+    /// **The resulting state, not the present one.** An edit can *release*
+    /// bytes as well as add them: a character typed into the middle of a
+    /// summary damages the name, and the block it stood for can never be sent
+    /// again ([`Self::reconcile`]). Asking about the draft as it stands would
+    /// refuse that keystroke on account of megabytes the keystroke itself gets
+    /// rid of -- at the cap, a composer that will not let you edit your way out
+    /// of it.
+    pub(crate) fn admits_draft(&self, draft: &str) -> bool {
+        let retained = self
+            .claims(draft)
+            .into_iter()
+            .fold(0usize, |sum, (_, index)| {
+                sum.saturating_add(self.blocks[index].text.len())
+            });
+        draft.len().saturating_add(retained) <= MAX_PASTE_BYTES
+    }
+
     /// `submitted` with each block's **own** placeholder replaced by the text
     /// it stands for.
     ///
@@ -303,33 +360,17 @@ impl Paste {
     ///   contains another block's name -- a pasted session transcript is the
     ///   ordinary way that happens -- cannot be expanded a second time.
     pub(crate) fn expand(&self, submitted: &str) -> String {
-        if self.blocks.is_empty() {
+        let claims = self.claims(submitted);
+        if claims.is_empty() {
             return submitted.to_string();
         }
-        let mut found: Vec<(usize, &Block)> = self
-            .blocks
-            .iter()
-            .filter_map(|block| {
-                placeholder_at(submitted, &block.summary, block.occurrence).map(|at| (at, block))
-            })
-            .collect();
-        found.sort_by_key(|(at, _)| *at);
-
         let mut out = String::with_capacity(submitted.len());
         let mut cut = 0usize;
-        for (at, block) in found {
-            // **Load-bearing, not decoration.** Two blocks usually have
-            // different names, but `next` saturates: a session that pasted four
-            // billion times gives every block after that the same id, and then
-            // one placeholder is claimed by two blocks. The first one takes it;
-            // without this the second would splice a backwards byte range and
-            // panic.
-            if at < cut {
-                continue;
-            }
+        for (at, index) in claims {
+            let block = &self.blocks[index];
             out.push_str(&submitted[cut..at]);
             out.push_str(&block.text);
-            cut = at + block.summary.len();
+            cut = at.saturating_add(block.summary.len());
         }
         out.push_str(&submitted[cut..]);
         out
@@ -353,18 +394,30 @@ impl Paste {
     /// bracket, which is the multiplication hazard [`Self::expand`] exists to
     /// prevent wearing a different hat.
     ///
-    /// Called from the one place every composer edit passes through
-    /// (`super::shell::Shell::edited`), whose own `refit` already re-wraps the
-    /// whole draft -- so this scan is a fraction of the work that edit was
-    /// always going to do.
+    /// Released for the same reasons [`Self::claims`] does not list a block:
+    /// its name is gone from the draft, or an earlier block already claimed the
+    /// run it would have taken. Both are "this can never be sent".
+    ///
+    /// Called from the one place every **in-place** composer edit passes
+    /// through (`super::shell::Shell::edited`), whose own `refit` already
+    /// re-wraps the whole draft -- so this scan is a fraction of the work that
+    /// edit was always going to do. A draft that is *consumed* rather than
+    /// edited goes the other way, through
+    /// `super::shell::Shell::take_draft` and [`Self::forget`].
     pub(crate) fn reconcile(&mut self, draft: &str) {
+        let mut named = vec![false; self.blocks.len()];
+        for (_, index) in self.claims(draft) {
+            named[index] = true;
+        }
         let mut released = 0usize;
+        let mut index = 0usize;
         self.blocks.retain(|block| {
-            let named = placeholder_at(draft, &block.summary, block.occurrence).is_some();
-            if !named {
+            let kept = named[index];
+            index = index.saturating_add(1);
+            if !kept {
                 released = released.saturating_add(block.text.len());
             }
-            named
+            kept
         });
         self.retained = self.retained.saturating_sub(released);
     }
@@ -940,6 +993,36 @@ mod tests {
         assert!(
             !state.refused(),
             "a block whose own copy of its name is gone is still charged for"
+        );
+    }
+
+    #[test]
+    fn a_saturated_block_that_lost_the_run_it_claimed_is_released_too() {
+        // Two blocks with one name, because the numbers ran out. `expand` gives
+        // the run to the first of them, so the second can never be sent -- and
+        // a block that can never be sent must not be charged for either. The
+        // two answers have to come from the same arbitration.
+        let mut state = Paste::with_next(u32::MAX - 1);
+        let first = "y".repeat(1200);
+        let second = "z".repeat(MAX_PASTE_BYTES / 2);
+        let one = collapse(&mut state, &first);
+        let two = collapse(&mut state, &second);
+        assert_eq!(
+            one, two,
+            "the numbers did not run out, so this case proves nothing"
+        );
+
+        // One run in the draft, and the first block has it.
+        state.reconcile(&one);
+        assert_eq!(state.expand(&one), first, "the run went to the wrong block");
+
+        state.begin(one.len());
+        for _ in 0..(MAX_PASTE_BYTES / 2) {
+            state.byte(b'x');
+        }
+        assert!(
+            !state.refused(),
+            "a block that can never be expanded is still charged for"
         );
     }
 

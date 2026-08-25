@@ -1175,7 +1175,22 @@ impl Shell {
         // ([`super::paste::Paste::admits`]). Refused silently, like every other
         // keystroke the budget refuses.
         if !self.paste.admits(self.editor.text().len(), typed.len()) {
-            return;
+            // The cheap question said no, and it is the *conservative* one: it
+            // charges for every block the draft holds now. This keystroke may
+            // be landing inside one of their names -- which damages it, and
+            // releases the megabytes it was standing for
+            // ([`super::paste::Paste::reconcile`]) -- so the draft this edit
+            // would produce can be well inside a budget the draft it starts
+            // from is at. Asked only here, because a cheap yes is always a
+            // real yes: an edit can only ever release blocks, never add one.
+            let mut next =
+                String::with_capacity(self.editor.text().len().saturating_add(typed.len()));
+            next.push_str(self.editor.before_caret());
+            next.push_str(typed);
+            next.push_str(self.editor.after_caret());
+            if !self.paste.admits_draft(&next) {
+                return;
+            }
         }
         if self.editor.insert(typed) {
             self.edited();
@@ -2640,6 +2655,77 @@ mod tests {
             full,
             "a composed newline landed past the budget the draft's hidden \
              block is already using"
+        );
+    }
+
+    #[test]
+    fn a_keystroke_that_damages_a_name_is_weighed_against_what_it_leaves() {
+        // The draft is at the cap and the caret is **inside** the summary. That
+        // keystroke damages the name, which releases the megabytes it was
+        // standing for -- so the draft it produces is well inside the budget.
+        // Refusing it would be refusing a keystroke on account of bytes the
+        // keystroke itself gets rid of.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(MAX_PASTE_BYTES);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let summary = shell.editor.text().to_string();
+        assert_eq!(summary, "[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(b"\x1b[D"); // Left: between the last letter and the `]`
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 linesz]",
+            "a keystroke was refused for a block that the keystroke itself \
+             releases"
+        );
+
+        // And the release is permanent: putting the name back by hand does not
+        // bring the block back.
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(
+            shell.editor.text(),
+            summary,
+            "the draft is not back to the name"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(summary),
+            "a name repaired by hand brought eight megabytes back with it"
+        );
+    }
+
+    #[test]
+    fn a_keystroke_in_front_of_a_name_that_survives_it_is_still_weighed_against_it() {
+        // The other side of the prospective question. This keystroke lands
+        // *before* the summary rather than inside it, so the name survives and
+        // its megabytes are still going to be sent -- and the draft is at the
+        // cap. A prospective draft that only looked at the text in front of the
+        // caret would not find the name and would wave the keystroke through.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(8_000_000);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let summary = shell.editor.text().len();
+        assert!(
+            shell
+                .editor
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+            "the draft could not be set up"
+        );
+        let full = shell.editor.text().len();
+
+        shell.route_bytes(&[0x01]); // C-a: in front of the name
+        shell.route_bytes(b"z");
+        assert_eq!(
+            shell.editor.text().len(),
+            full,
+            "a keystroke landed past the budget, in front of a name whose \
+             block it does not release"
         );
     }
 

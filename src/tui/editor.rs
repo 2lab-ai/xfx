@@ -106,6 +106,16 @@ impl Editor {
         &self.text[..self.cursor]
     }
 
+    /// The text behind the caret -- everything an insertion would land before.
+    ///
+    /// The other half of [`Self::before_caret`], and handed out for the same
+    /// reason: together they are what a caller needs to ask a question about
+    /// the draft an edit *would* produce, without being given the offset to do
+    /// arithmetic on.
+    pub(crate) fn after_caret(&self) -> &str {
+        &self.text[self.cursor..]
+    }
+
     /// Inserts `text` at the caret, or refuses it whole.
     ///
     /// `false` is the byte budget: the composer keeps exactly the text it had,
