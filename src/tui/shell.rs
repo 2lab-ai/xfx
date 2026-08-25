@@ -1210,7 +1210,9 @@ impl Shell {
     /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
     /// paste that plainly did not happen, and the hint row says which it was.
     fn pasted(&mut self) {
-        let pasted = self.paste.finish();
+        let pasted = self
+            .paste
+            .finish(self.editor.before_caret(), self.editor.after_caret());
         if self.paste.refused() {
             self.notice = Some(PASTE_REFUSED);
             self.render.request(Reason::Footer);
@@ -1317,7 +1319,7 @@ impl Shell {
             // rather than keys, which is the whole of why a pasted newline does
             // not submit the composer and a pasted `0x03` does not cancel a
             // turn.
-            Action::PasteStart => self.paste.begin(self.editor.text().len()),
+            Action::PasteStart => self.paste.begin(),
             Action::PasteEnd => self.pasted(),
             // Not this task's: `Tab` is the approval panel's and the composer
             // has no completion for it to drive, and an `Ignore` is a keystroke
@@ -2578,7 +2580,10 @@ mod tests {
         let mut shell = shell(24, 80);
         // The whole budget in one block, so that charging for it after it can
         // no longer be sent refuses even a single character.
-        let block = "y".repeat(MAX_PASTE_BYTES);
+        // The whole budget less the name that will stand in for it, which is
+        // the largest block a draft can hold: a collapsed paste is charged its
+        // text and its name both.
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -2666,7 +2671,10 @@ mod tests {
         // Refusing it would be refusing a keystroke on account of bytes the
         // keystroke itself gets rid of.
         let mut shell = shell(24, 80);
-        let block = "y".repeat(MAX_PASTE_BYTES);
+        // The whole budget less the name that will stand in for it, which is
+        // the largest block a draft can hold: a collapsed paste is charged its
+        // text and its name both.
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
@@ -2814,6 +2822,82 @@ mod tests {
         assert!(
             shell.editor.text().ends_with("short"),
             "an inline paste was refused for a count it does not add to"
+        );
+    }
+
+    #[test]
+    fn a_paste_that_lands_in_a_name_is_weighed_against_what_it_releases() {
+        // The same rule a keystroke gets: a paste is admitted against the draft
+        // it *leaves*. This one lands inside the summary, so it damages the
+        // name and releases the eight megabytes it was standing for -- the
+        // draft it produces is nearly empty.
+        let mut shell = shell(24, 80);
+        // The whole budget less the name that will stand in for it, which is
+        // the largest block a draft can hold: a collapsed paste is charged its
+        // text and its name both.
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(b"\x1b[D"); // Left: inside the name
+        shell.route_bytes(b"\x1b[200~short\x1b[201~");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 linesshort]",
+            "a paste was refused for a block that the paste itself releases"
+        );
+    }
+
+    #[test]
+    fn a_collapsed_paste_that_replaces_a_name_at_the_cap_is_taken() {
+        // At the cap, and this paste lands inside an existing name: it damages
+        // that one and adds its own, so the draft it leaves holds the same
+        // number of blocks it held before.
+        const CAP: usize = 64;
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1001);
+        for _ in 0..CAP {
+            shell.route_bytes(b"\x1b[200~");
+            shell.route_bytes(block.as_bytes());
+            shell.route_bytes(b"\x1b[201~");
+        }
+
+        shell.route_bytes(b"\x1b[D"); // Left: inside the last name
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert!(
+            shell
+                .editor
+                .text()
+                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
+            "a paste that leaves the block count where it found it was refused"
+        );
+    }
+
+    #[test]
+    fn a_paste_in_front_of_a_name_that_survives_it_is_still_weighed_against_it() {
+        // The other side of the paste's prospective question, and the same one
+        // `a_keystroke_in_front_of_a_name_that_survives_it_is_still_weighed_against_it`
+        // asks of a keystroke. This paste lands *before* the summary rather
+        // than inside it, so the name survives and its megabytes are still
+        // going to be sent -- and the draft is at the cap.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let full = shell.editor.text().to_string();
+
+        shell.route_bytes(&[0x01]); // C-a: in front of the name
+        shell.route_bytes(b"\x1b[200~short\x1b[201~");
+        assert_eq!(
+            shell.editor.text(),
+            full,
+            "a paste landed past the budget, in front of a name whose block it \
+             does not release"
         );
     }
 
