@@ -88,7 +88,9 @@ impl Band {
     /// handed back is the caller's, and [`commit`](Self::commit) writes that
     /// copy in a single call.
     ///
-    /// `rows` are the band's rows, top first, starting at the divider. `cursor`
+    /// `rows` are the band's rows, top first, starting at the band's top row
+    /// ([`Geometry::band_top`]), which is the activity row while a turn is
+    /// running and the divider otherwise. `cursor`
     /// is `(row, cells)`: the terminal's own one-based row, and the number of
     /// cells to the **left** of the caret on it -- a count, which is what the
     /// composer measures, converted to a one-based column here and nowhere
@@ -110,14 +112,14 @@ impl Band {
         // ([`Self::delivered`]).
         self.painted = Some(self.top(geometry));
         // The band's own rows and nothing above them: the erase starts at the
-        // divider, so the document keeps every row it has.
-        cup(&mut self.buffer, geometry.divider, 1);
+        // band's top row, so the document keeps every row it has.
+        cup(&mut self.buffer, geometry.band_top(), 1);
         self.buffer.extend_from_slice(ERASE_BELOW.as_bytes());
         for (offset, row) in rows.iter().enumerate() {
             let Ok(offset) = u16::try_from(offset) else {
                 break;
             };
-            let line = geometry.divider.saturating_add(offset);
+            let line = geometry.band_top().saturating_add(offset);
             if line > geometry.hint {
                 // More rows than the band owns. The extra ones are dropped
                 // rather than written onto the row below the screen's last,
@@ -203,9 +205,11 @@ impl Band {
         if scroll == 0 && rows.is_empty() {
             return self.buffer.clone();
         }
-        // Everything above the divider is the document; the band's own rows
-        // belong to `render`, and nothing here may write at or below it.
-        let area = geometry.divider.saturating_sub(1);
+        // Everything above the band's top row is the document; the band's own
+        // rows belong to `render`, and nothing here may write at or below it --
+        // the activity row included, which is why this is the band's top rather
+        // than its divider.
+        let area = geometry.band_top().saturating_sub(1);
         // The rows a previous append already put on the screen, and the ones
         // this append adds. `scroll` past the end of `rows` is not something
         // `Transcript` produces -- an append's rows are its whole tail -- but a
@@ -226,7 +230,7 @@ impl Band {
         // fallback is the clamp itself rather than a return that would drop the
         // whole append.
         let shown = u16::try_from(settled.min(usize::from(area))).unwrap_or(area);
-        let first = geometry.divider.saturating_sub(shown);
+        let first = geometry.band_top().saturating_sub(shown);
         for (offset, row) in rows[settled - usize::from(shown)..settled]
             .iter()
             .enumerate()
@@ -247,7 +251,7 @@ impl Band {
             scroll_one(&mut self.buffer, geometry);
             place(
                 &mut self.buffer,
-                geometry.divider.saturating_sub(1),
+                geometry.band_top().saturating_sub(1),
                 row,
                 geometry,
             );
@@ -275,24 +279,24 @@ impl Band {
         let Some(top) = self.painted else {
             return;
         };
-        for line in top..geometry.divider {
+        for line in top..geometry.band_top() {
             cup(&mut self.buffer, line, 1);
             self.buffer.extend_from_slice(ERASE_LINE.as_bytes());
         }
     }
 
-    /// The topmost row this band has begun writing on, given where its divider
+    /// The topmost row this band has begun writing on, given where its top row
     /// is now: the higher of the two, because a band that has moved down still
     /// owns the rows above it until the erasures land.
     fn top(&self, geometry: &Geometry) -> u16 {
         self.painted
-            .map_or(geometry.divider, |top| top.min(geometry.divider))
+            .map_or(geometry.band_top(), |top| top.min(geometry.band_top()))
     }
 
     /// Records that everything the band built reached the screen, so the rows
-    /// it gave back are blank and its top really is its divider.
+    /// it gave back are blank and its top really is its top row.
     fn delivered(&mut self, geometry: &Geometry) {
-        self.painted = Some(geometry.divider);
+        self.painted = Some(geometry.band_top());
     }
 
     /// [`render_append`](Self::render_append) plus exactly one write and one
@@ -427,7 +431,12 @@ fn tamed(row: &str) -> String {
 /// function `super::wrap::width` measures with, so the row this cuts is cut
 /// where the wrap that built it said it ends, and neither can cut inside a
 /// sequence.
-fn clip(row: &str, cols: u16) -> &str {
+///
+/// Visible to the rest of the TUI because a row that is *built* to a width --
+/// the activity row is the first ([`super::activity`]) -- has to be cut by the
+/// same function the painter cuts with, or the two disagree about what fits and
+/// the shorter answer is the one on the screen.
+pub(crate) fn clip(row: &str, cols: u16) -> &str {
     let budget = usize::from(cols);
     let mut used = 0usize;
     let mut end = 0usize;
@@ -680,6 +689,142 @@ mod tests {
             &text[..erase],
             format!("{BEGIN_FRAME}\u{1b}[22;1H"),
             "the erase was not the first thing written after the divider's CUP"
+        );
+    }
+
+    #[test]
+    fn the_frame_is_erased_and_painted_from_the_row_the_turn_is_using() {
+        // While a turn runs the band's top row is the activity row, not the
+        // divider. An erase that began at the divider would leave the tail of a
+        // longer row behind when a shorter one replaced it -- nothing else ever
+        // rewrites that row -- and rows placed from the divider would push the
+        // hint row off the bottom of the screen.
+        let mut band = Band::new();
+        let geometry =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        let rows = vec![
+            "\u{2022} Thinking  9s".to_string(),
+            "--".to_string(),
+            "> ".to_string(),
+            "hint".to_string(),
+        ];
+        let text = String::from_utf8(band.render(&rows, &geometry, (23, 2))).expect("utf-8");
+        let erase = text.find(ERASE_BELOW).expect("the erase");
+        assert_eq!(
+            &text[..erase],
+            format!("{BEGIN_FRAME}\u{1b}[21;1H"),
+            "the erase did not start at the band's own top row: {text:?}"
+        );
+        for (line, row) in (21u16..).zip(&rows) {
+            assert!(
+                text.contains(&format!("\u{1b}[{line};1H{row}")),
+                "{row:?} was not painted on row {line}: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_append_leaves_the_row_the_turn_is_using_alone() {
+        // The document is one row shorter while a turn runs, and an append that
+        // measured it against the divider would aim its topmost row at the row
+        // above the screen -- and paint over the activity row on the way.
+        let mut band = Band::new();
+        let geometry =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        let rows: Vec<String> = (0..40).map(|row| format!("row {row}")).collect();
+        let text = String::from_utf8(band.render_append(0, &rows, &geometry)).expect("utf-8");
+        assert!(
+            !text.contains("\u{1b}[0;1H"),
+            "the append aimed a row at the row above the screen: {text:?}"
+        );
+        assert!(
+            text.contains("\u{1b}[1;1Hrow 20"),
+            "the document's first row is not on the screen's first row: {text:?}"
+        );
+        assert!(
+            !text.contains(&format!("\u{1b}[{};1Hrow", geometry.band_top())),
+            "the append wrote on the row the turn is using: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_document_row_lands_under_the_row_the_turn_is_using() {
+        // The bottom document row is one higher while a turn runs, and an
+        // append that placed its new row at the divider less one would paint it
+        // straight over the activity row.
+        let mut band = Band::new();
+        let geometry =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry))
+            .expect("utf-8");
+        assert!(
+            text.contains("\u{1b}[20;1Hfresh"),
+            "the new row is not on the bottom row of the document: {text:?}"
+        );
+        assert!(
+            !text.contains(&format!("\u{1b}[{};1Hfresh", geometry.band_top())),
+            "the new row was painted over the activity row: {text:?}"
+        );
+    }
+
+    #[test]
+    fn the_row_a_finished_turn_gave_back_is_erased_rather_than_left_in_the_document() {
+        // The band shrinks by a row when the turn ends, and nothing in this
+        // phase repaints a document row: a band that recorded its divider as
+        // its top would never erase the activity row, and `• Thinking 12s`
+        // would stay in the terminal's own document for good -- and be there
+        // still after the exit, which clears from the top the band reports.
+        let mut band = Band::new();
+        let working =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        band.commit(
+            &mut Vec::new(),
+            &[
+                "\u{2022} Thinking  12s".to_string(),
+                "--".to_string(),
+                "> ".to_string(),
+                "hint".to_string(),
+            ],
+            &working,
+            (23, 2),
+        )
+        .expect("a frame the screen took");
+        assert_eq!(band.painted_top(), Some(working.band_top()));
+
+        let idle = geometry();
+        let text = String::from_utf8(band.render(&band_rows(), &idle, (23, 2))).expect("utf-8");
+        assert!(
+            text.contains(&format!("\u{1b}[{};1H{ERASE_LINE}", working.band_top())),
+            "the row the turn gave back was left in the document: {text:?}"
+        );
+    }
+
+    #[test]
+    fn an_append_does_not_erase_the_row_the_turn_is_still_using() {
+        // The other direction of the same bookkeeping: the band did not shrink,
+        // so there is nothing to give back, and an erase aimed at the activity
+        // row would blank it until whatever changes it next asks for a frame.
+        let mut band = Band::new();
+        let geometry =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        band.commit(
+            &mut Vec::new(),
+            &[
+                "\u{2022} Thinking  12s".to_string(),
+                "--".to_string(),
+                "> ".to_string(),
+                "hint".to_string(),
+            ],
+            &geometry,
+            (23, 2),
+        )
+        .expect("a frame the screen took");
+
+        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry))
+            .expect("utf-8");
+        assert!(
+            !text.contains(&format!("\u{1b}[{};1H{ERASE_LINE}", geometry.band_top())),
+            "the append erased the row the turn is using: {text:?}"
         );
     }
 
@@ -1192,6 +1337,27 @@ mod tests {
         band.commit(&mut Refuses, &band_rows(), &geometry(), (23, 2))
             .expect_err("the screen refused the frame");
         assert_eq!(band.painted_top(), Some(22));
+
+        // And from the row the *turn* is using when there is one: the frame
+        // begins painting at the band's top row, so a band that reported its
+        // divider would have the exit clear from below the row it had already
+        // begun writing on.
+        let mut band = Band::new();
+        let working =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        band.commit(
+            &mut Refuses,
+            &[
+                "\u{2022} Thinking  12s".to_string(),
+                "--".to_string(),
+                "> ".to_string(),
+                "hint".to_string(),
+            ],
+            &working,
+            (23, 2),
+        )
+        .expect_err("the screen refused the frame");
+        assert_eq!(band.painted_top(), Some(working.band_top()));
     }
 
     #[test]

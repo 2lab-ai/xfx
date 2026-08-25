@@ -1158,6 +1158,37 @@ fn a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept() {
 }
 
 #[test]
+fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
+    // Phase-1 item 6's second half, on a real terminal. The fixture answers
+    // nothing at all and never hangs up -- `[DONE]` completes no turn
+    // (`gateway::sse`), so the turn is provably still running for the whole of
+    // what is asserted below, and the row is the only thing on the screen that
+    // says so.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"think about it\r");
+
+    // Response-only **and** positional: on a 24-row screen the divider is row
+    // 22, so this is the frame writing the row directly above it. A needle
+    // matched anywhere on the screen would be satisfied by the word appearing
+    // in the document; this one is satisfied only by the band.
+    session.wait_for("\u{1b}[21;1H\u{2022} Thinking");
+    // And the clock really advances while the model is quiet, which is the
+    // whole of what the row is for.
+    session.wait_for("2s");
+
+    session.type_bytes(&[0x03, 0x03]);
+    assert_eq!(session.wait_exit().code(), Some(130));
+}
+
+#[test]
 fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // The row of the restoration matrix that no signal reaches: `ISIG` is
     // clear, so a typed Ctrl-C generates nothing and arrives as `0x03` for the

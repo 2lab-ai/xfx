@@ -5,12 +5,12 @@
 //! leaving -- is here, so that "what would the band look like now" is a
 //! question about a value rather than about a terminal.
 //!
-//! In this phase that value is small. The band is a divider, the composer, and
-//! a hint row the session owns and leaves empty until the phase that fills it;
-//! there is no turn yet, and the task that adds one adds it here. What is
-//! already true is the shape: the rows are produced top-down from the geometry,
-//! and the caret is reported in the composer's own coordinates rather than
-//! derived a second time by whatever draws it.
+//! In this phase that value is small. The band is a divider, the composer and a
+//! hint row, with one more row above the divider while a turn is running --
+//! what it is doing and how long it has been doing it ([`super::activity`]).
+//! The shape is what carries the rest: the rows are produced top-down from the
+//! geometry, and the caret is reported in the composer's own coordinates rather
+//! than derived a second time by whatever draws it.
 //!
 //! # The composer, its gutter, and the band's own height
 //!
@@ -73,6 +73,7 @@ use std::collections::VecDeque;
 use std::process::ExitCode;
 use std::time::Instant;
 
+use super::activity::{Activity, Work, PHASES};
 use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -242,6 +243,24 @@ pub(crate) struct Shell {
     /// How many submissions are waiting behind the one in flight, as of the
     /// last settle. Cached for the same reason [`Self::escape_armed`] is.
     queued: usize,
+    /// What the turn is doing, and how long it has been doing it.
+    activity: Activity,
+    /// Which phase of the activity row's blink the band is on.
+    ///
+    /// Counted in phases rather than read off a clock, and moved on by the
+    /// render request's animation tick ([`super::render_request`]), which is
+    /// what makes the blink a multiple of that tick rather than a second clock
+    /// beside it.
+    phase: u8,
+    /// What that row says, as of the last settle, or `None` while there is no
+    /// work to say anything about.
+    ///
+    /// Cached for the reason [`Self::escape_armed`] is -- [`Self::band_rows`]
+    /// has no clock -- and for one more that is this row's own: whether the
+    /// band **has** the row is a fact of the geometry, and the geometry is
+    /// re-solved from exactly this field, so the row's presence and its text
+    /// cannot disagree.
+    activity_row: Option<String>,
     /// Whether the screen owes a `/clear`.
     ///
     /// Taken by the loop, which owns the writer. A `bool` rather than a queued
@@ -305,19 +324,31 @@ impl Shell {
             notice: None,
             escape_armed: false,
             queued: 0,
+            activity: Activity::new(),
+            phase: 0,
+            activity_row: None,
             clearing: false,
             fatal: None,
             leaving: None,
         }
     }
 
-    /// The band's rows, top first, starting at the divider.
+    /// The band's rows, top first, starting at the band's own top row -- the
+    /// activity row while a turn is running, and the divider otherwise.
     ///
     /// Exactly as many rows as the band owns: the writer places them by
     /// counting down from the divider, so a row missing here would shift every
     /// row below it up by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
+        // What the turn is doing, above the rule, and only while the geometry
+        // says the band owns that row: the row's presence and its text are one
+        // fact settled together ([`Self::tick_activity`]), and a band that
+        // painted a row the geometry did not give it would push its hint row
+        // off the bottom of the screen.
+        if self.geometry.activity.is_some() {
+            rows.push(self.activity_row.clone().unwrap_or_default());
+        }
         rows.push(std::iter::repeat_n(RULE, usize::from(self.geometry.cols)).collect());
         // The composer's own rows, as many of them as the window shows, each in
         // the gutter the marker owns.
@@ -329,7 +360,9 @@ impl Shell {
         // A composer shorter than the band it is in. The remaining rows are the
         // band's, so they are written -- blank -- rather than left out: a row
         // the frame does not place is a row the last frame's text stays on.
-        while rows.len() <= usize::from(self.geometry.input_rows()) {
+        // Counted against the band's own height rather than against the
+        // composer's, because the rows above the rule are the band's too.
+        while rows.len() + 1 < usize::from(self.geometry.band_rows()) {
             rows.push(String::new());
         }
         // The hint row. Two of its segments exist in this phase -- what the
@@ -452,6 +485,12 @@ impl Shell {
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
         match event {
+            // A turn is running, which is what the row above the divider is
+            // about. The clock is not read here: the *label* is this event's
+            // and the *moment* is the next settle's, so the row is timed by the
+            // same clock every other row of the band is settled against
+            // ([`Self::tick_activity`]).
+            UiEvent::TurnStarted => self.activity.set(Work::Thinking),
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
             // nothing in the next is still read at one speed.
@@ -459,7 +498,14 @@ impl Shell {
             // The same two sentences `xfx ask --tool-notices` puts on the
             // diagnostic stream (`output.rs:1154-1174`), so a tool means the
             // same thing on both surfaces.
-            UiEvent::ToolStart { tool, .. } => self.say(format!("[tool] {tool} running")),
+            UiEvent::ToolStart { tool, .. } => {
+                // And on the band, where the row above the divider stops saying
+                // `Thinking` and names what is running instead: a turn that has
+                // gone quiet because a tool is taking a minute looks exactly
+                // like a turn that has gone quiet, unless it says so.
+                self.activity.set(Work::Tool { name: tool.clone() });
+                self.say(format!("[tool] {tool} running"));
+            }
             UiEvent::ToolResult {
                 tool, ok, detail, ..
             } => {
@@ -471,6 +517,10 @@ impl Shell {
                         safe_one_line(&detail, TOOL_DETAIL_BYTES)
                     )
                 };
+                // The tool is over, so the model has the turn again. The
+                // clock is not restarted with it: what the row measures is the
+                // turn, and a tool call is part of one.
+                self.activity.set(Work::Thinking);
                 self.say(line);
             }
             UiEvent::Notice(text) => self.say(text),
@@ -494,6 +544,13 @@ impl Shell {
                 // *next* turn's first Ctrl-C by leaving
                 // (see [`Gestures::turn_ended`]). The pacer is a delay on the
                 // text, not on what the keyboard means.
+                // The row is about **a turn**, and this one is over: its
+                // clock and its label stop here, whatever is queued behind it.
+                // The next turn's row begins when the runtime says that turn
+                // began and not before -- without that pair a queued prompt
+                // would inherit the elapsed time of the turn it was waiting
+                // for and report a number that was never about it.
+                self.activity.end();
                 self.pacer.finish();
                 self.gestures.turn_ended();
             }
@@ -758,10 +815,56 @@ impl Shell {
             self.escape_armed = armed;
             self.render.request(Reason::Footer);
         }
+        // What the turn is doing, on the row above the divider. Before the
+        // pacer, because the row's arrival and departure move the divider and
+        // an append measured against the other band would be placed a row out.
+        self.tick_activity(now);
         // And the answer itself: the pacer holds text against a clock, so a
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+    }
+
+    /// Settles the row that says what the turn is doing.
+    ///
+    /// Once a turn, from [`Self::settle_band`], for the reason the queue's
+    /// depth is read there: what this row says is an answer only the clock and
+    /// the other thread produce, so reading it here is what makes the row and
+    /// the frame that shows it agree.
+    ///
+    /// **Whether there is a turn at all is the runtime's to say, and it says
+    /// so in events**: `TurnStarted` and its conclusion ([`Self::apply`]), which
+    /// arrive in order on one channel and therefore cannot disagree with each
+    /// other. Nothing here consults the queue's depth. It could not: work in
+    /// hand is not always a turn -- a `/model` and a `/new` travel on the same
+    /// channel -- and the place a concluded turn holds is given back *after*
+    /// its conclusion is sent (`super::worker`'s `turn_loop`), so a count read
+    /// on this side would be one number or the other depending on which thread
+    /// ran last. What is settled here is only the half that is this thread's:
+    /// **when** the turn the runtime announced started being measured.
+    fn tick_activity(&mut self, now: Instant) {
+        if self.activity.working() && !self.activity.started() {
+            self.activity.begin(now);
+        }
+        if self.render.animate(self.activity.working(), now) {
+            self.phase = (self.phase + 1) % PHASES;
+        }
+        let row = self.activity.row(now, self.phase, self.geometry.cols);
+        if row == self.activity_row {
+            // A phase that turned over without changing the row is not a frame:
+            // the band is repainted whole, and twenty of those a second for a
+            // row that says the same thing is a cost paid on every link.
+            return;
+        }
+        // A row that appeared or went away is a row the band gained or gave
+        // back, so the geometry is re-solved before the frame is asked for --
+        // `refit` is what moves the divider, and the caret with it.
+        let appeared = row.is_some() != self.activity_row.is_some();
+        self.activity_row = row;
+        if appeared {
+            self.refit();
+        }
+        self.render.request(Reason::Animation);
     }
 
     /// Whether the screen owes a `/clear`, taken so it is written once.
@@ -998,6 +1101,12 @@ impl Shell {
     fn send(&mut self, prompt: String, text: &str) {
         match self.work.submit(TurnWork::Submit(prompt)) {
             Ok(()) => {
+                // Nothing is said about the turn here, and that is the point:
+                // an accepted prompt may wait behind another turn for a minute
+                // (`super::worker::WORK_LIMIT`), and the band already says so
+                // on its hint row. The row above the divider is about the turn
+                // the runtime is *running*, so it waits for the runtime to say
+                // that this one is (`UiEvent::TurnStarted`).
                 self.editor.take();
                 self.edited();
                 self.echo(text);
@@ -1146,10 +1255,17 @@ impl Shell {
         let limit = layout::input_row_limit(self.geometry.rows);
         let rows = self.editor.rows(self.text_cols()).len();
         let wanted = u16::try_from(rows.clamp(1, usize::from(limit))).unwrap_or(limit);
-        if wanted == self.geometry.input_rows() {
+        // The band's other height: whether the turn's row is above the divider.
+        // Carried through every re-solve rather than defaulted, or a keystroke
+        // typed while a turn ran would take that row away and the frame after
+        // it would put it back.
+        let activity = self.activity_row.is_some();
+        if wanted == self.geometry.input_rows() && activity == self.geometry.activity.is_some() {
             return;
         }
-        if let Some(geometry) = layout::solve(self.geometry.rows, self.geometry.cols, wanted) {
+        if let Some(geometry) =
+            layout::solve_with(self.geometry.rows, self.geometry.cols, wanted, activity)
+        {
             self.geometry = geometry;
             // The divider moved, so every row of the band is somewhere else.
             self.render.request(Reason::Resize);
@@ -1778,6 +1894,334 @@ mod tests {
         assert!(
             shell.editor.is_empty(),
             "a submission that was taken kept the draft"
+        );
+    }
+
+    /// A shell with a turn the runtime has said is running, and the moment it
+    /// began being measured.
+    ///
+    /// The two halves of a turn's row, in the order a session produces them:
+    /// the prompt is submitted, the runtime picks it up and says so, and the
+    /// next settle is what puts a clock on it. Written once because every case
+    /// below needs it and because getting the order wrong is how a test starts
+    /// asserting against a row that is not there yet.
+    fn turn_running(shell: &mut Fixture, bytes: &[u8]) -> Instant {
+        shell.route_bytes(bytes);
+        shell.apply(UiEvent::TurnStarted);
+        let started = Instant::now();
+        shell.settle_band(started);
+        let _ = shell.document();
+        started
+    }
+
+    #[test]
+    fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
+        // The band gains a row while a turn runs, and it comes off the bottom
+        // of the document rather than moving the composer: the caret must not
+        // jump because a turn started.
+        let mut shell = shell(24, 80);
+        let idle = shell.geometry;
+        assert_eq!(idle.activity, None);
+        assert_eq!(shell.band_rows()[0], RULE.to_string().repeat(80));
+
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.settle_band(started + Duration::from_secs(2));
+
+        let geometry = shell.geometry;
+        assert_eq!(
+            geometry.activity,
+            Some(geometry.divider - 1),
+            "the row is not the one directly above the divider"
+        );
+        assert_eq!(geometry.divider, idle.divider, "the divider moved");
+        assert_eq!(geometry.input_first, idle.input_first, "the caret moved");
+        assert_eq!(geometry.content_bottom, idle.content_bottom - 1);
+
+        let rows = shell.band_rows();
+        assert_eq!(
+            rows.len(),
+            usize::from(geometry.band_rows()),
+            "the band's rows and its geometry disagree: {rows:?}"
+        );
+        assert!(rows[0].contains("Thinking"), "{rows:?}");
+        // The clock is the turn's own, from the settle that first measured it,
+        // so this is two seconds exactly however long the rest of the test
+        // takes.
+        assert!(rows[0].contains("2s"), "{rows:?}");
+        assert_eq!(rows[1], RULE.to_string().repeat(80), "the rule moved");
+        assert_eq!(rows.last().expect("a hint row"), "");
+    }
+
+    #[test]
+    fn a_submitted_prompt_that_is_still_waiting_says_nothing_about_a_turn() {
+        // The row is about the turn the runtime is **running**. A prompt may
+        // wait behind another for a minute, and the band already says so on its
+        // hint row -- announcing `Thinking` for it would be the band claiming
+        // work that has not started.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"ask something\r");
+        shell.settle_band(Instant::now());
+
+        assert_eq!(shell.geometry.activity, None);
+        assert!(
+            !shell.band_rows().iter().any(|row| row.contains("Thinking")),
+            "{:?}",
+            shell.band_rows()
+        );
+    }
+
+    #[test]
+    fn a_prompt_queued_behind_a_turn_does_not_restart_the_turns_clock() {
+        // What the row measures is the turn that is running, and a second
+        // prompt joining the queue is not an event in that turn's life.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"first\r");
+        shell.settle_band(started + Duration::from_secs(2));
+        assert!(
+            shell.band_rows()[0].contains("2s"),
+            "{:?}",
+            shell.band_rows()
+        );
+
+        shell.route_bytes(b"second\r");
+        shell.settle_band(started + Duration::from_secs(3));
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].contains("3s"),
+            "the queued prompt restarted the running turn's clock: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_turn_that_was_queued_gets_its_own_clock_rather_than_the_last_ones() {
+        // The handoff. When the turn in flight ends and the runtime starts the
+        // prompt that was queued behind it, the row is about **that** turn from
+        // the moment it starts -- a row that carried the finished turn's
+        // elapsed time forward would report a number that was never about the
+        // turn the user is waiting for, and it would keep growing across every
+        // queued prompt for the rest of the session.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.settle_band(started + Duration::from_secs(2));
+        assert!(
+            shell.band_rows()[0].contains("2s"),
+            "{:?}",
+            shell.band_rows()
+        );
+
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.apply(UiEvent::TurnStarted);
+        let _ = shell.document();
+        shell.settle_band(started + Duration::from_secs(3));
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].contains("0s"),
+            "the queued turn inherited the finished turn's clock: {rows:?}"
+        );
+        shell.settle_band(started + Duration::from_secs(5));
+        assert!(
+            shell.band_rows()[0].contains("2s"),
+            "{:?}",
+            shell.band_rows()
+        );
+    }
+
+    #[test]
+    fn a_turn_that_ends_takes_the_row_with_it_whatever_the_queue_still_holds() {
+        // The conclusion is the end of the row, and it does not matter what
+        // else the runtime has in hand: the *next* row waits for the runtime to
+        // say that the next turn started. This is the interleaving a count
+        // cannot survive -- the place a concluded turn holds is given back
+        // after its conclusion is sent (`super::worker`'s `turn_loop`), so a
+        // session reading a queue depth here would find the finished turn's own
+        // place still claimed and start a clock for a turn that does not exist.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"only one\r");
+        assert!(shell.geometry.activity.is_some());
+        assert_eq!(
+            shell.work.outstanding(),
+            1,
+            "the fixture is not in the pre-decrement state this case is about"
+        );
+
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.document();
+        shell.settle_band(started + Duration::from_millis(50));
+
+        assert_eq!(shell.geometry.activity, None);
+        assert!(
+            !shell.band_rows().iter().any(|row| row.contains("Thinking")),
+            "{:?}",
+            shell.band_rows()
+        );
+
+        // And no phantom row afterwards, however long the place stays claimed,
+        // and no frame owed for one.
+        let _taken = shell.render.begin();
+        for tick in 1..=125u64 {
+            shell.settle_band(started + Duration::from_millis(50 + tick * TICK_MILLIS));
+        }
+        assert_eq!(shell.geometry.activity, None, "a turn's row came back");
+        assert!(
+            shell.render.begin().is_none(),
+            "a frame was owed for a row that does not exist"
+        );
+    }
+
+    #[test]
+    fn a_command_the_runtime_runs_after_a_turn_is_not_the_model_thinking() {
+        // `/new` and `/model` travel on the work channel like a prompt, so the
+        // runtime has work in hand for one -- but nothing is being answered.
+        // A session that started a clock because a turn ended with something
+        // still queued would say `Thinking` about a command it had already
+        // answered on its own thread.
+        for command in [b"/new\r".as_slice(), b"/model other\r".as_slice()] {
+            let mut shell = shell(24, 80);
+            let started = turn_running(&mut shell, b"ask something\r");
+            shell.route_bytes(command);
+            let _ = shell.document();
+            assert!(
+                shell.work.outstanding() > 1,
+                "the command did not reach the runtime, so this proves nothing"
+            );
+
+            shell.apply(UiEvent::TurnEnded { failure: None });
+            let _ = shell.document();
+            shell.settle_band(started + Duration::from_millis(50));
+
+            let rows = shell.band_rows();
+            assert_eq!(
+                shell.geometry.activity, None,
+                "a queued command put a turn's row on the band: {rows:?}"
+            );
+            assert!(!rows.iter().any(|row| row.contains("Thinking")), "{rows:?}");
+        }
+    }
+
+    #[test]
+    fn a_running_tool_takes_the_row_over_and_hands_it_back() {
+        // A turn that has gone quiet because a tool is taking a minute looks
+        // exactly like a turn that has gone quiet, unless the band says which.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "read_file".to_string(),
+        });
+        shell.settle_band(started + Duration::from_millis(50));
+        assert!(
+            shell.band_rows()[0].contains("read_file"),
+            "{:?}",
+            shell.band_rows()
+        );
+
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "read_file".to_string(),
+            ok: true,
+            detail: String::new(),
+        });
+        shell.settle_band(started + Duration::from_millis(100));
+        let rows = shell.band_rows();
+        assert!(rows[0].contains("Thinking"), "{rows:?}");
+        assert!(!rows[0].contains("read_file"), "{rows:?}");
+        // The tool was part of the turn, so the turn's clock ran through it.
+        shell.settle_band(started + Duration::from_secs(4));
+        assert!(
+            shell.band_rows()[0].contains("4s"),
+            "{:?}",
+            shell.band_rows()
+        );
+    }
+
+    #[test]
+    fn typing_while_a_turn_runs_does_not_take_the_row_away() {
+        // Every re-solve carries the row's presence with it. Without that, a
+        // keystroke would drop the row and the next settle would put it back --
+        // a band that flickered a row wider and narrower on every character.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+        let working = shell.geometry;
+
+        shell.route_bytes(b"the next thing");
+
+        assert_eq!(shell.geometry.activity, working.activity);
+        assert_eq!(shell.geometry.content_bottom, working.content_bottom);
+        shell.settle_band(started + Duration::from_millis(50));
+        assert!(shell.band_rows()[0].contains("Thinking"));
+    }
+
+    #[test]
+    fn the_marker_really_blinks_while_the_turn_runs() {
+        // The blink is `activity::lit` counting phases and the phase is moved
+        // on here, from the render request's animation tick. Without the
+        // second half the row is lit for ever: a marker that never changes is
+        // one the user cannot tell from a frozen band.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+        let mut markers = std::collections::BTreeSet::new();
+        // One second of the loop's own ticks, which is two of the marker's
+        // half-periods.
+        for tick in 0..=1000 / TICK_MILLIS {
+            shell.settle_band(started + Duration::from_millis(tick * TICK_MILLIS));
+            markers.insert(
+                shell
+                    .band_rows()
+                    .first()
+                    .and_then(|row| row.chars().next())
+                    .expect("the activity row's first cell"),
+            );
+        }
+        assert_eq!(
+            markers.len(),
+            2,
+            "the marker did not blink in a whole second: {markers:?}"
+        );
+    }
+
+    #[test]
+    fn an_idle_band_asks_for_no_frames_at_all_however_long_it_sits_there() {
+        // The animated row is the only thing in this phase with a clock of its
+        // own, and it is not running: a session at an idle prompt must not
+        // repaint twenty times a second for a row nothing is drawing.
+        let mut shell = shell(24, 80);
+        let start = Instant::now();
+        let _first = shell.render.begin().expect("the first frame");
+        for tick in 1..=250u64 {
+            shell.settle_band(start + Duration::from_millis(tick * TICK_MILLIS));
+        }
+        assert!(
+            shell.render.begin().is_none(),
+            "an idle band asked for a frame nothing had changed for"
+        );
+    }
+
+    #[test]
+    fn the_row_asks_for_a_frame_when_it_changes_and_not_on_every_tick() {
+        // Twenty repaints a second of a row that says the same thing is a cost
+        // paid on every link; a row that changed and asked for nothing would
+        // sit there stale until the next keystroke.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+        let _asked = shell.render.begin().expect("the frame the row asked for");
+
+        // Half a tick later nothing about the row can have changed.
+        shell.settle_band(started + Duration::from_millis(4));
+        assert!(
+            shell.render.begin().is_none(),
+            "a tick with nothing to show asked for a frame"
+        );
+
+        // A second later the elapsed time reads differently, and that is a
+        // frame.
+        shell.settle_band(started + Duration::from_millis(1000));
+        assert!(
+            shell.render.begin().is_some(),
+            "the row changed and no frame was asked for, so it would sit stale"
         );
     }
 

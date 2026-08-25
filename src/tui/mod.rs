@@ -29,7 +29,8 @@
 //! output to push above the band (see [`probe`]).
 //!
 //! What the session then owns is a **band**: a divider, the composer, and a
-//! hint row at the bottom of the screen ([`layout`]), repainted whole inside one
+//! hint row at the bottom of the screen, plus a row above the divider while a
+//! turn is running ([`layout`], [`activity`]), repainted whole inside one
 //! synchronized frame ([`frame`]) whenever something asks for one
 //! ([`render_request`]), by a loop that waits on a fixed tick ([`event_loop`]).
 //! Everything above the divider stays the terminal's own document.
@@ -472,6 +473,7 @@ fn fail(message: &str) -> ExitCode {
     ExitCode::FAILURE
 }
 
+mod activity;
 mod bridge;
 mod editor;
 mod event_loop;

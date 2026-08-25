@@ -1,10 +1,11 @@
 //! Where the band's rows are on a screen whose size is somebody else's fact.
 //!
 //! The band is three things at the bottom of the **normal** buffer -- a
-//! divider, the composer, and a hint row -- and everything above the divider
-//! stays the terminal's own document. So a layout is five row numbers, and
-//! [`solve`] is the one place they are derived from one another; nothing else
-//! in the TUI may compute a row from `rows - 1`.
+//! divider, the composer, and a hint row -- with a fourth above the divider
+//! while a turn is running ([`super::activity`]), and everything above the
+//! band stays the terminal's own document. So a layout is a handful of row
+//! numbers, and [`solve_with`] is the one place they are derived from one
+//! another; nothing else in the TUI may compute a row from `rows - 1`.
 //!
 //! Nothing here queries anything. The screen's size arrives as two arguments
 //! ([`super::term::window_size`] is what asks the terminal), which is what makes
@@ -36,7 +37,15 @@ pub(crate) struct Geometry {
     /// The last row the transcript may occupy: everything at or above it is the
     /// terminal's document and the band never writes there.
     pub(crate) content_bottom: u16,
-    /// The band's top row, and therefore the row an exit clears from.
+    /// The row that says what the turn is doing, while there is a turn.
+    ///
+    /// Directly above the divider, and `None` whenever nothing is running: the
+    /// row is the evidence that something is happening, so a session with
+    /// nothing in flight does not own it and the document does
+    /// ([`super::activity`]).
+    pub(crate) activity: Option<u16>,
+    /// The rule under the document, and the row the composer's first row
+    /// follows.
     pub(crate) divider: u16,
     pub(crate) input_first: u16,
     pub(crate) input_last: u16,
@@ -44,12 +53,21 @@ pub(crate) struct Geometry {
 }
 
 impl Geometry {
-    /// How many rows the band owns, divider and hint row included.
+    /// The band's top row, and therefore the row an exit clears from.
+    ///
+    /// The activity row when there is one, because a band that reported its
+    /// divider while painting a row above it would leave that row on the
+    /// terminal at exit and let an append write over it while the session ran.
+    pub(crate) fn band_top(&self) -> u16 {
+        self.activity.unwrap_or(self.divider)
+    }
+
+    /// How many rows the band owns, from its top row to the hint row.
     pub(crate) fn band_rows(&self) -> u16 {
-        // Every row from the divider to the bottom of the screen, and the
-        // subtraction cannot underflow because `solve` is the only constructor
-        // and it never places the divider below the hint row.
-        self.hint - self.divider + 1
+        // Every row from the top of the band to the bottom of the screen, and
+        // the subtraction cannot underflow because `solve_with` is the only
+        // constructor and it never places that row below the hint row.
+        self.hint - self.band_top() + 1
     }
 
     /// How many rows the composer occupies.
@@ -59,15 +77,32 @@ impl Geometry {
 }
 
 /// The band's rows for a screen of `rows` x `cols` holding an `input_rows`-tall
-/// composer, or `None` when the screen cannot hold one.
+/// composer and nothing running, or `None` when the screen cannot hold one.
+///
+/// The band a session opens on and comes back to: [`solve_with`] is the same
+/// derivation with the activity row asked for, and the two are one function so
+/// that "is there a row above the divider" cannot be answered differently by
+/// the layout and by whatever paints it.
+pub(crate) fn solve(rows: u16, cols: u16, input_rows: u16) -> Option<Geometry> {
+    solve_with(rows, cols, input_rows, false)
+}
+
+/// The same, saying whether the turn's activity row is on the screen.
 ///
 /// The order is the derivation: the hint row is the last row of the screen, the
 /// composer sits on the rows above it, the divider is the row above the
-/// composer, and the document ends one row above that. A `None` is a refusal
-/// the caller reports by name -- a band painted onto a screen that cannot hold
-/// it would write over the user's shell output and then clear it on the way
-/// out, which is the one thing this module exists to prevent.
-pub(crate) fn solve(rows: u16, cols: u16, input_rows: u16) -> Option<Geometry> {
+/// composer, the activity row -- when there is work -- is the row above *that*,
+/// and the document ends one row above whichever of the two is highest. A
+/// `None` is a refusal the caller reports by name -- a band painted onto a
+/// screen that cannot hold it would write over the user's shell output and then
+/// clear it on the way out, which is the one thing this module exists to
+/// prevent.
+pub(crate) fn solve_with(
+    rows: u16,
+    cols: u16,
+    input_rows: u16,
+    activity: bool,
+) -> Option<Geometry> {
     if rows < MIN_ROWS || cols < MIN_COLS || input_rows == 0 {
         return None;
     }
@@ -75,7 +110,16 @@ pub(crate) fn solve(rows: u16, cols: u16, input_rows: u16) -> Option<Geometry> {
     let input_last = rows - 1;
     let input_first = (input_last + 1).checked_sub(input_rows)?;
     let divider = input_first.checked_sub(1)?;
-    let content_bottom = divider.checked_sub(1)?;
+    // The activity row takes its row from the document, exactly as a composer
+    // that grew by one would: it is a row of the band while it exists, and the
+    // rows a shrinking band gives back are erased by the next thing painted
+    // (`super::frame`'s `release`).
+    let activity = if activity {
+        Some(divider.checked_sub(1)?)
+    } else {
+        None
+    };
+    let content_bottom = activity.unwrap_or(divider).checked_sub(1)?;
     // A composer tall enough to leave no document at all is refused rather than
     // clamped: the caller asked for rows the screen does not have, and silently
     // giving it fewer would put the caret somewhere it did not ask for.
@@ -86,6 +130,7 @@ pub(crate) fn solve(rows: u16, cols: u16, input_rows: u16) -> Option<Geometry> {
         rows,
         cols,
         content_bottom,
+        activity,
         divider,
         input_first,
         input_last,
@@ -177,6 +222,63 @@ mod tests {
         );
         assert!(solve(6, 80, 4).is_none());
         assert!(solve(24, 80, 0).is_none(), "a composer with no rows");
+    }
+
+    #[test]
+    fn a_turn_puts_one_more_row_above_the_divider_and_takes_it_from_the_document() {
+        // The activity row is the band's while it exists: the divider and the
+        // composer do not move -- the caret must not jump when a turn starts --
+        // and the row it costs comes off the bottom of the document.
+        let idle = solve(24, 80, 1).expect("a band");
+        let working = solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        assert_eq!(idle.activity, None);
+        assert_eq!(
+            working.activity,
+            Some(21),
+            "the row directly above the divider"
+        );
+        assert_eq!(working.divider, idle.divider);
+        assert_eq!(working.input_first, idle.input_first);
+        assert_eq!(working.hint, idle.hint);
+        assert_eq!(working.content_bottom, idle.content_bottom - 1);
+        assert_eq!(working.band_top(), 21);
+        assert_eq!(idle.band_top(), idle.divider);
+        assert_eq!(working.band_rows(), idle.band_rows() + 1);
+    }
+
+    #[test]
+    fn the_document_and_the_band_still_tile_the_screen_while_a_turn_runs() {
+        // The property the row's arithmetic has to keep whatever else moves: a
+        // gap would be a row nothing ever paints, and an overlap would be the
+        // band writing into the terminal's own document.
+        for input_rows in [1u16, 2, 4] {
+            let geometry = solve_with(24, 80, input_rows, true).expect("a band with a turn in it");
+            assert_eq!(
+                geometry.content_bottom + geometry.band_rows(),
+                geometry.rows,
+                "{input_rows} composer rows and a turn do not tile the screen"
+            );
+        }
+    }
+
+    #[test]
+    fn a_screen_with_no_room_for_the_activity_row_is_refused_rather_than_squeezed() {
+        // The same refusal a composer one row too tall gets, and for the same
+        // reason: a band that took the last document row would be a band with
+        // no document above it at all.
+        assert_eq!(
+            solve(6, 20, 3)
+                .expect("a three-row composer")
+                .content_bottom,
+            1
+        );
+        assert!(solve_with(6, 20, 3, true).is_none());
+        assert_eq!(
+            solve_with(6, 20, 2, true)
+                .expect("a two-row composer with a turn in it")
+                .content_bottom,
+            1
+        );
     }
 
     #[test]

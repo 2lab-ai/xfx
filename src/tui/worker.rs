@@ -773,6 +773,18 @@ async fn run_turn(
     queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
+    // A turn has begun, and this is the only place that is true: the prompt
+    // was accepted when it was typed, and it may have waited behind another
+    // turn since. The UI's activity row starts here and ends with the
+    // conclusion below, so the row is exactly this turn's lifetime rather than
+    // a guess assembled from a queue depth.
+    //
+    // Through `send_ui`, so a turn cancelled before it could start paints no
+    // row -- its conclusion is still sent below, and a conclusion that ends a
+    // row nobody drew ends nothing. The result is discarded because there is
+    // nothing this function could do about it: the turn still owes its terminal
+    // event either way.
+    let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, events, &turn,
     )))

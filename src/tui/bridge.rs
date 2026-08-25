@@ -110,6 +110,17 @@ pub(crate) const UI_EVENTS: usize = 256;
 /// text fields to [`UiEvent::made_inert`] and that is all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum UiEvent {
+    /// A turn has begun on the runtime thread.
+    ///
+    /// **Not** the submission, and the difference is the whole reason this
+    /// event exists. A prompt is accepted the moment it is typed and may then
+    /// wait behind another turn for a minute; the runtime picking it up is a
+    /// fact only the runtime has, and it is the fact the band's activity row
+    /// is about ([`super::activity`]). Told rather than inferred: the place a
+    /// concluded turn holds is given back *after* its conclusion is sent
+    /// (`super::worker`'s `turn_loop`), so a UI counting places would read
+    /// either number depending on which thread ran last.
+    TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
     /// A tool call was admitted and is about to run.
@@ -149,6 +160,8 @@ impl UiEvent {
     /// text has been given an answer here.
     fn made_inert(self) -> Self {
         match self {
+            // No text at all: what it carries is the fact that it arrived.
+            Self::TurnStarted => Self::TurnStarted,
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
@@ -1036,6 +1049,9 @@ mod tests {
                 detail: "done".into(),
             },
             UiEvent::Notice("n".into()),
+            // A turn beginning is the *opposite* of one ending, and a drain
+            // loop that stopped at it would leave before the answer.
+            UiEvent::TurnStarted,
         ] {
             assert!(!event.is_terminal(), "{event:?} ended the turn");
         }

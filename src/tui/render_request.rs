@@ -96,19 +96,46 @@ impl RenderRequest {
     }
 
     /// Records that an animated row redrew at `now`, starting the clock.
-    // Tasks 13 and 14 are the pacer and the activity row, which are what
-    // animate; the clock is here because it is the render request's, not
-    // theirs, and two clocks would disagree.
-    #[allow(dead_code)]
+    // The activity row is what animates in this phase; the clock is here
+    // because it is the render request's, not that row's, and two clocks would
+    // disagree.
     pub(crate) fn mark_animation(&mut self, now: Instant) {
         self.animation = Some(now);
     }
 
     /// Whether the animation tick has come round again.
-    #[allow(dead_code)]
     pub(crate) fn animation_due(&self, now: Instant) -> bool {
         self.animation
             .is_some_and(|last| now.saturating_duration_since(last) >= ANIMATION_TICK)
+    }
+
+    /// Moves the animation clock on, and says whether this call is a tick.
+    ///
+    /// The whole of the clock's policy, in one call the session makes every
+    /// turn of its loop:
+    ///
+    /// * **Nothing animating stops the clock**, rather than leaving it to run.
+    ///   An idle TUI must not repaint twenty times a second for a row nothing
+    ///   is drawing, and a clock that kept ticking would make the *next* thing
+    ///   that animates start mid-phase.
+    /// * **A tick is [`ANIMATION_TICK`] apart from the last one**, so what
+    ///   animates counts phases rather than reading a clock of its own -- which
+    ///   is what keeps a 500 ms blink 500 ms long on a loop whose own tick is
+    ///   8 ms.
+    ///
+    /// It asks for no frame. What changed on the screen is the caller's
+    /// question, and a phase that turned over without changing a row is a
+    /// repaint of the whole band for nothing.
+    pub(crate) fn animate(&mut self, animating: bool, now: Instant) -> bool {
+        if !animating {
+            self.animation = None;
+            return false;
+        }
+        if self.animation.is_some() && !self.animation_due(now) {
+            return false;
+        }
+        self.mark_animation(now);
+        true
     }
 }
 
@@ -149,6 +176,51 @@ mod tests {
         // on every tick, for a row nothing is drawing.
         let request = RenderRequest::default();
         assert!(!request.animation_due(Instant::now()));
+    }
+
+    #[test]
+    fn the_animation_clock_ticks_every_fifty_milliseconds_while_something_animates() {
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        assert!(
+            request.animate(true, start),
+            "the first tick starts the clock"
+        );
+        assert!(!request.animate(true, start + Duration::from_millis(49)));
+        assert!(request.animate(true, start + Duration::from_millis(50)));
+    }
+
+    #[test]
+    fn a_tick_asks_for_no_frame_by_itself() {
+        // A phase that turned over without changing a row is a repaint of the
+        // whole band for nothing, on a link that may be a serial line. What
+        // changed is the caller's question.
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        assert!(request.animate(true, start));
+        assert!(
+            request.begin().is_none(),
+            "an animation tick asked for a frame nothing had changed for"
+        );
+    }
+
+    #[test]
+    fn nothing_animating_stops_the_clock_rather_than_leaving_it_running() {
+        // Otherwise the next thing that animates starts mid-phase -- and, worse,
+        // an idle session would answer `animation_due` for ever after the last
+        // turn ended.
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        assert!(request.animate(true, start));
+        assert!(!request.animate(false, start + Duration::from_millis(50)));
+        assert!(
+            !request.animation_due(start + Duration::from_secs(60)),
+            "the clock kept running after the last thing animating stopped"
+        );
+        assert!(
+            request.animate(true, start + Duration::from_millis(60)),
+            "the clock did not start again for the next thing that animates"
+        );
     }
 
     #[test]
