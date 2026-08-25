@@ -1688,7 +1688,7 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
-    use super::super::paste::MAX_PASTE_BYTES;
+    use super::super::paste::{MAX_PASTE_BYTES, MAX_RETAINED_BLOCKS};
     use super::*;
 
     use std::collections::BTreeMap;
@@ -2726,6 +2726,94 @@ mod tests {
             full,
             "a keystroke landed past the budget, in front of a name whose \
              block it does not release"
+        );
+    }
+
+    #[test]
+    fn a_draft_stops_taking_blocks_at_the_cap_and_a_released_slot_comes_back() {
+        // The bookkeeping that keeps the budget honest re-reads the draft once
+        // per retained block on every keystroke, so the block count is a cost
+        // as well as a number ([`super::super::paste::MAX_RETAINED_BLOCKS`]).
+        // The number is spelled out rather than read from the module it is
+        // checking, for the reason `tests/tui.rs` spells out the band's rows: a
+        // test that took the cap from the thing enforcing it would pass for
+        // *any* cap -- including one that brings the scan cost back.
+        const CAP: usize = 64;
+        assert_eq!(
+            CAP, MAX_RETAINED_BLOCKS,
+            "the cap moved; read the scan-cost table in `MAX_RETAINED_BLOCKS`'s \
+             doc before changing this number"
+        );
+
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1001);
+        for _ in 0..CAP {
+            shell.route_bytes(b"\x1b[200~");
+            shell.route_bytes(block.as_bytes());
+            shell.route_bytes(b"\x1b[201~");
+        }
+        let full = shell.editor.text().to_string();
+        assert!(
+            shell.notice.is_none(),
+            "a paste inside the cap was refused: {:?}",
+            shell.notice
+        );
+        assert!(
+            full.contains(&format!("[Pasted text #{CAP}, 1 lines]")),
+            "the last block inside the cap is not in the draft"
+        );
+
+        // The one past it is refused, and says so.
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.editor.text(),
+            full,
+            "a block past the cap landed in the draft"
+        );
+        assert_eq!(
+            shell.notice,
+            Some(PASTE_REFUSED),
+            "a block past the cap was dropped without a word"
+        );
+
+        // And a slot an edit gives back is a slot the next paste can have. The
+        // backspace damages the last name, which releases its block; the paste
+        // after it is the 65th to be *kept*, so it is the 65th number too --
+        // the refused one never spent hers.
+        shell.route_bytes(&[0x7f]);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert!(
+            shell
+                .editor
+                .text()
+                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
+            "the slot a damaged name gave back was not reused: {:?}",
+            shell.editor.text()
+        );
+    }
+
+    #[test]
+    fn an_inline_paste_is_not_what_the_block_cap_counts() {
+        // The cap is about the blocks a draft holds, because each one is
+        // another read of the draft on every keystroke. A paste small enough to
+        // be text keeps no block and costs no read, so a draft at the cap still
+        // takes one.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1001);
+        for _ in 0..MAX_RETAINED_BLOCKS {
+            shell.route_bytes(b"\x1b[200~");
+            shell.route_bytes(block.as_bytes());
+            shell.route_bytes(b"\x1b[201~");
+        }
+
+        shell.route_bytes(b"\x1b[200~short\x1b[201~");
+        assert!(
+            shell.editor.text().ends_with("short"),
+            "an inline paste was refused for a count it does not add to"
         );
     }
 

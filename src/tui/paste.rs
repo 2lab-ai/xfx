@@ -69,6 +69,24 @@ use super::transcript;
 /// summary instead (`pasted_blocks.zig:7`).
 pub(crate) const COLLAPSE_ABOVE: usize = 1000;
 
+/// The most collapsed blocks one draft may hold.
+///
+/// **A bound on time, not on memory.** [`Paste::reconcile`] runs on every
+/// keystroke and re-reads the draft once per retained block, so its cost is
+/// blocks x draft. Measured against a 7 MB draft (`--release`, worst case, the
+/// names at the end or absent): 5.5 ms for one block, 559 ms for a hundred and
+/// **5.6 s for a thousand** -- a hang rather than a slowdown, and reachable by
+/// pasting repeatedly into one draft without submitting it. Sixty-four bounds
+/// that at some 360 ms, while an ordinary draft holds a handful and pays
+/// single-digit milliseconds.
+///
+/// A cap rather than the scan that would remove the need for one: every summary
+/// begins `[Pasted text #`, so a single pass that found that prefix and looked
+/// the block up by its id would cost draft + hits however many blocks there
+/// are. That belongs with Phase 2's block model, which wants placeholder
+/// positions anyway.
+pub(crate) const MAX_RETAINED_BLOCKS: usize = 64;
+
 /// The most bytes one paste may hold.
 ///
 /// The same number as the composer's own budget
@@ -243,6 +261,14 @@ impl Paste {
         }
         if !self.refused && text.chars().count() <= COLLAPSE_ABOVE {
             return Pasted::Inline(text);
+        }
+        // **The other budget, and it is a budget of time.** From here a block
+        // is going to be kept, and every block a draft holds is one more read
+        // of that draft on every keystroke ([`MAX_RETAINED_BLOCKS`]). Asked
+        // after the inline branch on purpose: an inline paste keeps no block
+        // and costs no scan, so the count is none of its business.
+        if self.blocks.len() >= MAX_RETAINED_BLOCKS {
+            self.refused = true;
         }
         // Counted in **lines of text**, so a block ending in a newline is not
         // reported as having one more line than a reader can see.
