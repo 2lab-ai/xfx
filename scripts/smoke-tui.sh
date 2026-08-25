@@ -1693,19 +1693,31 @@ def scenario_3(run):
 def scenario_3b(run):
     """Two ways a session can be held under, and one terminal it still gives back."""
     marker = run.marker("drain")
-    deltas = [fixtures.text_delta("d", "chunk-%d " % n) for n in range(2000)]
-    deltas.append(fixtures.text_delta("d", marker))
+    # The marker leads the stream, and the two thousand chunks behind it are the
+    # backlog. It has to lead: this scenario quits *mid*-stream on purpose, and
+    # a marker at the tail would be one the pacer has not reached -- so the
+    # scenario would be asserting on generic `chunk-0` and passing on a screen
+    # that never showed anything unique to this run, which is the discriminator
+    # failure `06-qa-harness.md` §"Fixtures and the mock-vs-live rule" exists to
+    # rule out.
+    deltas = [fixtures.text_delta("d", marker + " ")]
+    deltas.extend(fixtures.text_delta("d", "chunk-%d " % n) for n in range(2000))
     fixture = start_fixture(run, [fixtures.hang(*deltas)])
     trial = run.trial("drain", faulty=True, fault="slow-ui", gateway=fixture).settled()
 
     trial.send("stream a lot " + run.nonce + "\r")
+    trial.wait_for(marker)
     trial.wait_for("chunk-0")
     run.require(
         any(run.nonce in body for body in fixture.bodies()),
         "the nonce this run minted is in the request xfx sent",
     )
     grid = trial.grid("mid-stream")
-    run.require(grid.find("chunk-0") is not None, "the stream is on the screen")
+    run.require(
+        grid.find(marker) is not None,
+        "the fixture's own marker %r is rendered on the screen" % marker,
+    )
+    run.require(grid.find("chunk-0") is not None, "and the stream behind it is running")
     run.require(grid.text().strip() != "", "the screen is not blank")
 
     trial.send(b"\x04")
@@ -1765,12 +1777,16 @@ def scenario_3b(run):
     # of wall clock must end the session rather than be retried forever.
     starved = run.trial("starved-screen", nonblocking_output=True).settled()
     began = time.time()
-    for _ in range(600):
+    for _ in range(STARVING_KEYSTROKES):
+        if starved.session.state()[0] != "running":
+            break
         try:
             os.write(starved.terminal.master, b"x")
         except OSError:
+            # The input queue is full too; the child has stopped reading, which
+            # is the state being waited for anyway.
             break
-        time.sleep(0.002)
+        time.sleep(STARVING_PAUSE)
     state = starved.session.wait_state(
         "the session to give up on a screen that takes nothing",
         lambda seen: seen[0] not in ("running", "continued"),
@@ -1782,8 +1798,9 @@ def scenario_3b(run):
     )
     elapsed = time.time() - began
     run.require(
-        elapsed < 15.0,
-        "it ended inside a bounded budget rather than retrying forever (%.2fs)" % elapsed,
+        elapsed < STARVED_DEADLINE,
+        "it ended on the budget rather than retrying forever (%.2fs, deadline %.2fs)"
+        % (elapsed, STARVED_DEADLINE),
     )
     starved.session.wait_exit()
     run.require(
@@ -1798,6 +1815,33 @@ def scenario_3b(run):
 # ---------------------------------------------------------------------------
 # 4. raw mode positively entered
 # ---------------------------------------------------------------------------
+
+
+# How the starved-screen row's deadline is arrived at, because a number nobody
+# can derive is a number nobody can defend. The property under test is
+# `event_loop::FRAME_BUDGET` -- **half a second** of wall clock, past which a
+# screen that has taken nothing ends the session instead of being retried
+# forever -- so the bound has to be close enough to half a second that a budget
+# which quietly stopped being enforced is detectable. The first version of this
+# row accepted fifteen seconds, which bounds nothing: a regression to a
+# fourteen-second retry would have passed it.
+#
+#   typing            <= STARVING_KEYSTROKES * STARVING_PAUSE = 0.40 s
+#                        (and it stops the moment the child does, so this is a
+#                         ceiling rather than a cost; the budget's clock starts
+#                         at the first refusal, which is inside this window)
+#   FRAME_BUDGET         0.50 s   `src/tui/event_loop.rs`
+#   the give-up path     0.50 s   leave through `hold`, `term::shutdown`, exit
+#   CI slack             2.00 s   a loaded hosted runner, four jobs in parallel
+#   ------------------------------------------------------------------
+#   STARVED_DEADLINE     3.40 s
+#
+# Measured on an idle developer machine: 0.6-1.1 s. The slack is generous about
+# the *machine* and strict about the *policy*, which is the split the drain
+# row's own comment argues for -- bound the contract, never the scheduler.
+STARVING_KEYSTROKES = 400
+STARVING_PAUSE = 0.001
+STARVED_DEADLINE = 0.40 + 0.50 + 0.50 + 2.00
 
 
 def scenario_4(run):
@@ -1941,10 +1985,6 @@ def scenario_6(run):
             if token not in WRAP_WORDS
         ]
         run.require(not broken, "no word was split across a row boundary: %r" % broken)
-        run.require(
-            all(row.startswith(" ") or row == rows[0] for row in rows[1:]) or True,
-            "continuation rows sit in the composer's gutter",
-        )
         for row in range(start, grid.rows - 1):
             run.require(
                 grid.row_text(row).startswith("> ") or grid.row_text(row).startswith("  "),
