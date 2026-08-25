@@ -2317,15 +2317,28 @@ fn a_timeout_kills_the_whole_process_group_and_not_only_the_child() {
 /// Every process whose whole argv is `sleep <tag>`, with the process group it
 /// is in.
 ///
-/// `ps` rather than `pgrep` because one call has to answer both halves of the
-/// question. A test that only counted the children could not tell whether they
-/// were in the group it is about to have killed, and group membership is the
-/// entire claim under test.
+/// `ps` rather than `pgrep` because one call answers both halves of the
+/// question: which processes are ours, and which group each is in.
+///
+/// Called twice in a whole test -- once to check what the tool left behind, and
+/// once from `SweepTag` -- and never in a poll loop. An earlier version asked
+/// `ps` every ten milliseconds while it waited for the command's children,
+/// which is a `fork` every ten milliseconds: on a machine near its process
+/// limit `ps` then failed to spawn, the polling thread panicked on that, and
+/// the cancellation it owed the test never came (the command ran to its own
+/// 120s timeout instead). Forking a hundred times a second to find out whether
+/// a fork has happened was the wrong instrument.
+///
+/// A table that cannot be read is an empty answer, not a panic: this also runs
+/// inside `Drop`, where panicking while another panic unwinds aborts the
+/// process and takes the real failure's message with it.
 fn sleepers(tag: &str) -> Vec<(String, String)> {
-    let listing = Command::new("ps")
+    let Ok(listing) = Command::new("ps")
         .args(["-eo", "pid=,pgid=,args="])
         .output()
-        .expect("read the process table");
+    else {
+        return Vec::new();
+    };
     String::from_utf8_lossy(&listing.stdout)
         .lines()
         .filter_map(|line| {
@@ -2336,6 +2349,24 @@ fn sleepers(tag: &str) -> Vec<(String, String)> {
             (argv == ["sleep", tag]).then(|| (pid.to_string(), group.to_string()))
         })
         .collect()
+}
+
+/// Kills everything carrying `tag` when it goes out of scope, however the test
+/// ends.
+///
+/// A `Drop` and not a line at the end of the test: the assertions below can
+/// panic, and the first version's sweep sat after them, so exactly the runs
+/// that failed -- the ones that had left something behind -- were the runs that
+/// did not clean up. A two-hour sleep inherited by the rest of the suite is not
+/// an acceptable way to report a failure.
+struct SweepTag(String);
+
+impl Drop for SweepTag {
+    fn drop(&mut self) {
+        for (pid, _) in sleepers(&self.0) {
+            let _ = Command::new("kill").args(["-9", &pid]).status();
+        }
+    }
 }
 
 #[test]
@@ -2349,8 +2380,22 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     // A duration unique to this process, so the two children can be picked out
     // of the process table without mistaking them for the identical pair the
     // timeout test next door runs, or for another suite binary's.
+    //
+    // Thirty seconds, the same as every other process test here, and not longer
+    // on purpose: `std` on macOS makes a pipe and then marks it close-on-exec,
+    // which is not one step, so a child spawned by another test on another
+    // thread can inherit this command's pipe. Whatever this test leaves running
+    // is therefore an upper bound on how long some *other* test's drain can be
+    // held open, and a two-hour sleep -- which an earlier version of this test
+    // used -- makes this test's blast radius the whole suite's.
     let tag = format!("30.{}", std::process::id());
-    let command = format!("sleep {tag} & sleep {tag}");
+    // Armed before anything can fail, so every exit from here on sweeps.
+    let _sweep = SweepTag(tag.clone());
+    // The command reports when its children exist instead of being watched for
+    // it: a shell runs its list in order, so the marker cannot appear before
+    // both `&` forks have. Waiting on it is a `stat`.
+    let command = format!("sleep {tag} & sleep {tag} & echo forked > forked; wait");
+    let marker = tree.root().join("forked");
 
     // The cancellation waits for the group to really hold both children. It
     // used to fire on a fixed 150ms clock, which decided nothing:
@@ -2366,22 +2411,23 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     //   480 cancellations at 0-1ms or at 10ms and beyond, 3 to 5 escapes per
     //   480 in the 2-5ms window.
     //
-    // Waiting on the process table instead of on a clock removes both. Nothing
-    // is cancelled until the two children exist *and* share one group, which is
-    // the only state in which the assertion below means what it says.
+    // Waiting for the command to say it has forked, instead of waiting on a
+    // clock, removes both: nothing is cancelled until both children exist, and
+    // a child of the shell is in the shell's group by the fact of having been
+    // forked from it. That is the only state in which the assertion below means
+    // what it says.
     let established = Arc::new(AtomicBool::new(false));
     let watcher = cancel.clone();
-    let watched = tag.clone();
+    let watched = marker.clone();
     let reached = Arc::clone(&established);
     std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline {
-            let found = sleepers(&watched);
-            if found.len() == 2 && found[0].1 == found[1].1 {
+            if watched.exists() {
                 reached.store(true, Ordering::SeqCst);
                 break;
             }
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_millis(5));
         }
         // Cancelled either way: a watcher that gave up silently would leave the
         // command running to its own timeout and blame the delay on the tool.
@@ -2396,18 +2442,36 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     );
     assert!(
         established.load(Ordering::SeqCst),
-        "the two children were never both in one process group, so the \
-         cancellation proved nothing about group kills: {refusal}"
+        "the command never reported both children forked, so the cancellation \
+         proved nothing about group kills: {refusal}"
     );
     assert!(refusal.contains("cancelled"), "{refusal}");
+    // The group, not the pipe, is what this test is named for -- and since the
+    // fix it can be asked directly (see the `sleepers` check below and the
+    // `stranded` notice the tool now appends). The pipe was the only
+    // discriminator available before, but it answers a wider question than this
+    // test asks: an inherited descriptor holds it open even when everything
+    // this command started is gone, and that has been observed here. So the
+    // notice is required to be absent only when it would mean what this test
+    // says it means.
     assert!(
-        !refusal.contains("stream still open"),
-        "a process outlived the group kill: {refusal}"
+        !refusal.contains("still had members"),
+        "the tool could not empty the command's process group: {refusal}"
     );
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "cancellation took {:?}",
         started.elapsed()
+    );
+    // The end-to-end half of the group claim: the tool's own sweep, not this
+    // test's, is what has to have emptied the group by the time the call
+    // returns. `_sweep` cleans up whatever this finds, including on the failing
+    // path.
+    let left = sleepers(&tag);
+    assert!(
+        left.is_empty(),
+        "the cancellation left {} process(es) behind: {left:?}",
+        left.len()
     );
 }
 
