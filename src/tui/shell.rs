@@ -69,6 +69,7 @@
 //! session leaves, so the message is printed by the ordinary failure path --
 //! on a terminal that has been given back first.
 
+use std::collections::VecDeque;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -77,6 +78,7 @@ use super::editor::{self, Editor};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
+use super::pacer::Pacer;
 use super::render_request::{Reason, RenderRequest};
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
@@ -190,6 +192,30 @@ pub(crate) struct Shell {
     /// The answer text that has not ended its line yet, and the rows it has put
     /// on the screen.
     transcript: Transcript,
+    /// What the runtime has produced and the document has not been given yet.
+    ///
+    /// Every byte of an answer goes through here, which is what makes the
+    /// stream steady rather than bursty (`super::pacer`). What it costs is a
+    /// second place text can be waiting, and the two rules that pay for it are
+    /// [`Self::pace`] -- run once a turn, so nothing sits here longer than a
+    /// tick past its due time -- and [`Self::flush_paced`], which the exit path
+    /// runs so that a session coming down never takes an answer with it.
+    pacer: Pacer,
+    /// The document writes that belong *after* text still in the pacer, each
+    /// with the stream position it was issued at.
+    ///
+    /// A tool notice, a refusal, the echo of a submitted prompt and the end of
+    /// a turn are xfx's own words rather than the provider's, so they do not go
+    /// through the pacer -- but they still have a **place** in the document,
+    /// and it is the place the stream had reached when they happened. Held
+    /// against a byte count rather than against "the queue is empty", because a
+    /// second turn's deltas can be enqueued behind the first turn's tail and
+    /// the first turn's conclusion belongs between them.
+    marks: VecDeque<(usize, Mark)>,
+    /// How many bytes have been enqueued for pacing, ever.
+    enqueued: usize,
+    /// How many of them have reached the transcript.
+    emitted: usize,
     /// The document writes this session owes, oldest first.
     ///
     /// A `Vec` rather than one `Append`, because two pushes can land between
@@ -228,6 +254,16 @@ pub(crate) struct Shell {
     leaving: Option<Leaving>,
 }
 
+/// One of xfx's own document writes, waiting for its place in the stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Mark {
+    /// A whole line, on rows of its own.
+    Line(String),
+    /// The end of the answer's line, and nothing else. What a turn that ended
+    /// without a failure owes: the next thing written starts on a new row.
+    EndOfLine,
+}
+
 /// How a session ended, which is the same question as what it exits with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Leaving {
@@ -259,6 +295,10 @@ impl Shell {
             // and the band rows share a terminal, and a transcript measured
             // against a different width would wrap where the screen does not.
             transcript: Transcript::new(geometry.cols),
+            pacer: Pacer::new(),
+            marks: VecDeque::new(),
+            enqueued: 0,
+            emitted: 0,
             pending: Vec::new(),
             work,
             gestures: Gestures::default(),
@@ -412,15 +452,14 @@ impl Shell {
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
         match event {
-            // The answer, as it arrives. A delta that only lengthens the last
-            // row rewrites that row where it already is.
-            UiEvent::Delta(text) => self.write_transcript(&text),
+            // The answer, as it arrives -- into the pacer rather than into the
+            // document, so a provider that sends a kilobyte in one frame and
+            // nothing in the next is still read at one speed.
+            UiEvent::Delta(text) => self.stream(&text),
             // The same two sentences `xfx ask --tool-notices` puts on the
             // diagnostic stream (`output.rs:1154-1174`), so a tool means the
             // same thing on both surfaces.
-            UiEvent::ToolStart { tool, .. } => {
-                self.write_document_line(&format!("[tool] {tool} running"))
-            }
+            UiEvent::ToolStart { tool, .. } => self.say(format!("[tool] {tool} running")),
             UiEvent::ToolResult {
                 tool, ok, detail, ..
             } => {
@@ -432,9 +471,9 @@ impl Shell {
                         safe_one_line(&detail, TOOL_DETAIL_BYTES)
                     )
                 };
-                self.write_document_line(&line);
+                self.say(line);
             }
-            UiEvent::Notice(text) => self.write_document_line(&text),
+            UiEvent::Notice(text) => self.say(text),
             // Unreachable in this phase, and provably so rather than by
             // omission: the runtime thread builds its `PermissionSession` with
             // no prompter at all (`super::worker`), so nothing on the far side
@@ -442,23 +481,172 @@ impl Shell {
             // and the panel that answers it.
             UiEvent::Approval(_) => {}
             UiEvent::TurnEnded { failure } => {
-                self.finish_document_line();
-                if let Some(failure) = failure {
-                    self.write_document_line(&failure);
+                // Behind whatever of this turn's answer is still in the pacer:
+                // a conclusion that overtook the text it concludes would land
+                // in the middle of the answer.
+                match failure {
+                    Some(failure) => self.say(failure),
+                    None => self.mark(Mark::EndOfLine),
                 }
-                // Whatever the last Ctrl-C was about ended with this turn. A
-                // session that kept remembering it would answer the *next*
-                // turn's first Ctrl-C by leaving -- see [`Gestures::turn_ended`].
+                // The gesture is **not** deferred with it. What the last Ctrl-C
+                // was about ended when the turn did, whatever is left to paint,
+                // and a session that kept remembering it would answer the
+                // *next* turn's first Ctrl-C by leaving
+                // (see [`Gestures::turn_ended`]). The pacer is a delay on the
+                // text, not on what the keyboard means.
+                self.pacer.finish();
                 self.gestures.turn_ended();
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
             UiEvent::Fatal(message) => {
-                self.finish_document_line();
+                self.mark(Mark::EndOfLine);
                 self.fatal = Some(message);
                 self.leave();
             }
         }
+    }
+
+    /// Adds answer text to the stream, where the pacer releases it.
+    fn stream(&mut self, text: &str) {
+        self.enqueued = self.enqueued.saturating_add(text.len());
+        self.pacer.enqueue(text);
+    }
+
+    /// Says one of xfx's own lines, in the place the stream has reached.
+    ///
+    /// Immediately when nothing is waiting, which is every keystroke's case and
+    /// most of a session's: a refusal, an echo or a `/help` that queued behind
+    /// an answer would arrive after it. Behind the stream when something *is*
+    /// waiting, because then the place a line belongs is not the end of the
+    /// document -- it is the point the answer had reached when the line
+    /// happened, and Phase 1 never goes back to insert one.
+    ///
+    /// Two lines do **not** come through here, and they are a pair: the
+    /// interrupt notice and the sentence saying the queue went with it
+    /// ([`Self::interrupt`]). Both are what a Ctrl-C is answered with, so both
+    /// are about the keystroke rather than about the answer, and the reason is
+    /// written where they are.
+    fn say(&mut self, line: String) {
+        self.mark(Mark::Line(line));
+    }
+
+    /// Records a document write at the stream position it was issued at.
+    fn mark(&mut self, mark: Mark) {
+        if self.pacer.pending() == 0 && self.marks.is_empty() {
+            self.run_mark(mark);
+            return;
+        }
+        self.marks.push_back((self.enqueued, mark));
+    }
+
+    /// Releases what this moment of the clock is worth, and runs whatever that
+    /// carried the stream past.
+    ///
+    /// Once a turn, from [`Self::settle_band`], beside the two other answers
+    /// only the passage of time produces. It reads no terminal and writes none:
+    /// what it does is put text into the transcript and ask for the frame that
+    /// owes.
+    fn pace(&mut self, now: Instant) {
+        let before = self.pacer.pending();
+        if let Some(chunk) = self.pacer.tick(now) {
+            let consumed = before.saturating_sub(self.pacer.pending());
+            self.release(chunk, consumed);
+        }
+        self.run_due_marks();
+    }
+
+    /// Puts one emission into the document, **stopping at every mark it
+    /// crossed**.
+    ///
+    /// One release is one tick's worth of bytes, and a tick's worth is a number
+    /// the clock chose -- so it lands wherever it lands, including past the
+    /// point a tool notice or a turn's conclusion belongs. Writing the whole of
+    /// it and then running the marks would put those lines a few characters
+    /// late: after the first word of the sentence that was supposed to follow
+    /// them. The bytes are therefore written in pieces, each piece ending where
+    /// the next mark falls due.
+    ///
+    /// `consumed` counts the **queue** bytes this emission carried, which is
+    /// not `chunk.len()`: an emission may be prefixed with the attributes the
+    /// last one left open, and those were never in the queue and have no
+    /// position in it.
+    fn release(&mut self, chunk: String, consumed: usize) {
+        let (reopen, mut body) = chunk.split_at(chunk.len().saturating_sub(consumed));
+        let mut reopen = reopen.to_string();
+        loop {
+            self.run_due_marks();
+            if body.is_empty() {
+                return;
+            }
+            // How far this piece may go. Zero is impossible: it would mean a
+            // mark at the position already reached, and the line above has just
+            // run every one of those.
+            let room = self
+                .marks
+                .front()
+                .map_or(body.len(), |(at, _)| at.saturating_sub(self.emitted));
+            let (piece, tail) = body.split_at(room.min(body.len()));
+            let mut text = std::mem::take(&mut reopen);
+            text.push_str(piece);
+            self.emitted = self.emitted.saturating_add(piece.len());
+            self.write_transcript(&text);
+            body = tail;
+        }
+    }
+
+    /// Puts everything still waiting into the document at once.
+    ///
+    /// The exit's, and it is a **contract rather than tidiness**: this module
+    /// holds text the runtime has already produced, Phase 1 never repaints a
+    /// document row, and a band that came down over a full pacer would have
+    /// eaten the end of the answer the user was reading. Called on every way
+    /// out -- from the drain, so an interrupted turn's tail is painted as it is
+    /// taken, and once more after the drain, for the session that had nothing
+    /// left to drain and a queue to empty anyway.
+    pub(crate) fn flush_paced(&mut self) {
+        let before = self.pacer.pending();
+        if let Some(chunk) = self.pacer.drain() {
+            // Through the same splitter a tick's release goes through, so an
+            // exit that writes a whole answer at once still puts the notices
+            // and the conclusions inside it where they belong rather than all
+            // of them at the end.
+            self.release(chunk, before);
+        }
+        self.run_due_marks();
+    }
+
+    /// Runs the marks the stream has now reached.
+    fn run_due_marks(&mut self) {
+        while self
+            .marks
+            .front()
+            .is_some_and(|(at, _)| *at <= self.emitted)
+        {
+            let Some((_, mark)) = self.marks.pop_front() else {
+                return;
+            };
+            self.run_mark(mark);
+        }
+    }
+
+    /// One of them.
+    fn run_mark(&mut self, mark: Mark) {
+        match mark {
+            Mark::Line(line) => self.write_document_line(&line),
+            Mark::EndOfLine => self.finish_document_line(),
+        }
+    }
+
+    /// How much answer text is waiting to be released.
+    ///
+    /// Read by the loop, which stops taking `UiEvent`s while it is at
+    /// [`PACED_BACKLOG`]. That is where the bound on this queue lives: the
+    /// channel fills behind a UI that has stopped listening, the runtime parks
+    /// in its `send().await`, and the socket feels it -- rather than a `String`
+    /// here growing to the length of the answer.
+    pub(crate) fn paced_backlog(&self) -> usize {
+        self.pacer.pending()
     }
 
     /// Why the session is ending, when the runtime is why.
@@ -570,6 +758,10 @@ impl Shell {
             self.escape_armed = armed;
             self.render.request(Reason::Footer);
         }
+        // And the answer itself: the pacer holds text against a clock, so a
+        // turn of the loop is what releases it. Last, so the rows it adds are
+        // measured against a band this turn has already settled.
+        self.pace(now);
     }
 
     /// Whether the screen owes a `/clear`, taken so it is written once.
@@ -697,8 +889,29 @@ impl Shell {
                 // something the user watched land rather than something they
                 // have to infer from the stream stopping -- which, for a
                 // provider that has gone quiet without hanging up, it may not.
+                //
+                // **Written at once rather than through [`Self::say`]**, and
+                // so is the sentence below it: they are the **two** document
+                // lines of this session that are, and they are a pair rather
+                // than one rule and an exception. Every other line is *about
+                // the answer* and belongs at the point of it the stream had
+                // reached. These two are about the **keystroke** -- they are
+                // what the user's Ctrl-C is answered with, both of them -- and
+                // a keystroke's answer that waited for thirteen seconds of
+                // paced text would not be an answer to it at all.
+                //
+                // The cost is that they land inside the answer rather than
+                // after it, which is what "stop here" means; the pacer is told
+                // the turn is over a moment later, so what is left of that
+                // answer follows at the drain rate rather than at reading
+                // speed.
                 self.write_document_line(crate::app::INTERRUPT_NOTICE);
                 if waiting {
+                    // The second half of the same answer to the same keystroke,
+                    // and immediate for the same reason: "and the queue went
+                    // with it" is only useful beside the sentence it qualifies.
+                    // Held back, it would arrive detached from the notice it
+                    // belongs to and after text the user asked to stop.
                     self.write_document_line(QUEUE_DROPPED);
                 }
             }
@@ -807,7 +1020,7 @@ impl Shell {
                 self.notice = Some(QUEUE_REJECTED);
                 self.render.request(Reason::Footer);
             }
-            Rejected::Gone => self.write_document_line(GONE_NOTICE),
+            Rejected::Gone => self.say(GONE_NOTICE.to_string()),
         }
     }
 
@@ -818,8 +1031,7 @@ impl Shell {
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
     fn echo(&mut self, text: &str) {
-        self.write_transcript(text);
-        self.end_transcript_line();
+        self.say(text.to_string());
     }
 
     /// One of the six, with the rest of the line as its argument.
@@ -834,13 +1046,10 @@ impl Shell {
             Slash::Quit => self.leave(),
             Slash::Help => {
                 for line in interactive::help_text().lines() {
-                    self.write_document_line(line);
+                    self.say(line.to_string());
                 }
             }
-            Slash::Version => {
-                let line = interactive::version_line();
-                self.write_document_line(&line);
-            }
+            Slash::Version => self.say(interactive::version_line()),
             Slash::Model => self.use_model(argument),
             Slash::Clear => self.clear_screen(),
             Slash::New => {
@@ -848,7 +1057,7 @@ impl Shell {
                     self.refused(rejected);
                     return;
                 }
-                self.write_document_line(NEW_SESSION_NOTICE);
+                self.say(NEW_SESSION_NOTICE.to_string());
             }
         }
     }
@@ -869,13 +1078,11 @@ impl Shell {
     /// catalog. `docs/parity.md` says so.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
-            let line = format!("[shell] model={}", self.model);
-            self.write_document_line(&line);
+            self.say(format!("[shell] model={}", self.model));
             return;
         }
         if argument == self.model {
-            let line = format!("[shell] model={} unchanged", self.model);
-            self.write_document_line(&line);
+            self.say(format!("[shell] model={} unchanged", self.model));
             return;
         }
         if let Err(rejected) = self.work.submit(TurnWork::Model(argument.to_string())) {
@@ -883,8 +1090,7 @@ impl Shell {
             return;
         }
         self.model = argument.to_string();
-        let line = format!("[shell] model={}", self.model);
-        self.write_document_line(&line);
+        self.say(format!("[shell] model={}", self.model));
     }
 
     /// `/clear`: the screen, its scrollback, and what the band remembers of
@@ -900,11 +1106,22 @@ impl Shell {
     fn clear_screen(&mut self) {
         self.pending.clear();
         self.transcript = Transcript::new(self.geometry.cols);
+        // The stream goes with them, and it is the one place this session
+        // drops text the runtime produced. The rows it was going to be written
+        // on are being erased *and* taken out of the terminal's scrollback at
+        // the user's request; letting the rest of that answer dribble onto the
+        // blank screen afterwards would be the surprise, not the loss. The
+        // marks go with it because their places do -- and the stream is
+        // declared arrived, so nothing later is held behind a position no
+        // emission will ever reach.
+        self.pacer.forget();
+        self.marks.clear();
+        self.emitted = self.enqueued;
         self.clearing = true;
         // Every row of the band is gone from the screen too, so the next frame
         // is a repaint of the whole thing rather than an optional one.
         self.render.request(Reason::ExternalDamage);
-        self.write_document_line(CLEARED_NOTICE);
+        self.say(CLEARED_NOTICE.to_string());
     }
 
     /// What every change to the composer owes: a frame, and a band the right
@@ -945,11 +1162,17 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 
     use super::super::bridge::TurnControl;
     use super::super::gesture::EXIT_WINDOW;
+    use super::super::pacer::{MAX_CPS, MIN_CPS};
+
+    /// The loop's own tick, in milliseconds (`super::super::event_loop::TICK`),
+    /// which is how often a real session gives the pacer its clock.
+    const TICK_MILLIS: u64 = 8;
 
     use crate::config::Environment;
 
@@ -1001,6 +1224,29 @@ mod tests {
                 .into_iter()
                 .flat_map(|append| append.rows)
                 .collect()
+        }
+
+        /// The same, once everything the pacer is holding has been released.
+        ///
+        /// The exit path's view (`super::event_loop::run`), and the one to ask
+        /// for whenever the claim is about *what the document ends up saying*
+        /// rather than about when it says it: answer text now goes through the
+        /// pacer, so a delta applied a microsecond ago is owed to nobody yet.
+        fn released(&mut self) -> Vec<String> {
+            self.shell.flush_paced();
+            self.document()
+        }
+
+        /// Runs the pacer's clock forward from `start` by `millis`, one tick
+        /// of the loop at a time, and hands back what the document was owed.
+        fn paced(&mut self, start: Instant, millis: u64) -> Vec<String> {
+            let mut rows = Vec::new();
+            for at in 1..=millis / TICK_MILLIS {
+                self.shell
+                    .settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+                rows.extend(self.document());
+            }
+            rows
         }
 
         /// What the band's last row says, settled first.
@@ -1942,12 +2188,23 @@ mod tests {
         shell.apply(UiEvent::Delta(
             "an answer nobody will see again".to_string(),
         ));
+        shell.shell.flush_paced();
         assert!(
             !shell.shell.pending.is_empty(),
             "nothing was owed to begin with"
         );
+        // And a second answer still in the pacer, which is the fourth thing a
+        // clear has to forget: text released onto the blank screen afterwards
+        // would be the tail of an answer the user asked to have erased, landing
+        // under a notice that says the screen was cleared.
+        shell.apply(UiEvent::Delta("and one still being released".to_string()));
 
         shell.route_bytes(b"/clear\r");
+        assert_eq!(
+            shell.shell.paced_backlog(),
+            0,
+            "the stream survived the screen it was measured against"
+        );
 
         assert!(shell.take_clearing(), "the screen was never asked to clear");
         assert!(
@@ -1966,6 +2223,7 @@ mod tests {
         // still believed the old row was up there would rewrite it in place and
         // put the next answer on the end of one nobody can see.
         shell.apply(UiEvent::Delta("the next answer".to_string()));
+        shell.shell.flush_paced();
         assert_eq!(
             shell.take_pending(),
             vec![Append {
@@ -2019,8 +2277,79 @@ mod tests {
         // The last row is rewritten in place as it lengthens, so the row the
         // document keeps is the whole answer rather than its first fragment.
         assert_eq!(
-            shell.document().last().map(String::as_str),
+            shell.released().last().map(String::as_str),
             Some("MARKER-TURN-ONE")
+        );
+    }
+
+    #[test]
+    fn an_answer_is_released_over_several_frames_rather_than_dumped() {
+        // What the pacer is for. A provider sends a burst; a UI that appended
+        // it whole shows the answer as a jump, and this one shows it as a
+        // stream -- `pacer::MIN_CPS` at the slowest, so a fragment this size
+        // takes a tenth of a second and not one frame.
+        let mut shell = shell(24, 80);
+        let start = Instant::now();
+        shell.apply(UiEvent::Delta("x".repeat(60)));
+        // The clock's first reading. Nothing is owed for it, which is the
+        // difference between a pacer and a queue.
+        shell.settle_band(start);
+        assert!(
+            shell.document().is_empty(),
+            "the whole delta was appended the instant it arrived"
+        );
+        let first = shell.paced(start, TICK_MILLIS);
+        assert_eq!(
+            first.last().map(String::len),
+            Some(usize::try_from(MIN_CPS).expect("a rate") * 8 / 1000),
+            "one tick released more than the floor rate pays for"
+        );
+        // and the rest of it arrives, over the ticks that pay for it
+        let rows = shell.paced(start + Duration::from_millis(TICK_MILLIS), 200);
+        assert_eq!(
+            rows.last().map(String::as_str),
+            Some("x".repeat(60).as_str())
+        );
+    }
+
+    #[test]
+    fn a_turn_that_ended_drains_what_is_left_of_it_faster() {
+        // The wiring claim for `pacer::DRAIN_TARGET`: `TurnEnded` reaches the
+        // pacer, so what is left of a finished answer is aimed at a fifth of a
+        // second instead of at a second and a half. Stated as the contrast
+        // between two identical sessions rather than as "empty by then",
+        // because the rate is recomputed against a backlog that is shrinking
+        // as it is spent -- the target is what it aims at, and the floor is
+        // what finishes it.
+        let answer = "y".repeat(1200);
+        let start = Instant::now();
+
+        let mut running = shell(24, 80);
+        running.apply(UiEvent::Delta(answer.clone()));
+        running.settle_band(start);
+        running.paced(start, 200);
+
+        let mut ended = shell(24, 80);
+        ended.apply(UiEvent::Delta(answer.clone()));
+        ended.apply(UiEvent::TurnEnded { failure: None });
+        ended.settle_band(start);
+        ended.paced(start, 200);
+
+        assert!(
+            ended.shell.paced_backlog() < running.shell.paced_backlog(),
+            "a turn that ended was still paced at reading speed: {} left against {}",
+            ended.shell.paced_backlog(),
+            running.shell.paced_backlog()
+        );
+        // and the ceiling still holds over the drain, whatever the deadline
+        // asks for: two hundred milliseconds buy `MAX_CPS` fifths of a second
+        // and not the whole backlog.
+        let ceiling = usize::try_from(MAX_CPS).expect("a rate") * 200 / 1000;
+        assert!(
+            ended.shell.paced_backlog() >= answer.len().saturating_sub(ceiling),
+            "the drain outran the ceiling: {} left of {}",
+            ended.shell.paced_backlog(),
+            answer.len()
         );
     }
 
@@ -2074,13 +2403,59 @@ mod tests {
         shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
 
         assert_eq!(
-            shell.document(),
+            shell.released(),
             vec![
                 "half a sentence".to_string(),
                 "[tool] read_file ok".to_string()
             ],
             "a notice was written into the middle of the answer's row"
         );
+    }
+
+    #[test]
+    fn a_notice_waits_for_the_answer_it_arrived_behind() {
+        // The ordering the pacer makes possible to get wrong. A tool notice is
+        // xfx's own text and does not go through the queue, so a notice written
+        // the moment it arrives would overtake the answer it belongs after and
+        // land in the middle of a sentence the user is still reading. It is
+        // held at the position the stream had reached instead.
+        let mut shell = shell(24, 80);
+        let start = Instant::now();
+        shell.apply(UiEvent::Delta("the first half ".to_string()));
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.apply(UiEvent::Delta("and the second".to_string()));
+        shell.settle_band(start);
+        assert!(
+            shell.document().is_empty(),
+            "the notice was written before any of the answer was"
+        );
+
+        let rows = shell.paced(start, 400);
+        let notice = rows
+            .iter()
+            .position(|row| row == "[tool] read_file ok")
+            .expect("the notice");
+        assert_eq!(
+            rows[notice - 1],
+            "the first half ",
+            "the notice landed before the text it came after: {rows:?}"
+        );
+        assert_eq!(
+            rows.last().map(String::as_str),
+            Some("and the second"),
+            "the text after the notice was lost or joined to it: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn a_line_of_xfx_s_own_is_written_at_once_while_nothing_is_streaming() {
+        // The other half of the rule, and the common case: with an empty queue
+        // the position a mark belongs at is *now*, and making a refusal or an
+        // echo wait for a clock tick would put the pacer's delay on the
+        // keyboard.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Notice("said at once".to_string()));
+        assert_eq!(shell.document(), vec!["said at once".to_string()]);
     }
 
     #[test]
@@ -2092,7 +2467,7 @@ mod tests {
         });
 
         assert_eq!(
-            shell.document(),
+            shell.released(),
             vec![
                 "part of an answer".to_string(),
                 "the turn was cancelled".to_string()

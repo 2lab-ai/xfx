@@ -85,6 +85,47 @@ pub(crate) const READ_BURSTS: usize = 32;
 /// How much one of those reads may take.
 pub(crate) const BURST_BYTES: usize = 128;
 
+/// How much answer text may be waiting to be released before the loop stops
+/// taking more of it off the channel.
+///
+/// The one number that bounds `super::pacer::Pacer`'s queue, and it is here
+/// rather than there because backpressure is the loop's to apply: what stops
+/// the queue growing is the channel filling, and only the loop decides whether
+/// to empty the channel.
+///
+/// Sized against the ceiling rather than against a screen: `pacer::MAX_CPS` is
+/// 5000 bytes a second, so this is about thirteen seconds of reading already in
+/// hand. Past that the provider is producing faster than anybody can read it
+/// and the right thing is to stop taking it, not to buffer a megabyte for a
+/// band that shows one row at a time.
+///
+/// # What the bound really is
+///
+/// **`PACED_BACKLOG + bridge::DELTA_SLICE`**, and it is a number rather than a
+/// hope. Two halves make it finite and neither is enough alone:
+///
+/// * This one stops the loop taking **the next** event once the mark is
+///   reached, asked between events rather than once per batch. Checking per
+///   batch was worth up to [`bridge::UI_EVENTS`] deltas of overshoot; checking
+///   per event is worth one event.
+/// * `bridge::DELTA_SLICE` is what makes "one event" a size. A `UiEvent` is
+///   indivisible once it is off the channel -- `Shell::apply` cannot refuse
+///   what it has already been handed -- and nothing downstream promises a delta
+///   is small, so the division happens at the **ingress**, where the producer
+///   can still await a permit between pieces.
+///
+/// Nothing is dropped to achieve it, which is the constraint the whole
+/// arrangement is shaped by: dropping the tail of an answer to respect a
+/// buffering number would be the one failure this module is built to prevent.
+/// The peak is asserted rather than asserted-about, in
+/// `the_queue_never_grows_past_the_bound_however_the_answer_arrives`.
+///
+/// The one input it is not exact for is a text whose first **indivisible** unit
+/// -- one grapheme cluster, one escape sequence -- is itself larger than a
+/// piece, which `bridge::slices` hands over whole rather than cutting in half
+/// or hanging on. It documents that ruling and why the corner is degenerate.
+pub(crate) const PACED_BACKLOG: usize = 64 * 1024;
+
 /// How long a screen may refuse every frame before the session gives up on it.
 ///
 /// A screen that has taken nothing for half a second is either gone or so far
@@ -153,42 +194,18 @@ pub(crate) fn run(
     let mut failures = FrameFailures::default();
     let outcome = session(shell, band, launch, events, &mut failures);
 
-    // A screen that already refused the session's last frame is not a screen to
-    // keep painting into; the events are still applied, because one of them may
-    // be the `Fatal` that explains everything.
-    let painting = outcome.is_ok();
-    let mut broken: Option<io::Error> = None;
-    worker.shutdown(events, Instant::now() + worker::DRAIN_DEADLINE, |event| {
-        let reconciled = if painting && broken.is_none() {
-            match collect_facts(shell, launch) {
-                Ok(token) => Some(token),
-                Err(err) => {
-                    broken = Some(err);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        match reconciled {
-            Some(token) => {
-                if let Err(err) = drained(
-                    shell,
-                    band,
-                    &mut io::stdout().lock(),
-                    &mut failures,
-                    Instant::now(),
-                    token,
-                    event,
-                ) {
-                    broken = Some(err);
-                }
-            }
-            // Shown but not painted: the screen is gone or has already refused,
-            // and the event may still be the `Fatal` that says why.
-            None => shell.apply(event),
-        }
-    });
+    // Everything an exit owes, in one call, with the two things this function
+    // has that a test cannot make -- a terminal to reconcile and a runtime to
+    // drain -- passed in as what they are.
+    let broken = shut_down(
+        shell,
+        band,
+        &mut io::stdout().lock(),
+        &mut failures,
+        outcome.is_ok(),
+        |shell| collect_facts(shell, launch),
+        |taken| worker.shutdown(events, Instant::now() + worker::DRAIN_DEADLINE, taken),
+    );
 
     let code = outcome?;
     if let Some(err) = broken {
@@ -300,6 +317,25 @@ fn session(
 /// later at the latest.
 fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
     for _ in 0..bridge::UI_EVENTS {
+        // And bounded a second way, which is where the pacer's queue gets its
+        // bound. `Shell` releases answer text against a clock, so taking events
+        // faster than it releases them would grow a `String` to the length of
+        // the whole answer with nothing to stop it. Leaving them on the channel
+        // instead fills it, parks the runtime in its `send().await`, and stops
+        // the socket being read -- backpressure to the provider rather than
+        // memory here. It cannot wedge: the pacer always drains at
+        // `pacer::MIN_CPS` or better, so the door opens again on its own.
+        //
+        // **Inside the loop, and that is the whole of what makes it a bound.**
+        // Asked once before the batch it was a bound on the depth *entered*
+        // with: a batch that began under the mark could take
+        // [`bridge::UI_EVENTS`] more deltas past it, so the number meant
+        // nothing about how much is really in hand. Asked here it is worth one
+        // event of overshoot, which is the least any policy that may not drop
+        // an event can be ([`PACED_BACKLOG`]).
+        if shell.paced_backlog() >= PACED_BACKLOG {
+            return;
+        }
         match events.try_recv() {
             Ok(event) => shell.apply(event),
             // Empty, or a runtime that is gone -- and a runtime that is gone
@@ -308,6 +344,76 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
             Err(_) => return,
         }
     }
+}
+
+/// The whole of an exit: what the runtime still has to say, and what the pacer
+/// is still holding.
+///
+/// Extracted from [`run`] rather than written inside it, and the reason is the
+/// second half. A drain that received nothing is the commonest exit there is --
+/// a turn that concluded while its answer was still being released leaves an
+/// empty channel behind it -- and it is exactly the case in which the flush
+/// below is the *only* thing that can put the rest of that answer on the
+/// terminal. Inside `run` that branch could not be reached by any test in this
+/// process: `run` needs a worker thread, a signal token and the process's real
+/// standard output. Out here the two facts it cannot fabricate are parameters,
+/// so a test scripts a drain that carries nothing and a screen that remembers
+/// what it was given, and `run`'s own wiring is one call with nothing in it to
+/// get wrong.
+///
+/// Returns the screen error that ended it, if a screen did.
+fn shut_down(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    painting: bool,
+    mut reconcile: impl FnMut(&mut Shell) -> io::Result<Reconciled>,
+    drain: impl FnOnce(&mut dyn FnMut(UiEvent)),
+) -> Option<io::Error> {
+    // A screen that already refused the session's last frame is not a screen to
+    // keep painting into; the events are still applied, because one of them may
+    // be the `Fatal` that explains everything.
+    let mut broken: Option<io::Error> = None;
+    drain(&mut |event| {
+        let reconciled = if painting && broken.is_none() {
+            match reconcile(shell) {
+                Ok(token) => Some(token),
+                Err(err) => {
+                    broken = Some(err);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        match reconciled {
+            Some(token) => {
+                if let Err(err) = drained(shell, band, out, failures, Instant::now(), token, event)
+                {
+                    broken = Some(err);
+                }
+            }
+            // Shown but not painted: the screen is gone or has already refused,
+            // and the event may still be the `Fatal` that says why.
+            None => shell.apply(event),
+        }
+    });
+
+    // And what the pacer still holds, for the exit whose drain carried nothing
+    // at all. Phase 1 never repaints a document row, so this is the last moment
+    // those bytes can reach the terminal.
+    if painting && broken.is_none() && shell.paced_backlog() > 0 {
+        match reconcile(shell) {
+            Ok(token) => {
+                if let Err(err) = flushed(shell, band, out, failures, Instant::now(), token) {
+                    broken = Some(err);
+                }
+            }
+            Err(err) => broken = Some(err),
+        }
+    }
+    broken
 }
 
 /// What the drain does with one event it took: show it, and paint what showing
@@ -331,6 +437,34 @@ fn drained(
     event: UiEvent,
 ) -> io::Result<()> {
     shell.apply(event);
+    flushed(shell, band, out, failures, now, reconciled)
+}
+
+/// What an exit owes the stream it is still holding: the text, and the frame
+/// that text asks for.
+///
+/// **Flushed rather than paced.** A delta goes into the pacer like every other
+/// one, and the pacer releases text against a clock that an exiting loop is no
+/// longer ticking -- so an exit that only applied its events would free the
+/// producer's permits, come down cleanly, and leave the tail of the answer in a
+/// queue nobody will ever tick again. Phase 1 never repaints a document row, so
+/// that text would simply be gone. Pacing an exit would be the wrong thing even
+/// if it worked: the session is over, and the reader is owed the words rather
+/// than the rhythm.
+///
+/// Called from **both** ways out, because they are different ways out. The
+/// drain calls it per event, so an interrupted turn's tail is painted as it is
+/// taken; [`run`] calls it once after the drain, for the session whose turn had
+/// already concluded and whose drain therefore had nothing to carry.
+fn flushed(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    shell.flush_paced();
     commit_frame(shell, band, out, failures, now, reconciled)
 }
 
@@ -650,6 +784,187 @@ mod tests {
     }
 
     #[test]
+    fn the_loop_stops_taking_events_while_the_stream_it_already_has_is_deep_enough() {
+        // Where the pacer's queue gets its bound, and the only place it could:
+        // `Shell::apply` cannot refuse an event -- by the time it is called the
+        // event is already off the channel -- so the refusal has to be *not
+        // taking it*. Left there, the channel fills, the runtime parks in its
+        // `send().await`, and the socket stops being read. That is
+        // backpressure to the provider; the alternative is a `String` here
+        // growing to the length of the whole answer.
+        let mut shell = shell();
+        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+        shell.apply(UiEvent::Delta("x".repeat(PACED_BACKLOG)));
+        let waiting = UiEvent::Delta("STILL-ON-THE-CHANNEL".to_string());
+        events
+            .try_send(waiting.clone())
+            .expect("room on the channel");
+
+        take_ui_events(&mut shell, &mut receiver);
+        assert_eq!(
+            receiver.try_recv().ok(),
+            Some(waiting),
+            "the loop took an event onto a stream that is already deep enough"
+        );
+
+        // And the door opens again on its own, which is what makes this
+        // backpressure rather than a wedge: nothing outside has to notice.
+        shell.flush_paced();
+        events
+            .try_send(UiEvent::Delta("TAKEN".to_string()))
+            .expect("room on the channel");
+        take_ui_events(&mut shell, &mut receiver);
+        assert!(
+            receiver.try_recv().is_err(),
+            "the loop was still refusing events after the stream had drained"
+        );
+    }
+
+    #[test]
+    fn the_bound_is_asked_between_events_rather_than_once_a_batch() {
+        // The defect a batch-level check hides. `take_ui_events` may consume
+        // `UI_EVENTS` messages in one turn, so a check made only on the way in
+        // is a statement about the depth the batch *started* at: a session one
+        // byte under the mark could take 256 more deltas past it, and the
+        // number would be describing a queue that no longer exists.
+        //
+        // Asked between events, the overshoot is one event -- which is the
+        // least it can be for a policy that may not drop one.
+        let mut shell = shell();
+        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+        let delta = PACED_BACKLOG / 4;
+        for index in 0..8 {
+            events
+                .try_send(UiEvent::Delta("x".repeat(delta)))
+                .unwrap_or_else(|_| panic!("room for delta {index}"));
+        }
+
+        take_ui_events(&mut shell, &mut receiver);
+
+        assert!(
+            shell.paced_backlog() >= PACED_BACKLOG,
+            "the loop stopped before it had to: {}",
+            shell.paced_backlog()
+        );
+        assert!(
+            shell.paced_backlog() < PACED_BACKLOG + delta,
+            "the loop crossed the mark and kept going: {}",
+            shell.paced_backlog()
+        );
+        // and what it did not take is still there to be taken -- refusing is
+        // not dropping
+        let mut left = 0usize;
+        while let Ok(UiEvent::Delta(text)) = receiver.try_recv() {
+            left += text.len();
+        }
+        assert_eq!(
+            shell.paced_backlog() + left,
+            delta * 8,
+            "an event went missing between the channel and the stream"
+        );
+    }
+
+    #[test]
+    fn an_event_is_taken_whole_however_big_it_is_and_the_door_shuts_behind_it() {
+        // What this half of the bound can and cannot do, stated rather than
+        // hidden. A `UiEvent` is indivisible once it is off the channel and
+        // this phase may not drop one, so whatever one carries is taken in
+        // full -- and what the loop does about it is shut the door behind it.
+        // That leaves the overshoot at exactly one event, which is why the
+        // other half (`bridge::DELTA_SLICE`) exists: it is what turns "one
+        // event" into a size.
+        let mut shell = shell();
+        let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+        let huge = PACED_BACKLOG * 2 + 1;
+        events
+            .try_send(UiEvent::Delta("x".repeat(huge)))
+            .expect("room on the channel");
+        let next = UiEvent::Delta("BEHIND-THE-BIG-ONE".to_string());
+        events.try_send(next.clone()).expect("room on the channel");
+
+        take_ui_events(&mut shell, &mut receiver);
+
+        assert_eq!(
+            shell.paced_backlog(),
+            huge,
+            "the delta was truncated to fit a buffering number"
+        );
+        assert_eq!(
+            receiver.try_recv().ok(),
+            Some(next),
+            "the loop kept taking events with twice the bound already in hand"
+        );
+    }
+
+    #[test]
+    fn the_queue_never_grows_past_the_bound_however_the_answer_arrives() {
+        // The claim the two halves add up to, measured rather than argued. A
+        // third of a megabyte of answer is put on the channel exactly as
+        // `UiEventSink` would put it there, and the most the UI ever holds is
+        // asserted against the bound.
+        //
+        // Two shapes, because they stress different halves: an answer that
+        // arrived in **one frame** (divided at the ingress, which is the case
+        // `bridge::DELTA_SLICE` exists for) and one that arrived as a **stream
+        // of small deltas** (many events, which is what the per-event check is
+        // for). The peak is read after every take rather than at the end,
+        // because the end is the one moment it is guaranteed to be low.
+        //
+        // A coarse clock on purpose: a turn a second releases `pacer::MAX_CPS`
+        // and drains this in a few hundred turns. The bound is a property of
+        // the arithmetic and not of the tick length, and running it at the
+        // real 8 ms would spend seven minutes proving the same thing.
+        let answer = "word ".repeat(70_000);
+        let one_frame: Vec<String> = bridge::slices(&answer)
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let a_stream: Vec<String> = answer
+            .as_bytes()
+            .chunks(37)
+            .map(|piece| String::from_utf8(piece.to_vec()).expect("ascii"))
+            .collect();
+
+        for shape in [one_frame, a_stream] {
+            let mut shell = shell();
+            let (events, mut receiver) = tokio::sync::mpsc::channel(bridge::UI_EVENTS);
+            let mut queued = shape;
+            queued.reverse();
+            let start = Instant::now();
+            let (mut peak, mut released, mut turn) = (0usize, 0usize, 0u64);
+
+            while !queued.is_empty() || shell.paced_backlog() > 0 {
+                while let Some(piece) = queued.pop() {
+                    if events.try_send(UiEvent::Delta(piece.clone())).is_err() {
+                        // A full channel is the runtime parked in its send,
+                        // which is the backpressure this is all about.
+                        queued.push(piece);
+                        break;
+                    }
+                }
+                take_ui_events(&mut shell, &mut receiver);
+                peak = peak.max(shell.paced_backlog());
+                turn += 1;
+                shell.settle_band(start + Duration::from_millis(turn * 1000));
+                released += shell
+                    .take_pending()
+                    .into_iter()
+                    .map(|append| append.rows.len())
+                    .sum::<usize>();
+                assert!(turn < 100_000, "the queue never drained");
+            }
+
+            assert!(
+                peak <= PACED_BACKLOG + bridge::DELTA_SLICE,
+                "the queue reached {peak} bytes, past the bound of {}",
+                PACED_BACKLOG + bridge::DELTA_SLICE
+            );
+            assert!(peak > PACED_BACKLOG, "the bound was never approached");
+            assert!(released > 0, "nothing was ever released");
+        }
+    }
+
+    #[test]
     fn an_event_the_drain_takes_reaches_the_screen_and_not_only_the_shell() {
         // The shutdown contract's second half. Draining alone is enough to
         // *exit*: it frees the producer's permits, which is what lets a parked
@@ -694,6 +1009,115 @@ mod tests {
             written.contains("WHY-THE-TURN-ENDED"),
             "the drain took the turn's conclusion and never wrote it: {written:?}"
         );
+    }
+
+    #[test]
+    fn an_exit_whose_drain_carried_nothing_still_writes_what_the_pacer_held() {
+        // The exit the drain **cannot** cover, and the commonest one there is.
+        // A turn that concluded while its answer was still being released
+        // leaves an empty channel behind it: the drain takes no event, the
+        // per-event flush never runs, and what the pacer is still holding is an
+        // answer the user was in the middle of reading. Phase 1 never repaints
+        // a document row, so the flush at the end of `shut_down` is the last
+        // moment those bytes can reach the terminal at all.
+        //
+        // The drain is a parameter, so "carried nothing" is a fact this case
+        // states rather than one it has to arrange on a real runtime -- where
+        // it is not arrangeable at all: a turn's conclusion is one of the lines
+        // held behind the stream, so nothing on the terminal says the channel
+        // has gone quiet.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.apply(UiEvent::Delta("TAIL-NOBODY-DRAINED".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(
+            shell.paced_backlog() > 0,
+            "the stream was empty, so this case proves nothing"
+        );
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            |_| Ok(Reconciled),
+            |_taken| {
+                // The runtime had already said everything and gone quiet.
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        assert!(
+            String::from_utf8_lossy(&out.written).contains("TAIL-NOBODY-DRAINED"),
+            "the band came down on text the runtime had already handed over"
+        );
+    }
+
+    #[test]
+    fn an_exit_whose_drain_carried_an_event_writes_that_and_the_stream_with_it() {
+        // The other half of the same call, so neither is wired by accident: an
+        // event taken during the drain is shown *and* painted, and the stream
+        // it arrived on top of goes out with it rather than a frame later.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.apply(UiEvent::Delta("ALREADY-STREAMING".to_string()));
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            |_| Ok(Reconciled),
+            |taken| {
+                taken(UiEvent::TurnEnded {
+                    failure: Some("WHY-THE-TURN-ENDED".to_string()),
+                });
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written);
+        assert!(
+            written.contains("ALREADY-STREAMING"),
+            "the drain dropped the answer it was draining on top of: {written:?}"
+        );
+        assert!(
+            written.contains("WHY-THE-TURN-ENDED"),
+            "the drain took the turn's conclusion and never wrote it: {written:?}"
+        );
+    }
+
+    #[test]
+    fn an_exit_onto_a_screen_that_has_already_refused_paints_nothing_more() {
+        // `painting` is the session's own verdict on the terminal, and an exit
+        // that ignored it would hand a frame to a screen the session has just
+        // given up on. The events are still applied, because one of them may be
+        // the `Fatal` that explains everything.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.apply(UiEvent::Delta("NOT-FOR-A-DEAD-SCREEN".to_string()));
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            false,
+            |_| panic!("a screen the session gave up on was reconciled"),
+            |taken| taken(UiEvent::Fatal("A-TURN-CAME-APART".to_string())),
+        );
+
+        assert!(broken.is_none());
+        assert!(out.written.is_empty(), "a frame reached a refused screen");
+        assert_eq!(shell.fatal(), Some("A-TURN-CAME-APART"));
     }
 
     #[test]

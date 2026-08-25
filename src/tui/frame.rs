@@ -22,7 +22,6 @@ use std::borrow::Cow;
 use std::io::{self, Write};
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 use super::layout::Geometry;
 
@@ -352,26 +351,96 @@ fn cup(buffer: &mut Vec<u8>, row: u16, column: u16) {
     let _ = write!(buffer, "\x1b[{row};{column}H");
 }
 
-/// One row's text: clipped to the screen, with nothing left in it that moves
-/// the cursor off the row it was placed on.
+/// One row's text: clipped to the screen, carrying nothing the terminal would
+/// obey except a colour.
+///
+/// **This is the render half of the control policy**, and the half that is
+/// load-bearing rather than defensive. A row placed here is written to the
+/// terminal as it stands, so a `\x1b[2J` in one erases the screen, a
+/// `\x1b[?1049h` takes the alternate buffer the TUI promises never to touch,
+/// and an OSC retitles the window. The text of a row is a provider's, a tool's
+/// or a file's, and `super::bridge::inert` already turns every control in one
+/// into a space *at the channel* -- but that is one door, and this is the room:
+/// a row assembled from anything that did not come through `UiEvent` would
+/// otherwise arrive here unexamined.
+///
+/// One shape passes: an SGR. This phase's pacer re-opens attributes into the
+/// text it emits (`super::pacer::SgrState`), and Task 15's palette will put
+/// them into the band's own rows, so a blanket strip here would break the
+/// feature the allowlist exists to serve.
+///
+/// **Dropped rather than turned into a space**, which is where this differs
+/// from `bridge::inert` and the difference is arithmetic rather than taste:
+/// that function runs *before* the wrap, so a space it leaves is a cell the
+/// wrap counts; this runs after, and a cell added here would push the row one
+/// column wider than the wrap measured it.
 fn row_text(row: &str, cols: u16) -> Cow<'_, str> {
-    if row.contains(['\r', '\n']) {
-        return Cow::Owned(clip(&row.replace(['\r', '\n'], ""), cols).to_string());
+    if row.chars().any(obeyed) {
+        return Cow::Owned(clip(&tamed(row), cols).to_string());
     }
     Cow::Borrowed(clip(row, cols))
+}
+
+/// Whether a character is one the terminal would act on rather than draw.
+///
+/// The `ESC` is in the set even though a colour begins with one: [`tamed`] is
+/// what tells the two apart, and this is only the question of whether it has to
+/// look.
+fn obeyed(character: char) -> bool {
+    character.is_control()
+}
+
+/// `row` with every control sequence removed except the colours.
+fn tamed(row: &str) -> String {
+    let mut out = String::with_capacity(row.len());
+    let mut rest = row;
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::colour_at(rest) {
+            out.push_str(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        // A sequence that is not a colour goes whole, trailing bytes included:
+        // leaving the `[2J` of a `\x1b[2J` behind would print `[2J` on the row,
+        // and leaving a half-written one behind would have the terminal take
+        // the rest of it from the row placed after this one.
+        if let Some(len) = super::pacer::escape_at(rest) {
+            rest = &rest[len..];
+            continue;
+        }
+        let mut characters = rest.chars();
+        let character = characters.next().unwrap_or_default();
+        if !obeyed(character) {
+            out.push(character);
+        }
+        rest = characters.as_str();
+    }
+    out
 }
 
 /// As much of `row` as fits in `cols` cells, cut between grapheme clusters.
 ///
 /// Measured in cells rather than in bytes or in `char`s, because the terminal
 /// paints cells: a wide character that straddled the last column would be drawn
-/// in a column the layout believes is empty.
+/// in a column the layout believes is empty. An escape sequence costs no cells
+/// and is stepped over whole, by [`super::pacer::escape_at`] -- the same
+/// function `super::wrap::width` measures with, so the row this cuts is cut
+/// where the wrap that built it said it ends, and neither can cut inside a
+/// sequence.
 fn clip(row: &str, cols: u16) -> &str {
     let budget = usize::from(cols);
     let mut used = 0usize;
     let mut end = 0usize;
-    for cluster in row.graphemes(true) {
-        let width = cluster.width();
+    while end < row.len() {
+        let rest = &row[end..];
+        if let Some(len) = super::pacer::escape_at(rest) {
+            end += len;
+            continue;
+        }
+        let Some(cluster) = rest.graphemes(true).next() else {
+            break;
+        };
+        let width = usize::from(super::wrap::width(cluster));
         if used + width > budget {
             break;
         }
@@ -675,6 +744,99 @@ mod tests {
             "\u{1b}[24;1H\n\u{1b}[21;1Hfirstsecond\u{1b}[K\
              \u{1b}[24;1H\n\u{1b}[21;1Hthird\u{1b}[K"
         );
+    }
+
+    #[test]
+    fn a_colour_costs_no_columns_and_is_never_cut_in_half() {
+        // The disagreement Task 7 ledgered and this task had to close before it
+        // could put an SGR in a row at all. `unicode_width` gives a lone `ESC`
+        // a column of its own, so `clip` measured `\x1b[31m` at five cells
+        // while `wrap::width` measured it at four -- only the `ESC` is a
+        // control there, and `[31m` is four ordinary printing characters. Two
+        // numbers for one row is two different rights: the wrap says the row
+        // fits, the clip cuts it, and what it cuts is the middle of a `CSI`.
+        // A terminal handed half a sequence takes the rest of it from whatever
+        // is written next, which is the band.
+        let row = "ab\u{1b}[31mcd";
+        assert_eq!(
+            usize::from(super::super::wrap::width(row)),
+            4,
+            "the colour was measured as text"
+        );
+        assert_eq!(clip(row, 4), row, "the clip cut inside the escape sequence");
+        assert_eq!(clip(row, 3), "ab\u{1b}[31mc", "the colour cost a column");
+        // and the two agree at every width, which is the property rather than
+        // the example
+        for cols in 0..=8u16 {
+            assert_eq!(
+                super::super::wrap::width(clip(row, cols)),
+                cols.min(4),
+                "the clip and the wrap disagree at {cols} columns"
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_may_carry_a_colour_and_nothing_else_the_terminal_obeys() {
+        // The render half of the control policy. Everything above the divider
+        // is written straight to the terminal, so a row carrying `\x1b[2J`,
+        // `\x1b[?1049h` or an OSC title would have the terminal *execute* it.
+        // Colour is the one shape allowed to travel, because the pacer
+        // re-opens attributes into the rows it writes; the rest is dropped
+        // rather than turned into a space, because the wrap that placed this
+        // row counted it at no cells and a space is one.
+        let row = "a\u{1b}[2Jb\u{1b}[?1049hc\u{1b}]0;title\u{7}d\u{1b}[31me\u{7}f";
+        assert_eq!(row_text(row, 80), "abcd\u{1b}[31mef");
+    }
+
+    /// Every row of `text` wrapped to `cols`, painted as `place` would paint
+    /// it, joined back together.
+    ///
+    /// The composed instrument the case below needs: the wrap decides *where*
+    /// a row ends and the paint decides *what* of it reaches the terminal, and
+    /// the defect this catches lives in the disagreement between them rather
+    /// than in either one.
+    fn painted(text: &str, cols: u16) -> String {
+        super::super::wrap::wrap(text, cols)
+            .into_iter()
+            .map(|row| row_text(&text[row.start..row.end], cols).into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_sequence_a_row_may_not_keep_is_never_split_across_two_rows() {
+        // The two halves of the control policy have to agree about where a
+        // sequence *is*, not only about whether it may stay. They did not:
+        // the wrap counted a rejected `\x1b[2J` as three printing characters
+        // and so was free to break inside it, and the removal knows only how to
+        // take a whole sequence out -- so at a narrow width one row ended with
+        // half a `CSI` and the next one rendered the printable tail of it,
+        // `2J`, as text nobody wrote. Asserted at every width rather than at
+        // one, because which width breaks it depends on where the sequence sits.
+        for cols in 1..=14u16 {
+            assert_eq!(
+                painted("ab\u{1b}[2Jcd", cols),
+                "abcd",
+                "an erase left a fragment on the screen at {cols} columns"
+            );
+            assert_eq!(
+                painted("ab\u{1b}[?1049hcd", cols),
+                "abcd",
+                "an alternate-buffer switch left a fragment at {cols} columns"
+            );
+            assert_eq!(
+                painted("ab\u{1b}]0;title\u{7}cd", cols),
+                "abcd",
+                "an OSC title left a fragment at {cols} columns"
+            );
+            // and the sequence a row *may* keep still arrives whole, at every
+            // width, with its text around it
+            assert_eq!(
+                painted("ab\u{1b}[31mcd", cols),
+                "ab\u{1b}[31mcd",
+                "the colour was cut or dropped at {cols} columns"
+            );
+        }
     }
 
     #[test]

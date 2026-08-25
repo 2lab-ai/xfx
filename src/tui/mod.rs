@@ -481,6 +481,7 @@ mod frame;
 mod gesture;
 mod input;
 mod layout;
+mod pacer;
 mod panic;
 mod probe;
 mod render_request;

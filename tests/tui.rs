@@ -1263,16 +1263,25 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
 
 #[test]
 fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
-    // The gesture must not outlive the turn it was about. The first turn
-    // finishes on its own, so the session is idle when the second one starts,
-    // and the second Ctrl-C here is the *first* one of a new turn: it has to
-    // cancel that turn rather than exit 130.
-    let gateway = FakeGateway::start(vec![
-        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-ONE"])),
+    // The gesture must not outlive the turn it was about. Two turns, each of
+    // them stopped by a Ctrl-C: the one below the second answer is the *first*
+    // Ctrl-C of a new turn, so it has to cancel that turn rather than exit 130.
+    //
+    // **Both turns hang deliberately, and that is what makes the case
+    // deterministic rather than a race.** The first reply used to be an
+    // ordinary one that finished on its own, and the test then leaned on the
+    // Ctrl-C landing in the gap between the answer appearing on the terminal
+    // and the turn concluding. Task 13 made that gap the other sign: an answer
+    // is *released* over several frames now, so by the time its last character
+    // is on the screen the turn behind it has long since ended, and a Ctrl-C
+    // there throws the draft away instead of stopping anything. A turn that is
+    // provably still running is the state the gesture is about.
+    let hanging = |text: &str| {
         support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
-            support::fake_gateway::text_delta("d", "MARKER-TWO"),
-        ])]),
-    ]);
+            support::fake_gateway::text_delta("d", text),
+        ])])
+    };
+    let gateway = FakeGateway::start(vec![hanging("MARKER-ONE"), hanging("MARKER-TWO")]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
@@ -1298,6 +1307,199 @@ fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
     // And the session is still a session: it leaves the ordinary way.
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// One answer, long enough that releasing it takes many frames.
+///
+/// `MIN_CPS` is 400 bytes a second, so this much text is about eight tenths of
+/// a second of stream whatever the backlog rule computes -- a margin the
+/// assertions below are made inside, rather than a race run against.
+///
+/// **Words rather than one long run of characters**, and that is a property of
+/// the instrument rather than decoration: an answer is wrapped into rows and
+/// each row is placed with its own `CUP`, so a needle that straddled a row
+/// boundary would never appear on the wire whole and a `wait_for` on it could
+/// only ever time out. Wrapping moves a word down whole, so a marker that is
+/// one word is on one row whatever the answer's length works out to be.
+fn long_answer(head: &str, tail: &str) -> String {
+    format!("{head} {} {tail}", "xx ".repeat(100))
+}
+
+#[test]
+fn a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one() {
+    // The pacer, on a real terminal. A provider does not stream at a human
+    // rate: it sends a burst, then nothing, then a bigger burst. A UI that
+    // appended each burst the instant it arrived shows an answer as a series
+    // of jumps, and this one shows it as a stream.
+    //
+    // The claim is made in the one direction a terminal can prove it: the
+    // **head of a single delta is on the screen while its tail is not**. There
+    // is no arrangement of buffers in which that is true of text appended
+    // whole, and the gap it is asserted inside is three quarters of a second
+    // of pacing rather than a scheduling accident.
+    //
+    // `SseThenHang` keeps the turn running, so the 200 ms drain deadline is not
+    // what is being measured here.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "a",
+            &long_answer("MARKER-HEAD", "MARKER-TAIL"),
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream\r");
+
+    // Response-only, and the first eleven bytes of the delta.
+    session.wait_for("MARKER-HEAD");
+    assert!(
+        !session.text().contains("MARKER-TAIL"),
+        "the whole delta was on the terminal the instant its first byte was: \
+         the answer was appended rather than released"
+    );
+
+    // And the rest of it arrives -- pacing is a delay, not a filter.
+    session.wait_for("MARKER-TAIL");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_escape_sequence_in_an_answer_reaches_the_terminal_disarmed() {
+    // What the band is protected by, end to end. The text of an answer is a
+    // provider's, and the rows it becomes are written straight to a terminal
+    // that would *obey* what is in them -- `\x1b[2J` erases the screen,
+    // `\x1b[?1049h` takes the alternate buffer this TUI promises never to
+    // touch, an OSC retitles the window.
+    //
+    // Two doors, and this proves the pair rather than either: the `ESC` is
+    // turned into a space at the channel every `UiEvent` crosses
+    // (`tui::bridge::inert`), and a row is stripped of everything but a colour
+    // before it is placed (`tui::frame::row_text`). So the bytes arrive -- they
+    // are quoted here as ordinary text, which is exactly the evidence that they
+    // were delivered and not merely lost -- and the terminal executes none of
+    // them.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["BEFORE-\u{1b}[2J\u{1b}[?1049h\u{1b}[31m-AFTER"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"say something dangerous\r");
+    session.wait_for("-AFTER");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    // The answer is there, with its escape bytes disarmed into spaces.
+    assert!(
+        text.contains("[2J [?1049h [31m-AFTER"),
+        "the answer did not arrive at all, so nothing above is evidence: {text:?}"
+    );
+    // And not one of the three sequences was ever written as a sequence.
+    for sequence in ["\u{1b}[2J", "\u{1b}[?1049h", "\u{1b}[31m"] {
+        assert!(
+            !text.contains(sequence),
+            "a provider's {sequence:?} reached the terminal and was obeyed: {text:?}"
+        );
+    }
+}
+
+#[test]
+fn leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it() {
+    // The other half of pacing, and the one that would be silent. Text held
+    // back for a clock is text the band can come down on top of: Phase 1 never
+    // repaints a document row, so an answer still in the queue when the session
+    // exits is an answer the user never gets. Every way out flushes it whole --
+    // this is the way out that has *nothing to drain*, because the runtime had
+    // already handed everything over before the user typed Ctrl-D.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "a",
+            &long_answer("MARKER-BEGAN", "MARKER-ENDED"),
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream\r");
+    session.wait_for("MARKER-BEGAN");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert!(
+        text.contains("MARKER-ENDED"),
+        "the exit took the rest of the answer with it: {text:?}"
+    );
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
+fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
+    // The drain's other half, end to end, and the bound is what makes it
+    // reachable on demand. An answer bigger than `event_loop::PACED_BACKLOG`
+    // stops being taken off the channel part-way through -- that is the whole
+    // point of the bound -- so at the moment the user leaves there are real
+    // `UiEvent`s still queued behind a UI that deliberately stopped listening.
+    // Those are the events the shutdown drain exists to collect, and collecting
+    // them is not enough: they have to be **shown** and **painted**, or an exit
+    // that looked clean drops the end of an answer the provider had already
+    // finished sending.
+    //
+    // **Few, large deltas on purpose.** The channel is `bridge::UI_EVENTS` deep,
+    // so an answer split into thousands of small ones parks the producer -- and
+    // then quitting cancels the turn and the rest of the answer was never sent
+    // at all, which is a different (and documented) story. Twenty of eight
+    // kilobytes all fit, so the provider is provably *finished* while the UI
+    // still holds only the first eight of them.
+    //
+    // Deterministic rather than raced: the queue drains at `pacer::MAX_CPS`,
+    // 5000 bytes a second, so a backlog at the 64 KiB mark stays over it for
+    // thirteen seconds and the keystroke below lands inside the first tenth of
+    // one.
+    let block = "answer ".repeat(1170);
+    let mut deltas: Vec<Value> = vec![support::fake_gateway::text_delta(
+        "a",
+        &format!("MARKER-BEGAN {block}"),
+    )];
+    deltas.extend((0..18).map(|_| support::fake_gateway::text_delta("a", &block)));
+    deltas.push(support::fake_gateway::text_delta("a", "MARKER-ENDED"));
+    deltas.push(support::fake_gateway::finish("stop"));
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::sse_body(&deltas),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream more than the bound\r");
+    session.wait_for("MARKER-BEGAN");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert!(
+        text.contains("MARKER-ENDED"),
+        "the events the bound left on the channel were drained and thrown \
+         away rather than written"
+    );
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
 }
 
 #[test]

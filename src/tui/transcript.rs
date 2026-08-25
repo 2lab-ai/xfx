@@ -55,6 +55,22 @@ impl Append {
     }
 }
 
+/// How many rows of one unfinished line this module keeps in hand.
+///
+/// The bound that makes a streamed answer affordable, and it exists because
+/// **only the composer had one**: `editor::MAX_COMPOSER_BYTES` caps what a
+/// person can type, and nothing capped what a provider can send without a line
+/// break in it. Every push re-wraps the tail and allocates a `String` for each
+/// of its rows, so a line that grows to N bytes costs N-squared to display --
+/// and `super::pacer` makes that worse by a constant of two hundred, because it
+/// turns one delta into a push every eight milliseconds.
+///
+/// Generous rather than tight: this many rows is more than a screen holds
+/// several times over, so the freeze is reached only by text that is really
+/// unbroken, and the work one push can do is bounded at this many rows however
+/// long the answer runs.
+const MAX_TAIL_ROWS: usize = 256;
+
 /// The unfinished line, and what the screen already shows of it.
 pub(crate) struct Transcript {
     /// The screen's width, which is what the rows are wrapped to.
@@ -149,6 +165,9 @@ impl Transcript {
         let mut tail = self.tail_texts();
         self.painted = tail.len();
         rows.append(&mut tail);
+        // After the append is built, because what is frozen is what the *next*
+        // push may no longer rewrite; this one has already said what it owes.
+        self.freeze();
 
         // The rows already on the screen are the first `painted` of these --
         // the old tail is a prefix of the text they came from -- so they are
@@ -170,7 +189,6 @@ impl Transcript {
     // is here rather than folded into `push("\n")` because ending a line is
     // what a *caller* knows and a byte in a stream is not: a turn ends without
     // a trailing newline in the text.
-    #[allow(dead_code)]
     pub(crate) fn end_line(&mut self) -> Append {
         // A CR that ended the last push has been answered by this break.
         self.split_crlf = false;
@@ -185,10 +203,47 @@ impl Transcript {
     }
 
     /// How many rows of the screen the unfinished line occupies.
-    // Task 9's footer needs it to know how much of the content area is left.
-    #[allow(dead_code)]
+    // `super::shell::Shell::finish_document_line` is the caller: it is how
+    // "end the line" is told apart from "leave a blank row".
     pub(crate) fn tail_rows(&self) -> usize {
         self.painted
+    }
+
+    /// Stops holding the rows of the unfinished line that can no longer change.
+    ///
+    /// **Not a truncation, and the difference is a property of greedy
+    /// wrapping.** A row's break is decided by the first cluster that crosses
+    /// the margin, and that cluster is on the row *after* it -- so every row of
+    /// a wrapped text except the last is already settled, and appending to the
+    /// text cannot move it. Those rows are on the screen, this phase never
+    /// repaints a document row, and nothing would ever have rewritten them:
+    /// dropping them from the tail changes what this module *holds* and not
+    /// what the terminal shows. `the_rows_the_document_gets_are_the_ones_a_
+    /// single_wrap_would_give` is that claim, checked against one unbroken wrap
+    /// of the whole text.
+    ///
+    /// The alternative -- ending the line early -- was rejected: a break the
+    /// provider did not write lands in the middle of a row, and the answer
+    /// grows a short line every few thousand characters.
+    fn freeze(&mut self) {
+        if self.painted <= MAX_TAIL_ROWS {
+            return;
+        }
+        let rows = wrap::wrap(&self.tail, self.cols);
+        let Some(last) = rows.last() else {
+            return;
+        };
+        let kept = last.start;
+        if kept == 0 {
+            return;
+        }
+        self.tail.drain(..kept);
+        // Asked rather than assumed to be one: the answer is what the *next*
+        // push measures its scroll against, and a `painted` larger than the
+        // rows the tail really occupies would make that scroll too small --
+        // which is the renderer treating unpainted rows as settled, the silent
+        // loss this whole path is counted in `usize` to avoid.
+        self.painted = wrap::wrap(&self.tail, self.cols).len();
     }
 
     /// The tail, wrapped, as the strings an append writes.
@@ -523,21 +578,75 @@ mod tests {
                 append.scroll, rows,
                 "a fresh line of {rows} rows scrolled in fewer than it wrote"
             );
-            assert_eq!(transcript.tail_rows(), rows);
-            // and the next push is still measured against all of them, so the
-            // saturation cannot reappear one delta later
-            assert_eq!(
-                transcript.push("y"),
-                Append {
-                    scroll: 1,
-                    rows: {
-                        let mut all = vec!["x".to_string(); rows];
-                        all.push("y".to_string());
-                        all
-                    }
-                }
-            );
+            // The rows this module still *holds* are bounded (`MAX_TAIL_ROWS`)
+            // and the rows it *counted* are not, which is the whole of the
+            // distinction: the append above carries every one of them.
+            assert!(transcript.tail_rows() <= MAX_TAIL_ROWS);
+            // and the next push is still measured against them, so the
+            // saturation cannot reappear one delta later. Replayed as
+            // `frame::render_append` applies an append -- scroll, then write
+            // the rows onto the last `rows.len()` lines -- the document holds
+            // the whole line and the delta after it, which a `scroll` that
+            // understated its rows would have silently cut the front off.
+            let mut document = vec!["x".to_string(); rows];
+            let after = transcript.push("y");
+            assert_eq!(after.scroll, 1, "the delta after {rows} rows");
+            let kept = (document.len() + after.scroll).saturating_sub(after.rows.len());
+            document.truncate(kept);
+            document.extend(after.rows);
+            assert_eq!(document.len(), rows + 1, "{rows} rows lost their front");
+            assert_eq!(document.concat(), format!("{}y", "x".repeat(rows)));
         }
+    }
+
+    #[test]
+    fn an_unfinished_line_stops_growing_however_long_it_gets() {
+        // The bound Task 7's review ledgered against this task. Only the
+        // composer has a byte cap (`editor::MAX_COMPOSER_BYTES`); a provider's
+        // line has none, and Task 13's pacer pushes into it every 8 ms. Every
+        // push re-wraps the whole tail and allocates a `String` per row of it,
+        // so an answer with no line break in it costs the *square* of its own
+        // length to display -- 25 GB of work for a megabyte, at which point the
+        // UI stops keeping up with the stream it is pacing.
+        let mut transcript = Transcript::new(10);
+        for _ in 0..400 {
+            transcript.push(&"x".repeat(100));
+        }
+        assert!(
+            transcript.tail_rows() <= MAX_TAIL_ROWS,
+            "the unfinished line holds {} rows",
+            transcript.tail_rows()
+        );
+    }
+
+    #[test]
+    fn the_rows_the_document_gets_are_the_ones_a_single_wrap_would_give() {
+        // What makes the bound invisible rather than a truncation: greedy
+        // wrapping settles every row but the last, so a row this module stops
+        // holding is a row nothing would ever have changed. The claim is the
+        // strong one -- the document a bounded transcript builds from a hundred
+        // pushes is row for row the document one unbroken wrap of the whole
+        // text would give -- and it is checked at a width where the freeze
+        // happens many times over.
+        let cols = 7;
+        let mut text = String::new();
+        for index in 0..900 {
+            text.push_str(&format!("word{index} "));
+        }
+        let chunks: Vec<&str> = text
+            .as_bytes()
+            .chunks(13)
+            .map(|chunk| std::str::from_utf8(chunk).expect("ascii"))
+            .collect();
+        let expected: Vec<String> = wrap::wrap(&text, cols)
+            .into_iter()
+            .map(|row| text[row.start..row.end].to_string())
+            .collect();
+        assert!(
+            expected.len() > MAX_TAIL_ROWS * 2,
+            "the case is too short to freeze anything"
+        );
+        assert_eq!(document(cols, &chunks), expected);
     }
 
     #[test]

@@ -11,12 +11,14 @@
 //! |---|---|---|---|
 //! | [`UiEvent`] | runtime -> UI | [`UI_EVENTS`] | the producer **awaits** a permit -- nothing is dropped while the UI lives |
 //! | [`TurnControl`] | UI -> runtime | unbounded | never blocks the UI, consumed mid-turn |
-//! | [`TurnWork`] | UI -> runtime | 1 | a full channel is a visible refusal, never a silent drop |
+//! | [`TurnWork`] | UI -> runtime | [`super::worker::WORK_LIMIT`] | a full channel is a visible refusal, never a silent drop |
 //!
 //! Backpressure on the first one is the point rather than an inconvenience: a
 //! producer parked in [`send_ui`] is a socket that is not being read, which is
 //! what makes a model that streams faster than a terminal can paint slow down
-//! instead of filling memory.
+//! instead of filling memory. The UI applies it deliberately as well as by
+//! being slow: it stops taking events at all while the pacer's queue is at
+//! `super::event_loop::PACED_BACKLOG`, which is what bounds that queue.
 //!
 //! **Cancellation is a pair**, because half of the code that has to observe it
 //! cannot await: the transport polls an atomic ([`CancelToken`], which is
@@ -65,6 +67,32 @@ use tokio_util::sync::CancellationToken;
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
+
+/// The most answer text one `UiEvent` may carry.
+///
+/// **This is what makes the UI's queue finite**, and without it that queue has
+/// no bound at all. `super::event_loop::PACED_BACKLOG` stops the loop taking
+/// the *next* event, which bounds the backlog to itself plus whatever one event
+/// carried -- and nothing on this side of the channel promised that a delta is
+/// any particular size. A provider is free to answer in one frame, `gateway/`
+/// has no delta-size contract, and a `Shell::apply` cannot refuse an event it
+/// has already been handed. So the size is settled *here*, before the text ever
+/// becomes an event: a delta longer than this is divided and each piece waits
+/// for its own permit, exactly as the table above says every event does. The
+/// UI's queue is then never larger than `PACED_BACKLOG + DELTA_SLICE`, which is
+/// a number rather than a hope -- for every input but one, and [`slices`] names
+/// that one and what is done about it.
+///
+/// Dividing is free of consequence, which is why it is the lever: a transcript
+/// push is invariant under chunking (`super::transcript`, proven at every split
+/// of every stream it is given), so what the document ends up holding does not
+/// depend on where the pieces were cut. What it *is* sensitive to is cutting
+/// inside one of the terminal's own units, and [`slices`] does not.
+///
+/// Sized so that dividing is the rare case rather than the rule: ordinary
+/// deltas are bytes to kilobytes, so nothing a real provider streams is ever
+/// cut at all, and the ceiling is only reached by an answer that arrived whole.
+pub(crate) const DELTA_SLICE: usize = 64 * 1024;
 
 /// How many `UiEvent`s may be in flight before the runtime is made to wait.
 ///
@@ -186,14 +214,16 @@ pub(crate) enum TurnControl {
 
 /// What the UI asks the runtime to do next.
 ///
-/// Capacity one, because one turn runs at a time. What the *session* holds is
-/// one more than that -- the turn in flight and one prompt waiting behind it --
-/// and the difference is not the channel's to keep: a permit is freed the
-/// instant the runtime **takes** an item, which is where a turn begins rather
-/// than where it ends (`super::worker::WorkHandle::outstanding`). Past those
-/// two the submission is refused where the user can read it. The waiting one is
-/// never a surprise, because the band says `queued 1` for as long as it is
-/// there.
+/// Capacity [`super::worker::WORK_LIMIT`] -- two -- because that is what the
+/// session holds: the turn in flight, and one prompt waiting behind it. The
+/// channel is that deep rather than one deep so the two numbers cannot
+/// disagree: a permit is freed the instant the runtime **takes** an item, which
+/// is where a turn begins rather than where it ends
+/// (`super::worker::WorkHandle::outstanding`), so a one-deep channel would
+/// accept or refuse a second prompt depending on whether the runtime had got
+/// round to picking the first one up. Past those two the submission is refused
+/// where the user can read it. The waiting one is never a surprise, because the
+/// band says `queued 1` for as long as it is there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
@@ -458,6 +488,58 @@ fn obeyed(character: char) -> bool {
     character.is_control() && character != '\n' && character != '\r'
 }
 
+/// `text` in pieces, none of them longer than [`DELTA_SLICE`].
+///
+/// Cut only where a terminal can be cut -- never inside a grapheme cluster,
+/// never inside an escape sequence -- so a piece is a thing that can be written
+/// on its own. A sequence that would have straddled a boundary is pushed whole
+/// into the next piece, which makes that piece's predecessor shorter than the
+/// ceiling rather than making anything longer than it.
+///
+/// One piece, borrowed, for everything that already fits: dividing is the rare
+/// case and it should cost the common one nothing.
+/// # The one unit that is bigger than a slice
+///
+/// A grapheme cluster and an escape sequence are **indivisible and have no
+/// maximum size** (`super::pacer::unit_at` says why, and says that
+/// `super::input`'s 32-byte cap is the keyboard's rather than the provider's).
+/// So a text can begin with a single unit larger than [`DELTA_SLICE`], and
+/// three things could be done about it: split it, hand it over whole as an
+/// oversized piece, or make no progress at all.
+///
+/// **Ruled: it is handed over whole**, and the bound for that text becomes
+/// `PACED_BACKLOG + max(DELTA_SLICE, that unit)`. Splitting is what this used
+/// to do and it is the worst of the three: the halves of a cut sequence are two
+/// fragments, and the second one is printable text nobody wrote -- the exact
+/// defect the render layer was fixed for, reintroduced at the ingress. Making
+/// no progress is a hang. Atomicity and progress are the two things worth more
+/// than the bound here, and the corner is degenerate by construction: sixty-four
+/// kilobytes of parameter bytes is not a colour any terminal will honour, and
+/// nothing that is really one glyph is that long. The bound is exact for every
+/// input that is not that.
+pub(crate) fn slices(text: &str) -> Vec<&str> {
+    if text.len() <= DELTA_SLICE {
+        return vec![text];
+    }
+    let mut pieces = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let fits = super::pacer::cut(rest, DELTA_SLICE, super::pacer::Unfinished::Take);
+        // Zero means the very first unit is longer than a whole slice. It goes
+        // whole, per the ruling above -- and `unit_at` answers at least one
+        // byte for any non-empty text, so the loop cannot fail to advance.
+        let end = if fits == 0 {
+            super::pacer::unit_at(rest, super::pacer::Unfinished::Take)
+        } else {
+            fits
+        };
+        let (piece, tail) = rest.split_at(end.clamp(1, rest.len()));
+        pieces.push(piece);
+        rest = tail;
+    }
+    pieces
+}
+
 /// The turn machine's event sink, writing to the UI's channel.
 ///
 /// The turn calls this from a `fn`, inside the runtime, on the worker thread;
@@ -510,11 +592,9 @@ fn translate(event: &Event) -> Option<UiEvent> {
     }
 }
 
-impl EventSink for UiEventSink {
-    fn emit(&mut self, event: &Event) -> io::Result<()> {
-        let Some(event) = translate(event) else {
-            return Ok(());
-        };
+impl UiEventSink {
+    /// Hands one event over, waiting for a permit.
+    fn send(&mut self, event: UiEvent) -> io::Result<()> {
         match park_on(send_ui(&self.events, &self.cancel, event)) {
             Ok(()) => Ok(()),
             // The two the turn machine already knows how to report: it takes
@@ -530,6 +610,28 @@ impl EventSink for UiEventSink {
                 io::ErrorKind::BrokenPipe,
                 "the terminal session is gone",
             )),
+        }
+    }
+}
+
+impl EventSink for UiEventSink {
+    fn emit(&mut self, event: &Event) -> io::Result<()> {
+        let Some(event) = translate(event) else {
+            return Ok(());
+        };
+        match event {
+            // The one event whose text is a provider's to size, and therefore
+            // the one that gets a size here ([`DELTA_SLICE`]). Each piece waits
+            // for its own permit, so a provider that answers in a single frame
+            // feels the same backpressure as one that streams -- and the UI's
+            // queue stays inside a number rather than inside a hope.
+            UiEvent::Delta(text) if text.len() > DELTA_SLICE => {
+                for piece in slices(&text) {
+                    self.send(UiEvent::Delta(piece.to_string()))?;
+                }
+                Ok(())
+            }
+            event => self.send(event),
         }
     }
 }
@@ -709,6 +811,161 @@ mod tests {
         sink.emit(&Event::AssistantDelta { text: "hi".into() })
             .expect("sent");
         assert_eq!(rx.blocking_recv(), Some(UiEvent::Delta("hi".into())));
+    }
+
+    #[test]
+    fn an_answer_that_arrived_whole_is_handed_over_in_pieces_that_each_wait() {
+        // The finite bound, at the door it has to be made finite at. The UI
+        // refuses to take the *next* event past its mark, which bounds its
+        // queue to that mark plus whatever one event carried -- so a provider
+        // that answers in a single frame would put the whole answer in the UI's
+        // hands in one go and the mark would mean nothing. The size is settled
+        // here instead, and each piece waits for its own permit like every
+        // other event.
+        //
+        // A channel one deep is what makes "waits" a fact rather than a claim:
+        // three pieces cannot all be in flight, so the only way all three
+        // arrive is one permit at a time.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let text = "y".repeat(DELTA_SLICE * 2 + 7);
+        let expected = text.clone();
+        let sender = std::thread::spawn(move || {
+            let mut sink = UiEventSink::new(tx, CancellationToken::new());
+            sink.emit(&Event::AssistantDelta { text }).expect("sent");
+        });
+
+        let mut seen = String::new();
+        let mut pieces = 0usize;
+        while let Some(event) = rx.blocking_recv() {
+            let UiEvent::Delta(piece) = event else {
+                panic!("a delta arrived as something else");
+            };
+            assert!(
+                piece.len() <= DELTA_SLICE,
+                "a piece was {} bytes, past the ceiling",
+                piece.len()
+            );
+            seen.push_str(&piece);
+            pieces += 1;
+        }
+        sender.join().expect("the sending thread");
+
+        assert_eq!(pieces, 3, "the answer was not divided as expected");
+        assert_eq!(seen, expected, "dividing the answer changed it");
+    }
+
+    #[test]
+    fn a_sequence_that_would_straddle_a_boundary_goes_whole_into_the_next_piece() {
+        // Dividing may not cut one of the terminal's own units in half. A
+        // sequence split across two events is two fragments: the first ends a
+        // piece with half a `CSI` in it and the second begins with the
+        // printable tail of one. The boundary moves rather than the sequence.
+        let colour = "\u{1b}[38;5;200m";
+        // Put the sequence across the ceiling: two bytes of it before, the rest
+        // after.
+        let head = "a".repeat(DELTA_SLICE - 2);
+        let text = format!("{head}{colour}{}", "b".repeat(16));
+        let pieces = slices(&text);
+
+        assert!(pieces.len() > 1, "the case did not divide anything");
+        assert_eq!(pieces.concat(), text, "dividing changed the text");
+        for piece in &pieces {
+            assert!(piece.len() <= DELTA_SLICE, "a piece was past the ceiling");
+        }
+        assert_eq!(
+            pieces.iter().filter(|piece| piece.contains(colour)).count(),
+            1,
+            "the colour is not whole inside exactly one piece: {pieces:?}"
+        );
+        // and it is the *second* one that has it, because the first stopped
+        // short rather than cutting it
+        assert_eq!(pieces[0], head);
+    }
+
+    #[test]
+    fn a_glyph_is_never_divided_either() {
+        // The same rule for the other unit. A cut inside a cluster is a
+        // different glyph or none, and a cut inside a scalar is not text at
+        // all.
+        let text = "\u{c548}".repeat(DELTA_SLICE);
+        let pieces = slices(&text);
+        assert!(pieces.len() > 1, "the case did not divide anything");
+        assert_eq!(pieces.concat(), text);
+        for piece in &pieces {
+            assert!(piece.len() <= DELTA_SLICE);
+            assert_eq!(
+                piece.len() % 3,
+                0,
+                "a three-byte glyph was cut: {} bytes",
+                piece.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_unit_bigger_than_a_slice_goes_whole_rather_than_being_cut() {
+        // The corner the bound cannot cover, ruled rather than left to
+        // whichever branch happened to run. Neither a grapheme cluster nor an
+        // escape sequence has a maximum size, so a text can begin with one
+        // indivisible unit larger than the whole ceiling. Splitting it is the
+        // worst answer -- the second half of a cut sequence is printable text
+        // nobody wrote, which is the defect the render layer exists to prevent,
+        // reintroduced here -- and making no progress is a hang. It goes whole.
+        //
+        // Both kinds, because "indivisible" has two meanings here.
+        let escape = format!("\u{1b}[{}m", "1;".repeat(DELTA_SLICE));
+        let cluster = format!("a{}", "\u{301}".repeat(DELTA_SLICE));
+        for (what, unit) in [("an escape sequence", escape), ("a cluster", cluster)] {
+            let tail = "b".repeat(64);
+            let text = format!("{unit}{tail}");
+            assert!(unit.len() > DELTA_SLICE, "{what} was not oversized");
+
+            let pieces = slices(&text);
+
+            assert_eq!(pieces.concat(), text, "{what} was changed by dividing");
+            assert_eq!(pieces[0], unit, "{what} was cut in half");
+            assert_eq!(
+                pieces.len(),
+                2,
+                "{what} did not leave the rest in one piece: {} pieces",
+                pieces.len()
+            );
+            // and the documented bound still holds for everything that is not
+            // the oversized unit itself
+            for piece in &pieces[1..] {
+                assert!(piece.len() <= DELTA_SLICE, "{what}: a later piece is over");
+            }
+        }
+    }
+
+    #[test]
+    fn dividing_always_makes_progress() {
+        // The hang the ruling above rules out, as a property rather than as two
+        // examples: whatever the text, every piece has something in it and the
+        // pieces put the text back together. A loop that could answer "nothing
+        // fits" would spin here instead of failing.
+        let big = DELTA_SLICE + 1;
+        for text in [
+            "\u{1b}[".to_string() + &"9".repeat(big),
+            "\u{1b}]0;".to_string() + &"t".repeat(big),
+            "\u{c548}".repeat(big),
+            "x".repeat(big),
+            format!("{}\u{1b}[31m{}", "a".repeat(big), "b".repeat(big)),
+        ] {
+            let pieces = slices(&text);
+            assert!(!pieces.is_empty());
+            assert!(pieces.iter().all(|piece| !piece.is_empty()));
+            assert_eq!(pieces.concat(), text);
+        }
+    }
+
+    #[test]
+    fn an_answer_that_already_fits_is_not_divided_or_copied() {
+        // The common case pays nothing: one piece, borrowed from the text.
+        let text = "an ordinary delta";
+        let pieces = slices(text);
+        assert_eq!(pieces, vec![text]);
+        assert!(std::ptr::eq(pieces[0], text));
     }
 
     #[test]

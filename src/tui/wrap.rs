@@ -50,9 +50,72 @@ pub(crate) struct Row {
 /// character a cell of its own -- reasonable for a string that will be printed
 /// with its controls visible, wrong for one a terminal will *obey* -- so the
 /// clusters made only of them are dropped here rather than measured.
+///
+/// **An escape sequence is free whole**, not just its `ESC`. `\x1b[31m` is one
+/// instruction the terminal executes and four characters it draws nothing for,
+/// and measuring the `[31m` as text is how a row with a colour in it loses four
+/// columns of the answer to something invisible.
+///
+/// **Every** sequence, not only the ones a row is allowed to carry, and that is
+/// the load-bearing half. Whether a sequence may reach the terminal is
+/// [`super::frame::row_text`]'s question and it is asked *after* this one; if
+/// this measured a rejected `\x1b[2J` as three printing characters, a narrow
+/// row could break in the middle of it -- and then the removal, which only
+/// knows how to take a **whole** sequence out, would find half of one on each
+/// row and leave the printable tail of it on the screen. One tokenizer,
+/// [`super::pacer::escape_at`], answers "how many bytes travel together" for
+/// this, for [`super::frame::clip`], and for the removal; the allowlist decides
+/// only what is kept.
 pub(crate) fn width(text: &str) -> u16 {
-    let cells: usize = text.graphemes(true).map(cluster_cells).sum();
+    let cells: usize = painting(text)
+        .map(|painted| cluster_cells(painted.cluster))
+        .sum();
     u16::try_from(cells).unwrap_or(u16::MAX)
+}
+
+/// One cluster that paints something, and the bytes it travels with.
+///
+/// `start` is where the escape sequences *in front of* the cluster begin, and
+/// that is the whole reason this is a struct rather than a pair: a break taken
+/// at `start` moves a colour down with the word it colours, and a break taken
+/// after them would leave the colour on the row above and cut the answer's
+/// attributes off the text they belong to. For a sequence that will be removed
+/// rather than kept it matters more than cosmetically -- a break inside one is
+/// a fragment the removal cannot recognize.
+#[derive(Debug, Clone, Copy)]
+struct Painted<'a> {
+    start: usize,
+    end: usize,
+    cluster: &'a str,
+}
+
+/// The clusters of `text` that paint something, with the escape sequences
+/// stepped over.
+///
+/// A sequence is not a cluster to be measured, wrapped after, or broken inside:
+/// it belongs to the text around it. Its bytes stay in the row, because a
+/// [`Row`] is a range and the ranges tile the text -- a sequence between two
+/// clusters is inside whichever row those clusters put it in.
+fn painting(text: &str) -> impl Iterator<Item = Painted<'_>> {
+    let mut cursor = 0usize;
+    std::iter::from_fn(move || {
+        let start = cursor;
+        while cursor < text.len() {
+            let rest = &text[cursor..];
+            if let Some(len) = super::pacer::escape_at(rest) {
+                cursor += len;
+                continue;
+            }
+            let cluster = rest.graphemes(true).next().unwrap_or(rest);
+            cursor += cluster.len();
+            return Some(Painted {
+                start,
+                end: cursor,
+                cluster,
+            });
+        }
+        None
+    })
 }
 
 /// The rows `text` occupies on a screen `cols` wide, in order, tiling the whole
@@ -78,10 +141,17 @@ pub(crate) fn wrap(text: &str, cols: u16) -> Vec<Row> {
     let mut word: Option<usize> = None;
     let mut after_space = false;
 
-    for (index, cluster) in text.grapheme_indices(true) {
+    for painted in painting(text) {
+        let Painted {
+            start: index,
+            end,
+            cluster,
+        } = painted;
         if is_line_break(cluster) {
-            // A hard break always breaks, and takes its own bytes with it.
-            let end = index + cluster.len();
+            // A hard break always breaks, and takes its own bytes with it --
+            // and `end` rather than `index + cluster.len()`, because a colour
+            // in front of the break travels with it and a row that ended
+            // between the two would end inside an escape sequence.
             rows.push(Row {
                 start,
                 end,
@@ -411,8 +481,46 @@ mod tests {
         assert_eq!(width("\r\n"), 0);
         assert_eq!(width(""), 0);
         assert_eq!(width("\u{c548}"), 2);
-        // Only the control byte itself is free: the rest of an escape sequence
-        // is ordinary printable text, and this phase never puts one in a row.
-        assert_eq!(width("\u{1b}[31m"), 4);
+    }
+
+    #[test]
+    fn an_escape_sequence_is_free_whole_rather_than_only_its_escape_byte() {
+        // What Task 13 changed, and why. Counting only the `ESC` as a control
+        // left `[31m` measured as four printing characters, so a row with two
+        // colours in it lost eight columns of text to instructions that paint
+        // nothing -- and `frame::clip`, which counted the `ESC` as a column of
+        // its own, then cut the row somewhere else again. One sequence, one
+        // answer, no cells.
+        assert_eq!(width("\u{1b}[31m"), 0);
+        assert_eq!(width("\u{1b}[1;38;5;200mred\u{1b}[0m"), 3);
+        // **Every** sequence, not only the ones a row may keep. Measuring a
+        // rejected one as text is how a narrow row comes to break inside it,
+        // and a removal that only knows how to take a whole sequence out then
+        // leaves the printable half of one on the screen.
+        assert_eq!(width("\u{1b}[2J"), 0, "the erase was measured as text");
+        assert_eq!(width("a\u{1b}[?1049hb"), 2);
+        assert_eq!(width("a\u{1b}]0;title\u{7}b"), 2);
+        // A sequence that has not finished is still not text: the bytes that
+        // have arrived travel together and paint nothing.
+        assert_eq!(width("ab\u{1b}[3"), 2);
+    }
+
+    #[test]
+    fn a_colour_never_takes_the_break_that_belongs_to_the_text_around_it() {
+        // A row is broken where the *text* crosses the margin. A sequence that
+        // took a break point with it would put the colour on one row and the
+        // word it colours on the next, and -- because a break is where a row's
+        // bytes end -- could cut the sequence itself in half.
+        let text = "alpha \u{1b}[31mbravo";
+        assert_eq!(
+            texts(text, &wrap(text, 8)),
+            vec!["alpha ", "\u{1b}[31mbravo"]
+        );
+        let split = "abcd\u{1b}[31mefgh";
+        assert_eq!(
+            texts(split, &wrap(split, 4)),
+            vec!["abcd", "\u{1b}[31mefgh"],
+            "a row ended inside an escape sequence"
+        );
     }
 }
