@@ -1260,11 +1260,16 @@ impl Shell {
             | Action::Delete
             | Action::DeleteWordLeft
             | Action::KillToEnd
-            | Action::KillToStart
-            | Action::InsertNewline => {
+            | Action::KillToStart => {
                 self.editor.apply(action, self.text_cols());
                 self.edited();
             }
+            // **The one editing action that adds text**, so it goes the way a
+            // typed character goes rather than the way the moves and the
+            // deletes do: through the budget. `C-j` inserts a newline and
+            // nothing else (`super::editor::Editor::apply`), so routing it
+            // here is the same edit with the same question asked first.
+            Action::InsertNewline => self.type_character('\n'),
             Action::Submit => self.submit(),
             // Ctrl-C. With `ISIG` cleared the terminal generates no `SIGINT`,
             // so this byte is the only Ctrl-C a TUI session sees -- and what it
@@ -1602,6 +1607,12 @@ impl Shell {
     /// What every change to the composer owes: a frame, and a band the right
     /// height for the text it now holds.
     fn edited(&mut self) {
+        // **Every composer edit passes through here**, which is why the blocks
+        // are reconciled here and nowhere else: a summary is text, and an edit
+        // that damaged one left a block that can never be expanded into a
+        // prompt but was still being charged for
+        // ([`super::paste::Paste::reconcile`]).
+        self.paste.reconcile(self.editor.text());
         self.refit();
         self.render.request(Reason::Footer);
     }
@@ -2539,6 +2550,96 @@ mod tests {
             prompt.matches(&block).count(),
             1,
             "the block was sent once per copy of its name"
+        );
+    }
+
+    #[test]
+    fn a_summary_backspaced_away_gives_its_budget_back() {
+        // Phase 1 lets a user backspace into a summary -- it is text in the
+        // composer, not an atomic entity -- and nothing about that calls
+        // `forget`. A block whose name is no longer anywhere in the draft can
+        // never reach the prompt, so a budget that went on charging for it
+        // would leave an **empty** composer that refuses to be typed in.
+        let mut shell = shell(24, 80);
+        // The whole budget in one block, so that charging for it after it can
+        // no longer be sent refuses even a single character.
+        let block = "y".repeat(MAX_PASTE_BYTES);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let summary = shell.editor.text().to_string();
+        assert_eq!(summary, "[Pasted text #1, 1 lines]");
+
+        for _ in 0..summary.chars().count() {
+            shell.route_bytes(&[0x7f]);
+        }
+        assert!(shell.editor.is_empty(), "the summary is still in the draft");
+
+        shell.route_bytes(b"a");
+        assert_eq!(
+            shell.editor.text(),
+            "a",
+            "an empty composer refused a keystroke, for megabytes that can no \
+             longer reach the prompt"
+        );
+    }
+
+    #[test]
+    fn a_name_damaged_and_typed_back_is_words_rather_than_the_block_again() {
+        // Damaging a name releases its block for good. Writing those words
+        // again afterwards is writing, not repairing: what the draft holds is
+        // a summary-shaped piece of text, and the block it used to name is
+        // gone. Anything else would let a user resurrect megabytes by typing a
+        // bracket.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+
+        // One character off the end is enough to make the placeholder
+        // unfindable.
+        shell.route_bytes(&[0x7f]);
+        shell.route_bytes(b"]");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the draft is not back to the words it started with"
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            "a name the user repaired by hand brought its block back"
+        );
+    }
+
+    #[test]
+    fn a_composed_newline_is_weighed_like_any_other_keystroke() {
+        // `C-j` is the one editing action that *adds* text, so it is the one
+        // that has to ask the budget the same question a typed character does.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(8_000_000);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        let summary = shell.editor.text().len();
+
+        assert!(
+            shell
+                .editor
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+            "the draft could not be set up"
+        );
+        let full = shell.editor.text().len();
+
+        shell.route_bytes(&[0x0a]); // C-j
+        assert_eq!(
+            shell.editor.text().len(),
+            full,
+            "a composed newline landed past the budget the draft's hidden \
+             block is already using"
         );
     }
 

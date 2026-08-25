@@ -335,6 +335,40 @@ impl Paste {
         out
     }
 
+    /// Drops the blocks the draft no longer names.
+    ///
+    /// **The set the budget charges for has to be the set that can still be
+    /// sent.** A summary is text in the composer and this phase lets a user
+    /// edit it -- backspacing into one is the documented Phase-1 price of not
+    /// tracking spans -- and nothing about that edit calls [`Self::forget`]. A
+    /// block whose name is no longer findable can never be expanded into a
+    /// prompt again, so a budget that went on charging for it would refuse
+    /// keystrokes on behalf of megabytes that cannot leave: at the limit, an
+    /// **empty** composer that will not accept a character.
+    ///
+    /// Released for good rather than re-checked later. Writing the same words
+    /// again afterwards is writing, not repairing -- the draft would hold a
+    /// summary-shaped piece of text and no block -- because a name that could
+    /// be reattached by typing would let a user resurrect megabytes with a
+    /// bracket, which is the multiplication hazard [`Self::expand`] exists to
+    /// prevent wearing a different hat.
+    ///
+    /// Called from the one place every composer edit passes through
+    /// (`super::shell::Shell::edited`), whose own `refit` already re-wraps the
+    /// whole draft -- so this scan is a fraction of the work that edit was
+    /// always going to do.
+    pub(crate) fn reconcile(&mut self, draft: &str) {
+        let mut released = 0usize;
+        self.blocks.retain(|block| {
+            let named = placeholder_at(draft, &block.summary, block.occurrence).is_some();
+            if !named {
+                released = released.saturating_add(block.text.len());
+            }
+            named
+        });
+        self.retained = self.retained.saturating_sub(released);
+    }
+
     /// The composer has been emptied, so the blocks its summaries named are
     /// dead.
     ///
@@ -840,6 +874,98 @@ mod tests {
         assert!(
             !expanded.contains(&second),
             "both blocks expanded into one placeholder"
+        );
+    }
+
+    #[test]
+    fn a_block_the_draft_no_longer_names_stops_being_charged_for() {
+        // The charged set has to be the set that can still be sent.
+        let half = MAX_PASTE_BYTES / 2 + 1;
+        let mut state = Paste::default();
+        state.begin(0);
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("half the budget did not collapse");
+        };
+        state.placed(0);
+
+        // Still named, so still charged for.
+        state.reconcile(&summary);
+        state.begin(summary.len());
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        assert!(
+            state.refused(),
+            "a block the draft still names stopped being charged for"
+        );
+
+        // Backspaced away: it can never be expanded into a prompt again.
+        state.reconcile("");
+        state.begin(0);
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        assert!(
+            !state.refused(),
+            "a block the draft no longer names is still being charged for"
+        );
+    }
+
+    #[test]
+    fn only_the_copy_that_was_the_placeholder_keeps_a_block_alive() {
+        // A block is kept alive by *its own* copy of its name, not by any copy.
+        // The draft already said those words once when the paste landed after
+        // them; deleting the paste's copy leaves the user's words behind, and
+        // words do not expand.
+        let half = MAX_PASTE_BYTES / 2 + 1;
+        let mut state = Paste::default();
+        state.begin(0);
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("half the budget did not collapse");
+        };
+        state.placed(1);
+
+        // One copy left, and it is the one the user typed.
+        state.reconcile(&summary);
+        state.begin(summary.len());
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        assert!(
+            !state.refused(),
+            "a block whose own copy of its name is gone is still charged for"
+        );
+    }
+
+    #[test]
+    fn a_name_written_again_after_it_was_damaged_names_nothing() {
+        // The semantics, pinned: releasing is permanent. A name that could be
+        // reattached by typing would let a user resurrect megabytes with one
+        // bracket.
+        let block = "y".repeat(1200);
+        let mut state = Paste::default();
+        state.begin(0);
+        for byte in block.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("1200 codepoints did not collapse");
+        };
+        state.placed(0);
+
+        // One character short of its own name.
+        state.reconcile(&summary[..summary.len() - 1]);
+
+        assert_eq!(
+            state.expand(&summary),
+            summary,
+            "a name written back by hand brought its block with it"
         );
     }
 
