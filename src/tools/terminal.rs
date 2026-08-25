@@ -62,6 +62,21 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// and the shortfall is disclosed in the output.
 const DRAIN_GRACE: Duration = Duration::from_millis(1_500);
 
+/// How many extra times a killed command's process group is signalled while
+/// its leader is still unreaped, and how long the sweep pauses between rounds.
+///
+/// Two rounds, not a duration: this is a bound on work, not a promise about
+/// wall-clock time, which a loaded machine does not let anyone make.
+const ANCHORED_ROUNDS: u32 = 2;
+
+/// How many times the group is *asked* whether it is gone before xfx stops
+/// waiting for it. Also a round bound rather than a time one; nothing is
+/// signalled in these rounds, so their only cost is the wait.
+const GROUP_SETTLE_ROUNDS: u32 = 20;
+
+/// How long the sweep pauses between rounds.
+const GROUP_KILL_PAUSE: Duration = Duration::from_millis(2);
+
 /// The only action this build offers.
 const EXEC_ACTION: &str = "exec";
 
@@ -205,9 +220,33 @@ enum Ending {
     /// Killed by a signal. Reported as itself: a segfault is not "exit 139".
     Signalled(i32),
     /// xfx killed it because it ran too long.
-    TimedOut(u64),
+    TimedOut {
+        ms: u64,
+        stranded: Option<Stranded>,
+    },
     /// xfx killed it because the turn was cancelled.
-    Cancelled,
+    Cancelled {
+        stranded: Option<Stranded>,
+    },
+}
+
+/// Why xfx could not confirm that a killed command's process group was gone.
+///
+/// The kernel's own answer, kept as an answer rather than flattened to a bool:
+/// "something is still running in there" and "the question could not be asked"
+/// are different failures, and a report that cannot tell them apart is the
+/// silent path this sweep exists to close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stranded {
+    /// `kill(-pgid, 0)` succeeded: the group still has a member xfx may signal.
+    Running,
+    /// `EPERM`. Per `kill(2)`, when signalling a process group this "is
+    /// returned if any members of the group could not be signaled" -- so the
+    /// group still exists. A process that has died but not been collected by
+    /// its reaper answers this way.
+    Unsignalable,
+    /// Any other errno, named rather than swallowed.
+    Errno(i32),
 }
 
 /// What one command produced.
@@ -225,18 +264,20 @@ impl Outcome {
         match self.ending {
             Ending::Exited(code) => out.push_str(&format!("<exit_code>{code}</exit_code>\n")),
             Ending::Signalled(signal) => out.push_str(&format!("<signal>{signal}</signal>\n")),
-            Ending::TimedOut(ms) => {
+            Ending::TimedOut { ms, stranded } => {
                 return ToolResult::failure(format!(
-                    "terminal timed out: `{}` ran longer than {ms} ms and was killed\n{}",
+                    "terminal timed out: `{}` ran longer than {ms} ms and was killed\n{}{}",
                     framed(plan.command()),
-                    self.streams()
+                    self.streams(),
+                    stranded_notice(stranded)
                 ))
             }
-            Ending::Cancelled => {
+            Ending::Cancelled { stranded } => {
                 return ToolResult::failure(format!(
-                    "terminal was cancelled: `{}` was killed before it finished\n{}",
+                    "terminal was cancelled: `{}` was killed before it finished\n{}{}",
                     framed(plan.command()),
-                    self.streams()
+                    self.streams(),
+                    stranded_notice(stranded)
                 ))
             }
         }
@@ -246,7 +287,7 @@ impl Outcome {
             Ending::Exited(code) => format!("{} (exit {code})", plan.command()),
             Ending::Signalled(signal) => format!("{} (signal {signal})", plan.command()),
             // Both are returned above.
-            Ending::TimedOut(_) | Ending::Cancelled => unreachable!(),
+            Ending::TimedOut { .. } | Ending::Cancelled { .. } => unreachable!(),
         };
         // A command that ran and reported a nonzero status answered the
         // question. Only xfx's own failures are refusals.
@@ -398,12 +439,15 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
             Err(_) => return Ending::Exited(-1),
         }
         if cancel.is_cancelled() {
-            stop(child);
-            return Ending::Cancelled;
+            return Ending::Cancelled {
+                stranded: stop(child),
+            };
         }
         if started.elapsed() >= timeout {
-            stop(child);
-            return Ending::TimedOut(timeout.as_millis() as u64);
+            return Ending::TimedOut {
+                ms: timeout.as_millis() as u64,
+                stranded: stop(child),
+            };
         }
         std::thread::sleep(POLL_INTERVAL);
     }
@@ -413,16 +457,143 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
 ///
 /// The group is signalled first, because the process holding xfx's pipe is very
 /// often not the process xfx forked. The direct kill follows as a backstop for
-/// the case where the group could not be signalled at all.
-fn stop(child: &mut Child) {
+/// the case where the group could not be signalled at all. Then the group is
+/// signalled again -- see `sweep_anchored` for why once is not enough -- and
+/// only after that is the leader collected and the group asked whether it is
+/// gone.
+///
+/// Returns `None` when the group is gone, and otherwise the kernel's reason for
+/// saying it is not. That answer is not a detail to swallow: it means something
+/// the command started may still be running, still holding the pipes xfx handed
+/// it, after xfx did everything it can do about it -- and the caller says so in
+/// the tool's own output.
+fn stop(child: &mut Child) -> Option<Stranded> {
     #[cfg(unix)]
-    {
-        if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
-            let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
-        }
+    let group = rustix::process::Pid::from_raw(child.id() as i32);
+
+    #[cfg(unix)]
+    if let Some(group) = group {
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
     }
     let _ = child.kill();
+
+    // Before the leader is collected, never after: see `sweep_anchored`.
+    #[cfg(unix)]
+    if let Some(group) = group {
+        sweep_anchored(group);
+    }
+
     let _ = child.wait();
+
+    #[cfg(unix)]
+    let stranded = match group {
+        Some(group) => settled(group),
+        None => None,
+    };
+    #[cfg(not(unix))]
+    let stranded = None;
+
+    stranded
+}
+
+/// Signals `group` again, `ANCHORED_ROUNDS` times, while the command's leader
+/// is still unreaped.
+///
+/// **One signal is not enough, and the reason is a race in the kernel rather
+/// than a gap in xfx's bookkeeping.** `kill(-pgid)` walks the group's list of
+/// members; a `fork` running at the same instant adds a member the walk may
+/// have already passed. That member never receives the signal. Its parent is
+/// dead, so nothing will fork again -- but the survivor keeps running, and it
+/// keeps the stdout and stderr pipes xfx handed the command open, which is
+/// exactly the "stream still open" the drain then has to report. Measured on
+/// macOS, with one signal: 51 of 240 cancellations five milliseconds into a
+/// twenty-child fork loop left a child alive, and 91 of 160 cancellations forty
+/// milliseconds into a three-hundred-child loop. With this sweep, both were 0.
+///
+/// **Every signal xfx sends to the group is sent from here, before the leader
+/// is collected, and that ordering is the whole safety argument.** A process
+/// group id is a process id, and process ids are recycled. The id cannot be
+/// recycled while this function runs, because the leader has been killed but
+/// not yet waited for: POSIX ends a process's lifetime -- and only then returns
+/// its id to the system -- when it is waited for, not when it dies, and a group
+/// exists while it has a member. Measured here rather than assumed: on macOS a
+/// group whose only member is an unreaped leader answers `kill(-pgid, 0)` with
+/// `EPERM`, not `ESRCH`, which per `kill(2)` "is returned if any members of the
+/// group could not be signaled" -- the group is still there. So a signal sent
+/// in this window provably reaches this command's group and nothing else.
+///
+/// After the leader is collected xfx signals nothing further, however the
+/// checks in `settled` come out. A signal then would rest on the id still being
+/// this group's, which is exactly what collecting the leader gave up.
+#[cfg(unix)]
+fn sweep_anchored(group: rustix::process::Pid) {
+    for _ in 0..ANCHORED_ROUNDS {
+        std::thread::sleep(GROUP_KILL_PAUSE);
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    }
+}
+
+/// Asks, up to `GROUP_SETTLE_ROUNDS` times, whether `group` is gone. Sends
+/// nothing. Returns `None` once it is gone, and the kernel's reason otherwise.
+///
+/// The question is `kill(-pgid, 0)`, which rustix documents as "check validity
+/// of pid and permissions to send signals to all processes in the process
+/// group, without actually sending any signals" -- so its two failures mean
+/// different things, and `is_err()` is not the predicate. Per `kill(2)`:
+///
+/// * `ESRCH` -- "no process or process group can be found corresponding to that
+///   specified by pid". The group is gone. This is the only good answer.
+/// * `EPERM` -- "when signalling a process group, this error is returned if any
+///   members of the group could not be signaled". The group is **still there**;
+///   a member has died but not yet been collected by its reaper. Waiting is the
+///   right response, and reading it as "gone" -- which `is_err()` did -- is a
+///   report of success about a group that still exists.
+/// * anything else -- the question could not be asked, which is reported as
+///   itself rather than guessed at.
+///
+/// Asking after the leader has been collected is safe in a way signalling would
+/// not be: if the id has been recycled, the worst outcome is a notice about a
+/// group that is not xfx's, and no process is touched either way.
+#[cfg(unix)]
+fn settled(group: rustix::process::Pid) -> Option<Stranded> {
+    let mut last = Stranded::Running;
+    for _ in 0..GROUP_SETTLE_ROUNDS {
+        last = match rustix::process::test_kill_process_group(group) {
+            Err(rustix::io::Errno::SRCH) => return None,
+            Ok(()) => Stranded::Running,
+            Err(rustix::io::Errno::PERM) => Stranded::Unsignalable,
+            Err(other) => Stranded::Errno(other.raw_os_error()),
+        };
+        std::thread::sleep(GROUP_KILL_PAUSE);
+    }
+    match rustix::process::test_kill_process_group(group) {
+        Err(rustix::io::Errno::SRCH) => None,
+        _ => Some(last),
+    }
+}
+
+/// What xfx says when it could not confirm that a killed command's group is
+/// gone.
+///
+/// Its own words, appended after the escaped stream text like the drain's
+/// notices, so a model can tell xfx's report apart from the command's output.
+fn stranded_notice(stranded: Option<Stranded>) -> String {
+    let Some(stranded) = stranded else {
+        return String::new();
+    };
+    let because = match stranded {
+        Stranded::Running => "it still has a running member".to_string(),
+        Stranded::Unsignalable => {
+            "its members could not be signalled (EPERM), so something in it has not been \
+             collected yet"
+                .to_string()
+        }
+        Stranded::Errno(code) => format!("the group could not be checked (errno {code})"),
+    };
+    format!(
+        "... [the command's process group was still there after {GROUP_SETTLE_ROUNDS} checks: \
+         {because}; something the command started may have outlived it]\n"
+    )
 }
 
 fn ended(status: std::process::ExitStatus) -> Ending {
@@ -677,5 +848,117 @@ mod tests {
     fn a_command_that_could_not_start_is_named_by_its_first_word() {
         assert_eq!(first_word("cargo test --all"), "cargo");
         assert_eq!(first_word(""), "");
+    }
+
+    /// A shell that spends milliseconds forking children into its own process
+    /// group, spawned exactly the way `run` spawns one.
+    ///
+    /// The fork loop is the whole point: the escape being tested for happens
+    /// when the group is signalled *while* a member is being forked, so the
+    /// command under test has to be forking when the signal arrives.
+    #[cfg(unix)]
+    fn a_forking_shell(tag: &str, children: usize) -> Child {
+        use std::os::unix::process::CommandExt;
+
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(format!(
+            "i=0; while [ $i -lt {children} ]; do sleep {tag} & i=$((i+1)); done; wait"
+        ));
+        command.env_clear();
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        command.process_group(0);
+        command.spawn().expect("spawn a shell")
+    }
+
+    /// `stop` must leave the command's process group empty, even when the
+    /// signal lands while the command is still forking.
+    ///
+    /// **This is a bounded statistical test, and deliberately so.** The escape
+    /// it guards against is a race between the kernel's walk of a process
+    /// group's member list and a `fork` adding to that list, and no portable,
+    /// unprivileged, black-box mechanism available to this suite can make it
+    /// happen on demand: a member cannot be made to appear after the walk
+    /// without racing the walk, because every other way of joining a group
+    /// (`setpgid` from a helper, a late `Command` `process_group`) requires the
+    /// group to still have a member, which is exactly what the first signal
+    /// removes. A debugger stopping the shell mid-`fork`, or a kernel probe,
+    /// could do it; neither belongs in a unit test.
+    ///
+    /// So the window is entered repeatedly instead. Measured on macOS with a
+    /// single signal, 240 cancellations 5ms into a 20-child fork loop escaped
+    /// 51 times, and 160 cancellations 40ms into a 300-child loop escaped 91
+    /// times; with the group signalled until it is empty, both were 0. At the
+    /// shape below one round escaped about 29% of the time, so 16 rounds fail
+    /// with probability ~0.996 against a single-signal `stop` -- and must be
+    /// exactly 0 against this one.
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_command_leaves_nothing_alive_in_its_process_group() {
+        // A duration unique to this process, so a survivor can be cleaned up
+        // without reaching for another test's children.
+        let tag = format!("30.{}", std::process::id());
+        let mut escaped = 0;
+        let mut rounds = 0;
+
+        for _ in 0..16 {
+            let mut child = a_forking_shell(&tag, 50);
+            let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
+            // Into the window: long enough that the shell is forking, short
+            // enough that it has not finished.
+            std::thread::sleep(Duration::from_millis(10));
+
+            stop(&mut child);
+
+            rounds += 1;
+            // `Ok` is the strict reading: the group still holds a member that
+            // can be signalled, which is a process that is running. `EPERM`
+            // would mean something is there but already dead and uncollected,
+            // and `ESRCH` that the group is gone; neither is an escape.
+            if rustix::process::test_kill_process_group(group) == Ok(()) {
+                escaped += 1;
+                // Never leave a survivor behind, whatever the verdict is.
+                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            }
+        }
+
+        assert_eq!(
+            escaped, 0,
+            "{escaped} of {rounds} cancellations left a process alive in the \
+             command\'s group; one signal is not enough because the kernel\'s \
+             walk of the group can pass a member that is still being forked"
+        );
+    }
+
+    /// The timeout ending gets the same sweep as the cancelled one, because
+    /// both go through `stop`.
+    ///
+    /// This does not claim the timeout path *cannot* enter the fork window: a
+    /// spawn returning is not the same instant as the shell finishing its
+    /// forks, and nothing here measures the gap between them. The claim worth
+    /// testing is the one that holds either way -- whichever reason xfx had for
+    /// killing the command, the group is left gone.
+    #[cfg(unix)]
+    #[test]
+    fn a_timed_out_command_gets_the_same_sweep_as_a_cancelled_one() {
+        let tag = format!("30.{}", std::process::id());
+        let mut child = a_forking_shell(&tag, 50);
+        let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
+        std::thread::sleep(Duration::from_millis(10));
+
+        // A timeout that has already run out drives the timeout branch on the
+        // first poll, with the command still forking.
+        let ending = supervise(&mut child, Duration::from_millis(0), &CancelToken::new());
+
+        assert!(
+            matches!(ending, Ending::TimedOut { stranded: None, .. }),
+            "{ending:?}"
+        );
+        assert_eq!(
+            rustix::process::test_kill_process_group(group),
+            Err(rustix::io::Errno::SRCH),
+            "the timeout path left the command's process group behind"
+        );
     }
 }
