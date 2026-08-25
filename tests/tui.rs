@@ -1509,6 +1509,40 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // decoder. This case and `an_external_sigint_is_not_swallowed_because_isig_is_off`
     // together are what prove the two paths are disjoint -- one kills the
     // process by the signal, the other is a keystroke the session answers.
+    //
+    // # The two presses are answered from two different states, and the case
+    // # waits for the second one rather than racing it
+    //
+    // `gesture.rs`'s table has two columns, and which one a Ctrl-C is answered
+    // from depends on whether a turn is running *at that instant*. The first
+    // press below is answered from the running column: it cancels. What
+    // happens next is the runtime's, not the keyboard's -- the transport chops
+    // its wait for the next chunk into `gateway::CANCEL_POLL` (50 ms) slices and
+    // reads the cancellation between them (`gateway/mod.rs:779`-`791`), so
+    // about fifty milliseconds later the turn concludes, the UI applies
+    // `UiEvent::TurnEnded`, and `Gestures::turn_ended` puts the session back in
+    // the idle column (`shell.rs:705`, `gesture.rs:173`).
+    //
+    // **That reset is the ruled behaviour, not a defect**: it is Task 12's MF3
+    // fix, mutant-pinned (N5, N6), it is what `docs/parity.md:46` states for
+    // both surfaces -- *"Ctrl-C stops a running turn and a second one exits
+    // 130; at the prompt it clears the line, and twice in a row leaves"* -- and
+    // the line shell reproduces it exactly (`interactive.rs:257`-`259`).
+    //
+    // So a second lone `0x03` typed after a gap is answered from **whichever
+    // column that fifty milliseconds landed in**, which is a race and not a
+    // contract: it exited 130 locally and did nothing on four CI targets
+    // (run 32887368090, `pty.rs:388` "xfx did not exit"). This case pins the
+    // state instead of guessing it. It waits for the conclusion -- a
+    // runtime-owned line, so waiting for it is waiting for the runtime -- and
+    // then asserts what the idle column promises: a pair, and the pair is typed
+    // as **one write** because the bytes of a single read are decided together
+    // and cannot expire each other (`gesture.rs`'s header, `Shell::route_bytes`).
+    //
+    // The running column's own two-press exit is not lost with it: it is what
+    // `a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider` and
+    // `a_prompt_typed_while_a_turn_runs_is_queued_and_the_next_one_is_refused`
+    // both leave through, from a turn that is provably still running.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
@@ -1534,7 +1568,13 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // answer for the exit below.
     assert!(matches!(session.state(), Wait::Running));
 
-    session.type_bytes(&[0x03]);
+    // The turn is over, said by the runtime rather than inferred from a clock:
+    // `ProviderError::Cancelled`'s own words, carried by the `TurnEnded` that
+    // resets the gesture (`gateway/mod.rs:611`, `shell.rs:687`). Everything
+    // below is therefore answered from the idle column, on every machine.
+    session.wait_for("the turn was cancelled");
+
+    session.type_bytes(&[0x03, 0x03]);
     let status = session.wait_exit();
     assert_eq!(
         status.code(),
