@@ -225,11 +225,18 @@ impl Session {
     /// Spawns a child on the pty that does **not** take it as a controlling
     /// terminal.
     ///
-    /// Only the harness's own self-tests use this. A session leader's terminal
-    /// is revoked when it exits on BSD-derived kernels, which makes "what did
-    /// the child leave behind" unanswerable there; a child that never claimed
-    /// the terminal leaves it inspectable, which is what makes the harness's
-    /// blind spot demonstrable.
+    /// A session leader's terminal is revoked when it exits on BSD-derived
+    /// kernels, which makes "what did the child leave behind" unanswerable
+    /// there; a child that never claimed the terminal leaves it inspectable.
+    ///
+    /// That property is what two different kinds of test are built on, and both
+    /// are real callers: the harness's own self-test in `tests/interactive.rs`,
+    /// where it is what makes the harness's blind spot demonstrable, and every
+    /// launch case in `tests/tui.rs`, whose whole claim is read off the terminal
+    /// with `modes(&pty)` after the child has been reaped. Use [`Self::spawn`]
+    /// when the *child's* controlling terminal is the thing under test -- a
+    /// typed Ctrl-C becoming a real `SIGINT` needs one, and this constructor
+    /// cannot prove that.
     pub fn spawn_without_taking_the_terminal(pty: &Pty, command: Command) -> Self {
         Self::spawn_owning(pty, command, false)
     }

@@ -1697,9 +1697,11 @@ def scenario_3b(run):
     # backlog. It has to lead: this scenario quits *mid*-stream on purpose, and
     # a marker at the tail would be one the pacer has not reached -- so the
     # scenario would be asserting on generic `chunk-0` and passing on a screen
-    # that never showed anything unique to this run, which is the discriminator
-    # failure `06-qa-harness.md` §"Fixtures and the mock-vs-live rule" exists to
-    # rule out.
+    # that never showed anything unique to this fixture/scenario, which is the
+    # discriminator failure `06-qa-harness.md` §"Fixtures and the mock-vs-live
+    # rule" exists to rule out. (Per-*run* uniqueness is the nonce's job inside
+    # `run.marker`; what this needle has to prove is that the screen showed
+    # *this scenario's own* text rather than something any fixture would emit.)
     deltas = [fixtures.text_delta("d", marker + " ")]
     deltas.extend(fixtures.text_delta("d", "chunk-%d " % n) for n in range(2000))
     fixture = start_fixture(run, [fixtures.hang(*deltas)])
