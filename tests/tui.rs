@@ -2208,6 +2208,77 @@ fn ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through() {
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
+/// Every frame of every session log in the sandbox, oldest first.
+///
+/// Read after the process has exited, so nothing here polls: the log is
+/// `fsync`ed and published before the worker's thread ends, and the thread is
+/// joined before `main` returns.
+fn recorded_frames(sandbox: &Sandbox) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for id in sandbox.session_ids() {
+        let log = sandbox.sessions_dir().join(id).join("events.jsonl");
+        let Ok(raw) = std::fs::read_to_string(&log) else {
+            continue;
+        };
+        frames.extend(
+            raw.lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok()),
+        );
+    }
+    frames
+}
+
+#[test]
+fn an_always_answered_in_the_band_is_written_where_a_resume_will_read_it() {
+    // The durable half of the second choice, end to end. The panel's own
+    // wording promises the approval lasts beyond this process -- the session id
+    // is in the sentence -- and the only thing that can keep that promise is a
+    // `permission_grant_recorded` frame in the log. Answering `2` and finding
+    // nothing in the log is the whole defect: the grant lives in the permission
+    // ledger, the ledger dies with the process, and the next resume asks again.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_for(ALWAYS_WORDING);
+
+    session.type_bytes(b"2");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let granted: Vec<Value> = recorded_frames(&sandbox)
+        .into_iter()
+        .filter(|frame| frame["event"]["kind"] == "permission_grant_recorded")
+        .collect();
+    assert_eq!(
+        granted.len(),
+        1,
+        "the band's `always` is not in the session log, so it ends with this \
+         process and the next resume asks again"
+    );
+    assert_eq!(granted[0]["event"]["tool"], "edit_file");
+    assert_eq!(
+        granted[0]["event"]["target"].as_str().expect("a target"),
+        std::fs::canonicalize(&notes)
+            .expect("canonicalize")
+            .to_string_lossy(),
+        "the grant names a file nobody was asked about"
+    );
+}
+
 #[test]
 fn a_refusal_in_the_band_leaves_the_file_alone() {
     let gateway = FakeGateway::start(support::sandbox::edit_then_finish());

@@ -542,7 +542,6 @@ async fn one_turn(
         tools: conversation.tools.clone(),
     };
 
-    let known_grants = conversation.tools.permissions().grants().to_vec();
     let stdout = io::stdout();
     let stderr = io::stderr();
     let mut stderr_lock = stderr.lock();
@@ -566,23 +565,12 @@ async fn one_turn(
     interrupts.end_turn();
 
     // Approvals given during the turn become durable once, after it, so an
-    // "always" answer survives to the next `xfx ask --resume-id <id>`.
-    let new_grants: Vec<_> = conversation
-        .tools
-        .permissions()
-        .grants()
-        .iter()
-        .filter(|grant| !known_grants.contains(grant))
-        .cloned()
-        .collect();
-    for grant in new_grants {
-        conversation
-            .recorder
-            .commit(SessionEvent::PermissionGrantRecorded {
-                tool: grant.tool,
-                target: grant.target,
-            });
-    }
+    // "always" answer survives to the next `xfx ask --resume-id <id>`. The step
+    // is the recorder's ([`SessionRecorder::record_new_grants`]), which is what
+    // keeps this shell, `app::ask` and the TUI's worker from drifting into
+    // three meanings of the same sentence.
+    let granted = conversation.tools.permissions().grants().to_vec();
+    conversation.recorder.record_new_grants(&granted);
     if let Some(failure) = conversation.recorder.failure() {
         writeln!(io::stderr(), "xfx: {failure}")?;
     }

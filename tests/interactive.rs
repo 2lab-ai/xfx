@@ -1000,6 +1000,67 @@ fn ask_mode_asks_on_the_terminal_and_a_yes_lets_the_edit_through() {
 }
 
 #[test]
+fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
+    // The durable half of `[a] always`. The prompt promises the approval lasts
+    // beyond this process -- it names the session id a later `--resume-id` would
+    // use -- and the only thing that keeps that promise is a
+    // `permission_grant_recorded` frame in the log. The step is the recorder's
+    // and is shared with `app::ask` and the TUI's worker, so this is also what
+    // says the shell still takes it.
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("fix the notes");
+    session.wait_for("xfx wants to");
+    session.type_line("a");
+    session.wait_for("the edit is done");
+    assert_eq!(fs::read_to_string(&notes).expect("read the file"), "beta\n");
+    assert_eq!(session.quit().code(), Some(0));
+
+    let granted: Vec<Value> = recorded_frames(&sandbox)
+        .into_iter()
+        .filter(|frame| frame["event"]["kind"] == "permission_grant_recorded")
+        .collect();
+    assert_eq!(
+        granted.len(),
+        1,
+        "the terminal's `always` is not in the session log, so it ends with \
+         this process and the next resume asks again"
+    );
+    assert_eq!(granted[0]["event"]["tool"], "edit_file");
+    assert_eq!(
+        granted[0]["event"]["target"].as_str().expect("a target"),
+        fs::canonicalize(&notes)
+            .expect("canonicalize")
+            .to_string_lossy()
+    );
+}
+
+/// Every frame of every session log in the sandbox, oldest first.
+///
+/// Read after the process has exited: the log is `fsync`ed and published before
+/// the turn that wrote it returns, so nothing here polls.
+fn recorded_frames(sandbox: &Sandbox) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for id in sandbox.session_ids() {
+        let log = sandbox.sessions_dir().join(id).join("events.jsonl");
+        let Ok(raw) = fs::read_to_string(&log) else {
+            continue;
+        };
+        frames.extend(
+            raw.lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok()),
+        );
+    }
+    frames
+}
+
+#[test]
 fn ask_mode_takes_no_for_an_answer_and_the_file_is_untouched() {
     let gateway = FakeGateway::start(edit_then_finish());
     let sandbox = Sandbox::new();

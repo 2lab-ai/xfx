@@ -604,13 +604,29 @@ fn commit_frame(
     // document twice, one of them below a blank row. The failure counts against
     // the same budget a frame's does, which is what ends a session on a screen
     // that is really gone.
-    for append in shell.take_pending() {
+    //
+    // **The ones behind it are owed again, and only that one is not.** The take
+    // above drains everything the session owed, and a refusal ends the tick --
+    // so what is left in the batch is rows that were never offered to the
+    // terminal and cannot have moved it. The reason above does not reach them:
+    // they are not a write that may have half-happened, they are a write that
+    // did not happen. Dropped here they would be gone for good, because Phase 1
+    // never repaints a document row.
+    let mut owed = shell.take_pending();
+    let mut index = 0;
+    while index < owed.len() {
+        let append = &owed[index];
         if let Err(err) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
+            // Everything after the refused one, oldest first, back in front of
+            // whatever has been owed since.
+            let untried = owed.split_off(index + 1);
+            shell.restore_pending(untried);
             return match failures.failed(err, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(()),
             };
         }
+        index += 1;
     }
     let Some(attempt) = shell.render.begin() else {
         return Ok(());
@@ -1441,6 +1457,63 @@ mod tests {
         assert!(
             text.contains("\u{1b}[22;1H"),
             "the frame the refused append asked for was never painted: {text:?}"
+        );
+    }
+
+    #[test]
+    fn what_a_refused_append_was_ahead_of_is_still_owed() {
+        // The other half of the sibling above, and the one a `take` of the
+        // whole batch makes possible to lose. A refusal ends the tick with rows
+        // still in hand that the terminal was never offered -- they moved no
+        // bytes, so nothing about them may have half-happened, and the reason
+        // the refused one is not repeated does not reach them. Phase 1 never
+        // repaints a document row, so dropping them is not a late frame; it is
+        // an answer with a hole in it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        // Two document writes, because one whole line each is what the shell
+        // owes per line of an answer: the first is refused, the second is never
+        // tried.
+        shell.write_transcript("refused\n");
+        shell.write_transcript("behind it\n");
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("one refusal is not the end of a session");
+        assert!(screen.written.is_empty());
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the next tick");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.contains("behind it"),
+            "an append the terminal was never offered was dropped with the one \
+             it was behind: {text:?}"
+        );
+        assert!(
+            !text.contains("refused"),
+            "the refused append was replayed onto a screen that may already \
+             have taken it: {text:?}"
         );
     }
 

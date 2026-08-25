@@ -1002,6 +1002,14 @@ async fn one_turn(
     )
     .await;
 
+    // Approvals the user gave in the band become durable after the turn, once,
+    // so an "always" answered here survives to the next resume -- the same step
+    // `interactive::one_turn` and `app::ask` take, from the same recorder
+    // method. **Whatever the turn did**: a turn that failed after the user
+    // approved something still collected the approval, and asking again next
+    // time would be asking a question the user has already answered.
+    record_grants(conversation);
+
     // Read after the turn, so the answer that did arrive is not withheld
     // because the log of it could not be written -- the same order
     // `interactive::one_turn` reports in. A turn that failed reports its own
@@ -1013,6 +1021,22 @@ async fn one_turn(
             .map(|problem| format!("xfx: {problem}")),
         Err(err) => Some(err.to_string()),
     }
+}
+
+/// Writes down the approvals a turn collected, after it.
+///
+/// A named step rather than two lines inline, for the reason the module's other
+/// named steps are named: it is a thing a test can hold. The whole of it is
+/// **which** grants are new, and that question belongs to the log rather than
+/// to this thread ([`SessionRecorder::record_new_grants`]) -- the TUI keeps one
+/// conversation open across every turn of a session, so a tally kept here would
+/// have to stay in step with the log turn after turn.
+///
+/// The ledger's lock is released before the commit: a commit is a disk write,
+/// and the lock is shared with the tools of any turn that comes next.
+fn record_grants(conversation: &mut Conversation) {
+    let granted = conversation.tools.permissions().grants().to_vec();
+    conversation.recorder.record_new_grants(&granted);
 }
 
 /// `future`, with this thread's panics marked as this call's to report -- for
@@ -1068,8 +1092,12 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use crate::config::Environment;
+    use crate::config::{Environment, PermissionMode};
     use crate::gateway::CancelToken;
+    use crate::permission::{
+        AllowSource, ApprovalAnswer, Grant, MutationKind, MutationPlan, PolicyDecision, Preimage,
+        ProposedAction, TargetScope,
+    };
 
     /// A configuration from a home and a workspace that exist and hold no
     /// settings.
@@ -1882,6 +1910,141 @@ mod tests {
             before,
             "a model that did not change was written to the log anyway"
         );
+    }
+
+    /// A `Runtime` whose band has already answered "always", with a
+    /// conversation opened under the authority a real turn runs under.
+    ///
+    /// The channel ends are handed back rather than dropped: a prompter whose
+    /// UI channel is closed reports that there is nobody to ask, and one whose
+    /// control channel is closed hears no answer -- so a fixture that let them
+    /// go would be measuring a session that had already gone away.
+    #[allow(clippy::type_complexity)]
+    fn answering_always() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        Runtime,
+        mpsc::Receiver<UiEvent>,
+        mpsc::UnboundedSender<TurnControl>,
+    ) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        // Named rather than inherited: the whole case is a question the user is
+        // asked, and only `ask` asks one.
+        config.permission_mode = PermissionMode::Ask;
+        let store = open_store(&config).expect("a store");
+
+        let (events, seen) = mpsc::channel(4);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        control_tx
+            .send(TurnControl::Answer(ApprovalAnswer::Always))
+            .expect("the channel is open");
+        let prompter = TuiPrompter::new(
+            events,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+        );
+
+        let mut state = Runtime::new(config, "any-model".to_string(), store, prompter);
+        // Through `authority()`, which is what `ready` opens a real
+        // conversation with: a fixture that built its own permission session
+        // would be asserting against its own argument.
+        let conversation = open_conversation(
+            &state.store,
+            &state.config,
+            &state.model,
+            state.authority(),
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        state.conversation = Some(conversation);
+        (home, workspace, state, seen, control_tx)
+    }
+
+    #[test]
+    fn an_always_answered_in_the_band_is_recorded_where_a_resumed_session_will_read_it() {
+        // The band really produces `ApprovalAnswer::Always`
+        // (`super::super::approval`), and the worker really keeps one
+        // conversation for the life of the session -- so the grant is in the
+        // permission ledger and nowhere else until this step writes it down.
+        // Without it "for the rest of this session" quietly means "until xfx
+        // exits", and the next `xfx ask --resume-id <id>` asks a question the
+        // user has already answered.
+        let (_home, workspace, mut state, _seen, _control) = answering_always();
+        let target = workspace.path().join("notes.txt");
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            target.clone(),
+            "notes.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"beta\n".to_vec(),
+        );
+        let conversation = state.conversation.as_mut().expect("open");
+
+        // The answer, through the real policy path: `ask` mode has no verdict
+        // of its own, so this is the prompter's, and the grant it leaves is the
+        // panel's.
+        //
+        // The guard is released before the recording below: a commit is a disk
+        // write, and the ledger's lock is not reentrant.
+        let decision = {
+            let mut permissions = conversation.tools.permissions();
+            permissions.decide(ProposedAction::Mutation(&plan))
+        };
+        assert_eq!(
+            decision,
+            PolicyDecision::Allow {
+                source: AllowSource::InteractiveAlways
+            },
+            "the panel's `always` was not the verdict, so this case is not \
+             about a grant at all"
+        );
+
+        record_grants(conversation);
+
+        assert_eq!(
+            conversation.recorder.state().grants,
+            vec![Grant::new(
+                "edit_file",
+                target.to_string_lossy().into_owned()
+            )],
+            "an `always` answered in the band is not in the log a resume reads"
+        );
+    }
+
+    #[test]
+    fn the_same_grant_is_not_written_down_twice() {
+        // One conversation lives for the whole session here, so this step runs
+        // after every turn with the same ledger under it. A tally kept beside
+        // the log would have to stay in step turn after turn; the log answers
+        // for itself instead.
+        let (_home, workspace, mut state, _seen, _control) = answering_always();
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            workspace.path().join("notes.txt"),
+            "notes.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"beta\n".to_vec(),
+        );
+        let conversation = state.conversation.as_mut().expect("open");
+        {
+            let mut permissions = conversation.tools.permissions();
+            permissions.decide(ProposedAction::Mutation(&plan));
+        }
+
+        record_grants(conversation);
+        let after_the_first = conversation.recorder.state().last_event_seq;
+        record_grants(conversation);
+
+        assert_eq!(
+            conversation.recorder.state().last_event_seq,
+            after_the_first,
+            "a grant already in the log was appended to it again"
+        );
+        assert_eq!(conversation.recorder.state().grants.len(), 1);
     }
 
     #[test]

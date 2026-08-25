@@ -456,17 +456,14 @@ async fn run_ask(
 
     // Approvals the user gave during the turn are recorded after it, once, so a
     // grant survives to the next resume. Reading them back from the shared
-    // context is what makes this the real list rather than a second tally.
+    // context is what makes this the real list rather than a second tally, and
+    // the step itself is the recorder's
+    // ([`SessionRecorder::record_new_grants`]) so that every front end takes
+    // the same one.
     let mut warning = None;
     if let Some(recorder) = opened.recorder.as_mut() {
-        for grant in tools.permissions().grants().to_vec() {
-            if !opened.restored_grants.contains(&grant) {
-                recorder.commit(SessionEvent::PermissionGrantRecorded {
-                    tool: grant.tool,
-                    target: grant.target,
-                });
-            }
-        }
+        let granted = tools.permissions().grants().to_vec();
+        recorder.record_new_grants(&granted);
         // A turn that could not be recorded is reported next to the answer
         // rather than instead of it: the answer did arrive, and saying the turn
         // failed would be a lie in the other direction.

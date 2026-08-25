@@ -91,6 +91,7 @@ use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Slash, Submitted};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
+use crate::provider::model::model_id_problem;
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -626,6 +627,25 @@ impl Shell {
     /// Takes the document writes this session owes, oldest first.
     pub(crate) fn take_pending(&mut self) -> Vec<Append> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// Gives back writes the loop took and did not attempt.
+    ///
+    /// [`Self::take_pending`] hands over **everything** owed, and a loop that
+    /// stops part-way through the batch -- a refused write ends the tick -- is
+    /// holding rows that moved no bytes at all. They are still owed: Phase 1
+    /// never repaints a document row, so a batch dropped on the floor here is
+    /// gone from the session for good.
+    ///
+    /// **Ahead of anything owed since**, which is where they were. The document
+    /// is a sequence, and a row that lands after one queued behind it is as
+    /// wrong as a row that never lands.
+    pub(crate) fn restore_pending(&mut self, untried: Vec<Append>) {
+        if untried.is_empty() {
+            return;
+        }
+        let queued_since = std::mem::replace(&mut self.pending, untried);
+        self.pending.extend(queued_since);
     }
 
     /// Shows what the runtime just did.
@@ -1578,6 +1598,21 @@ impl Shell {
             self.say(format!("[shell] model={}", self.model));
             return;
         }
+        // Before anything else, and in the order
+        // [`crate::provider::model::ModelSelector::apply`] asks it in: what a
+        // model id may be is one question with one answer, and this front end
+        // does not get its own. Refused **here**, without reaching the runtime:
+        // the far side records a model change in the session log, so an id with
+        // a control character in it would be written down and read back by
+        // every later resume of this session.
+        if let Some(problem) = model_id_problem(argument) {
+            // The line shell's own line for this, from `interactive`'s
+            // `ModelOutcome::Refused` arm. Nothing of the argument is quoted
+            // back: every one of these reasons is xfx's own words, which is
+            // what keeps a hostile id out of the document.
+            self.write_document_line(&format!("xfx: {problem}"));
+            return;
+        }
         if argument == self.model {
             self.say(format!("[shell] model={} unchanged", self.model));
             return;
@@ -2275,6 +2310,34 @@ mod tests {
             shell.render.begin().is_some(),
             "a submission asked for no frame, so the band would keep showing \
              text the composer no longer holds"
+        );
+    }
+
+    #[test]
+    fn writes_given_back_unattempted_go_ahead_of_the_ones_owed_since() {
+        // The loop takes the whole batch and can stop part-way through it when
+        // the terminal refuses one (`super::event_loop::commit_frame`), so what
+        // comes back was never offered to the screen. It comes back *in front*:
+        // the tick that gives it back has already applied this tick's events,
+        // and a document is a sequence -- a row that lands after one queued
+        // behind it is as wrong as a row that never lands.
+        let mut shell = shell(24, 80);
+        shell.write_transcript("older\n");
+        let untried = shell.take_pending();
+        assert_eq!(untried.len(), 1, "the fixture owes one write, not a batch");
+        shell.write_transcript("newer\n");
+        shell.restore_pending(untried);
+
+        // The text of each write, in the order the document is owed them. Only
+        // the first row of each is named: a break also opens the empty line
+        // after it, which is a property of `Transcript` and not of this order.
+        assert_eq!(
+            shell
+                .take_pending()
+                .into_iter()
+                .map(|append| append.rows.first().cloned().unwrap_or_default())
+                .collect::<Vec<_>>(),
+            vec!["older".to_string(), "newer".to_string()]
         );
     }
 
@@ -4286,6 +4349,53 @@ mod tests {
             shell.sent.try_recv().is_err(),
             "a bare /model asked the runtime for something"
         );
+    }
+
+    #[test]
+    fn a_model_id_the_line_shell_would_refuse_is_refused_here_too() {
+        // What a model id may be is one question with one answer
+        // (`provider::model::model_id_problem`, which is what
+        // `ModelSelector::apply` asks), and this front end does not get its
+        // own. The stake is not tidiness: the runtime writes a model change
+        // into the session log, so an id refused everywhere else would be
+        // recorded here and read back by every later resume of this session --
+        // and a control character in it is a control character in a file xfx
+        // replays.
+        //
+        // Called rather than typed: a control byte at the composer is a
+        // keystroke, and the question here is about the argument a command
+        // carries.
+        let too_long = "m".repeat(201);
+        for (argument, refusal) in [
+            (
+                "two words",
+                "xfx: /model takes one model id, with no spaces in it",
+            ),
+            (
+                "bad\u{7}id",
+                "xfx: a model id cannot contain control characters",
+            ),
+            (too_long.as_str(), "xfx: that model id is too long"),
+        ] {
+            let mut shell = shell(24, 80);
+            let in_force = shell.shell.model.clone();
+            shell.use_model(argument);
+
+            assert_eq!(
+                shell.document(),
+                vec![refusal.to_string()],
+                "the refusal is not the line the line shell gives"
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a model id xfx refuses was submitted anyway, and the runtime \
+                 records what it is given"
+            );
+            assert_eq!(
+                shell.shell.model, in_force,
+                "the session is talking to a model it refused"
+            );
+        }
     }
 
     #[test]

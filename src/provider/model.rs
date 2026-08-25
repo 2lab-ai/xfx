@@ -484,7 +484,7 @@ impl ModelSelector {
 
 /// Whether `candidate` can be used as a model id.
 /// Maximum 200 bytes; one printable word; no control characters.
-fn model_id_problem(candidate: &str) -> Option<&'static str> {
+pub(crate) fn model_id_problem(candidate: &str) -> Option<&'static str> {
     if candidate.is_empty() {
         return Some("name a model");
     }
