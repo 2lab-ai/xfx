@@ -770,7 +770,11 @@ fn kept_line(conversation: Option<&Conversation>) -> String {
 }
 
 /// The version line `/version` prints.
-fn version_line() -> String {
+///
+/// Visible to the crate because the TUI answers the same six commands from the
+/// same declarations rather than growing a second `/version` that could drift
+/// from this one (`crate::tui::shell`).
+pub(crate) fn version_line() -> String {
     let build = crate::build_info();
     match build.revision {
         Some(revision) => format!(

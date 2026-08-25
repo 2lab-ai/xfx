@@ -167,23 +167,47 @@ impl UiEvent {
 pub(crate) enum TurnControl {
     /// The user answered an approval request.
     Answer(ApprovalAnswer),
-    /// Stop this turn. The session continues.
-    Cancel,
+    /// Stop this turn, and drop what was queued behind it. The session
+    /// continues.
+    ///
+    /// `through` is how many submissions the UI had made when the key was
+    /// pressed, and it is what keeps the second half of that sentence honest
+    /// across two channels. The UI writes this message and goes on painting;
+    /// the runtime may not read it for another turn's worth of time, and in
+    /// that window the user can type a **new** prompt onto the work channel. A
+    /// cancellation that simply emptied the queue would eat it -- the interrupt
+    /// would silently swallow the question the user asked *after* deciding to
+    /// stop, which is the one they most certainly meant. Work submitted through
+    /// this count is dropped; anything past it is a new intention and runs.
+    Cancel { through: usize },
     /// Stop this turn and end the session.
     Shutdown,
 }
 
 /// What the UI asks the runtime to do next.
 ///
-/// Capacity one, because one turn runs at a time: a second submission arriving
-/// while a turn is running is refused where the user can see it rather than
-/// queued into a surprise.
+/// Capacity one, because one turn runs at a time. What the *session* holds is
+/// one more than that -- the turn in flight and one prompt waiting behind it --
+/// and the difference is not the channel's to keep: a permit is freed the
+/// instant the runtime **takes** an item, which is where a turn begins rather
+/// than where it ends (`super::worker::WorkHandle::outstanding`). Past those
+/// two the submission is refused where the user can read it. The waiting one is
+/// never a surprise, because the band says `queued 1` for as long as it is
+/// there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
     /// Change the model, with the shell's own `/model` meaning.
     Model(String),
+    /// Drop the conversation, with the shell's own `/new` meaning: the next
+    /// prompt opens a fresh session.
+    ///
+    /// A piece of *work* rather than a control message, and for the reason the
+    /// other two are: the conversation belongs to the runtime thread, and `/new`
+    /// has to take effect between turns rather than in the middle of the one
+    /// that is writing into it.
+    New,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

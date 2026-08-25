@@ -69,16 +69,19 @@
 //! session leaves, so the message is printed by the ordinary failure path --
 //! on a terminal that has been given back first.
 
+use std::process::ExitCode;
 use std::time::Instant;
 
-use super::bridge::{TurnWork, UiEvent};
+use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
+use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::render_request::{Reason, RenderRequest};
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::RuntimeConfig;
+use crate::interactive::{self, Slash, Submitted};
 use crate::output::safe_one_line;
 
 /// The divider's rule, one cell wide, repeated across the screen.
@@ -105,19 +108,64 @@ const PROMPT_CELLS: u16 = 2;
 /// full, and never for a row of the terminal's document.
 const TOOL_DETAIL_BYTES: usize = 120;
 
-/// What the user is told when a second prompt arrives while one is running.
+/// What the user is told when a submission arrives with the queue already full.
 ///
-/// Visible rather than silent, because the work channel holds exactly one item
-/// and a submission it will not take has to be a refusal the user can see. The
-/// queue itself -- keeping the draft, and letting one prompt wait -- is Task
-/// 12's; this is the part that must not be a silent drop in the meantime.
-const BUSY_NOTICE: &str = "xfx: a turn is already running; that line was not sent";
+/// On the **hint row** rather than in the document, and with the draft left in
+/// the composer, because those are the two halves of one sentence: the line was
+/// not sent, so it is still somewhere, and where it still is is where the user
+/// last saw it. A document row would scroll away from the text it is about.
+pub(crate) const QUEUE_REJECTED: &str = "one prompt is already queued; this one was not sent";
+
+/// What the user is told when the interrupt takes a waiting prompt with it.
+///
+/// Present tense, like `app::INTERRUPT_NOTICE` beside it, because both are the
+/// *request* landing rather than a report of what the runtime has finished
+/// doing: the drop itself is `super::worker`'s `abandon_pending`, on the far
+/// side of the control channel. It is written here and not sent from there for
+/// one reason -- there is no synchronous way to put a sentence on that channel,
+/// and a notice that waited for the cancelled turn to unwind would never arrive
+/// at all for the turn most worth interrupting, the one whose provider has gone
+/// quiet without hanging up.
+const QUEUE_DROPPED: &str = "xfx: dropping what was queued behind it as well.";
+
+/// What the hint row says while a second Escape would clear the composer.
+///
+/// The gesture is destructive and unprompted -- nothing else in this phase
+/// throws a draft away without a key that says so -- and this row is the whole
+/// of the warning the user gets before the second tap.
+pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 
 /// What the user is told when the runtime thread is not there to take work.
 ///
-/// Told apart from [`BUSY_NOTICE`] on purpose: a runtime that is gone is not a
-/// runtime that is busy, and a fatal event is already on its way to say so.
+/// Told apart from [`QUEUE_REJECTED`] on purpose: a runtime that is gone is not
+/// a runtime with a queue, and a fatal event is already on its way to say so.
+/// In the document rather than on the hint row, because unlike a full queue it
+/// is not a condition that clears.
 const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
+
+/// What `/clear` leaves behind after it has erased the screen.
+///
+/// The line-oriented shell prints its banner and a `kept` line here
+/// (`interactive.rs:451-456`); the TUI has no banner, and the identity that
+/// banner carries belongs on the hint row. What is left is the promise the
+/// command's own summary makes -- that clearing the screen is not clearing the
+/// conversation -- said where a user who just watched their transcript vanish
+/// is looking.
+const CLEARED_NOTICE: &str = "xfx: cleared the screen; the conversation is kept";
+
+/// What `/new` says, in the words the line-oriented shell says them in
+/// (`interactive.rs:461-463`).
+const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a fresh conversation";
+
+/// Erases the screen, its scrollback, and puts the cursor home.
+///
+/// The same three sequences `/clear` writes on the line-oriented path
+/// (`interactive.rs:85`), and the only bytes this session writes that are not a
+/// frame or a document append. `3J` is the one that matters here: xfx's answers
+/// live in the terminal's *own* scrollback (`super::frame`), so a `/clear` that
+/// erased only the visible screen would leave the transcript one wheel-turn
+/// away and mean something different on this surface than it does on the other.
+pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
@@ -129,8 +177,6 @@ pub(crate) struct Shell {
     /// frame: the hint row renders a compact form of it and a `/model` change
     /// replaces it, and both want one field rather than a borrow of the whole
     /// configuration.
-    // Task 16's hint row is its first reader.
-    #[allow(dead_code)]
     model: String,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
@@ -152,10 +198,46 @@ pub(crate) struct Shell {
     pending: Vec<Append>,
     /// Where a submitted line goes.
     work: WorkHandle,
+    /// What the keystroke before this one was, for the two keys whose second
+    /// press means something else.
+    gestures: Gestures,
+    /// The refusal the hint row is showing, if it is showing one.
+    ///
+    /// `'static`, because everything that lands here is text this crate wrote:
+    /// a row that could carry a provider's words would be a row that can carry
+    /// a provider's escape sequences.
+    notice: Option<&'static str>,
+    /// Whether a second Escape would clear the composer, as of the last settle.
+    ///
+    /// Cached rather than asked at paint time because [`Self::band_rows`] has
+    /// no clock: what is painted has to be the same answer that asked for the
+    /// frame, or the row and the reason for it disagree.
+    escape_armed: bool,
+    /// How many submissions are waiting behind the one in flight, as of the
+    /// last settle. Cached for the same reason [`Self::escape_armed`] is.
+    queued: usize,
+    /// Whether the screen owes a `/clear`.
+    ///
+    /// Taken by the loop, which owns the writer. A `bool` rather than a queued
+    /// write because two clears in one turn are one clear.
+    clearing: bool,
     /// Why the session is ending, when it is ending because the runtime cannot
     /// go on. Printed by the caller **after** the terminal has been restored.
     fatal: Option<String>,
-    leaving: bool,
+    /// How the session is ending, once it is.
+    leaving: Option<Leaving>,
+}
+
+/// How a session ended, which is the same question as what it exits with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Leaving {
+    /// Ctrl-D, `/quit`, or a terminal with no writer left on it.
+    Quit,
+    /// The second Ctrl-C. The session exits [`INTERRUPTED_EXIT_CODE`], which is
+    /// what the line-oriented shell exits with for the same gesture -- and what
+    /// a caller reading `$?` uses to tell "the user stopped it" from "it
+    /// failed".
+    Interrupted,
 }
 
 impl Shell {
@@ -179,8 +261,13 @@ impl Shell {
             transcript: Transcript::new(geometry.cols),
             pending: Vec::new(),
             work,
+            gestures: Gestures::default(),
+            notice: None,
+            escape_armed: false,
+            queued: 0,
+            clearing: false,
             fatal: None,
-            leaving: false,
+            leaving: None,
         }
     }
 
@@ -205,10 +292,38 @@ impl Shell {
         while rows.len() <= usize::from(self.geometry.input_rows()) {
             rows.push(String::new());
         }
-        // The hint row: owned, cleared with the rest of the band, and empty
-        // until the task that fills it.
-        rows.push(String::new());
+        // The hint row. Two of its segments exist in this phase -- what the
+        // queue is holding, and whether a second Escape would throw the draft
+        // away -- and a refusal takes the left of it whole, because a refusal
+        // is about the keystroke that just happened and the rest is about the
+        // state. Task 16 replaces the joining with upstream's, on the same
+        // three facts.
+        rows.push(self.hint_row());
         rows
+    }
+
+    /// What the band's last row says.
+    ///
+    /// Not budgeted: a row wider than the screen is clipped by the painter like
+    /// every other band row (`super::frame`'s `row_text`), so nothing overflows
+    /// -- but on a narrow terminal the warning is what falls off the end rather
+    /// than the segment a reader would have chosen to drop. Task 16 is where
+    /// the segments learn to give way from the right.
+    fn hint_row(&self) -> String {
+        let mut row = String::new();
+        if let Some(notice) = self.notice {
+            row.push_str(notice);
+        } else if self.queued > 0 {
+            row.push_str("queued ");
+            row.push_str(&self.queued.to_string());
+        }
+        if self.escape_armed {
+            if !row.is_empty() {
+                row.push_str(GUTTER);
+            }
+            row.push_str(ESCAPE_ARMED);
+        }
+        row
     }
 
     /// Where the caret goes: the terminal's own row, and the number of cells to
@@ -331,6 +446,10 @@ impl Shell {
                 if let Some(failure) = failure {
                     self.write_document_line(&failure);
                 }
+                // Whatever the last Ctrl-C was about ended with this turn. A
+                // session that kept remembering it would answer the *next*
+                // turn's first Ctrl-C by leaving -- see [`Gestures::turn_ended`].
+                self.gestures.turn_ended();
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -372,12 +491,35 @@ impl Shell {
 
     /// Whether the session is on its way out.
     pub(crate) fn leaving(&self) -> bool {
-        self.leaving
+        self.leaving.is_some()
+    }
+
+    /// What the process exits with, once the session is leaving.
+    ///
+    /// Asked of the shell rather than decided by the loop because the loop does
+    /// not know *why* it is leaving, and the two reasons exit differently: a
+    /// Ctrl-D and a `/quit` are a session that finished, and a second Ctrl-C is
+    /// a session the user stopped. A caller reading `$?` is entitled to tell
+    /// them apart, which is what 130 has meant since job control.
+    pub(crate) fn exit_code(&self) -> ExitCode {
+        match self.leaving {
+            Some(Leaving::Interrupted) => ExitCode::from(INTERRUPTED_EXIT_CODE),
+            Some(Leaving::Quit) | None => ExitCode::SUCCESS,
+        }
     }
 
     /// Ends the session at the end of this turn of the loop.
     pub(crate) fn leave(&mut self) {
-        self.leaving = true;
+        self.leave_by(Leaving::Quit);
+    }
+
+    /// Ends the session, keeping the first reason it was given.
+    ///
+    /// First rather than last: an interrupted session that then reaches a
+    /// `Fatal` on the way out is still an interrupted one, and a second reason
+    /// arriving during the drain must not overwrite the one the user caused.
+    fn leave_by(&mut self, why: Leaving) {
+        self.leaving.get_or_insert(why);
     }
 
     /// Decodes `bytes` -- in the order the terminal delivered them -- and does
@@ -393,7 +535,7 @@ impl Shell {
         for byte in bytes {
             self.decoder.feed(*byte, now, &mut events);
         }
-        self.consume(events);
+        self.consume(events, now);
     }
 
     /// Resolves what only the passage of time resolves: a bare `ESC` that has
@@ -404,15 +546,47 @@ impl Shell {
     pub(crate) fn settle_input(&mut self, now: Instant) {
         let mut events = Vec::new();
         self.decoder.flush(now, &mut events);
-        self.consume(events);
+        self.consume(events, now);
+    }
+
+    /// Resolves what the band says about state nothing typed here changed: the
+    /// queue's depth, and an armed Escape whose window has closed.
+    ///
+    /// Once a turn, beside [`Self::settle_input`] and for the same reason --
+    /// both are answers that only arrive with the passage of time. Reading the
+    /// count here rather than inside [`Self::band_rows`] is what makes the row
+    /// and the frame that shows it agree: the frame is asked for by the change,
+    /// so a change nobody asked a frame for would sit unpainted until the next
+    /// keystroke, and a row painted from a fresher read than the one that
+    /// triggered it would show a number no frame was owed for.
+    pub(crate) fn settle_band(&mut self, now: Instant) {
+        let queued = self.work.queued();
+        if queued != self.queued {
+            self.queued = queued;
+            self.render.request(Reason::Footer);
+        }
+        let armed = self.gestures.escape_armed(now);
+        if armed != self.escape_armed {
+            self.escape_armed = armed;
+            self.render.request(Reason::Footer);
+        }
+    }
+
+    /// Whether the screen owes a `/clear`, taken so it is written once.
+    pub(crate) fn take_clearing(&mut self) -> bool {
+        std::mem::take(&mut self.clearing)
     }
 
     /// Applies decoded events in order.
-    fn consume(&mut self, events: Vec<Input>) {
+    ///
+    /// `now` is the read's own clock, handed down rather than read again per
+    /// event: the bytes of one read arrived together, and a Ctrl-C burst whose
+    /// two bytes timed each other out would be two unrelated keystrokes.
+    fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
             match event {
                 Input::Text(character) => self.type_character(character),
-                Input::Action(action) => self.act(action),
+                Input::Action(action) => self.act(action, now),
                 // Task 18's `paste` module is what turns these into text: a
                 // pasted byte is not a keystroke, and until there is something
                 // that filters it, letting one into the composer would put a
@@ -438,7 +612,7 @@ impl Shell {
     ///
     /// Exhaustive on purpose: an action added later has to be given a home
     /// here rather than falling into a wildcard that silently ignores it.
-    fn act(&mut self, action: Action) {
+    fn act(&mut self, action: Action, now: Instant) {
         match action {
             // The composer's own.
             Action::Left
@@ -459,6 +633,20 @@ impl Shell {
                 self.edited();
             }
             Action::Submit => self.submit(),
+            // Ctrl-C. With `ISIG` cleared the terminal generates no `SIGINT`,
+            // so this byte is the only Ctrl-C a TUI session sees -- and what it
+            // means is the line-oriented shell's rule, decided in
+            // [`super::gesture`].
+            Action::Cancel => self.interrupt(now),
+            // A lone Escape does nothing here; the second one inside the window
+            // clears the composer, and the hint row says so in between.
+            Action::Escape => match self.gestures.escape(now) {
+                Escape::Armed => self.settle_band(now),
+                Escape::Clear => {
+                    self.clear_composer();
+                    self.settle_band(now);
+                }
+            },
             // The end of the session, but only from an empty composer: with
             // text under the caret Ctrl-D is the forward delete it is in every
             // shell that has both, and leaving would throw away a draft.
@@ -472,46 +660,251 @@ impl Shell {
             }
             // The whole band is repainted every frame, so a redraw is a frame.
             Action::Redraw => self.render.request(Reason::ExternalDamage),
-            // Not this task's: Ctrl-C and the double-Esc gesture are Task 12's,
-            // the paste markers are Task 18's, and an `Ignore` is a keystroke
-            // this session has no binding for -- an event rather than silence
-            // precisely so that it accounts for the bytes it was decoded from.
-            Action::Cancel
-            | Action::Escape
-            | Action::PasteStart
-            | Action::PasteEnd
-            | Action::Ignore => {}
+            // Not this task's: the paste markers are Task 18's, and an `Ignore`
+            // is a keystroke this session has no binding for -- an event rather
+            // than silence precisely so that it accounts for the bytes it was
+            // decoded from.
+            Action::PasteStart | Action::PasteEnd | Action::Ignore => {}
         }
     }
 
-    /// Sends what has been composed to the runtime.
+    /// One Ctrl-C.
+    ///
+    /// The cancellation goes out on the **control** channel, which is unbounded
+    /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
+    /// so it cannot queue behind the backlog of deltas it is trying to stop.
+    /// The UI deliberately does not cancel anything itself: what it holds is the
+    /// **session's** cancellation, and cancelling that would make every later
+    /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
+    /// Ctrl-C would end the conversation rather than the answer.
+    fn interrupt(&mut self, now: Instant) {
+        match self.gestures.interrupt(now, self.work.outstanding() > 0) {
+            Interrupt::Cancel => {
+                // Read **before** the message goes out, because after it the
+                // runtime is dropping exactly these and the count is on its way
+                // to zero: what the user is owed a sentence about is what was
+                // waiting when they pressed the key.
+                let waiting = self.work.queued() > 0;
+                // Quoting what has been submitted **so far** is what keeps the
+                // drop from reaching past this keystroke: a prompt typed while
+                // this message is still in flight is a new intention, and the
+                // runtime is told exactly where the old ones stop.
+                self.work.control(TurnControl::Cancel {
+                    through: self.work.accepted(),
+                });
+                // The same sentence the line-oriented shell writes for the same
+                // keystroke (`app::INTERRUPT_NOTICE`), so that the request is
+                // something the user watched land rather than something they
+                // have to infer from the stream stopping -- which, for a
+                // provider that has gone quiet without hanging up, it may not.
+                self.write_document_line(crate::app::INTERRUPT_NOTICE);
+                if waiting {
+                    self.write_document_line(QUEUE_DROPPED);
+                }
+            }
+            Interrupt::Clear => self.clear_composer(),
+            Interrupt::Leave => self.leave_by(Leaving::Interrupted),
+        }
+        self.settle_band(now);
+    }
+
+    /// Throws the draft away, if there is one.
+    ///
+    /// The guard is not tidiness: [`Self::edited`] asks for a frame and
+    /// re-solves the band, and a keystroke that changed nothing must not be a
+    /// repaint of the whole band on a link that may be a serial line.
+    fn clear_composer(&mut self) {
+        if self.editor.is_empty() {
+            return;
+        }
+        self.editor.take();
+        self.edited();
+    }
+
+    /// What one submitted line is, and what happens to it.
+    ///
+    /// **Decided by [`crate::interactive::classify`] and by nothing else**, so
+    /// the two surfaces cannot disagree about what a leading `/` means. That is
+    /// the whole reason the routing is a call rather than a `match` of its own:
+    /// a command grammar whose answer depends on which front end you typed it
+    /// into is exactly the nondeterminism a command surface must not have. The
+    /// names are `interactive::SLASH_COMMANDS`, unchanged and unextended --
+    /// this phase adds no command and no slash name.
+    ///
+    /// Nothing here reaches the provider. Five of the six are answered on this
+    /// thread; `/model <id>` and `/new` go to the runtime as
+    /// [`TurnWork`] -- not because they need a turn, but because the model and
+    /// the conversation they change live there and have to change *between*
+    /// turns rather than under one.
+    fn submit(&mut self) {
+        if self.editor.is_empty() {
+            return;
+        }
+        let text = self.editor.text().to_string();
+        match interactive::classify(&text) {
+            // Whitespace and nothing else. The line is consumed -- the user
+            // pressed Return and a Return that left the composer untouched
+            // would look like a session that had stopped listening -- and
+            // nothing is sent or written.
+            Submitted::Blank => {
+                self.editor.take();
+                self.edited();
+            }
+            Submitted::Command { command, argument } => {
+                self.echo(&text);
+                self.run_command(command, &argument);
+            }
+            // A line that begins with `/` and names nothing is a mistake, not a
+            // question, and it is answered with the same refusal the
+            // line-oriented shell gives it (`interactive.rs:194-200`). It does
+            // **not** reach the model: a typo'd command silently becoming a
+            // prompt is how a user pays for a slip in tokens and in an answer
+            // to a question they did not ask.
+            Submitted::UnknownCommand { token } => {
+                // Consumed like any other submitted line, and for the reason
+                // the echo above gives: it is in the document now, and a
+                // composer that kept it would have the user's next line typed
+                // onto the end of it.
+                self.editor.take();
+                self.edited();
+                self.echo(&text);
+                let refusal = interactive::unknown_command_message(&token);
+                self.write_document_line(&refusal);
+            }
+            Submitted::Prompt(prompt) => self.send(prompt, &text),
+        }
+    }
+
+    /// Offers a prompt to the runtime.
     ///
     /// The offer comes **before** the composer is cleared, which is the whole
     /// of the ordering: a submission the runtime will not take must not have
     /// already thrown the draft away. What it takes is echoed into the
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
-    fn submit(&mut self) {
-        if self.editor.is_empty() {
-            return;
-        }
-        let text = self.editor.text().to_string();
-        match self.work.submit(TurnWork::Submit(text.clone())) {
+    fn send(&mut self, prompt: String, text: &str) {
+        match self.work.submit(TurnWork::Submit(prompt)) {
             Ok(()) => {
                 self.editor.take();
                 self.edited();
-                self.write_transcript(&text);
-                // The line ends whether or not the last thing typed was a
-                // newline: what was submitted is finished, and a tail left open
-                // would be continued by the answer.
-                self.end_transcript_line();
+                self.echo(text);
+                self.gestures.submitted();
             }
-            // Visible, never silent, and the draft stays where it is -- there
-            // is nowhere else for it to be. Task 12 owns letting one prompt
-            // wait instead of refusing it.
-            Err(Rejected::Busy) => self.write_document_line(BUSY_NOTICE),
-            Err(Rejected::Gone) => self.write_document_line(GONE_NOTICE),
+            Err(rejected) => self.refused(rejected),
         }
+    }
+
+    /// What a submission the runtime would not take costs.
+    ///
+    /// A full queue is a **hint-row** refusal with the draft left in the
+    /// composer: the two belong together, because "this one was not sent" is
+    /// only useful next to the text that was not sent. A runtime that is gone
+    /// is a document row instead -- it is not a condition that clears, and a
+    /// hint row would scroll it away under whatever comes next.
+    fn refused(&mut self, rejected: Rejected) {
+        match rejected {
+            Rejected::Busy => {
+                self.notice = Some(QUEUE_REJECTED);
+                self.render.request(Reason::Footer);
+            }
+            Rejected::Gone => self.write_document_line(GONE_NOTICE),
+        }
+    }
+
+    /// Puts a submitted line into the document, where the user can see what
+    /// they sent.
+    ///
+    /// The line ends whether or not the last thing typed was a newline: what
+    /// was submitted is finished, and a tail left open would be continued by
+    /// the answer.
+    fn echo(&mut self, text: &str) {
+        self.write_transcript(text);
+        self.end_transcript_line();
+    }
+
+    /// One of the six, with the rest of the line as its argument.
+    ///
+    /// The composer is cleared first for all of them: a command is not offered
+    /// to anything that can refuse it, so there is no draft to keep.
+    fn run_command(&mut self, command: Slash, argument: &str) {
+        self.editor.take();
+        self.edited();
+        self.gestures.submitted();
+        match command {
+            Slash::Quit => self.leave(),
+            Slash::Help => {
+                for line in interactive::help_text().lines() {
+                    self.write_document_line(line);
+                }
+            }
+            Slash::Version => {
+                let line = interactive::version_line();
+                self.write_document_line(&line);
+            }
+            Slash::Model => self.use_model(argument),
+            Slash::Clear => self.clear_screen(),
+            Slash::New => {
+                if let Err(rejected) = self.work.submit(TurnWork::New) {
+                    self.refused(rejected);
+                    return;
+                }
+                self.write_document_line(NEW_SESSION_NOTICE);
+            }
+        }
+    }
+
+    /// `/model`, with the line-oriented shell's meaning.
+    ///
+    /// With no argument it **reports**; with one it applies from the next turn
+    /// on and is recorded in the session log, so a resumed conversation
+    /// continues in the model it was actually held in -- which is
+    /// [`TurnWork::Model`]'s whole job on the far side (`super::worker`'s
+    /// `Runtime::use_model`).
+    ///
+    /// **Narrower than the line shell in one way, and it is a boundary rather
+    /// than an omission**: that shell loads the provider's catalog to report
+    /// with, and prints it. Reaching an endpoint is the parallel plan's, not
+    /// this one's, and the load is asynchronous on a thread that must not wait
+    /// for anything -- so the TUI reports the model in force and lists no
+    /// catalog. `docs/parity.md` says so.
+    fn use_model(&mut self, argument: &str) {
+        if argument.is_empty() {
+            let line = format!("[shell] model={}", self.model);
+            self.write_document_line(&line);
+            return;
+        }
+        if argument == self.model {
+            let line = format!("[shell] model={} unchanged", self.model);
+            self.write_document_line(&line);
+            return;
+        }
+        if let Err(rejected) = self.work.submit(TurnWork::Model(argument.to_string())) {
+            self.refused(rejected);
+            return;
+        }
+        self.model = argument.to_string();
+        let line = format!("[shell] model={}", self.model);
+        self.write_document_line(&line);
+    }
+
+    /// `/clear`: the screen, its scrollback, and what the band remembers of
+    /// both.
+    ///
+    /// Three things go together and none of them is optional. The **bytes** are
+    /// the loop's to write, because the loop owns the writer. The **transcript**
+    /// is reset, because it counts the rows it has put on the screen and every
+    /// one of them is about to stop existing -- an append measured against the
+    /// old count would place its rows around a row that is no longer there. And
+    /// the document writes already owed are **dropped**, because they were owed
+    /// against that same screen.
+    fn clear_screen(&mut self) {
+        self.pending.clear();
+        self.transcript = Transcript::new(self.geometry.cols);
+        self.clearing = true;
+        // Every row of the band is gone from the screen too, so the next frame
+        // is a repaint of the whole thing rather than an optional one.
+        self.render.request(Reason::ExternalDamage);
+        self.write_document_line(CLEARED_NOTICE);
     }
 
     /// What every change to the composer owes: a frame, and a band the right
@@ -556,6 +949,7 @@ mod tests {
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 
     use super::super::bridge::TurnControl;
+    use super::super::gesture::EXIT_WINDOW;
 
     use crate::config::Environment;
 
@@ -607,6 +1001,23 @@ mod tests {
                 .into_iter()
                 .flat_map(|append| append.rows)
                 .collect()
+        }
+
+        /// What the band's last row says, settled first.
+        ///
+        /// Settled rather than read raw, because the queue's depth is the other
+        /// thread's number and the row shows the one this shell last took --
+        /// which is the loop's own order (`super::event_loop`).
+        fn hint(&mut self) -> String {
+            self.shell.settle_band(Instant::now());
+            let rows = self.shell.band_rows();
+            rows.last().cloned().expect("the band has a hint row")
+        }
+
+        /// Plays the runtime taking one piece of work off the channel, which is
+        /// where a turn begins and where the one slot becomes free again.
+        fn picks_up(&mut self) -> TurnWork {
+            self.sent.try_recv().expect("the runtime had work to take")
         }
     }
 
@@ -1106,25 +1517,481 @@ mod tests {
     }
 
     #[test]
+    fn one_prompt_may_wait_and_the_band_says_that_it_is_waiting() {
+        // One turn runs at a time and one more prompt may wait: the second
+        // submission is taken, and the whole difference between a queue and a
+        // surprise is that the band says so for as long as it is there.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.hint(), "", "an empty queue was announced");
+
+        shell.route_bytes(b"second\r");
+
+        assert_eq!(shell.hint(), "queued 1");
+        assert!(
+            shell.editor.is_empty(),
+            "a submission that was taken kept the draft"
+        );
+    }
+
+    #[test]
     fn a_submission_the_runtime_will_not_take_keeps_the_draft_and_says_so() {
         // The ordering this is really about: the offer comes before the
         // composer is cleared, so a refusal cannot have already thrown the
-        // draft away. One turn runs at a time and the work channel holds one
-        // item, so a second submission is a full channel.
+        // draft away. The refusal is on the **hint row**, beside the text it is
+        // about, and not in the document -- a document row scrolls away from
+        // the draft it is explaining.
         let mut shell = shell(24, 80);
-        shell.route_bytes(b"first");
-        shell.route_bytes(&[0x0d]);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
         let _ = shell.document();
 
-        shell.route_bytes(b"second");
+        shell.route_bytes(b"third");
         shell.route_bytes(&[0x0d]);
 
         assert_eq!(
             shell.editor.text(),
-            "second",
+            "third",
             "a refused submission took the draft with it"
         );
-        assert_eq!(shell.document(), vec![BUSY_NOTICE.to_string()]);
+        assert_eq!(shell.hint(), QUEUE_REJECTED);
+        assert!(
+            shell.document().is_empty(),
+            "the refusal was written into the document as well"
+        );
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("second".to_string()),
+            "the queued prompt is the one that was queued"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the refused prompt reached the runtime anyway"
+        );
+    }
+
+    #[test]
+    fn a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so() {
+        // The cancellation goes out on the **control** channel, so it cannot
+        // queue behind the deltas it is trying to stop -- and the notice is the
+        // line shell's own, so the user watches the request land rather than
+        // inferring it from a stream that may not stop for a while.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"stream something\r");
+        let _taken = shell.picks_up();
+        let _ = shell.document();
+
+        shell.route_bytes(&[0x03]);
+
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 })
+        );
+        assert_eq!(
+            shell.document(),
+            vec![crate::app::INTERRUPT_NOTICE.to_string()]
+        );
+        assert!(!shell.leaving(), "one Ctrl-C ended the session");
+    }
+
+    #[test]
+    fn an_interrupt_says_that_the_queue_goes_with_the_turn() {
+        // One keystroke, two facts, and the second one is the one a user cannot
+        // otherwise find out: the prompt they typed ahead is not going to run.
+        // Saying nothing about it would make a dropped prompt indistinguishable
+        // from one that quietly failed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _running = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        assert_eq!(shell.hint(), "queued 1");
+        let _ = shell.document();
+
+        shell.route_bytes(&[0x03]);
+
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 2 }),
+            "the interrupt did not reach back over both submissions"
+        );
+        assert_eq!(
+            shell.document(),
+            vec![
+                crate::app::INTERRUPT_NOTICE.to_string(),
+                QUEUE_DROPPED.to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn an_interrupt_with_nothing_waiting_does_not_say_a_queue_was_dropped() {
+        // The other side of it, so the sentence above is not written every time:
+        // a notice about a queue that was never there is noise the next real one
+        // is read past.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _running = shell.picks_up();
+        let _ = shell.document();
+
+        shell.route_bytes(&[0x03]);
+
+        assert_eq!(
+            shell.document(),
+            vec![crate::app::INTERRUPT_NOTICE.to_string()]
+        );
+    }
+
+    #[test]
+    fn a_turn_that_ended_takes_the_interrupt_that_stopped_it_with_it() {
+        // The window this closes is small and entirely real: the runtime gives
+        // its place back **after** the terminal event (`super::worker`'s
+        // `turn_loop`), so for a moment the UI has been told the turn is over
+        // while the count still says something is in hand. A session that kept
+        // remembering the Ctrl-C that stopped that turn would read the next one
+        // -- a keystroke the user meant as "clear the prompt" -- as the second
+        // half of an exit, and leave with 130.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _running = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 })
+        );
+
+        // The turn concludes. Nothing is submitted in between -- that is the
+        // whole point: a later submission would reset the gesture by itself and
+        // this claim would be about `submitted` rather than about the boundary.
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.document();
+
+        shell.route_bytes(&[0x03]);
+
+        assert!(
+            !shell.leaving(),
+            "the session left on the first Ctrl-C after a turn ended, because \
+             it still remembered the one that stopped that turn"
+        );
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 }),
+            "the keystroke did nothing at all"
+        );
+    }
+
+    #[test]
+    fn the_ctrl_c_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
+        // The chain must not outlive the turn it was about. Driven the way a
+        // session really reaches it: stop a turn, let the turn end, ask another
+        // question, stop that one too.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 })
+        );
+
+        shell.apply(UiEvent::TurnEnded { failure: None });
+
+        shell.route_bytes(b"second\r");
+        let _second = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+
+        assert!(
+            !shell.leaving(),
+            "the first Ctrl-C of a new turn ended the session, because the \
+             session still remembered being asked to stop the last one"
+        );
+        assert_eq!(
+            shell._control.try_recv(),
+            Ok(TurnControl::Cancel { through: 2 }),
+            "the new turn was never asked to stop"
+        );
+    }
+
+    #[test]
+    fn a_second_ctrl_c_leaves_with_the_status_an_interrupted_process_leaves_with() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"stream something\r");
+        let _taken = shell.picks_up();
+
+        shell.route_bytes(&[0x03, 0x03]);
+
+        assert!(shell.leaving(), "a second Ctrl-C did not end the session");
+        assert_eq!(
+            format!("{:?}", shell.exit_code()),
+            format!("{:?}", ExitCode::from(130u8)),
+            "an interrupted session exited like one that finished"
+        );
+    }
+
+    #[test]
+    fn a_ctrl_c_at_an_idle_prompt_throws_the_draft_away_rather_than_stopping_anything() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"half a thought");
+
+        shell.route_bytes(&[0x03]);
+
+        assert!(shell.editor.is_empty(), "the draft survived a Ctrl-C");
+        assert!(
+            shell._control.try_recv().is_err(),
+            "a cancellation was sent with nothing running"
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn ctrl_c_leaves_only_from_a_session_whose_exit_the_user_asked_for_twice() {
+        // The idle chain is time-bounded, and this is where that matters: two
+        // Ctrl-Cs a minute apart are two people clearing two drafts, not
+        // somebody leaving. Driven through `route_bytes`'s own clock rather
+        // than a sleep.
+        // Both keystrokes on a clock the test holds. Reading `Instant::now()`
+        // through `route_bytes` would put the second one inside the window by
+        // however long the first call took, which is the difference this case
+        // is about.
+        let now = Instant::now();
+        let mut outside = shell(24, 80);
+        outside
+            .shell
+            .consume(vec![Input::Action(Action::Cancel)], now);
+        outside
+            .shell
+            .consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        assert!(
+            !outside.leaving(),
+            "two interrupts outside the window ended the session"
+        );
+
+        // And the other side of it, so this is not passing because nothing
+        // leaves: inside the window, it does.
+        let mut inside = shell(24, 80);
+        inside
+            .shell
+            .consume(vec![Input::Action(Action::Cancel)], now);
+        inside.shell.consume(
+            vec![Input::Action(Action::Cancel)],
+            now + EXIT_WINDOW - std::time::Duration::from_millis(1),
+        );
+        assert!(inside.leaving(), "two interrupts inside the window did not");
+    }
+
+    #[test]
+    fn a_double_escape_clears_the_composer_and_the_band_warns_before_it_does() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(
+            shell.hint(),
+            ESCAPE_ARMED,
+            "the destructive half of the gesture was not announced"
+        );
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "one Escape cleared the composer"
+        );
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.editor.is_empty(), "the second Escape did not clear");
+    }
+
+    #[test]
+    fn two_alt_backspaces_delete_two_words_instead_of_clearing_the_draft() {
+        // The hazard the decoder's one carve-out exists for, asserted from the
+        // surface that would have paid for it: `ESC 0x7f` replayed would be two
+        // Escapes inside the window, and a key that means "delete one word"
+        // would throw the whole draft away.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two three");
+        shell.route_bytes(&[0x1b, 0x7f, 0x1b, 0x7f]);
+        assert_eq!(shell.editor.text(), "one ");
+        assert_eq!(shell.hint(), "", "the composer-clearing gesture was armed");
+    }
+
+    // -----------------------------------------------------------------------
+    // the six slash commands
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn every_advertised_slash_command_is_answered_without_asking_the_model() {
+        // The closed set, driven through the composer one name at a time. What
+        // makes this the real claim rather than six spot checks is that it
+        // reads `interactive::SLASH_COMMANDS`: a seventh name added there
+        // fails here until the TUI answers it too.
+        for name in crate::interactive::SLASH_COMMANDS {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(name.as_bytes());
+            shell.route_bytes(&[0x0d]);
+
+            assert!(
+                shell.editor.is_empty(),
+                "{name} left the composer holding it"
+            );
+            let document = shell.document();
+            if *name == "/clear" {
+                // The one command whose echo is deliberately not there: the row
+                // it would have been written on is part of what the command
+                // erased.
+                assert_eq!(document, vec![CLEARED_NOTICE.to_string()]);
+                continue;
+            }
+            assert!(
+                document.first().map(String::as_str) == Some(*name),
+                "{name} was not echoed into the document: {document:?}"
+            );
+            // `/quit` is the one whose answer is the session ending rather than
+            // a row; every other one says something.
+            if *name == "/quit" {
+                assert!(shell.leaving(), "/quit did not end the session");
+            } else {
+                assert!(document.len() > 1, "{name} answered with nothing");
+                assert!(!shell.leaving(), "{name} ended the session");
+            }
+            assert!(
+                !matches!(shell.sent.try_recv(), Ok(TurnWork::Submit(_))),
+                "{name} was sent to the model as a prompt"
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_that_is_not_one_of_the_six_is_refused_rather_than_asked() {
+        // The same refusal the line-oriented shell gives, from the same call,
+        // because a command surface that answers differently depending on which
+        // front end you typed it into is the one thing it must never be. A typo
+        // silently becoming a prompt is what this costs tokens to prevent.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/notacommand\r");
+
+        let document = shell.document();
+        assert_eq!(document.first().map(String::as_str), Some("/notacommand"));
+        assert!(
+            document
+                .iter()
+                .any(|row| row.contains("is not an xfx command")),
+            "{document:?}"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a mistyped command was sent to the model"
+        );
+        assert!(
+            shell.editor.is_empty(),
+            "the refused line stayed in the composer, so the next one would be \
+             typed onto the end of it"
+        );
+    }
+
+    #[test]
+    fn a_line_with_a_slash_that_does_not_lead_it_is_a_prompt() {
+        // `classify` reads the *first* character, so this is a question about
+        // paths and not a command at all.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"what does a/b mean\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("what does a/b mean".to_string())
+        );
+    }
+
+    #[test]
+    fn model_with_an_argument_reaches_the_runtime_and_model_without_one_reports() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/model second-model\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Model("second-model".to_string()),
+            "the model change never reached the thread that owns the session log"
+        );
+
+        shell.route_bytes(b"/model\r");
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "[shell] model=second-model"),
+            "a bare /model did not report the model in force: {document:?}"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a bare /model asked the runtime for something"
+        );
+    }
+
+    #[test]
+    fn new_reaches_the_runtime_because_the_conversation_lives_there() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.picks_up(), TurnWork::New);
+    }
+
+    #[test]
+    fn clear_forgets_the_rows_it_is_about_to_erase_and_owes_the_erase_itself() {
+        // Three things, and none of them is optional: the bytes, the
+        // transcript's memory of what is on the screen, and the appends already
+        // owed against a screen that is about to stop existing.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta(
+            "an answer nobody will see again".to_string(),
+        ));
+        assert!(
+            !shell.shell.pending.is_empty(),
+            "nothing was owed to begin with"
+        );
+
+        shell.route_bytes(b"/clear\r");
+
+        assert!(shell.take_clearing(), "the screen was never asked to clear");
+        assert!(
+            !shell.take_clearing(),
+            "the clear was owed twice, so it would be written twice"
+        );
+        let document = shell.document();
+        assert_eq!(
+            document,
+            vec![CLEARED_NOTICE.to_string()],
+            "a row measured against the erased screen survived the clear"
+        );
+
+        // And the transcript's own memory: the line it had open is gone, so the
+        // next delta opens a **new** row on a blank screen -- an append that
+        // still believed the old row was up there would rewrite it in place and
+        // put the next answer on the end of one nobody can see.
+        shell.apply(UiEvent::Delta("the next answer".to_string()));
+        assert_eq!(
+            shell.take_pending(),
+            vec![Append {
+                scroll: 1,
+                rows: vec!["the next answer".to_string()]
+            }],
+            "the first delta after a clear was written onto a row the clear erased"
+        );
+    }
+
+    #[test]
+    fn a_submitted_line_that_is_only_whitespace_is_consumed_and_sent_nowhere() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"   \r");
+        assert!(
+            shell.editor.is_empty(),
+            "a blank line stayed in the composer"
+        );
+        assert!(
+            shell.document().is_empty(),
+            "a blank line reached the document"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a blank line reached the runtime"
+        );
     }
 
     #[test]

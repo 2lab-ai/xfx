@@ -478,6 +478,7 @@ mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
 mod frame;
+mod gesture;
 mod input;
 mod layout;
 mod panic;

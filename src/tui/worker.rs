@@ -50,7 +50,7 @@
 use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -104,8 +104,11 @@ const UNKNOWN_PANIC: &str = "a turn panicked with a payload that is not text";
 /// Why a submission was not accepted.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Rejected {
-    /// A turn is already running and one more is already waiting. The work
-    /// channel holds one item, because one turn runs at a time.
+    /// The runtime already holds everything it will hold: one piece of work in
+    /// flight, and one queued behind it waiting to be picked up ([`WORK_LIMIT`]).
+    ///
+    /// "Busy" is about *both* of those together and not about a turn alone --
+    /// a session with one prompt running and none waiting takes the next one.
     Busy,
     /// The runtime thread is gone. A [`UiEvent::Fatal`] is already on its way,
     /// or has already arrived; this is not a refusal the user can act on, and
@@ -113,6 +116,28 @@ pub(crate) enum Rejected {
     /// is already running" about a runtime that is not running anything.
     Gone,
 }
+
+/// How much work the session holds at once: the piece in flight, and one more
+/// waiting behind it.
+///
+/// Two rather than one, because "one turn at a time" is a statement about what
+/// *runs* and not about what may be typed. A user who knows what they want next
+/// can say it while the answer to the last one is still arriving, and the band
+/// says `queued 1` for the whole time it waits -- which is the difference
+/// between a queue and the "queued into a surprise" a hidden one would be.
+///
+/// Two rather than more, because the thing that makes the queue safe is that its
+/// depth fits in a sentence on one row. A third submission is refused where the
+/// user can read it, with the draft left in the composer.
+///
+/// **This is also the work channel's capacity, and the two must not differ.** A
+/// channel one slot shallower than the count would make the queue's real depth
+/// depend on *when the runtime happened to pick an item up*: two submissions
+/// before the first pickup would meet a full channel and the second would be
+/// refused, while the same two a millisecond later would both be taken. A
+/// refusal that a scheduler decides is not a contract, and it is not one a user
+/// can learn.
+pub(crate) const WORK_LIMIT: usize = 2;
 
 /// The two channels the UI writes to, without the thread it writes them for.
 ///
@@ -124,20 +149,26 @@ pub(crate) enum Rejected {
 pub(crate) struct WorkHandle {
     work: Sender<TurnWork>,
     control: UnboundedSender<TurnControl>,
-    /// Whether the runtime already has work in flight.
+    /// How much work the runtime has in hand: what it is running, plus what is
+    /// waiting to be picked up.
     ///
     /// **The channel cannot answer this**, and that is the whole reason the
-    /// flag exists. A `mpsc` permit is freed the moment the receiver *takes*
+    /// count exists. A `mpsc` permit is freed the moment the receiver *takes*
     /// the item, which is the beginning of a turn and not its end -- so a
-    /// one-slot channel is empty for the entire minute a turn is running, a
-    /// second `try_send` succeeds, and the prompt the user was never told about
-    /// runs by itself when the first one finishes. That is the "queued into a
-    /// surprise" this capacity was chosen to prevent, and the topology's rule
-    /// for this channel is a **visible refusal** rather than a queue.
+    /// one-slot channel is empty for the entire minute a turn is running, and a
+    /// session that asked the channel would keep saying yes and run each
+    /// answer as a surprise when the last one finished. The count is claimed by
+    /// the sender and released by the loop when the item is **done**, so the
+    /// window the channel leaves open is closed from both ends, and the number
+    /// the band shows is the same number the refusal is decided from.
+    outstanding: Arc<AtomicUsize>,
+    /// How many submissions this session has ever accepted.
     ///
-    /// Claimed by the sender and released by the loop when the item is done,
-    /// so the window the channel leaves open is closed from both ends.
-    busy: Arc<AtomicBool>,
+    /// Monotonic, and never given back -- it is an *index*, not a depth. It is
+    /// what a cancellation quotes so that the runtime can tell the work the
+    /// user was interrupting from the work they typed after deciding to
+    /// interrupt it ([`TurnControl::Cancel`]).
+    accepted: Arc<AtomicUsize>,
 }
 
 impl WorkHandle {
@@ -154,27 +185,65 @@ impl WorkHandle {
             return Err(Rejected::Gone);
         }
         // The claim and the test are one operation: two keystrokes cannot both
-        // find the runtime idle.
+        // find the last place free.
         if self
-            .busy
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .outstanding
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
+                (held < WORK_LIMIT).then_some(held + 1)
+            })
             .is_err()
         {
             return Err(Rejected::Busy);
         }
         match self.work.try_send(work) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.accepted.fetch_add(1, Ordering::Release);
+                Ok(())
+            }
             // Nothing was taken, so nothing is owed: the claim goes back before
-            // the refusal does, or the session is busy for ever over a
+            // the refusal does, or the session holds a place for ever over a
             // submission that never happened.
+            //
+            // `Full` is **unreachable** while the channel is [`WORK_LIMIT`]
+            // deep -- the count above refuses the item the channel would have
+            // to -- and it is mapped rather than trusted away because the two
+            // agreeing is an invariant of this file and not of the language. A
+            // session that ever reached it would refuse visibly instead of
+            // dropping a prompt.
             Err(err) => {
-                self.busy.store(false, Ordering::Release);
+                self.outstanding.fetch_sub(1, Ordering::Release);
                 Err(match err {
                     TrySendError::Full(_) => Rejected::Busy,
                     TrySendError::Closed(_) => Rejected::Gone,
                 })
             }
         }
+    }
+
+    /// How many submissions this session has accepted, ever.
+    ///
+    /// Quoted by a cancellation so the runtime can tell what the user was
+    /// interrupting from what they typed afterwards.
+    pub(crate) fn accepted(&self) -> usize {
+        self.accepted.load(Ordering::Acquire)
+    }
+
+    /// How much work the runtime has in hand, running and waiting together.
+    ///
+    /// What decides whether a Ctrl-C is a cancellation or a cleared draft
+    /// (`super::shell`): there is something to stop exactly when this is not
+    /// zero.
+    pub(crate) fn outstanding(&self) -> usize {
+        self.outstanding.load(Ordering::Acquire)
+    }
+
+    /// How many submissions are waiting behind the one in flight.
+    ///
+    /// What the band's hint row says. Derived from [`Self::outstanding`] rather
+    /// than counted separately, so the number on the screen and the number the
+    /// refusal is decided from cannot drift apart.
+    pub(crate) fn queued(&self) -> usize {
+        self.outstanding().saturating_sub(1)
     }
 
     /// Tells a turn that is already running something. Never blocks, never
@@ -194,13 +263,14 @@ impl WorkHandle {
     /// path no real session takes.
     #[cfg(test)]
     pub(crate) fn detached() -> (Self, Receiver<TurnWork>, UnboundedReceiver<TurnControl>) {
-        let (work, work_rx) = mpsc::channel(1);
+        let (work, work_rx) = mpsc::channel(WORK_LIMIT);
         let (control, control_rx) = mpsc::unbounded_channel();
         (
             Self {
                 work,
                 control,
-                busy: Arc::new(AtomicBool::new(false)),
+                outstanding: Arc::new(AtomicUsize::new(0)),
+                accepted: Arc::new(AtomicUsize::new(0)),
             },
             work_rx,
             control_rx,
@@ -339,12 +409,12 @@ pub(crate) fn spawn(
 ) -> io::Result<(Worker, Receiver<UiEvent>)> {
     let store = open_store(&config)?;
     let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
-    let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(1);
+    let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
     let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
-    let busy = Arc::new(AtomicBool::new(false));
-    let loops_busy = Arc::clone(&busy);
+    let outstanding = Arc::new(AtomicUsize::new(0));
+    let loops_outstanding = Arc::clone(&outstanding);
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -369,7 +439,7 @@ pub(crate) fn spawn(
                 &mut work_rx,
                 control_rx,
                 session_cancel,
-                &loops_busy,
+                &loops_outstanding,
             ));
         })?;
     Ok((
@@ -380,7 +450,8 @@ pub(crate) fn spawn(
             handle: WorkHandle {
                 work: work_tx,
                 control: control_tx,
-                busy,
+                outstanding,
+                accepted: Arc::new(AtomicUsize::new(0)),
             },
         },
         events_rx,
@@ -502,44 +573,159 @@ async fn turn_loop(
     work: &mut Receiver<TurnWork>,
     mut control: UnboundedReceiver<TurnControl>,
     cancel: Cancellation,
-    busy: &AtomicBool,
+    outstanding: &AtomicUsize,
 ) {
+    let mut queue = Queue {
+        work,
+        outstanding,
+        taken: 0,
+    };
     loop {
-        let item = tokio::select! {
+        // The select borrows `work` for its own branch, so the cancellation arm
+        // cannot drain the queue where it is decided; it says so and the drain
+        // happens below, outside that borrow.
+        let next = tokio::select! {
             biased;
             message = control.recv() => match message {
                 // The session is over, or the UI is gone with its sender.
                 Some(TurnControl::Shutdown) | None => return,
-                // Between turns there is nothing running to cancel and no
-                // question outstanding to answer, so both are consumed and
-                // dropped rather than left to be misread by the next turn.
-                Some(TurnControl::Cancel | TurnControl::Answer(_)) => continue,
+                // Between turns there is nothing *running* to cancel -- but
+                // there may be work waiting that nobody has started, and after
+                // an interrupt nothing may start.
+                Some(TurnControl::Cancel { through }) => Taken::Abandon(through),
+                // No question is outstanding between turns, so an answer is
+                // consumed and dropped rather than left to be misread by the
+                // next one.
+                Some(TurnControl::Answer(_)) => Taken::Nothing,
             },
-            item = work.recv() => item,
+            item = queue.work.recv() => Taken::Work(item),
         };
-        // The UI dropped its side of the work channel without saying anything,
-        // which is the same fact as a shutdown and is treated as one.
-        let Some(item) = item else {
-            return;
+        let item = match next {
+            Taken::Abandon(through) => {
+                queue.abandon(through);
+                continue;
+            }
+            Taken::Nothing => continue,
+            // The UI dropped its side of the work channel without saying
+            // anything, which is the same fact as a shutdown and is treated as
+            // one.
+            Taken::Work(None) => return,
+            Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
             TurnWork::Model(name) => {
                 state.use_model(name);
                 Ended::Turn
             }
-            TurnWork::Submit(prompt) => run_turn(&mut state, prompt, events, &cancel).await,
+            // `/new`, with the line shell's own meaning: the recorder is
+            // dropped, which closes its log and releases the session's writer
+            // lock, so the next prompt opens a genuinely new identity
+            // (`interactive.rs:457-464`). The tool context goes with it,
+            // because a session grant and the read proofs that let a file be
+            // edited are sold as being about *this* conversation.
+            TurnWork::New => {
+                state.conversation = None;
+                Ended::Turn
+            }
+            TurnWork::Submit(prompt) => {
+                run_turn(
+                    &mut state,
+                    prompt,
+                    events,
+                    &cancel,
+                    &mut control,
+                    &mut queue,
+                )
+                .await
+            }
         };
-        // **After the terminal event, not before it.** The claim `submit` made
-        // covers the whole of one piece of work, so the moment it is released
-        // is the moment a second prompt stops being a surprise -- and by then
-        // the UI has been told this one is over. Released on the way out of a
-        // fatal turn too: nothing more will run, and a refusal that said "a
-        // turn is already running" about a dead runtime would be a lie the
-        // `Gone` arm exists to avoid.
-        busy.store(false, Ordering::Release);
+        // **After the terminal event, not before it.** The place `submit`
+        // claimed covers the whole of one piece of work, so the moment it is
+        // given back is the moment the queue really has room -- and by then the
+        // UI has been told this one is over. Given back on the way out of a
+        // fatal turn too: nothing more will run, and a refusal that talked
+        // about a queue on a dead runtime would be a lie the `Gone` arm exists
+        // to avoid.
+        queue.outstanding.fetch_sub(1, Ordering::Release);
         if ended == Ended::Session {
             return;
         }
+    }
+}
+
+/// What one turn of [`turn_loop`]'s wait produced.
+///
+/// A value rather than an early `continue` inside the `select!` because the
+/// cancellation arm needs the work receiver the `select!` has already borrowed
+/// for its other branch: the decision is made in there and acted on out here.
+#[derive(Debug)]
+enum Taken {
+    /// Work to do, or a closed channel.
+    Work(Option<TurnWork>),
+    /// The user interrupted, having submitted this many things by then.
+    /// Anything waiting from among them is dropped.
+    Abandon(usize),
+    /// A message that means nothing here.
+    Nothing,
+}
+
+/// The work waiting on the runtime thread, and what an interrupt does to it.
+///
+/// **This is the whole of "after the interrupt, nothing else starts", and it is
+/// sound for one reason worth stating: this thread takes work only at the top
+/// of [`turn_loop`].** So while a turn is running -- including while
+/// [`Queue::abandon`] is called from inside one, off the cancellation that
+/// stopped it -- nothing behind it can have been picked up, and everything
+/// still in the channel is something that has not begun. A cancellation that
+/// stopped only the running turn would leave the next prompt to start by itself
+/// a moment later, which is the surprise the queue was made visible to prevent.
+///
+/// The count is what the band reads, not an event, so the session's idea of how
+/// much is outstanding is honest again the moment a drop returns rather than
+/// whenever a message is delivered.
+///
+/// [`Queue::abandon`] is the whole of it; this is where the reasoning lives.
+struct Queue<'a> {
+    work: &'a mut Receiver<TurnWork>,
+    /// The session's own count of what is in hand, running and waiting. Given
+    /// back per item, because `WorkHandle::submit` claimed a place per item.
+    outstanding: &'a AtomicUsize,
+    /// How many items this thread has ever removed from the channel.
+    ///
+    /// An index rather than a depth, and the runtime's half of a cancellation's
+    /// arithmetic: paired with the count the UI quotes, it says exactly which
+    /// waiting items an interrupt was about.
+    taken: usize,
+}
+
+impl Queue<'_> {
+    /// Records that one item has been taken, and hands it back.
+    fn took(&mut self, item: TurnWork) -> TurnWork {
+        self.taken += 1;
+        item
+    }
+
+    /// Drops every piece of work submitted through `through` that nobody has
+    /// started yet, giving each place back. Returns how many.
+    ///
+    /// `through` is how many submissions the UI had made when the key was
+    /// pressed, and **only the work before that line is dropped**. Work that
+    /// arrived after the interrupt is a new intention, and eating it would make
+    /// Ctrl-C swallow the question the user asked next -- reachable in the
+    /// plainest way there is, because the UI paints the interrupt notice on its
+    /// own thread and the user can read it and type again long before this
+    /// thread has looked at the message.
+    fn abandon(&mut self, through: usize) -> usize {
+        let mut dropped = 0usize;
+        while self.taken < through {
+            if self.work.try_recv().is_err() {
+                break;
+            }
+            self.taken += 1;
+            self.outstanding.fetch_sub(1, Ordering::Release);
+            dropped += 1;
+        }
+        dropped
     }
 }
 
@@ -559,22 +745,53 @@ enum Ended {
 /// channel closing -- which it cannot tell from an orderly finish. Caught, the
 /// panic is data: a [`UiEvent::Fatal`] the UI paints after it has put the
 /// terminal back.
+///
+/// # The control channel is read *here*, and that is what makes a Ctrl-C work
+///
+/// [`turn_loop`] reads control **between** pieces of work, which is the wrong
+/// place for every message the channel actually carries: a cancellation the
+/// user typed while an answer was streaming would sit in the queue until the
+/// turn it was meant to stop had ended by itself. So the turn is raced against
+/// the channel rather than awaited past it, and `biased` puts the channel
+/// first: a `select!` polls both, so the message is seen even when the turn's
+/// own future is parked in a `send().await` on a full `UiEvent` channel -- the
+/// exact state a user reaches for Ctrl-C in.
+///
+/// **The turn is stopped here rather than by the UI thread**, and the reason is
+/// a one-word difference: the UI holds a [`Cancellation`], whose `cancel` ends
+/// the **session** -- every later [`Cancellation::turn`] takes a child of a
+/// cancelled root and is born cancelled (`super::bridge`). One Ctrl-C would
+/// therefore poison every turn after it. Only this thread holds the turn's own
+/// [`TurnCancel`], so only this thread can stop one turn and leave the session
+/// alive.
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
+    control: &mut UnboundedReceiver<TurnControl>,
+    queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
-    match AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
+    let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, events, &turn,
     )))
-    .catch_unwind()
-    .await
-    {
+    .catch_unwind();
+    // Both halves of one keystroke, and they have to happen **together, at the
+    // moment the cancellation arrives**: the turn stops, and everything queued
+    // behind it is dropped. Doing the second half after the body finished would
+    // be too late for the case that matters most -- a provider that has gone
+    // quiet without hanging up never lets the body finish at all, and the queue
+    // would sit there claiming a place the band is still announcing.
+    let (caught, ended) = raced_against_control(body, control, |through| {
+        turn.cancel();
+        queue.abandon(through);
+    })
+    .await;
+    match caught {
         Ok(failure) => {
             bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
-            Ended::Turn
+            ended
         }
         Err(payload) => {
             // Through `send_terminal` like every other conclusion, so the text
@@ -585,6 +802,76 @@ async fn run_turn(
             Ended::Session
         }
     }
+}
+
+/// Runs `body` while still listening to the UI, and says what ended.
+///
+/// `stop` is what a cancellation *does*: in production it stops the turn and
+/// drops everything queued behind it ([`abandon_pending`]). It is an argument
+/// rather than a statement in the arm below so that "a cancellation reaches
+/// work that is still running" is a claim a unit test can make without a
+/// provider, a session store and a socket.
+///
+/// Extracted, named, and given its `stop` as an argument so that "a
+/// cancellation reaches a turn that is *running*" is a claim a unit test can
+/// make. Inlined into [`run_turn`] it would be reachable only through a real
+/// provider, a real session store and a real socket, and the one interleaving
+/// that matters -- a message arriving while the body is parked -- is not
+/// something a pseudoterminal can be asked to arrange.
+///
+/// `biased`, so the channel is looked at first: a `select!` polls both sides, so
+/// the message is seen even while the body is parked in a `send().await` on a
+/// full `UiEvent` channel, which is the exact state a user reaches for Ctrl-C
+/// in. The body is always awaited to completion afterwards -- whatever ended it,
+/// a turn still owes its one terminal event.
+async fn raced_against_control<F: Future>(
+    body: F,
+    control: &mut UnboundedReceiver<TurnControl>,
+    mut stop: impl FnMut(usize),
+) -> (F::Output, Ended) {
+    tokio::pin!(body);
+    let mut ended = Ended::Turn;
+    // A closed channel answers `recv` immediately and for ever, so the branch is
+    // disabled once it has: an enabled one would spin this loop instead of
+    // polling the body.
+    let mut listening = true;
+    let output = loop {
+        tokio::select! {
+            biased;
+            message = control.recv(), if listening => match message {
+                // The user's Ctrl-C. This piece of work stops, and so does
+                // whatever they had queued behind it when they pressed the key;
+                // the session does not.
+                Some(TurnControl::Cancel { through }) => stop(through),
+                // The UI is leaving. `Worker::shutdown` has already cancelled
+                // the session's root, so the stop below is not what ends this
+                // turn -- what this arm carries is that the loop must not go
+                // round for another prompt afterwards.
+                Some(TurnControl::Shutdown) => {
+                    ended = Ended::Session;
+                    // Everything, however lately it was submitted: the session
+                    // is over, so there is no "after the interrupt" left for a
+                    // later prompt to belong to.
+                    stop(usize::MAX);
+                }
+                // Nothing on the far side of this channel can have asked a
+                // question yet: the turn runs under an authority with no
+                // prompter at all (`Runtime::authority`). Consumed rather than
+                // left, so that the task which attaches one does not inherit an
+                // answer to a question from a turn that is over.
+                Some(TurnControl::Answer(_)) => {}
+                // The UI dropped its sender, which is the same fact as a
+                // shutdown and is treated as one.
+                None => {
+                    listening = false;
+                    ended = Ended::Session;
+                    stop(usize::MAX);
+                }
+            },
+            output = &mut body => break output,
+        }
+    };
+    (output, ended)
 }
 
 /// One turn, exactly as `xfx ask` runs one. `Some` is why it did not finish.
@@ -808,7 +1095,8 @@ mod tests {
             handle: WorkHandle {
                 work: work_tx,
                 control: control_tx,
-                busy: Arc::new(AtomicBool::new(false)),
+                outstanding: Arc::new(AtomicUsize::new(0)),
+                accepted: Arc::new(AtomicUsize::new(0)),
             },
         };
 
@@ -860,7 +1148,8 @@ mod tests {
             handle: WorkHandle {
                 work: work_tx,
                 control: control_tx,
-                busy: Arc::new(AtomicBool::new(false)),
+                outstanding: Arc::new(AtomicUsize::new(0)),
+                accepted: Arc::new(AtomicUsize::new(0)),
             },
         };
         let mut seen = Vec::new();
@@ -891,7 +1180,8 @@ mod tests {
             handle: WorkHandle {
                 work: work_tx,
                 control: control_tx,
-                busy: Arc::new(AtomicBool::new(false)),
+                outstanding: Arc::new(AtomicUsize::new(0)),
+                accepted: Arc::new(AtomicUsize::new(0)),
             },
         };
         let started = Instant::now();
@@ -910,12 +1200,16 @@ mod tests {
     }
 
     #[test]
-    fn a_submission_while_a_turn_is_running_is_refused_though_the_channel_is_empty() {
+    fn a_third_submission_is_refused_though_the_channel_is_empty() {
         // The defect this exists for: a `mpsc` permit is freed when the
         // receiver **takes** the item, which is where a turn begins. So for the
-        // whole length of a turn the one-slot channel is empty, and a refusal
-        // that asked the channel would accept a second prompt, say nothing, and
-        // run it by itself when the first finished.
+        // whole length of a turn the one-slot channel is empty, and a session
+        // that asked the channel would keep saying yes -- accepting a third
+        // prompt, a fourth, a tenth, saying nothing about any of them, and
+        // running each one as a surprise when the last finished.
+        //
+        // The count is what says no. `WORK_LIMIT` of it is spent here: one turn
+        // running, one prompt waiting where the band can say so.
         let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
         handle
             .submit(TurnWork::Submit("first".into()))
@@ -933,10 +1227,24 @@ mod tests {
             "this case is only a case while the channel is empty"
         );
 
+        handle
+            .submit(TurnWork::Submit("second".into()))
+            .expect("one prompt may wait behind the turn that is running");
         assert_eq!(
-            handle.submit(TurnWork::Submit("second".into())),
+            handle.queued(),
+            1,
+            "the band would not have said `queued 1`"
+        );
+
+        assert_eq!(
+            handle.submit(TurnWork::Submit("third".into())),
             Err(Rejected::Busy),
-            "a prompt was accepted while a turn was running"
+            "a third prompt was accepted with the queue already full"
+        );
+        assert_eq!(
+            work_rx.try_recv(),
+            Ok(TurnWork::Submit("second".into())),
+            "the queued prompt is the one that was queued"
         );
         assert!(
             work_rx.try_recv().is_err(),
@@ -945,61 +1253,270 @@ mod tests {
     }
 
     #[test]
-    fn the_runtime_takes_work_again_once_the_turn_it_was_given_is_over() {
+    fn the_runtime_takes_work_again_once_the_work_it_was_given_is_over() {
         // The other side of the claim: a refusal that never lifted would be a
-        // session that answers one prompt and then nothing.
+        // session that answers two prompts and then nothing.
         let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
         handle
             .submit(TurnWork::Submit("first".into()))
             .expect("idle");
         let _taken = work_rx.try_recv().expect("the loop took it");
+        handle
+            .submit(TurnWork::Submit("second".into()))
+            .expect("one may wait");
+        let _queued = work_rx.try_recv().expect("the loop took the queued one");
         assert_eq!(
-            handle.submit(TurnWork::Submit("second".into())),
+            handle.submit(TurnWork::Submit("third".into())),
             Err(Rejected::Busy)
         );
 
-        // What `turn_loop` does after the terminal event.
-        handle.busy.store(false, Ordering::Release);
+        // What `turn_loop` does after each terminal event.
+        handle.outstanding.fetch_sub(1, Ordering::Release);
 
         handle
-            .submit(TurnWork::Submit("second".into()))
-            .expect("the runtime is idle again");
-        assert_eq!(work_rx.try_recv(), Ok(TurnWork::Submit("second".into())));
+            .submit(TurnWork::Submit("third".into()))
+            .expect("the queue has room again");
+        assert_eq!(work_rx.try_recv(), Ok(TurnWork::Submit("third".into())));
     }
 
     #[test]
-    fn a_refused_submission_does_not_leave_the_runtime_looking_busy_for_ever() {
-        // The claim is made before the send, so a send that fails has to give
-        // it back -- or one refusal makes every later prompt a refusal too.
+    fn what_the_band_says_is_the_number_the_refusal_was_decided_from() {
+        // One count, read two ways, so the row on the screen and the rule that
+        // refused cannot drift apart. A separate tally kept by the UI would be
+        // right until the first turn that ended between a submission and a
+        // frame.
+        let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
+        assert_eq!(handle.outstanding(), 0);
+        assert_eq!(handle.queued(), 0, "an idle session was holding a queue");
+
+        handle
+            .submit(TurnWork::Submit("first".into()))
+            .expect("idle");
+        assert_eq!(handle.outstanding(), 1);
+        assert_eq!(
+            handle.queued(),
+            0,
+            "the prompt being run was counted as one waiting"
+        );
+
+        let _taken = work_rx.try_recv().expect("the loop took it");
+        handle
+            .submit(TurnWork::Submit("second".into()))
+            .expect("one may wait");
+        assert_eq!(handle.outstanding(), WORK_LIMIT);
+        assert_eq!(handle.queued(), 1);
+    }
+
+    #[test]
+    fn a_refused_submission_does_not_leave_the_queue_looking_full_for_ever() {
+        // The place is claimed before the send, so a send that fails has to
+        // give it back -- or one refusal makes every later prompt a refusal too.
         let (handle, work_rx, _control_rx) = WorkHandle::detached();
         drop(work_rx);
         assert_eq!(
             handle.submit(TurnWork::Submit("first".into())),
             Err(Rejected::Gone)
         );
-        assert!(
-            !handle.busy.load(Ordering::Acquire),
-            "a submission that was never taken left the runtime claimed"
+        assert_eq!(
+            handle.outstanding(),
+            0,
+            "a submission that was never taken left a place claimed"
         );
     }
 
     #[test]
-    fn a_second_submission_is_refused_as_busy_rather_than_queued_into_a_surprise() {
-        // The channel's own refusal, with nothing reading it. It is the weaker
-        // of the two halves -- the case above is the one a running turn
-        // reaches -- and it is kept because the flag must not be the *only*
-        // thing standing between two prompts and one slot.
-        let (work, _work_rx) = mpsc::channel::<TurnWork>(1);
-        let (control, _control_rx) = mpsc::unbounded_channel::<TurnControl>();
-        let handle = WorkHandle {
-            work,
-            control,
-            busy: Arc::new(AtomicBool::new(false)),
-        };
-        assert_eq!(handle.submit(TurnWork::Submit("first".into())), Ok(()));
+    fn both_of_two_submissions_are_taken_before_the_runtime_has_picked_up_either() {
+        // The capacity claim, made in the window where a shallower channel gets
+        // it wrong. Nothing reads this handle at all -- which is a runtime
+        // blocked for ever, the strongest form of "before the pickup" there is
+        // -- so if the channel held one slot the second submission would meet a
+        // full one and be refused, while the same two keystrokes a millisecond
+        // after a pickup would both be taken. A refusal a scheduler decides is
+        // not a contract.
+        let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
+
+        handle
+            .submit(TurnWork::Submit("first".into()))
+            .expect("an idle runtime takes work");
+        handle
+            .submit(TurnWork::Submit("second".into()))
+            .expect("one prompt may wait, picked up or not");
+
+        assert_eq!(handle.outstanding(), WORK_LIMIT);
+        assert_eq!(handle.queued(), 1);
         assert_eq!(
-            handle.submit(TurnWork::Submit("second".into())),
-            Err(Rejected::Busy)
+            handle.submit(TurnWork::Submit("third".into())),
+            Err(Rejected::Busy),
+            "a third submission was taken with the queue already full"
+        );
+
+        // And both of the accepted ones are really there, in order: a count
+        // that said yes to something the channel then dropped would be worse
+        // than a refusal.
+        assert_eq!(work_rx.try_recv(), Ok(TurnWork::Submit("first".into())));
+        assert_eq!(work_rx.try_recv(), Ok(TurnWork::Submit("second".into())));
+        assert!(work_rx.try_recv().is_err(), "the refused one was queued");
+    }
+
+    #[test]
+    fn an_interrupt_drops_the_work_nobody_has_started_and_gives_its_places_back() {
+        // The other half of a cancellation, and the half a "stop the running
+        // turn" reading misses: an item still in the channel has not begun, so
+        // after the interrupt it must not begin. A count left claimed for it
+        // would also leave the band announcing a queue that no longer exists
+        // and refusing the prompt the user types next.
+        let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Submit("first".into()))
+            .expect("idle");
+        handle
+            .submit(TurnWork::Submit("second".into()))
+            .expect("one may wait");
+
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 0,
+        };
+        let dropped = queue.abandon(handle.accepted());
+
+        assert_eq!(dropped, 2);
+        assert_eq!(queue.taken, 2, "the drops were not counted as taken");
+        assert!(
+            queue.work.try_recv().is_err(),
+            "a prompt survived the interrupt and would start by itself"
+        );
+        assert_eq!(
+            handle.outstanding(),
+            0,
+            "a place claimed for work that will never run was never given back"
+        );
+        handle
+            .submit(TurnWork::Submit("after".into()))
+            .expect("the session takes work again once the queue is really empty");
+    }
+
+    #[test]
+    fn an_interrupt_does_not_eat_the_prompt_the_user_typed_after_it() {
+        // Reachable in the plainest way there is, and it cost a red run to
+        // find: the UI paints the interrupt notice on its **own** thread, so a
+        // user can read "stopping the turn" and type their next question long
+        // before the runtime has looked at the control channel. A cancellation
+        // that simply emptied the queue would swallow that question -- Ctrl-C
+        // silently eating the prompt typed after it, which is the one the user
+        // most certainly meant.
+        let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Submit("running".into()))
+            .expect("idle");
+        let _picked_up = work_rx.try_recv().expect("the turn began");
+
+        // The keystroke. One submission had been made by then, and it is the
+        // one already running.
+        let through = handle.accepted();
+
+        // ... and the user types again while the message is still in flight.
+        handle
+            .submit(TurnWork::Submit("asked after the interrupt".into()))
+            .expect("the queue had room");
+
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 1,
+        };
+        let dropped = queue.abandon(through);
+
+        assert_eq!(dropped, 0, "the interrupt reached past the keystroke");
+        assert_eq!(
+            queue.work.try_recv(),
+            Ok(TurnWork::Submit("asked after the interrupt".into())),
+            "the prompt typed after the interrupt was eaten by it"
+        );
+    }
+
+    #[test]
+    fn the_work_a_turn_is_running_is_already_counted_and_is_not_dropped_twice() {
+        // What `Queue::took` buys. The running turn's item is inside the
+        // watermark the interrupt quotes, so a queue that had not counted its
+        // own pickup would spend that allowance on the **next** item instead --
+        // dropping a prompt the interrupt was never about.
+        let (handle, mut work_rx, _control_rx) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Submit("running".into()))
+            .expect("idle");
+        let through = handle.accepted();
+        handle
+            .submit(TurnWork::Submit("queued after".into()))
+            .expect("one may wait");
+
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &handle.outstanding,
+            taken: 0,
+        };
+        let running = queue.work.try_recv().expect("the turn began");
+        let _running = queue.took(running);
+
+        assert_eq!(queue.abandon(through), 0);
+        assert_eq!(
+            queue.work.try_recv(),
+            Ok(TurnWork::Submit("queued after".into())),
+            "the interrupt spent its allowance on a prompt it was not about"
+        );
+    }
+
+    #[test]
+    fn a_cancellation_mid_turn_drops_the_queue_at_the_moment_it_arrives() {
+        // **At the moment it arrives**, not when the cancelled turn finishes
+        // unwinding -- which for the turn most worth interrupting, the one whose
+        // provider has gone quiet without hanging up, is never. The body below
+        // is exactly that turn: it does not end when it is stopped, and the
+        // queue still has to be empty by the time this returns.
+        let (handle, mut work_rx, mut control_rx) = WorkHandle::detached();
+        handle
+            .submit(TurnWork::Submit("running".into()))
+            .expect("idle");
+        let _picked_up = work_rx.try_recv().expect("the turn began");
+        handle
+            .submit(TurnWork::Submit("queued".into()))
+            .expect("one may wait");
+        let through = handle.accepted();
+        handle.control(TurnControl::Cancel { through });
+
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&stopped);
+        // A turn that ignores its cancellation entirely, so nothing below can
+        // pass because the body happened to finish.
+        let body = async move {
+            for _ in 0..4 {
+                tokio::task::yield_now().await;
+            }
+            watched.load(Ordering::Acquire)
+        };
+        let counted = Arc::clone(&handle.outstanding);
+        // One item has already been picked up, which is what the running turn
+        // is; the drop must reach the one behind it and no further.
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &counted,
+            taken: 1,
+        };
+        let (was_stopped, ended) =
+            on_a_runtime(raced_against_control(body, &mut control_rx, |through| {
+                stopped.store(true, Ordering::Release);
+                queue.abandon(through);
+            }));
+
+        assert!(
+            was_stopped,
+            "the cancellation never reached the running turn"
+        );
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(
+            handle.outstanding(),
+            1,
+            "the queued prompt kept its place, so the band still says `queued 1`"
         );
     }
 
@@ -1013,12 +1530,157 @@ mod tests {
         let handle = WorkHandle {
             work,
             control,
-            busy: Arc::new(AtomicBool::new(false)),
+            outstanding: Arc::new(AtomicUsize::new(0)),
+            accepted: Arc::new(AtomicUsize::new(0)),
         };
         drop(work_rx);
         assert_eq!(
             handle.submit(TurnWork::Submit("anything".into())),
             Err(Rejected::Gone)
+        );
+    }
+
+    /// What a body that was really stopped answers.
+    const STOPPED: &str = "the cancellation reached the body";
+
+    /// What one that was not answers, having given up waiting for it.
+    const NEVER_STOPPED: &str = "the body was never stopped";
+
+    /// How many times the body below is polled before it gives up.
+    ///
+    /// **Bounded, and that is the point.** A body that waited forever would
+    /// make a cancellation that never arrives a test that *hangs* rather than
+    /// one that fails, and a hang is the one outcome a reader cannot tell from
+    /// a slow machine. Far more polls than the one it takes for a message
+    /// already in the channel to be seen.
+    const GIVE_UP_AFTER: usize = 10_000;
+
+    /// A body that finishes when it is stopped, and says so when it was not.
+    ///
+    /// The shape a real turn has: it is parked on something -- a socket, a full
+    /// channel -- and the thing that ends it is the cancellation. A body that
+    /// finished by itself would pass these cases whether or not the message
+    /// ever arrived.
+    fn stopped_or_not() -> (impl Future<Output = &'static str>, Arc<AtomicBool>) {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&stopped);
+        let body = async move {
+            for _ in 0..GIVE_UP_AFTER {
+                if watched.load(Ordering::Acquire) {
+                    return STOPPED;
+                }
+                tokio::task::yield_now().await;
+            }
+            NEVER_STOPPED
+        };
+        (body, stopped)
+    }
+
+    /// Runs `work` on a runtime of its own, as the worker thread does.
+    fn on_a_runtime<T>(work: impl Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime")
+            .block_on(work)
+    }
+
+    #[test]
+    fn a_cancellation_reaches_a_turn_that_is_still_running() {
+        // The claim the whole mid-turn race exists for. `turn_loop` reads
+        // control *between* pieces of work, so a Ctrl-C answered only there
+        // would sit in the queue until the turn it was meant to stop had ended
+        // by itself -- which, for a provider that has gone quiet without
+        // hanging up, may be never.
+        let (body, stopped) = stopped_or_not();
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Cancel { through: 0 })
+            .expect("the receiver is alive");
+
+        let (output, ended) =
+            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
+                stopped.store(true, Ordering::Release)
+            }));
+
+        assert_eq!(
+            output, STOPPED,
+            "the turn ran on with a cancellation sitting in the channel"
+        );
+        assert_eq!(
+            ended,
+            Ended::Turn,
+            "a cancelled turn ended the session as well"
+        );
+    }
+
+    #[test]
+    fn a_shutdown_mid_turn_stops_the_turn_and_the_loop_behind_it() {
+        let (body, stopped) = stopped_or_not();
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+
+        let (output, ended) =
+            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
+                stopped.store(true, Ordering::Release)
+            }));
+
+        assert_eq!(output, STOPPED, "a shutdown left the turn running");
+        assert_eq!(ended, Ended::Session);
+    }
+
+    #[test]
+    fn a_ui_that_dropped_its_sender_is_a_shutdown_and_not_a_spin() {
+        // A closed channel answers `recv` immediately, for ever. The branch has
+        // to be disabled once it has, or this loop takes the channel's answer
+        // every time it goes round and the body is never polled at all -- which
+        // is a hang rather than a failure, so the bounded body below is the
+        // proof.
+        let (body, stopped) = stopped_or_not();
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        drop(control_tx);
+
+        let (output, ended) =
+            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
+                stopped.store(true, Ordering::Release)
+            }));
+
+        // Deleting the flag **hangs** this case rather than failing it, and
+        // that is worth being exact about: a `recv` on a closed channel is
+        // ready immediately, so the biased first branch wins every time round
+        // and the body is never polled -- a livelock with no yield point a
+        // timeout could fire in. The hang is the signal; there is no assertion
+        // that can be made from outside a loop that never comes back.
+        assert_eq!(output, STOPPED);
+        assert_eq!(ended, Ended::Session);
+    }
+
+    #[test]
+    fn an_answer_to_a_question_nobody_asked_neither_stops_a_turn_nor_ends_it() {
+        // No prompter is attached in this phase, so an `Answer` here is a stray.
+        // It is consumed rather than left in the channel, and it does not end
+        // anything -- a turn stopped by a message it did not understand would
+        // be worse than one that ignored it.
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watched = Arc::clone(&stopped);
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        control_tx
+            .send(TurnControl::Answer(crate::permission::ApprovalAnswer::Deny))
+            .expect("alive");
+        // The body outlives the stray and then finishes by itself, which is what
+        // makes "the stray changed nothing" observable.
+        let body = async move { !watched.load(Ordering::Acquire) };
+
+        let (untouched, ended) =
+            on_a_runtime(raced_against_control(body, &mut control_rx, |_through| {
+                stopped.store(true, Ordering::Release)
+            }));
+
+        assert!(untouched, "a stray answer cancelled the turn");
+        assert_eq!(ended, Ended::Turn);
+        assert!(
+            control_rx.try_recv().is_err(),
+            "the stray was left in the channel for the next turn to misread"
         );
     }
 

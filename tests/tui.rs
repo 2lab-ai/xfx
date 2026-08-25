@@ -1095,16 +1095,20 @@ fn a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document() {
 }
 
 #[test]
-fn a_second_prompt_while_a_turn_is_running_is_refused_where_the_user_can_see_it() {
+fn a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept() {
     // Against a **running** worker, which is the only place the claim can be
     // tested: the work channel's one slot is emptied the instant the runtime
     // takes the prompt, so from here on the channel says "room" for the whole
-    // length of the turn. A refusal that asked it would accept this second
-    // prompt silently and run it when the first one ended.
+    // length of the turn. A session that asked it would accept every later
+    // prompt silently and run each one as a surprise when the last ended.
+    //
+    // What the session holds instead is `worker::WORK_LIMIT`: the turn in
+    // flight, and one prompt waiting where the band says `queued 1`. The third
+    // is refused on the hint row with its text left in the composer.
     //
     // `SseThenHang` is what keeps the first turn running: the body arrives, the
     // connection does not close, and the turn is still in flight while the
-    // second prompt is typed.
+    // other two prompts are typed.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "d",
@@ -1125,22 +1129,328 @@ fn a_second_prompt_while_a_turn_is_running_is_refused_where_the_user_can_see_it(
     session.wait_for("FIRST-TURN-RUNNING");
 
     session.type_bytes(b"second\r");
+    // Response-only as well: nothing this test types contains it, and the band
+    // is the only thing that writes it. A queue nobody can see is the "queued
+    // into a surprise" this row exists to rule out.
+    session.wait_for("queued 1");
 
-    // Response-only as well -- nothing this test types contains it.
-    session.wait_for("a turn is already running");
+    session.type_bytes(b"third\r");
+    session.wait_for("one prompt is already queued");
+    // The draft was not thrown away with the refusal. Raw mode has `ECHO`
+    // clear, so these six cells on the terminal are the composer painting them
+    // and not the line discipline echoing what was typed.
+    session.wait_for("third");
 
-    // The draft was not thrown away with the refusal, so leaving takes clearing
-    // the composer first: Ctrl-D from a composer with text in it is a forward
-    // delete, which is what makes this a real check that the text is still
-    // there rather than a coincidence.
-    session.type_bytes(&[0x05, 0x15, 0x04]);
-    assert_eq!(session.wait_exit().code(), Some(0));
+    session.type_bytes(&[0x03, 0x03]);
+    assert_eq!(session.wait_exit().code(), Some(130));
 
     assert_eq!(
         gateway.request_count(),
         1,
-        "the refused prompt ran as a surprise turn anyway"
+        "a prompt the user was refused, or one they had to wait for, reached \
+         the wire anyway"
     );
+    let sent = user_messages(&gateway.only_request().json());
+    assert!(
+        !sent.iter().any(|message| message.contains("third")),
+        "the refused prompt is in the one request that was made: {sent:?}"
+    );
+}
+
+#[test]
+fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
+    // The row of the restoration matrix that no signal reaches: `ISIG` is
+    // clear, so a typed Ctrl-C generates nothing and arrives as `0x03` for the
+    // decoder. This case and `an_external_sigint_is_not_swallowed_because_isig_is_off`
+    // together are what prove the two paths are disjoint -- one kills the
+    // process by the signal, the other is a keystroke the session answers.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "a",
+            "MARKER-STREAMING",
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"start something long\r");
+    session.wait_for("MARKER-STREAMING");
+
+    session.type_bytes(&[0x03]);
+    // Response-only: `app::INTERRUPT_NOTICE`'s own words, which nothing here
+    // types.
+    session.wait_for("stopping the turn");
+    // No signal was delivered, so the child is still alive and the byte did the
+    // work. Read without consuming anything, so asking does not change the
+    // answer for the exit below.
+    assert!(matches!(session.state(), Wait::Running));
+
+    session.type_bytes(&[0x03]);
+    let status = session.wait_exit();
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "a session the user interrupted did not say so in its status"
+    );
+    assert_eq!(before, modes(&pty));
+}
+
+#[test]
+fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() {
+    // The contract in one line: after the interrupt notice, nothing else
+    // starts. The runtime is held by a turn that never ends -- `SseThenHang`
+    // writes its body and does not hang up -- so the second prompt is provably
+    // *waiting* rather than run and forgotten, and the gateway is scripted with
+    // a second reply nobody should ever see.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-THE-QUEUE-RAN-ANYWAY",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"first\r");
+    session.wait_for("FIRST-TURN-RUNNING");
+    session.type_bytes(b"second\r");
+    session.wait_for("queued 1");
+
+    session.type_bytes(&[0x03]);
+    // Response-only, and both halves of the keystroke: the turn was asked to
+    // stop, and what was queued behind it goes too.
+    session.wait_for("stopping the turn");
+    session.wait_for("dropping what was queued");
+    // Still alive: one Ctrl-C is a cancellation, not an exit.
+    assert!(matches!(session.state(), Wait::Running));
+
+    // The band has stopped announcing a queue that no longer exists. Asserted
+    // as the *frame* an empty hint row makes -- the row written at 24;1 with
+    // nothing on it before the caret goes back to the composer -- and counted
+    // from the whole settled stream below rather than waited for, because an
+    // empty hint row is also what every frame before the queue looked like.
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    let queued = text.rfind("queued 1").expect("the queue was announced");
+    let cleared = text
+        .rfind("\u{1b}[24;1H\u{1b}[23;3H")
+        .expect("a frame with an empty hint row and an empty composer");
+    assert!(
+        queued < cleared,
+        "the band was still saying `queued 1` after the interrupt dropped it"
+    );
+
+    assert_eq!(
+        gateway.request_count(),
+        1,
+        "the queued prompt started by itself after the user stopped everything"
+    );
+    assert!(
+        !text.contains("MARKER-THE-QUEUE-RAN-ANYWAY"),
+        "the second reply was delivered, so the queued prompt ran: {text:?}"
+    );
+}
+
+#[test]
+fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
+    // The gesture must not outlive the turn it was about. The first turn
+    // finishes on its own, so the session is idle when the second one starts,
+    // and the second Ctrl-C here is the *first* one of a new turn: it has to
+    // cancel that turn rather than exit 130.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-ONE"])),
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("d", "MARKER-TWO"),
+        ])]),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"ask one\r");
+    session.wait_for("MARKER-ONE");
+    session.type_bytes(&[0x03]);
+    session.wait_for("stopping the turn");
+
+    session.type_bytes(b"ask two\r");
+    session.wait_for("MARKER-TWO");
+    session.type_bytes(&[0x03]);
+    session.wait_for_count("stopping the turn", 2);
+    assert!(
+        matches!(session.state(), Wait::Running),
+        "the first Ctrl-C of a new turn exited the session, because the \
+         session still remembered being asked to stop the last one"
+    );
+
+    // And the session is still a session: it leaves the ordinary way.
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    session.type_bytes(b"a draft worth keeping");
+    session.wait_for("a draft worth keeping");
+
+    session.type_bytes(&[0x1b]);
+    // Response-only: the hint row's warning, which nothing here types. Waiting
+    // for it also proves the Escape has *settled* -- a lone ESC is the Escape
+    // key only after 50 ms of quiet -- so the second one below is a second
+    // keystroke rather than the tail of this one.
+    session.wait_for("esc again to clear");
+
+    session.type_bytes(&[0x1b]);
+    // The composer's row, empty, immediately followed by the `CUP` for the row
+    // below it: the marker with nothing after it is what an empty composer
+    // paints and a composer holding a draft cannot.
+    session.wait_for("\u{1b}[23;1H> \u{1b}[24;1H");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
+    // plan:109 -- the TUI answers exactly the six `interactive::SLASH_COMMANDS`
+    // and nothing else. The gateway is scripted with a reply nobody should ever
+    // see: a command that reached the provider would both show that marker and
+    // leave a request behind.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-A-COMMAND-WAS-ASKED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    // Each command with a needle out of its own answer, none of which the test
+    // types: `/help`'s summary line, `/version`'s channel, the model report,
+    // `/new`'s sentence, `/clear`'s promise, and a name that is not one of the
+    // six.
+    session.type_bytes(b"/help\r");
+    session.wait_for("list these commands");
+    session.type_bytes(b"/version\r");
+    session.wait_for("xfx 0.");
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] model=");
+    session.type_bytes(b"/new\r");
+    session.wait_for("starts a fresh conversation");
+    session.type_bytes(b"/notacommand\r");
+    session.wait_for("is not an xfx command");
+    session.type_bytes(b"/clear\r");
+    session.wait_for("the conversation is kept");
+
+    // The sixth, and the reason it leaves this test rather than a Ctrl-D: all
+    // six names are then literally pinned against the zero-request assertion
+    // below rather than five of them.
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a slash command was sent to the provider as a prompt"
+    );
+    let text = session.settled_text();
+    assert!(
+        !text.contains("MARKER-A-COMMAND-WAS-ASKED"),
+        "the provider answered something, so a command became a prompt: {text:?}"
+    );
+}
+
+/// The three sequences `/clear` writes, in order (`interactive.rs:85`).
+///
+/// Spelled out rather than imported, like [`MODE_SET`]: `src/tui/shell.rs` is
+/// not visible to an integration test, and a test that read the constant it is
+/// checking would pass for any sequence the module happened to declare.
+/// Response-only -- no test types an escape sequence -- so waiting for it means
+/// the bytes are really on the wire.
+const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
+
+#[test]
+fn clear_erases_the_scrollback_the_answers_live_in_and_not_only_the_screen() {
+    // `3J` is the one that carries the weight here. An answer that has scrolled
+    // past the band is in the *terminal's own* scrollback and xfx never
+    // repaints it, so a `/clear` that erased the visible screen alone would
+    // leave the whole transcript one wheel-turn away -- and would mean
+    // something different on this surface than the same command means on the
+    // line-oriented one.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-BEFORE-THE-CLEAR"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"say the marker\r");
+    session.wait_for("MARKER-BEFORE-THE-CLEAR");
+
+    session.type_bytes(b"/clear\r");
+    session.wait_for(CLEAR_SCREEN);
+    session.wait_for("the conversation is kept");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    let erased = text
+        .find(CLEAR_SCREEN)
+        .expect("the erase reached the screen");
+    let kept = text
+        .rfind("the conversation is kept")
+        .expect("the promise reached the screen");
+    assert!(
+        erased < kept,
+        "the row that says the conversation was kept was erased by the clear \
+         it was written for: {text:?}"
+    );
+    assert_eq!(
+        text.matches(CLEAR_SCREEN).count(),
+        1,
+        "the screen was erased more than once for one /clear: {text:?}"
+    );
+}
+
+#[test]
+fn quit_leaves_the_way_ctrl_d_does() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/quit\r");
+
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert!(
+        text.contains(RESTORE),
+        "the ordinary restore did not run on the way out of /quit: {text:?}"
+    );
+    assert_eq!(before, modes(&pty));
 }
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,13 @@
 //!   byte** (`terminal_action_decoder.zig:105-114`). No escape sequence carries
 //!   a C0 in that position, so the ESC was the user's Escape key and the byte
 //!   after it is its own keystroke; swallowing either loses a keystroke the
-//!   user really typed.
+//!   user really typed. **`ESC 0x7f` is the one exception**: that is how a
+//!   terminal spells Alt-Backspace, and it decodes as the single
+//!   [`Action::DeleteWordLeft`] the same key has as Ctrl-W. Replayed, one
+//!   Alt-Backspace would be an `Escape` as well -- so two of them would be two
+//!   Escapes inside the double-Esc window and would clear the whole composer
+//!   ([`super::gesture`]), which is the opposite of what a delete-one-word key
+//!   can have meant.
 //! * **An unknown sequence resolves to [`Action::Ignore`], never to a phantom
 //!   `Escape`.** A decoder that gives up on `CSI > 4 ; 2 m` by emitting the ESC
 //!   it swallowed cancels whatever `Escape` cancels, on input the user did not
@@ -338,10 +344,22 @@ impl Decoder {
                 self.stage = Stage::Csi;
             }
             b'O' => self.stage = Stage::Ss3,
-            // No sequence carries a C0 or a DEL in this position, so the ESC
-            // was the Escape key and this byte is its own keystroke. Both of
-            // them, in that order.
-            0x00..=0x1f | 0x7f => {
+            // Alt-Backspace, which every terminal in use spells this way, and
+            // the one exception to the replay below. Replayed it would be
+            // `Escape` + `Backspace`, so two Alt-Backspaces would be two
+            // Escapes inside the double-Esc window and the gesture that throws
+            // the whole draft away would fire on a keystroke that means delete
+            // *one word* and keep the rest (`super::gesture`). One keystroke,
+            // one action, and it is the action the same key already has as
+            // Ctrl-W.
+            0x7f => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::DeleteWordLeft));
+            }
+            // No sequence carries a C0 in this position, so the ESC was the
+            // Escape key and this byte is its own keystroke. Both of them, in
+            // that order.
+            0x00..=0x1f => {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::Escape));
                 self.ground(byte, now, out);
@@ -814,6 +832,38 @@ mod tests {
         assert_eq!(
             decode(&[0x1b, 0x03]),
             vec![Input::Action(Action::Escape), Input::Action(Action::Cancel)]
+        );
+    }
+
+    #[test]
+    fn alt_backspace_deletes_a_word_instead_of_firing_two_escapes() {
+        // The one carve-out in the replay rule, and it is a safety property
+        // rather than a nicety. `ESC 0x7f` is how every terminal in use spells
+        // Alt-Backspace, and the replay would decode one keystroke as
+        // `Escape` + `Backspace` -- so two Alt-Backspaces are two Escapes
+        // inside the double-Esc window, and the gesture that clears the
+        // composer would fire on a keystroke whose whole purpose is to delete
+        // one word and keep the rest.
+        assert_eq!(
+            decode(&[0x1b, 0x7f]),
+            vec![Input::Action(Action::DeleteWordLeft)]
+        );
+        assert_eq!(
+            decode(&[0x1b, 0x7f, 0x1b, 0x7f]),
+            vec![
+                Input::Action(Action::DeleteWordLeft),
+                Input::Action(Action::DeleteWordLeft)
+            ],
+            "two Alt-Backspaces armed the composer-clearing gesture"
+        );
+        // And the replay itself is untouched for every other byte in that
+        // position, which is what keeps this a carve-out rather than a repeal.
+        assert_eq!(
+            decode(&[0x1b, 0x08]),
+            vec![
+                Input::Action(Action::Escape),
+                Input::Action(Action::Backspace)
+            ]
         );
     }
 

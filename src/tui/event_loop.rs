@@ -219,7 +219,7 @@ fn session(
         // A Ctrl-D that shared a read with the cursor report ends the session
         // before a band is drawn, which is why the exit has a row to clear from
         // only once one has been.
-        return Ok(ExitCode::SUCCESS);
+        return Ok(shell.exit_code());
     }
 
     let stdin = io::stdin();
@@ -255,6 +255,12 @@ fn session(
         // What the runtime produced since the last turn. Text, not terminal
         // state, and therefore outside the reconciles for the same reason.
         take_ui_events(shell, events);
+        // And what neither the bytes nor the events settled: how deep the
+        // submission queue is now, and whether an armed Escape has gone stale.
+        // Both are answers only the clock and the other thread produce, so like
+        // `settle_input` this is what makes them a tick rather than a wait for
+        // the next keystroke.
+        shell.settle_band(Instant::now());
         // Before a frame is painted: the burst's own readiness checks are waits
         // too, so a stop could have landed inside one of them. The first token
         // was spent on the read, so this reconcile is not optional -- it is the
@@ -279,7 +285,7 @@ fn session(
         }
 
         if shell.leaving() {
-            return Ok(ExitCode::SUCCESS);
+            return Ok(shell.exit_code());
         }
     }
 }
@@ -432,6 +438,27 @@ fn commit_frame(
     now: Instant,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
+    // `/clear`, and before everything: the screen and its scrollback go, and
+    // what is written after this write is written onto a blank terminal. The
+    // shell has already dropped the appends it owed against the screen that is
+    // being erased, so the loop's only job is the bytes.
+    //
+    // A refused clear is **not** owed again, for the reason a refused append is
+    // not: the shell has already forgotten the rows this was going to erase, so
+    // a second attempt would be aimed at a screen the session can no longer
+    // describe. It counts against the same budget, which is what ends a session
+    // on a screen that is really gone.
+    if shell.take_clearing() {
+        if let Err(err) = out
+            .write_all(super::shell::CLEAR_SCREEN.as_bytes())
+            .and_then(|()| out.flush())
+        {
+            return match failures.failed(err, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(()),
+            };
+        }
+    }
     // Before the frame, and before the `begin` below, for two reasons. An
     // append scrolls the screen, so a band painted first ends up a row above
     // where it belongs. And the rows are the *document's*, not the band's: a
