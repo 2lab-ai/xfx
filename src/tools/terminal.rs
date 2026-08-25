@@ -74,6 +74,10 @@ const ANCHORED_ROUNDS: u32 = 2;
 /// signalled in these rounds, so their only cost is the wait.
 const GROUP_SETTLE_ROUNDS: u32 = 20;
 
+// `settled` reports "gone" if it never gets to ask, so asking at least once is
+// part of the type rather than part of the reading.
+const _: () = assert!(GROUP_SETTLE_ROUNDS > 0);
+
 /// How long the sweep pauses between rounds.
 const GROUP_KILL_PAUSE: Duration = Duration::from_millis(2);
 
@@ -533,8 +537,9 @@ fn sweep_anchored(group: rustix::process::Pid) {
     }
 }
 
-/// Asks, up to `GROUP_SETTLE_ROUNDS` times, whether `group` is gone. Sends
-/// nothing. Returns `None` once it is gone, and the kernel's reason otherwise.
+/// Asks whether `group` is gone, `GROUP_SETTLE_ROUNDS` times at most and
+/// exactly that many if it never is. Sends nothing. Returns `None` once it is
+/// gone, and otherwise the reason the **last** check gave.
 ///
 /// The question is `kill(-pgid, 0)`, which rustix documents as "check validity
 /// of pid and permissions to send signals to all processes in the process
@@ -556,20 +561,41 @@ fn sweep_anchored(group: rustix::process::Pid) {
 /// group that is not xfx's, and no process is touched either way.
 #[cfg(unix)]
 fn settled(group: rustix::process::Pid) -> Option<Stranded> {
-    let mut last = Stranded::Running;
-    for _ in 0..GROUP_SETTLE_ROUNDS {
-        last = match rustix::process::test_kill_process_group(group) {
+    settle(|| rustix::process::test_kill_process_group(group))
+}
+
+/// The rounds and the reading, with the question itself a parameter.
+///
+/// Exactly `GROUP_SETTLE_ROUNDS` questions are asked, and the reason returned
+/// is the **last** answer. An earlier version classified the first twenty and
+/// then asked a twenty-first only to throw its answer away, keeping the stale
+/// one -- so a group that had just become unsignalable was reported as running,
+/// and an unexpected errno on the final ask was reported as whatever the round
+/// before had seen. A report of the kernel's answer has to be the answer the
+/// kernel last gave.
+///
+/// `ask` is a parameter because a kernel cannot be made to answer `EPERM`
+/// nineteen times and then something unexpected on demand, and a test against a
+/// real group can only watch it agree with itself. The ordering and the count
+/// are therefore proven against a scripted one (`tests` below); the real
+/// question is wired in by `settled` above, and nothing else calls this.
+#[cfg(unix)]
+fn settle(mut ask: impl FnMut() -> Result<(), rustix::io::Errno>) -> Option<Stranded> {
+    let mut answer = None;
+    for round in 0..GROUP_SETTLE_ROUNDS {
+        // A pause before every question but the first: the previous answer was
+        // "still there", and nothing changes without time passing.
+        if round > 0 {
+            std::thread::sleep(GROUP_KILL_PAUSE);
+        }
+        answer = match ask() {
             Err(rustix::io::Errno::SRCH) => return None,
-            Ok(()) => Stranded::Running,
-            Err(rustix::io::Errno::PERM) => Stranded::Unsignalable,
-            Err(other) => Stranded::Errno(other.raw_os_error()),
+            Ok(()) => Some(Stranded::Running),
+            Err(rustix::io::Errno::PERM) => Some(Stranded::Unsignalable),
+            Err(other) => Some(Stranded::Errno(other.raw_os_error())),
         };
-        std::thread::sleep(GROUP_KILL_PAUSE);
     }
-    match rustix::process::test_kill_process_group(group) {
-        Err(rustix::io::Errno::SRCH) => None,
-        _ => Some(last),
-    }
+    answer
 }
 
 /// What xfx says when it could not confirm that a killed command's group is
@@ -704,6 +730,8 @@ fn first_word(command: &str) -> &str {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     #[test]
     fn the_only_action_the_decoder_accepts_is_exec() {
@@ -844,6 +872,161 @@ mod tests {
         assert!(captured.render().contains("stream still open"));
     }
 
+    /// A scripted `ask`: the answers `settle` will get, in order, and a count
+    /// of how many it asked for.
+    ///
+    /// An answer past the end of the script reads as "still running", so a
+    /// version that asks more questions than it was written to ask is caught by
+    /// the count rather than by an index panic that says nothing.
+    #[cfg(unix)]
+    fn scripted(
+        answers: Vec<Result<(), rustix::io::Errno>>,
+    ) -> (
+        impl FnMut() -> Result<(), rustix::io::Errno>,
+        Rc<Cell<usize>>,
+    ) {
+        let asked = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&asked);
+        let ask = move || {
+            let answer = answers.get(counter.get()).copied().unwrap_or(Ok(()));
+            counter.set(counter.get() + 1);
+            answer
+        };
+        (ask, asked)
+    }
+
+    #[cfg(unix)]
+    fn errno(raw: i32) -> rustix::io::Errno {
+        rustix::io::Errno::from_raw_os_error(raw)
+    }
+
+    /// The reason reported is the last answer, not the one before it, and the
+    /// number of questions is the number the constant names.
+    ///
+    /// This is the test the live-group one below cannot be: a real group agrees
+    /// with itself round after round, so "reports the last answer" and "reports
+    /// the answer from the round before" are indistinguishable against it. Here
+    /// the penultimate answer and the final one differ on purpose, in both
+    /// directions, which is the only arrangement that can tell them apart.
+    #[cfg(unix)]
+    #[test]
+    fn settling_reports_the_final_answer_and_asks_exactly_the_rounds_it_names() {
+        let rounds = GROUP_SETTLE_ROUNDS as usize;
+
+        // And the case where asking one question too many changes the answer
+        // rather than just the count: a group that says `ESRCH` on a
+        // twenty-first question is a group this function never asked. The
+        // implementation before the fix asked anyway and reported `None` --
+        // "everything is gone" -- about a group its own twentieth answer had
+        // just called stranded.
+        let mut script = vec![Err(rustix::io::Errno::PERM); rounds - 1];
+        script.push(Err(errno(42)));
+        script.push(Err(rustix::io::Errno::SRCH));
+        let (ask, asked) = scripted(script);
+        assert_eq!(
+            settle(ask),
+            Some(Stranded::Errno(42)),
+            "an answer to a question this function does not ask changed its report"
+        );
+        assert_eq!(asked.get(), rounds);
+
+        // Unsignalable all the way, and then something unexpected.
+        let mut script = vec![Err(rustix::io::Errno::PERM); rounds - 1];
+        script.push(Err(errno(42)));
+        let (ask, asked) = scripted(script);
+        assert_eq!(
+            settle(ask),
+            Some(Stranded::Errno(42)),
+            "the answer before the last one was reported instead of the last"
+        );
+        assert_eq!(
+            asked.get(),
+            rounds,
+            "the number of questions asked is not the number `GROUP_SETTLE_ROUNDS` names"
+        );
+
+        // And the other way round: an unexpected errno throughout, then EPERM.
+        let mut script = vec![Err(errno(42)); rounds - 1];
+        script.push(Err(rustix::io::Errno::PERM));
+        let (ask, asked) = scripted(script);
+        assert_eq!(settle(ask), Some(Stranded::Unsignalable));
+        assert_eq!(asked.get(), rounds);
+
+        // A group that is gone is reported the moment it says so, and nothing
+        // is asked after that.
+        let (ask, asked) = scripted(vec![
+            Err(rustix::io::Errno::PERM),
+            Err(rustix::io::Errno::SRCH),
+        ]);
+        assert_eq!(settle(ask), None);
+        assert_eq!(asked.get(), 2, "the answer `ESRCH` ends the questioning");
+    }
+
+    /// `settled` asks the kernel the question the scripted test asks a script,
+    /// and the two answers a real group can give come back as themselves.
+    ///
+    /// The integration half: it proves the real `kill(-pgid, 0)` is wired in and
+    /// that its `Ok` and `ESRCH` mean what the reading above assumes. What it
+    /// cannot prove is which round's answer is reported, which is why
+    /// `settling_reports_the_final_answer_and_asks_exactly_the_rounds_it_names`
+    /// exists.
+    #[cfg(unix)]
+    #[test]
+    fn settling_reports_the_last_answer_the_kernel_gave() {
+        let tag = tag_for(2);
+        let _sweep = SweepTag(tag.clone());
+        let (mut child, marker) = a_shell_that_says_it_forked(&tag);
+        let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
+        // The group must have had something in it for "it was emptied" to mean
+        // anything, and the command itself is what says so.
+        wait_for_the_fork(&marker);
+
+        // A group with something running in it is reported as running, every
+        // round, and the answer that comes back is that one.
+        assert_eq!(settled(group), Some(Stranded::Running));
+
+        // And once it is gone, there is nothing to report.
+        assert_eq!(stop(&mut child), None);
+        assert_eq!(settled(group), None);
+    }
+
+    /// Each answer the kernel can give reads as itself, and none of them reads
+    /// as another.
+    ///
+    /// The opening phrase is pinned deliberately: `tests/permissions.rs`
+    /// asserts that a cancellation does *not* produce this notice, and it can
+    /// only do that by matching text. That assertion was already written
+    /// against a phrase this function had stopped emitting, which made it an
+    /// assertion that could not fail -- so the phrase is now something a test
+    /// fails on when it changes.
+    #[test]
+    fn every_stranded_answer_says_which_one_it_is() {
+        assert_eq!(stranded_notice(None), "");
+
+        let running = stranded_notice(Some(Stranded::Running));
+        let unsignalable = stranded_notice(Some(Stranded::Unsignalable));
+        let errno = stranded_notice(Some(Stranded::Errno(42)));
+
+        for notice in [&running, &unsignalable, &errno] {
+            assert!(
+                notice.contains("process group was still there"),
+                "the acceptance suite matches on this phrase: {notice}"
+            );
+            assert!(notice.ends_with('\n'), "{notice}");
+            assert_eq!(notice.lines().count(), 1, "{notice}");
+        }
+
+        assert!(running.contains("still has a running member"), "{running}");
+        assert!(unsignalable.contains("EPERM"), "{unsignalable}");
+        assert!(errno.contains("errno 42"), "{errno}");
+
+        // Three answers, three notices. A report that cannot tell them apart is
+        // the thing `Stranded` exists to prevent.
+        assert_ne!(running, unsignalable);
+        assert_ne!(running, errno);
+        assert_ne!(unsignalable, errno);
+    }
+
     #[test]
     fn a_command_that_could_not_start_is_named_by_its_first_word() {
         assert_eq!(first_word("cargo test --all"), "cargo");
@@ -856,6 +1039,103 @@ mod tests {
     /// The fork loop is the whole point: the escape being tested for happens
     /// when the group is signalled *while* a member is being forked, so the
     /// command under test has to be forking when the signal arrives.
+    /// The pids of every process whose whole argv is `sleep <tag>`.
+    ///
+    /// One `ps` per call and never in a tight loop. A table that cannot be read
+    /// is an empty answer rather than a panic, because this also runs from
+    /// `Drop`, where panicking while another panic unwinds aborts the process
+    /// and takes the real failure's message with it.
+    #[cfg(unix)]
+    fn tagged(tag: &str) -> Vec<rustix::process::Pid> {
+        let Ok(listing) = Command::new("ps").args(["-eo", "pid=,args="]).output() else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let pid: i32 = fields.next()?.parse().ok()?;
+                let argv: Vec<&str> = fields.collect();
+                (argv == ["sleep", tag]).then_some(pid)
+            })
+            .filter_map(rustix::process::Pid::from_raw)
+            .collect()
+    }
+
+    /// Kills this test's own children when it goes out of scope, one pid at a
+    /// time.
+    ///
+    /// **By pid, never by process group.** `stop` has already collected the
+    /// leader by the time a test cleans up, so the group id may since have been
+    /// recycled -- signalling it is exactly the hazard the product code goes
+    /// out of its way to avoid, and test code does not get to reintroduce it. A
+    /// pid read out of the table carrying this process's own tag was this
+    /// test's when it was read; that is best effort, which is all cleanup needs
+    /// to be, and it can never reach a group that is not ours.
+    #[cfg(unix)]
+    struct SweepTag(String);
+
+    #[cfg(unix)]
+    impl Drop for SweepTag {
+        fn drop(&mut self) {
+            for pid in tagged(&self.0) {
+                let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+            }
+            let _ = std::fs::remove_file(marker_for(&self.0));
+        }
+    }
+
+    /// A duration unique to this process *and* to the test using it, so two
+    /// tests in this binary cannot claim each other's children or markers.
+    #[cfg(unix)]
+    fn tag_for(test: u32) -> String {
+        format!("30.{test}{}", std::process::id())
+    }
+
+    #[cfg(unix)]
+    fn marker_for(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("xfx-forked-{tag}"))
+    }
+
+    /// A shell that forks one child and then says that it has, in its own
+    /// process group.
+    ///
+    /// The announcement is a file, and waiting for it is a `stat`. Finding out
+    /// whether a fork had happened by asking `ps` -- a `fork` -- is what made
+    /// two of these tests fail under a parallel run: `ps` could not be spawned
+    /// at all, the answer came back empty, and the wait timed out against a
+    /// command that had started its child long before.
+    #[cfg(unix)]
+    fn a_shell_that_says_it_forked(tag: &str) -> (Child, std::path::PathBuf) {
+        use std::os::unix::process::CommandExt;
+
+        let marker = marker_for(tag);
+        let _ = std::fs::remove_file(&marker);
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(format!(
+            "sleep {tag} & echo forked > {}; wait",
+            marker.display()
+        ));
+        command.env_clear();
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::piped());
+        command.stderr(Stdio::piped());
+        command.process_group(0);
+        (command.spawn().expect("spawn a shell"), marker)
+    }
+
+    #[cfg(unix)]
+    fn wait_for_the_fork(marker: &std::path::Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !marker.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "the command never reported forking a child"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[cfg(unix)]
     fn a_forking_shell(tag: &str, children: usize) -> Child {
         use std::os::unix::process::CommandExt;
@@ -898,15 +1178,20 @@ mod tests {
     fn a_stopped_command_leaves_nothing_alive_in_its_process_group() {
         // A duration unique to this process, so a survivor can be cleaned up
         // without reaching for another test's children.
-        let tag = format!("30.{}", std::process::id());
+        let tag = tag_for(1);
+        // Armed before the first child exists, and it is the only cleanup:
+        // whatever escapes is killed by pid, on every exit from this test.
+        let _sweep = SweepTag(tag.clone());
         let mut escaped = 0;
         let mut rounds = 0;
 
         for _ in 0..16 {
             let mut child = a_forking_shell(&tag, 50);
             let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
-            // Into the window: long enough that the shell is forking, short
-            // enough that it has not finished.
+            // Calibrated, not guaranteed: at this delay one round escaped about
+            // 29% of the time against a single-signal `stop` on this machine.
+            // Nothing here can observe a fork in progress, and the guarantee
+            // under test does not depend on catching one.
             std::thread::sleep(Duration::from_millis(10));
 
             stop(&mut child);
@@ -918,8 +1203,6 @@ mod tests {
             // and `ESRCH` that the group is gone; neither is an escape.
             if rustix::process::test_kill_process_group(group) == Ok(()) {
                 escaped += 1;
-                // Never leave a survivor behind, whatever the verdict is.
-                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
             }
         }
 
@@ -942,13 +1225,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_timed_out_command_gets_the_same_sweep_as_a_cancelled_one() {
-        let tag = format!("30.{}", std::process::id());
-        let mut child = a_forking_shell(&tag, 50);
+        let tag = tag_for(3);
+        let _sweep = SweepTag(tag.clone());
+        let (mut child, marker) = a_shell_that_says_it_forked(&tag);
         let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
-        std::thread::sleep(Duration::from_millis(10));
+        // The group must have had something in it for "it was emptied" to mean
+        // anything, and the command itself is what says so.
+        wait_for_the_fork(&marker);
 
         // A timeout that has already run out drives the timeout branch on the
-        // first poll, with the command still forking.
+        // first poll.
         let ending = supervise(&mut child, Duration::from_millis(0), &CancelToken::new());
 
         assert!(
