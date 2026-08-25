@@ -375,11 +375,22 @@ on resume is what closes that gap, and it belongs on the UI thread because `siga
 unconstrained. The same reasoning applies to any signal whose handler resets itself to re-raise: TERM,
 HUP and INT do not need reinstalling because the process does not survive them.
 
-Also note the `poll` interaction: the UI's `poll(2)` must watch **stdin and the self-pipe read end**,
-not stdin alone as v0.1.0's blocking read does. Without the pipe, a SIGCONT or SIGWINCH that arrives
-while `poll` is parked is not observed until the next 8 ms tick — usually harmless, but for resume it
-means a visible stall on a terminal that is still cooked. `EINTR` on `poll` is treated as a normal
-wakeup, not an error.
+Also note the wait's interaction with all of this: the UI must watch **stdin and the self-pipe read
+end**, not stdin alone as v0.1.0's blocking read does. Without the pipe, a SIGCONT or SIGWINCH that
+arrives while the wait is parked is not observed until the next 8 ms tick — usually harmless, but for
+resume it means a visible stall on a terminal that is still cooked. `EINTR` is treated as a normal
+wakeup, not an error: it is how a delivered signal ends the wait and gives the UI thread its turn.
+
+The call doing that watching is **`pselect(2)`, via `signals::wait_for_input`, and not `poll(2)`** —
+earlier drafts of this document said `poll`, and it is unsound here for the reason the stop section
+above turns on. A `poll` unmasks and then waits as **two** operations, so a `SIGTSTP` delivered
+between them is delivered *outside* the wait, and the handler hands the terminal back cooked while the
+session goes on believing it is raw. `pselect` installs the mask, waits, and puts the old mask back,
+and the kernel does not let anything in between; the 8 ms tick is expressed as that call's `timeout`
+for that reason and no other. Not `ppoll` either: it is Linux-only, macOS has no such call, and
+`pselect` is the portable spelling of the same atomicity (Darwin links `pselect$1050`). The invariant
+this buys is the one the rest of the section rests on: *while the terminal is raw, `SIGTSTP` is either
+blocked or the process is inside `wait_for_input`.*
 
 Three consequences, stated because they correct earlier drafts of this document:
 
