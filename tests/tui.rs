@@ -874,6 +874,113 @@ fn shell_output_from_before_the_launch_is_still_readable_afterwards() {
     );
 }
 
+/// The background query the launch asks the terminal (`OSC 11 ; ? ST`).
+///
+/// Response-only in the same sense as [`PROBE`]: xfx writes it and this suite
+/// never types it, so finding it means the query is really on the wire.
+const THEME_PROBE: &str = "\u{1b}]11;?";
+
+/// Every SGR sequence in the captured stream, in order.
+///
+/// The whole comparison this suite can make about colour: what the palette
+/// *is* belongs to `src/tui/theme.rs`, which an integration test cannot see, so
+/// a test that spelled the greys out would pass for whatever numbers the module
+/// happened to declare. That the two themes paint the same rows *differently*
+/// is a claim about the binary, and it is this one.
+fn sgr_runs(text: &str) -> Vec<String> {
+    let mut runs = Vec::new();
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while let Some(found) = text[index..].find("\u{1b}[") {
+        let start = index + found;
+        let mut end = start + 2;
+        while end < bytes.len() && (bytes[end].is_ascii_digit() || bytes[end] == b';') {
+            end += 1;
+        }
+        if end < bytes.len() && bytes[end] == b'm' {
+            runs.push(text[start..=end].to_string());
+        }
+        index = end.min(bytes.len());
+    }
+    runs
+}
+
+/// Fixes how exactly a colour may be asked for, so the two sessions below
+/// differ in their *mode* and in nothing else.
+///
+/// Neither variable is in `Sandbox`'s controlled set, and the machine running
+/// this suite exports both: a developer in iTerm gets `COLORTERM=truecolor` and
+/// the direct-colour spelling of the same greys, a CI runner gets the
+/// 256-colour one. That does not change the claim -- the two modes are
+/// different greys at either depth -- but a test whose bytes depend on who ran
+/// it is a test that reports two different things, so it is pinned to the
+/// spelling every terminal understands.
+fn depth_of_the_test_machine(command: &mut Command) {
+    command.env_remove("COLORTERM");
+    command.env_remove("TERM_PROGRAM");
+}
+
+#[test]
+fn the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette() {
+    let sandbox = Sandbox::new();
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut light = tui(&sandbox);
+    // The palette is decided by three things and this case is about the second,
+    // so the first and the third are taken away rather than assumed absent: a
+    // developer running this suite inside a light terminal exports both.
+    light.env_remove("XFX_THEME");
+    light.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut light);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, light);
+    // The background query, and the cursor report behind it. Answered in that
+    // order because that is the order they were asked in, which is the whole
+    // reason one read serves both.
+    session.wait_for(THEME_PROBE);
+    session.type_bytes(b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    // The band, not the mode set: `READY` is written *before* the queries and
+    // would be satisfied by an announce this test is already past, leaving
+    // `text()` with no band row in it to have a colour at all.
+    session.wait_for(FRAME_END);
+    let light_band = session.text();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut dark = tui(&sandbox);
+    dark.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut dark);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, dark);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    let dark_band = session.text();
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let dark_band_settled = session.settled_text();
+
+    assert!(
+        !sgr_runs(&light_band).is_empty(),
+        "the band painted no colour at all, so the case below cannot fail for \
+         the reason it claims: {light_band:?}"
+    );
+    assert_ne!(
+        sgr_runs(&light_band),
+        sgr_runs(&dark_band),
+        "the two themes painted identical attributes"
+    );
+    // Read after the child was reaped, because this is a claim about bytes that
+    // were never written: a snapshot taken while the session was still running
+    // would pass for a query sent an instant later.
+    assert!(
+        !dark_band_settled.contains(THEME_PROBE),
+        "the query was sent even though XFX_THEME decided it: {dark_band_settled:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // the band
 // ---------------------------------------------------------------------------

@@ -26,7 +26,9 @@
 //! The launch probe follows that order rather than joining it: only once the
 //! terminal is raw can a `CSI 6n` be asked and its answer read back off
 //! standard input, which is what tells the session how much of the shell's
-//! output to push above the band (see [`probe`]).
+//! output to push above the band (see [`probe`]). The palette's own question
+//! rides in the same write and the same read ([`theme`]), so the launch spends
+//! one deadline rather than two.
 //!
 //! What the session then owns is a **band**: a divider, the composer, and a
 //! hint row at the bottom of the screen, plus a row above the divider while a
@@ -261,6 +263,26 @@ fn hold(
     // write, either can fail, and a failure inside `hold` travels back through
     // the caller's restore instead of escaping above it with the terminal still
     // raw.
+    //
+    // The palette's question rides along with them, for the same reason and one
+    // more of its own: the background query and the cursor report share a
+    // single write and a single read, so a terminal that answers neither waits
+    // once rather than twice ([`theme::QUERY`]).
+    //
+    // Read here rather than inside the closure because the answer decides
+    // whether the *question* is asked at all: a user who set `XFX_THEME` has
+    // decided, and a decided session must not spend a deadline -- or put a
+    // query on a terminal -- to be told something it will ignore.
+    let env_theme = std::env::var(theme::ENV).ok();
+    let ask_background = !theme::decided(env_theme.as_deref());
+    // The longer of the two deadlines when both questions are on the wire,
+    // because they are waited for in one read; the cursor's own when the
+    // palette is already settled.
+    let deadline = if ask_background {
+        probe::DEADLINE.max(theme::DEADLINE)
+    } else {
+        probe::DEADLINE
+    };
     let mut cursor = probe::CursorProbe::new();
     let screen = settle_screen(
         || {
@@ -268,7 +290,7 @@ fn hold(
             // row 1 -- xfx starts at the bottom of what it can prove rather
             // than painting over something it cannot see.
             let cursor_row = cursor
-                .read_reply(Instant::now() + probe::DEADLINE)?
+                .read_reply(ask_background, Instant::now() + deadline)?
                 .map_or(UNKNOWN_CURSOR_ROW, |(row, _column)| row);
             let (rows, columns) = term::window_size();
             Ok(Screen {
@@ -294,7 +316,24 @@ fn hold(
     // anything read afterwards: a Ctrl-D is a Ctrl-D whichever read happened to
     // take it.
     let deferred = cursor.take_deferred();
-    let mut shell = shell::Shell::new(config, geometry, worker.handle());
+
+    // Settled after the probe, because the terminal's own answer is the middle
+    // of the three sources and it is not in hand until the read is over. The
+    // environment is read here rather than in `theme` so that every variable
+    // this session consults is named on one screen.
+    let colorfgbg = std::env::var(theme::COLORFGBG).ok();
+    let colorterm = std::env::var(theme::COLORTERM).ok();
+    let term_program = std::env::var(theme::TERM_PROGRAM).ok();
+    let palette = theme::Palette {
+        mode: theme::detect(
+            env_theme.as_deref(),
+            cursor.background().and_then(theme::parse_osc11),
+            colorfgbg.as_deref(),
+        ),
+        depth: theme::depth_from_env(colorterm.as_deref(), term_program.as_deref()),
+    };
+
+    let mut shell = shell::Shell::new(config, geometry, palette, worker.handle());
     event_loop::run(
         &mut shell,
         band,
@@ -490,6 +529,7 @@ mod render_request;
 mod shell;
 mod signals;
 mod term;
+mod theme;
 mod transcript;
 mod worker;
 mod wrap;

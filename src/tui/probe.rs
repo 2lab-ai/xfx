@@ -1,4 +1,5 @@
-//! Where the shell left the cursor, asked of the terminal itself.
+//! Where the shell left the cursor -- and which way round its colours are --
+//! asked of the terminal itself.
 //!
 //! A band drawn at the bottom of the *normal* buffer shares the screen with
 //! whatever the shell printed before xfx ran. Nothing in this process knows
@@ -23,6 +24,14 @@
 //! at most one event out, and a candidate reply that turns out to be something
 //! else gives back every byte it swallowed rather than eating a prefix
 //! (`vercel-labs/fx@ef1d0d0 src/core/terminal/terminal_action_decoder.zig:105-114`).
+//!
+//! It recognizes a second shape for the same reason it recognizes the first:
+//! the launch asks the terminal for its background colour too
+//! ([`super::theme::QUERY`]), and that answer arrives on the same stream, in
+//! the same read, indistinguishable from a keystroke until it is parsed. It is
+//! *not* parsed here -- what an `OSC` reply means belongs to whoever asked the
+//! question -- but it is recognized, because a reply the machine did not know
+//! about would be deferred into the session's composer as typed text.
 
 use std::collections::VecDeque;
 use std::io::{self, Write};
@@ -46,6 +55,14 @@ pub(crate) const DEADLINE: Duration = Duration::from_millis(100);
 /// but something else entirely, and is handed back as such.
 const MOST_BYTES: usize = 16;
 
+/// The same bound for the other shape this machine recognizes, an `OSC` reply.
+///
+/// Upstream's own buffer for a background answer (`theme_detection.zig:43`),
+/// which is four times the longest well-formed one -- `ESC ] 1 1 ; r g b :` and
+/// three four-digit components with separators and a terminator is 26 bytes.
+/// A run longer than this is not a background reply and is handed back as such.
+const MOST_OSC_BYTES: usize = 64;
+
 /// What one byte turned out to be.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Probed {
@@ -53,6 +70,21 @@ pub(crate) enum Probed {
     Consumed,
     /// A complete `CSI row;col R`, one-based as the terminal counts.
     Answer(u16, u16),
+    /// A complete answer to [`super::theme::QUERY`], from its `ESC ]` through
+    /// its terminator.
+    ///
+    /// Handed over whole rather than parsed here, because what a reply *means*
+    /// belongs to whoever asked the question: this machine knows only which
+    /// question it is an answer to ([`super::theme::is_background_reply`]).
+    ///
+    /// **Only that one.** Any other complete `OSC` -- a window title, a
+    /// foreground report, a string a program printed before xfx started -- is
+    /// handed back byte by byte like any other broken candidate. Consuming it
+    /// would lose those bytes *and* fill the slot the real answer is waiting
+    /// for, and the invariant this machine exists to keep is that every byte it
+    /// reads is either the background answer, the cursor report, or the
+    /// session's, in the order it arrived.
+    Background(String),
     /// Not part of a reply, and the caller's to keep. When a candidate breaks
     /// this is the **first** byte it had swallowed; the rest go back through
     /// the machine ahead of any newer input, so nothing is lost and nothing is
@@ -73,6 +105,10 @@ enum State {
     Row,
     /// Inside the column's digits, waiting for another or for `R`.
     Col,
+    /// `ESC ]`, inside an `OSC` string's body.
+    Osc,
+    /// An `ESC` inside that body, waiting for the `\` that ends the string.
+    OscEsc,
 }
 
 /// Feeds one byte of a possible `CSI row;col R`.
@@ -89,6 +125,12 @@ pub(crate) struct CursorProbe {
     /// Every byte the read loop took off the terminal and the probe did not
     /// use, in arrival order.
     deferred: Vec<u8>,
+    /// The first complete `OSC` string the terminal sent, if it sent one.
+    ///
+    /// The **first**, because the launch asks exactly one `OSC` question and a
+    /// second string arriving unbidden must not be able to overwrite the
+    /// answer to it.
+    background: Option<String>,
 }
 
 impl CursorProbe {
@@ -100,7 +142,19 @@ impl CursorProbe {
             row: 0,
             col: 0,
             deferred: Vec::new(),
+            background: None,
         }
+    }
+
+    /// The `OSC` reply the terminal sent during the launch read, if it sent
+    /// one.
+    ///
+    /// Borrowed rather than taken: the launch reads it once, and a probe that
+    /// gave it up would make "did the terminal answer" unaskable a second time
+    /// -- which is exactly the question a re-measured launch
+    /// (`super::MEASUREMENTS`) asks.
+    pub(crate) fn background(&self) -> Option<&str> {
+        self.background.as_deref()
     }
 
     /// Feeds one byte; `Probed::Answer` when a reply completes.
@@ -120,12 +174,31 @@ impl CursorProbe {
         let Some(byte) = self.queued.pop_front() else {
             return Probed::Consumed;
         };
-        if self.held.len() >= MOST_BYTES {
+        // The two shapes have different lengths, so they have different
+        // bounds; a cursor report's sixteen would break every well-formed
+        // background reply.
+        let most = match self.state {
+            State::Osc | State::OscEsc => MOST_OSC_BYTES,
+            _ => MOST_BYTES,
+        };
+        if self.held.len() >= most {
             return self.hand_back(byte);
         }
         match (self.state, byte) {
             (State::Idle, 0x1b) => self.swallow(byte, State::Esc),
             (State::Esc, b'[') => self.swallow(byte, State::Csi),
+            (State::Esc, b']') => self.swallow(byte, State::Osc),
+            // `BEL` and `ESC \` both end an `OSC`, and terminals disagree
+            // about which they send -- upstream stops its read on either
+            // (`theme_detection.zig:58`).
+            (State::Osc, 0x07) => self.finish_string(byte),
+            (State::Osc, 0x1b) => self.swallow(byte, State::OscEsc),
+            (State::OscEsc, b'\\') => self.finish_string(byte),
+            // Printable text only. A control byte inside the body is not
+            // something a terminal puts in a reply, and treating it as one
+            // would let a burst of keystrokes that happened to begin `ESC ]`
+            // be swallowed up to the bound instead of handed back.
+            (State::Osc, 0x20..=0x7e) => self.swallow(byte, State::Osc),
             (State::Csi | State::Row, b'0'..=b'9') => match extend(self.row, byte) {
                 Some(row) => {
                     self.row = row;
@@ -148,6 +221,36 @@ impl CursorProbe {
                 answer
             }
             _ => self.hand_back(byte),
+        }
+    }
+
+    /// Completes an `OSC` string with the byte that terminated it, and keeps it
+    /// only if it is the one the launch asked for.
+    ///
+    /// A string that is **not** an answer to
+    /// [`super::theme::QUERY`] goes back through [`hand_back`](Self::hand_back)
+    /// exactly as a broken candidate does -- first byte first, the rest to the
+    /// front of the queue -- so it reaches the session's decoder unchanged and
+    /// in order. It is not this machine's to eat: it did not ask for it.
+    ///
+    /// The `String` is lossy rather than fallible because it cannot lose
+    /// anything: every byte in hand was admitted by the arms above, which take
+    /// only `ESC`, `BEL` and printable ASCII, so it is already valid UTF-8 and
+    /// the replacement character is unreachable.
+    fn finish_string(&mut self, byte: u8) -> Probed {
+        // Read before the byte is committed, so a string that is not ours is
+        // handed back with its terminator still the byte that broke it.
+        let ours = {
+            let mut text = String::from_utf8_lossy(&self.held).into_owned();
+            text.push(byte as char);
+            super::theme::is_background_reply(&text).then_some(text)
+        };
+        match ours {
+            Some(text) => {
+                self.reset();
+                Probed::Background(text)
+            }
+            None => self.hand_back(byte),
         }
     }
 
@@ -188,10 +291,30 @@ impl CursorProbe {
         self.col = 0;
     }
 
-    /// Writes the query. Flushed, because nothing answers a question that is
-    /// still in a buffer.
-    pub(crate) fn ask(out: &mut impl Write) -> io::Result<()> {
-        write!(out, "{QUERY}")?;
+    /// Writes the launch's queries. Flushed, because nothing answers a
+    /// question that is still in a buffer.
+    ///
+    /// **The background query goes first and the cursor report second**, in one
+    /// write, and that order is load-bearing rather than tidy: a terminal
+    /// answers the queries in its input stream in the order it parsed them, so
+    /// a cursor report arriving with no background reply in front of it proves
+    /// the terminal has no answer to give rather than merely not having given
+    /// one yet. See [`super::theme::QUERY`].
+    fn ask(out: &mut impl Write, background: bool) -> io::Result<()> {
+        // Built whole and issued as **one** `write_all`, which is the ordering
+        // argument made good rather than merely stated. The fence works because
+        // the terminal parses the two queries in the order they reach it; two
+        // writes put that order at the mercy of whatever is between this and
+        // the descriptor -- a buffer that flushes between them, a short write,
+        // a signal -- and a terminal that saw the cursor report first would
+        // answer it first, at which point the reply that arrives with nothing
+        // in front of it is the *cursor's* and the fence proves nothing.
+        let mut queries = String::with_capacity(super::theme::QUERY.len() + QUERY.len());
+        if background {
+            queries.push_str(super::theme::QUERY);
+        }
+        queries.push_str(QUERY);
+        out.write_all(queries.as_bytes())?;
         out.flush()
     }
 
@@ -201,8 +324,12 @@ impl CursorProbe {
     /// ordinary case for a terminal without the query, and one the caller
     /// treats as row 1 rather than as a failure. An `Err` is a descriptor that
     /// broke, which is a different thing and is reported.
-    pub(crate) fn read_reply(&mut self, deadline: Instant) -> io::Result<Option<(u16, u16)>> {
-        Self::ask(&mut io::stdout().lock())?;
+    pub(crate) fn read_reply(
+        &mut self,
+        background: bool,
+        deadline: Instant,
+    ) -> io::Result<Option<(u16, u16)>> {
+        Self::ask(&mut io::stdout().lock(), background)?;
         let stdin = io::stdin();
         self.read_answer(stdin.as_fd(), deadline)
     }
@@ -264,6 +391,10 @@ impl CursorProbe {
             Probed::Consumed => None,
             Probed::NotMine(byte) => {
                 self.deferred.push(byte);
+                None
+            }
+            Probed::Background(text) => {
+                self.background.get_or_insert(text);
                 None
             }
             Probed::Answer(row, column) => Some((row, column)),
@@ -714,11 +845,194 @@ mod tests {
         rustix::pipe::pipe().expect("a pipe")
     }
 
+    /// A terminal that remembers how it was written to, not only what.
+    ///
+    /// The `ask` contract has two halves and a `Vec<u8>` can only check one of
+    /// them: the bytes, and the number of calls it took to put them there.
+    #[derive(Default)]
+    struct Counting {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+    }
+
+    impl Write for Counting {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
     #[test]
-    fn asking_writes_the_query_and_nothing_else() {
-        let mut wire = Vec::new();
-        CursorProbe::ask(&mut wire).expect("write the query");
-        assert_eq!(wire, QUERY.as_bytes());
+    fn asking_writes_the_queries_and_nothing_else() {
+        let mut wire = Counting::default();
+        CursorProbe::ask(&mut wire, false).expect("write the query");
+        assert_eq!(wire.bytes, QUERY.as_bytes());
+        assert_eq!(wire.writes, 1);
+        assert_eq!(wire.flushes, 1);
+    }
+
+    #[test]
+    fn the_background_query_goes_first_so_the_cursor_report_is_its_fence() {
+        // The order is the whole reason one read answers both questions: a
+        // terminal answers in the order it parsed, so a cursor report with no
+        // background reply in front of it is proof there will not be one.
+        // Written the other way round it would prove nothing, and a terminal
+        // without `OSC 11` would cost the deadline on every launch.
+        let mut wire = Counting::default();
+        CursorProbe::ask(&mut wire, true).expect("write the queries");
+        let bytes = String::from_utf8(wire.bytes).expect("the queries are text");
+        assert_eq!(bytes, format!("{}{QUERY}", super::super::theme::QUERY));
+        // **In one write**, so the order the terminal parses them in is this
+        // function's to decide and not a buffer's: the fence is an ordering
+        // argument, and an argument about order that is issued in two pieces is
+        // not made.
+        assert_eq!(
+            wire.writes, 1,
+            "the two queries were written separately, so nothing here decides \
+             which one the terminal parses first"
+        );
+        assert_eq!(wire.flushes, 1);
+    }
+
+    #[test]
+    fn both_answers_and_a_keystroke_can_share_one_read() {
+        // What a terminal that implements both queries really sends, in the
+        // order it was asked, with a key pressed while they were in flight.
+        // All three have to come out right: the background is kept, the cursor
+        // report ends the read, and the keystroke is the session's.
+        let (read, write) = pipe();
+        rustix::io::write(&write, b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b[7;1Rx")
+            .expect("the terminal answers");
+        let mut probe = CursorProbe::new();
+        let answer = probe
+            .read_answer(read.as_fd(), Instant::now() + DEADLINE)
+            .expect("read the answers");
+        assert_eq!(answer, Some((7, 1)));
+        assert_eq!(
+            probe.background(),
+            Some("\u{1b}]11;rgb:ffff/ffff/ffff\u{1b}\\")
+        );
+        assert_eq!(
+            probe.take_deferred(),
+            b"x".to_vec(),
+            "the key typed during the queries was swallowed"
+        );
+    }
+
+    #[test]
+    fn a_string_the_launch_did_not_ask_for_is_the_sessions_and_is_kept_in_order() {
+        // The conservation law, on the one stream that can carry all four
+        // things at once: a window title the shell was still writing when xfx
+        // started, the answer to the question this module *did* ask, the cursor
+        // report that fences it, and a keystroke behind all of them.
+        //
+        // A machine that consumed every terminated `OSC` would fail this twice
+        // over and in the two worst directions: the title's bytes would vanish
+        // from the session's input, and the title would take the background
+        // slot -- so the real reply, arriving second, would be dropped by the
+        // first-wins rule and the palette would be decided by a window title.
+        let (read, write) = pipe();
+        rustix::io::write(
+            &write,
+            b"\x1b]0;title\x07\x1b]11;rgb:ffff/ffff/ffff\x1b\\\x1b[7;1Rxy",
+        )
+        .expect("the terminal answers");
+        let mut probe = CursorProbe::new();
+        let answer = probe
+            .read_answer(read.as_fd(), Instant::now() + DEADLINE)
+            .expect("read the answers");
+
+        assert_eq!(answer, Some((7, 1)));
+        assert_eq!(
+            probe.background(),
+            Some("\u{1b}]11;rgb:ffff/ffff/ffff\u{1b}\\"),
+            "a string the launch never asked for took the background's place"
+        );
+        assert_eq!(
+            probe.take_deferred(),
+            b"\x1b]0;title\x07xy".to_vec(),
+            "the bytes that were the session's were eaten or reordered"
+        );
+    }
+
+    #[test]
+    fn a_bel_ends_a_background_reply_as_well_as_a_string_terminator() {
+        // Terminals disagree about which one they send, so both are read
+        // (`theme_detection.zig:58`).
+        let mut probe = CursorProbe::new();
+        let mut seen = None;
+        for byte in b"\x1b]11;rgb:1c1c/1c1c/1c1c\x07" {
+            if let Probed::Background(text) = probe.feed(*byte) {
+                seen = Some(text);
+            }
+        }
+        assert_eq!(seen.as_deref(), Some("\u{1b}]11;rgb:1c1c/1c1c/1c1c\u{07}"));
+    }
+
+    #[test]
+    fn a_terminal_that_never_terminates_its_string_loses_no_byte_of_it() {
+        // The ordinary shape of a terminal that does not implement the query
+        // and a user typing over the top of it: nothing completes, the deadline
+        // passes, and every byte read is still the session's -- in the order it
+        // arrived, which is what the decoder is owed.
+        let (read, write) = pipe();
+        rustix::io::write(&write, b"\x1b]11;rgb:ffff").expect("a truncated reply");
+        let mut probe = CursorProbe::new();
+        let answer = probe
+            .read_answer(read.as_fd(), Instant::now() + Duration::from_millis(20))
+            .expect("wait out the deadline");
+        assert_eq!(answer, None);
+        assert_eq!(probe.background(), None, "half a reply was read as one");
+        assert_eq!(probe.take_deferred(), b"\x1b]11;rgb:ffff".to_vec());
+    }
+
+    #[test]
+    fn a_control_byte_inside_a_string_gives_the_whole_candidate_back() {
+        // `ESC ]` is two bytes a user can type, and a machine that swallowed
+        // everything after them until a terminator would eat the rest of the
+        // session's input on a terminal that never sends one.
+        let mut probe = CursorProbe::new();
+        assert!(matches!(probe.feed(0x1b), Probed::Consumed));
+        assert!(matches!(probe.feed(b']'), Probed::Consumed));
+        assert!(matches!(probe.feed(b'1'), Probed::Consumed));
+        assert!(matches!(probe.feed(0x04), Probed::NotMine(0x1b)));
+        // and the rest of what it had swallowed comes back behind it, in order
+        let mut given_back = vec![];
+        for _ in 0..3 {
+            if let Probed::NotMine(byte) = probe.step() {
+                given_back.push(byte);
+            }
+        }
+        assert_eq!(given_back, b"]1\x04");
+    }
+
+    #[test]
+    fn a_string_longer_than_a_background_reply_is_not_one() {
+        // The bound is the shape's, so a run past it is handed back rather than
+        // buffered without end.
+        let mut probe = CursorProbe::new();
+        let long: Vec<u8> = b"\x1b]"
+            .iter()
+            .copied()
+            .chain(std::iter::repeat_n(b'a', MOST_OSC_BYTES))
+            .collect();
+        let mut given_back = None;
+        for byte in &long {
+            if let Probed::NotMine(byte) = probe.feed(*byte) {
+                // The **first** one: a break hands the candidate back first
+                // byte first, and everything after it comes out of the backlog
+                // as later bytes are fed.
+                given_back.get_or_insert(byte);
+            }
+        }
+        assert_eq!(given_back, Some(0x1b), "the run was swallowed whole");
     }
 
     #[test]

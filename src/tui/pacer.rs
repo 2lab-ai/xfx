@@ -483,17 +483,11 @@ fn escape(text: &str) -> Escape {
 /// are the same three opening bytes as a colour, and they hide the cursor and
 /// erase the screen.
 ///
-/// **The trusted set is every SGR attribute, not only the colours** -- bold,
-/// blink, reverse and conceal are all `CSI <digits> m` and all pass. That is
-/// wider than this phase needs and it is deliberate for exactly as long as
-/// nothing generates one: an SGR paints, it does not move the cursor, switch
-/// buffers, retitle a window or erase anything, so the worst a wrong one costs
-/// is an ugly row -- and a narrower rule written now would be guessing at the
-/// palette Task 15 has not defined yet. **Task 15 should narrow this to the
-/// attributes its palette really emits** once there is a palette to narrow it
-/// to; the reason it is safe to leave open until then is that in this phase the
-/// only text that reaches here with an `ESC` in it is xfx's own
-/// (`super::bridge::inert` spaces a provider's).
+/// **This is the SGR *grammar*, not the render allowlist.** It answers "is this
+/// sequence an SGR at all", which is the question [`SgrState`] asks of a
+/// provider's stream -- every attribute a provider can open, so that the model
+/// of what is switched on stays a model of the whole vocabulary. What a *row*
+/// may carry is the narrower question, and [`is_palette_sgr`] is that one.
 pub(crate) fn is_sgr(text: &str) -> bool {
     let Some(body) = text.strip_prefix("\u{1b}[") else {
         return false;
@@ -519,9 +513,71 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
         return None;
     }
     match escape(text) {
-        Escape::Complete(len) if is_sgr(&text[..len]) => Some(len),
+        Escape::Complete(len) if is_palette_sgr(&text[..len]) => Some(len),
         _ => None,
     }
+}
+
+/// Whether `text` is one of the shapes the band's own painters emit.
+///
+/// **The render allowlist, narrowed to the palette that exists**
+/// ([`super::theme`]), which is a foreground colour and the reset that ends it:
+///
+/// * `CSI 38 ; 5 ; <n> m` -- a 256-colour foreground.
+/// * `CSI 38 ; 2 ; <r> ; <g> ; <b> m` -- a direct-colour foreground.
+/// * `CSI 0 m`, and the bare `CSI m` that means the same thing.
+///
+/// Task 13 left the whole SGR vocabulary trusted because there was no palette
+/// yet to narrow it to, and said so in the note this replaces. There is one
+/// now, and it emits three shapes -- so the set a row may carry is those three.
+/// The attributes this drops are the ones with a cost: `conceal` makes a row
+/// invisible, `blink` makes it move, `reverse` and a background colour repaint
+/// the whole width of it. None of them can reach a row from a Phase-1 path --
+/// `super::bridge::inert` spaces a provider's escapes at the channel -- but an
+/// allowlist wider than what is emitted is untested surface, and that is the
+/// only argument it has to answer.
+///
+/// **Widening obligation.** Two things will need this set to grow, and both
+/// must grow it deliberately: Task 16, if a hint-row segment wants an intensity
+/// (upstream's identity tag is `CSI 1 ; 38 ; 5 ; 255 m`, `render.zig:31`), and
+/// whatever admits a provider's own colour to the document -- the `colored and
+/// hyperlinked TTY output` row of `docs/parity.md` calls that out of scope
+/// today. Until then [`SgrState`] models attributes this will not render, which
+/// fails in the safe direction: an attribute that is dropped is a row that is
+/// plainer than it could be, never a terminal doing something nobody asked for.
+fn is_palette_sgr(text: &str) -> bool {
+    let Some(body) = text.strip_prefix("\u{1b}[") else {
+        return false;
+    };
+    let Some(params) = body.strip_suffix('m') else {
+        return false;
+    };
+    let mut params = params.split(';');
+    let Some(first) = params.next() else {
+        return false;
+    };
+    // The number of parameters each shape carries after its first, and `0`
+    // for the two spellings of a reset.
+    let wanted = match first {
+        "" | "0" => 0,
+        "38" => match params.next() {
+            Some("5") => 1,
+            Some("2") => 3,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let mut seen = 0usize;
+    for param in params {
+        // A parameter a terminal reads as a number, and nothing else: an empty
+        // one is a zero to a terminal, and a `38;5;` with the index left off is
+        // not a colour this crate would write.
+        if param.is_empty() || !param.bytes().all(|byte| byte.is_ascii_digit()) {
+            return false;
+        }
+        seen += 1;
+    }
+    seen == wanted
 }
 
 /// How many bytes the escape sequence at the head of `text` takes, complete or
@@ -1216,6 +1272,51 @@ mod tests {
         assert!(is_sgr("\u{1b}[38;5;200m"));
         assert!(is_sgr("\u{1b}[1m"));
         assert!(is_sgr("\u{1b}[m"), "a reset is a colour instruction too");
+    }
+
+    #[test]
+    fn a_row_may_carry_only_the_shapes_the_palette_paints_in() {
+        // The render allowlist is the palette's own three shapes, and it is
+        // narrower than the SGR grammar above on purpose: an attribute nothing
+        // emits is surface nothing tests. Asserted through `colour_at`, because
+        // that -- not the predicate -- is what `frame::row_text` and
+        // `wrap::width` both ask.
+        for painted in [
+            "\u{1b}[38;5;240m",
+            "\u{1b}[38;5;255m",
+            "\u{1b}[38;2;88;88;88m",
+            "\u{1b}[0m",
+            "\u{1b}[m",
+        ] {
+            assert_eq!(
+                colour_at(painted),
+                Some(painted.len()),
+                "the palette cannot paint {painted:?}"
+            );
+        }
+        // Every one of these is a well-formed SGR the grammar accepts, and none
+        // of them is a shape this crate writes. The first four are the ones
+        // with a cost on a shared screen; the last two are well-formed colours
+        // in spellings the palette does not use.
+        for refused in [
+            "\u{1b}[5m",
+            "\u{1b}[7m",
+            "\u{1b}[8m",
+            "\u{1b}[48;5;196m",
+            "\u{1b}[1m",
+            "\u{1b}[31m",
+            "\u{1b}[1;38;5;255m",
+            "\u{1b}[38;5m",
+            "\u{1b}[38;5;m",
+            "\u{1b}[38;2;1;2m",
+        ] {
+            assert!(is_sgr(refused), "{refused:?} is not an SGR at all");
+            assert_eq!(
+                colour_at(refused),
+                None,
+                "a row was allowed to carry {refused:?}"
+            );
+        }
     }
 
     #[test]

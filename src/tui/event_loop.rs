@@ -767,6 +767,10 @@ mod tests {
             shell: Shell::new(
                 &config,
                 crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                crate::tui::theme::Palette {
+                    mode: crate::tui::theme::Mode::Dark,
+                    depth: crate::tui::theme::Depth::Ansi256,
+                },
                 work,
             ),
             _work,

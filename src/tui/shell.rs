@@ -81,6 +81,7 @@ use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
 use super::render_request::{Reason, RenderRequest};
+use super::theme::Palette;
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::RuntimeConfig;
@@ -174,6 +175,14 @@ pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
     pub(crate) render: RenderRequest,
+    /// The colours the band paints its own rows in.
+    ///
+    /// Settled once, at launch, from the terminal xfx was started in
+    /// ([`super::theme`]) and never re-asked: following a background that
+    /// changes mid-session is Phase 3. Held here rather than consulted per
+    /// frame for the reason [`Self::model`] is -- one field, not a borrow of
+    /// the launch.
+    palette: Palette,
     /// The model a turn will talk to.
     ///
     /// Read from the configuration once, at startup, rather than consulted per
@@ -296,9 +305,15 @@ enum Leaving {
 }
 
 impl Shell {
-    pub(crate) fn new(config: &RuntimeConfig, geometry: Geometry, work: WorkHandle) -> Self {
+    pub(crate) fn new(
+        config: &RuntimeConfig,
+        geometry: Geometry,
+        palette: Palette,
+        work: WorkHandle,
+    ) -> Self {
         Self {
             geometry,
+            palette,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
             // property of having a shell at all.
@@ -349,7 +364,10 @@ impl Shell {
         if self.geometry.activity.is_some() {
             rows.push(self.activity_row.clone().unwrap_or_default());
         }
-        rows.push(std::iter::repeat_n(RULE, usize::from(self.geometry.cols)).collect());
+        rows.push(self.painted(
+            self.palette.divider(),
+            std::iter::repeat_n(RULE, usize::from(self.geometry.cols)).collect(),
+        ));
         // The composer's own rows, as many of them as the window shows, each in
         // the gutter the marker owns.
         let composer = self.editor.rows(self.text_cols());
@@ -371,8 +389,36 @@ impl Shell {
         // is about the keystroke that just happened and the rest is about the
         // state. Task 16 replaces the joining with upstream's, on the same
         // three facts.
-        rows.push(self.hint_row());
+        rows.push(self.painted(self.palette.hint(), self.hint_row()));
         rows
+    }
+
+    /// `text` in one of the palette's colours, ended.
+    ///
+    /// **Clipped here, before the colour is wrapped around it**, and that is
+    /// the whole of why this function exists rather than a `format!` at each
+    /// call site. The painter clips a row that overruns the screen
+    /// (`super::frame`'s `row_text`) by stopping at the first cell that will
+    /// not fit -- and everything after that cell goes, the closing reset
+    /// included. A row that lost its reset leaves the colour open on a terminal
+    /// whose next rows are the *user's document*, so the hint row overflowing
+    /// on a narrow screen would tint the shell that outlives xfx. Cutting the
+    /// text first, by [`super::frame::clip`] -- the painter's own rule, so the
+    /// two cannot disagree about where a row ends -- puts the reset inside the
+    /// budget by construction: an escape sequence costs no cells, so it is
+    /// never what the clip drops.
+    fn painted(&self, colour: &'static str, text: String) -> String {
+        // A row with nothing on it is painted in no colour: there is nothing
+        // for the attribute to apply to, and eight bytes of it on every frame
+        // of an idle band is eight bytes that say nothing.
+        if colour.is_empty() || text.is_empty() {
+            return text;
+        }
+        format!(
+            "{colour}{}{}",
+            super::frame::clip(&text, self.geometry.cols),
+            self.palette.reset()
+        )
     }
 
     /// What the band's last row says.
@@ -385,7 +431,16 @@ impl Shell {
     fn hint_row(&self) -> String {
         let mut row = String::new();
         if let Some(notice) = self.notice {
+            // A colour of its own inside the row's, because a refusal is about
+            // the keystroke that just happened and the rest of the row is about
+            // the state -- and closed again with the hint colour rather than
+            // with a reset, so what follows on the row is still the row's own
+            // colour rather than the terminal's default.
+            row.push_str(self.palette.notice());
             row.push_str(notice);
+            if self.escape_armed {
+                row.push_str(self.palette.hint());
+            }
         } else if self.queued > 0 {
             row.push_str("queued ");
             row.push_str(&self.queued.to_string());
@@ -1370,10 +1425,26 @@ mod tests {
         /// Settled rather than read raw, because the queue's depth is the other
         /// thread's number and the row shows the one this shell last took --
         /// which is the loop's own order (`super::event_loop`).
+        /// The colour is checked here rather than dropped: what the cases
+        /// below are about is the *wording*, and a helper that merely stripped
+        /// the palette off would let the row lose its colour -- or its closing
+        /// reset, which is the one that leaks -- without a single test
+        /// noticing. Asserting the wrapper and returning the middle makes every
+        /// caller a witness to it.
         fn hint(&mut self) -> String {
             self.shell.settle_band(Instant::now());
             let rows = self.shell.band_rows();
-            rows.last().cloned().expect("the band has a hint row")
+            let row = rows.last().cloned().expect("the band has a hint row");
+            // An empty row carries no colour, because there is nothing on it to
+            // colour ([`Shell::painted`]).
+            if row.is_empty() {
+                return row;
+            }
+            let inside = row
+                .strip_prefix(PALETTE.hint())
+                .and_then(|row| row.strip_suffix(PALETTE.reset()))
+                .unwrap_or_else(|| panic!("the hint row was not painted in the palette: {row:?}"));
+            inside.to_string()
         }
 
         /// Plays the runtime taking one piece of work off the channel, which is
@@ -1383,6 +1454,25 @@ mod tests {
         }
     }
 
+    /// The divider row a `cols`-wide band paints, colour and all.
+    fn divider(cols: usize) -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.divider(),
+            "\u{2500}".repeat(cols),
+            PALETTE.reset()
+        )
+    }
+
+    /// The palette every fixture paints in.
+    ///
+    /// The default one, so a test that asserts on a band row asserts on what an
+    /// undecided terminal really gets.
+    const PALETTE: Palette = Palette {
+        mode: super::super::theme::Mode::Dark,
+        depth: super::super::theme::Depth::Ansi256,
+    };
+
     fn shell(rows: u16, cols: u16) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
@@ -1391,6 +1481,7 @@ mod tests {
             shell: Shell::new(
                 &config(home.path(), workspace.path()),
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
+                PALETTE,
                 work,
             ),
             sent,
@@ -1418,9 +1509,37 @@ mod tests {
             "the band's rows and its geometry disagree, so every row below the \
              first missing one is painted a row too high"
         );
-        assert_eq!(rows[0], "\u{2500}".repeat(80), "the divider");
+        assert_eq!(rows[0], divider(80), "the divider");
         assert_eq!(rows[1], "> ", "the composer's prompt marker");
         assert_eq!(rows[2], "", "the hint row is owned and empty");
+    }
+
+    #[test]
+    fn a_band_row_never_outgrows_the_screen_and_so_never_loses_its_reset() {
+        // The painter's clip stops at the first cell that will not fit and
+        // drops everything after it -- an escape sequence included. So a hint
+        // row wider than the screen would reach the terminal with its colour
+        // opened and never closed, on a surface whose rows above the band are
+        // the user's own document and whose next occupant, after xfx exits, is
+        // the user's shell. The row is cut *before* the colour is wrapped
+        // around it for exactly that reason ([`Shell::painted`]).
+        let mut shell = shell(24, 20);
+        shell.notice = Some(QUEUE_REJECTED);
+        assert!(
+            QUEUE_REJECTED.chars().count() > 20,
+            "the notice now fits, so this case no longer forces the cut"
+        );
+        let rows = shell.band_rows();
+        let hint = rows.last().expect("a hint row");
+        assert!(
+            super::super::wrap::width(hint) <= 20,
+            "the hint row is wider than the screen, so the painter's clip will \
+             take its reset off and leave the colour open: {hint:?}"
+        );
+        assert!(
+            hint.ends_with(PALETTE.reset()),
+            "the hint row left its colour open: {hint:?}"
+        );
     }
 
     #[test]
@@ -1429,7 +1548,14 @@ mod tests {
         // off a narrow one -- and with autowrap off, running off is silent.
         for cols in [20u16, 80, 200] {
             let shell = shell(24, cols);
-            assert_eq!(shell.band_rows()[0].chars().count(), usize::from(cols));
+            // Measured in **cells**, by the painter's own rule, because the
+            // row carries the palette now and an escape sequence is characters
+            // that cost no columns.
+            assert_eq!(
+                super::super::wrap::width(&shell.band_rows()[0]),
+                cols,
+                "the rule did not span a {cols}-column screen"
+            );
         }
     }
 
@@ -1441,6 +1567,7 @@ mod tests {
         let shell = Shell::new(
             &config(home.path(), workspace.path()),
             crate::tui::layout::solve(24, 80, 4).expect("a four-row composer"),
+            PALETTE,
             work,
         );
         let rows = shell.band_rows();
@@ -1922,7 +2049,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let idle = shell.geometry;
         assert_eq!(idle.activity, None);
-        assert_eq!(shell.band_rows()[0], RULE.to_string().repeat(80));
+        assert_eq!(shell.band_rows()[0], divider(80));
 
         let started = turn_running(&mut shell, b"ask something\r");
         shell.settle_band(started + Duration::from_secs(2));
@@ -1948,7 +2075,7 @@ mod tests {
         // so this is two seconds exactly however long the rest of the test
         // takes.
         assert!(rows[0].contains("2s"), "{rows:?}");
-        assert_eq!(rows[1], RULE.to_string().repeat(80), "the rule moved");
+        assert_eq!(rows[1], divider(80), "the rule moved");
         assert_eq!(rows.last().expect("a hint row"), "");
     }
 
@@ -2246,7 +2373,13 @@ mod tests {
             "third",
             "a refused submission took the draft with it"
         );
-        assert_eq!(shell.hint(), QUEUE_REJECTED);
+        // In the notice's own colour rather than the row's: a refusal is about
+        // the keystroke that just happened and the rest of the row is about the
+        // state (`render.zig:34,76 system_notice_text_style`).
+        assert_eq!(
+            shell.hint(),
+            format!("{}{QUEUE_REJECTED}", PALETTE.notice())
+        );
         assert!(
             shell.document().is_empty(),
             "the refusal was written into the document as well"

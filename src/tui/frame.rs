@@ -926,12 +926,17 @@ mod tests {
         // The render half of the control policy. Everything above the divider
         // is written straight to the terminal, so a row carrying `\x1b[2J`,
         // `\x1b[?1049h` or an OSC title would have the terminal *execute* it.
-        // Colour is the one shape allowed to travel, because the pacer
-        // re-opens attributes into the rows it writes; the rest is dropped
-        // rather than turned into a space, because the wrap that placed this
-        // row counted it at no cells and a space is one.
-        let row = "a\u{1b}[2Jb\u{1b}[?1049hc\u{1b}]0;title\u{7}d\u{1b}[31me\u{7}f";
-        assert_eq!(row_text(row, 80), "abcd\u{1b}[31mef");
+        // The band's own palette is the one shape allowed to travel
+        // (`super::pacer::colour_at`); the rest is dropped rather than turned
+        // into a space, because the wrap that placed this row counted it at no
+        // cells and a space is one.
+        //
+        // `\x1b[31m` is in the dropped set and is the interesting member of it:
+        // it is a well-formed SGR that no painter here writes, and Task 15
+        // narrowed the allowlist from "any attribute" to "the palette's own"
+        // for exactly that reason.
+        let row = "a\u{1b}[2Jb\u{1b}[?1049hc\u{1b}]0;title\u{7}d\u{1b}[31me\u{1b}[38;5;240mf\u{7}g";
+        assert_eq!(row_text(row, 80), "abcde\u{1b}[38;5;240mfg");
     }
 
     /// Every row of `text` wrapped to `cols`, painted as `place` would paint
@@ -974,11 +979,16 @@ mod tests {
                 "abcd",
                 "an OSC title left a fragment at {cols} columns"
             );
+            assert_eq!(
+                painted("ab\u{1b}[31mcd", cols),
+                "abcd",
+                "an attribute outside the palette left a fragment at {cols} columns"
+            );
             // and the sequence a row *may* keep still arrives whole, at every
             // width, with its text around it
             assert_eq!(
-                painted("ab\u{1b}[31mcd", cols),
-                "ab\u{1b}[31mcd",
+                painted("ab\u{1b}[38;5;240mcd", cols),
+                "ab\u{1b}[38;5;240mcd",
                 "the colour was cut or dropped at {cols} columns"
             );
         }
