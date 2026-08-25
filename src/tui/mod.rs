@@ -222,6 +222,23 @@ fn hold(
     blocked: signals::Blocked,
     band: &mut frame::Band,
 ) -> io::Result<ExitCode> {
+    // **Before `install`, and that is the whole of the ordering.** A new thread
+    // inherits the creating thread's signal mask, and the mask is still the
+    // whole of `block_owned`'s here -- `install` is what lifts the death
+    // signals from it. So the runtime thread starts with `SIGINT`, `SIGTERM`,
+    // `SIGHUP` and `SIGTSTP` all blocked and can never be the thread the kernel
+    // picks to deliver one to, which is what keeps the handlers, the restore
+    // and the stop/resume dance the UI thread's alone. Task 3 recorded that
+    // constraint against whichever task added the process's second thread; this
+    // is that thread.
+    //
+    // The `?` is safe above the caller's restore for the reason every other
+    // failure in this function is: `hold` reports, and `session` restores.
+    // Nothing has been spawned yet when it fires.
+    let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
+    let (mut worker, mut events) =
+        worker::spawn(config.clone(), config.model.clone(), cancel.clone())?;
+
     // The block lifts inside `install`, so anything held across the transition
     // is delivered there. A held `SIGTSTP` is the case that has to be answered
     // here: it stops the process on the way out of `install`, and the stop
@@ -276,7 +293,7 @@ fn hold(
     // anything read afterwards: a Ctrl-D is a Ctrl-D whichever read happened to
     // take it.
     let deferred = cursor.take_deferred();
-    let mut shell = shell::Shell::new(config, geometry);
+    let mut shell = shell::Shell::new(config, geometry, worker.handle());
     event_loop::run(
         &mut shell,
         band,
@@ -286,6 +303,8 @@ fn hold(
             tmux,
             deferred: &deferred,
         },
+        &mut worker,
+        &mut events,
     )
 }
 
@@ -468,6 +487,7 @@ mod shell;
 mod signals;
 mod term;
 mod transcript;
+mod worker;
 mod wrap;
 
 #[cfg(test)]

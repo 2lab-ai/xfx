@@ -17,6 +17,8 @@ use std::time::Instant;
 
 use rustix::process::Signal;
 use rustix::termios::{ControlModes, InputModes, LocalModes};
+use serde_json::Value;
+use support::fake_gateway::FakeGateway;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::Sandbox;
 
@@ -26,6 +28,32 @@ fn tui(sandbox: &Sandbox) -> Command {
     command.env("XFX_TUI", "1");
     command.env_remove("TMUX");
     command
+}
+
+/// A TUI wired to a scripted local Gateway.
+fn tui_with(sandbox: &Sandbox, gateway: &FakeGateway) -> Command {
+    let mut command = sandbox.command_with(gateway);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command
+}
+
+/// The text of every user message in a captured request body.
+///
+/// The same reduction `tests/interactive.rs` performs on the line-oriented
+/// path, because the claim is the same one: what the composer held is what the
+/// provider was asked.
+fn user_messages(body: &Value) -> Vec<String> {
+    body["prompt"]
+        .as_array()
+        .expect("the request carries a prompt")
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .filter_map(|message| message["content"].as_array())
+        .flat_map(|parts| parts.iter())
+        .filter_map(|part| part["text"].as_str())
+        .map(str::to_string)
+        .collect()
 }
 
 /// The bytes that mean the TUI has taken the terminal.
@@ -1032,6 +1060,90 @@ fn a_terminal_too_small_for_a_band_is_refused_with_a_reason() {
 }
 
 // ---------------------------------------------------------------------------
+// a turn
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document() {
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-TURN-", "ONE"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"say the marker");
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-TURN-ONE");
+
+    // The prompt xfx actually sent carries what was typed -- the screen looking
+    // right is not evidence that anything was sent.
+    let body = gateway.only_request().json();
+    let sent = user_messages(&body);
+    assert!(
+        sent.iter()
+            .any(|message| message.contains("say the marker")),
+        "the composer's text never reached the wire: {sent:?}"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(sandbox.session_ids().len(), 1, "the turn was not recorded");
+}
+
+#[test]
+fn a_second_prompt_while_a_turn_is_running_is_refused_where_the_user_can_see_it() {
+    // Against a **running** worker, which is the only place the claim can be
+    // tested: the work channel's one slot is emptied the instant the runtime
+    // takes the prompt, so from here on the channel says "room" for the whole
+    // length of the turn. A refusal that asked it would accept this second
+    // prompt silently and run it when the first one ended.
+    //
+    // `SseThenHang` is what keeps the first turn running: the body arrives, the
+    // connection does not close, and the turn is still in flight while the
+    // second prompt is typed.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "d",
+            "FIRST-TURN-RUNNING",
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"first\r");
+
+    // Response-only: the answer's own text, so the turn is provably under way
+    // rather than merely submitted.
+    session.wait_for("FIRST-TURN-RUNNING");
+
+    session.type_bytes(b"second\r");
+
+    // Response-only as well -- nothing this test types contains it.
+    session.wait_for("a turn is already running");
+
+    // The draft was not thrown away with the refusal, so leaving takes clearing
+    // the composer first: Ctrl-D from a composer with text in it is a forward
+    // delete, which is what makes this a real check that the text is still
+    // there rather than a coincidence.
+    session.type_bytes(&[0x05, 0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(
+        gateway.request_count(),
+        1,
+        "the refused prompt ran as a surprise turn anyway"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // the failures a shipped build cannot produce
 // ---------------------------------------------------------------------------
 //
@@ -1045,6 +1157,8 @@ fn a_terminal_too_small_for_a_band_is_refused_with_a_reason() {
 #[cfg(feature = "fault-injection")]
 mod faults {
     use super::*;
+
+    use std::time::Duration;
 
     /// A TUI invocation that has been asked to fail at `fault`.
     fn faulty(sandbox: &Sandbox, fault: &str) -> Command {
@@ -1117,6 +1231,122 @@ mod faults {
             "the owner's own exit did not restore: {text:?}"
         );
         assert_eq!(before, modes(&pty), "the terminal was left changed");
+    }
+
+    #[test]
+    fn a_worker_panic_arrives_as_data_and_the_ui_restores_before_printing_it() {
+        // The double-writer bug this rules out is invisible to a test that only
+        // asserts "it exited".
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+            support::fake_gateway::content_only(&["unused"]),
+        )]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_TUI_FAULT", "worker-turn");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"anything\r");
+
+        let status = session.wait_exit();
+        assert!(!status.success(), "a worker panic exited zero");
+        // Settled rather than snapshotted: the ordering below is about the last
+        // bytes the process writes, and a snapshot taken the instant it was
+        // reaped can be missing them.
+        let text = session.settled_text();
+        // **Exactly once**, and this is the assertion that makes the ordering
+        // one below mean anything. The runtime thread's panic runs the process
+        // panic hook *before* it is caught, so a hook that reported it would
+        // put a first copy on a terminal that is still raw and mid-frame -- and
+        // an ordering test that looked for the *last* copy would be satisfied
+        // by the UI's own, laundering the raw one it was written to catch.
+        assert_eq!(
+            text.matches("a turn panicked").count(),
+            1,
+            "the panic was reported twice: once by a thread that owns no \
+             terminal, and once by the UI: {text:?}"
+        );
+        let restore = text.find("\u{1b}[?2004l").expect("the UI restored");
+        let message = text
+            .find("a turn panicked")
+            .expect("the panic reached the user");
+        assert!(
+            restore < message,
+            "the panic was printed into a raw terminal: {text:?}"
+        );
+        assert_eq!(before, modes(&pty));
+    }
+
+    #[test]
+    fn quitting_mid_stream_with_a_slow_ui_still_exits_and_still_publishes_the_log() {
+        // A turn that is still running when the user leaves, against a server
+        // that has said everything it is going to say and will not hang up.
+        //
+        // **What this proves is the deadline, and it is worth being exact about
+        // that.** The runtime thread does not conclude here: the transport is
+        // awaiting bytes from a socket that will never produce another one, and
+        // the cancellation it polls is read *between* reads, so a quiet socket
+        // never delivers it -- `gateway/` is outside this plan's boundary and
+        // the awaitable half of the pair reaches only the `UiEvent` channel.
+        // Measured: the session log this leaves records the turn as
+        // `outcome=unfinished`, which is the honest word for it.
+        //
+        // So the property under test is that none of that can hold the user's
+        // terminal: the UI drains what the worker did produce, gives up on the
+        // rest at `worker::DRAIN_DEADLINE`, closes the channel, waits out a
+        // bounded join, and restores -- leaving a readable session log and a
+        // `termios` byte for byte what it was. The drain's other half, the one
+        // where the worker *does* conclude and the UI keeps receiving until it
+        // says so, is proven deterministically in
+        // `worker::tests::the_drain_keeps_receiving_until_the_turn_says_it_is_over`;
+        // a pty cannot be made to interleave those two threads on demand.
+        let mut deltas: Vec<Value> = (0..2000)
+            .map(|n| support::fake_gateway::text_delta("d", &format!("chunk-{n} ")))
+            .collect();
+        deltas.push(support::fake_gateway::finish("stop"));
+        let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+            support::fake_gateway::sse_body(&deltas),
+        ])]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_TUI_FAULT", "slow-ui");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"stream a lot\r");
+        session.wait_for("chunk-0");
+
+        session.type_bytes(&[0x04]);
+        let started = Instant::now();
+        assert_eq!(session.wait_exit().code(), Some(0), "the drain deadlocked");
+        // Near what the protocol actually promises rather than an order of
+        // magnitude above it: `worker::DRAIN_DEADLINE` (2 s) plus `JOIN_GRACE`
+        // (250 ms) plus room for a loaded machine's scheduling. A ten-second
+        // bound would pass a deadline that had quietly stopped being enforced.
+        // Measured here: 2.6-2.8 s.
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the drain outlived its deadline: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(before, modes(&pty));
+
+        // A torn manifest is worse than a slow exit: the session must still read.
+        let listed = Command::new(env!("CARGO_BIN_EXE_xfx"))
+            .arg("session")
+            .arg("last")
+            .current_dir(&sandbox.workspace)
+            .env("HOME", &sandbox.home)
+            .output()
+            .expect("read the session back");
+        assert!(
+            listed.status.success(),
+            "the session log was left unreadable: {listed:?}"
+        );
     }
 
     #[test]

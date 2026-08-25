@@ -18,13 +18,12 @@ pub(crate) enum Fault {
     /// A panic on a thread that does **not** own the terminal: the hook must
     /// leave the terminal exactly as the owner left it.
     NonOwnerPanic,
-    // Consumed by the worker and the frame budget, which are Task 11 of this
-    // plan. They are named here rather than there because the environment
-    // variable's vocabulary is this one enum, and a second place to add a
-    // spelling is a second place for the two to disagree.
-    #[allow(dead_code)]
+    /// A panic **inside a turn**, on the runtime thread: it must reach the user
+    /// as data rather than as a second writer on the terminal.
     WorkerTurn,
-    #[allow(dead_code)]
+    /// A UI too slow to keep up with what it asked for: it fills the `UiEvent`
+    /// channel and parks the producer in `send().await`, which is the state the
+    /// drain protocol has to get a session out of.
     SlowUi,
 }
 

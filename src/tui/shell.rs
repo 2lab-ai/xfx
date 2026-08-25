@@ -53,15 +53,33 @@
 //! for it is not a state to draw but a *queue of writes it owes* -- one
 //! [`Append`] per push, drained by the loop before the frame, because an append
 //! scrolls the screen and a band painted first would be carried up with it.
+//!
+//! # The turn
+//!
+//! A submitted line is offered to the runtime thread and echoed into the
+//! document, and what comes back is a [`UiEvent`] this module turns into more
+//! document rows ([`Shell::apply`]). The two directions never meet in the
+//! middle: nothing here awaits anything, and nothing here writes a byte -- the
+//! submission is a `try_send` that refuses rather than waits, and the events
+//! are text that becomes an [`Append`] like any other.
+//!
+//! One event is not a document row. [`UiEvent::Fatal`] is the runtime saying it
+//! cannot go on, and there is nothing useful to paint about it into a band that
+//! is about to be taken down: it is *remembered* ([`Shell::fatal`]) and the
+//! session leaves, so the message is printed by the ordinary failure path --
+//! on a terminal that has been given back first.
 
 use std::time::Instant;
 
+use super::bridge::{TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::render_request::{Reason, RenderRequest};
 use super::transcript::{Append, Transcript};
+use super::worker::{Rejected, WorkHandle};
 use crate::config::RuntimeConfig;
+use crate::output::safe_one_line;
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -77,6 +95,29 @@ const GUTTER: &str = "  ";
 /// How many cells [`PROMPT`] occupies, and therefore where an empty composer's
 /// caret sits.
 const PROMPT_CELLS: u16 = 2;
+
+/// How much of a refused tool's own words a notice quotes back.
+///
+/// The same bound the line-oriented path gives a tool notice
+/// (`src/output.rs:1062`), spelled again rather than shared because that one is
+/// private to a module this task does not own. Both are there for the same
+/// reason: what a tool says about why it refused is for whoever needs it in
+/// full, and never for a row of the terminal's document.
+const TOOL_DETAIL_BYTES: usize = 120;
+
+/// What the user is told when a second prompt arrives while one is running.
+///
+/// Visible rather than silent, because the work channel holds exactly one item
+/// and a submission it will not take has to be a refusal the user can see. The
+/// queue itself -- keeping the draft, and letting one prompt wait -- is Task
+/// 12's; this is the part that must not be a silent drop in the meantime.
+const BUSY_NOTICE: &str = "xfx: a turn is already running; that line was not sent";
+
+/// What the user is told when the runtime thread is not there to take work.
+///
+/// Told apart from [`BUSY_NOTICE`] on purpose: a runtime that is gone is not a
+/// runtime that is busy, and a fatal event is already on its way to say so.
+const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
 
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
@@ -109,11 +150,16 @@ pub(crate) struct Shell {
     /// two frames and their scrolls do not merge: the second one's rows are
     /// measured against a screen the first one already moved.
     pending: Vec<Append>,
+    /// Where a submitted line goes.
+    work: WorkHandle,
+    /// Why the session is ending, when it is ending because the runtime cannot
+    /// go on. Printed by the caller **after** the terminal has been restored.
+    fatal: Option<String>,
     leaving: bool,
 }
 
 impl Shell {
-    pub(crate) fn new(config: &RuntimeConfig, geometry: Geometry) -> Self {
+    pub(crate) fn new(config: &RuntimeConfig, geometry: Geometry, work: WorkHandle) -> Self {
         Self {
             geometry,
             // A session that has drawn nothing owes a frame. Requesting it here
@@ -132,6 +178,8 @@ impl Shell {
             // against a different width would wrap where the screen does not.
             transcript: Transcript::new(geometry.cols),
             pending: Vec::new(),
+            work,
+            fatal: None,
             leaving: false,
         }
     }
@@ -239,6 +287,87 @@ impl Shell {
     /// Takes the document writes this session owes, oldest first.
     pub(crate) fn take_pending(&mut self) -> Vec<Append> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// Shows what the runtime just did.
+    ///
+    /// Exhaustive on purpose: a [`UiEvent`] added later has to be given a home
+    /// here rather than falling into a wildcard that drops it -- and a dropped
+    /// event is a tool that ran invisibly or a turn that ended without saying
+    /// so.
+    pub(crate) fn apply(&mut self, event: UiEvent) {
+        match event {
+            // The answer, as it arrives. A delta that only lengthens the last
+            // row rewrites that row where it already is.
+            UiEvent::Delta(text) => self.write_transcript(&text),
+            // The same two sentences `xfx ask --tool-notices` puts on the
+            // diagnostic stream (`output.rs:1154-1174`), so a tool means the
+            // same thing on both surfaces.
+            UiEvent::ToolStart { tool, .. } => {
+                self.write_document_line(&format!("[tool] {tool} running"))
+            }
+            UiEvent::ToolResult {
+                tool, ok, detail, ..
+            } => {
+                let line = if ok {
+                    format!("[tool] {tool} ok")
+                } else {
+                    format!(
+                        "[tool] {tool} refused: {}",
+                        safe_one_line(&detail, TOOL_DETAIL_BYTES)
+                    )
+                };
+                self.write_document_line(&line);
+            }
+            UiEvent::Notice(text) => self.write_document_line(&text),
+            // Unreachable in this phase, and provably so rather than by
+            // omission: the runtime thread builds its `PermissionSession` with
+            // no prompter at all (`super::worker`), so nothing on the far side
+            // of this channel can ask a question. Task 17 attaches the prompter
+            // and the panel that answers it.
+            UiEvent::Approval(_) => {}
+            UiEvent::TurnEnded { failure } => {
+                self.finish_document_line();
+                if let Some(failure) = failure {
+                    self.write_document_line(&failure);
+                }
+            }
+            // Not a row. The band is about to come down, and the message is for
+            // a cooked terminal.
+            UiEvent::Fatal(message) => {
+                self.finish_document_line();
+                self.fatal = Some(message);
+                self.leave();
+            }
+        }
+    }
+
+    /// Why the session is ending, when the runtime is why.
+    pub(crate) fn fatal(&self) -> Option<&str> {
+        self.fatal.as_deref()
+    }
+
+    /// Puts one whole line into the document, on rows of its own.
+    ///
+    /// A notice must not land in the middle of a sentence, so whatever the
+    /// answer had open is closed first.
+    fn write_document_line(&mut self, line: &str) {
+        self.finish_document_line();
+        self.write_transcript(line);
+        self.end_transcript_line();
+    }
+
+    /// Ends the document's current line, if there is one open.
+    ///
+    /// The guard is the difference between "end the line" and "leave a blank
+    /// row": a transcript already at the start of a line has no unfinished row,
+    /// and [`Transcript::end_line`] answers a second request for one with a
+    /// blank row of its own -- which is right for two breaks in an answer and
+    /// wrong for two notices in a row.
+    fn finish_document_line(&mut self) {
+        if self.transcript.tail_rows() > 0 {
+            self.end_transcript_line();
+        }
     }
 
     /// Whether the session is on its way out.
@@ -355,22 +484,34 @@ impl Shell {
         }
     }
 
-    /// Sends what has been composed.
+    /// Sends what has been composed to the runtime.
     ///
-    /// Task 11 hands it to the worker. Until then the composer is cleared and
-    /// the text is appended to the terminal's document, so that a submission is
-    /// something the session visibly did rather than something that vanished.
+    /// The offer comes **before** the composer is cleared, which is the whole
+    /// of the ordering: a submission the runtime will not take must not have
+    /// already thrown the draft away. What it takes is echoed into the
+    /// terminal's document, so a submission is something the session visibly
+    /// did rather than something that vanished.
     fn submit(&mut self) {
-        let text = self.editor.take();
-        self.edited();
-        if text.is_empty() {
+        if self.editor.is_empty() {
             return;
         }
-        self.write_transcript(&text);
-        // The line ends whether or not the last thing typed was a newline: what
-        // was submitted is finished, and a tail left open would be continued by
-        // whatever is written next.
-        self.end_transcript_line();
+        let text = self.editor.text().to_string();
+        match self.work.submit(TurnWork::Submit(text.clone())) {
+            Ok(()) => {
+                self.editor.take();
+                self.edited();
+                self.write_transcript(&text);
+                // The line ends whether or not the last thing typed was a
+                // newline: what was submitted is finished, and a tail left open
+                // would be continued by the answer.
+                self.end_transcript_line();
+            }
+            // Visible, never silent, and the draft stays where it is -- there
+            // is nowhere else for it to be. Task 12 owns letting one prompt
+            // wait instead of refusing it.
+            Err(Rejected::Busy) => self.write_document_line(BUSY_NOTICE),
+            Err(Rejected::Gone) => self.write_document_line(GONE_NOTICE),
+        }
     }
 
     /// What every change to the composer owes: a frame, and a band the right
@@ -412,6 +553,10 @@ mod tests {
 
     use std::collections::BTreeMap;
 
+    use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
+
+    use super::super::bridge::TurnControl;
+
     use crate::config::Environment;
 
     /// A configuration with nothing in it, from a home and a workspace that
@@ -426,13 +571,58 @@ mod tests {
         .expect("load a configuration")
     }
 
-    fn shell(rows: u16, cols: u16) -> Shell {
+    /// A shell, and the runtime end of the channels it submits through.
+    ///
+    /// The receivers are part of the fixture rather than dropped: dropping one
+    /// closes its channel, and a submission to a closed channel is a
+    /// [`Rejected::Gone`] -- so a fixture that let them go would put every case
+    /// here on a path no real session takes. It derefs to the shell, which is
+    /// what the cases are actually about.
+    struct Fixture {
+        shell: Shell,
+        /// What the shell handed the runtime, in order.
+        sent: Receiver<TurnWork>,
+        _control: UnboundedReceiver<TurnControl>,
+    }
+
+    impl std::ops::Deref for Fixture {
+        type Target = Shell;
+
+        fn deref(&self) -> &Shell {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Fixture {
+        fn deref_mut(&mut self) -> &mut Shell {
+            &mut self.shell
+        }
+    }
+
+    impl Fixture {
+        /// Everything the document owes, as the text of its rows.
+        fn document(&mut self) -> Vec<String> {
+            self.shell
+                .take_pending()
+                .into_iter()
+                .flat_map(|append| append.rows)
+                .collect()
+        }
+    }
+
+    fn shell(rows: u16, cols: u16) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
-        Shell::new(
-            &config(home.path(), workspace.path()),
-            crate::tui::layout::solve(rows, cols, 1).expect("a band"),
-        )
+        let (work, sent, _control) = WorkHandle::detached();
+        Fixture {
+            shell: Shell::new(
+                &config(home.path(), workspace.path()),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
+                work,
+            ),
+            sent,
+            _control,
+        }
     }
 
     #[test]
@@ -474,9 +664,11 @@ mod tests {
     fn a_taller_composer_gets_one_row_each_and_the_marker_stays_on_the_first() {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
+        let (work, _sent, _control) = WorkHandle::detached();
         let shell = Shell::new(
             &config(home.path(), workspace.path()),
             crate::tui::layout::solve(24, 80, 4).expect("a four-row composer"),
+            work,
         );
         let rows = shell.band_rows();
         assert_eq!(rows.len(), 6, "divider, four composer rows, hint");
@@ -892,5 +1084,169 @@ mod tests {
                 "a band row ran past the screen: {row:?}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // the turn
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_submitted_line_is_handed_to_the_runtime_and_echoed_into_the_document() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"say the marker");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.sent.try_recv(),
+            Ok(TurnWork::Submit("say the marker".to_string())),
+            "the composer's text never reached the runtime"
+        );
+        assert_eq!(shell.document(), vec!["say the marker".to_string()]);
+        assert!(shell.editor.is_empty(), "the composer kept a sent draft");
+    }
+
+    #[test]
+    fn a_submission_the_runtime_will_not_take_keeps_the_draft_and_says_so() {
+        // The ordering this is really about: the offer comes before the
+        // composer is cleared, so a refusal cannot have already thrown the
+        // draft away. One turn runs at a time and the work channel holds one
+        // item, so a second submission is a full channel.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first");
+        shell.route_bytes(&[0x0d]);
+        let _ = shell.document();
+
+        shell.route_bytes(b"second");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.editor.text(),
+            "second",
+            "a refused submission took the draft with it"
+        );
+        assert_eq!(shell.document(), vec![BUSY_NOTICE.to_string()]);
+    }
+
+    #[test]
+    fn a_submission_to_a_runtime_that_is_gone_says_that_instead_of_busy() {
+        let mut shell = shell(24, 80);
+        // The runtime end, dropped: the thread is gone and its channel with it.
+        let (dead, work_rx, control_rx) = WorkHandle::detached();
+        drop(work_rx);
+        drop(control_rx);
+        shell.shell.work = dead;
+
+        shell.route_bytes(b"anything");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(shell.document(), vec![GONE_NOTICE.to_string()]);
+    }
+
+    #[test]
+    fn the_answer_arrives_as_deltas_and_lands_in_the_document() {
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("MARKER-TURN-".to_string()));
+        shell.apply(UiEvent::Delta("ONE".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+
+        // The last row is rewritten in place as it lengthens, so the row the
+        // document keeps is the whole answer rather than its first fragment.
+        assert_eq!(
+            shell.document().last().map(String::as_str),
+            Some("MARKER-TURN-ONE")
+        );
+    }
+
+    #[test]
+    fn a_tool_that_refused_says_so_where_the_user_can_read_it() {
+        // The fail-closed half of this phase: `ask` mode has no approval
+        // channel in the TUI yet, so a mutation is denied -- and a denial
+        // nobody can see is the same as no denial at all.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::ToolStart {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+            ok: false,
+            detail: "no approval channel".to_string(),
+        });
+
+        assert_eq!(
+            shell.document(),
+            vec![
+                "[tool] write_file running".to_string(),
+                "[tool] write_file refused: no approval channel".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn two_notices_in_a_row_do_not_put_a_blank_row_between_them() {
+        // `Transcript::end_line` answers a request to end a line that is
+        // already ended with a blank row of its own -- which is right for two
+        // breaks in an answer and wrong for two notices. Without the guard in
+        // `finish_document_line` every notice after the first costs the
+        // document an empty row it can never take back.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Notice("first".to_string()));
+        shell.apply(UiEvent::Notice("second".to_string()));
+
+        assert_eq!(
+            shell.document(),
+            vec!["first".to_string(), "second".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_notice_that_lands_mid_answer_gets_a_row_of_its_own() {
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("half a sentence".to_string()));
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+
+        assert_eq!(
+            shell.document(),
+            vec![
+                "half a sentence".to_string(),
+                "[tool] read_file ok".to_string()
+            ],
+            "a notice was written into the middle of the answer's row"
+        );
+    }
+
+    #[test]
+    fn a_turn_that_failed_says_why_in_the_document() {
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("part of an answer".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+
+        assert_eq!(
+            shell.document(),
+            vec![
+                "part of an answer".to_string(),
+                "the turn was cancelled".to_string()
+            ]
+        );
+        assert!(!shell.leaving(), "a failed turn ended the session");
+        assert_eq!(shell.fatal(), None);
+    }
+
+    #[test]
+    fn a_fatal_ends_the_session_and_is_remembered_rather_than_painted() {
+        // It is not a document row: the band is about to come down, and the
+        // message belongs on a terminal that has been given back first.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Fatal("a turn panicked".to_string()));
+
+        assert!(shell.leaving(), "a fatal did not end the session");
+        assert_eq!(shell.fatal(), Some("a turn panicked"));
+        assert!(
+            !shell.document().iter().any(|row| row.contains("panicked")),
+            "the fatal was painted into a band that is about to be taken down"
+        );
     }
 }

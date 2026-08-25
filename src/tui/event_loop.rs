@@ -47,16 +47,32 @@
 //!   append scrolls the whole screen -- the band's own rows with it -- so a
 //!   frame painted before one would be carried a row up and left there until
 //!   something else asked for a repaint.
+//!
+//! The runtime's events are taken in the same turn, between the read and the
+//! second reconcile: they are text, not terminal state, so they belong with
+//! [`Shell::settle_input`] rather than inside [`collect_facts`] -- and keeping
+//! them out of that function is what lets the exit's drain reconcile and paint
+//! without racing itself for the same channel. Nothing wakes the wait for
+//! them; the [`TICK`] is what bounds how long an arrived delta waits, which is
+//! the same bound it puts on everything else the band shows.
+//!
+//! Leaving is [`worker::Worker::shutdown`] -- the drain protocol -- on **every**
+//! exit path, because the alternative is a runtime thread still parked in a
+//! `send().await` on a channel nobody will ever read again.
 
 use std::io::{self, Write};
 use std::os::fd::AsFd;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use tokio::sync::mpsc::Receiver;
+
+use super::bridge::{self, UiEvent};
 use super::frame::Band;
 use super::render_request::Reason;
 use super::shell::Shell;
 use super::signals::{self, Held, Wakeup};
+use super::worker::{self, Worker};
 
 /// The fixed tick. A turn that nothing woke still comes round this often, which
 /// is what bounds how stale the band can be.
@@ -89,6 +105,14 @@ pub(crate) const BURST_BYTES: usize = 128;
 /// also nothing on an exit path, so there is no cost on the other side.
 pub(crate) const FRAME_BUDGET: Duration = Duration::from_millis(500);
 
+/// What a frame costs a build that was asked to be too slow to keep up.
+///
+/// Five ticks, so a run of them is unambiguously slower than a producer that
+/// is filling a 256-deep channel -- which is the state the drain protocol is
+/// measured in.
+#[cfg(feature = "fault-injection")]
+const SLOW_FRAME: Duration = Duration::from_millis(40);
+
 /// What the loop needs from the session that started it and cannot re-derive.
 ///
 /// The `Held` is the proof that the stop signal is still blocked outside the
@@ -106,8 +130,86 @@ pub(crate) struct Launch<'a> {
     pub(crate) deferred: &'a [u8],
 }
 
-/// Runs the session until it leaves.
-pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io::Result<ExitCode> {
+/// Runs the session until it leaves, and stops the runtime behind it.
+///
+/// The drain runs on **every** way out of [`session`], including a failure,
+/// which is the whole reason the two are separate functions: a runtime thread
+/// parked in `send().await` on a channel the UI has stopped reading is a thread
+/// that never returns, and the exit that abandoned it would hang in the join
+/// rather than in anything a reader could name.
+///
+/// Which failure is reported is decided here too, and the order is: the
+/// session's own failure first -- it is the one that says why the session
+/// ended -- then a screen that broke during the drain, then a runtime that
+/// could not go on. Anything the drain produced after a session that had
+/// already failed is a second symptom of the same thing.
+pub(crate) fn run(
+    shell: &mut Shell,
+    band: &mut Band,
+    launch: &Launch<'_>,
+    worker: &mut Worker,
+    events: &mut Receiver<UiEvent>,
+) -> io::Result<ExitCode> {
+    let mut failures = FrameFailures::default();
+    let outcome = session(shell, band, launch, events, &mut failures);
+
+    // A screen that already refused the session's last frame is not a screen to
+    // keep painting into; the events are still applied, because one of them may
+    // be the `Fatal` that explains everything.
+    let painting = outcome.is_ok();
+    let mut broken: Option<io::Error> = None;
+    worker.shutdown(events, Instant::now() + worker::DRAIN_DEADLINE, |event| {
+        let reconciled = if painting && broken.is_none() {
+            match collect_facts(shell, launch) {
+                Ok(token) => Some(token),
+                Err(err) => {
+                    broken = Some(err);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        match reconciled {
+            Some(token) => {
+                if let Err(err) = drained(
+                    shell,
+                    band,
+                    &mut io::stdout().lock(),
+                    &mut failures,
+                    Instant::now(),
+                    token,
+                    event,
+                ) {
+                    broken = Some(err);
+                }
+            }
+            // Shown but not painted: the screen is gone or has already refused,
+            // and the event may still be the `Fatal` that says why.
+            None => shell.apply(event),
+        }
+    });
+
+    let code = outcome?;
+    if let Some(err) = broken {
+        return Err(err);
+    }
+    match shell.fatal() {
+        // Reported rather than painted, so it lands on a terminal `hold`'s
+        // caller has already given back.
+        Some(message) => Err(io::Error::other(message.to_string())),
+        None => Ok(code),
+    }
+}
+
+/// One session: wait, reconcile, read, reconcile, commit, until it leaves.
+fn session(
+    shell: &mut Shell,
+    band: &mut Band,
+    launch: &Launch<'_>,
+    events: &mut Receiver<UiEvent>,
+    failures: &mut FrameFailures,
+) -> io::Result<ExitCode> {
     // The probe's leftovers are the session's first bytes, and they go into the
     // same decoder every later read does -- `Shell::route_bytes` is that
     // decoder's only door -- so a sequence the user typed across the report's
@@ -122,7 +224,6 @@ pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io
 
     let stdin = io::stdin();
     let mut buffer = [0u8; BURST_BYTES];
-    let mut failures = FrameFailures::default();
     loop {
         match signals::wait_for_input(
             &[stdin.as_fd(), launch.wakeup.read_fd()],
@@ -151,6 +252,9 @@ pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io
         // next keystroke. It reads no terminal and writes none, which is why it
         // is outside the two reconciles rather than between them.
         shell.settle_input(Instant::now());
+        // What the runtime produced since the last turn. Text, not terminal
+        // state, and therefore outside the reconciles for the same reason.
+        take_ui_events(shell, events);
         // Before a frame is painted: the burst's own readiness checks are waits
         // too, so a stop could have landed inside one of them. The first token
         // was spent on the read, so this reconcile is not optional -- it is the
@@ -160,15 +264,68 @@ pub(crate) fn run(shell: &mut Shell, band: &mut Band, launch: &Launch<'_>) -> io
             shell,
             band,
             &mut io::stdout().lock(),
-            &mut failures,
+            failures,
             Instant::now(),
             reconciled,
         )?;
+
+        // The matrix row for a UI that cannot keep up with what it asked for.
+        // A frame that costs this much is what fills the `UiEvent` channel and
+        // parks the producer in `send().await`, which is the state the drain
+        // protocol exists to get out of.
+        #[cfg(feature = "fault-injection")]
+        if super::fault::injected(super::fault::Fault::SlowUi) {
+            std::thread::sleep(SLOW_FRAME);
+        }
 
         if shell.leaving() {
             return Ok(ExitCode::SUCCESS);
         }
     }
+}
+
+/// Takes what the runtime has produced, in order, and shows it.
+///
+/// Bounded at the channel's own depth rather than drained until empty: a
+/// producer that can fill it faster than the band can be painted would
+/// otherwise keep this turn from ever reaching its frame, and a UI that stopped
+/// painting because it was busy being told things is the failure this bound
+/// exists to prevent. What is left over is taken by the next turn, [`TICK`]
+/// later at the latest.
+fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
+    for _ in 0..bridge::UI_EVENTS {
+        match events.try_recv() {
+            Ok(event) => shell.apply(event),
+            // Empty, or a runtime that is gone -- and a runtime that is gone
+            // said so with a `Fatal` before its sender dropped, so there is
+            // nothing here that has to be inferred from a closed channel.
+            Err(_) => return,
+        }
+    }
+}
+
+/// What the drain does with one event it took: show it, and paint what showing
+/// it owed.
+///
+/// **Both halves, and the second one is a contract rather than a courtesy.**
+/// Draining alone would be enough to get a session *out* -- it is what frees
+/// the producer's permits and lets a parked turn reach its own conclusion -- so
+/// deleting the paint here leaves every acceptance case green while silently
+/// dropping the tail of an answer and the sentence saying why the turn ended.
+/// That is the whole of what a user gets to keep from a turn they interrupted,
+/// and Phase 1 never repaints a document row, so what is not written here is
+/// gone. Named, and taking its writer, so that is a thing a test can hold.
+fn drained(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+    event: UiEvent,
+) -> io::Result<()> {
+    shell.apply(event);
+    commit_frame(shell, band, out, failures, now, reconciled)
 }
 
 /// Proof that the terminal's state has been reconciled since the last wait.
@@ -410,7 +567,33 @@ mod tests {
         }
     }
 
-    fn shell() -> Shell {
+    /// A shell, and the runtime end of the channels it submits through.
+    ///
+    /// The receivers are kept rather than dropped: dropping one closes its
+    /// channel, and a shell whose runtime channel is closed is not the shell
+    /// any of these cases mean to paint. Nothing here submits, so they are
+    /// held and not read.
+    struct Fixture {
+        shell: Shell,
+        _work: tokio::sync::mpsc::Receiver<crate::tui::bridge::TurnWork>,
+        _control: tokio::sync::mpsc::UnboundedReceiver<crate::tui::bridge::TurnControl>,
+    }
+
+    impl std::ops::Deref for Fixture {
+        type Target = Shell;
+
+        fn deref(&self) -> &Shell {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Fixture {
+        fn deref_mut(&mut self) -> &mut Shell {
+            &mut self.shell
+        }
+    }
+
+    fn shell() -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = RuntimeConfig::load_with(
@@ -418,10 +601,99 @@ mod tests {
             workspace.path(),
         )
         .expect("load a configuration");
-        Shell::new(
-            &config,
-            crate::tui::layout::solve(24, 80, 1).expect("a band"),
+        let (work, _work, _control) = crate::tui::worker::WorkHandle::detached();
+        Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(24, 80, 1).expect("a band"),
+                work,
+            ),
+            _work,
+            _control,
+        }
+    }
+
+    /// A screen that takes everything and remembers it.
+    fn screen() -> FlakyScreen {
+        FlakyScreen {
+            refusals: 0,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_event_the_drain_takes_reaches_the_screen_and_not_only_the_shell() {
+        // The shutdown contract's second half. Draining alone is enough to
+        // *exit*: it frees the producer's permits, which is what lets a parked
+        // turn reach its conclusion, so a drain that received and painted
+        // nothing leaves every pty case green -- and drops the tail of the
+        // answer and the sentence saying why the turn ended. Phase 1 never
+        // repaints a document row, so those bytes are the user's only copy.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+
+        drained(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+            UiEvent::Delta("TAIL-OF-THE-ANSWER".to_string()),
         )
+        .expect("the screen took the frame");
+        drained(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+            UiEvent::TurnEnded {
+                failure: Some("WHY-THE-TURN-ENDED".to_string()),
+            },
+        )
+        .expect("the screen took the frame");
+
+        let written = String::from_utf8_lossy(&out.written);
+        assert!(
+            written.contains("TAIL-OF-THE-ANSWER"),
+            "the drain took the answer's tail and never wrote it: {written:?}"
+        );
+        assert!(
+            written.contains("WHY-THE-TURN-ENDED"),
+            "the drain took the turn's conclusion and never wrote it: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_fatal_the_drain_takes_is_remembered_rather_than_written_into_the_band() {
+        // The one event that is not a document row: it is for a cooked
+        // terminal, and the caller prints it after the restore.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+
+        drained(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+            UiEvent::Fatal("A-TURN-CAME-APART".to_string()),
+        )
+        .expect("the screen took the frame");
+
+        assert_eq!(shell.fatal(), Some("A-TURN-CAME-APART"));
+        assert!(
+            !String::from_utf8_lossy(&out.written).contains("A-TURN-CAME-APART"),
+            "the fatal was painted into a band that is about to come down"
+        );
     }
 
     fn at(start: Instant, millis: u64) -> Instant {
