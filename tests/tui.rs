@@ -1295,6 +1295,10 @@ fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_promp
         !sent.contains('\u{1b}'),
         "an escape sequence reached the model as text: {sent:?}"
     );
+    // And exactly that, rather than that-and-something-else: the filter dropped
+    // the `0x03` and the `ESC`, kept the `[A` that followed the escape as the
+    // ordinary characters they are, and changed nothing else.
+    assert_eq!(sent, "first line\nsecond line\n[Athird line");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -1333,6 +1337,7 @@ fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
         !sent.contains("Pasted text #1"),
         "the summary was sent instead of the text"
     );
+    assert_eq!(sent, block, "the block was not sent as it was pasted");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));

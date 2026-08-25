@@ -1191,21 +1191,40 @@ impl Shell {
             self.render.request(Reason::Footer);
             return;
         }
-        let text = match &pasted {
-            Pasted::Inline(text) => text.as_str(),
+        match pasted {
+            Pasted::Inline(text) => {
+                // An empty paste is not an edit: asking for a frame and
+                // re-solving the band for a composer nobody changed is the
+                // repaint [`Self::clear_composer`] guards against for the same
+                // reason.
+                if text.is_empty() {
+                    return;
+                }
+                if self.editor.insert(&text) {
+                    self.edited();
+                }
+            }
             // The screen gets the summary; `Paste::expand` is what puts the
             // text back, at submit, so 1800 codepoints are never painted into
             // a band and never re-wrapped by the next keystroke.
-            Pasted::Collapsed { summary, .. } => summary.as_str(),
-        };
-        // An empty paste is not an edit: asking for a frame and re-solving the
-        // band for a composer nobody changed is the repaint
-        // [`Self::clear_composer`] guards against for the same reason.
-        if text.is_empty() {
-            return;
-        }
-        if self.editor.insert(text) {
-            self.edited();
+            Pasted::Collapsed { summary, .. } => {
+                // **Which copy of its own name this one is.** Those words can
+                // already be in the draft -- typed, or pasted back off the
+                // screen -- and the block has to stand for the copy the paste
+                // is about to put there rather than for the first one that
+                // happens to match. Counted in front of the caret, because
+                // that is where the insertion lands; anything after it is a
+                // later copy and is not this block's.
+                let occurrence = self.editor.before_caret().matches(&summary).count();
+                if self.editor.insert(&summary) {
+                    self.paste.placed(occurrence);
+                    self.edited();
+                } else {
+                    // The composer refused it, so the summary is nowhere and
+                    // the block stands for nothing.
+                    self.paste.unplaced();
+                }
+            }
         }
     }
 
@@ -2336,6 +2355,71 @@ mod tests {
             shell.picks_up(),
             TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
             "a block the draft no longer held was expanded into a later prompt"
+        );
+    }
+
+    #[test]
+    fn a_summary_the_user_typed_a_second_copy_of_is_only_words() {
+        // The words of a summary are on the screen where the user can read and
+        // retype them. One of the copies in a draft is the placeholder; the
+        // rest are text, and a block that expanded into all of them would send
+        // the paste as many times as the draft says its name.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(b" and [Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(format!("{block} and [Pasted text #1, 1 lines]")),
+            "a summary the user typed was sent as a second copy of the paste"
+        );
+    }
+
+    #[test]
+    fn a_summary_already_in_the_draft_is_not_the_one_the_paste_stands_behind() {
+        // The draft held those words *before* anything was pasted, so they were
+        // never a placeholder -- and the paste that landed after them is.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(format!("[Pasted text #1, 1 lines] {block}")),
+            "the words the user had already typed were expanded in the \
+             placeholder's place"
+        );
+    }
+
+    #[test]
+    fn a_copy_of_a_summary_after_the_caret_is_not_the_placeholder_either() {
+        // The other side of the same question. The words were already in the
+        // draft, but the paste landed in front of them, so *this* one is the
+        // first copy and the words that were there are the second -- which is
+        // why the copies are counted in front of the caret rather than in the
+        // whole draft.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x01]); // C-a: the caret goes back to the start
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(format!("{block}[Pasted text #1, 1 lines]")),
+            "the copies were counted in the whole draft rather than in front \
+             of the caret"
         );
     }
 

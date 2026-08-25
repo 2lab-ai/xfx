@@ -95,6 +95,17 @@ impl Editor {
         self.text.is_empty()
     }
 
+    /// The text in front of the caret -- everything an insertion would land
+    /// after.
+    ///
+    /// Handed out as text rather than as the cursor offset on purpose: the
+    /// offset is this module's invariant (always a grapheme boundary,
+    /// `wrap::cursor_point` panics on one that is not), and a caller given the
+    /// number would be a caller doing arithmetic on it.
+    pub(crate) fn before_caret(&self) -> &str {
+        &self.text[..self.cursor]
+    }
+
     /// Inserts `text` at the caret, or refuses it whole.
     ///
     /// `false` is the byte budget: the composer keeps exactly the text it had,

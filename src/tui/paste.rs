@@ -36,8 +36,13 @@
 //!   composer holds -- a megabyte in the composer makes every subsequent
 //!   keypress cost milliseconds.
 //! * **An expansion.** [`Paste::expand`] puts the text back at submit time, so
-//!   what the model receives is what was pasted (`pasted_blocks.zig:53-63`).
-//!   The summary is what the *screen* holds; it is never what is sent.
+//!   what the model receives is the paste rather than a description of it
+//!   (`pasted_blocks.zig:53-63`). The summary is what the *screen* holds; it is
+//!   never what is sent. "The paste" is precisely the text this module made of
+//!   it -- filtered, decoded as UTF-8 with the bytes that are not UTF-8
+//!   replaced, and with its line breaks normalized -- and not the bytes the
+//!   terminal sent; those three are the only things that happen to it, and each
+//!   one is above.
 //!
 //! # What a line break is
 //!
@@ -95,6 +100,15 @@ pub(crate) struct Paste {
     /// summary that outlived the draft it was in would expand a *later* prompt
     /// that happened to contain the same words.
     blocks: Vec<Block>,
+    /// How many bytes of text those blocks are holding.
+    ///
+    /// **The budget's real subject.** What a draft *shows* for a collapsed
+    /// paste is 25 bytes, so a composer with two short lines in it can be
+    /// holding two whole pastes -- and a budget that measured only the paste
+    /// arriving would bound one of an unbounded number of them. Kept as a
+    /// running sum rather than re-derived, so the check is a comparison rather
+    /// than a walk of every block on every byte.
+    retained: usize,
     /// The id the last collapsed block took.
     ///
     /// Never reset, so two pastes in one session are `#1` and `#2` even when
@@ -109,6 +123,18 @@ pub(crate) struct Paste {
 struct Block {
     summary: String,
     text: String,
+    /// Which copy of [`summary`](Self::summary) in the draft is *this* block's
+    /// placeholder, counted from zero.
+    ///
+    /// **The whole of placeholder identity.** A summary is ordinary text on a
+    /// screen the user can read and retype, so a draft can hold several copies
+    /// of one -- and a block that stood for all of them would send its paste
+    /// once per copy, while a block that stood for the first would be claimed
+    /// by words that were in the draft before anything was pasted. So the copy
+    /// is recorded at the moment the paste puts it there
+    /// (`super::shell::Shell::pasted`), which is the one moment at which it is
+    /// known exactly.
+    occurrence: usize,
 }
 
 /// What one finished paste is.
@@ -142,7 +168,10 @@ impl Paste {
         // as about the composer: a terminal can hand this function bytes for as
         // long as it likes, and a buffer that grew first would already have
         // paid for the paste it is about to refuse.
-        if self.buffer.len() >= MAX_PASTE_BYTES {
+        //
+        // **And measured against everything the draft is already holding**, not
+        // against this paste alone ([`Self::retained`]).
+        if self.retained.saturating_add(self.buffer.len()) >= MAX_PASTE_BYTES {
             self.refused = true;
             return;
         }
@@ -165,19 +194,62 @@ impl Paste {
         if !self.refused && text.chars().count() <= COLLAPSE_ABOVE {
             return Pasted::Inline(text);
         }
+        // **Measured again, now that it is text.** The bytes were counted as
+        // they arrived, but `from_utf8_lossy` turns every byte that is not
+        // UTF-8 into a three-byte replacement scalar -- so a paste of bytes in
+        // some other encoding is three times the size once it is decoded, and
+        // what a block holds and a prompt carries is the decoded form. Checked
+        // here rather than by refusing malformed input, which would throw a
+        // whole log file away for one stray byte the user cannot see: the
+        // contract is a size, and this is where the size is known.
+        if self.retained.saturating_add(text.len()) > MAX_PASTE_BYTES {
+            self.refused = true;
+        }
         // Counted in **lines of text**, so a block ending in a newline is not
         // reported as having one more line than a reader can see.
         let lines = text.lines().count();
-        self.next = self.next.saturating_add(1);
-        let id = self.next;
+        // The number is spent only if the block is kept, so a refused paste
+        // does not make the next one `#2`.
+        let id = self.next.saturating_add(1);
         let summary = summary(id, lines);
         if !self.refused {
+            self.next = id;
+            self.retained = self.retained.saturating_add(text.len());
             self.blocks.push(Block {
                 summary: summary.clone(),
                 text,
+                // Corrected by [`Self::placed`] the moment the composer takes
+                // it. Zero until then, which is what it is for every draft that
+                // did not already contain those words.
+                occurrence: 0,
             });
         }
         Pasted::Collapsed { summary, id }
+    }
+
+    /// The summary [`Self::finish`] just handed back really went into the
+    /// draft, as the `occurrence`-th copy of itself.
+    ///
+    /// Called by the composer's side, which is the only side that knows: it has
+    /// the draft and the caret, so it can count the copies of those words that
+    /// were already in front of the insertion. Anything after the insertion is
+    /// a later copy and is not this block's.
+    pub(crate) fn placed(&mut self, occurrence: usize) {
+        if let Some(block) = self.blocks.last_mut() {
+            block.occurrence = occurrence;
+        }
+    }
+
+    /// The composer would not take it, so the block stands for nothing.
+    ///
+    /// A block whose summary is not in the draft cannot be expanded into
+    /// anything -- but it would still be holding its text against the budget,
+    /// and it would still be a block a hand-typed copy of those words could be
+    /// claimed by.
+    pub(crate) fn unplaced(&mut self) {
+        if let Some(block) = self.blocks.pop() {
+            self.retained = self.retained.saturating_sub(block.text.len());
+        }
     }
 
     /// Whether the paste that just finished overran the budget.
@@ -188,33 +260,50 @@ impl Paste {
         self.refused
     }
 
-    /// `submitted` with every summary in it replaced by the text it stands for.
+    /// `submitted` with each block's **own** placeholder replaced by the text
+    /// it stands for.
     ///
-    /// Scanned once, left to right, rather than by replacing each block's
-    /// summary in turn: a block's *text* can contain another block's summary --
-    /// a user who pastes a session transcript is the ordinary way that happens
-    /// -- and a second pass over already-expanded text would expand it again.
+    /// Two properties, and both are about the fact that a summary is text a
+    /// user can also write:
+    ///
+    /// * **Each block expands at most once**, at the copy of its name that the
+    ///   paste itself put there ([`Block::occurrence`]). Replacing every
+    ///   occurrence would send one paste as many times as its name appears --
+    ///   and a draft gets a second copy of a name by nothing more exotic than
+    ///   the user typing it, or pasting it back off the screen.
+    /// * **What is put in is never looked at again.** Every position is found
+    ///   in `submitted` before anything is spliced, so a block whose *text*
+    ///   contains another block's name -- a pasted session transcript is the
+    ///   ordinary way that happens -- cannot be expanded a second time.
     pub(crate) fn expand(&self, submitted: &str) -> String {
         if self.blocks.is_empty() {
             return submitted.to_string();
         }
-        let mut out = String::with_capacity(submitted.len());
-        let mut rest = submitted;
-        while let Some((at, block)) = self.first_summary_in(rest) {
-            out.push_str(&rest[..at]);
-            out.push_str(&block.text);
-            rest = &rest[at + block.summary.len()..];
-        }
-        out.push_str(rest);
-        out
-    }
-
-    /// The earliest summary in `text`, and the block it names.
-    fn first_summary_in<'a>(&'a self, text: &str) -> Option<(usize, &'a Block)> {
-        self.blocks
+        let mut found: Vec<(usize, &Block)> = self
+            .blocks
             .iter()
-            .filter_map(|block| text.find(&block.summary).map(|at| (at, block)))
-            .min_by_key(|(at, _)| *at)
+            .filter_map(|block| {
+                placeholder_at(submitted, &block.summary, block.occurrence).map(|at| (at, block))
+            })
+            .collect();
+        found.sort_by_key(|(at, _)| *at);
+
+        let mut out = String::with_capacity(submitted.len());
+        let mut cut = 0usize;
+        for (at, block) in found {
+            // Two blocks cannot claim the same run of the draft. They have
+            // different names, so this needs an overlap to fire at all -- but a
+            // splice that walked backwards would panic on the byte ranges
+            // rather than merely disagree.
+            if at < cut {
+                continue;
+            }
+            out.push_str(&submitted[cut..at]);
+            out.push_str(&block.text);
+            cut = at + block.summary.len();
+        }
+        out.push_str(&submitted[cut..]);
+        out
     }
 
     /// The composer has been emptied, so the blocks its summaries named are
@@ -226,6 +315,7 @@ impl Paste {
     /// rest of the session.
     pub(crate) fn forget(&mut self) {
         self.blocks.clear();
+        self.retained = 0;
     }
 }
 
@@ -241,6 +331,15 @@ impl Paste {
 /// paste into pieces.
 pub(crate) fn accepted(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7e | 0x80..=0xff)
+}
+
+/// Where the `occurrence`-th copy of `needle` begins in `text`, if there is
+/// one.
+///
+/// Copies are counted the way a reader counts them -- left to right, and never
+/// overlapping -- because the number was taken by counting the same way.
+fn placeholder_at(text: &str, needle: &str, occurrence: usize) -> Option<usize> {
+    text.match_indices(needle).nth(occurrence).map(|(at, _)| at)
 }
 
 /// What the composer shows in place of a collapsed block.
@@ -327,7 +426,8 @@ mod tests {
     #[test]
     fn the_budget_is_the_last_byte_that_fits_and_the_first_that_does_not() {
         // The boundary of the bound, so that "8 MiB" is the number rather than
-        // approximately the number.
+        // approximately the number -- on the way in, again once the bytes are
+        // text, and across the draft rather than across one paste.
         let mut state = Paste::default();
         state.begin();
         for _ in 0..MAX_PASTE_BYTES {
@@ -335,12 +435,22 @@ mod tests {
         }
         assert!(
             !state.refused(),
-            "a paste of exactly the budget was refused"
+            "a paste of exactly the budget was refused as it arrived"
         );
+        let kept = state.finish();
+        assert!(
+            !state.refused(),
+            "a paste of exactly the budget was refused once it was decoded"
+        );
+        assert!(matches!(kept, Pasted::Collapsed { .. }), "{kept:?}");
+
+        // The budget is spent now, so the next paste's first byte is already
+        // one too many.
+        state.begin();
         state.byte(b'x');
         assert!(
             state.refused(),
-            "a paste one byte past the budget was taken"
+            "a byte past the budget the draft is already holding was taken"
         );
     }
 
@@ -386,6 +496,244 @@ mod tests {
             panic!("{pasted:?}");
         };
         assert_eq!(state.expand(&summary), summary);
+    }
+
+    #[test]
+    fn the_budget_is_everything_the_draft_is_holding_rather_than_one_paste() {
+        // Every collapsed block hides behind a 25-byte summary, so a draft that
+        // looks like two short lines can be holding two whole pastes. A budget
+        // that measured only the paste arriving would bound nothing at all.
+        let half = MAX_PASTE_BYTES / 2 + 1;
+        let mut state = Paste::default();
+        state.begin();
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        let Pasted::Collapsed { summary: first, .. } = state.finish() else {
+            panic!("half the budget did not collapse");
+        };
+        assert!(!state.refused(), "the first paste was already refused");
+
+        state.begin();
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        let second = state.finish();
+        assert!(
+            state.refused(),
+            "a second paste of half the budget fit alongside the first"
+        );
+        let Pasted::Collapsed {
+            summary: second, ..
+        } = second
+        else {
+            panic!("{second:?}");
+        };
+        assert_eq!(state.expand(&second), second, "the refused paste was kept");
+        assert_ne!(
+            state.expand(&first),
+            first,
+            "the paste that did fit was thrown away with the one that did not"
+        );
+    }
+
+    #[test]
+    fn a_paste_that_grows_when_it_is_decoded_is_measured_after_it_grew() {
+        // A byte that is not UTF-8 becomes a three-byte replacement scalar, so
+        // the text that is kept and sent can be three times the bytes that
+        // arrived. The budget is about the text.
+        let raw = MAX_PASTE_BYTES / 2;
+        let mut state = Paste::default();
+        state.begin();
+        for _ in 0..raw {
+            state.byte(0xff);
+        }
+        assert!(
+            !state.refused(),
+            "the raw bytes were over the budget on their own, so this case \
+             proves nothing about the decoded ones"
+        );
+
+        let pasted = state.finish();
+        assert!(
+            state.refused(),
+            "a paste that trebled in size when it was decoded was kept whole"
+        );
+        let Pasted::Collapsed { summary, .. } = pasted else {
+            panic!("{pasted:?}");
+        };
+        assert_eq!(state.expand(&summary), summary);
+    }
+
+    #[test]
+    fn a_second_copy_of_a_summary_is_words_rather_than_a_second_block() {
+        // A summary is ordinary text, so a draft can hold two of them -- typed,
+        // or pasted from the screen. Exactly one of them is the placeholder,
+        // and a block that expanded into both would send the paste twice.
+        let block = "y".repeat(1200);
+        let mut state = Paste::default();
+        state.begin();
+        for byte in block.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("1200 codepoints did not collapse");
+        };
+
+        assert_eq!(
+            state.expand(&format!("{summary} and {summary}")),
+            format!("{block} and {summary}")
+        );
+    }
+
+    #[test]
+    fn only_the_copy_the_paste_put_there_stands_for_the_block() {
+        // The draft already said those words once when the paste landed after
+        // them, so the placeholder is the *second* copy -- and the third, typed
+        // later, is words like the first.
+        let block = "y".repeat(1200);
+        let mut state = Paste::default();
+        state.begin();
+        for byte in block.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("1200 codepoints did not collapse");
+        };
+        state.placed(1);
+
+        assert_eq!(
+            state.expand(&format!("{summary} {summary} {summary}")),
+            format!("{summary} {block} {summary}")
+        );
+    }
+
+    #[test]
+    fn a_summary_the_composer_would_not_take_stands_for_nothing() {
+        // A draft within a few bytes of its own 8 MiB cap refuses the summary
+        // too. The block is then a block nothing names: it must not go on
+        // holding its text against the budget, and it must not be claimed by a
+        // copy of those words the user types later.
+        let block = "y".repeat(1200);
+        let mut state = Paste::default();
+        state.begin();
+        for byte in block.as_bytes() {
+            state.byte(*byte);
+        }
+        let Pasted::Collapsed { summary, .. } = state.finish() else {
+            panic!("1200 codepoints did not collapse");
+        };
+        assert_ne!(
+            state.expand(&summary),
+            summary,
+            "the block was never registered, so this case proves nothing"
+        );
+
+        state.unplaced();
+        assert_eq!(state.expand(&summary), summary);
+    }
+
+    #[test]
+    fn a_refused_paste_does_not_spend_the_number_the_next_one_uses() {
+        // The user never saw `#1`, so a session that answered their first
+        // successful paste with `#2` would be counting something they cannot
+        // see.
+        let mut state = Paste::default();
+        state.begin();
+        for _ in 0..(MAX_PASTE_BYTES / 2) {
+            state.byte(0xff);
+        }
+        assert!(matches!(state.finish(), Pasted::Collapsed { .. }));
+        assert!(
+            state.refused(),
+            "the paste was kept, so nothing was refused"
+        );
+
+        state.begin();
+        for byte in "y".repeat(1200).as_bytes() {
+            state.byte(*byte);
+        }
+        assert_eq!(
+            state.finish(),
+            Pasted::Collapsed {
+                summary: "[Pasted text #1, 1 lines]".into(),
+                id: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_draft_that_was_sent_gives_its_budget_back() {
+        // The budget belongs to the **draft**, not to the session. A user who
+        // pastes half of it, sends that prompt and pastes again would otherwise
+        // be refused by bytes that are already on their way to the model.
+        let half = MAX_PASTE_BYTES / 2 + 1;
+        let mut state = Paste::default();
+        for round in 1..=2 {
+            state.begin();
+            for _ in 0..half {
+                state.byte(b'x');
+            }
+            let pasted = state.finish();
+            assert!(
+                !state.refused(),
+                "the paste in draft {round} was refused by a draft that had \
+                 already been sent"
+            );
+            assert!(matches!(pasted, Pasted::Collapsed { .. }), "{pasted:?}");
+            // What the shell does when the submitted composer is emptied.
+            state.forget();
+        }
+    }
+
+    #[test]
+    fn a_block_the_composer_refused_gives_its_budget_back() {
+        // A block nothing names is a block holding the budget against pastes
+        // the draft could still take.
+        let half = MAX_PASTE_BYTES / 2 + 1;
+        let mut state = Paste::default();
+        state.begin();
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        assert!(matches!(state.finish(), Pasted::Collapsed { .. }));
+        state.unplaced();
+
+        state.begin();
+        for _ in 0..half {
+            state.byte(b'x');
+        }
+        assert!(
+            !state.refused(),
+            "a block the composer never took went on holding the budget"
+        );
+    }
+
+    #[test]
+    fn two_summaries_can_never_name_the_same_run_of_a_draft() {
+        // Why the overlap guard in `expand` is a panic-safety assertion rather
+        // than a branch with behaviour behind it: a summary carries its own id
+        // and contains exactly one `[`, so one can be found inside another only
+        // if the two are the same string -- and two registered blocks never
+        // share an id, because the number is spent when the block is kept.
+        for first in [1u32, 2, 11, 100, u32::MAX] {
+            for second in [1u32, 2, 11, 100, u32::MAX] {
+                for lines in [1usize, 2, 10, 1000] {
+                    let one = summary(first, lines);
+                    let two = summary(second, lines);
+                    assert_eq!(
+                        one.matches('[').count(),
+                        1,
+                        "a summary that opened twice could start inside another"
+                    );
+                    assert_eq!(
+                        one.contains(&two),
+                        first == second,
+                        "{one:?} and {two:?} can overlap in a draft"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
