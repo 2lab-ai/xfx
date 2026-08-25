@@ -2351,8 +2351,14 @@ fn sleepers(tag: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Kills everything carrying `tag` when it goes out of scope, however the test
-/// ends.
+/// Kills what it can find carrying `tag` when it goes out of scope, however the
+/// test ends.
+///
+/// Best effort, deliberately: `sleepers` answers "nothing" when the process
+/// table cannot be read, because this runs during unwinding, where a panic
+/// would abort the process and lose the failure that is being reported. A
+/// cleanup that cannot be sure is better than a cleanup that can take the
+/// message with it.
 ///
 /// A `Drop` and not a line at the end of the test: the assertions below can
 /// panic, and the first version's sweep sat after them, so exactly the runs
@@ -2448,15 +2454,29 @@ fn a_cancellation_kills_the_whole_process_group_and_not_only_the_child() {
     assert!(refusal.contains("cancelled"), "{refusal}");
     // The group, not the pipe, is what this test is named for -- and since the
     // fix it can be asked directly (see the `sleepers` check below and the
-    // `stranded` notice the tool now appends). The pipe was the only
+    // `stranded` notice the tool now appends). The phrase below is the one
+    // `every_stranded_answer_says_which_one_it_is` in `src/tools/terminal.rs`
+    // pins; an earlier version of this line matched text the tool had stopped
+    // emitting, which is an assertion that cannot fail. The pipe was the only
     // discriminator available before, but it answers a wider question than this
     // test asks: an inherited descriptor holds it open even when everything
     // this command started is gone, and that has been observed here. So the
     // notice is required to be absent only when it would mean what this test
     // says it means.
+    // The claim this test is named for is that nothing the command started is
+    // left *running*, which is the `Running` answer's own phrase (pinned by
+    // `every_stranded_answer_says_which_one_it_is` in `src/tools/terminal.rs`).
+    //
+    // Not the notice's opening phrase, which every answer shares: under a
+    // parallel run the group can still be there at the end of the tool's checks
+    // because its members are dead and *uncollected* -- `EPERM`, the
+    // `Unsignalable` answer -- and a reaper that is slow for forty milliseconds
+    // is not a process outliving the command. Measured: 2 of 30 three-way
+    // concurrent runs of this suite. A zombie holds no descriptor and runs no
+    // code; `sleepers` below is the direct check that nothing of ours is alive.
     assert!(
-        !refusal.contains("still had members"),
-        "the tool could not empty the command's process group: {refusal}"
+        !refusal.contains("still has a running member"),
+        "a process the command started outlived the group kill: {refusal}"
     );
     assert!(
         started.elapsed() < Duration::from_secs(10),
