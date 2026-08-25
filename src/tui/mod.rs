@@ -526,6 +526,7 @@ mod input;
 mod layout;
 mod pacer;
 mod panic;
+mod paste;
 mod probe;
 mod render_request;
 mod shell;

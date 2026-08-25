@@ -82,6 +82,7 @@ use super::hint::{self, Hint, Notice};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
+use super::paste::{Paste, Pasted};
 use super::render_request::{Reason, RenderRequest};
 use super::theme::Palette;
 use super::transcript::{Append, Transcript};
@@ -161,6 +162,17 @@ const PANEL_TOO_SMALL: &str =
 /// is not a condition that clears.
 const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
 
+/// The hint row's refusal for a paste larger than the byte budget.
+///
+/// A **hint-row** refusal rather than a document line, for the reason
+/// [`QUEUE_REJECTED`] is one: it belongs beside the composer it did not change,
+/// and it is a condition that clears the moment anything else happens on that
+/// row. Said at all, unlike the composer's own budget -- which refuses silently
+/// because a keystroke that changes nothing is its own feedback -- because a
+/// paste that vanished without a word looks exactly like a terminal that never
+/// sent it.
+const PASTE_REFUSED: &str = "that paste is larger than 8 MiB; nothing was taken";
+
 /// What `/clear` leaves behind after it has erased the screen.
 ///
 /// The line-oriented shell prints its banner and a `kept` line here
@@ -222,6 +234,15 @@ pub(crate) struct Shell {
     missing_credential: bool,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
+    /// The paste that is arriving, and the blocks the composer's summaries
+    /// name.
+    ///
+    /// Held beside the editor rather than inside it because a paste is *not* an
+    /// edit until it is finished: the bytes between the markers are content
+    /// being filtered and counted, and only [`Action::PasteEnd`] decides
+    /// whether what the composer receives is the text or a summary standing in
+    /// for it ([`super::paste`]).
+    paste: Paste,
     /// The one input machine of the session.
     ///
     /// Held here rather than in the loop because it is *state a keystroke can
@@ -365,6 +386,7 @@ impl Shell {
             missing_credential: crate::provider::resolve_credential_for(config.provider, config)
                 .is_none(),
             editor: Editor::new(),
+            paste: Paste::default(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
             // and the band rows share a terminal, and a transcript measured
@@ -1126,11 +1148,14 @@ impl Shell {
             match event {
                 Input::Text(character) => self.type_character(character),
                 Input::Action(action) => self.act(action, now),
-                // Task 18's `paste` module is what turns these into text: a
-                // pasted byte is not a keystroke, and until there is something
-                // that filters it, letting one into the composer would put a
-                // control the terminal obeys into the transcript on submit.
-                Input::PasteByte(_) => {}
+                // Content, and it goes nowhere near the composer until the
+                // frame closes: `super::paste` filters the bytes a terminal
+                // would obey out of it, counts them against the budget, and
+                // decides at `Action::PasteEnd` whether the composer gets the
+                // text or a summary standing in for it. Nothing is painted per
+                // byte either -- a frame per byte of a megabyte paste is a
+                // session that stops answering the keyboard.
+                Input::PasteByte(byte) => self.paste.byte(byte),
             }
         }
     }
@@ -1143,6 +1168,43 @@ impl Shell {
     fn type_character(&mut self, character: char) {
         let mut encoded = [0u8; 4];
         if self.editor.insert(character.encode_utf8(&mut encoded)) {
+            self.edited();
+        }
+    }
+
+    /// The end of a paste: what the composer is given for it.
+    ///
+    /// One insert for the whole paste rather than one per byte, which is the
+    /// difference between a paste and a very fast typist: the composer re-wraps
+    /// and the band re-solves once, and a paste of a megabyte does not cost a
+    /// megabyte of wraps on its way in.
+    ///
+    /// **A paste past the budget puts nothing in the composer at all.** There
+    /// is no block registered for it ([`super::paste::Paste::finish`]), so the
+    /// summary would be words rather than a stand-in for the text -- a draft
+    /// that submitted `[Pasted text #1, 1 lines]` as a prompt is worse than a
+    /// paste that plainly did not happen, and the hint row says which it was.
+    fn pasted(&mut self) {
+        let pasted = self.paste.finish();
+        if self.paste.refused() {
+            self.notice = Some(PASTE_REFUSED);
+            self.render.request(Reason::Footer);
+            return;
+        }
+        let text = match &pasted {
+            Pasted::Inline(text) => text.as_str(),
+            // The screen gets the summary; `Paste::expand` is what puts the
+            // text back, at submit, so 1800 codepoints are never painted into
+            // a band and never re-wrapped by the next keystroke.
+            Pasted::Collapsed { summary, .. } => summary.as_str(),
+        };
+        // An empty paste is not an edit: asking for a frame and re-solving the
+        // band for a composer nobody changed is the repaint
+        // [`Self::clear_composer`] guards against for the same reason.
+        if text.is_empty() {
+            return;
+        }
+        if self.editor.insert(text) {
             self.edited();
         }
     }
@@ -1199,12 +1261,17 @@ impl Shell {
             }
             // The whole band is repainted every frame, so a redraw is a frame.
             Action::Redraw => self.render.request(Reason::ExternalDamage),
-            // Not this task's: the paste markers are Task 18's, `Tab` is the
-            // approval panel's and the composer has no completion for it to
-            // drive, and an `Ignore` is a keystroke this session has no binding
-            // for -- an event rather than silence precisely so that it accounts
-            // for the bytes it was decoded from.
-            Action::Tab | Action::PasteStart | Action::PasteEnd | Action::Ignore => {}
+            // The frame around a paste. Everything between them is content
+            // rather than keys, which is the whole of why a pasted newline does
+            // not submit the composer and a pasted `0x03` does not cancel a
+            // turn.
+            Action::PasteStart => self.paste.begin(),
+            Action::PasteEnd => self.pasted(),
+            // Not this task's: `Tab` is the approval panel's and the composer
+            // has no completion for it to drive, and an `Ignore` is a keystroke
+            // this session has no binding for -- an event rather than silence
+            // precisely so that it accounts for the bytes it was decoded from.
+            Action::Tab | Action::Ignore => {}
         }
     }
 
@@ -1269,6 +1336,19 @@ impl Shell {
         self.settle_band(now);
     }
 
+    /// Empties the composer, and with it the paste blocks its summaries named.
+    ///
+    /// The pair is one operation rather than two call sites that must remember
+    /// each other: a block that outlived the draft it was pasted into would be
+    /// expanded into a **later** prompt that happened to contain the same
+    /// summary -- which is text a user can type by hand -- and it would hold
+    /// the whole paste for the rest of the session
+    /// ([`super::paste::Paste::forget`]).
+    fn take_draft(&mut self) -> String {
+        self.paste.forget();
+        self.editor.take()
+    }
+
     /// Throws the draft away, if there is one.
     ///
     /// The guard is not tidiness: [`Self::edited`] asks for a frame and
@@ -1278,7 +1358,7 @@ impl Shell {
         if self.editor.is_empty() {
             return;
         }
-        self.editor.take();
+        self.take_draft();
         self.edited();
     }
 
@@ -1308,7 +1388,7 @@ impl Shell {
             // would look like a session that had stopped listening -- and
             // nothing is sent or written.
             Submitted::Blank => {
-                self.editor.take();
+                self.take_draft();
                 self.edited();
             }
             Submitted::Command { command, argument } => {
@@ -1326,13 +1406,22 @@ impl Shell {
                 // the echo above gives: it is in the document now, and a
                 // composer that kept it would have the user's next line typed
                 // onto the end of it.
-                self.editor.take();
+                self.take_draft();
                 self.edited();
                 self.echo(&text);
                 let refusal = interactive::unknown_command_message(&token);
                 self.write_document_line(&refusal);
             }
-            Submitted::Prompt(prompt) => self.send(prompt, &text),
+            // **Expanded here, and only here.** What the composer holds for a
+            // collapsed paste is a summary; what the user meant to send is the
+            // text it stands for, so the prompt is expanded on its way to the
+            // runtime and the *document* still shows the summary -- a screen
+            // that echoed eight megabytes back at the user would be the paint
+            // the collapse exists to prevent.
+            Submitted::Prompt(prompt) => {
+                let prompt = self.paste.expand(&prompt);
+                self.send(prompt, &text);
+            }
         }
     }
 
@@ -1352,7 +1441,7 @@ impl Shell {
                 // on its hint row. The row above the divider is about the turn
                 // the runtime is *running*, so it waits for the runtime to say
                 // that this one is (`UiEvent::TurnStarted`).
-                self.editor.take();
+                self.take_draft();
                 self.edited();
                 self.echo(text);
                 self.gestures.submitted();
@@ -1393,7 +1482,7 @@ impl Shell {
     /// The composer is cleared first for all of them: a command is not offered
     /// to anything that can refuse it, so there is no draft to keep.
     fn run_command(&mut self, command: Slash, argument: &str) {
-        self.editor.take();
+        self.take_draft();
         self.edited();
         self.gestures.submitted();
         match command {
@@ -2148,6 +2237,178 @@ mod tests {
             "a newline submitted itself"
         );
         assert_eq!(&shell.band_rows()[1..3], &["> first", "  second"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // a paste
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_pasted_newline_is_content_rather_than_the_key_that_submits() {
+        // The whole reason the frame exists: without it a pasted stack trace
+        // is one prompt per line, sent before the user can react and with real
+        // side effects behind them.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~first line\nsecond line\x1b[201~");
+
+        assert!(
+            shell.take_pending().is_empty(),
+            "a paste submitted itself into the document"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a pasted newline sent a prompt to the runtime"
+        );
+        assert_eq!(&shell.band_rows()[1..3], &["> first line", "  second line"]);
+    }
+
+    #[test]
+    fn a_pasted_cancel_byte_and_escape_sequence_never_become_keys() {
+        // A `0x03` between the markers must not cancel a turn or throw the
+        // draft away, and an `ESC [ A` must not be obeyed as an arrow: the
+        // decoder never offers either as a key, and the filter drops the bytes
+        // that would be obeyed on the way out again.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~a\x03b\x1b[Ac\x1b[201~");
+
+        assert_eq!(
+            shell.band_rows()[1],
+            "> ab[Ac",
+            "a control byte inside a paste was taken as the key it looks like"
+        );
+        assert!(
+            shell.controlled().is_none(),
+            "a pasted 0x03 asked the runtime to stop"
+        );
+    }
+
+    #[test]
+    fn a_large_paste_is_a_summary_on_the_screen_and_the_whole_text_on_the_wire() {
+        // 1800 codepoints painted into a band is a band that has eaten the
+        // screen -- and every later keystroke re-wraps whatever the composer
+        // holds. The summary is what is shown; the text is what is sent.
+        let mut shell = shell(24, 80);
+        let block = format!("{}\n{}", "y".repeat(900), "z".repeat(900));
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 2 lines]",
+            "the composer was given the block rather than a summary of it"
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "the summary was sent in place of what was pasted"
+        );
+        assert_eq!(
+            shell.document(),
+            vec!["[Pasted text #1, 2 lines]".to_string()],
+            "the document echoed the whole block back at the user"
+        );
+    }
+
+    #[test]
+    fn a_summary_typed_by_hand_after_its_paste_was_sent_is_only_words() {
+        // A summary is ordinary text in a composer, so a user can type one.
+        // A block that outlived the draft it was pasted into would turn that
+        // typing into a paste they sent a turn ago.
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "the paste never reached the runtime, so this case proves nothing"
+        );
+        let _echo = shell.document();
+
+        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            "a block the draft no longer held was expanded into a later prompt"
+        );
+    }
+
+    #[test]
+    fn an_empty_paste_is_not_an_edit() {
+        // A frame is a repaint of the whole band on a link that may be a serial
+        // line, and the band re-solves its height with it: a paste that put
+        // nothing in the composer must cost neither.
+        let mut shell = shell(24, 80);
+        let _first = shell.render.begin().expect("the first frame");
+        shell.route_bytes(b"\x1b[200~\x1b[201~");
+
+        assert!(
+            shell.render.begin().is_none(),
+            "a paste that changed nothing asked for a whole-band repaint"
+        );
+    }
+
+    #[test]
+    fn a_paste_a_question_interrupted_does_not_leak_into_the_next_one() {
+        // A question can arrive between two reads, and the panel swallows every
+        // key it does not bind -- the tail of a paste already arriving
+        // included, and its end marker with it. That leaves a paste with no
+        // end, and the next `PasteStart` is the one moment at which what it
+        // left is certainly stale.
+        let mut shell = shell(24, 80);
+        let _started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"\x1b[200~abandoned");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.route_bytes(b" tail\x1b[201~");
+        assert!(
+            shell.panel.is_some(),
+            "the question was answered by the paste, so this case proves nothing"
+        );
+        shell.route_bytes(b"3");
+        assert!(shell.panel.is_none(), "the question is still up");
+        let _ = shell.document();
+
+        shell.route_bytes(b"\x1b[200~fresh\x1b[201~");
+        // Through the caret's own row rather than a fixed index: the band still
+        // has the turn's row above the divider here.
+        assert_eq!(
+            shell.marked(),
+            "> fresh",
+            "a paste the question interrupted leaked into the next one"
+        );
+    }
+
+    #[test]
+    fn a_paste_past_the_budget_says_so_and_leaves_the_draft_alone() {
+        // Refused whole rather than half-taken, and said rather than silent:
+        // the composer's own budget refuses a keystroke silently because a
+        // keystroke that changes nothing is its own feedback, and a paste that
+        // vanished without a word looks like a terminal that never sent it.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+        shell.route_bytes(b"\x1b[200~");
+        let chunk = vec![b'x'; 64 * 1024];
+        for _ in 0..=(super::super::paste::MAX_PASTE_BYTES / chunk.len()) {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
+
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "a paste that did not fit took the draft with it"
+        );
+        let hint = shell.hint();
+        assert!(
+            hint.contains(PASTE_REFUSED),
+            "a paste larger than the budget vanished without a word: {hint:?}"
+        );
     }
 
     // -----------------------------------------------------------------------

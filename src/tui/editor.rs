@@ -34,11 +34,17 @@
 //! Nothing here filters the text, because nothing that reaches it is unfiltered:
 //! [`super::input::Decoder`] never emits a control scalar as
 //! [`super::input::Input::Text`], and the bytes of a bracketed paste arrive as
-//! `PasteByte` and are routed nowhere in this phase (Task 18's `paste` module is
-//! their consumer). The one control character in a composer is therefore the
-//! newline `C-j` inserts, and it is in the text as a line break rather than as
-//! a byte the terminal would obey. That is what makes submitting a composer
-//! into the transcript safe: an `ESC [ 2 J` cannot be in it to be written back.
+//! `PasteByte` and reach this module only through [`super::paste`], whose
+//! filter keeps CR, LF, Tab and the printing bytes and drops everything else --
+//! CR normalized to LF on the way, so a pasted line break is the same character
+//! `C-j` inserts. The control characters a composer can therefore hold are line
+//! breaks and tabs, and both are text rather than bytes the terminal would
+//! obey. That is what makes submitting a composer into the transcript safe: an
+//! `ESC [ 2 J` cannot be in it to be written back. A pasted **tab** is the one
+//! character the composer holds and does not show: the wrap measures a control
+//! at no cells and the painter drops it (`super::frame::row_text`), so pasted
+//! indentation is sent whole and drawn as nothing. Rendering it is Phase 2's,
+//! with the rest of the block model.
 //!
 //! # The two caps
 //!

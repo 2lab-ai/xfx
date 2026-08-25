@@ -1250,6 +1250,95 @@ fn the_composer_stops_growing_at_half_the_content_area() {
 }
 
 #[test]
+fn a_pasted_block_with_newlines_a_cancel_byte_and_an_escape_is_exactly_one_prompt() {
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-PASTED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"\x1b[200~");
+    session.type_bytes(b"first line\nsecond \x03line\n\x1b[Athird line");
+    session.type_bytes(b"\x1b[201~");
+    // Taken as a whole frame, and through the renderer's own prompt marker and
+    // gutter rather than through the pasted text alone: those two cells are
+    // written by xfx and typed by nothing, so this is the composer showing the
+    // paste rather than a terminal echoing the suite's keystrokes.
+    session.wait_until("the whole paste in one complete frame", |text| {
+        last_frame(text)
+            .is_some_and(|frame| frame.contains("> first line") && frame.contains("  [Athird line"))
+    });
+    // Nothing was submitted and no turn was cancelled by the pasted bytes.
+    assert_eq!(gateway.request_count(), 0, "a paste submitted itself");
+
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-PASTED");
+    assert_eq!(
+        gateway.request_count(),
+        1,
+        "one paste became several prompts"
+    );
+    let sent = user_messages(&gateway.only_request().json()).join("\n");
+    assert!(
+        sent.contains("first line\nsecond line"),
+        "the paste was mangled: {sent:?}"
+    );
+    assert!(
+        sent.contains("third line"),
+        "the paste lost its tail: {sent:?}"
+    );
+    assert!(
+        !sent.contains('\u{1b}'),
+        "an escape sequence reached the model as text: {sent:?}"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-BIG"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    let block = format!("{}\n{}", "y".repeat(900), "z".repeat(900));
+    session.type_bytes(b"\x1b[200~");
+    session.type_bytes(block.as_bytes());
+    session.type_bytes(b"\x1b[201~");
+    session.wait_for("> [Pasted text #1, 2 lines]");
+    assert!(
+        !session.text().contains(&"y".repeat(900)),
+        "1800 codepoints were rendered into the band"
+    );
+
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-BIG");
+    let sent = user_messages(&gateway.only_request().json()).join("\n");
+    assert!(
+        sent.contains(&"y".repeat(900)),
+        "the collapsed block did not expand"
+    );
+    assert!(
+        !sent.contains("Pasted text #1"),
+        "the summary was sent instead of the text"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_terminal_too_small_for_a_band_is_refused_with_a_reason() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
