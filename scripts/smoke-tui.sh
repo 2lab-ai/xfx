@@ -2336,6 +2336,13 @@ def scenario_8(run):
 # ---------------------------------------------------------------------------
 
 
+# The lit face of the activity row's marker (`src/tui/activity.rs:55`). Spelled
+# out here rather than imported for the reason the mode sequences are: a
+# harness that read the constant it is checking would pass for whatever the
+# module declared.
+activity_marker = "\u2022"
+
+
 def scenario_9(run):
     """`Thinking` while the fixture withholds, and a clock that stops for a person."""
     quiet = start_fixture(run, [fixtures.hang()], name="quiet")
@@ -2347,13 +2354,30 @@ def scenario_9(run):
     trial.wait_for("\x1b[21;1H• Thinking")
     trial.wait_for("2s")
     grid = trial.grid("thinking")
-    # By its words and its place, not by its bullet: the marker blinks every
-    # 500 ms, so a snapshot catches it lit about half the time and an assertion
-    # on `•` would be a coin toss. That the bullet is painted **on that row** is
-    # already a fact, from the response-only wait above.
+    # By its place, its words and its clock -- and by whichever of its two faces
+    # the marker is wearing, because a snapshot cannot choose. The marker keeps
+    # a cell of its own whether it is lit or dark (`src/tui/activity.rs:54-59`:
+    # `•` for half a second and then a space for half a second, so the text
+    # beside it does not step left and right twice a second), so the row a grid
+    # catches is `• Thinking  2s` half the time and `  Thinking  2s` the other
+    # half.
+    #
+    # The first version of this assertion stripped the row and asked it to
+    # start with `Thinking`, which is true **only in the dark half** -- a coin
+    # toss that its own comment claimed to have avoided, and one CI called on
+    # `aarch64-apple-darwin` with `'• Thinking  2s'` in its hand. What is
+    # asserted here is what does not blink: the marker's cell holds one of its
+    # two faces, and the word and the elapsed clock follow it, on the row
+    # directly above the divider.
+    row = grid.row_text(20)
+    marked, said = row[:1], row[1:].strip()
+    clock = said.rsplit(" ", 1)[-1]
     run.require(
-        grid.row_text(20).strip().startswith("Thinking"),
-        "the activity row is directly above the divider: %r" % grid.row_text(20),
+        marked in (activity_marker, " ")
+        and said.startswith("Thinking")
+        and clock.endswith("s")
+        and clock[:-1].isdigit(),
+        "the activity row is directly above the divider, marked, and counting: %r" % row,
     )
     run.require(
         set(grid.row_text(21)) == {"─"},
