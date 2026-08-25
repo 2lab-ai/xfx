@@ -1792,6 +1792,57 @@ fn leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it() {
     assert_eq!(before, modes(&pty), "the terminal was left changed");
 }
 
+/// The conclusion the session log recorded for the turn, waited for.
+///
+/// **What makes "the provider has finished" a fact rather than an argument**,
+/// and the flake it replaces is why it exists. The case below used to reason
+/// its way to that premise: twenty deltas fit in a `bridge::UI_EVENTS`-deep
+/// channel, so nothing parks, so the whole answer must have been sent by the
+/// time its first block reaches the terminal. Fitting really does mean nothing
+/// parks. It does not mean the producer got there -- the marker the case waits
+/// for is the *head* of the first delta, and under load the runtime thread can
+/// still be reading the socket when the keystroke lands. Quitting cancels the
+/// turn at that point (`worker::Worker::shutdown` step 1), the SSE reader stops
+/// at its next frame boundary (`gateway/sse.rs:214`), and the tail of the
+/// answer is never sent at all -- so the case failed saying the drain had
+/// thrown events away when nothing had ever been queued. Measured: two failures
+/// in eighty runs of eight copies at once, both logging
+/// `outcome={"kind":"interrupted","reason":"...the turn was cancelled"}`.
+///
+/// The log is where that fact is legible from outside the process, and it is
+/// legible *early enough*: the worker publishes the conclusion **before** it
+/// sends the UI its terminal event (`tui/worker.rs:33-37`), and every frame is
+/// written, flushed and `fsync`ed as it is appended
+/// (`session/store.rs:1089-1098`). A `turn_concluded` frame on disk therefore
+/// means every delta ahead of it has already been handed to the channel.
+fn wait_for_the_turn_to_conclude(sandbox: &Sandbox) -> Value {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        for id in sandbox.session_ids() {
+            let log = sandbox.sessions_dir().join(id).join("events.jsonl");
+            let Ok(raw) = std::fs::read_to_string(&log) else {
+                continue;
+            };
+            // A line that does not parse is a frame being appended as this read
+            // went past it, not corruption: the next poll sees it whole.
+            for frame in raw
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            {
+                if frame["event"]["kind"] == "turn_concluded" {
+                    return frame["event"]["outcome"].clone();
+                }
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the turn never concluded, so nothing after this is about a \
+             provider that finished"
+        );
+        std::thread::sleep(IDLE_POLL);
+    }
+}
+
 #[test]
 fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
     // The drain's other half, end to end, and the bound is what makes it
@@ -1808,13 +1859,19 @@ fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
     // so an answer split into thousands of small ones parks the producer -- and
     // then quitting cancels the turn and the rest of the answer was never sent
     // at all, which is a different (and documented) story. Twenty of eight
-    // kilobytes all fit, so the provider is provably *finished* while the UI
-    // still holds only the first eight of them.
+    // kilobytes fit in it with room to spare, so nothing here has to park.
     //
-    // Deterministic rather than raced: the queue drains at `pacer::MAX_CPS`,
-    // 5000 bytes a second, so a backlog at the 64 KiB mark stays over it for
-    // thirteen seconds and the keystroke below lands inside the first tenth of
-    // one.
+    // **Fitting is not finishing**, and the two are not the same premise:
+    // `wait_for_the_turn_to_conclude` is where this case stopped arguing that
+    // the provider was done and started waiting until it was.
+    //
+    // Deterministic rather than raced on the other side too: the queue drains
+    // at `pacer::MAX_CPS`, 5000 bytes a second, so an answer of this size needs
+    // half a minute to reach the terminal by painting and the keystroke below
+    // lands inside the first tenth of a second of that. The assertion that the
+    // tail is *not* on the terminal yet is that argument made into a check, so
+    // a UI that had somehow kept up would fail here rather than pass while
+    // asking the drain nothing.
     let block = "answer ".repeat(1170);
     let mut deltas: Vec<Value> = vec![support::fake_gateway::text_delta(
         "a",
@@ -1835,6 +1892,22 @@ fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
     session.wait_for(READY);
     session.type_bytes(b"stream more than the bound\r");
     session.wait_for("MARKER-BEGAN");
+
+    // Half the premise: the provider finished, so every delta it produced is
+    // either on the channel or already taken, and none of it is still owed by a
+    // socket that a cancellation is about to stop being read.
+    let outcome = wait_for_the_turn_to_conclude(&sandbox);
+    assert_eq!(
+        outcome["kind"], "final",
+        "the turn did not finish, so what follows is about a cancelled turn \
+         rather than about the drain: {outcome}"
+    );
+    // The other half: what the bound held back is still held back.
+    assert!(
+        !session.text().contains("MARKER-ENDED"),
+        "the UI had already painted the tail, so the drain is not what puts it \
+         on the terminal"
+    );
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
