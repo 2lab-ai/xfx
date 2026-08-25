@@ -281,6 +281,48 @@ mod tests {
     }
 
     #[test]
+    fn a_press_that_lands_before_the_place_comes_back_arms_rather_than_leaves() {
+        // The interleaving the terminal cannot be asked to arrange, at the seam
+        // that can: `running` is a parameter precisely so that the window
+        // between a turn's terminal event and the runtime giving its place back
+        // is a case rather than a wait.
+        //
+        // The window is real and it is not the UI's. `Shell::interrupt` reads
+        // `WorkHandle::outstanding` once **per press** (`super::shell`), and the
+        // runtime decrements it on its own thread *after* the terminal event
+        // (`super::worker`'s `turn_loop`). So a press can be answered from the
+        // running column while the very next one -- of the same read -- is
+        // answered from the idle column, with `turn_ended` having already
+        // cleared what the first one armed.
+        //
+        // What that costs is one press, and it is why
+        // `tui.rs`'s `ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130`
+        // types three: the middle press here spends itself arming the idle
+        // chain, and it is the third that leaves.
+        let mut gestures = Gestures::default();
+        let now = Instant::now();
+        // The conclusion has reached the UI: whatever the last Ctrl-C was about
+        // is over ([`Gestures::turn_ended`]).
+        gestures.turn_ended();
+
+        // ...but the place is still held, so this is the running column.
+        assert_eq!(gestures.interrupt(now, true), Interrupt::Cancel);
+        // ...and now it is not, so this one is the idle column's *first* press
+        // rather than the second half of anything.
+        assert_eq!(
+            gestures.interrupt(now, false),
+            Interrupt::Clear,
+            "a press answered from the running column armed an exit the idle \
+             column then honoured"
+        );
+        assert_eq!(
+            gestures.interrupt(now, false),
+            Interrupt::Leave,
+            "the idle pair did not leave, so no number of presses would"
+        );
+    }
+
+    #[test]
     fn a_turn_that_ended_takes_the_cancellation_that_stopped_it_with_it() {
         // The chain must not outlive the turn it was about. A user who stops one
         // answer and asks another question would otherwise find the first

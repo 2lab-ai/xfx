@@ -1533,11 +1533,44 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // column that fifty milliseconds landed in**, which is a race and not a
     // contract: it exited 130 locally and did nothing on four CI targets
     // (run 32887368090, `pty.rs:388` "xfx did not exit"). This case pins the
-    // state instead of guessing it. It waits for the conclusion -- a
-    // runtime-owned line, so waiting for it is waiting for the runtime -- and
-    // then asserts what the idle column promises: a pair, and the pair is typed
-    // as **one write** because the bytes of a single read are decided together
-    // and cannot expire each other (`gesture.rs`'s header, `Shell::route_bytes`).
+    // state instead of guessing it: it waits for the conclusion, which is a
+    // runtime-owned line, so waiting for it is waiting for the runtime.
+    //
+    // # Three presses, and the third one is not a spare
+    //
+    // Pinning the conclusion is not by itself enough, and "the bytes of one
+    // read are decided together" is the wrong guarantee to lean on. The column
+    // is not chosen by the read's timestamp: `Shell::interrupt` re-reads
+    // `self.work.outstanding()` **once per press** (`shell.rs:1342`, reached
+    // per decoded action from `:1295`), and the runtime gives the turn's place
+    // back on its own thread *after* the terminal event (`worker.rs:680`). So
+    // the release can land between two presses of a single read, and a pair
+    // has an interleaving that does not leave:
+    //
+    // | `outstanding > 0` at each press | what they mean | |
+    // |---|---|---|
+    // | `(1, 1)` | `Cancel`, then `Leave` | exits |
+    // | `(1, 0)` | `Cancel`, then `Clear` -- the idle arm clears `asked_to_stop` and finds nothing armed (`gesture.rs:129`) | **does not exit** |
+    // | `(0, 0)` | `Clear`, then `Leave` | exits |
+    //
+    // A third press closes it, and closes it *totally* rather than by a margin.
+    // `outstanding` only ever falls here -- its one increment is
+    // `WorkHandle::submit` (`worker.rs:207`-`212`) and this case submits nothing
+    // after its prompt -- so the flag is monotone and those three rows are the
+    // whole space. Each of them reaches `Leave` by the third press: `(1,1,·)`
+    // leaves on the second, `(1,0,0)` spends the second arming and leaves on the
+    // third, `(0,0,·)` leaves on the second. The only clock in it is
+    // `gesture::EXIT_WINDOW` (3000 ms, `gesture.rs:64`) between consecutive idle
+    // presses, against bytes of one `write` consumed an event-loop iteration
+    // apart. `gesture::tests::a_press_that_lands_before_the_place_comes_back_arms_rather_than_leaves`
+    // is the same table at the seam where the interleaving can actually be
+    // dictated, which a pseudoterminal cannot.
+    //
+    // Synchronising on "the place is back" instead was considered and is not
+    // available: nothing on the screen distinguishes one outstanding item from
+    // none -- the hint row's `queued N` is `outstanding - 1` (`worker.rs:264`)
+    // -- and the session log, which §14 used for the other race, is published
+    // *before* the terminal event and so before the release.
     //
     // The running column's own two-press exit is not lost with it: it is what
     // `a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider` and
@@ -1574,7 +1607,7 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // below is therefore answered from the idle column, on every machine.
     session.wait_for("the turn was cancelled");
 
-    session.type_bytes(&[0x03, 0x03]);
+    session.type_bytes(&[0x03, 0x03, 0x03]);
     let status = session.wait_exit();
     assert_eq!(
         status.code(),
