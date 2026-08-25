@@ -217,9 +217,6 @@ impl Band {
         // silently dropped.
         let fresh = scroll.min(rows.len());
         let settled = rows.len() - fresh;
-        for _ in 0..scroll - fresh {
-            scroll_one(&mut self.buffer, geometry);
-        }
         // The settled rows, repainted where they already are. Only as many of
         // them as the screen still holds: the rest left the top of it, with
         // their text on them, when an earlier append scrolled them there.
@@ -231,6 +228,37 @@ impl Band {
         // whole append.
         let shown = u16::try_from(settled.min(usize::from(area))).unwrap_or(area);
         let first = geometry.band_top().saturating_sub(shown);
+        // The rows the settled block **vacated**, erased before anything
+        // scrolls -- the same window, and for the same reason, as
+        // [`Self::release`] above.
+        //
+        // "Where they already are" is true of `first` only while the band's top
+        // has not moved. A band that shrank -- which is every turn that ends,
+        // giving back its activity row -- moves `band_top` down, so `first`
+        // moves down with it and the block is repainted `vacated` rows lower
+        // than it was painted. [`Self::release`] gives back the rows the
+        // **band** owned; these are the ones the **document** block left, and
+        // nothing else will ever write on them: Phase 1 repaints no transcript
+        // row and the exit clears only from the band's top downward. Without
+        // this the answer's last row stays on the screen twice -- truncated
+        // where the paced release had reached when the turn ended, and complete
+        // on the row below it -- and both copies reach native scrollback.
+        //
+        // Nothing when the band grew or held still (`saturating_sub` is zero),
+        // and nothing when there is no settled block to have vacated anything,
+        // since those rows are `release`'s and it has already written them.
+        let vacated = self
+            .painted
+            .map_or(0, |top| geometry.band_top().saturating_sub(top));
+        if shown > 0 {
+            for line in first.saturating_sub(vacated)..first {
+                cup(&mut self.buffer, line, 1);
+                self.buffer.extend_from_slice(ERASE_LINE.as_bytes());
+            }
+        }
+        for _ in 0..scroll - fresh {
+            scroll_one(&mut self.buffer, geometry);
+        }
         for (offset, row) in rows[settled - usize::from(shown)..settled]
             .iter()
             .enumerate()
@@ -270,6 +298,11 @@ impl Band {
     /// One `EL` per row rather than one `ED` from the top: an `ED` would erase
     /// the band's own rows too, and this runs *before* an append's rows are
     /// placed as often as it runs before a frame repaints them.
+    ///
+    /// It is **not** the whole of what a shrinking band owes. These are the
+    /// rows the band gave back; an append that repaints settled transcript rows
+    /// anchored to the new top also leaves the rows that block vacated, and
+    /// [`Self::render_append`] erases those in the same pre-scroll window.
     ///
     /// **It records nothing.** These bytes are owed until they are delivered,
     /// so a screen that refused this write gets them again on the next one --
@@ -1318,6 +1351,149 @@ mod tests {
             "a row of the old composer survived into the terminal's document"
         );
     }
+
+    #[test]
+    fn a_band_that_shrank_does_not_leave_the_row_it_re_placed_behind() {
+        // The row every ordinary turn ends on, and the one only a screen can
+        // see. When a turn finishes, the band gives its activity row back, so
+        // `band_top` moves *down* -- and [`Self::render_append`] anchors the
+        // settled rows it repaints to that top, which places the transcript's
+        // unfinished line one row lower than it was painted. [`Self::release`]
+        // erases `painted .. band_top`, which is the rows the **band** gave
+        // back; the row the **document block** vacated is not among them.
+        //
+        // Without an erase for it the answer's last row is on the screen twice:
+        // truncated where the paced release had reached when the turn ended,
+        // and complete on the row below it. Phase 1 repaints no transcript row
+        // and the exit clears only from the band's top downward, so both copies
+        // are permanent and both reach native scrollback.
+        // Wide enough for the whole of `WHOLE`: `place` clips a row to the
+        // screen, and a terminal too narrow for it would make this a test about
+        // clipping with the duplicate hiding inside the ellipsis.
+        let running = crate::tui::layout::solve_with(12, 40, 1, true).expect("a turn in flight");
+        let ended = crate::tui::layout::solve_with(12, 40, 1, false).expect("the turn over");
+        assert_eq!(
+            ended.band_top() - running.band_top(),
+            1,
+            "the activity row is the one row the band gives back here"
+        );
+
+        let mut band = Band::new();
+        let mut sink = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        let mut screen = Screen::under_a_painted_band(&running);
+        // The document area ends at the band's **top**, not at its divider: the
+        // activity row is the band's while a turn runs.
+        screen.divider = running.band_top();
+
+        // A committed band, so there is a recorded top to give back. Its own
+        // bytes are not fed to the screen -- `render`'s frame is a different
+        // instrument's subject, and this one models what an *append* does.
+        band.commit(&mut sink, &band_rows(), &running, (running.divider + 1, 3))
+            .expect("the band while the turn runs");
+        assert_eq!(band.painted_top(), Some(running.band_top()));
+
+        // The answer's row as the pacer had released it when the turn ended.
+        sink.written.clear();
+        band.append_document(&mut sink, 1, &[PARTIAL.to_string()], &running)
+            .expect("the partial row");
+        screen.feed(&sink.written);
+
+        // The turn ends: the activity row goes, and the same logical row --
+        // now complete -- is repainted.
+        screen.divider = ended.band_top();
+        sink.written.clear();
+        band.append_document(&mut sink, 0, &[WHOLE.to_string()], &ended)
+            .expect("the completed row");
+        screen.feed(&sink.written);
+
+        let document = screen.visible_document();
+        let answers: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("answer:"))
+            .collect();
+        assert_eq!(
+            answers,
+            vec![WHOLE],
+            "the band left a stale copy of the answer on the row the document \
+             block vacated: {document:?}"
+        );
+    }
+
+    #[test]
+    fn a_band_that_shrank_by_more_than_one_row_erases_all_of_what_it_moved() {
+        // The same defect with the range's two ends told apart. A band that
+        // gives back **one** row cannot distinguish "erase one row too few at
+        // the top" from "erase one row too few at the bottom" from "erase
+        // nothing": all three leave the same single stale row. A submission is
+        // the ordinary two-row case -- a three-row draft goes, the composer
+        // comes back to one -- and it is what makes the boundary a boundary.
+        let tall = crate::tui::layout::solve(12, 40, 3).expect("a three-row composer");
+        let short = crate::tui::layout::solve(12, 40, 1).expect("a one-row composer");
+        assert_eq!(
+            short.band_top() - tall.band_top(),
+            2,
+            "the composer gives back two rows here"
+        );
+
+        let mut band = Band::new();
+        let mut sink = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        let mut screen = Screen::under_a_painted_band(&tall);
+        screen.divider = tall.band_top();
+        band.commit(&mut sink, &band_rows(), &tall, (tall.divider + 1, 3))
+            .expect("the tall band");
+
+        // Two rows of answer, in the document, under the tall band.
+        sink.written.clear();
+        band.append_document(
+            &mut sink,
+            2,
+            &[FIRST.to_string(), PARTIAL.to_string()],
+            &tall,
+        )
+        .expect("two rows");
+        screen.feed(&sink.written);
+
+        // The composer shrinks by two, so both rows are repainted two rows
+        // lower and both of the rows they left need erasing.
+        screen.divider = short.band_top();
+        sink.written.clear();
+        band.append_document(
+            &mut sink,
+            0,
+            &[FIRST.to_string(), WHOLE.to_string()],
+            &short,
+        )
+        .expect("the same two rows, one of them longer");
+        screen.feed(&sink.written);
+
+        let document = screen.visible_document();
+        let answers: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("answer:"))
+            .collect();
+        assert_eq!(
+            answers,
+            vec![FIRST, WHOLE],
+            "a row the block vacated was left behind: {document:?}"
+        );
+    }
+
+    /// The row above the one a turn ends on, so the two-row case has a row
+    /// whose stale copy is **not** a prefix of its live one.
+    const FIRST: &str = "answer: the first row of it";
+
+    /// The answer's last row as a paced release leaves it when a turn ends, and
+    /// the whole of it. The first is a **prefix** of the second on purpose:
+    /// that is what makes the stale copy hard to see and worth a test, since a
+    /// truncated duplicate does not contain the marker a reader would grep for.
+    const PARTIAL: &str = "answer: XFXMA";
+    const WHOLE: &str = "answer: XFXMARK-COMPLETE";
 
     #[test]
     fn a_band_that_has_painted_nothing_has_no_row_to_clear_from() {
