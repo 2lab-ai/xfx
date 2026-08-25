@@ -45,13 +45,17 @@ runs, on Linux and macOS, on x86_64 and aarch64:
 ```bash
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings
 cargo test --locked --all-targets
+cargo test --locked --features fault-injection --test tui
 cargo build --locked --release
+cargo build --locked --release --features fault-injection --target-dir target/faulty
 ./scripts/check-no-stubs.sh
 ./scripts/check-no-secrets.sh
 ./scripts/check-xfx-identity.sh
 ./scripts/check-preview-contract.sh
 ./scripts/smoke.sh target/release/xfx
+./scripts/smoke-tui.sh target/release/xfx --faulty target/faulty/release/xfx
 ```
 
 `scripts/check-xfx-identity.sh` scans the tracked tree for the name this port
@@ -74,10 +78,42 @@ on a loopback port -- no credential, no network -- and prints an evidence
 directory containing every captured stream. Quote from it when you report what
 you ran.
 
+`scripts/smoke-tui.sh` is the second runner beside it, and it exists because a
+TUI's contract is *what is on the screen*: the line-oriented product is testable
+by reading stdout, and a band painted into the bottom of a terminal is not.
+"It looked right when I ran it" is not a receipt. So this one drives a release
+binary on a real pseudoterminal through the fourteen Phase-1 scenarios of
+`.prd/06-qa-harness.md`, and judges each of them three ways -- bytes on the
+wire, **cells on a grid** rebuilt from those bytes, and the child's own
+`termios` read off its terminal while it runs. Its VT emulator is written into
+the evidence directory rather than installed, and it **fails the run on any
+sequence it does not know**, which makes the emitted subset a contract as well
+as something to read.
+
+It obeys the same two rules `scripts/smoke.sh` does -- **no live credential and
+no network**, and nothing written into the repository -- and adds a third from
+`06-qa-harness.md`: every scenario mints a nonce, asserts it in the client-side
+capture of the request xfx really sent, and requires the fixture's own marker to
+be *rendered*. Absence is never a pass condition, because a blank screen, a
+crashed binary and a hung turn all satisfy "the wrong thing did not appear".
+
+`--faulty` is required rather than optional. Nine rows of the restoration matrix
+can only be driven by a build that fails on purpose -- a panic while the terminal
+is raw, an initialization that dies on either side of raw mode -- and a runner
+that skipped them when it was not given such a build would report a green
+restoration matrix that had proven nothing. Build it with:
+
+```bash
+cargo build --locked --release --features fault-injection --target-dir target/faulty
+```
+
+A failing scenario prints the exact command that re-runs it by hand against the
+evidence it left behind.
+
 **Run the binary.** A passing suite is necessary and not sufficient. Before
 saying a change is ready, run `./target/release/xfx` and exercise the path you
-changed, including the interactive shell if you touched it. Tests do not
-construct a terminal for you.
+changed, including the interactive shell and, with `XFX_TUI=1`, the band, if you
+touched either. Tests do not construct a terminal for you.
 
 ## Tests
 
