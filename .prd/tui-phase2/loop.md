@@ -57,6 +57,11 @@ Slice 7 and final merge qualification additionally run both release builds, `scr
 ## Round log
 
 - Round 0 (2026-08-26): Phase-1 shipped state verified at main f1913a6; issue #19 is open; no Phase-2 worktree existed; the seven canonical product items and nine QA scenarios were re-read from primary docs. Interface mapping and implementation-plan authoring started.
+- Round 1 (2026-08-26): plan tip `8cbd45c454414135222a99dadf3fc2d4efac41c2`. Dual-engine plan review is final — Fable/strategist: APPROVE, MUST-FIX none; GPT-5.6: APPROVE, MUST-FIX none. The plan gate is closed and WU 1 may begin. Receipts re-observed directly in this same tree: `cargo test --locked --all-targets` 1471 passed / 0 failed (machine-summed across 11 test binaries), `cargo test --locked --features fault-injection --test tui` 53 passed / 0 failed, `cargo test --locked --lib --features fault-injection` 859 passed / 0 failed; the YAML parse check and the doc gates also passed.
+- Round 1 executor notes (non-blocking review remarks; they do not widen any WU's scope):
+  1. The WU 5 draft capture/restore test must read the `EntitySnapshot` fields, so the entity roundtrip is actually proven instead of leaving the fields `dead_code`.
+  2. WU 7 checkpoint ownership must name the remaining `src/tui/shell.rs` changes at execution time rather than at plan time.
+  3. The WU 6 timing receipt names reference this machine; the portable operation-counter gate remains the authoritative one.
 
 ## Round-0 rulings
 
