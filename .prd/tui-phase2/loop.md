@@ -81,10 +81,10 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 | tab visible/sent divergence | WU 6 | implement as a visible editor unit | deterministic grid+provider assertion |
 | foreign OSC becomes composer text | WU 2 | implement decoder containment | mixed-stream pty receipt |
 | context meter / usage plumbing | WU 4 | implement for catalog providers; omit meter when either fact absent | shared event + rendered meter |
-| activity-row colour | WU 1 | re-defer: no semantic palette role in Phase-2 spec; owner is the future colour feature | issue rationale + falsification path |
-| give-up reason cannot print on refusing screen | WU 7C | re-defer: no independent delivery surface in Phase 2 | issue rationale + exit/log receipt |
+| activity-row colour | WU 1 | re-defer to issue #19 Phase-3 follow-up: no semantic palette role in Phase-2 spec | promote when a palette role is named and a cell-attribute test is supplied |
+| give-up reason cannot print on refusing screen | WU 7C | re-defer to issue #19 Phase-3 follow-up: no independent delivery surface in Phase 2 | promote when a non-screen diagnostic sink is designed and fault-injection proves it |
 | vt-grid grapheme / OSC / SGR oracle breadth | WU 1 and WU 7B | implement emitted subset + alt-plane support | oracle falsification receipts |
-| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization unless measured budget fails | resize receipt + benchmark |
+| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization to issue #19 Phase-3 follow-up | promote if WU1 benchmark exceeds 8ms/frame at 80×24 or 32ms/frame at 300×200 |
 | `xfx ask` grant recording unpinned | WU 7C | implement PTY fixture | grant event + resume receipt |
 | Ctrl-C notice wording | WU 7C | implement both surfaces together | TUI + line-shell assertions |
 | terminal-event full-channel third arm | WU 7C | implement deterministic fault-injection case | DRAIN_DEADLINE receipt |
@@ -99,7 +99,7 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 - all four repository contract scripts → exit 0
 
 This is the baseline for WU deltas. Counts are machine-summed from the command output; later rounds state their delta from this observation rather than using it as a hard-coded gate.
-- The canonical six names remain `interactive::SLASH_COMMANDS`; `SLASH_REGISTRY` lives beside it and an agreement test mechanically prevents drift. `/exit` is a registry alias for `Quit`, not a seventh canonical command; it supplies a real alias-ranking path for QA scenario 16.
+- The canonical list is six names through WU 3 and seven after WU 4 adds `/setup`; `SLASH_REGISTRY` lives beside it and an agreement test mechanically prevents drift. `/exit` is a registry alias for `Quit`, not a seventh canonical command; it supplies a real alias-ranking path for QA scenario 16.
 - The inline picker reuses the band's elastic panel slot but does not take the caret. Approval is a question and owns focus; completion is composer state and the composer remains caret owner.
 - The Phase-2 paste "undo boundary" means the paste is recorded as one editor transaction and is pinned by a cargo-level boundary test. User-facing undo/redo bindings and the bounded undo stack remain Phase 3 item 18. QA scenario 21 keeps atomic move/delete/history renumber on the real PTY; its undo clause is reconciled to the cargo receipt in `.prd/06-qa-harness.md` in WU 6.
 - Alt-screen approval preserves the existing 160-byte one-line summary for the inline panel and adds a separate inert `ApprovalDiff` payload for screen review. Each side is bounded to a literal 64 KiB and control characters are escaped before the approval channel; the full file is never transported as prompt text.
