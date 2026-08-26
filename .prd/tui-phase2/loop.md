@@ -81,10 +81,10 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 | tab visible/sent divergence | WU 6 | implement as a visible editor unit | deterministic grid+provider assertion |
 | foreign OSC becomes composer text | WU 2 | implement decoder containment | mixed-stream pty receipt |
 | context meter / usage plumbing | WU 4 | implement for catalog providers; omit meter when either fact absent | shared event + rendered meter |
-| activity-row colour | WU 1 | re-defer to issue #19 Phase-3 follow-up: no semantic palette role in Phase-2 spec | promote when a palette role is named and a cell-attribute test is supplied |
-| give-up reason cannot print on refusing screen | WU 7C | re-defer to issue #19 Phase-3 follow-up: no independent delivery surface in Phase 2 | promote when a non-screen diagnostic sink is designed and fault-injection proves it |
+| activity-row colour | WU 1 | re-defer to successor issue #20: no semantic palette role in Phase-2 spec | promote when a palette role is named and a cell-attribute test is supplied |
+| give-up reason cannot print on refusing screen | WU 7C | re-defer to successor issue #20: no independent delivery surface in Phase 2 | promote when a non-screen diagnostic sink is designed and fault-injection proves it |
 | vt-grid grapheme / OSC / SGR oracle breadth | WU 1 and WU 7B | implement emitted subset + alt-plane support | oracle falsification receipts |
-| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization to issue #19 Phase-3 follow-up | promote if WU1 benchmark exceeds 8ms/frame at 80×24 or 32ms/frame at 300×200 |
+| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization to successor issue #20 | promote if WU1 benchmark exceeds 8ms/frame at 80×24 or 32ms/frame at 300×200 |
 | `xfx ask` grant recording unpinned | WU 7C | implement PTY fixture | grant event + resume receipt |
 | Ctrl-C notice wording | WU 7C | implement both surfaces together | TUI + line-shell assertions |
 | terminal-event full-channel third arm | WU 7C | implement deterministic fault-injection case | DRAIN_DEADLINE receipt |
@@ -108,3 +108,5 @@ This is the baseline for WU deltas. Counts are machine-summed from the command o
 - The seven WUs are sequential, not parallel: `src/tui/shell.rs` is a shared integration seam for WU 2–6. Use a fresh implementer per WU, but never more than one writer at a time. A rejected WU resumes its original implementer and reviewer.
 
 - WU 7 is one carrier but three bounded review checkpoints: **7A** approval payload + owner state, **7B** alternate renderer/oracle/scenario 20, **7C** carrier hardening + all-scenario convergence. Each checkpoint has its own RED/GREEN, mutation report and unanimous scoped review before the next starts.
+
+- Every re-deferred row is copied with its threshold and final evidence link to successor carrier https://github.com/2lab-ai/xfx/issues/20 before issue #19 closes.
