@@ -43,7 +43,7 @@ The carrier issue's additional findings are inputs, not automatic scope. Each mu
 
 Apply `rules/DEV.md` §4 plus all of these:
 
-- Every task in the Phase-2 implementation plan passes dual-persona external review unanimously.
+- Every task in the Phase-2 implementation plan, including WU 7 checkpoints 7A/7B/7C, passes dual-persona external review unanimously.
 - Every Phase-1 and Phase-2 QA scenario passes on release binaries on native macOS and Linux runners.
 - `scripts/smoke-tui.sh` exits 0 and prints an evidence directory containing raw logs, grid snapshots and termios captures.
 - Issue #19 has a terminal disposition for every inherited item and closes.

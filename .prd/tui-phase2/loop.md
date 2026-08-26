@@ -29,15 +29,16 @@ Seven vertical slices execute in order. Each slice owns one product contract, it
 Each implementation round runs sequentially in one target directory:
 
 ```bash
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo clippy --locked --all-targets --features fault-injection -- -D warnings
-cargo test --locked --all-targets
-cargo test --locked --features fault-injection --test tui
-./scripts/check-no-stubs.sh
-./scripts/check-no-secrets.sh
-./scripts/check-xfx-identity.sh
-./scripts/check-preview-contract.sh
+E=${XFX_EVIDENCE:?set XFX_EVIDENCE outside the worktree}
+cargo fmt --check > "$E/fmt.log" 2>&1 && echo FMT-OK &&
+cargo clippy --locked --all-targets -- -D warnings > "$E/clippy.log" 2>&1 && echo CLIPPY-OK &&
+cargo clippy --locked --all-targets --features fault-injection -- -D warnings > "$E/clippy-fault.log" 2>&1 && echo CLIPPY-FAULT-OK &&
+cargo test --locked --all-targets > "$E/default.log" 2>&1 && echo DEFAULT-OK &&
+cargo test --locked --features fault-injection --test tui > "$E/fault-tui.log" 2>&1 && echo FAULT-TUI-OK &&
+./scripts/check-no-stubs.sh > "$E/no-stubs.log" 2>&1 && echo NO-STUBS-OK &&
+./scripts/check-no-secrets.sh > "$E/no-secrets.log" 2>&1 && echo NO-SECRETS-OK &&
+./scripts/check-xfx-identity.sh > "$E/identity.log" 2>&1 && echo IDENTITY-OK &&
+./scripts/check-preview-contract.sh > "$E/preview-contract.log" 2>&1 && echo PREVIEW-CONTRACT-OK
 ```
 
 Slice 7 and final merge qualification additionally run both release builds, `scripts/smoke.sh` and the expanded `scripts/smoke-tui.sh`. CI proves all native target rows. Local receipt numbers are discovered from the current tree and recorded as observations, never copied as expectations.
@@ -70,22 +71,24 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 |---|---|---|---|
 | cell diff / no-op frame skip | WU 1 | implement | QA 13–14 + byte/grid equivalence |
 | resize / SIGWINCH / unfinished-tail rewrap | WU 2 | implement | QA 15 on macOS + Linux |
-| slash picker / provider switching / model catalog | WU 3 | implement to QA 16, 18, 19 | fixture-discriminated real pty |
-| prompt history | WU 4 | implement | QA 17 |
-| alt-screen file-diff approval | WU 5 | implement | QA 20 + atomic primary restore |
-| paste entity, 64-cap prefix scan, history renumber, undo boundary | WU 6 | implement | QA 21 + budget/mutation receipts |
-| OSC 2 + kitty/tmux | WU 7 | implement | terminal-byte matrix |
-| tab visible/sent divergence | WU 6 | decide with paste/editor entity model | deterministic grid+provider assertion |
-| foreign OSC becomes composer text | WU 7 | implement decoder containment or explicitly re-defer | mixed-stream pty receipt or issue rationale |
-| context meter / usage plumbing | WU 3 | implement if QA/spec source supplies denominator; otherwise explicit re-defer | shared event + rendered meter, or evidenced absence of denominator |
-| activity-row colour | WU 1 or 7 | implement only with a semantic palette role; otherwise explicit re-defer | cell-attribute assertion or rationale |
-| give-up reason cannot print on refusing screen | WU 7 | explicit re-defer unless a non-screen delivery surface is in scope | issue rationale + exit/log receipt |
-| vt-grid grapheme / OSC / SGR oracle breadth | WU 1 and 7 | implement enough to validate emitted subset | oracle falsification receipts |
-| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; memoize only if measured budget fails | resize + performance receipt |
-| `xfx ask` grant recording unpinned | WU 7 | implement pty fixture if feasible | grant event + resume receipt |
-| Ctrl-C notice wording | WU 7 | implement both surfaces together | TUI + line-shell assertions |
-| terminal-event full-channel third arm | WU 7 | implement deterministic fault-injection case | DRAIN_DEADLINE receipt |
-| parity `/model` shared-validation sentence | WU 3 | implement docs | parity diff |
+| slash picker | WU 3 | implement | QA 16 + fixture-discriminated real pty |
+| provider switching / model catalog / context meter | WU 4 | implement | QA 18–19 + fixture-discriminated real pty |
+| prompt history | WU 5 | implement | QA 17 |
+| alt-screen file-diff approval | WU 7A–7B | implement | QA 20 + atomic primary restore |
+| paste entity, 64-cap prefix scan, history renumber, transaction boundary | WU 6 | implement | QA 21 + budget/mutation receipts |
+| OSC 2 title | WU 1 | implement | terminal-byte matrix |
+| kitty/tmux | WU 7C | re-defer full CSI-u matrix; existing push/pop/tmux branch reclassified implemented | existing constants/tests + explicit rationale |
+| tab visible/sent divergence | WU 6 | implement as a visible editor unit | deterministic grid+provider assertion |
+| foreign OSC becomes composer text | WU 2 | implement decoder containment | mixed-stream pty receipt |
+| context meter / usage plumbing | WU 4 | implement for catalog providers; omit meter when either fact absent | shared event + rendered meter |
+| activity-row colour | WU 1 | re-defer: no semantic palette role in Phase-2 spec; owner is the future colour feature | issue rationale + falsification path |
+| give-up reason cannot print on refusing screen | WU 7C | re-defer: no independent delivery surface in Phase 2 | issue rationale + exit/log receipt |
+| vt-grid grapheme / OSC / SGR oracle breadth | WU 1 and WU 7B | implement emitted subset + alt-plane support | oracle falsification receipts |
+| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization unless measured budget fails | resize receipt + benchmark |
+| `xfx ask` grant recording unpinned | WU 7C | implement PTY fixture | grant event + resume receipt |
+| Ctrl-C notice wording | WU 7C | implement both surfaces together | TUI + line-shell assertions |
+| terminal-event full-channel third arm | WU 7C | implement deterministic fault-injection case | DRAIN_DEADLINE receipt |
+| parity `/model` shared-validation sentence | WU 4 | implement docs | parity diff |
 
 ## Build facts (Round 0, directly observed)
 
@@ -103,3 +106,5 @@ This is the baseline for WU deltas. Counts are machine-summed from the command o
 - WU 4 separates UI choice from runtime mutation. The shell emits provider/catalog work; the worker owns async catalog fetch, provider/config replacement, conversation reset and profile persistence. Catalog entries cross `UiEvent::made_inert` before rendering. The same catalog event supplies the context-window denominator; completed-turn usage supplies the numerator.
 - Alt-screen ownership is a distinct owner enum, not another meaning of `Option<Panel>`. Returning to the primary screen emits `1049l` and the complete primary repaint in one `write_all`; no intermediate blank frame is allowed. Normal, panic and signal restoration all account for the owner state, while the main TUI surface still never takes the alternate screen.
 - The seven WUs are sequential, not parallel: `src/tui/shell.rs` is a shared integration seam for WU 2–6. Use a fresh implementer per WU, but never more than one writer at a time. A rejected WU resumes its original implementer and reviewer.
+
+- WU 7 is one carrier but three bounded review checkpoints: **7A** approval payload + owner state, **7B** alternate renderer/oracle/scenario 20, **7C** carrier hardening + all-scenario convergence. Each checkpoint has its own RED/GREEN, mutation report and unanimous scoped review before the next starts.
