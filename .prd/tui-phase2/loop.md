@@ -35,6 +35,7 @@ cargo clippy --locked --all-targets -- -D warnings > "$E/clippy.log" 2>&1 && ech
 cargo clippy --locked --all-targets --features fault-injection -- -D warnings > "$E/clippy-fault.log" 2>&1 && echo CLIPPY-FAULT-OK &&
 cargo test --locked --all-targets > "$E/default.log" 2>&1 && echo DEFAULT-OK &&
 cargo test --locked --features fault-injection --test tui > "$E/fault-tui.log" 2>&1 && echo FAULT-TUI-OK &&
+cargo test --locked --lib --features fault-injection > "$E/fault-lib.log" 2>&1 && echo FAULT-LIB-OK &&
 ./scripts/check-no-stubs.sh > "$E/no-stubs.log" 2>&1 && echo NO-STUBS-OK &&
 ./scripts/check-no-secrets.sh > "$E/no-secrets.log" 2>&1 && echo NO-SECRETS-OK &&
 ./scripts/check-xfx-identity.sh > "$E/identity.log" 2>&1 && echo IDENTITY-OK &&
@@ -96,9 +97,10 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 - default clippy and `fault-injection` clippy with `-D warnings` → exit 0
 - `cargo test --locked --all-targets` → 1471 passed, 0 failed
 - `cargo test --locked --features fault-injection --test tui` → 53 passed, 0 failed
+- `cargo test --locked --lib --features fault-injection` → 859 passed, 0 failed
 - all four repository contract scripts → exit 0
 
-This is the baseline for WU deltas. Counts are machine-summed from the command output; later rounds state their delta from this observation rather than using it as a hard-coded gate.
+This is the baseline for WU deltas, and it is three labeled counts, not two: default 1471, fault integration 53, fault lib units 859. Counts are machine-summed from the command output; later rounds state their delta from this observation rather than using it as a hard-coded gate.
 - The canonical list is six names through WU 3 and seven after WU 4 adds `/setup`; `SLASH_REGISTRY` lives beside it and an agreement test mechanically prevents drift. `/exit` is a registry alias for `Quit`, not a seventh canonical command; it supplies a real alias-ranking path for QA scenario 16.
 - The inline picker reuses the band's elastic panel slot but does not take the caret. Approval is a question and owns focus; completion is composer state and the composer remains caret owner.
 - The Phase-2 paste "undo boundary" means the paste is recorded as one editor transaction and is pinned by a cargo-level boundary test. User-facing undo/redo bindings and the bounded undo stack remain Phase 3 item 18. QA scenario 21 keeps atomic move/delete/history renumber on the real PTY; its undo clause is reconciled to the cargo receipt in `.prd/06-qa-harness.md` in WU 6.
