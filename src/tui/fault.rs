@@ -25,6 +25,18 @@ pub(crate) enum Fault {
     /// channel and parks the producer in `send().await`, which is the state the
     /// drain protocol has to get a session out of.
     SlowUi,
+    /// **Not a failure**: the Phase-1 whole-band painter, kept as the reference
+    /// the cell diff is judged against.
+    ///
+    /// It is here rather than behind a flag of its own because that is exactly
+    /// the property scenario 13 needs -- the two painters selectable on a real
+    /// terminal by the harness and by *nothing else*. This enum is compiled
+    /// only under `fault-injection`, so a released binary contains neither the
+    /// variant nor the branch in `super::frame::Band::commit` that reads it:
+    /// there is no environment variable a user can set to get the slow painter
+    /// back, and therefore no second painter that has to keep working in the
+    /// field.
+    FullPaintReference,
 }
 
 /// The variable a run is asked to fail through.
@@ -40,6 +52,7 @@ impl Fault {
             Self::NonOwnerPanic => "non-owner-panic",
             Self::WorkerTurn => "worker-turn",
             Self::SlowUi => "slow-ui",
+            Self::FullPaintReference => "full-paint-reference",
         }
     }
 }

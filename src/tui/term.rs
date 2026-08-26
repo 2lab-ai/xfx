@@ -26,30 +26,43 @@ use rustix::termios::{
 
 /// The modes the TUI turns on when it takes the terminal.
 ///
-/// modifyOtherKeys, the kitty keyboard push, bracketed paste, and autowrap off
-/// (`terminal.zig:4-13`). Mouse reporting is deliberately absent: the wheel
-/// stays the terminal's own scrollback (`terminal.zig:135-142`).
-pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l";
+/// modifyOtherKeys, the kitty keyboard push, bracketed paste, autowrap off
+/// (`terminal.zig:4-13`) and `XTWINOPS 22 ; 2` -- the push of the terminal's
+/// own **window title** onto its title stack, so the one the band sets
+/// (`OSC 2`, `super::frame::title`) is borrowed rather than taken. The window
+/// title only, rather than the icon name with it, because that is the only one
+/// xfx sets: a push that claimed more than the pop gives back is a stack entry
+/// left behind on every exit.
+///
+/// The push is the **last** thing in the mode set and the pop is the first
+/// thing in every restore below, so the title a session sets exists only
+/// between the two -- and a terminal that models no title stack ignores both
+/// and keeps whatever its user gave it.
+///
+/// Mouse reporting is deliberately absent: the wheel stays the terminal's own
+/// scrollback (`terminal.zig:135-142`).
+pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t";
 
 /// The same, without the kitty keyboard push, which breaks key input under
 /// tmux (`terminal.zig:29-34`).
-pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l";
+pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[22;2t";
 
 /// The normal exit's restore sequence, with **no** `1049l`: the main surface
 /// was never on the alternate screen (`app_lifecycle.zig:39-41`).
-pub(crate) const RESTORE: &str = "\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE: &str = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
-pub(crate) const RESTORE_TMUX: &str = "\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
 /// not own was on screen (`app_lifecycle.zig:36-38`).
 pub(crate) const ABNORMAL_RESTORE: &str =
-    "\x1b[?1049l\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The abnormal restore for tmux.
-pub(crate) const ABNORMAL_RESTORE_TMUX: &str = "\x1b[?1049l\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const ABNORMAL_RESTORE_TMUX: &str =
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The dimensions a terminal that will not answer is treated as having.
 const DEFAULT_ROWS: u16 = 24;
@@ -450,24 +463,82 @@ mod tests {
         // Spelled out independently of the declarations, so this pins the whole
         // sequence -- every escape, and the order they arrive in -- rather than
         // comparing a constant with itself.
-        assert_eq!(MODE_SET, "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l");
-        assert_eq!(MODE_SET_TMUX, "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l");
+        assert_eq!(
+            MODE_SET,
+            "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+        );
+        assert_eq!(
+            MODE_SET_TMUX,
+            "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+        );
         assert_eq!(
             RESTORE,
-            "\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE,
-            "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE_TMUX,
-            "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
+    }
+
+    /// `XTWINOPS 22 ; 2` and `23 ; 2`, spelled here rather than imported for the
+    /// reason every needle in this module's tests is: a test that read the
+    /// constant it is checking would pass for whatever the module declared.
+    const PUSH_TITLE: &str = "\u{1b}[22;2t";
+    const POP_TITLE: &str = "\u{1b}[23;2t";
+
+    #[test]
+    fn every_session_pushes_the_terminals_title_once_and_pops_it_once() {
+        // The title is the user's, borrowed. A push without a pop leaves `xfx`
+        // on the window for the rest of that terminal's life; a pop without a
+        // push takes away a title xfx never set, and a stack entry that belongs
+        // to whatever ran before it.
+        for set in [MODE_SET, MODE_SET_TMUX] {
+            assert_eq!(set.matches(PUSH_TITLE).count(), 1, "{set:?}");
+            assert!(
+                !set.contains(POP_TITLE),
+                "a mode set popped a title: {set:?}"
+            );
+        }
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert_eq!(restore.matches(POP_TITLE).count(), 1, "{restore:?}");
+            assert!(
+                !restore.contains(PUSH_TITLE),
+                "a restore pushed a title: {restore:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_title_is_given_back_before_anything_else_a_restore_does() {
+        // Ordering, because one of these restores is written from a signal
+        // handler onto a terminal that may be about to lose its process: the
+        // sooner the user's own title is back, the smaller the window in which
+        // a second failure leaves it as xfx's.
+        for restore in [RESTORE, RESTORE_TMUX] {
+            assert!(restore.starts_with(POP_TITLE), "{restore:?}");
+        }
+        for restore in [ABNORMAL_RESTORE, ABNORMAL_RESTORE_TMUX] {
+            // Behind the defensive `1049l` and nothing else: a title popped on
+            // the alternate screen would be popped for the wrong surface.
+            assert!(
+                restore.starts_with(&format!("\u{1b}[?1049l{POP_TITLE}")),
+                "{restore:?}"
+            );
+        }
     }
 
     #[test]

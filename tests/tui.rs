@@ -21,6 +21,8 @@ use serde_json::Value;
 use support::fake_gateway::FakeGateway;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::Sandbox;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 /// A bare `xfx` that opts into the TUI.
 fn tui(sandbox: &Sandbox) -> Command {
@@ -111,6 +113,201 @@ const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
 /// match where a hint row ended and the frame closed.
 const HINT_END: &str = "\u{1b}[0m\u{1b}[23;3H";
 
+/// A terminal, to the extent this suite has to model one.
+///
+/// **Why a model and not a byte string.** A frame is now a *difference* from
+/// what the terminal already holds (`src/tui/grid.rs`), so a needle spelling a
+/// whole row is a claim about a paint that only happens when the shadow is
+/// blank: a keystroke moves one cell, and the row it moved it on was never on
+/// the wire in one piece. What a row *says* is the property every case here
+/// means, and it is also the property the optimization is required to preserve
+/// -- the final grid must be the one the Phase-1 full-repaint painter would
+/// have left -- so the stream is folded back into rows and the rows are what is
+/// asserted on.
+///
+/// Exactly the sequences xfx declares it emits, and no more; `scripts/smoke-tui.sh`
+/// carries the strict version of this oracle, which *fails* on anything else.
+/// Here an unmodelled sequence is skipped, because this suite's cases are about
+/// rows rather than about the vocabulary.
+struct Screen {
+    cols: usize,
+    lines: Vec<Vec<String>>,
+    row: usize,
+    col: usize,
+}
+
+impl Screen {
+    /// The screen `text` leaves on a `rows` x `cols` terminal.
+    fn of(rows: usize, cols: usize, text: &str) -> Self {
+        let mut screen = Screen {
+            cols,
+            lines: vec![vec![" ".to_string(); cols]; rows],
+            row: 0,
+            col: 0,
+        };
+        let mut rest = text;
+        while !rest.is_empty() {
+            if let Some(tail) = rest.strip_prefix('\n') {
+                screen.linefeed();
+                rest = tail;
+                continue;
+            }
+            if let Some(tail) = rest.strip_prefix('\r') {
+                screen.col = 0;
+                rest = tail;
+                continue;
+            }
+            if rest.starts_with('\u{1b}') {
+                let len = escape_len(rest);
+                screen.escape(&rest[..len]);
+                rest = &rest[len..];
+                continue;
+            }
+            let cluster = rest.graphemes(true).next().expect("a non-empty rest");
+            rest = &rest[cluster.len()..];
+            if cluster.chars().all(char::is_control) {
+                continue;
+            }
+            screen.put(cluster);
+        }
+        screen
+    }
+
+    /// The screen as the last **complete** frame left it, and `None` before
+    /// one.
+    ///
+    /// **The band's rows may only be read here**, and that is a correctness
+    /// rule rather than tidiness. Two things happen to a band between frames,
+    /// and both make the bottom of the screen say something that is not the
+    /// band's claim:
+    ///
+    /// * a document append scrolls the screen with a real linefeed
+    ///   (`CUP(rows,1)` + `LF`, `src/tui/frame.rs`'s `scroll_one`), so the
+    ///   band's rows move **up** and the row it was on goes blank until the
+    ///   next frame puts it back;
+    /// * a frame is a difference, so a paint in flight has written some of its
+    ///   rows and not others.
+    ///
+    /// Asking [`Screen::of`] at an arbitrary byte offset answers "what is on
+    /// the bottom row of the terminal right now", which during either window is
+    /// mid-transaction. Asking it here answers "what did the band last say",
+    /// which is the question every case below is really asking.
+    ///
+    /// `None` rather than a blank screen before the first frame, for the reason
+    /// [`last_frame`] returns `None`: a predicate looking for the *absence* of a
+    /// word would be satisfied by a screen nothing had painted yet.
+    fn painted(text: &str, rows: usize, cols: usize) -> Option<Self> {
+        let ends = text.rfind(FRAME_END)? + FRAME_END.len();
+        Some(Self::of(rows, cols, &text[..ends]))
+    }
+
+    /// What row `line` -- one-based, as the terminal counts -- says.
+    fn row_text(&self, line: usize) -> String {
+        self.lines
+            .get(line - 1)
+            .map(|cells| cells.concat().trim_end().to_string())
+            .unwrap_or_default()
+    }
+
+    fn put(&mut self, cluster: &str) {
+        let width = cluster.width();
+        if width == 0 {
+            // A combining mark belongs to the cell before it.
+            if self.col > 0 {
+                if let Some(cell) = self.lines[self.row].get_mut(self.col - 1) {
+                    cell.push_str(cluster);
+                }
+            }
+            return;
+        }
+        if self.col + width > self.cols {
+            // Autowrap is off (`?7l`), so a terminal overwrites the last cell.
+            self.col = self.cols.saturating_sub(width);
+        }
+        self.lines[self.row][self.col] = cluster.to_string();
+        for offset in 1..width {
+            self.lines[self.row][self.col + offset] = String::new();
+        }
+        self.col += width;
+    }
+
+    fn linefeed(&mut self) {
+        if self.row + 1 < self.lines.len() {
+            self.row += 1;
+            return;
+        }
+        self.lines.remove(0);
+        self.lines.push(vec![" ".to_string(); self.cols]);
+    }
+
+    fn erase_to_end_of_row(&mut self) {
+        for cell in &mut self.lines[self.row][self.col..] {
+            *cell = " ".to_string();
+        }
+    }
+
+    fn escape(&mut self, sequence: &str) {
+        let Some(body) = sequence.strip_prefix("\u{1b}[") else {
+            // An `OSC`, or a two-byte escape. Neither moves a cell.
+            return;
+        };
+        let Some(final_byte) = body.chars().last() else {
+            return;
+        };
+        let params = &body[..body.len() - final_byte.len_utf8()];
+        if params.starts_with(['?', '>', '<', '=']) {
+            // A private mode or a keyboard-protocol request: no cell moves.
+            return;
+        }
+        match final_byte {
+            'H' => {
+                let (row, column) = params.split_once(';').unwrap_or((params, ""));
+                self.row = (row.parse().unwrap_or(1).max(1) - 1).min(self.lines.len() - 1);
+                self.col = (column.parse().unwrap_or(1).max(1) - 1).min(self.cols - 1);
+            }
+            'J' => {
+                if params.is_empty() || params == "0" {
+                    self.erase_to_end_of_row();
+                    for line in self.row + 1..self.lines.len() {
+                        self.lines[line] = vec![" ".to_string(); self.cols];
+                    }
+                } else if params == "2" {
+                    self.lines = vec![vec![" ".to_string(); self.cols]; self.lines.len()];
+                }
+            }
+            'K' if params.is_empty() || params == "0" => self.erase_to_end_of_row(),
+            // `SGR`, `CSI 6 n`, `XTWINOPS`: none of them move a cell.
+            _ => {}
+        }
+    }
+}
+
+/// How many bytes the escape sequence at the head of `text` takes.
+fn escape_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.get(1) == Some(&b'[') {
+        let mut end = 2;
+        while end < bytes.len() && !(0x40..=0x7e).contains(&bytes[end]) {
+            end += 1;
+        }
+        return (end + 1).min(bytes.len());
+    }
+    if bytes.get(1) == Some(&b']') {
+        let mut end = 2;
+        while end < bytes.len() {
+            if bytes[end] == 0x07 {
+                return end + 1;
+            }
+            if bytes[end] == 0x1b && bytes.get(end + 1) == Some(&b'\\') {
+                return end + 2;
+            }
+            end += 1;
+        }
+        return bytes.len();
+    }
+    2.min(bytes.len())
+}
+
 /// The last **complete** frame in `text`, if there is one.
 ///
 /// The needles here are frame-local on purpose -- everything the session ever
@@ -130,16 +327,16 @@ fn last_frame(text: &str) -> Option<&str> {
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
 /// an integration test, and a test that read the constant it is checking would
 /// pass for any sequence the module happened to declare.
-const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l";
+const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
 
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
-const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l";
+const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
 
 /// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`).
-const RESTORE: &str = "\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str = "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`).
@@ -147,14 +344,24 @@ const RESTORE_TMUX: &str = "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
 const ABNORMAL_RESTORE: &str =
-    "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+    "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
 /// A route that is not the TUI's must emit none of them: an invocation that
 /// merely *looked* like the classic path while having already stamped the
 /// terminal would be the regression these negatives exist to catch.
-const TUI_BYTES: [&str; 4] = ["\u{1b}[>4;2m", "\u{1b}[>1u", "\u{1b}[?2004h", "\u{1b}[?7l"];
+const TUI_BYTES: [&str; 6] = [
+    "\u{1b}[>4;2m",
+    "\u{1b}[>1u",
+    "\u{1b}[?2004h",
+    "\u{1b}[?7l",
+    // The title stack push, and the window title itself: the line-oriented
+    // shell borrows no title and sets none, so a route that is not the TUI's
+    // must leave the terminal's own title alone.
+    "\u{1b}[22;2t",
+    "\u{1b}]2;",
+];
 
 /// Requires that no byte of the TUI's mode set reached this terminal.
 fn assert_no_mode_bytes(text: &str) {
@@ -246,6 +453,70 @@ fn wait_until_raw(pty: &Pty) -> TerminalState {
         );
         std::thread::sleep(IDLE_POLL);
     }
+}
+
+#[test]
+fn a_document_append_moves_the_band_off_its_rows_until_the_next_frame() {
+    // The regression this file was rewritten for, in the smallest sequence that
+    // produces it -- and the reason every band-row predicate here goes through
+    // `Screen::painted` rather than `Screen::of`.
+    //
+    // A document append is a real linefeed on the bottom row
+    // (`src/tui/frame.rs`'s `scroll_one`: `CUP(rows,1)` then `LF`), so the
+    // **whole screen** moves up, band included, and nothing puts it back until
+    // the next frame. Between the two, the bottom row is blank and the hint row
+    // is one row higher than it belongs. A predicate that read row 24 in that
+    // window asked "what is on the bottom row right now" and got an answer that
+    // is true of the terminal and false of the band -- which let a wait for
+    // "the hint row stopped saying `queued`" through while the band was still
+    // saying it, and the prompt behind that wait was refused and never sent.
+    //
+    // Both halves are asserted, because the model must be *right* about the
+    // terminal and the helper must be right about the band: an emulator that
+    // did not move the row would be the easy way to make this pass and would be
+    // lying about a linefeed.
+    const HINT: &str = "queued 1 · ask · glm-5.2";
+    let frame = format!(
+        "{FRAME_BEGIN}\u{1b}[22;1H--\u{1b}[23;1H> \u{1b}[24;1H{HINT}\u{1b}[23;3H{FRAME_END}"
+    );
+    // The append, byte for byte as the band writes one: the scroll, then the
+    // document row placed on the row the scroll freed.
+    let append = "\u{1b}[24;1H\r\n\u{1b}[21;1H[tool] edit_file refused\u{1b}[K";
+
+    let painted = Screen::painted(&frame, 24, 80).expect("a complete frame");
+    assert_eq!(
+        painted.row_text(24),
+        HINT,
+        "the band's own frame did not put the hint row on the bottom row"
+    );
+
+    let wire = format!("{frame}{append}");
+    let live = Screen::of(24, 80, &wire);
+    assert_eq!(
+        live.row_text(24),
+        "",
+        "the append's linefeed did not scroll the bottom row away -- this \
+         emulator is not modelling a linefeed at the bottom margin"
+    );
+    assert_eq!(
+        live.row_text(23),
+        HINT,
+        "the hint row did not move up with the scroll, so the model disagrees \
+         with what a terminal does to a band when a row enters scrollback"
+    );
+
+    // And the helper still answers for the band: what it last painted, on the
+    // row it painted it on.
+    let settled = Screen::painted(&wire, 24, 80).expect("a complete frame");
+    assert_eq!(
+        settled.row_text(24),
+        HINT,
+        "a band-row question answered from a screen that is mid-append"
+    );
+    assert!(
+        Screen::painted("nothing has been painted yet", 24, 80).is_none(),
+        "a screen nothing had painted answered a question about the band"
+    );
 }
 
 #[test]
@@ -701,6 +972,72 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     );
 }
 
+/// The window title the launch asks for, up to the model label.
+///
+/// Response-only, like [`READY`]: no test types these bytes, so counting them
+/// counts what xfx wrote. Spelled out rather than imported for the reason
+/// [`MODE_SET`] is.
+const TITLE: &str = "\u{1b}]2;xfx \u{b7} ";
+
+/// `XTWINOPS 22 ; 2` and `23 ; 2`: the push of the terminal's own window title
+/// onto its stack, and the pop that gives it back.
+const PUSH_TITLE: &str = "\u{1b}[22;2t";
+const POP_TITLE: &str = "\u{1b}[23;2t";
+
+#[test]
+fn a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced() {
+    // The title is **borrowed**, and a stop gives it back. The restore written
+    // by the stop handler pops the title stack, so the window is the shell's
+    // again; the resume pushes a fresh entry and the band owes a fresh `OSC 2`.
+    // A band that went on remembering it had already told *this terminal* its
+    // title would send no second one, and the window would carry the shell's
+    // title for the rest of the session -- with the session none the wiser,
+    // because nothing on the screen says what the title bar reads.
+    //
+    // Both halves are asserted and both are needed. Re-asserting the title
+    // without a balanced stack would leak an entry per stop; balancing the
+    // stack without re-asserting the title is the defect itself.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let session = started(&sandbox, &pty);
+    session.wait_for(TITLE);
+
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the child to stop", |state| matches!(
+            state,
+            Wait::Stopped(_)
+        )),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+
+    session.signal(Signal::CONT);
+    session.wait_for_count(READY, 2);
+    // The frame the resume owes, and the title it owes with it.
+    session.wait_for_count(FRAME_END, 2);
+    session.wait_for_count(TITLE, 2);
+
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the second stop", |state| matches!(state, Wait::Stopped(_))),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    session.wait_for_count(POP_TITLE, 2);
+
+    // One push per time the terminal was taken, one pop per time it was given
+    // back, and never more: an entry left on the stack is the user's own title
+    // lost a level deeper on every stop.
+    let text = session.text();
+    let pushes = text.matches(PUSH_TITLE).count();
+    let pops = text.matches(POP_TITLE).count();
+    assert_eq!(
+        (pushes, pops),
+        (2, 2),
+        "stop -> resume -> stop pushed {pushes} and popped {pops}: {text:?}"
+    );
+}
+
 #[test]
 fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() {
     // The ordering the loop's two reconciles exist for. Every other resume case
@@ -1054,9 +1391,20 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
     let begins = text.find(FRAME_BEGIN).expect("a synchronized frame");
     let ends = text[begins..].find(FRAME_END).expect("a closed frame") + begins;
     let frame = &text[begins..ends];
+    // The first frame of a session is the whole band: the shadow the diff works
+    // from is blank, so every row is placed from its first column and nothing
+    // that was on those rows can survive it. Phase 1 wrote an `ED` here and
+    // this asserted on it; the diff writes the cells instead, so what is
+    // asserted on is the widest of them -- a divider that spans the screen.
     assert!(
-        frame.contains(&format!("{BAND_TOP}\u{1b}[J")),
-        "the frame did not clear the band before painting it: {frame:?}"
+        frame.contains(&"\u{2500}".repeat(80)),
+        "the frame did not paint the divider across the screen: {frame:?}"
+    );
+    // And the window title, inside the same synchronized frame as everything
+    // else: it is frame metadata rather than a second writer's business.
+    assert!(
+        frame.contains("\u{1b}]2;xfx \u{b7} "),
+        "the frame did not set the window title: {frame:?}"
     );
     for (row, what) in [
         ("\u{1b}[22;1H", "the divider"),
@@ -1172,32 +1520,42 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(READY);
 
-    // The composer row, and the hint row's own placement right after it: the
-    // pair is what makes this the whole row rather than a prefix of a longer
-    // one.
+    // The composer's whole row, read off the screen rather than off the wire: a
+    // frame is a difference from what the terminal already holds, so a
+    // keystroke writes the cell it changed and the row it changed is never on
+    // the wire in one piece. What the row *says* is the property either way.
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
     session.type_bytes("hello \u{d55c}\u{ae00}".as_bytes());
-    session.wait_for("> hello \u{d55c}\u{ae00}\u{1b}[24;1H");
-    // Backspace removes the whole grapheme, not a byte of it.
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> hello \u{d55c}\u{ae00}"
+    });
+    // Backspace removes the whole grapheme, not a byte of it -- and the cell
+    // its second column occupied is given back, which is the half of this an
+    // erase-free diff would get wrong.
     session.type_bytes(&[0x7f]);
-    session.wait_for("> hello \u{d55c}\u{1b}[24;1H");
+    session.wait_until("the backspace to take the whole grapheme", |text| {
+        composer(text) == "> hello \u{d55c}"
+    });
 
     // C-a: the caret goes home, which is the composer's first column -- two
-    // cells of prompt marker in, on the composer's own row. Taken as a whole
-    // frame rather than as one byte string: the hint row now sits between the
-    // composer row and the caret, and it carries a colour whose spelling
-    // depends on what the machine running this suite claims.
+    // cells of prompt marker in, on the composer's own row. Taken inside one
+    // complete frame, so the caret is asserted where the frame left it rather
+    // than mid-paint.
     session.type_bytes(&[0x01]);
     session.wait_until(
         "the caret to go home in the frame that painted the row",
         |text| {
-            last_frame(text).is_some_and(|frame| {
-                frame.contains("> hello \u{d55c}\u{1b}[24;1H") && frame.ends_with("\u{1b}[23;3H")
-            })
+            composer(text) == "> hello \u{d55c}"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;3H"))
         },
     );
     // C-d with text under the caret: a forward delete, and the session stays.
     session.type_bytes(&[0x04]);
-    session.wait_for("> ello \u{d55c}\u{1b}[24;1H");
+    session.wait_until("the forward delete to take the character", |text| {
+        composer(text) == "> ello \u{d55c}"
+    });
     assert!(matches!(session.state(), Wait::Running));
 
     // C-e to the end, C-u to kill the line back to its start, and C-d on the
@@ -1221,10 +1579,16 @@ fn the_composer_stops_growing_at_half_the_content_area() {
         session.type_bytes(b"0123456789012345678");
         session.type_bytes(&[0x0a]); // C-j: a newline in the composer
     }
-    // The band at its cap: the divider on row 6, and the erase that begins
-    // every frame from there. Sixteen rows of draft are in the composer and it
-    // is showing five of them.
-    session.wait_for("\u{1b}[6;1H\u{1b}[J");
+    // The band at its cap: the divider on row 6, and the rows above it left to
+    // the terminal's own document. Sixteen rows of draft are in the composer
+    // and it is showing five of them.
+    session.wait_until(
+        "the band to reach its cap with the divider on row 6",
+        |text| {
+            Screen::painted(text, 12, 20)
+                .is_some_and(|screen| screen.row_text(6) == "\u{2500}".repeat(20))
+        },
+    );
     session.wait_for("\u{1b}[12;1H"); // the hint row is still the last row
     let text = session.text();
     for row in 1..=5 {
@@ -1495,8 +1859,12 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     // in the document; this one is satisfied only by the band.
     session.wait_for("\u{1b}[21;1H\u{2022} Thinking");
     // And the clock really advances while the model is quiet, which is the
-    // whole of what the row is for.
-    session.wait_for("2s");
+    // whole of what the row is for. Read off the **row** rather than off the
+    // wire: a frame is a difference, so a second that ticked over writes the
+    // one digit that changed and the wire never carries `2s` in one piece.
+    session.wait_until("the activity row's clock to reach two seconds", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(21).contains("2s"))
+    });
 
     session.type_bytes(&[0x03, 0x03]);
     assert_eq!(session.wait_exit().code(), Some(130));
@@ -2012,10 +2380,12 @@ fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
     session.wait_for("esc again to clear");
 
     session.type_bytes(&[0x1b]);
-    // The composer's row, empty, immediately followed by the `CUP` for the row
-    // below it: the marker with nothing after it is what an empty composer
-    // paints and a composer holding a draft cannot.
-    session.wait_for("\u{1b}[23;1H> \u{1b}[24;1H");
+    // The composer's row, with the marker and nothing after it: that is what an
+    // empty composer says and what a composer holding a draft cannot. Read off
+    // the row, because clearing a draft writes an erase rather than a repaint.
+    session.wait_until("the composer to be emptied", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(23) == ">")
+    });
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -2441,8 +2811,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // than assumed, because the prompt below needs the room -- a submission
     // made while the session still holds two is refused on the hint row and
     // never sent, which is how this case flaked before the wait was here.
+    //
+    // **Read off the hint row, not off a frame's bytes.** A frame is a
+    // difference from what the terminal already holds (`src/tui/grid.rs`), so a
+    // frame that does not mention `queued` is the overwhelmingly common case:
+    // the activity marker blinking writes one cell and says nothing about the
+    // hint row, which has not changed and is therefore not written. Asking a
+    // single frame for the *absence* of a word reads "this frame did not
+    // repaint the hint row" as "the hint row no longer says it", and lets this
+    // wait through while the place is still held -- which is exactly the
+    // refusal it exists to avoid.
     session.wait_until("the runtime to give the queued place back", |text| {
-        last_frame(text).is_some_and(|frame| !frame.contains("queued"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.row_text(24).contains("queued"))
     });
 
     // A prompt typed *after* the interrupt is a new intention and still runs.

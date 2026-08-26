@@ -631,8 +631,19 @@ fn commit_frame(
     let Some(attempt) = shell.render.begin() else {
         return Ok(());
     };
+    if attempt.damaged() {
+        // Something that is not this band wrote on the screen -- a resume that
+        // handed the terminal to the shell and took it back, a `/clear` that
+        // erased it, a Ctrl-L asking for exactly this. The shadow is a claim
+        // about what is on those rows and that claim is now false about all of
+        // them, so the frame below is a whole one rather than a difference from
+        // a screen that no longer exists.
+        band.invalidate(shell.geometry.rows, shell.geometry.cols);
+    }
     match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
-        Ok(()) => {
+        // A frame that wrote nothing is a frame the screen already had, so the
+        // budget is whole for the same reason a delivered one leaves it whole.
+        Ok(_) => {
             failures.succeeded();
             Ok(())
         }
@@ -795,6 +806,14 @@ mod tests {
     }
 
     /// A screen that takes everything and remembers it.
+    /// What an empty composer's first row begins with.
+    ///
+    /// Pinned as a literal rather than imported from `super::super::shell`, for
+    /// the reason every needle in this crate's tests is: a test that read the
+    /// constant it is checking would pass for whatever that module happened to
+    /// declare.
+    const COMPOSER_MARKER: &str = "> ";
+
     fn screen() -> FlakyScreen {
         FlakyScreen {
             refusals: 0,
@@ -982,6 +1001,152 @@ mod tests {
             assert!(peak > PACED_BACKLOG, "the bound was never approached");
             assert!(released > 0, "nothing was ever released");
         }
+    }
+
+    #[test]
+    fn a_tick_that_changed_nothing_leaves_the_wire_alone() {
+        // Item 11's no-op skip, at the seam that decides it. Every reason the
+        // loop can raise ends up here, and several of them are raised by things
+        // that changed no cell -- an animation phase turning over, a keystroke
+        // the decoder absorbed, a runtime event that produced no text. A frame
+        // for one of those is a whole-band repaint on a link that may be a
+        // serial line.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            !out.written.is_empty(),
+            "the session painted nothing at all, so this case proves nothing"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::Animation);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the idle tick");
+        assert!(
+            out.written.is_empty(),
+            "a tick that changed nothing repainted the band: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+    }
+
+    #[test]
+    fn a_screen_somebody_else_wrote_on_is_repainted_whole() {
+        // `Reason::ExternalDamage` is the one reason a painter cannot answer by
+        // painting a difference: the shadow is a claim about what is on those
+        // rows, and a resume that handed the terminal to the shell, a `/clear`
+        // that erased it, or a Ctrl-L each mean that claim is false about all
+        // of them. Asked with nothing else changed, so a frame that came back
+        // came back for this reason and no other.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            String::from_utf8_lossy(&out.written).contains(COMPOSER_MARKER),
+            "the session painted no composer, so this case proves nothing"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::ExternalDamage);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame after the damage");
+        let text = String::from_utf8_lossy(&out.written);
+        assert!(
+            text.contains(COMPOSER_MARKER),
+            "a damaged screen was diffed against a shadow that describes it no \
+             longer, so the band was never put back: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_clear_makes_the_next_frame_a_whole_one() {
+        // `/clear` erases the screen behind the diff's back: the shadow still
+        // holds the band it last painted, so a frame that trusted it would find
+        // nothing changed and leave the user looking at an empty terminal for
+        // the rest of the session.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        let painted = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            painted.contains(COMPOSER_MARKER),
+            "the first frame painted no composer, so this case proves nothing: {painted:?}"
+        );
+
+        // Through the command the user really types, because the clear is the
+        // shell's decision and a test that set the flag itself would prove
+        // nothing about the path that sets it.
+        shell.route_bytes(b"/clear\r");
+
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame after the clear");
+        let text = String::from_utf8_lossy(&out.written);
+        assert!(
+            text.contains(super::super::shell::CLEAR_SCREEN),
+            "the clear never reached the screen: {text:?}"
+        );
+        assert!(
+            text.contains(COMPOSER_MARKER),
+            "the band was not repainted onto the screen the clear emptied: {text:?}"
+        );
     }
 
     #[test]
@@ -1295,33 +1460,52 @@ mod tests {
         // a frame built from a bare `write` instead would land here truncated,
         // and a policy that counted the interruption would be counting a frame
         // that was really on the screen.
+        //
+        // Judged against the *same* frame on a screen that was not interrupted,
+        // rather than against a rebuilt one: a frame is a difference from what
+        // the terminal already holds, so rebuilding it after the fact would
+        // rebuild it against a shadow the frame has already advanced and
+        // compare two things that were never the same claim.
+        let mut twin = shell();
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
-        let mut screen = FlakyScreen {
+        let mut interrupted = FlakyScreen {
             refusals: 1,
             kind: io::ErrorKind::Interrupted,
             written: Vec::new(),
         };
-
         commit_frame(
             &mut shell,
             &mut band,
-            &mut screen,
+            &mut interrupted,
             &mut failures,
             Instant::now(),
             Reconciled,
         )
         .expect("an interrupted write is retried by the write itself");
+
+        let mut undisturbed = screen();
+        commit_frame(
+            &mut twin,
+            &mut Band::new(),
+            &mut undisturbed,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the same frame, uninterrupted");
+
+        assert!(
+            !undisturbed.written.is_empty(),
+            "neither screen was painted, so this case proves nothing"
+        );
         assert_eq!(
-            String::from_utf8_lossy(&screen.written),
-            String::from_utf8_lossy(&band.render(
-                &shell.band_rows(),
-                &shell.geometry,
-                shell.cursor()
-            )),
+            String::from_utf8_lossy(&interrupted.written),
+            String::from_utf8_lossy(&undisturbed.written),
             "the interrupted frame reached the screen short"
         );
+        assert_eq!(interrupted.refusals, 0, "the refusal was never spent");
         assert!(
             failures.began.is_none(),
             "a frame that really landed started a failure budget"

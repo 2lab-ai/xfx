@@ -7,9 +7,16 @@
 # The second runner beside `scripts/smoke.sh`, which keeps running unchanged:
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
-# one drives the fourteen Phase-1 scenarios of `.prd/06-qa-harness.md` against a
-# **release** binary on a real pseudoterminal, with a cell-grid oracle and an
-# evidence directory.
+# one drives the Phase-1 scenarios of `.prd/06-qa-harness.md`, and the Phase-2
+# ones as they land, against a **release** binary on a real pseudoterminal, with
+# a cell-grid oracle and an evidence directory.
+#
+# The oracle is judged before the product is. `helpers/oracle_test.py` runs
+# first and the whole suite stops if one of the emulator's own claims is false:
+# every scenario below reads a screen through it, so an emulator that measured a
+# grapheme differently from `unicode-width` would report the product's correct
+# row as a defect, and one with a hole in its allowlist would report a sequence
+# xfx must never emit as a passing screen.
 #
 # A TUI's contract is what is on the screen, and no unit test can see a screen.
 # So every scenario is judged three ways, cheapest first: bytes on the wire,
@@ -126,11 +133,22 @@ What is modelled, and nothing else:
   `?1049` (the alternate screen it only ever *resets*, defensively)
 * `CSI 6 n` (the launch's cursor query) and the three `>`/`<` keyboard-protocol
   sequences of `term.rs:32-52`
-* `OSC` strings, which change no cell
+* `OSC 2` (the window title, remembered rather than drawn) and `OSC 11` (the
+  background query and its reply); **every other `OSC` number is a finding**,
+  `OSC 52` first among them -- a band that started writing the user's clipboard
+  would otherwise be an escape sequence nobody looked at
+* `XTWINOPS` `CSI 22 ; 2 t` / `CSI 23 ; 2 t`, the title stack xfx pushes at
+  entry and pops on every restore path
 * `CR`, `LF` with a scroll at the bottom margin
 
+Text is put on the screen a **grapheme cluster** at a time, as wide as
+`unicode-width` says it is -- which is what `src/tui/wrap.rs` measures the
+product's own rows with. An emulator that counted scalars would put a ZWJ family
+in six cells and then report the product's correct row as a column-count defect.
+
 Everything else lands in `unknown`, and a scenario that finds `unknown`
-non-empty fails.
+non-empty fails. `helpers/oracle_test.py` is where each of those claims is
+falsified before any scenario trusts it.
 """
 
 import re
@@ -149,6 +167,16 @@ OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 # The private modes xfx is allowed to set. Anything else is a finding.
 KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049"}
 
+# The `OSC` numbers xfx is allowed to write: the window title
+# (`src/tui/frame.rs`) and the background query it asks the terminal
+# (`src/tui/theme.rs:66`). `OSC 52` is deliberately **not** here -- a build that
+# started writing the clipboard must fail this run rather than be shrugged at.
+KNOWN_OSC = {"2", "11"}
+
+# The window operations xfx is allowed to write: push and pop of the title
+# stack, so a session gives the terminal's title back the way it found it.
+KNOWN_WINDOW_OPS = {"22;2", "23;2"}
+
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
 # keyboard flags and `<u` pops them.
@@ -156,6 +184,12 @@ KNOWN_PRIVATE = {(">", "4;2", "m"), (">", "4;0", "m"), (">", "1", "u"), ("<", ""
 
 # How many rows of what left the top of the screen are kept.
 SCROLLBACK_ROWS = 2000
+
+
+# The joiner that makes several emoji one, and the range regional indicators
+# come from -- two flags of them are one flag.
+ZWJ = "\u200d"
+REGIONAL = range(0x1F1E6, 0x1F200)
 
 
 def cell_width(character):
@@ -169,6 +203,56 @@ def cell_width(character):
     if unicodedata.combining(character) or unicodedata.category(character) in ("Mn", "Me", "Cf"):
         return 0
     return 2 if unicodedata.east_asian_width(character) in ("W", "F") else 1
+
+
+def is_regional(character):
+    return ord(character) in REGIONAL
+
+
+def clusters(text):
+    """`text` split into the units a terminal draws in one cell entry.
+
+    Not the whole of UAX #29 -- the standard library carries no segmentation
+    table, and this needs to agree with `unicode-width` over what xfx actually
+    paints rather than over every string. Three rules cover that:
+
+    * a zero-width scalar (a combining mark, a variation selector, the ZWJ
+      itself) belongs to the cluster in front of it;
+    * a scalar after a ZWJ belongs to the same cluster, which is what makes a
+      ZWJ family one cluster instead of three emoji;
+    * two regional indicators are one flag.
+
+    Anything the rules do not join starts a cluster of its own, so a fix that
+    over-joined would be caught by the wide-scalar control in
+    `oracle_test.py`.
+    """
+    out = []
+    for character in text:
+        if out:
+            previous = out[-1]
+            if cell_width(character) == 0:
+                out[-1] = previous + character
+                continue
+            if previous.endswith(ZWJ):
+                out[-1] = previous + character
+                continue
+            if is_regional(character) and len(previous) == 1 and is_regional(previous):
+                out[-1] = previous + character
+                continue
+        out.append(character)
+    return out
+
+
+def cluster_width(cluster):
+    """How many cells one cluster occupies, as `unicode-width` measures it.
+
+    A pair of regional indicators is a flag and takes two; otherwise the
+    cluster is as wide as its widest scalar, which is what makes a ZWJ family
+    two columns rather than six.
+    """
+    if len(cluster) == 2 and all(is_regional(scalar) for scalar in cluster):
+        return 2
+    return max(cell_width(scalar) for scalar in cluster)
 
 
 class Grid:
@@ -190,6 +274,10 @@ class Grid:
         # push. Bounded, because a paced stream can produce a great many rows
         # and nothing here asserts on more than the recent past.
         self.scrollback = []
+        # The last window title `OSC 2` asked for, and `None` while none has
+        # been asked for. Remembered rather than drawn: a title changes no cell,
+        # and a scenario that wants to assert one needs somewhere to read it.
+        self.title = None
 
     # -- feeding ----------------------------------------------------------
 
@@ -219,20 +307,32 @@ class Grid:
         return self
 
     def _text(self, data, index):
-        """Decodes one character and puts it on the screen."""
-        end = index + 1
-        while end < len(data) and 0x80 <= data[end] < 0xC0:
+        """Decodes the run of printable text at `index` and puts it on the screen.
+
+        A **run** rather than a character, because a grapheme cluster is several
+        scalars and the cluster is the unit a terminal draws: decoding one
+        character at a time would hand `_put` the halves of a ZWJ family and no
+        rule downstream could put them back together.
+        """
+        end = index
+        while end < len(data):
+            byte = data[end]
+            if byte == 0x1B or byte == 0x0A or byte == 0x0D or byte == 0x07:
+                break
+            if byte < 0x20 or byte == 0x7F:
+                break
             end += 1
-        character = bytes(data[index:end]).decode("utf-8", "replace")
-        for scalar in character:
-            self._put(scalar)
+        text = bytes(data[index:end]).decode("utf-8", "replace")
+        for cluster in clusters(text):
+            self._put(cluster)
         return end
 
     def _put(self, character):
-        width = cell_width(character)
+        width = cluster_width(character)
         if width == 0:
-            # A combining mark belongs to the cell before it rather than to one
-            # of its own.
+            # A combining mark that reached the screen on its own -- across an
+            # escape sequence, or as the first thing on a row -- belongs to the
+            # cell before it rather than to one of its own.
             if self.col > 0:
                 self.cells[self.row][self.col - 1] += character
             return
@@ -275,7 +375,8 @@ class Grid:
             if not match:
                 self.unknown.append(bytes(data[index : index + 8]))
                 return index + 1
-            return match.end()  # an OSC changes no cell
+            self._osc(match)
+            return match.end()
         private = match.group("private").decode()
         params = match.group("params").decode()
         final = match.group("final").decode()
@@ -297,13 +398,47 @@ class Grid:
             else:
                 self.unknown.append(match.group(0))
         elif final == "m":
-            self.sgr = "" if params in ("", "0") else match.group(0).decode()
+            self._sgr(params, match)
         elif final == "n":
             if params != "6":
+                self.unknown.append(match.group(0))
+        elif final == "t":
+            # `XTWINOPS`. Only the title stack, and it changes no cell.
+            if params not in KNOWN_WINDOW_OPS:
                 self.unknown.append(match.group(0))
         else:
             self.unknown.append(match.group(0))
         return match.end()
+
+    def _osc(self, match):
+        """An `OSC` string: no cell moves, but the number has to be one of ours."""
+        body = match.group("body").decode("utf-8", "replace")
+        number, separator, argument = body.partition(";")
+        if number not in KNOWN_OSC:
+            self.unknown.append(match.group(0))
+            return
+        if number == "2" and separator:
+            self.title = argument
+
+    def _sgr(self, params, match):
+        """One `SGR`, against the palette `src/tui/theme.rs` actually emits.
+
+        The narrow question, not the SGR grammar: what a *row* may carry is a
+        256-colour foreground, a direct-colour foreground, and the reset that
+        ends them (`src/tui/pacer.rs::is_palette_sgr`). An emulator that took
+        the whole vocabulary would accept a band that had started to blink, to
+        conceal a row, or to paint a background across the screen.
+        """
+        if params in ("", "0"):
+            self.sgr = ""
+            return
+        parts = params.split(";")
+        if parts[0] == "38" and len(parts) >= 2:
+            wanted = {"5": 3, "2": 5}.get(parts[1])
+            if wanted == len(parts) and all(part.isdigit() for part in parts):
+                self.sgr = match.group(0).decode()
+                return
+        self.unknown.append(match.group(0))
 
     def _private(self, private, params, final, match):
         if private == "?" and final in ("h", "l"):
@@ -394,6 +529,7 @@ class Grid:
         lines.append("")
         lines.append("cursor: row %d col %d" % (self.row + 1, self.col + 1))
         lines.append("autowrap: %s" % ("on" if self.autowrap else "off"))
+        lines.append("title: %r" % (self.title,))
         if self.scrollback:
             lines.append("")
             lines.append("--- what left the top of the screen, oldest first ---")
@@ -405,6 +541,196 @@ class Grid:
         if self.unknown:
             lines.append("UNKNOWN SEQUENCES: %r" % (self.unknown,))
         return "\n".join(lines) + "\n"
+PYTHON
+
+cat >"$helpers/oracle_test.py" <<'PYTHON'
+"""Falsification tests for the oracle in `vt_grid.py`, run before any scenario.
+
+An oracle nobody has tried to break is not an oracle: it is a second copy of
+whatever the product happens to do, and it reports agreement with itself as a
+passing screen. Every scenario in this suite judges xfx against `vt_grid.Grid`,
+so the emulator's own claims are checked here first -- and the run stops if one
+of them is false.
+
+Three claims are checked, and each is checked in both directions, because a
+one-directional check is satisfied by an emulator that answers the same thing
+to everything:
+
+* **A grapheme cluster is one cell entry, as wide as a terminal draws it.** The
+  product measures its rows with `unicode-width` (`src/tui/wrap.rs`), which
+  gives a ZWJ emoji sequence **two** columns. An emulator that counted the
+  scalars would put the family in six cells and then report the product's
+  correct row as a column-count defect.
+* **`unknown` really fills.** The emulator's value is that a sequence xfx does
+  not declare fails the run; an allowlist with a hole in it is a permissive
+  emulator wearing a contract's clothes. `OSC 52` (clipboard) and an
+  unsupported SGR parameter are the two the band could plausibly grow by
+  accident, so they are the two asserted on.
+* **The subset xfx really emits is still accepted.** A contract that rejects
+  the product is a broken harness rather than a caught defect, so every shape
+  `src/tui/term.rs`, `src/tui/theme.rs` and `src/tui/frame.rs` write is fed
+  through and must leave `unknown` empty.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from vt_grid import Grid  # noqa: E402
+
+# A three-person ZWJ family: five scalars, one cluster, two columns.
+FAMILY = "\U0001F468\u200D\U0001F469\u200D\U0001F467"
+
+# The palette's two spellings (`src/tui/theme.rs:195-227`) and the reset that
+# ends every band row.
+PALETTE_SGR = ("\x1b[38;5;250m", "\x1b[38;2;188;188;188m", "\x1b[0m", "\x1b[m")
+
+# The background query and the window title (`src/tui/theme.rs:66`,
+# `src/tui/frame.rs`), in both terminator spellings a terminal may use.
+PRODUCT_OSC = ("\x1b]11;?\x1b\\", "\x1b]11;rgb:0000/0000/0000\x1b\\", "\x1b]2;xfx \u00b7 glm-5.2\x07")
+
+# The title stack xfx pushes at entry and pops on every restore path
+# (`src/tui/term.rs`).
+TITLE_STACK = ("\x1b[22;2t", "\x1b[23;2t")
+
+problems = []
+checks = 0
+
+
+def require(condition, what):
+    global checks
+    checks += 1
+    if not condition:
+        problems.append(what)
+
+
+def fed(text, rows=3, cols=20):
+    return Grid(rows, cols).feed(text.encode("utf-8"))
+
+
+def a_zwj_family_is_one_cluster_two_cells_wide():
+    grid = fed(FAMILY + "x")
+    require(
+        grid.cells[0][0] == FAMILY,
+        "the family is one cell entry, not %r" % (grid.cells[0][0],),
+    )
+    require(
+        grid.cells[0][1] == "",
+        "the family's second column is its continuation, not %r" % (grid.cells[0][1],),
+    )
+    require(
+        grid.cells[0][2] == "x",
+        "the character after the family is at column 3, not %r" % (grid.cells[0][2],),
+    )
+    require(grid.col == 3, "the caret is three columns in, not %d" % grid.col)
+
+
+def a_combining_mark_stays_with_the_cell_it_marks():
+    grid = fed("e\u0301x")
+    require(grid.cells[0][0] == "e\u0301", "the mark left its base: %r" % (grid.cells[0][0],))
+    require(grid.cells[0][1] == "x", "the mark took a cell of its own")
+
+
+def a_wide_scalar_is_still_two_cells():
+    # The control for the cluster rule above: a fix that made every cluster one
+    # column would pass the family assertion and break every CJK row.
+    grid = fed("\ud55cx")
+    require(grid.cells[0][0] == "\ud55c", "the wide scalar is one cell entry")
+    require(grid.cells[0][1] == "", "the wide scalar's continuation")
+    require(grid.cells[0][2] == "x", "the character after a wide one is at column 3")
+
+
+def a_flag_is_one_cluster():
+    grid = fed("\U0001F1F0\U0001F1F7x")
+    require(
+        grid.cells[0][0] == "\U0001F1F0\U0001F1F7",
+        "a regional-indicator pair is one cluster, not %r" % (grid.cells[0][0],),
+    )
+    require(grid.cells[0][2] == "x", "the character after a flag is at column 3")
+
+
+def a_clipboard_osc_is_a_finding():
+    grid = fed("\x1b]52;c;aGVsbG8=\x07")
+    require(grid.unknown, "OSC 52 passed the oracle unremarked")
+
+
+def an_undeclared_osc_number_is_a_finding():
+    grid = fed("\x1b]7;file:///tmp\x07")
+    require(grid.unknown, "OSC 7 passed the oracle unremarked")
+
+
+def the_osc_the_product_emits_is_accepted():
+    grid = fed("".join(PRODUCT_OSC))
+    require(not grid.unknown, "the product's own OSC was rejected: %r" % (grid.unknown,))
+    require(
+        grid.title == "xfx \u00b7 glm-5.2",
+        "the window title was not read off OSC 2: %r" % (grid.title,),
+    )
+
+
+def an_undeclared_sgr_parameter_is_a_finding():
+    for sequence in ("\x1b[999m", "\x1b[7m", "\x1b[5m", "\x1b[48;5;1m", "\x1b[38;5;m"):
+        grid = fed(sequence)
+        require(grid.unknown, "%r passed the oracle unremarked" % sequence)
+
+
+def the_sgr_the_product_emits_is_accepted():
+    for sequence in PALETTE_SGR:
+        grid = fed(sequence + "x")
+        require(not grid.unknown, "the palette's %r was rejected: %r" % (sequence, grid.unknown))
+    require(fed("\x1b[38;5;250mx").attrs[0][0] == "\x1b[38;5;250m", "the colour was remembered")
+    require(fed("\x1b[38;5;250m\x1b[0mx").attrs[0][0] == "", "the reset closed the colour")
+
+
+def the_title_stack_is_accepted_and_other_window_operations_are_not():
+    grid = fed("".join(TITLE_STACK))
+    require(not grid.unknown, "the title stack was rejected: %r" % (grid.unknown,))
+    grid = fed("\x1b[18t")
+    require(grid.unknown, "an undeclared window operation passed the oracle unremarked")
+
+
+def a_control_byte_on_the_screen_is_still_a_finding():
+    # The oracle's oldest claim, kept under test so a rewrite of the text path
+    # cannot quietly drop it.
+    require(fed("a\x00b").unknown, "a NUL reached the screen unremarked")
+
+
+TESTS = (
+    a_zwj_family_is_one_cluster_two_cells_wide,
+    a_combining_mark_stays_with_the_cell_it_marks,
+    a_wide_scalar_is_still_two_cells,
+    a_flag_is_one_cluster,
+    a_clipboard_osc_is_a_finding,
+    an_undeclared_osc_number_is_a_finding,
+    the_osc_the_product_emits_is_accepted,
+    an_undeclared_sgr_parameter_is_a_finding,
+    the_sgr_the_product_emits_is_accepted,
+    the_title_stack_is_accepted_and_other_window_operations_are_not,
+    a_control_byte_on_the_screen_is_still_a_finding,
+)
+
+
+def main():
+    evidence = sys.argv[1] if len(sys.argv) > 1 else None
+    for test in TESTS:
+        try:
+            test()
+        except Exception as failure:  # noqa: BLE001 - a test that died is a failure
+            problems.append("%s could not be run: %r" % (test.__name__, failure))
+    if evidence:
+        directory = os.path.join(evidence, "0-oracle-falsification")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "checks"), "w", encoding="utf-8") as handle:
+            handle.write("%d\n" % checks)
+    for problem in problems:
+        print("    %s" % problem)
+    print("    %d oracle claims checked" % checks)
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 PYTHON
 
 cat >"$helpers/fixture_server.py" <<'PYTHON'
@@ -707,8 +1033,8 @@ FRAME_END = "\x1b[?2026l\x1b[?25h"
 # The whole interactive mode sequence and the two restores, in order
 # (`src/tui/term.rs:32-52`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
-MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l"
-RESTORE = "\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h"
+MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t"
+RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h"
 ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE
 
 # The local and input modes raw mode clears (`shell_runtime.zig:108-138`).
@@ -1048,7 +1374,7 @@ class Timeout(Exception):
 PYTHON
 
 cat >"$helpers/scenarios.py" <<'PYTHON'
-"""The fourteen Phase-1 scenarios of `.prd/06-qa-harness.md`, on a release binary.
+"""The QA scenarios of `.prd/06-qa-harness.md`, on a release binary.
 
 Run one at a time -- `python3 scenarios.py <name> --binary … --faulty … --evidence …`
 -- so that a failure is isolated to its own scenario, keeps its own evidence
@@ -1065,7 +1391,10 @@ Two rules the whole file is written to, both from `06-qa-harness.md`:
   scenario that passes because nothing appeared is a failed scenario.
 * **Nothing is skipped.** The rows that need a deliberate failure run against
   the binary built with `--features fault-injection`; against a binary without
-  it they fail loudly rather than being quietly stepped over.
+  it they fail loudly rather than being quietly stepped over. Scenario 13 uses
+  that build for something that is not a failure at all -- the Phase-1
+  whole-band painter, kept as the reference the cell diff is compared against on
+  a real terminal.
 """
 
 import argparse
@@ -1372,6 +1701,36 @@ def discriminate(run, trial, fixture, marker, label="discriminator", prompt=None
     )
     run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
     return grid
+
+
+def from_a_known_composer(run, trial, label):
+    """Puts `trial` in the one state two sessions can be compared from.
+
+    The launch answers the terminal's `OSC 11` and `CSI 6n` on a deadline
+    (`theme::DEADLINE`, `probe::DEADLINE`). This harness writes the replies as
+    soon as it sees the query, but on a loaded machine the child's deadline can
+    close first -- and then the reply is not an answer, it is **typing**: the
+    session hands it to the input decoder, exactly as `12-theme-detection`
+    requires it to, and the composer starts the scenario holding
+    `11;rgb:0000/0000/0000`.
+
+    Every scenario before this one tolerates that, because each looks for its
+    own needle. Scenario 13 compares two whole screens, so any difference
+    between the two launches reads as the diff having painted a different
+    screen -- which is a false accusation against the thing under test. So the
+    composer is emptied and *proved* empty before either session is driven: a
+    `C-u` is a no-op on a session that won the race and a kill on one that did
+    not, and both then start from the same screen.
+    """
+    trial.send(b"\x15")
+    trial.wait_until(
+        "%s: the composer to start empty" % label,
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    run.require(
+        composer_text(trial.peek()) == "",
+        "%s starts from an empty composer" % label,
+    )
 
 
 def composer_first_row(grid):
@@ -1821,24 +2180,39 @@ def scenario_3b(run):
     ).settled()
     began = time.time()
     pending = b""
-    for _ in range(STARVING_CHUNKS):
+    while time.time() - began < STARVING_CEILING:
         if starved.session.state()[0] not in ("running", "continued"):
             break
-        if time.time() - began >= STARVING_CEILING:
-            break
-        pending += STARVING_CHUNK
+        if not pending:
+            pending = STARVING_CHUNK
         try:
             pending = pending[os.write(starved.terminal.master, pending) :]
         except OSError:
             # The input queue is full: the session has stopped reading, which
             # is the state this row is waiting for anyway.
             pass
+        # A hundredth of the ceiling, so the loop offers the draft steadily for
+        # the whole window instead of spending it in a spin.
+        time.sleep(0.001)
         # Whatever a short write left over is carried and offered again with
         # the next chunk rather than dropped, because a write cut **inside** a
         # three-byte letter would put a replacement character into the draft in
         # place of the letter -- the same width on the screen, a different
         # number of bytes on the wire, and this row's premise is a byte count.
-        starved.session.pump(0.001)
+        #
+        # **Nothing reads the master here, and that is the starvation.** An
+        # earlier version pumped once per chunk and relied on a whole-band
+        # repaint outrunning the reader; a frame is a difference now, so a
+        # session between two keystrokes writes a handful of bytes and a reader
+        # that drains between them keeps the screen from ever being full. What
+        # this row is about is a screen with no room, so the harness gives it
+        # none: the master is left unread until the session has decided.
+        #
+        # **And the draft is offered for the whole window rather than a fixed
+        # number of chunks.** The refusal has to last `FRAME_BUDGET`, and a
+        # frame is only *attempted* when something asks for one: a fill that
+        # stopped early would leave the session with a full screen, nothing to
+        # paint, and therefore no second failure for the budget to expire on.
     state = starved.session.wait_state(
         "the session to give up on a screen that takes nothing",
         lambda seen: seen[0] not in ("running", "continued"),
@@ -1904,11 +2278,21 @@ def scenario_3b(run):
 #   ------------------------------------------------------------------
 #   STARVED_DEADLINE     4.00 s
 #
-# Measured five consecutive runs on each of the two kernels this was developed
+# Measured five consecutive runs on each of the two kernels this row was written
 # against: **0.68-0.70 s** on macOS 26 arm64 and **1.48-1.99 s** on Linux 7.1
 # x86_64. The difference between them is the fill and nothing else -- the
 # larger screen has to be given more of the draft before one frame outgrows it
 # -- which is why the ceiling above is the term the slack is measured against.
+#
+# **Those two numbers were measured against the whole-band painter**, and item
+# 11 replaced it: a frame is a difference now, so how quickly a screen fills is
+# a property of what changed rather than of the screen's size. The fill is
+# therefore driven for the *whole* window rather than for a fixed number of
+# chunks, and the elapsed is bounded by `STARVING_CEILING` plus the give-up path
+# by construction rather than by measurement. Re-measured on macOS 26 arm64
+# after that change only as five consecutive green runs of this scenario; the
+# per-kernel timings above are left as the history of where the budget came
+# from and are not re-asserted.
 # The slack is generous about the *machine* and strict about the *policy*,
 # which is the split the drain row's own comment argues for -- bound the
 # contract, never the scheduler.
@@ -1917,7 +2301,11 @@ def scenario_3b(run):
 # are the numbers that make the refusal a size rather than a race. All four are
 # measured against a screen that takes frames, not estimated:
 #
-#   the draft         STARVING_CHUNKS x STARVING_CHUNK = 37,851 bytes, which is
+#   the draft         as many `STARVING_CHUNK`s as the window takes, offered
+#                     one at a time and never more than one outstanding -- a
+#                     fixed count of them was what an earlier version spent, and
+#                     it ended the fill before the budget could expire. About
+#                     thirty-seven of them fit a full window, which is
 #                     12,617 letters of `ẋ`: a screen counts bytes and a
 #                     composer counts characters, so a three-byte letter buys
 #                     the frame its size at a third of the wrapping the session
@@ -1942,7 +2330,6 @@ STARVING_ROWS = 300
 STARVING_COLS = 200
 STARVING_LETTER = "ẋ".encode("utf-8")
 STARVING_CHUNK = STARVING_LETTER * 341
-STARVING_CHUNKS = 37
 STARVING_CEILING = 1.50
 STARVED_DEADLINE = STARVING_CEILING + 0.50 + 0.50 + 1.50
 
@@ -2000,7 +2387,14 @@ def scenario_5(run):
     trial = run.trial("editor", gateway=fixture).settled()
 
     trial.send("hello 한글")
-    trial.wait_for("> hello 한글")
+    # Read off the **composer** rather than off the wire. A frame is a
+    # difference from what the terminal already holds, so a keystroke writes the
+    # cell it changed: the row is never on the wire in one piece, and what the
+    # row says is the property this row of the matrix is about either way.
+    trial.wait_until(
+        "the composer to hold what was typed",
+        lambda _t: composer_text(trial.peek()) == "hello 한글",
+    )
     grid = trial.grid("typed")
     run.require(
         composer_text(grid) == "hello 한글",
@@ -2008,7 +2402,10 @@ def scenario_5(run):
     )
 
     trial.send(b"\x7f")  # Backspace takes a whole grapheme, not a byte of one
-    trial.wait_for("> hello 한\x1b[%d;1H" % trial.rows)
+    trial.wait_until(
+        "the backspace to take the whole grapheme",
+        lambda _t: composer_text(trial.peek()) == "hello 한",
+    )
     grid = trial.grid("backspaced")
     run.require(
         composer_text(grid) == "hello 한",
@@ -2021,7 +2418,10 @@ def scenario_5(run):
         lambda text: (trial.session.last_frame() or "").endswith("\x1b[%d;3H" % (trial.rows - 1)),
     )
     trial.send(b"\x04")  # C-d on text is a forward delete, not an exit
-    trial.wait_for("> ello 한")
+    trial.wait_until(
+        "the forward delete to take the character under the caret",
+        lambda _t: composer_text(trial.peek()) == "ello 한",
+    )
     run.require(
         trial.session.state()[0] == "running",
         "Ctrl-D over text deleted forward rather than leaving",
@@ -2106,7 +2506,12 @@ def scenario_6(run):
     for _ in range(8):
         capped.send(b"0123456789012345678")
         capped.send(b"\x0a")  # C-j: a newline in the composer
-    capped.wait_for("\x1b[6;1H\x1b[J")
+    # The divider at the cap, read off the row rather than off the erase that
+    # used to precede it: the diff erases rows rather than screens.
+    capped.wait_until(
+        "the band to reach its cap with the divider on row 6",
+        lambda _t: capped.peek().row_text(5) == "─" * capped.cols,
+    )
     capped.wait_for("\x1b[12;1H")
     grid = capped.grid("at-the-cap")
     # `content_bottom / 2 + 1` = five rows, so the divider stops at row 6 and
@@ -2199,7 +2604,10 @@ def scenario_7(run):
     trial.send(b"\x1b[200~")
     trial.send(block.encode("utf-8"))
     trial.send(b"\x1b[201~")
-    trial.wait_for("> [Pasted text #1, 2 lines]")
+    trial.wait_until(
+        "the paste to be summarized in the composer",
+        lambda _t: composer_text(trial.peek()) == "[Pasted text #1, 2 lines]",
+    )
     grid = trial.grid("collapsed")
     run.require(
         composer_text(grid) == "[Pasted text #1, 2 lines]",
@@ -2352,7 +2760,12 @@ def scenario_9(run):
     # 22, so this is the row directly above it. A needle matched anywhere would
     # be satisfied by the word appearing in the document.
     trial.wait_for("\x1b[21;1H• Thinking")
-    trial.wait_for("2s")
+    # Off the activity row rather than off the wire: a second that ticked over
+    # writes the one digit that changed, so the wire never carries `2s` whole.
+    trial.wait_until(
+        "the activity row's clock to reach two seconds",
+        lambda _t: "2s" in trial.peek().row_text(trial.rows - 4),
+    )
     grid = trial.grid("thinking")
     # By its place, its words and its clock -- and by whichever of its two faces
     # the marker is wearing, because a snapshot cannot choose. The marker keeps
@@ -2812,6 +3225,258 @@ def scenario_12(run):
 
 
 # ---------------------------------------------------------------------------
+# 13. cell diff correctness
+# ---------------------------------------------------------------------------
+
+# The keystrokes both painters are driven with after the answer has landed.
+#
+# Each one is a case a diff gets wrong by default and a full repaint cannot get
+# wrong at all: a wide grapheme, a wide grapheme *overwritten by a narrow one*
+# (whose second cell nothing else erases), a row that gets shorter, and a caret
+# that moves without changing a single cell.
+CELL_DIFF_EDITS = (
+    ("a wide grapheme and a tail", "한글 tail", "한글 tail"),
+    ("the tail deleted", "\x7f" * 5, "한글"),
+    ("a narrow grapheme over a wide one", "\x7f\x7fx", "x"),
+    ("the caret home over unchanged cells", "\x01", "x"),
+)
+
+
+def scenario_13(run):
+    """The diff leaves the screen the Phase-1 full repaint leaves.
+
+    The optimization's whole contract, and the only place it can honestly be
+    asked: two release-quality binaries, the same facts, two painters, one
+    screen. The `fault-injection` build keeps the Phase-1 painter behind
+    `Fault::FullPaintReference` -- a compile-time seam, so the shipped binary
+    has no way to select it and there is no second painter in the field.
+    """
+    marker = run.marker("celldiff")
+
+    def drive(label, faulty):
+        fixture = start_fixture(run, [fixtures.content_only(marker)], name=label)
+        trial = run.trial(
+            label,
+            faulty=faulty,
+            fault="full-paint-reference" if faulty else None,
+            gateway=fixture,
+        ).settled()
+        from_a_known_composer(run, trial, label)
+        discriminate(run, trial, fixture, marker, label="%s-answered" % label)
+        for what, keys, composer in CELL_DIFF_EDITS:
+            trial.send(keys)
+            trial.wait_until(
+                "%s: the composer to read %r" % (label, composer),
+                lambda _text, wanted=composer: composer_text(trial.peek()) == wanted,
+            )
+        grid = trial.grid("%s-final" % label)
+        run.require(
+            not grid.unknown,
+            "%s emitted only the sequences it declares: %r" % (label, grid.unknown),
+        )
+        # C-e to the end, C-u to kill the line, C-d on the empty composer to
+        # leave: the last edit above left the caret at home, and a `C-u` there
+        # kills nothing.
+        trial.send(b"\x05\x15\x04")
+        run.require(
+            trial.session.wait_exit() == ("exited", 0),
+            "the %s session left cleanly" % label,
+        )
+        fixture.stop()
+        return grid
+
+    reference = drive("full-paint", True)
+    diffed = drive("cell-diff", False)
+
+    # **The band is compared by row and the document by content**, and the split
+    # is the product's rather than a convenience.
+    #
+    # The band is what a painter paints, and the two painters must leave it
+    # identical cell for cell, attribute for attribute, with the caret in the
+    # same place. The document is written by `Band::append_document`, which is
+    # the same code in both builds -- and *where* its rows land is decided by a
+    # race neither painter controls: an append places the transcript's unfinished
+    # line at `band_top - 1` (`src/tui/frame.rs`'s `render_append`), and
+    # `band_top` moves down by one the moment the turn ends and gives the
+    # activity row back. So the last release of an answer lands on the activity
+    # row's line if it wins that race and on the line below it if it does not,
+    # in **either** build -- measured: the full-paint run above placed every
+    # release on row 20 with seven activity-row frames, the diff run placed the
+    # first three on row 20 and the rest on row 21 with two. Comparing document
+    # rows by index would be asserting on which side of that race a run landed,
+    # which is a property of the scheduler and not of the painter.
+    divider = the_divider(run, reference, diffed)
+    for row in range(divider, reference.rows):
+        run.require(
+            diffed.cells[row] == reference.cells[row],
+            "band row %d differs from the full-repaint reference:\n  diff %r\n  full %r"
+            % (row + 1, diffed.row_text(row), reference.row_text(row)),
+        )
+        run.require(
+            diffed.attrs[row] == reference.attrs[row],
+            "band row %d's attributes differ from the reference:\n  diff %r\n  full %r"
+            % (row + 1, diffed.attrs_of_row(row), reference.attrs_of_row(row)),
+        )
+    run.require(
+        (diffed.row, diffed.col) == (reference.row, reference.col),
+        "the caret is at %r and the reference left it at %r"
+        % ((diffed.row + 1, diffed.col + 1), (reference.row + 1, reference.col + 1)),
+    )
+    # Every row of the document either terminal has held, in order, scrollback
+    # included -- so a build that dropped, doubled or garbled a row of the
+    # answer fails here even though the line it sits on, and whether it is still
+    # on the screen at all, are the scheduler's to choose.
+    run.require(
+        written_document(diffed, divider) == written_document(reference, divider),
+        "the document differs from the full-repaint reference:\n  diff %r\n  full %r"
+        % (written_document(diffed, divider), written_document(reference, divider)),
+    )
+    # A comparison of two blank screens would pass for anything, so the screen
+    # both painters produced has to be a screen with the answer on it.
+    run.require(
+        reference.find(marker) is not None,
+        "the reference screen never showed the answer, so the comparison is vacuous",
+    )
+    run.require(
+        reference.row_text(reference.rows - 1).strip() != "",
+        "the reference screen has no band on it, so the comparison is vacuous",
+    )
+
+
+def the_divider(run, reference, diffed):
+    """The row index the band starts at, agreed by both screens.
+
+    Found rather than computed: it is the one row that is the rule and nothing
+    else, so a scenario that lost the band entirely fails here instead of
+    comparing two empty ranges and passing.
+    """
+    def rule(grid):
+        wanted = "\u2500" * grid.cols
+        for row in range(grid.rows - 1, -1, -1):
+            if grid.row_text(row) == wanted:
+                return row
+        return None
+
+    found, expected = rule(diffed), rule(reference)
+    run.require(expected is not None, "the full-repaint reference painted a divider at all")
+    run.require(
+        found == expected,
+        "the two screens put the divider on different rows (%r vs %r)" % (found, expected),
+    )
+    if found is None or expected is None or found != expected:
+        raise Failure("the band could not be located on both screens")
+    return found
+
+
+def written_document(grid, divider):
+    """Every row the terminal has ever held above the band, oldest first.
+
+    **Scrollback included, and row numbers excluded**, because both of those are
+    the scheduler's rather than the painter's. `Band::append_document` scrolls
+    with a real linefeed, so how many rows have left the top of the screen -- and
+    therefore which of them are still visible and on what line -- depends on how
+    many appends a run took and on whether the turn had ended when the last one
+    landed. What does *not* depend on any of that is the text itself: the same
+    prompt echo and the same answer, in the same order, whichever painter wrote
+    the band beneath them.
+
+    Attributes are not compared here and are compared exhaustively on the band
+    instead. A row that has left the top of the screen is text to a terminal --
+    this oracle keeps no attributes for it, and neither does a real one's
+    scrollback -- so comparing them would mean comparing only the rows that
+    happened to still be visible, which is the very thing this function exists
+    to stop asserting. Every attribute this phase emits is painted on the band
+    (`src/tui/theme.rs`: the divider, the hint row, the activity row), and those
+    rows are compared cell for cell and run for run.
+    """
+    written = [line for line in grid.scrollback if line.strip()]
+    written.extend(
+        grid.row_text(row) for row in range(divider) if grid.row_text(row).strip()
+    )
+    return written
+
+
+# ---------------------------------------------------------------------------
+# 14. no-op frame skip
+# ---------------------------------------------------------------------------
+
+# How long a settled session is watched for bytes it has no reason to write.
+#
+# Thirty `render_request::ANIMATION_TICK`s and roughly two hundred of the event
+# loop's own 8 ms ticks: long enough that a painter repainting per tick, per
+# animation phase, or per runtime poll cannot get through it silently.
+QUIET_WATCH = 1.5
+
+# How long the wire has to have been still before the watch above begins.
+QUIET_SETTLE = 0.4
+
+
+def scenario_14(run):
+    """A settled session writes nothing at all, and is still alive afterwards.
+
+    Absence is never a pass condition by itself, so this scenario is two claims
+    and needs both: the wire does not move while nothing changes, **and** the
+    very next keystroke moves it. The second is what tells a working skip apart
+    from a session that has died, wedged, or stopped reading its terminal.
+    """
+    marker = run.marker("noop")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+    trial = run.trial("idle", gateway=fixture).settled()
+    from_a_known_composer(run, trial, "idle")
+    discriminate(run, trial, fixture, marker)
+
+    # The turn is over and the band says the same thing it will go on saying.
+    # Waited for rather than assumed: the pacer releases the answer against a
+    # clock, so a session measured while it is still releasing text is a session
+    # that has something to write.
+    deadline = time.time() + pty.WAIT
+    settled = len(trial.session.captured)
+    quiet_since = time.time()
+    while time.time() - quiet_since < QUIET_SETTLE:
+        trial.session.pump(0.05)
+        if len(trial.session.captured) != settled:
+            settled = len(trial.session.captured)
+            quiet_since = time.time()
+        if time.time() > deadline:
+            raise Failure("the session never stopped writing, so nothing can be measured")
+
+    before = len(trial.session.captured)
+    grid_before = trial.grid("settled")
+    watch = time.time() + QUIET_WATCH
+    while time.time() < watch:
+        trial.session.pump(0.05)
+    after = len(trial.session.captured)
+    run.require(
+        after == before,
+        "a settled session wrote %d bytes across %.1fs of ticks with nothing to say: %r"
+        % (after - before, QUIET_WATCH, trial.session.text()[before:after]),
+    )
+
+    # The positive half. A session that is skipping frames because it is broken
+    # would pass everything above.
+    trial.send("z")
+    trial.wait_until(
+        "the next keystroke to reach the composer",
+        lambda _text: composer_text(trial.peek()) == "z",
+    )
+    run.require(
+        len(trial.session.captured) > before,
+        "the session was silent because it had stopped painting, not because "
+        "it had nothing to paint",
+    )
+    grid_after = trial.grid("after-a-keystroke")
+    run.require(
+        grid_before.text() != grid_after.text(),
+        "the screen did not change when the composer did",
+    )
+    run.require(not grid_after.unknown, "xfx emitted only the sequences it declares")
+
+    trial.send(b"\x15\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the idle session left at 0")
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # plumbing
 # ---------------------------------------------------------------------------
 
@@ -2848,6 +3513,8 @@ SCENARIOS = {
     "10b-approval-mid-turn": scenario_10b,
     "11-ctrl-c-as-a-byte": scenario_11,
     "12-theme-detection": scenario_12,
+    "13-cell-diff-correctness": scenario_13,
+    "14-no-op-frame-skip": scenario_14,
 }
 
 
@@ -2897,7 +3564,8 @@ export XFX_MAX_AGENT_STEPS="1"
 export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
-# The fourteen scenarios of `.prd/06-qa-harness.md` §"Phase 1", in its order.
+# The fourteen Phase-1 scenarios of `.prd/06-qa-harness.md`, in its order, and
+# then the Phase-2 ones this drive adds.
 scenarios=(
 	1-launch-and-band-ownership
 	2-cursor-probe-and-scrollback-push
@@ -2913,6 +3581,8 @@ scenarios=(
 	10b-approval-mid-turn
 	11-ctrl-c-as-a-byte
 	12-theme-detection
+	13-cell-diff-correctness
+	14-no-op-frame-skip
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \
@@ -2920,6 +3590,27 @@ printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \
 
 failures=0
 passed=0
+
+# The oracle first, and the run stops on a dishonest one. Every scenario below
+# judges xfx against `vt_grid.Grid`; an emulator whose own claims are false
+# reports its disagreement with the product as a product defect, and reports a
+# sequence xfx should never emit as a passing screen. It costs milliseconds and
+# it is the only check here that needs no binary.
+printf '  %-38s' "0-oracle-falsification"
+set +e
+python3 "$helpers/oracle_test.py" "$evidence" >"$evidence/0-oracle-falsification.log" 2>&1
+oracle_status=$?
+set -e
+if [ "$oracle_status" -eq 0 ]; then
+	printf 'ok\n'
+else
+	printf 'FAIL\n'
+	sed 's/^/      /' "$evidence/0-oracle-falsification.log" >&2
+	printf '      re-run: python3 %s %s\n' "$helpers/oracle_test.py" "$evidence" >&2
+	printf '\nsmoke-tui: the VT oracle failed its own falsification tests; no scenario was run\nevidence: %s\n' \
+		"$evidence"
+	exit 1
+fi
 
 for scenario in "${scenarios[@]}"; do
 	printf '  %-38s' "$scenario"
@@ -2950,7 +3641,7 @@ done
 checks="$(find "$evidence" -name checks -type f -exec cat {} + 2>/dev/null |
 	awk '{total += $1} END {print total + 0}')"
 
-printf '\nsmoke-tui: %d scenarios, %d checks, %d failures\nevidence: %s\n' \
+printf '\nsmoke-tui: %d scenarios + the oracle, %d checks, %d failures\nevidence: %s\n' \
 	"${#scenarios[@]}" "$checks" "$failures" "$evidence"
 if [ "$failures" -ne 0 ]; then
 	exit 1

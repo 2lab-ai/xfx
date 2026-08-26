@@ -76,6 +76,25 @@ pub(crate) struct RenderRequest {
 #[derive(Debug)]
 pub(crate) struct Attempt(u8);
 
+impl Attempt {
+    /// Whether this frame is owed because **something other than the band**
+    /// wrote on the screen.
+    ///
+    /// The one reason a painter cannot answer by painting a difference: a
+    /// shadow is a claim about what is on those rows, and a resume, a `/clear`
+    /// or a Ctrl-L each mean that claim is now false about all of them. The
+    /// frame is therefore a whole one ([`super::frame::Band::invalidate`]).
+    ///
+    /// Asked of the [`Attempt`] rather than of the [`RenderRequest`] on
+    /// purpose: the reasons are *taken* by `begin`, so a caller that consulted
+    /// the request afterwards would be asking about a set that has already been
+    /// emptied -- and would repaint whole on the tick after the damaged one
+    /// instead of on the damaged one.
+    pub(crate) fn damaged(&self) -> bool {
+        self.0 & Reason::ExternalDamage.bit() != 0
+    }
+}
+
 impl RenderRequest {
     /// Records that `reason` needs a frame.
     pub(crate) fn request(&mut self, reason: Reason) {
@@ -150,6 +169,37 @@ mod tests {
         request.request(Reason::Footer);
         assert!(request.begin().is_some());
         assert!(request.begin().is_none(), "the reason was not consumed");
+    }
+
+    #[test]
+    fn only_external_damage_makes_a_frame_a_whole_one() {
+        // The bit a whole repaint costs a band's worth of bytes for, so it may
+        // not be raised by anything the band itself changed -- and it may not
+        // be *missed* when it is raised, because the frame after a resume is
+        // painted onto a screen the shell has been writing to.
+        for reason in [
+            Reason::FirstFrame,
+            Reason::Transcript,
+            Reason::Footer,
+            Reason::Modal,
+            Reason::Animation,
+            Reason::Notification,
+            Reason::Resize,
+        ] {
+            let mut request = RenderRequest::default();
+            request.request(reason);
+            assert!(
+                !request.begin().expect("a frame").damaged(),
+                "{reason:?} asked for a whole repaint"
+            );
+        }
+        let mut request = RenderRequest::default();
+        request.request(Reason::Transcript);
+        request.request(Reason::ExternalDamage);
+        assert!(
+            request.begin().expect("a frame").damaged(),
+            "external damage did not reach the painter"
+        );
     }
 
     #[test]

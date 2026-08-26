@@ -333,6 +333,14 @@ fn hold(
         depth: theme::depth_from_env(colorterm.as_deref(), term_program.as_deref()),
     };
 
+    // The window title, from the model this session was configured with. It
+    // goes out with the first frame rather than from here: a title written
+    // outside a frame is a second writer on a terminal this module owns
+    // exclusively, and the band is the writer. The push that makes the user's
+    // own title borrowable rather than taken is in the mode set
+    // (`term::PUSH_TITLE`), which `announce` has already written above.
+    band.set_title(frame::title(&config.model));
+
     let mut shell = shell::Shell::new(config, geometry, palette, worker.handle());
     event_loop::run(
         &mut shell,
@@ -521,6 +529,7 @@ mod event_loop;
 mod fault;
 mod frame;
 mod gesture;
+mod grid;
 mod hint;
 mod input;
 mod layout;
