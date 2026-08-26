@@ -230,9 +230,11 @@ fn shutdown_with(
     screen.and(attrs).and(cleanup)
 }
 
-/// The terminal's dimensions, or 24x80 when it will not say. A terminal query,
-/// so it lives here; `layout::solve` takes rows and columns as arguments and
-/// stays pure, which is what makes its unit tests possible.
+/// The terminal's dimensions, or 24x80 when it will not say. **The reading a
+/// launch takes**; a running session takes [`reported_window_size`] instead,
+/// which keeps a refusal a refusal. A terminal query, so it lives here;
+/// `layout::solve` takes rows and columns as arguments and stays pure, which
+/// is what makes its unit tests possible.
 ///
 /// **Asked of standard output, and that is the ruling rather than the
 /// accident.** This module keeps the two descriptors apart because a redirected
@@ -260,7 +262,31 @@ pub(crate) fn window_size() -> (u16, u16) {
     size_or_default(tcgetwinsize(io::stdout()))
 }
 
-/// The dimensions a `TIOCGWINSZ` answer means.
+/// The terminal's dimensions as it reports them, or `(0, 0)` when it reports
+/// nothing usable. **The reading a running session takes**, and the one
+/// [`window_size`] must not be used for.
+///
+/// The same ioctl on the same descriptor, and a different question, because the
+/// caller is in a different position. A **launch** has no band and has to solve
+/// one from some number, so a terminal that will not say its size is answered
+/// with 24x80: a guess is the only thing that lets a session start at all. A
+/// **running** session already has a band on a screen it measured, so the same
+/// refusal is not a screen to move to -- it is a reading to ignore. Answering
+/// it with the startup fallback would take a 40x132 session, whose terminal
+/// declined to answer a single `TIOCGWINSZ` (or which is on a pty whose size
+/// was never set, which answers `0x0` *successfully*), and move its band onto
+/// rows 22 to 24 of a screen that is nothing of the kind.
+///
+/// `(0, 0)` rather than an `Option` because that is what the one caller means
+/// by it and what its own contract already refuses: `super::shell::Shell::resize`
+/// answers a zero in either dimension with `Resize::Unchanged`, so "the
+/// terminal said nothing" and "the terminal said nothing new" arrive at the
+/// same place by the same door.
+pub(crate) fn reported_window_size() -> (u16, u16) {
+    size_as_reported(tcgetwinsize(io::stdout()))
+}
+
+/// The dimensions a `TIOCGWINSZ` answer means **at launch**.
 ///
 /// A zero is treated exactly like a refusal: a pty whose size was never set
 /// answers `0x0` successfully, and a layout solved against zero rows would
@@ -269,6 +295,18 @@ fn size_or_default(size: Result<Winsize, rustix::io::Errno>) -> (u16, u16) {
     match size {
         Ok(size) if size.ws_row > 0 && size.ws_col > 0 => (size.ws_row, size.ws_col),
         _ => (DEFAULT_ROWS, DEFAULT_COLS),
+    }
+}
+
+/// The same answer read **after** launch: the size, or nothing at all.
+///
+/// A zero and a refusal are one fact here too, and it is the opposite fact:
+/// neither says anything about the screen the band is already on, so neither
+/// may move it. See [`reported_window_size`].
+fn size_as_reported(size: Result<Winsize, rustix::io::Errno>) -> (u16, u16) {
+    match size {
+        Ok(size) if size.ws_row > 0 && size.ws_col > 0 => (size.ws_row, size.ws_col),
+        _ => (0, 0),
     }
 }
 
@@ -723,5 +761,89 @@ mod tests {
             })),
             (40, 132)
         );
+    }
+
+    #[test]
+    fn a_reported_size_keeps_a_zero_rather_than_inventing_a_screen() {
+        // The post-launch reading. A pty whose size was never set answers `0x0`
+        // successfully, and a running session already has a band on a screen of
+        // a known size -- so a zero is *no new information*, and the caller
+        // that gets it leaves the band exactly where it is.
+        for (rows, cols) in [(0, 80), (24, 0), (0, 0)] {
+            assert_eq!(
+                size_as_reported(Ok(Winsize {
+                    ws_row: rows,
+                    ws_col: cols,
+                    ws_xpixel: 0,
+                    ws_ypixel: 0,
+                })),
+                (0, 0),
+                "{rows}x{cols} was answered with a screen the terminal never described"
+            );
+        }
+    }
+
+    #[test]
+    fn a_terminal_that_will_not_say_its_size_after_launch_says_nothing_at_all() {
+        // A refusal and a zero are the same fact on this side of the launch,
+        // and it is not the fact they are at launch: there the band has to be
+        // solved from *something*, here there is already one.
+        assert_eq!(size_as_reported(Err(rustix::io::Errno::NOTTY)), (0, 0));
+        assert_eq!(size_as_reported(Err(rustix::io::Errno::BADF)), (0, 0));
+    }
+
+    #[test]
+    fn a_reported_size_a_terminal_really_gives_is_taken_at_its_word() {
+        assert_eq!(
+            size_as_reported(Ok(Winsize {
+                ws_row: 40,
+                ws_col: 132,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            })),
+            (40, 132)
+        );
+    }
+
+    #[test]
+    fn the_launch_and_the_running_session_read_the_same_refusal_differently() {
+        // The whole reason there are two functions, stated as the one thing
+        // that must never become true of them: that they agree. A launch has no
+        // band and must solve one from a number, so a refusal is 24x80 there; a
+        // running session has a band on a screen it measured, so a refusal
+        // there is a reading to ignore rather than a screen to move to. One
+        // function serving both would move a 40x132 session's band onto rows
+        // 22-24 because its terminal declined to answer once.
+        let refused: [Result<Winsize, rustix::io::Errno>; 2] = [
+            Err(rustix::io::Errno::NOTTY),
+            Ok(Winsize {
+                ws_row: 0,
+                ws_col: 0,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            }),
+        ];
+        for reading in refused {
+            assert_eq!(size_or_default(reading), (DEFAULT_ROWS, DEFAULT_COLS));
+            assert_eq!(size_as_reported(reading), (0, 0));
+            assert_ne!(
+                size_or_default(reading),
+                size_as_reported(reading),
+                "the launch fallback and the post-launch reading became one answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_size_the_terminal_gives_means_the_same_thing_to_both_of_them() {
+        // The other side of it: the two differ **only** on a reading that says
+        // nothing. A session whose window really is 40x132 is told so by either.
+        let real = Ok(Winsize {
+            ws_row: 40,
+            ws_col: 132,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        });
+        assert_eq!(size_or_default(real), size_as_reported(real));
     }
 }

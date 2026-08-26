@@ -5,8 +5,10 @@
 //! there **once** -- scrolled in with a literal newline so that when it leaves
 //! the top of the screen it is in the terminal's native scrollback, where the
 //! user's wheel and the user's `less` can still reach it, and where it stays
-//! after xfx exits. Phase 1 never rewrites one. The repainted viewport, and the
-//! cell diff that makes it affordable, are Phase 2.
+//! after xfx exits. Nothing here ever rewrites one -- **including on a
+//! resize**: a terminal that changed size re-wrapped its own document by rules
+//! xfx does not model, and the one text this module still holds is the
+//! unfinished line ([`Transcript::resize_unfinished`]).
 //!
 //! That is what the state here is for. A stream of text does not arrive one
 //! finished line at a time: a delta can be three characters that lengthen a row
@@ -75,9 +77,10 @@ const MAX_TAIL_ROWS: usize = 256;
 pub(crate) struct Transcript {
     /// The screen's width, which is what the rows are wrapped to.
     ///
-    /// Fixed for the session: this phase does not re-layout on `SIGWINCH`, and
-    /// `docs/parity.md` says so. A phase that does has to re-wrap the tail and
-    /// repaint it, which is the same work as Phase 2's viewport.
+    /// Moved only by [`Transcript::resize_unfinished`], and only ever forward
+    /// from here: the rows already handed over were written at the width they
+    /// were written at, and the terminal owns them now. What this width decides
+    /// is how the **unfinished** line wraps from the next push on.
     cols: u16,
     /// The line that has not ended yet. Never holds a line break: the breaks
     /// are what [`Transcript::push`] splits on.
@@ -207,6 +210,38 @@ impl Transcript {
     // "end the line" is told apart from "leave a blank row".
     pub(crate) fn tail_rows(&self) -> usize {
         self.painted
+    }
+
+    /// Re-wraps the unfinished line for a screen that changed width.
+    ///
+    /// **The only thing on this side of the divider a resize may touch**, and
+    /// the boundary is what the whole module is built on. Every finished line
+    /// was written into the terminal's own document once and is in its native
+    /// scrollback now, where the terminal re-wrapped it by rules xfx does not
+    /// model and no repaint of this phase's could reach it. The tail is the one
+    /// text still held here, and the rows it occupies are what the **next**
+    /// [`push`](Self::push) measures its scroll against: left at the old width
+    /// they would be too few after a narrowing -- the renderer would treat rows
+    /// nobody painted as settled, which is the silent loss this path counts in
+    /// `usize` to avoid -- and too many after a widening, which scrolls a row
+    /// that is already on the screen.
+    ///
+    /// A width that did not change is left alone rather than re-measured: a
+    /// `SIGWINCH` for a font change, or one that moved only the row count, is
+    /// a tail exactly where it was.
+    pub(crate) fn resize_unfinished(&mut self, cols: u16) {
+        if cols == self.cols {
+            return;
+        }
+        self.cols = cols;
+        // Asked only of a tail that is really on the screen. A wrap of an empty
+        // string is still one row, so a transcript holding nothing would
+        // otherwise claim a document row that is not its own -- and the next
+        // push would rewrite it.
+        if self.painted == 0 {
+            return;
+        }
+        self.painted = wrap::wrap(&self.tail, cols).len();
     }
 
     /// Stops holding the rows of the unfinished line that can no longer change.
@@ -674,5 +709,87 @@ mod tests {
             "alphabravocharliedeltaecho",
             "a character was dropped or repeated between the wrap and the append"
         );
+    }
+
+    #[test]
+    fn a_wider_screen_rewraps_the_unfinished_tail_and_nothing_else() {
+        // The one thing on this side of the divider a resize may touch. Every
+        // finished line is in the terminal's own document -- and its own
+        // scrollback -- where the terminal re-wrapped it by rules xfx does not
+        // model; the tail is the only text this module still holds, and the
+        // rows it occupies are what the *next* push measures its scroll
+        // against.
+        let mut transcript = Transcript::new(10);
+        let append = transcript.push("abcdefghijklmno");
+        assert_eq!(append.rows, vec!["abcdefghij", "klmno"]);
+        assert_eq!(transcript.tail_rows(), 2);
+
+        transcript.resize_unfinished(20);
+        assert_eq!(
+            transcript.tail_rows(),
+            1,
+            "the tail still claims the rows it had on the narrow screen, so \
+             the next push would scroll a row that is already there"
+        );
+        assert_eq!(
+            transcript.push("pq"),
+            Append {
+                scroll: 0,
+                rows: vec!["abcdefghijklmnopq".to_string()]
+            },
+            "the tail was not re-wrapped to the screen it is now on"
+        );
+    }
+
+    #[test]
+    fn a_narrower_screen_gives_the_tail_the_rows_it_now_needs() {
+        // The other direction, which is the one that loses text when it is
+        // wrong: a `painted` smaller than the rows the tail really occupies
+        // makes the next append's scroll too small, and the renderer treats
+        // rows nobody painted as settled.
+        let mut transcript = Transcript::new(20);
+        transcript.push("abcdefghijklmnopq");
+        assert_eq!(transcript.tail_rows(), 1);
+
+        transcript.resize_unfinished(10);
+        assert_eq!(transcript.tail_rows(), 2);
+        assert_eq!(
+            transcript.push("rs"),
+            Append {
+                scroll: 0,
+                rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()]
+            },
+            "the tail was not re-wrapped to the narrower screen"
+        );
+    }
+
+    #[test]
+    fn a_resize_with_no_unfinished_line_claims_no_row() {
+        // A wrap of an empty string is still one row, so a resize that simply
+        // re-measured would give a transcript holding nothing a row of the
+        // screen -- and the next push would rewrite a document row that is not
+        // its own.
+        let mut transcript = Transcript::new(20);
+        transcript.push("done");
+        transcript.end_line();
+        assert_eq!(transcript.tail_rows(), 0);
+        transcript.resize_unfinished(10);
+        assert_eq!(
+            transcript.tail_rows(),
+            0,
+            "a transcript with nothing unfinished took a row on resize"
+        );
+    }
+
+    #[test]
+    fn a_resize_to_the_width_it_already_has_changes_nothing() {
+        // A `SIGWINCH` that only changed the row count, or a font change that
+        // changed neither: the tail is where it was and re-measuring it would
+        // be work for nothing.
+        let mut transcript = Transcript::new(10);
+        transcript.push("abcdefghijkl");
+        let before = transcript.tail_rows();
+        transcript.resize_unfinished(10);
+        assert_eq!(transcript.tail_rows(), before);
     }
 }

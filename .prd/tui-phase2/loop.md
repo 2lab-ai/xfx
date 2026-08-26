@@ -59,6 +59,7 @@ Slice 7 and final merge qualification additionally run both release builds, `scr
 - Round 0 (2026-08-26): Phase-1 shipped state verified at main f1913a6; issue #19 is open; no Phase-2 worktree existed; the seven canonical product items and nine QA scenarios were re-read from primary docs. Interface mapping and implementation-plan authoring started.
 - Round 1 (2026-08-26): plan tip `8cbd45c454414135222a99dadf3fc2d4efac41c2`. Dual-engine plan review is final — Fable/strategist: APPROVE, MUST-FIX none; GPT-5.6: APPROVE, MUST-FIX none. The plan gate is closed and WU 1 may begin. Receipts re-observed directly in this same tree: `cargo test --locked --all-targets` 1471 passed / 0 failed (machine-summed across 11 test binaries), `cargo test --locked --features fault-injection --test tui` 53 passed / 0 failed, `cargo test --locked --lib --features fault-injection` 859 passed / 0 failed; the YAML parse check and the doc gates also passed.
 - Round 2 (2026-08-26): WU 1 cell diff/no-op/title completed on base `7650f78285be0c27956b1005b562fdbe293df2d2`. Direct controller gate: fmt, both clippies, all four contract scripts, release/fault builds exited 0; default 1502 (+31), fault integration 55 (+2), fault lib 888 (+29). PTY smoke repeated 3/3 at `16 scenarios + the oracle, 313 checks, 0 failures`; M1–M22 all killed with 0 survivors and byte-identical restoration. First task review found two blocking defects (external-damage tails survived; stop/resume lost OSC 2); Fix Round 1 added RED reproductions and closed both. Final dual-persona review: `release-ready` / `release-ready`, merged MUST-FIX none; comment-only follow-up review also `release-ready — MUST-FIX none`. Scenario 13 compares the painter-owned band cell/attribute/caret state exactly and terminal-owned document text in order across native scrollback; absolute document row is intentionally not asserted because Phase-1 append timing moves `band_top` at turn completion.
+- Round 3 (2026-08-27): WU 2 resize/reflow/OSC containment completed on base `d09428dd69d52703562012f16b5c3a964fc1daf9`. Direct controller gate: fmt, both clippies, four contract scripts, release/fault builds exited 0; default 1558 (+56 from WU1), fault integration 64 (+9), fault lib 935 (+47). PTY smoke repeated 3/3 at `17 scenarios + the oracle, 334 checks, 0 failures`; M1–M40 all killed with 0 survivors and byte-identical restoration. First review found malformed-OSC phantom Escape, exit-during-debounce tail loss, and a column-1-only CUP detector; Fix Round 1 reproduced and closed all three. Final dual-persona review: `release-ready` / `release-ready`, merged MUST-FIX none; comment/report cleanup review also `release-ready — MUST-FIX none`. The task file list was narrowly expanded to `term.rs` and `mod.rs` because the explicit post-launch `0x0` contract was unreachable through the launch fallback reader.
 - Round 1 executor notes (non-blocking review remarks; they do not widen any WU's scope):
   1. The WU 5 draft capture/restore test must read the `EntitySnapshot` fields, so the entity roundtrip is actually proven instead of leaving the fields `dead_code`.
   2. WU 7 checkpoint ownership must name the remaining `src/tui/shell.rs` changes at execution time rather than at plan time.
@@ -77,7 +78,7 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 | Carrier item | Canonical owner | Initial disposition | Evidence required |
 |---|---|---|---|
 | cell diff / no-op frame skip | WU 1 | implemented | QA 13–14: controller PTY 3/3, 313 checks; 22/22 mutants; dual-persona release-ready |
-| resize / SIGWINCH / unfinished-tail rewrap | WU 2 | implement | QA 15 on macOS + Linux |
+| resize / SIGWINCH / unfinished-tail rewrap | WU 2 | implemented | QA 15: controller PTY 3/3, 334 checks; 40/40 mutants; dual-persona release-ready |
 | slash picker | WU 3 | implement | QA 16 + fixture-discriminated real pty |
 | provider switching / model catalog / context meter | WU 4 | implement | QA 18–19 + fixture-discriminated real pty |
 | prompt history | WU 5 | implement | QA 17 |
@@ -86,12 +87,12 @@ This table is the terminal checklist for issue #19. It must have no `open` row b
 | OSC 2 title | WU 1 | implemented | sanitized OSC 2 + stop/resume re-arm + balanced title-stack PTY receipt |
 | kitty/tmux | WU 7C | re-defer full CSI-u matrix; existing push/pop/tmux branch reclassified implemented | existing constants/tests + explicit rationale |
 | tab visible/sent divergence | WU 6 | implement as a visible editor unit | deterministic grid+provider assertion |
-| foreign OSC becomes composer text | WU 2 | implement decoder containment | mixed-stream pty receipt |
+| foreign OSC becomes composer text | WU 2 | implemented decoder containment | OSC 10/11/52 + malformed/control handback receipts; phantom-Escape fix reviewed |
 | context meter / usage plumbing | WU 4 | implement for catalog providers; omit meter when either fact absent | shared event + rendered meter |
 | activity-row colour | WU 1 | re-defer to successor issue #20: no semantic palette role in Phase-2 spec | promote when a palette role is named and a cell-attribute test is supplied |
 | give-up reason cannot print on refusing screen | WU 7C | re-defer to successor issue #20: no independent delivery surface in Phase 2 | promote when a non-screen diagnostic sink is designed and fault-injection proves it |
 | vt-grid grapheme / OSC / SGR oracle breadth | WU 1 and WU 7B | emitted subset implemented in WU 1; alt-plane support remains WU 7B | 29 oracle falsification claims + WU 7B alt-plane receipt |
-| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | implement unfinished-tail rewrap; re-defer memoization to successor issue #20 | promote if WU1 benchmark exceeds 8ms/frame at 80×24 or 32ms/frame at 300×200 |
+| Transcript fixed columns / wrap memoization | WU 2 / WU 1 | unfinished-tail rewrap implemented; memoization re-deferred to successor issue #20 | promote if WU1 benchmark exceeds 8ms/frame at 80×24 or 32ms/frame at 300×200 |
 | `xfx ask` grant recording unpinned | WU 7C | implement PTY fixture | grant event + resume receipt |
 | Ctrl-C notice wording | WU 7C | implement both surfaces together | TUI + line-shell assertions |
 | terminal-event full-channel third arm | WU 7C | implement deterministic fault-injection case | DRAIN_DEADLINE receipt |

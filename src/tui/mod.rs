@@ -385,9 +385,13 @@ const UNKNOWN_CURSOR_ROW: u16 = 1;
 /// is -- and computes the scrollback push and the band's geometry from both. A
 /// `SIGWINCH` invalidates both: the terminal reflows, the cursor moves, and a
 /// push aimed at the bottom row of the screen that *was* scrolls the wrong
-/// amount of the screen that *is*. Nothing else re-runs the push -- this phase
-/// does not re-layout on resize at all, and the event loop takes the flag and
-/// drops it -- so the whole of that race has to be closed here.
+/// amount of the screen that *is*. **Nothing else re-runs the push**, and that
+/// is still true now that resize is implemented: the event loop debounces a
+/// later `SIGWINCH` and re-solves the band from it (Phase 2 item 12,
+/// `event_loop::resolve_resize`), but re-solving a band is not the same act as
+/// pushing the shell's output above it -- a push is a scroll, it cannot be
+/// taken back, and only a launch has anything to push. So the launch race is
+/// the launch's to close, here, and the whole of it.
 ///
 /// Closing it means the validation has to cover the **push**, not just the
 /// measurement, and it has to cover *every* push including the last:
@@ -405,12 +409,15 @@ const UNKNOWN_CURSOR_ROW: u16 = 1;
 ///   treated as being on the bottom row, so the whole screen goes into
 ///   scrollback -- and is still post-checked like every other one. A final push
 ///   that returned unchecked would hand back a geometry the flag had already
-///   invalidated, and the event loop would then take that flag and drop it: the
-///   resize would be neither compensated for nor visible to anything else.
+///   invalidated, and the push it was computed from would be the one thing
+///   nothing downstream can repair: the loop would re-solve the band on the
+///   next tick, correctly, on top of rows the launch had already scrolled by
+///   the wrong amount.
 ///
 /// Every turn reads the flag with `take_winch`, so a resize this function
-/// compensates for is **consumed** here and cannot be seen again and dropped as
-/// if nothing had been done about it.
+/// compensates for is **consumed** here rather than left for the loop to
+/// answer a second time -- which would cost a whole repaint for a screen that
+/// has not changed since the geometry above was solved from it.
 ///
 /// **When even the last attempt is invalidated, the launch claims nothing.** It
 /// takes one fresh measurement for the geometry, consumes the flag with it, and

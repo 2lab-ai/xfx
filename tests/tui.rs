@@ -3142,3 +3142,558 @@ mod faults {
         assert_eq!(before, modes(&pty));
     }
 }
+
+// ---------------------------------------------------------------------------
+// the screen changing size under a running session
+// ---------------------------------------------------------------------------
+//
+// Item 12. Everything below is one claim: **the band and the unfinished line
+// reflow, and the terminal's own document is left alone.** A resize is the one
+// event on this surface where the terminal has already re-laid-out the rows
+// above the divider by rules xfx does not model, so a session that repainted
+// them would be overwriting a document it cannot describe -- and a session that
+// left its band where it was would be painting a divider across a width the
+// screen gave up.
+
+/// The rule a divider is, at `cols` cells wide.
+fn rule(cols: usize) -> String {
+    "\u{2500}".repeat(cols)
+}
+
+/// Changes the terminal's size and tells the child about it, **by name**.
+///
+/// The signal is delivered explicitly rather than left to the kernel.
+/// `TIOCSWINSZ` raises `SIGWINCH` on the terminal's *foreground process group*,
+/// and every session in this suite is spawned without taking the terminal
+/// (`Session::spawn_without_taking_the_terminal`) precisely so that the
+/// developer's own shell keeps it -- so nothing would be signalled at all, and
+/// a case that relied on the ioctl alone would be asserting that xfx redraws on
+/// a signal it never received.
+fn resize(pty: &Pty, session: &Session, rows: u16, cols: u16) {
+    pty.resize(rows, cols);
+    session.signal(Signal::WINCH);
+}
+
+/// Waits until the session has stopped writing, and returns how much it has
+/// written.
+///
+/// Item 11's no-op skip is what makes this terminate: a settled session with
+/// nothing to say writes zero bytes. It is the instrument for every claim of
+/// the form "and then nothing happened", which is only a fact once the wire has
+/// been still to begin with.
+fn wait_until_quiet(session: &Session) -> usize {
+    let deadline = Instant::now() + WAIT;
+    let mut settled = session.text().len();
+    let mut since = Instant::now();
+    while since.elapsed() < WAIT / 40 {
+        std::thread::sleep(IDLE_POLL);
+        let now = session.text().len();
+        if now != settled {
+            settled = now;
+            since = Instant::now();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the session never stopped writing, so nothing can be measured"
+        );
+    }
+    settled
+}
+
+/// Waits long enough that a marked resize has certainly been resolved.
+///
+/// `render_request::RESIZE_DEBOUNCE` is 50 ms and the loop's own tick is 8 ms,
+/// so a winch is answered well inside this. It exists for the cases whose claim
+/// is that **nothing** happened: absence is only a fact once the thing that
+/// would have happened has had its chance, and a case that asserted straight
+/// after the signal would be reading the band from before the reading under
+/// test.
+fn settle_after_a_winch(session: &Session) {
+    let deadline = Instant::now() + WAIT / 40;
+    while Instant::now() < deadline {
+        std::thread::sleep(IDLE_POLL);
+    }
+    let _ = session.text();
+}
+
+/// Waits until the last complete frame, read on a `rows` x `cols` screen,
+/// satisfies `ready`, and hands that screen back.
+///
+/// **The whole capture is fed at the new size on purpose.** Every byte the band
+/// writes is an absolute `CUP`, and the frame after a resize opens with the
+/// Phase-1 erase from the band's top row -- so the rows this reads are the ones
+/// the resize really painted, whatever width the bytes before it were painted
+/// at. What it does not model is the terminal's *own* reflow of the document
+/// above the divider, which is exactly the thing xfx does not repaint either.
+fn band_on(
+    session: &Session,
+    rows: usize,
+    cols: usize,
+    what: &str,
+    ready: impl Fn(&Screen) -> bool,
+) -> Screen {
+    let text = session.wait_until(what, |text| {
+        Screen::painted(text, rows, cols).is_some_and(|screen| ready(&screen))
+    });
+    Screen::painted(&text, rows, cols).expect("a complete frame")
+}
+
+#[test]
+fn a_resize_moves_the_band_to_the_foot_of_the_new_screen() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    // Where the launch put it: the rule on row 22, the composer on 23, the hint
+    // row on 24, and the rule as wide as the screen.
+    let before = Screen::painted(&session.text(), 24, 80).expect("a first frame");
+    assert_eq!(before.row_text(22), rule(80));
+    assert_eq!(before.row_text(23), ">");
+    assert!(
+        before.row_text(24).contains(HINT_WITHOUT_A_CREDENTIAL),
+        "the launch band is not where this case starts from: {:?}",
+        before.row_text(24)
+    );
+
+    resize(&pty, &session, 30, 100);
+
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert_eq!(after.row_text(29), ">", "the composer did not move");
+    assert!(
+        after.row_text(30).contains(HINT_WITHOUT_A_CREDENTIAL),
+        "the hint row is not on the last row of the new screen: {:?}",
+        after.row_text(30)
+    );
+    // **No stale rows.** The rows the band owned on the old screen are the
+    // document's now, and nothing in this phase ever repaints a document row --
+    // so a band that simply drew itself lower would leave a second divider and
+    // a second hint row on the screen for the rest of the session, and after
+    // the exit.
+    for row in 22..=24 {
+        assert_eq!(
+            after.row_text(row),
+            "",
+            "row {row} still holds the band the resize left behind"
+        );
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn every_width_puts_the_rule_across_the_whole_screen_and_the_hint_on_its_last_row() {
+    // Several widths in a row, including back to the one it started at: a band
+    // solved once and then merely moved would pass the first of these and fail
+    // the second, and a shell that remembered only its geometry would report
+    // the return to 24x80 as no news.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    for (rows, cols) in [(30u16, 100u16), (12, 40), (40, 132), (24, 80)] {
+        resize(&pty, &session, rows, cols);
+        let screen = band_on(
+            &session,
+            usize::from(rows),
+            usize::from(cols),
+            &format!("the band on a {rows}x{cols} screen"),
+            |screen| {
+                screen.row_text(usize::from(rows) - 2) == rule(usize::from(cols))
+                    && screen
+                        .row_text(usize::from(rows))
+                        .contains(HINT_WITHOUT_A_CREDENTIAL)
+            },
+        );
+        assert_eq!(
+            screen.row_text(usize::from(rows) - 1),
+            ">",
+            "the composer is not between the rule and the hint row on {rows}x{cols}"
+        );
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back() {
+    // The composer's height is a function of the **width** it is wrapped to, so
+    // a band re-solved without re-measuring the draft would put the divider
+    // where the old wrap said it went -- and the caret with it.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 40);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    // Fifty cells of draft in a composer that has thirty-eight: two rows here,
+    // one row on a screen twice as wide.
+    let draft = "x".repeat(50);
+    session.type_bytes(draft.as_bytes());
+    let narrow = band_on(&session, 24, 40, "a draft on two composer rows", |screen| {
+        screen.row_text(21) == rule(40)
+    });
+    assert_eq!(narrow.row_text(22), format!("> {}", "x".repeat(38)));
+    // Indented under the prompt, which is why the second row is twelve cells
+    // rather than the ten a naive `cols - PROMPT` would leave.
+    assert_eq!(narrow.row_text(23), format!("  {}", "x".repeat(12)));
+
+    resize(&pty, &session, 24, 100);
+
+    let wide = band_on(
+        &session,
+        24,
+        100,
+        "the draft back on one composer row",
+        |screen| screen.row_text(22) == rule(100),
+    );
+    assert_eq!(
+        wide.row_text(23),
+        format!("> {draft}"),
+        "the draft was not re-wrapped to the screen it is now on"
+    );
+    assert_eq!(
+        wide.row_text(21),
+        "",
+        "the row the composer gave back still holds the band it left behind"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_resize_mid_answer_keeps_what_the_document_already_holds() {
+    // The half a resize may **not** touch. Everything above the divider was
+    // written into the terminal's own document once and is in its native
+    // scrollback now; a session that repainted it would be overwriting rows the
+    // terminal re-wrapped by rules xfx does not model, and one that dropped it
+    // would lose the answer the user was reading.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-BEFORE-THE-RESIZE"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-BEFORE-THE-RESIZE");
+
+    resize(&pty, &session, 30, 100);
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains("MARKER-BEFORE-THE-RESIZE")),
+        "the answer the user was reading is gone from the document"
+    );
+    assert_eq!(
+        session.text().matches("MARKER-BEFORE-THE-RESIZE").count(),
+        1,
+        "the resize wrote the answer into the document a second time"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands() {
+    // A resize is not an answer. The panel is the only thing on this surface
+    // holding a turn open, so a re-solve that dropped it would leave the
+    // runtime parked on a channel nobody will ever write to -- and one that
+    // refused it would be a decision the user never made, taken because a
+    // window was dragged.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_for(ALWAYS_WORDING);
+
+    resize(&pty, &session, 30, 100);
+
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the question on the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains(PERMISSION_TITLE)),
+        "the question is no longer on the screen the user is answering it on"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the resize answered the question on the user's behalf"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n",
+        "the decision no longer reaches the runtime after a resize"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_burst_of_winches_costs_one_frame() {
+    // What a person dragging a window edge really produces. A repaint per
+    // signal would make the cost of a resize a function of how slowly the mouse
+    // moved -- and every one of them is a **whole** band, because a terminal
+    // that changed size re-wrapped its own document.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    // Settled: an idle session with a first frame on the screen writes nothing
+    // more (item 11's no-op skip), so what is counted below is this case's.
+    let settled = session.text().matches(FRAME_END).count();
+
+    pty.resize(30, 100);
+    for _ in 0..8 {
+        session.signal(Signal::WINCH);
+    }
+
+    band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    // And it stays at one: the burst is resolved once, and the resolves the
+    // rest of it would have asked for find a screen that is already the size it
+    // says.
+    let deadline = Instant::now() + WAIT / 4;
+    while Instant::now() < deadline {
+        std::thread::sleep(IDLE_POLL);
+    }
+    let frames = session.text().matches(FRAME_END).count() - settled;
+    assert_eq!(
+        frames, 1,
+        "eight winches for one gesture cost {frames} whole-band repaints"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is() {
+    // A pty whose size was never set answers `0x0` **successfully**, and a band
+    // solved against zero rows would be placed off the screen. At launch that
+    // reading is a refusal and the band is solved from 24x80; once a session is
+    // running it is the opposite -- there is already a band on a screen of a
+    // known size, and answering a measurement that said nothing with the
+    // startup fallback would move the band for no information at all.
+    //
+    // **Driven from 30x100 rather than from 24x80, which is half of what makes
+    // it a test.** On a 24x80 screen the fallback and the refusal are the same
+    // two numbers, so the case would pass for a session that had gone and
+    // re-solved itself against a screen the terminal never described.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 100);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    let before = Screen::painted(&session.text(), 30, 100).expect("a first frame");
+    assert_eq!(before.row_text(28), rule(100));
+
+    resize(&pty, &session, 0, 0);
+    // **And the debounce is waited out before anything is typed**, which is the
+    // other half. A keystroke sent straight after the winch is painted by a
+    // frame the resize has not resolved yet, so an assertion made on it would
+    // be reading the band from *before* the reading under test -- and would
+    // pass for a session that moved its band a moment later.
+    settle_after_a_winch(&session);
+    session.type_bytes(b"z");
+
+    // Waited for on the keystroke landing **anywhere**, so a band that moved to
+    // the startup fallback fails on the row it is on rather than by timing out.
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the composer to take the keystroke after the winch",
+        |screen| (1..=30).any(|row| screen.row_text(row) == "> z"),
+    );
+    let composer = (1..=30)
+        .find(|row| after.row_text(*row) == "> z")
+        .expect("the keystroke is on some row");
+    assert_eq!(
+        composer, 29,
+        "the band was re-solved from the 24x80 startup fallback for a screen \
+         the terminal refused to describe"
+    );
+    assert_eq!(
+        after.row_text(28),
+        rule(100),
+        "the band moved for a measurement that said nothing"
+    );
+    assert!(after.row_text(30).contains(HINT_WITHOUT_A_CREDENTIAL));
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows() {
+    // `.prd`'s ruling for item 12, end to end: a too-small screen **keeps** the
+    // approval request and renders it after the screen grows again. Two things
+    // would each break it, and they break it in opposite directions -- refusing
+    // the question here is a decision the user never made, taken because a
+    // window was dragged; and painting the band anyway addresses rows the
+    // terminal has given up, which it answers by clamping every `CUP` onto its
+    // bottom row. The second is the one that cannot be taken back: a document
+    // append is a scroll, and what leaves the top of the screen is in the
+    // terminal's native scrollback for good.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_for(ALWAYS_WORDING);
+    let quiet = wait_until_quiet(&session);
+
+    // Five rows: one short of the smallest screen a band fits on.
+    resize(&pty, &session, 5, 80);
+    settle_after_a_winch(&session);
+    let after_shrinking = wait_until_quiet(&session);
+    assert_eq!(
+        after_shrinking,
+        quiet,
+        "the session wrote {} byte(s) onto a screen no band fits on: {:?}",
+        after_shrinking - quiet,
+        &session.text()[quiet..]
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the question was answered because the window got smaller"
+    );
+
+    // And it grows again -- to a different screen from the one it left, so what
+    // comes back is a re-solve rather than the frame that was owed.
+    resize(&pty, &session, 30, 100);
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the question asked again on a screen that can hold it",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains(PERMISSION_TITLE)),
+        "the question was not asked again after the screen grew back"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n",
+        "the decision no longer reaches the runtime"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has() {
+    // The exit's own measurement, and which reader it is taken through. Nothing
+    // is written while a `SIGWINCH` is outstanding, so a shutdown inside the
+    // debounce answers the signal itself rather than coming down on an answer
+    // the user was reading. What it must **not** do is answer it through the
+    // launch's reader: this pty reports `0x0`, which the launch reader turns
+    // into 24x80 -- so a band re-solved through it would leave the session's
+    // last frame, and the tail with it, at the coordinates of a screen that
+    // exists nowhere.
+    //
+    // Ctrl-D is written immediately after the signal, so in practice this lands
+    // inside the 50 ms debounce -- which is where the exit's own forced resolve
+    // is the thing that measures, and therefore where the exit's choice of
+    // reader is observable. On a machine slow enough for the debounce to
+    // resolve first, the reading is taken by the loop's `resolve_resize`
+    // instead and this case is then covering that path rather than this one.
+    // Either way it is a real reading of a `0x0` pty, and either way a band
+    // re-solved through the launch fallback shows up on the wrong rows.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "a",
+            &long_answer("MARKER-DRAG-BEGAN", "MARKER-DRAG-ENDED"),
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 100);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream\r");
+    session.wait_for("MARKER-DRAG-BEGAN");
+    let wire = session.text().len();
+
+    // The window changes to a size the terminal will not describe, and the user
+    // leaves before the debounce comes round.
+    resize(&pty, &session, 0, 0);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    assert!(
+        text.contains("MARKER-DRAG-ENDED"),
+        "the exit came down on the rest of the answer: {text:?}"
+    );
+    // The band's hint row is the last row of a thirty-row screen. A session
+    // that re-solved itself from the 24x80 launch fallback paints its last
+    // frame on rows 22 to 24 and never touches row 30 again.
+    let after = &text[wire..];
+    assert!(
+        after.contains("\u{1b}[30;1H"),
+        "the exit re-solved the band from the 24x80 startup fallback for a \
+         screen the terminal refused to describe: {after:?}"
+    );
+}

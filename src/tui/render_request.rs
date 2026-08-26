@@ -18,6 +18,23 @@ use std::time::{Duration, Instant};
 /// item 6).
 pub(crate) const ANIMATION_TICK: Duration = Duration::from_millis(50);
 
+/// How long a `SIGWINCH` waits before the band is re-solved from it.
+///
+/// A person dragging a window edge produces one signal per row the window
+/// passes through, and answering each of them costs a `TIOCGWINSZ`, a re-solve,
+/// a re-wrap of the unfinished line and a **whole-screen** repaint -- because a
+/// terminal that changed size re-wrapped its own document, so the frame after
+/// one can never be a difference ([`super::frame::Band::invalidate`]).
+///
+/// A deadline, never a sleep. The UI thread is the only reader of the terminal
+/// (`super::event_loop`), so a thread parked inside the resize path is a
+/// session that has stopped reading its keyboard.
+///
+/// The same number as [`ANIMATION_TICK`] and deliberately not the same clock:
+/// this one bounds the cost of a drag and that one bounds the cost of a blink,
+/// and a session that shared them would stop animating because a window moved.
+pub(crate) const RESIZE_DEBOUNCE: Duration = Duration::from_millis(50);
+
 /// What made a frame necessary.
 ///
 /// Every variant is a distinct bit, so two reasons arriving in one tick are one
@@ -65,6 +82,12 @@ pub(crate) struct RenderRequest {
     /// which is what makes "due" mean *overdue since something started* rather
     /// than *due because the process has been running for 50 ms*.
     animation: Option<Instant>,
+    /// When the band may be re-solved from the screen's size, and `None` while
+    /// no `SIGWINCH` is waiting to be answered.
+    ///
+    /// The deadline of the **first** winch of a burst rather than of the last:
+    /// see [`RenderRequest::mark_resize`].
+    resize: Option<Instant>,
 }
 
 /// The reasons one frame took with it.
@@ -112,6 +135,65 @@ impl RenderRequest {
     /// Puts a failed attempt's reasons back, alongside anything requested since.
     pub(crate) fn restore(&mut self, attempt: Attempt) {
         self.pending |= attempt.0;
+    }
+
+    /// Records that the screen said it changed size at `now`.
+    ///
+    /// **The first winch of a burst starts the clock and the rest are free.**
+    /// The deadline is not pushed forward by a later one, which is the whole of
+    /// the ruling and it is the opposite of the usual debounce: a drag produces
+    /// signals for as long as the mouse is down, so a deadline that re-armed
+    /// would leave the band solved for a screen that no longer exists until the
+    /// user let go -- seconds of a divider painted across a width the terminal
+    /// gave up. Fixed, the cost of a drag is one resolve per
+    /// [`RESIZE_DEBOUNCE`] however long it lasts, which is the same bound the
+    /// animation clock puts on a blink, and a burst short enough to be one
+    /// gesture costs exactly one.
+    pub(crate) fn mark_resize(&mut self, now: Instant) {
+        self.resize.get_or_insert(now + RESIZE_DEBOUNCE);
+    }
+
+    /// Whether a `SIGWINCH` is waiting to be answered.
+    ///
+    /// Not "is it due": this is true from the signal to the resolve, which is
+    /// the interval in which **the screen has already changed and the band has
+    /// not been re-solved for it yet**. Every row number the band would write
+    /// in it is a coordinate out of the screen that was
+    /// ([`super::shell::Shell::blind`]).
+    pub(crate) fn resize_pending(&self) -> bool {
+        self.resize.is_some()
+    }
+
+    /// Whether a marked resize has waited out the debounce.
+    pub(crate) fn resize_due(&self, now: Instant) -> bool {
+        self.resize.is_some_and(|due| now >= due)
+    }
+
+    /// Takes an outstanding resize **whatever the deadline says**, and reports
+    /// whether there was one.
+    ///
+    /// For the exit, and for nothing else. The debounce exists so that a drag
+    /// costs one re-solve rather than one per signal; at the exit there is no
+    /// drag left to protect -- there is one measurement and then the session is
+    /// over -- and waiting the deadline out would mean coming down without
+    /// writing the answer the user was reading, which no later frame can make
+    /// up ([`super::event_loop::resolve_resize_on_exit`]).
+    pub(crate) fn force_resize(&mut self) -> bool {
+        self.resize.take().is_some()
+    }
+
+    /// Takes the resize this tick owes, if it owes one.
+    ///
+    /// The combinator [`Self::animate`] is for the animation clock, and it is
+    /// one call rather than a query and a clear for the same reason: "is a
+    /// resize due" and "this tick is answering it" are one decision, and a
+    /// caller that could ask without taking would resolve the same burst twice.
+    pub(crate) fn take_resize(&mut self, now: Instant) -> bool {
+        if !self.resize_due(now) {
+            return false;
+        }
+        self.resize = None;
+        true
     }
 
     /// Records that an animated row redrew at `now`, starting the clock.
@@ -319,6 +401,91 @@ mod tests {
         assert!(
             request.begin().is_none(),
             "two reasons in one tick asked for two frames"
+        );
+    }
+
+    #[test]
+    fn a_burst_of_winches_costs_one_resolve() {
+        // What a person dragging a window edge really produces: a `SIGWINCH`
+        // per pixel-row the window passes through. Re-solving the band, re-
+        // wrapping the tail and repainting the whole screen for each of them
+        // would make the cost of a resize a function of how slowly the mouse
+        // moved. So the first one starts a clock and the rest of the burst is
+        // free.
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        request.mark_resize(start);
+        request.mark_resize(start + Duration::from_millis(10));
+        request.mark_resize(start + Duration::from_millis(20));
+        assert!(
+            !request.resize_due(start + Duration::from_millis(49)),
+            "a resize resolved before the burst could have ended"
+        );
+        assert!(
+            request.resize_due(start + Duration::from_millis(50)),
+            "the clock was restarted by a winch inside the window, so a slow \
+             drag would never resolve at all"
+        );
+        assert!(request.take_resize(start + Duration::from_millis(50)));
+        assert!(
+            !request.take_resize(start + Duration::from_secs(60)),
+            "the burst resolved twice"
+        );
+    }
+
+    #[test]
+    fn nothing_is_owed_a_resize_until_a_winch_says_so() {
+        // Otherwise every session older than the debounce would re-solve its
+        // band on its first tick, and read the terminal's size on every one
+        // after that.
+        let mut request = RenderRequest::default();
+        let now = Instant::now();
+        assert!(!request.resize_due(now));
+        assert!(!request.take_resize(now));
+    }
+
+    #[test]
+    fn a_resize_that_is_not_due_yet_is_not_taken() {
+        // The half `resize_due` cannot check for itself: a `take` that resolved
+        // early would make the debounce a comment.
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        request.mark_resize(start);
+        assert!(!request.take_resize(start + RESIZE_DEBOUNCE - Duration::from_millis(1)));
+        assert!(
+            request.take_resize(start + RESIZE_DEBOUNCE),
+            "the early take consumed the resize it refused to resolve"
+        );
+    }
+
+    #[test]
+    fn the_resize_debounce_is_fifty_milliseconds() {
+        // Pinned as a literal rather than imported, for the reason every policy
+        // number in this crate's tests is: a test that read the constant it is
+        // checking would pass for whatever the module happened to declare.
+        assert_eq!(RESIZE_DEBOUNCE, Duration::from_millis(50));
+    }
+
+    #[test]
+    fn a_resize_and_the_animation_clock_are_two_different_facts() {
+        // They are the same number and they are not the same clock. A resize
+        // that armed the animation clock would make an idle session repaint
+        // twenty times a second for ever after the window was dragged once.
+        let mut request = RenderRequest::default();
+        let start = Instant::now();
+        request.mark_resize(start);
+        assert!(
+            !request.animation_due(start + Duration::from_secs(1)),
+            "a winch started the animation clock"
+        );
+        request.mark_animation(start);
+        assert!(
+            request.take_resize(start + RESIZE_DEBOUNCE),
+            "the animation clock swallowed the resize"
+        );
+        assert!(
+            request.animation_due(start + ANIMATION_TICK),
+            "resolving a resize stopped the animation clock"
         );
     }
 }

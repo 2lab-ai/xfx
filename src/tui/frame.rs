@@ -187,9 +187,23 @@ impl Band {
     /// The callers that did not lose the title pay one sequence for it, on a
     /// frame that is a whole repaint anyway; none of them can grow the title
     /// *stack*, because only the mode set and the restores push and pop it.
+    ///
+    /// **The row this band clears from is bounded by the screen it is now on.**
+    /// [`Band::painted`] is a row number in the screen the last frame was
+    /// painted on, and the resize above is the one caller that can hand this a
+    /// *smaller* one -- so a session that shrank and then left before its next
+    /// frame landed would give `super::term::shutdown` a row below the
+    /// terminal's last. A terminal answers that by clamping to its bottom row
+    /// and erasing from there, which leaves the band's own rows on the screen
+    /// after xfx has exited. A bound rather than a reset: forgetting the row
+    /// would leave the rows a *grown* screen's band used to own unerased
+    /// ([`Self::release`]), and nothing else in this phase ever repaints them.
+    /// The other callers hand this the screen the band is already on, where the
+    /// clamp cannot bite -- `painted` is never below the band's own top row.
     pub(crate) fn invalidate(&mut self, rows: u16, cols: u16) {
         self.shadow.resize(rows, cols);
         self.target.resize(rows, cols);
+        self.painted = self.painted.map(|top| top.min(rows));
         self.caret = None;
         self.damaged = true;
         // What the terminal was told, rather than what this band wants: see the
@@ -2369,5 +2383,52 @@ mod tests {
         let text = String::from_utf8(bytes).expect("utf-8");
         assert!(!text.contains("overflow"), "{text:?}");
         assert!(!text.contains("\u{1b}[25;1H"), "{text:?}");
+    }
+
+    #[test]
+    fn a_screen_that_shrank_leaves_no_top_row_below_its_last_one() {
+        // `painted_top` is the row the exit clears from
+        // (`super::term::shutdown`), and after a resize it is a row number in
+        // the screen that *was*. A session that shrank and then left before its
+        // next frame landed would clear from a row below the last one -- which
+        // a terminal answers by clamping to its bottom row, so the band's own
+        // rows stay on the screen after xfx has exited.
+        let tall = crate::tui::layout::solve(40, 20, 1).expect("a band on a tall screen");
+        let short = crate::tui::layout::solve(12, 20, 1).expect("a band on a short one");
+        let mut band = Band::new();
+        let mut screen = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        band.commit(&mut screen, &band_rows(), &tall, (39, 2))
+            .expect("the tall band");
+        assert_eq!(band.painted_top(), Some(tall.band_top()));
+
+        band.invalidate(short.rows, short.cols);
+        assert_eq!(
+            band.painted_top(),
+            Some(short.rows),
+            "the band still claims a row the screen no longer has"
+        );
+    }
+
+    #[test]
+    fn a_screen_that_did_not_shrink_leaves_the_top_row_where_it_was() {
+        // The clamp is a bound rather than a reset. Every other caller of
+        // `invalidate` -- a `/clear`, a Ctrl-L, a resume -- hands it the screen
+        // the band is already on, and a top row moved *down* by one of those
+        // would be rows the band painted and now never erases.
+        let tall = crate::tui::layout::solve(12, 20, 5).expect("a five-row composer");
+        let mut band = Band::new();
+        let mut screen = Fussy {
+            refusals: 0,
+            written: Vec::new(),
+        };
+        band.commit(&mut screen, &tall_rows(), &tall, (11, 2))
+            .expect("the tall band");
+        let before = band.painted_top();
+        assert_eq!(before, Some(6));
+        band.invalidate(tall.rows, tall.cols);
+        assert_eq!(band.painted_top(), before);
     }
 }

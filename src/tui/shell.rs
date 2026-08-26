@@ -198,9 +198,39 @@ const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a 
 /// away and mean something different on this surface than it does on the other.
 pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 
+/// What a screen that changed size did to the band.
+///
+/// Three answers rather than a `bool`, because the caller owes a different
+/// thing for each and two of them owe nothing at all
+/// (`super::event_loop::resolve_resize`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Resize {
+    /// The screen is the size it already was, or it would not say what size it
+    /// is. Neither is news, and neither costs a frame.
+    Unchanged,
+    /// The band was re-solved and everything the terminal is holding is now a
+    /// claim about a screen that no longer exists.
+    Repaint(Geometry),
+    /// No band fits on this screen. Nothing is re-solved, **nothing is
+    /// answered**, and the band is left where it was until the screen can hold
+    /// one again.
+    TooSmall,
+}
+
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
+    /// The screen's size as the terminal last reported it.
+    ///
+    /// The same two numbers as [`Self::geometry`] for as long as a band fits on
+    /// it, and a **separate fact** for exactly the window in which one does
+    /// not: [`Resize::TooSmall`] leaves the geometry describing the screen the
+    /// band was last solved for, so a shell that asked its geometry "what size
+    /// is the screen" would answer a size the terminal has contradicted -- and
+    /// a window dragged small and back to where it started would be reported as
+    /// no news, leaving the band solved for a screen the terminal re-wrapped
+    /// twice.
+    screen: (u16, u16),
     pub(crate) render: RenderRequest,
     /// The colours the band paints its own rows in.
     ///
@@ -373,6 +403,7 @@ impl Shell {
     ) -> Self {
         Self {
             geometry,
+            screen: (geometry.rows, geometry.cols),
             palette,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -822,13 +853,6 @@ impl Shell {
         // ([`Self::tick_activity`]).
         self.refit();
         self.render.request(Reason::Modal);
-    }
-
-    /// How many rows the band owes the question, and none when there is none.
-    fn panel_rows(&self) -> u16 {
-        self.panel.as_ref().map_or(0, |panel| {
-            panel.height(self.geometry.cols, self.geometry.rows)
-        })
     }
 
     /// Adds answer text to the stream, where the pacer releases it.
@@ -1681,22 +1705,46 @@ impl Shell {
     /// had. `the_smallest_band_still_grows_by_the_rule_rather_than_by_luck` is
     /// where that claim is checked from the smallest screen up.
     fn refit(&mut self) {
-        let limit = layout::input_row_limit(self.geometry.rows);
-        let rows = self.editor.rows(self.text_cols()).len();
-        let wanted = u16::try_from(rows.clamp(1, usize::from(limit))).unwrap_or(limit);
+        let (rows, cols) = (self.geometry.rows, self.geometry.cols);
+        let Some(geometry) = self.fit(rows, cols) else {
+            return;
+        };
+        if geometry == self.geometry {
+            return;
+        }
+        self.geometry = geometry;
+        // The divider moved, so every row of the band is somewhere else.
+        self.render.request(Reason::Resize);
+    }
+
+    /// The band this shell wants on a screen of `rows` x `cols`, or `None` when
+    /// no band fits on one.
+    ///
+    /// Every height the band has, derived from this shell's own state and from
+    /// the screen it is given rather than from the screen it is on -- which is
+    /// what lets [`Self::resize`] ask the question about a screen the geometry
+    /// does not describe yet. The composer's is a function of the **width**,
+    /// so a re-solve that measured the draft against the old one would put the
+    /// divider where the old wrap said it went.
+    fn fit(&self, rows: u16, cols: u16) -> Option<Geometry> {
+        let limit = layout::input_row_limit(rows);
+        let wrapped = self
+            .editor
+            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
+            .len();
+        let wanted = u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit);
         // The band's other height: whether the turn's row is above the divider.
         // Carried through every re-solve rather than defaulted, or a keystroke
         // typed while a turn ran would take that row away and the frame after
         // it would put it back.
         let activity = self.activity_row.is_some();
-        // The band's third height: the rows a pending decision is taking.
-        let panel = self.panel_rows();
-        if wanted == self.geometry.input_rows()
-            && activity == self.geometry.activity.is_some()
-            && panel == self.geometry.panel
-        {
-            return;
-        }
+        // The band's third height: the rows a pending decision is taking, asked
+        // of the screen in question because a narrower one wraps the summary
+        // onto more of them.
+        let panel = self
+            .panel
+            .as_ref()
+            .map_or(0, |panel| panel.height(cols, rows));
         // **The composer gives way to the question, one row at a time.** A
         // panel and a tall draft together can want more rows than the screen
         // has, and the draft is the half that can afford to lose one: a
@@ -1706,20 +1754,87 @@ impl Shell {
         // search is bounded by the cap and always finds an answer for a panel
         // that [`layout::fits_panel`] admitted, because that is the same
         // question asked of a one-row composer.
-        let Some(geometry) = (1..=wanted).rev().find_map(|input_rows| {
-            layout::solve_band(
-                self.geometry.rows,
-                self.geometry.cols,
-                input_rows,
-                activity,
-                panel,
-            )
-        }) else {
-            return;
+        (1..=wanted)
+            .rev()
+            .find_map(|input_rows| layout::solve_band(rows, cols, input_rows, activity, panel))
+    }
+
+    /// Whether this session's row numbers are claims about a screen that may
+    /// not exist -- and therefore whether anything may be written at all.
+    ///
+    /// Two intervals, and they are the same defect a tick apart. Both are
+    /// **derived**, because a flag and the geometry are two answers to one
+    /// question and the way they go wrong is that they disagree; here the state
+    /// *is* the two numbers and the outstanding signal.
+    ///
+    /// * **A `SIGWINCH` nobody has resolved yet.** The signal means the
+    ///   terminal has already changed size, and the band is deliberately not
+    ///   re-solved for [`super::render_request::RESIZE_DEBOUNCE`] afterwards --
+    ///   so for that whole interval the geometry describes the screen that was.
+    ///   Withholding is not the same as answering the signal at once, which is
+    ///   what the debounce exists to prevent: nothing is measured and nothing
+    ///   is re-solved, the frame is simply owed until the deadline comes round.
+    /// * **A screen no band fits on**, for as long as [`Resize::TooSmall`]
+    ///   leaves it so: the terminal has reported a size, and it is one the band
+    ///   cannot be solved for, so the geometry stays describing the screen it
+    ///   was last solved for until the screen grows again.
+    ///
+    /// What it buys is that nothing is written on such a screen at all. A band
+    /// painted from a stale geometry addresses rows the terminal no longer has,
+    /// and a terminal answers a `CUP` past its last row by **clamping** it --
+    /// silently -- so the whole band lands on the bottom row on top of itself.
+    /// A document append is worse, because it cannot be taken back: it is a
+    /// scroll, and what leaves the top of the screen is in the terminal's
+    /// native scrollback for good.
+    pub(crate) fn blind(&self) -> bool {
+        self.render.resize_pending() || self.screen != (self.geometry.rows, self.geometry.cols)
+    }
+
+    /// Re-solves the band for a screen that changed size.
+    ///
+    /// The whole of what a `SIGWINCH` moves on this surface, and the boundary
+    /// is what keeps it affordable: **the band and the unfinished line, and
+    /// nothing above them.** Every finished row was written into the terminal's
+    /// own document once and is in its native scrollback now, where the
+    /// terminal re-wrapped it by rules xfx does not model -- repainting it
+    /// would mean owning a viewport this phase deliberately does not own.
+    ///
+    /// Three answers, and two of them change nothing:
+    ///
+    /// * A screen the terminal **will not describe** -- `0x0`, which a pty
+    ///   whose size was never set answers successfully -- is
+    ///   [`Resize::Unchanged`]. At launch that reading is a refusal and the
+    ///   band is solved from 24x80 (`super::term::window_size`); here there is
+    ///   already a band on a screen of a known size, and replacing it with a
+    ///   fallback would move the band for a measurement that said nothing.
+    /// * A screen that is **the size it already was** is `Unchanged` too: a
+    ///   terminal sends a winch for a font change, and a burst sends several
+    ///   for one gesture.
+    /// * A screen **no band fits on** is [`Resize::TooSmall`]. Nothing is
+    ///   re-solved and, above all, nothing is answered: a pending question
+    ///   refused here would be a decision the user never made, taken because a
+    ///   window was dragged. The size is still recorded, so the band is
+    ///   re-solved when the screen grows again -- including back to exactly the
+    ///   size it left, which a shell that remembered only its geometry would
+    ///   report as no news.
+    ///
+    /// Otherwise the band is re-solved, the unfinished line is re-wrapped, and
+    /// one frame is asked for. The caller owes the shadow
+    /// (`super::event_loop::resolve_resize`), which is a claim about a screen
+    /// that no longer exists.
+    pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+        if rows == 0 || cols == 0 || (rows, cols) == self.screen {
+            return Resize::Unchanged;
+        }
+        self.screen = (rows, cols);
+        let Some(geometry) = self.fit(rows, cols) else {
+            return Resize::TooSmall;
         };
         self.geometry = geometry;
-        // The divider moved, so every row of the band is somewhere else.
+        self.transcript.resize_unfinished(cols);
+        // Every row of the band is somewhere else, and so is every column.
         self.render.request(Reason::Resize);
+        Resize::Repaint(geometry)
     }
 }
 
@@ -4715,6 +4830,256 @@ mod tests {
         assert!(
             !shell.document().iter().any(|row| row.contains("panicked")),
             "the fatal was painted into a band that is about to be taken down"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the screen changing size under the band
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_wider_screen_rewraps_the_composer_and_unfinished_tail() {
+        // The whole of what a resize owns on this side of the divider. The
+        // composer's height is a function of the width it is wrapped to, so a
+        // band re-solved without re-measuring the draft would put the divider
+        // where the *old* wrap said it went; and the unfinished line's rows are
+        // what the next append measures its scroll against.
+        let mut shell = shell(24, 40);
+        // Thirty-eight cells of draft on a screen whose composer has 38: two
+        // rows here, one row at eighty.
+        shell.route_bytes("x".repeat(50).as_bytes());
+        assert_eq!(shell.geometry.input_rows(), 2);
+        let narrow_divider = shell.geometry.divider;
+        shell.apply(UiEvent::Delta("y".repeat(50)));
+        let _ = shell.released();
+
+        assert_eq!(
+            shell.resize(24, 80),
+            Resize::Repaint(shell.geometry),
+            "a screen that really changed size was reported as no news"
+        );
+
+        assert_eq!(shell.geometry.cols, 80);
+        assert_eq!(
+            shell.geometry.input_rows(),
+            1,
+            "the draft was re-solved against the width it no longer has"
+        );
+        assert!(
+            shell.geometry.divider > narrow_divider,
+            "the divider did not move when the composer stopped wrapping"
+        );
+        // The composer's rows, as the band now paints them: one row, not two.
+        let rows = shell.band_rows();
+        assert_eq!(
+            rows.len(),
+            usize::from(shell.geometry.band_rows()),
+            "the band painted a number of rows the geometry does not own"
+        );
+        // And the tail: one more delta writes the whole unfinished line at the
+        // new width rather than at the old one.
+        shell.apply(UiEvent::Delta("z".to_string()));
+        let tail = shell.released();
+        assert!(
+            tail.iter().all(|row| super::super::wrap::width(row) <= 80),
+            "the tail was re-wrapped to something other than the screen: {tail:?}"
+        );
+        assert!(
+            !tail.iter().any(|row| row.len() == 40),
+            "a row wrapped to the old width survived the resize: {tail:?}"
+        );
+    }
+
+    #[test]
+    fn zero_by_zero_after_launch_is_no_new_information() {
+        // A pty whose size was never set answers `0x0` successfully. At launch
+        // that is a refusal and the band is solved from 24x80
+        // (`super::term::window_size`); once a session is running it is the
+        // opposite -- there *is* a band on a screen of a known size, and
+        // replacing it with a fallback would move the band for a measurement
+        // that said nothing.
+        let mut shell = shell(40, 100);
+        let before = shell.geometry;
+        assert_eq!(shell.resize(0, 0), Resize::Unchanged);
+        assert_eq!(shell.geometry, before);
+        assert_eq!(shell.resize(0, 100), Resize::Unchanged);
+        assert_eq!(shell.resize(40, 0), Resize::Unchanged);
+        assert_eq!(shell.geometry, before);
+        assert!(
+            shell.render.begin().is_none() || before == shell.geometry,
+            "a measurement that said nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_resize_to_the_size_the_screen_already_is_asks_for_nothing() {
+        // A `SIGWINCH` a terminal sends for a font change, or the second of a
+        // burst the first already answered. Repainting for one would make an
+        // idle session's cost a function of how often its terminal talks.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        assert_eq!(shell.resize(24, 80), Resize::Unchanged);
+        assert!(
+            shell.render.begin().is_none(),
+            "a resize to the size the screen already is asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_resize_asks_for_one_frame_and_names_a_resize_as_the_reason() {
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        assert!(
+            shell.render.begin().is_some(),
+            "the band moved and nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn resize_keeps_the_question_and_its_answer_channel() {
+        // A resize is not an answer. The panel is the only thing on this
+        // surface holding a turn open, and a re-solve that dropped it would
+        // leave the runtime parked on a channel nobody will ever write to --
+        // while the user watches a band with no question in it.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        assert_eq!(shell.geometry.panel, 8);
+
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+
+        assert_eq!(
+            shell.geometry.panel, 8,
+            "the question lost its rows when the screen changed size"
+        );
+        assert!(
+            shell.band_rows().join("\n").contains("Permission needed"),
+            "the question is no longer painted: {:?}",
+            shell.band_rows()
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the resize answered the question on the user's behalf"
+        );
+        // And the answer still reaches the runtime afterwards.
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            "the keystroke that answers the question stopped reaching the runtime"
+        );
+    }
+
+    #[test]
+    fn a_screen_too_small_for_the_band_keeps_the_question_until_it_grows_again() {
+        // The one case a re-solve has no answer for. Refusing the question here
+        // would be a decision the user never made, taken because a window was
+        // dragged; and answering it would be worse. So the shell keeps
+        // everything it holds, paints nothing new, and re-solves when the
+        // screen can hold a band again.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let before = shell.geometry;
+
+        assert_eq!(shell.resize(4, 80), Resize::TooSmall);
+        assert_eq!(
+            shell.geometry, before,
+            "the band was solved for a screen that cannot hold one"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a window that got smaller answered the question"
+        );
+
+        // And the screen grows again. The size it comes back to is the one it
+        // left, which is exactly the case a shell that only remembered its
+        // geometry would report as "no news".
+        assert!(matches!(shell.resize(24, 80), Resize::Repaint(_)));
+        assert_eq!(shell.geometry.panel, 8);
+        assert!(
+            shell.band_rows().join("\n").contains("Permission needed"),
+            "the question was not painted after the screen grew back"
+        );
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            "the decision no longer reaches the runtime"
+        );
+    }
+
+    #[test]
+    fn a_resize_keeps_the_turns_row_above_the_divider() {
+        // The band's other height. A re-solve that defaulted it would take the
+        // activity row away from a turn that is still running, and the next
+        // settle would put it back -- one frame of the band jumping for every
+        // resize.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"say something\r");
+        shell.settle_band(started);
+        assert!(shell.geometry.activity.is_some());
+
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        assert!(
+            shell.geometry.activity.is_some(),
+            "the running turn lost its row when the screen changed size"
+        );
+        assert_eq!(shell.geometry.activity, Some(shell.geometry.divider - 1));
+    }
+
+    #[test]
+    fn the_caret_stays_in_the_composer_across_a_resize() {
+        // The band's rows and the caret are derived from one geometry, so a
+        // resize that moved one without the other would leave the terminal's
+        // cursor on the divider or below the hint row.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        let (row, cells) = shell.cursor();
+        assert_eq!(row, shell.geometry.input_first);
+        assert_eq!(cells, PROMPT_CELLS + 5);
+    }
+
+    #[test]
+    fn a_truncated_report_does_not_throw_the_draft_away() {
+        // What the decoder's phantom Escape costs where it is really paid. A
+        // terminal answering `OSC 11` and being cut off mid-report ends the
+        // string with an `ESC`, and the byte behind it can be another one -- a
+        // keystroke, or the head of a sequence still arriving. Two Escapes
+        // inside `gesture::CLEAR_WINDOW` are the gesture that empties the
+        // composer, so a decoder that invents the first one lets a report xfx
+        // asked for delete what the user was writing.
+        //
+        // The clock is read **after** each burst rather than before: the bare
+        // `ESC` this hands back is resolved by `Decoder::ESC_TIMEOUT` measured
+        // from the byte's own arrival, and a deadline computed from before it
+        // is a few microseconds short of firing at all -- which would make this
+        // case pass by never resolving the escape it is about.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+        assert_eq!(shell.editor.text(), "a draft worth keeping");
+
+        shell.route_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\x1b");
+        let reported = Instant::now();
+        shell.settle_input(reported + Duration::from_millis(60));
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "a truncated background report emptied the composer"
+        );
+
+        // And the gesture still belongs to the user: the escape the report
+        // handed back is one press, so their own next Escape is the second and
+        // it clears the draft as it always did.
+        shell.route_bytes(b"\x1b");
+        let typed = Instant::now();
+        shell.settle_input(typed + Duration::from_millis(60));
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the double-Escape gesture stopped working after a truncated report"
         );
     }
 }

@@ -1118,9 +1118,21 @@ class Terminal:
         self.master, self.slave = pty.openpty()
         self.path = os.ttyname(self.slave)
         self.rows, self.cols = rows, cols
-        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.set_size(rows, cols)
         flags = fcntl.fcntl(self.master, fcntl.F_GETFL)
         fcntl.fcntl(self.master, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+    def set_size(self, rows, cols):
+        """Changes the terminal's dimensions, as a window manager would.
+
+        The signal is **not** sent from here. `TIOCSWINSZ` raises `SIGWINCH` on
+        the terminal's foreground process group, and these children are spawned
+        without one on purpose (no `setsid`, no `TIOCSCTTY`), so nothing would
+        be signalled at all -- the caller delivers it by name instead
+        (`Trial.resize`).
+        """
+        self.rows, self.cols = rows, cols
+        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
     def modes(self):
         """The terminal's state, read through the retained slave.
@@ -1400,6 +1412,7 @@ Two rules the whole file is written to, both from `06-qa-harness.md`:
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -1587,6 +1600,23 @@ class Trial:
 
     def send(self, data):
         self.session.send(data)
+
+    def resize(self, rows, cols):
+        """Changes the terminal's size and tells the child about it, by name.
+
+        Two halves and neither is optional. The ioctl is what the child's own
+        `TIOCGWINSZ` will answer with; the signal is what makes it ask. A
+        scenario that changed only the size would be asserting that xfx redraws
+        on a measurement it never took, and one that sent only the signal would
+        find the screen exactly as it was.
+
+        The grid every later `peek` is read on is sized from here, which is the
+        whole reason this is a method rather than two calls: a snapshot taken at
+        the old size after a resize is a screen no terminal ever showed.
+        """
+        self.terminal.set_size(rows, cols)
+        self.rows, self.cols = rows, cols
+        self.session.signal(signal.SIGWINCH)
 
     def wait_for(self, needle, timeout=pty.WAIT):
         return self.session.wait_for(needle, timeout=timeout)
@@ -3477,6 +3507,183 @@ def scenario_14(run):
 
 
 # ---------------------------------------------------------------------------
+# 15. resize reflow
+# ---------------------------------------------------------------------------
+
+
+def rows_a_gesture_wrote_on(written):
+    """Every terminal row a captured run of bytes placed the cursor on.
+
+    **Every column, not only the first**, and that is the whole of what makes
+    this an instrument rather than a decoration. The band places its own rows at
+    column 1, but a frame is a *difference*: `src/tui/grid.rs` emits its `CUP`
+    at the **first changed column** of a row, and a frame ends by putting the
+    caret wherever the composer's text ends. So a detector matching only `;1H`
+    would report "xfx wrote nothing above the band" for a session that had
+    rewritten a row of the user's transcript from its second cell onwards --
+    which is precisely the claim scenario 15 exists to make, and a detector that
+    cannot fail is not evidence.
+    """
+    return [int(row) for row in re.findall(r"\x1b\[(\d+);\d+H", written)]
+
+
+def scenario_15(run):
+    """A screen that changed size gets the whole band back, where it now goes.
+
+    Item 12, end to end on a real terminal. The claim has two halves and the
+    second is what bounds the work: **the band and the composer reflow to the
+    screen that now exists, and the terminal's own document is left alone.**
+    Everything above the divider was written into the terminal's document once
+    and is in its native scrollback now, where the terminal re-wrapped it by
+    rules xfx does not model -- so this scenario does not require xfx to
+    repaint one, and would be wrong to.
+    """
+    before_marker = run.marker("before")
+    wide_marker = run.marker("wide")
+    # The second answer is one unbroken token longer than the old screen was
+    # wide: on a 120-column terminal it is one document row, and a transcript
+    # still wrapping to the 80 it launched on would put it on two.
+    wide_answer = wide_marker + "y" * 80
+    fixture = start_fixture(
+        run,
+        [fixtures.content_only(before_marker), fixtures.content_only(wide_answer)],
+    )
+    trial = run.trial("reflow", gateway=fixture).settled()
+    from_a_known_composer(run, trial, "reflow")
+
+    # The instrument, falsified before it is trusted. A `CUP` above the band at
+    # a column other than the first is exactly what a cell diff emits, so a
+    # detector that missed one would pass this scenario for a session that had
+    # rewritten the user's transcript. Synthetic and non-vacuous: the row at
+    # column 2 must be seen, and the row at column 1 must still be.
+    run.require(
+        rows_a_gesture_wrote_on("\x1b[7;2Hx\x1b[9;1Hy") == [7, 9],
+        "the above-band detector sees a CUP at a column other than the first: %r"
+        % rows_a_gesture_wrote_on("\x1b[7;2Hx\x1b[9;1Hy"),
+    )
+
+    # An answer in the terminal's own document, and the discriminator every
+    # scenario owes: the nonce in the request, the fixture's marker on the
+    # screen, and only sequences xfx declares.
+    discriminate(run, trial, fixture, before_marker, label="before-resize")
+
+    # A draft that wraps at eighty and does not at a hundred and twenty: the
+    # composer's height is a function of the width, so a band re-solved without
+    # re-measuring the draft would put the divider where the old wrap said.
+    draft = "x" * 90
+    trial.send(draft)
+    trial.wait_until(
+        "the whole draft in the composer",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+    narrow = trial.grid("before-resize-band")
+    # 24 rows, two composer rows: the rule on row 21, the composer on 22 and
+    # 23, the hint row on 24.
+    run.require(
+        narrow.row_text(20) == "\u2500" * 80,
+        "the rule spans the narrow screen before the resize: %r" % narrow.row_text(20),
+    )
+    run.require(
+        composer_first_row(narrow) == 21,
+        "the draft is on two composer rows to begin with (first row %r)"
+        % composer_first_row(narrow),
+    )
+
+    # Where the wire stands before the resize, so what is scanned below is this
+    # gesture's bytes and nothing else.
+    wire = len(trial.session.captured)
+    trial.resize(30, 120)
+
+    # 30 rows, one composer row: the rule on row 28, the composer on 29, the
+    # hint row on 30. Waited for on the **rule**, which is the one row whose
+    # text says both coordinates at once -- where it is, and how wide.
+    trial.wait_until(
+        "the rule across the foot of the taller screen",
+        lambda _t: trial.peek().row_text(27) == "\u2500" * 120,
+    )
+    wide = trial.grid("after-resize-band")
+    run.require(
+        wide.row_text(27) == "\u2500" * 120,
+        "the rule spans the whole of the new screen: %r" % wide.row_text(27),
+    )
+    run.require(
+        composer_first_row(wide) == 28,
+        "the draft is back on one composer row, directly under the rule "
+        "(first row %r)" % composer_first_row(wide),
+    )
+    run.require(
+        composer_text(wide) == draft,
+        "and it is still the whole draft: %r" % composer_text(wide),
+    )
+    run.require(
+        wide.row_text(29).strip() != "",
+        "the hint row is on the last row of the new screen",
+    )
+    # **No stale rows.** The rows the band owned on the old screen are the
+    # document's now, and nothing in this phase repaints a document row -- so a
+    # band that merely drew itself lower would leave a second rule and a second
+    # hint row on the screen for the rest of the session.
+    stale = [row + 1 for row in range(20, 24) if wide.row_text(row).strip() != ""]
+    run.require(not stale, "the band the resize left behind is gone from rows %r" % stale)
+    # **And nothing above them was touched.** The committed transcript is the
+    # terminal's own document and its own scrollback; the terminal re-wrapped it
+    # when it changed size, by rules xfx does not model, so a session that
+    # repainted one of those rows would be overwriting text it cannot describe.
+    # The rows this gesture is allowed to write are the band's own -- from the
+    # top row the band had on the old screen (21, its rule) downwards.
+    written = bytes(trial.session.captured)[wire:].decode("utf-8", "replace")
+    above = sorted({row for row in rows_a_gesture_wrote_on(written) if row < 21})
+    run.require(
+        not above,
+        "the resize wrote on the terminal's own document, at row(s) %r" % above,
+    )
+    run.require(
+        not wide.unknown, "xfx emitted only the sequences it declares: %r" % wide.unknown
+    )
+
+    # And a decision still reaches the fixture: the session is not merely
+    # painting, it is still reading its keyboard and still running turns.
+    trial.send(b"\x15")
+    trial.send("say " + run.nonce + " again\r")
+    # Waited for on the **whole** answer rather than on its first cells: the
+    # pacer releases text against a clock, so a grid snapshotted at the marker
+    # is a screen with a third of the line on it.
+    trial.wait_until(
+        "the whole of the second answer on one row of the new screen",
+        lambda _t: any(
+            trial.peek().row_text(row).strip() == wide_answer
+            for row in range(trial.rows)
+        ),
+    )
+    run.require(
+        len(fixture.bodies()) == 2,
+        "the prompt submitted after the resize reached the provider (%d request(s))"
+        % len(fixture.bodies()),
+    )
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "carrying the nonce this run minted",
+    )
+    after = trial.grid("after-resize-answer")
+    found = after.find(wide_marker)
+    run.require(found is not None, "the second answer is rendered on the new screen")
+    if found is not None:
+        row, _column = found
+        run.require(
+            after.row_text(row).strip() == wide_answer,
+            "the answer is on one document row of the wider screen rather than "
+            "wrapped to the width it launched on: %r" % after.row_text(row),
+        )
+    run.require(
+        not after.unknown, "xfx emitted only the sequences it declares: %r" % after.unknown
+    )
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the reflow session left at 0")
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # plumbing
 # ---------------------------------------------------------------------------
 
@@ -3515,6 +3722,7 @@ SCENARIOS = {
     "12-theme-detection": scenario_12,
     "13-cell-diff-correctness": scenario_13,
     "14-no-op-frame-skip": scenario_14,
+    "15-resize-reflow": scenario_15,
 }
 
 
@@ -3583,6 +3791,7 @@ scenarios=(
 	12-theme-detection
 	13-cell-diff-correctness
 	14-no-op-frame-skip
+	15-resize-reflow
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

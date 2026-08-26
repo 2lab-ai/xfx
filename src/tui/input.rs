@@ -178,6 +178,22 @@ pub(crate) enum Input {
 /// the decoder eats for as long as it keeps arriving.
 const MOST_BYTES: usize = 32;
 
+/// The same bound for a **string** sequence, which is a different shape and
+/// therefore a different number.
+///
+/// An `OSC` carries text rather than a handful of parameters, and the longest
+/// one a terminal volunteers is a clipboard report (`OSC 52`), whose body is
+/// base64 of a selection somebody made. A bound sized like [`MOST_BYTES`] would
+/// turn containment into a leak -- the head of the report would be swallowed
+/// and its tail typed into the composer -- so this is sized past any report a
+/// terminal really sends and still finite, because a terminal that opens a
+/// string and never closes it must not own the keyboard for the rest of the
+/// session. Two things keep that bound from mattering in practice: a C0 byte
+/// ends the string at once, so every binding a user could reach for -- Ctrl-C,
+/// Return, Backspace -- is answered while one is open, and an `ESC` that is not
+/// the first half of an `ST` ends it too, so an arrow key does the same.
+const MOST_STRING_BYTES: usize = 4096;
+
 /// The end of a bracketed paste, matched byte by byte.
 const PASTE_END: &[u8] = b"\x1b[201~";
 
@@ -202,6 +218,14 @@ enum Stage {
     Csi,
     /// `ESC O`, waiting for the one byte that names the key.
     Ss3,
+    /// `ESC ]`, inside a string sequence's body: `seen` bytes of it so far, and
+    /// `esc` for an `ESC` that may be the first half of the `ST` that ends it.
+    ///
+    /// The same two states `super::probe` keeps for the one `OSC` a launch
+    /// recognizes, and for the same reason: a string ends at a `BEL` or at
+    /// `ESC \`, so an `ESC` inside one cannot be decided until the byte after
+    /// it arrives.
+    Osc { seen: usize, esc: bool },
     /// A sequence that outgrew [`MOST_BYTES`]: its bytes go nowhere until a
     /// final byte arrives or this counter reaches the same bound.
     Discard { seen: usize },
@@ -272,6 +296,7 @@ impl Decoder {
             // byte is decoded on its own. `in_csi` and `discarding` make the
             // same check for themselves.
             Stage::Ss3 => self.intruded(byte, now, out),
+            Stage::Osc { seen, esc } => self.in_osc(byte, now, seen, esc, out),
             Stage::Discard { seen } => self.discarding(byte, now, seen, out),
             Stage::Utf8(partial) => self.in_utf8(byte, now, partial, out),
         }
@@ -353,6 +378,18 @@ impl Decoder {
                 self.stage = Stage::Csi;
             }
             b'O' => self.stage = Stage::Ss3,
+            // A string sequence -- `OSC` -- which is the terminal talking about
+            // itself rather than a key: a background report it was asked for,
+            // a foreground one, a clipboard. Its body is *text*, and a decoder
+            // that stopped here would put `11;rgb:1e1e/1e1e/1e1e` in the
+            // composer and the user's clipboard with it. It is consumed to its
+            // terminator instead ([`Self::in_osc`]).
+            b']' => {
+                self.stage = Stage::Osc {
+                    seen: 0,
+                    esc: false,
+                }
+            }
             // Alt-Backspace, which every terminal in use spells this way, and
             // the one exception to the replay below. Replayed it would be
             // `Escape` + `Backspace`, so two Alt-Backspaces would be two
@@ -409,6 +446,97 @@ impl Decoder {
                     self.matched = 0;
                 }
                 out.push(Input::Action(action));
+            }
+        }
+    }
+
+    /// One byte inside `ESC ] ...`.
+    ///
+    /// The string is consumed whole and reported as one [`Action::Ignore`] --
+    /// the same answer a well-formed sequence with no binding gets, for the
+    /// same reason: "the terminal sent a report" and "the terminal sent
+    /// nothing" are different facts, and only the first accounts for the bytes
+    /// that were read. **Nothing of the body is ever emitted**, which is the
+    /// whole point: an `OSC 52` reply carries a clipboard and an `OSC 11` reply
+    /// carries a colour, and neither is something the user typed.
+    ///
+    /// Three things end one, and the last two are why a report cannot cost a
+    /// keystroke:
+    ///
+    /// * a `BEL`, or the `ESC \` of an `ST` -- the two terminators a terminal
+    ///   really writes;
+    /// * an `ESC` that turns out **not** to be an `ST`, which ends the string;
+    ///   what that `ESC` then is depends on the byte behind it -- an introducer
+    ///   when a sequence can begin with that byte, so the arrow key behind a
+    ///   truncated report is still an arrow key, and **nothing at all** when it
+    ///   is a C0 or `DEL`, because an Escape synthesized there is a keystroke
+    ///   nobody made and two of them empty the composer;
+    /// * any other C0 byte or `DEL`, which no string carries -- so a Ctrl-C
+    ///   pressed while a report is open cancels the turn instead of being eaten
+    ///   by it ([`Self::intruded`], which is the same rule a `CSI` has).
+    ///
+    /// And [`MOST_STRING_BYTES`] bounds the rest, so a terminal that never
+    /// closes one gives the keyboard back.
+    fn in_osc(&mut self, byte: u8, now: Instant, seen: usize, esc: bool, out: &mut Vec<Input>) {
+        if esc {
+            if byte == b'\\' {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::Ignore));
+                return;
+            }
+            // The `ESC` was not the first half of an `ST`. The string is over,
+            // and what that `ESC` is depends entirely on the byte behind it.
+            out.push(Input::Action(Action::Ignore));
+            // Anything a real escape sequence can carry in this position -- a
+            // `[`, an `O`, another `]`, or the printable byte of an Alt-key:
+            // the `ESC` is that sequence's introducer and the two are decoded
+            // together, because handing back only the byte would put a bare `[`
+            // in the composer where a cursor key was. A byte above `DEL` goes
+            // here too, and deliberately: `ESC` + a scalar's lead byte is
+            // Alt-something, which this phase ignores rather than typing, and
+            // the tail of a report the terminal truncated is not text the user
+            // asked for.
+            if !matches!(byte, 0x00..=0x1f | 0x7f) {
+                self.stage = Stage::Esc { at: now };
+                self.after_escape(byte, now, out);
+                return;
+            }
+            // A C0 or `DEL`. **No `ESC` is handed back here**, and that is the
+            // whole of the difference: [`Self::after_escape`] answers "an `ESC`
+            // with a control behind it" with *the Escape key and then that
+            // control*, which is right for a key the user pressed and wrong for
+            // this one -- the `ESC` came out of a report xfx asked for, and
+            // nothing in the stream is evidence anybody pressed Escape.
+            //
+            // The synthesized press is not cosmetic. Two Escapes inside
+            // `super::gesture::CLEAR_WINDOW` are the gesture that empties the
+            // composer, so `OSC ... ESC ESC` -- a report truncated by a real
+            // Escape key -- would count as both presses and throw the draft
+            // away; and `OSC ... ESC` + Ctrl-C would arm that gesture on the
+            // way to cancelling the turn. So the string ends and the byte is
+            // decoded as the keystroke it is, on its own.
+            self.stage = Stage::Ground;
+            self.ground(byte, now, out);
+            return;
+        }
+        match byte {
+            0x07 => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::Ignore));
+            }
+            0x1b => {
+                self.stage = Stage::Osc {
+                    seen: seen.saturating_add(1),
+                    esc: true,
+                };
+            }
+            0x00..=0x1f | 0x7f => self.intruded(byte, now, out),
+            _ if seen >= MOST_STRING_BYTES => self.intruded(byte, now, out),
+            _ => {
+                self.stage = Stage::Osc {
+                    seen: seen.saturating_add(1),
+                    esc: false,
+                };
             }
         }
     }
@@ -1254,5 +1382,236 @@ mod tests {
         decoder.feed(b'5', start, &mut out);
         decoder.feed(b'C', start, &mut out);
         assert_eq!(out, vec![Input::Action(Action::WordRight)]);
+    }
+
+    /// Whatever `bytes` put in the composer.
+    fn typed(bytes: &[u8]) -> String {
+        decode(bytes)
+            .into_iter()
+            .filter_map(|event| match event {
+                Input::Text(character) => Some(character),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_terminal_talking_about_itself_never_reaches_the_composer() {
+        // The three a terminal really volunteers: the foreground and background
+        // reports it answers `OSC 10`/`OSC 11` with, and the clipboard an
+        // `OSC 52` carries. Every one of them is a *string* -- so a decoder
+        // that only knew `CSI` put `11;rgb:0000/0000/0000` into the draft, and
+        // the clipboard of whoever pressed the wrong key with it.
+        for report in [
+            &b"\x1b]10;rgb:c7c7/c7c7/c7c7\x07"[..],
+            &b"\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\"[..],
+            &b"\x1b]52;c;aGVsbG8gd29ybGQ=\x07"[..],
+        ] {
+            assert_eq!(
+                typed(report),
+                "",
+                "the body of {report:?} was typed into the composer"
+            );
+            assert_eq!(
+                decode(report),
+                vec![Input::Action(Action::Ignore)],
+                "{report:?} was not accounted for as one sequence"
+            );
+        }
+    }
+
+    #[test]
+    fn a_report_between_two_keystrokes_costs_neither_of_them() {
+        // What a terminal really sends while a person is typing: the answer to
+        // a query xfx asked, a cursor report behind it, and the keystroke that
+        // was on its way. The first two are the terminal talking about itself
+        // and the third is the user.
+        assert_eq!(
+            decode(b"a\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[12;34Rb"),
+            vec![
+                Input::Text('a'),
+                Input::Action(Action::Ignore),
+                Input::Action(Action::Ignore),
+                Input::Text('b'),
+            ],
+            "a report between two keystrokes ate one of them"
+        );
+    }
+
+    #[test]
+    fn an_osc_that_never_terminates_hands_the_next_keystroke_back() {
+        // The `ESC` inside a string is either the first half of an `ST` or the
+        // end of the conversation. When it is not followed by a backslash the
+        // string is abandoned, and what that `ESC` then is depends on the byte
+        // behind it: **decoded as an introducer only when that byte is neither
+        // a C0 nor `DEL`** -- so the arrow key a terminal put on the wire
+        // behind a malformed report is still an arrow key. A C0 or `DEL` is
+        // grounded on its own instead, with no `ESC` handed back and therefore
+        // no phantom Escape
+        // (`a_truncated_report_does_not_invent_an_escape_key_in_front_of_a_control`).
+        assert_eq!(
+            decode(b"\x1b]11;rgb:0000\x1b[A"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Up)],
+            "a malformed terminator swallowed the keystroke behind it"
+        );
+        // And a bare `ESC x` behind one is Alt-x: one unknown keystroke, not
+        // the letter x in the draft.
+        assert_eq!(typed(b"\x1b]52;c;AAAA\x1bx"), "");
+    }
+
+    #[test]
+    fn a_control_byte_is_a_keystroke_however_long_a_report_has_been_open() {
+        // The same rule `CSI` has (`Decoder::intruded`): an `OSC` string is
+        // printable text, so a C0 in the middle of one is not part of it -- it
+        // is the key the user pressed while the terminal was still talking, and
+        // a Ctrl-C that cancelled nothing because a report had not been closed
+        // is a turn the user could not stop.
+        assert_eq!(
+            decode(b"\x1b]52;c;AAAA\x03"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Cancel)],
+            "Ctrl-C was eaten by an unterminated report"
+        );
+        assert_eq!(
+            decode(b"\x1b]0;title\x7f"),
+            vec![
+                Input::Action(Action::Ignore),
+                Input::Action(Action::Backspace)
+            ],
+            "Backspace was eaten by an unterminated report"
+        );
+    }
+
+    #[test]
+    fn a_report_that_never_ends_stops_eating_keystrokes() {
+        // The bound `MOST_BYTES` puts on a `CSI`, sized for a string: a
+        // terminal that opens an `OSC` and never closes it must not own the
+        // keyboard for the rest of the session. The byte that overruns the
+        // bound is the first keystroke again.
+        let mut overlong = b"\x1b]".to_vec();
+        overlong.extend(std::iter::repeat_n(b'A', MOST_STRING_BYTES));
+        overlong.push(b'z');
+        let out = decode(&overlong);
+        assert_eq!(
+            out.last(),
+            Some(&Input::Text('z')),
+            "the keystroke after an overlong report was eaten: {out:?}"
+        );
+        assert_eq!(
+            typed(&overlong),
+            "z",
+            "the body of an overlong report reached the composer"
+        );
+    }
+
+    #[test]
+    fn the_bound_is_long_enough_for_the_reports_a_terminal_really_sends() {
+        // A bound that cut a real `OSC 52` in half would turn containment into
+        // a leak: the tail of the clipboard would be typed. Sized against the
+        // longest string a terminal volunteers rather than against a `CSI`'s
+        // handful of parameters.
+        let mut clipboard = b"\x1b]52;c;".to_vec();
+        clipboard.extend(std::iter::repeat_n(b'A', 2048));
+        clipboard.push(0x07);
+        assert_eq!(
+            decode(&clipboard),
+            vec![Input::Action(Action::Ignore)],
+            "a clipboard report a terminal really sends was cut short"
+        );
+    }
+
+    #[test]
+    fn a_paste_still_owns_every_byte_between_its_markers() {
+        // The one place an `OSC` is *not* a terminal talking: between the paste
+        // markers every byte is content, so pasted text carrying `ESC ]` is
+        // pasted bytes rather than a report that swallows the rest of the
+        // paste.
+        let out = decode(b"\x1b[200~\x1b]52;c;A\x07\x1b[201~");
+        let pasted: Vec<u8> = out
+            .iter()
+            .filter_map(|event| match event {
+                Input::PasteByte(byte) => Some(*byte),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pasted,
+            b"\x1b]52;c;A\x07".to_vec(),
+            "a report inside a paste was decoded instead of pasted"
+        );
+    }
+
+    #[test]
+    fn a_truncated_report_does_not_invent_an_escape_key_in_front_of_a_control() {
+        // The `ESC` that ends a malformed string is the **terminal's**, not the
+        // user's: it arrived inside a report xfx asked for. Handing the byte
+        // after it to the bare-`ESC` decoder makes that decoder answer the
+        // question it is built to answer -- "an `ESC` with a C0 behind it is the
+        // Escape key and then that key" -- and the Escape it synthesizes is a
+        // keystroke nobody made.
+        //
+        // Ctrl-C is the sharpest of them: the phantom arms the double-Escape
+        // gesture and the real byte then cancels the turn, so one truncated
+        // report leaves a session one keystroke away from throwing the draft
+        // away.
+        assert_eq!(
+            decode(b"\x1b]52;c;AAAA\x1b\x03"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Cancel)],
+            "a truncated report put an Escape nobody typed in front of Ctrl-C"
+        );
+        // And `DEL`, which the bare-`ESC` decoder reads as Alt-Backspace: here
+        // there was no Alt, so it is the Backspace it is.
+        assert_eq!(
+            decode(b"\x1b]0;title\x1b\x7f"),
+            vec![
+                Input::Action(Action::Ignore),
+                Input::Action(Action::Backspace)
+            ],
+            "a truncated report turned a Backspace into Alt-Backspace"
+        );
+    }
+
+    #[test]
+    fn a_truncated_report_ending_in_an_escape_is_one_escape_and_not_two() {
+        // `OSC ... ESC ESC`: the first `ESC` ends the string, and the second is
+        // whatever it is -- the Escape key, or the head of a sequence still
+        // arriving. One of them, once. Two would be the double-Escape gesture
+        // (`super::gesture`), and the gesture throws the whole draft away.
+        let mut decoder = Decoder::new();
+        let start = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b]11;rgb:0000\x1b\x1b" {
+            decoder.feed(*byte, start, &mut out);
+        }
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Ignore)],
+            "the second escape was resolved before the timeout could say what it is"
+        );
+        decoder.flush(start + Decoder::ESC_TIMEOUT, &mut out);
+        assert_eq!(
+            out,
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Escape)],
+            "a truncated report spent the user's double-Escape gesture for them"
+        );
+    }
+
+    #[test]
+    fn the_escape_a_truncated_report_hands_back_still_carries_a_sequence() {
+        // The bound on the two cases above: only a **C0 or `DEL`** stops going
+        // through the bare-`ESC` decoder. Everything a real escape sequence can
+        // begin with still does, which is what keeps the arrow key behind a
+        // truncated report an arrow key rather than a bare `[` in the composer.
+        assert_eq!(
+            decode(b"\x1b]11;rgb:0000\x1b[A"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Up)]
+        );
+        assert_eq!(
+            decode(b"\x1b]11;rgb:0000\x1bOB"),
+            vec![Input::Action(Action::Ignore), Input::Action(Action::Down)]
+        );
+        // And a printable byte is still Alt-something rather than text: a byte
+        // out of a report the terminal truncated is not something the user
+        // typed, so it does not reach the draft.
+        assert_eq!(typed(b"\x1b]52;c;AAAA\x1bx"), "");
     }
 }
