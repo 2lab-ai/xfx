@@ -83,12 +83,14 @@ use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
 use super::paste::{Paste, Pasted};
+use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::render_request::{Reason, RenderRequest};
+use super::router::{self, CommandHandlers};
 use super::theme::Palette;
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
-use crate::interactive::{self, Slash, Submitted};
+use crate::interactive::{self, Submitted};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
@@ -351,6 +353,20 @@ pub(crate) struct Shell {
     /// than derived from an event, because the answer is a keystroke and the
     /// keystroke has to find something to be an answer *to*.
     panel: Option<Panel>,
+    /// The completion menu the draft is asking for, while it is asking for one.
+    ///
+    /// The other occupant of the band's elastic slot, and the two are mutually
+    /// exclusive by construction: [`Self::ask`] closes a menu before it
+    /// installs a question, and [`Self::fit`] reads the question first. What a
+    /// menu is **not** is a second [`Self::panel`] -- it never takes the caret
+    /// and it swallows only the five keys it binds ([`super::picker`]).
+    picker: Option<Picker>,
+    /// The trigger whose menu the user closed, while it is still the trigger.
+    ///
+    /// Held here rather than in the menu, because it has to outlive one: what
+    /// it is for is that the *next* keystroke does not re-open what Escape just
+    /// closed.
+    dismissed: Dismissed,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -380,6 +396,18 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+}
+
+/// What the band's elastic slot is holding.
+///
+/// A borrow rather than a state: which of the two it is follows from the fields
+/// ([`Shell::slot`]), so there is no third answer for a flag to drift into.
+#[derive(Debug, Clone, Copy)]
+enum Slot<'a> {
+    /// A decision the turn is waiting on. It owns the focus.
+    Question(&'a Panel),
+    /// A completion menu for what the composer holds. It owns nothing but rows.
+    Menu(&'a Picker),
 }
 
 /// How a session ended, which is the same question as what it exits with.
@@ -437,6 +465,8 @@ impl Shell {
             activity: Activity::new(),
             phase: 0,
             panel: None,
+            picker: None,
+            dismissed: Dismissed::default(),
             activity_row: None,
             clearing: false,
             fatal: None,
@@ -460,13 +490,22 @@ impl Shell {
         if self.geometry.activity.is_some() {
             rows.push(self.activity_row.clone().unwrap_or_default());
         }
-        // The question, in the rows the geometry gave it and only while it gave
-        // them: the panel's height and the band's are one fact settled together
+        // The question -- or, when there is no question, the completion menu --
+        // in the rows the geometry gave the slot and only while it gave them:
+        // the block's height and the band's are one fact settled together
         // ([`Self::refit`]), so rows painted without the geometry's agreement
-        // would push the hint row off the bottom of the screen.
+        // would push the hint row off the bottom of the screen. The order is
+        // the one [`Self::fit`] solved with, and it is the whole of "they are
+        // mutually exclusive": a question outranks a menu.
         if self.geometry.panel > 0 {
-            if let Some(panel) = self.panel.as_ref() {
-                rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+            match self.slot() {
+                Some(Slot::Question(panel)) => {
+                    rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+                }
+                Some(Slot::Menu(picker)) => {
+                    rows.extend(picker.rows(self.geometry.cols, self.geometry.rows));
+                }
+                None => {}
             }
         }
         rows.push(self.painted(
@@ -569,12 +608,39 @@ impl Shell {
         )
     }
 
+    /// What is in the band's elastic slot, if anything.
+    ///
+    /// **One place answers it**, because the two readers -- the height
+    /// [`Self::fit`] solves for and the rows [`Self::band_rows`] paints -- are
+    /// the pair whose disagreement leaves a stale row standing in the band.
+    ///
+    /// The two occupants are mutually exclusive by construction: [`Self::ask`]
+    /// dismisses a menu before it installs a question, and while a question is
+    /// up every keystroke goes to it ([`Self::consume`]), so nothing can call
+    /// [`Self::edited`] and open one behind it. The order below is therefore a
+    /// statement of which would win rather than a case the session reaches --
+    /// and it is stated once rather than twice, so it cannot be answered two
+    /// ways.
+    fn slot(&self) -> Option<Slot<'_>> {
+        if let Some(panel) = self.panel.as_ref() {
+            return Some(Slot::Question(panel));
+        }
+        self.picker.as_ref().map(Slot::Menu)
+    }
+
     /// Where the caret goes: the terminal's own row, and the number of cells to
     /// the left of it on that row.
     pub(crate) fn cursor(&self) -> (u16, u16) {
         // While a question is up the panel has the focus, so the caret sits on
         // the choice Enter would take. A caret left blinking in the composer
         // would say the next keystroke goes there, and it does not.
+        //
+        // **A completion menu is the opposite case and takes no branch here**:
+        // it is a view of what the composer holds, the typing goes on going
+        // into the composer, and the caret says so. The rows it takes move the
+        // composer down, and the composer's own row is read out of the geometry
+        // below -- so the caret follows the menu's height without knowing the
+        // menu exists.
         if self.geometry.panel > 0 {
             if let Some(panel) = self.panel.as_ref() {
                 return (
@@ -780,11 +846,120 @@ impl Shell {
             self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
             return;
         }
+        // The two share one slot and one of them owns the focus, so the menu
+        // goes **before** the question is installed rather than being left for
+        // the geometry to prefer away: a menu still open behind a question is a
+        // menu whose keys the panel is swallowing, which is a menu the user
+        // cannot see and cannot use. Dismissed rather than merely dropped, so
+        // the answer to the question does not put it back in front of a draft
+        // the user has since stopped looking at.
+        self.dismiss_picker();
         self.panel = Some(panel);
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// Offers one keystroke to the completion menu, and says whether it was
+    /// taken.
+    ///
+    /// **Before the editor and before the gestures**, which is the whole of
+    /// what "the menu binds a key" means: an Up while a menu is open moves the
+    /// mark rather than the caret, and an Escape closes the menu rather than
+    /// arming the gesture that clears the composer.
+    ///
+    /// Enter is the one that is answered `false` on purpose. It closes the menu
+    /// -- the line is being run, and a menu about a draft that is on its way to
+    /// the runtime is about nothing -- and then goes on to mean what it means
+    /// everywhere else. A menu that swallowed it would make every command take
+    /// two Returns.
+    fn offer_to_picker(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = PickerAction::of(*action) else {
+            return false;
+        };
+        let Some(picker) = self.picker.as_mut() else {
+            return false;
+        };
+        match picker.apply(request) {
+            PickerOutcome::Changed => {
+                // The mark moved, which is a frame and nothing else: the band
+                // is the same height and the draft is untouched.
+                self.render.request(Reason::Modal);
+                true
+            }
+            PickerOutcome::Complete(name) => {
+                self.complete(name);
+                true
+            }
+            PickerOutcome::Dismiss => {
+                self.dismiss_picker();
+                matches!(request, PickerAction::Escape)
+            }
+        }
+    }
+
+    /// Puts a completed name in the composer, in place of the word that was
+    /// being typed.
+    ///
+    /// The whole draft is the query ([`super::picker::Trigger::of`]), so this
+    /// is a replacement rather than a splice -- and it goes through
+    /// [`Self::take_draft`] like every other thing that empties the composer,
+    /// so the paste bookkeeping cannot be left describing text that is gone.
+    fn complete(&mut self, name: &'static str) {
+        self.take_draft();
+        // Refused only by the byte budget, and a command name is nine bytes at
+        // its longest against a cap of eight mebibytes ([`editor::Editor`]) --
+        // into a composer this call has just emptied.
+        let _ = self.editor.insert(&picker::completed(name));
+        // The menu has done what it was for. Dismissed rather than closed,
+        // because the text it just wrote is still a slash word: a menu that
+        // re-opened on its own completion would be one the user cannot leave by
+        // taking something from it.
+        self.dismissed.dismiss(Trigger::Slash);
+        self.edited();
+    }
+
+    /// Closes the menu, and remembers that it was closed.
+    ///
+    /// Silent when there is none, so every caller can say "there is no menu
+    /// now" without first asking whether there was one.
+    fn dismiss_picker(&mut self) {
+        let Some(picker) = self.picker.take() else {
+            return;
+        };
+        self.dismissed.dismiss(picker.trigger());
+        // The band just gave the menu's rows back to the document.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Settles what menu the draft is asking for, if any.
+    ///
+    /// Called from [`Self::edited`] and from nowhere else, which is what makes
+    /// "the menu is a view of the composer" true rather than intended: there is
+    /// no path that changes the draft without coming through here, and none
+    /// that changes the menu without the draft having changed.
+    fn reconcile_picker(&mut self) {
+        if !self.dismissed.admits(Trigger::of(self.editor.text())) {
+            self.picker = None;
+            return;
+        }
+        // Rebuilt only when the query really changed: an arrow key that moved
+        // the caret inside the same word must not put the mark back on the
+        // first row.
+        if self
+            .picker
+            .as_ref()
+            .is_some_and(|open| open.query() == self.editor.text())
+        {
+            return;
+        }
+        let query = self.editor.text().to_string();
+        self.picker = Picker::open(&query);
     }
 
     /// One keystroke, while a question has the focus.
@@ -1189,6 +1364,13 @@ impl Shell {
                 self.decide(event, now);
                 continue;
             }
+            // And the completion menu takes the five keys it binds, before the
+            // editor and before the gestures see them. Everything else falls
+            // through with the menu still up, because a menu is a view of the
+            // draft and typing is what the draft is made of.
+            if self.offer_to_picker(&event) {
+                continue;
+            }
             match event {
                 Input::Text(character) => self.type_character(character),
                 Input::Action(action) => self.act(action, now),
@@ -1365,10 +1547,12 @@ impl Shell {
             // turn.
             Action::PasteStart => self.paste.begin(),
             Action::PasteEnd => self.pasted(),
-            // Not this task's: `Tab` is the approval panel's and the composer
-            // has no completion for it to drive, and an `Ignore` is a keystroke
-            // this session has no binding for -- an event rather than silence
-            // precisely so that it accounts for the bytes it was decoded from.
+            // `Tab` reaches here only with no menu and no question up -- both
+            // bind it, and both are offered every keystroke before this runs --
+            // and there is nothing else on this surface for it to complete. An
+            // `Ignore` is a keystroke this session has no binding for at all:
+            // an event rather than silence, precisely so that it accounts for
+            // the bytes it was decoded from.
             Action::Tab | Action::Ignore => {}
         }
     }
@@ -1480,7 +1664,8 @@ impl Shell {
             return;
         }
         let text = self.editor.text().to_string();
-        match interactive::classify(&text) {
+        let submitted = interactive::classify(&text);
+        match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
             // pressed Return and a Return that left the composer untouched
             // would look like a session that had stopped listening -- and
@@ -1489,9 +1674,9 @@ impl Shell {
                 self.take_draft();
                 self.edited();
             }
-            Submitted::Command { command, argument } => {
+            Submitted::Command { .. } => {
                 self.echo(&text);
-                self.run_command(command, &argument);
+                self.run_command(&submitted);
             }
             // A line that begins with `/` and names nothing is a mistake, not a
             // question, and it is answered with the same refusal the
@@ -1504,10 +1689,10 @@ impl Shell {
                 // the echo above gives: it is in the document now, and a
                 // composer that kept it would have the user's next line typed
                 // onto the end of it.
+                let refusal = interactive::unknown_command_message(token);
                 self.take_draft();
                 self.edited();
                 self.echo(&text);
-                let refusal = interactive::unknown_command_message(&token);
                 self.write_document_line(&refusal);
             }
             // **Expanded here, and only here.** What the composer holds for a
@@ -1517,7 +1702,7 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                let prompt = self.paste.expand(&prompt);
+                let prompt = self.paste.expand(prompt);
                 self.send(prompt, &text);
             }
         }
@@ -1579,30 +1764,62 @@ impl Shell {
     ///
     /// The composer is cleared first for all of them: a command is not offered
     /// to anything that can refuse it, so there is no draft to keep.
-    fn run_command(&mut self, command: Slash, argument: &str) {
+    ///
+    /// **Which handler runs is [`super::router`]'s to decide, not this
+    /// module's.** That is this surface's only dispatch point; the
+    /// line-oriented shell has an exhaustive `match` of its own
+    /// (`crate::interactive`'s `run`), because its arms are `async` and reach
+    /// for session state this side does not hold. What keeps the two from
+    /// drifting is that both read the same registry and both dispatch
+    /// exhaustively: a seventh command stops both from compiling until both
+    /// answer it.
+    fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
         self.edited();
         self.gestures.submitted();
-        match command {
-            Slash::Quit => self.leave(),
-            Slash::Help => {
-                for line in interactive::help_text().lines() {
-                    self.say(line.to_string());
-                }
-            }
-            Slash::Version => self.say(interactive::version_line()),
-            Slash::Model => self.use_model(argument),
-            Slash::Clear => self.clear_screen(),
-            Slash::New => {
-                if let Err(rejected) = self.work.submit(TurnWork::New) {
-                    self.refused(rejected);
-                    return;
-                }
-                self.say(NEW_SESSION_NOTICE.to_string());
-            }
+        router::route(submitted, self);
+    }
+}
+
+/// What each of the six does on this surface.
+///
+/// Five of them are answered on the UI thread; `/model <id>` and `/new` are
+/// handed to the runtime as [`TurnWork`] -- not because they need a turn, but
+/// because the model and the conversation they change live there and have to
+/// change *between* turns rather than under one.
+impl CommandHandlers for Shell {
+    fn help(&mut self) {
+        for line in interactive::help_text().lines() {
+            self.say(line.to_string());
         }
     }
 
+    fn new_session(&mut self) {
+        if let Err(rejected) = self.work.submit(TurnWork::New) {
+            self.refused(rejected);
+            return;
+        }
+        self.say(NEW_SESSION_NOTICE.to_string());
+    }
+
+    fn clear(&mut self) {
+        self.clear_screen();
+    }
+
+    fn model(&mut self, argument: &str) {
+        self.use_model(argument);
+    }
+
+    fn version(&mut self) {
+        self.say(interactive::version_line());
+    }
+
+    fn quit(&mut self) {
+        self.leave();
+    }
+}
+
+impl Shell {
     /// `/model`, with the line-oriented shell's meaning.
     ///
     /// With no argument it **reports**; with one it applies from the next turn
@@ -1689,6 +1906,10 @@ impl Shell {
         // prompt but was still being charged for
         // ([`super::paste::Paste::reconcile`]).
         self.paste.reconcile(self.editor.text());
+        // And the menu, **before** the band is re-solved: the rows it takes are
+        // rows of the band, so a geometry solved from the menu the last
+        // keystroke wanted would put the divider a row out.
+        self.reconcile_picker();
         self.refit();
         self.render.request(Reason::Footer);
     }
@@ -1738,13 +1959,15 @@ impl Shell {
         // typed while a turn ran would take that row away and the frame after
         // it would put it back.
         let activity = self.activity_row.is_some();
-        // The band's third height: the rows a pending decision is taking, asked
-        // of the screen in question because a narrower one wraps the summary
-        // onto more of them.
-        let panel = self
-            .panel
-            .as_ref()
-            .map_or(0, |panel| panel.height(cols, rows));
+        // The band's third height: the rows a pending decision -- or a
+        // completion menu -- is taking, asked of the screen in question because
+        // a narrower one wraps the summary onto more of them and a shorter one
+        // shows fewer matches.
+        let panel = match self.slot() {
+            Some(Slot::Question(panel)) => panel.height(cols, rows),
+            Some(Slot::Menu(picker)) => picker.height(cols, rows),
+            None => 0,
+        };
         // **The composer gives way to the question, one row at a time.** A
         // panel and a tall draft together can want more rows than the screen
         // has, and the draft is the half that can afford to lose one: a
@@ -5080,6 +5303,393 @@ mod tests {
             shell.editor.text(),
             "",
             "the double-Escape gesture stopped working after a truncated report"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the inline slash menu
+    // -----------------------------------------------------------------------
+
+    /// The band's rows above the divider: what the menu, if there is one, put
+    /// there.
+    ///
+    /// Read off the painted band rather than off the field, because the claim
+    /// every case below makes is about what is on the screen -- and a menu the
+    /// geometry gave rows to but nothing painted into is the exact defect the
+    /// one-iterator rule exists to prevent.
+    fn menu(shell: &Shell) -> Vec<String> {
+        let rows = shell.band_rows();
+        let rule = divider(usize::from(shell.geometry.cols));
+        let at = rows
+            .iter()
+            .position(|row| *row == rule)
+            .expect("the band has a divider");
+        // Past the row a running turn owns, which is above the slot rather than
+        // in it: a reader that counted it would report an idle band as one with
+        // a one-row menu on it the moment a turn started.
+        let from = usize::from(u8::from(shell.geometry.activity.is_some()));
+        rows[from..at].to_vec()
+    }
+
+    #[test]
+    fn typing_a_slash_word_opens_the_menu_in_the_bands_elastic_slot() {
+        let mut narrowed = shell(24, 80);
+        narrowed.route_bytes(b"/he");
+
+        assert!(
+            narrowed.geometry.panel > 0,
+            "the band gave the menu no rows: {:?}",
+            narrowed.geometry
+        );
+        let rows = menu(&narrowed);
+        assert_eq!(
+            usize::from(narrowed.geometry.panel),
+            rows.len(),
+            "the rows the band solved for and the rows it painted disagree"
+        );
+
+        // A bare slash names every command, which is what pins the geometry
+        // against the **whole** menu rather than against whatever the last
+        // keystroke happened to leave: a band re-solved before the menu was
+        // reconciled would be one keystroke behind, and on this query that is
+        // the difference between six rows and none.
+        let mut bare = shell(24, 80);
+        bare.route_bytes(b"/");
+        assert_eq!(
+            usize::from(bare.geometry.panel),
+            crate::interactive::SLASH_COMMANDS.len(),
+            "a bare slash did not offer every command: {:?}",
+            menu(&bare)
+        );
+        assert_eq!(usize::from(bare.geometry.panel), menu(&bare).len());
+        assert!(
+            rows.iter().any(|row| row.contains("/help")),
+            "the menu does not offer the command the draft names: {rows:?}"
+        );
+        assert!(
+            rows[0].starts_with("> "),
+            "the first match is not the marked one: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_menu_never_steals_the_composers_caret() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/mo");
+
+        assert!(shell.geometry.panel > 0, "there is no menu to steal it");
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 3),
+            "the caret left the text the user is typing"
+        );
+        // And the row it is on is the composer's, holding the draft.
+        assert_eq!(shell.marked(), format!("{PROMPT}/mo"));
+    }
+
+    #[test]
+    fn escape_dismisses_the_menu_without_arming_the_clear_gesture() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to dismiss");
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+
+        assert_eq!(shell.geometry.panel, 0, "the menu is still taking rows");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        // The draft is untouched -- Escape closed a menu, it did not edit.
+        assert_eq!(shell.editor.text(), "/he");
+        // And the gesture is where it was: a second Escape must not clear a
+        // composer whose owner was only closing a menu.
+        assert_eq!(shell.hint(), IDLE_HINT, "the clear gesture was armed");
+    }
+
+    #[test]
+    fn a_dismissal_survives_query_growth_until_the_draft_stops_being_a_command() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.geometry.panel, 0);
+
+        shell.route_bytes(b"l");
+        assert_eq!(
+            shell.geometry.panel, 0,
+            "the menu came back on the next letter of the word it was dismissed for"
+        );
+        assert_eq!(shell.editor.text(), "/hel");
+
+        // The word goes, and the dismissal with it.
+        shell.route_bytes(&[0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"/h");
+        assert!(
+            shell.geometry.panel > 0,
+            "a new slash word inherited the old one's dismissal"
+        );
+    }
+
+    #[test]
+    fn tab_completes_the_marked_command_and_closes_the_menu() {
+        let mut with_argument = shell(24, 80);
+        with_argument.route_bytes(b"/mod");
+        assert!(with_argument.geometry.panel > 0);
+
+        with_argument.route_bytes(b"\t");
+        assert_eq!(
+            with_argument.editor.text(),
+            "/model ",
+            "a command that takes an argument was completed without room for one"
+        );
+        assert_eq!(
+            with_argument.geometry.panel, 0,
+            "the menu outlived the completion"
+        );
+
+        // A command that takes no argument is completed exactly, so the next
+        // Return runs it.
+        let mut exact = shell(24, 80);
+        exact.route_bytes(b"/vers");
+        exact.route_bytes(b"\t");
+        assert_eq!(exact.editor.text(), "/version");
+        assert_eq!(exact.geometry.panel, 0);
+        exact.route_bytes(&[0x0d]);
+        let document = exact.document();
+        assert_eq!(document.first().map(String::as_str), Some("/version"));
+        assert!(document.len() > 1, "{document:?}");
+    }
+
+    #[test]
+    fn enter_runs_the_line_rather_than_taking_the_marked_row() {
+        // The menu is open on an exact name, and the marked row is a different
+        // command: Enter must still run what was typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new");
+        assert!(shell.geometry.panel > 0);
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(shell.geometry.panel, 0, "the menu outlived the submission");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::New,
+            "Enter took the menu's row instead of running the line"
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn a_slash_word_that_names_nothing_opens_no_menu() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/zzz");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+        assert!(menu(&shell).is_empty());
+    }
+
+    #[test]
+    fn a_question_takes_the_slot_the_menu_was_using() {
+        // The one order a session can produce both in: a turn is running, the
+        // user starts typing a command at it, and the turn asks a question.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to displace");
+
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        let _ = shell.document();
+
+        let rows = menu(&shell);
+        assert!(
+            rows.iter().any(|row| row.contains(approval::TITLE)),
+            "the question did not take the slot: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("list these commands")),
+            "the menu and the question were painted together: {rows:?}"
+        );
+        assert_eq!(
+            shell.geometry.panel,
+            approval::COMPACT_ROWS,
+            "the slot is the question's height rather than the menu's"
+        );
+        // The question has the focus, so the caret is on it rather than in the
+        // composer the menu left the draft in.
+        assert_eq!(shell.cursor().1, 0, "the caret stayed in the composer");
+
+        // And answering it does not put the menu back in front of a draft the
+        // user stopped looking at a question ago: the menu was *dismissed*,
+        // not merely covered.
+        shell.route_bytes(b"3");
+        assert_eq!(
+            shell.geometry.panel,
+            0,
+            "the answered question left something in the slot: {:?}",
+            menu(&shell)
+        );
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert_eq!(shell.editor.text(), "/he", "the draft did not survive");
+    }
+
+    #[test]
+    fn the_slot_never_holds_both_a_question_and_a_menu() {
+        // The premise `Shell::slot`'s ordering rests on, driven rather than
+        // argued: the order in that function decides which of the two wins, and
+        // it can only ever be exercised by a session that has both. This walks
+        // the one sequence that comes closest -- a turn running, a menu open, a
+        // question arriving, the answer, and typing afterwards -- and requires
+        // the two never to be up together at any step of it.
+        let mut shell = shell(24, 80);
+        let both = |shell: &Shell, at: &str| {
+            assert!(
+                !(shell.panel.is_some() && shell.picker.is_some()),
+                "a question and a menu were up together {at}"
+            );
+        };
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        both(&shell, "while a turn started");
+        shell.route_bytes(b"/he");
+        both(&shell, "with a menu open");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        both(&shell, "when the question arrived");
+        // Every keystroke goes to the question while it is up, so nothing can
+        // open a menu behind it -- including the letters of a slash word.
+        shell.route_bytes(b"/quit");
+        both(&shell, "while the question had the focus");
+        assert!(!shell.leaving(), "a keystroke leaked past the question");
+        shell.route_bytes(b"3");
+        both(&shell, "once the question was answered");
+        shell.route_bytes(b"l");
+        both(&shell, "with the draft edited again");
+    }
+
+    #[test]
+    fn a_menu_that_offers_nothing_binds_nothing() {
+        // A menu with no matches is not a menu with an empty list -- it is no
+        // menu at all, and the keys it would have bound go on meaning what they
+        // mean. Driven rather than asserted about the field, because the way a
+        // zero-match menu goes wrong is arithmetic: a mark taken modulo an
+        // empty list divides by zero.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/zzz");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/zzz", "the draft was edited");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+    }
+
+    #[test]
+    fn the_mark_survives_a_keystroke_that_did_not_change_the_word() {
+        // The mark is state, and the list it indexes is derived: a rebuild on
+        // every edit would put the mark back on the first row every time the
+        // caret moved, which is a menu the user cannot walk down and then
+        // correct a letter in.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        shell.route_bytes(b"\x1b[B");
+        // A caret move, and nothing else: the word is what it was.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/");
+
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.editor.text(),
+            "/new",
+            "the mark was reset by a keystroke that changed no letter"
+        );
+    }
+
+    #[test]
+    fn the_shortest_screen_still_shows_a_menu_while_a_turn_is_running() {
+        // The band's tightest case, and the one a reserve that is a row short
+        // breaks silently: the smallest screen a band fits on, with a turn
+        // running -- so the activity row is taking one of its rows -- and the
+        // query that offers the most matches. A menu that wanted two rows here
+        // makes `layout::solve_band` refuse the whole band (`content_bottom`
+        // reaches 0), `fit` answers `None`, `refit` keeps the geometry it had,
+        // and the session is then left with a menu that binds Up, Down, Tab,
+        // Enter and Esc while painting **nothing** -- keys taken away from the
+        // composer by something the user cannot see.
+        //
+        // Every number below is written out rather than derived from the
+        // reserve, because a test that recomputed the constant it is protecting
+        // would pass for whatever that constant became.
+        let mut shell = shell(layout::MIN_ROWS, layout::MIN_COLS);
+        let started = turn_running(&mut shell, b"say it\r");
+        assert!(
+            shell.geometry.activity.is_some(),
+            "there is no turn running, so this is not the case under test"
+        );
+        shell.route_bytes(b"/");
+        shell.settle_band(started);
+
+        // Six matches, one row for them: the window bounds the menu rather
+        // than the band refusing it.
+        assert_eq!(
+            shell.geometry.panel, 1,
+            "a six-row screen with a turn on it did not get its one menu row: {:?}",
+            shell.geometry
+        );
+        assert_eq!(menu(&shell).len(), 1, "{:?}", menu(&shell));
+        assert!(menu(&shell)[0].starts_with("> /help"), "{:?}", menu(&shell));
+
+        // And the band really is the band this screen and this state solve to,
+        // rather than the one the previous keystroke left standing. This is the
+        // assertion a refused `fit` fails: `refit` keeps a stale geometry, so
+        // the two stop agreeing.
+        assert_eq!(
+            shell.fit(layout::MIN_ROWS, layout::MIN_COLS),
+            Some(shell.geometry),
+            "the band was not re-solved for the screen it is on"
+        );
+        assert_eq!(
+            (
+                shell.geometry.activity,
+                shell.geometry.panel_first(),
+                shell.geometry.divider,
+                shell.geometry.input_first,
+                shell.geometry.hint,
+                shell.geometry.content_bottom,
+            ),
+            (Some(2), 3, 4, 5, 6, 1),
+            "the six rows are not laid out as a turn, a menu, a rule, a \
+             composer and a hint with one document row left: {:?}",
+            shell.geometry
+        );
+
+        // The composer keeps its row and the caret stays in it.
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(shell.cursor(), (5, PROMPT_CELLS + 1));
+        assert_eq!(shell.marked(), format!("{PROMPT}/"));
+        // And the band paints exactly the rows it solved for.
+        assert_eq!(
+            shell.band_rows().len(),
+            usize::from(shell.geometry.band_rows())
+        );
+    }
+
+    #[test]
+    fn the_menu_fits_the_shortest_screen_a_band_fits_on() {
+        // A question can be refused on a screen too small for it; a completion
+        // never is, because it can always show fewer matches. The claim is that
+        // the smallest band still has a menu **and** a composer on it.
+        let mut shell = shell(layout::MIN_ROWS, layout::MIN_COLS);
+        shell.route_bytes(b"/");
+
+        assert_eq!(
+            shell.geometry.panel, 1,
+            "the shortest screen got no menu at all, or more than it can hold"
+        );
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(rows[0].starts_with("> /help"), "{rows:?}");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 1)
         );
     }
 }

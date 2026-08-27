@@ -201,6 +201,16 @@ impl Screen {
         Some(Self::of(rows, cols, &text[..ends]))
     }
 
+    /// The one-based row `needle` is on, if any row carries it.
+    fn find(&self, needle: &str) -> Option<usize> {
+        (1..=self.lines.len()).find(|row| self.row_text(*row).contains(needle))
+    }
+
+    /// The one-based row the band's rule is on, if the band has painted one.
+    fn divider(&self) -> Option<usize> {
+        (1..=self.lines.len()).find(|row| self.row_text(*row).starts_with('\u{2500}'))
+    }
+
     /// What row `line` -- one-based, as the terminal counts -- says.
     fn row_text(&self, line: usize) -> String {
         self.lines
@@ -2412,7 +2422,11 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // `/new`'s sentence, `/clear`'s promise, and a name that is not one of the
     // six.
     session.type_bytes(b"/help\r");
-    session.wait_for("list these commands");
+    // The **closing** line of the help page rather than a summary out of the
+    // middle of it: the completion menu shows the same summaries while the name
+    // is being typed, so a needle taken from one of those would be satisfied by
+    // the menu and would stop saying that `/help` was answered at all.
+    session.wait_for("Anything else is a prompt.");
     session.type_bytes(b"/version\r");
     session.wait_for("xfx 0.");
     session.type_bytes(b"/model\r");
@@ -2438,6 +2452,90 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     assert!(
         !text.contains("MARKER-A-COMMAND-WAS-ASKED"),
         "the provider answered something, so a command became a prompt: {text:?}"
+    );
+}
+
+#[test]
+fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
+    // plan:224 -- the menu is a view of the composer, not a second focus. Three
+    // claims, and the last two are what make it a menu rather than a panel: it
+    // is **above** the divider in the rows a question would take, the caret
+    // stays in the text being typed, and Return runs the line rather than
+    // taking the marked row.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-THE-MENU-ASKED-A-MODEL"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    // The summary of the command the draft names, which is a needle no test
+    // types and only the menu can put on the screen.
+    let offer = "show the model";
+    session.type_bytes(b"/mod");
+    let opened = session.wait_until("the menu to offer the command the draft names", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.find(offer).is_some())
+    });
+    let screen = Screen::painted(&opened, 24, 80).expect("a painted frame");
+    let rule = screen.divider().expect("the band has a divider");
+    let offered = screen.find(offer).expect("the menu is on the screen");
+    assert!(
+        offered < rule,
+        "the menu is at row {offered} and the divider at {rule}: it is not above it"
+    );
+    assert!(
+        screen.row_text(offered).contains("/model"),
+        "the menu offers a summary without the name it belongs to: {:?}",
+        screen.row_text(offered)
+    );
+    assert_eq!(
+        screen.row_text(rule + 1),
+        "> /mod",
+        "the composer is not directly under the rule, still holding the draft"
+    );
+    // The caret, which is where the frame left the terminal's cursor: in the
+    // composer, past the draft, and not on the marked row of the menu.
+    assert_eq!(
+        (screen.row + 1, screen.col),
+        (rule + 1, "> /mod".len()),
+        "the menu took the caret off the text being typed"
+    );
+
+    // Tab completes it, with the room its argument needs, and the menu goes.
+    session.type_bytes(b"\t");
+    let completed = session.wait_until("the completed name in the composer", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| {
+            screen
+                .divider()
+                .is_some_and(|rule| screen.row_text(rule + 1) == "> /model")
+        })
+    });
+    let screen = Screen::painted(&completed, 24, 80).expect("a painted frame");
+    assert!(
+        screen.find(offer).is_none(),
+        "the menu outlived the completion it wrote: {:?}",
+        screen.row_text(screen.find(offer).unwrap_or(1))
+    );
+
+    // And the completed command runs on the next Return -- one command, one
+    // Return, because the menu gets out of Enter's way rather than taking it.
+    session.type_bytes(b"\r");
+    session.wait_for("[shell] model=");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a completed command was sent to the provider as a prompt"
+    );
+    let text = session.settled_text();
+    assert!(
+        !text.contains("MARKER-THE-MENU-ASKED-A-MODEL"),
+        "the provider answered something, so a completion became a prompt: {text:?}"
     );
 }
 

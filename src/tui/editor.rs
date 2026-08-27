@@ -163,12 +163,21 @@ impl Editor {
                 self.insert("\n");
             }
             // Not the composer's: submitting, leaving and cancelling are the
-            // session's (`super::shell`), a paste is Task 18's, `Tab` belongs
-            // to the approval panel (`super::approval`) and the composer has no
-            // completion for it to drive, and an `Ignore` is a keystroke this
-            // session has no binding for. They are named rather than caught by
-            // a wildcard so that an action added later has to be routed on
-            // purpose.
+            // session's (`super::shell`), a paste is Task 18's, and an
+            // `Ignore` is a keystroke this session has no binding for.
+            //
+            // `Tab` is preserved as an [`Action`] rather than as text, and
+            // `super::shell` is what dispatches it: to the approval panel while
+            // a question owns the focus (`super::approval`), otherwise to the
+            // inline slash completion menu while one is open
+            // (`super::picker`). With neither up it lands here and does
+            // nothing -- the composer still has no completion of its own to
+            // drive. What never happens on any of those paths is a literal tab
+            // reaching the composer's text: this arm inserts nothing, so a
+            // draft cannot acquire a `\t` from a keystroke.
+            //
+            // They are named rather than caught by a wildcard so that an action
+            // added later has to be routed on purpose.
             Action::Submit
             | Action::Escape
             | Action::Cancel

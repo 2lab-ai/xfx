@@ -135,10 +135,12 @@ pub(crate) enum Action {
     KillToStart,
     Submit,
     InsertNewline,
-    /// The tab key. Bound by the approval panel and by nothing else in this
-    /// phase; the composer has no completion for it to drive, so a tab typed at
-    /// a prompt does nothing -- which is what it did before it had a name, with
-    /// the difference that a panel can now hear it.
+    /// The tab key. Bound by the approval panel, where it cycles the marked
+    /// choice, and by the slash completion menu, where it takes the marked
+    /// command (`super::picker`). With neither of those up it still does
+    /// nothing: the composer has no completion of its own for it to drive, and
+    /// a tab typed at a bare prompt is a keystroke this session has no binding
+    /// for rather than a character.
     Tab,
     Escape,
     Cancel,

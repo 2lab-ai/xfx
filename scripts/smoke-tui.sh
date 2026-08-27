@@ -3684,6 +3684,301 @@ def scenario_15(run):
 
 
 # ---------------------------------------------------------------------------
+# 16. the slash menu
+# ---------------------------------------------------------------------------
+
+
+def divider_row(grid):
+    """The row the band's rule is on, or `None` before a band.
+
+    Zero-based, like every other row index the oracle deals in. The boundary
+    every claim below is stated against: the menu is *above* it and the composer
+    is *below* it, and a menu painted on the wrong side of the rule would be a
+    menu drawn over the draft it is about.
+    """
+    for row in range(grid.rows):
+        text = grid.row_text(row)
+        if text and text.strip("─") == "":
+            return row
+    return None
+
+
+def menu_rows(grid):
+    """The rows the menu is on, top first, and `[]` when there is no menu.
+
+    The **contiguous run directly above the rule** whose rows have the menu's
+    own shape -- a marker or an indent, then a slash name. Bounded that way
+    rather than "every row above the rule that starts with a slash", because
+    what is above the menu is the terminal's own document and a submitted
+    `/model` is echoed into it: a reader that counted those would report a menu
+    that had closed as a menu that was still up.
+    """
+    rule = divider_row(grid)
+    if rule is None:
+        return []
+    rows = []
+    for row in range(rule - 1, -1, -1):
+        text = grid.row_text(row)
+        if not (text.startswith("> /") or text.startswith("  /")):
+            break
+        rows.append(row)
+    return list(reversed(rows))
+
+
+def offered(grid):
+    """Every command name the menu is offering, top row first.
+
+    Read off the **cells** rather than out of the byte stream: a menu is a claim
+    about the screen, and a name that reached the terminal inside a frame that
+    was then overwritten is not on it.
+    """
+    # Past the two cells the marker owns, so the name is the name whether or
+    # not this is the row a completion would take.
+    return [grid.row_text(row)[2:].strip().split(" ")[0] for row in menu_rows(grid)]
+
+
+def scenario_16(run):
+    """Typing a slash opens a ranked menu that completes without taking focus.
+
+    Item 13 on a real terminal. Five claims, and none of them is "a menu
+    appeared": **where** it is (above the rule, in the rows a question would
+    take), **what order** it is in (name-prefix, then alias-prefix, then
+    substring), **who owns the caret** (the composer, always), **what Escape
+    does** (closes it, and keeps it closed while the same word grows), and that
+    a completed command **runs once** rather than being sent to a model.
+
+    `/exit` is what supplies the alias tier: it is a real registry alias for
+    `/quit` rather than a fixture, so the ranking asserted here is the ranking
+    the product has.
+    """
+    marker = run.marker("menu")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+    trial = run.trial("menu", gateway=fixture).settled()
+    from_a_known_composer(run, trial, "menu")
+    # The discriminator every scenario owes, before the menu is touched: the
+    # nonce in the request xfx really sent, the fixture's marker on the screen.
+    discriminate(run, trial, fixture, marker)
+    trial.send(b"\x15")
+    trial.wait_until(
+        "the composer to be empty again",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+
+    # --- a bare slash lists the whole registry, in `/help`'s order ----------
+    trial.send("/")
+    trial.wait_until(
+        "the menu to open on a bare slash",
+        lambda _t: len(offered(trial.peek())) >= 6,
+    )
+    opened = trial.grid("menu-open")
+    run.require(
+        offered(opened)
+        == ["/help", "/new", "/clear", "/model", "/version", "/quit"],
+        "a bare slash lists every command in the order /help lists them: %r"
+        % offered(opened),
+    )
+    rule = divider_row(opened)
+    run.require(rule is not None, "the band has a rule to place the menu against")
+    run.require(
+        menu_rows(opened) == list(range(rule - 6, rule)),
+        "the menu's six rows are the six directly above the rule: %r against a rule at %r"
+        % (menu_rows(opened), rule),
+    )
+    run.require(
+        opened.row_text(rule - 6).startswith("> ")
+        and [opened.row_text(row).startswith("  ") for row in menu_rows(opened)[1:]]
+        == [True] * 5,
+        "exactly the top row is marked: %r"
+        % [opened.row_text(row)[:2] for row in menu_rows(opened)],
+    )
+    run.require(
+        opened.row_text(rule + 1) == "> /",
+        "the composer is directly under the rule, holding the draft: %r"
+        % opened.row_text(rule + 1),
+    )
+    # The caret, which is the one thing that says which of the two the next
+    # keystroke goes to: in the composer, past the draft, never on the marked
+    # row of the menu.
+    run.require(
+        (opened.row, opened.col) == (rule + 1, 3),
+        "the menu took the caret off the text being typed: row %d col %d, rule at row %d"
+        % (opened.row, opened.col, rule),
+    )
+    run.require(not opened.unknown, "xfx emitted only the sequences it declares: %r" % opened.unknown)
+
+    # --- an exact prefix narrows it to one ---------------------------------
+    trial.send("he")
+    trial.wait_until(
+        "the menu to narrow to the command the draft names",
+        lambda _t: offered(trial.peek()) == ["/help"],
+    )
+    exact = trial.grid("menu-exact-prefix")
+    run.require(
+        offered(exact) == ["/help"],
+        "an exact prefix offers exactly the command it names: %r" % offered(exact),
+    )
+
+    # --- the alias tier outranks the substring tier ------------------------
+    #
+    # `/e` names no command, so the only reason `/quit` can be on this list is
+    # the `/exit` alias -- and it must be above the five commands that merely
+    # have an `e` in them.
+    trial.send(b"\x15")
+    trial.send("/e")
+    trial.wait_until(
+        "the menu to rank the alias above the substrings",
+        lambda _t: offered(trial.peek())[:1] == ["/quit"],
+    )
+    ranked = trial.grid("menu-alias-ranking")
+    run.require(
+        offered(ranked)
+        == ["/quit", "/help", "/new", "/clear", "/model", "/version"],
+        "the alias prefix outranks every substring, ties in registry order: %r"
+        % offered(ranked),
+    )
+    top = menu_rows(ranked)[0]
+    run.require(
+        "/exit" in ranked.row_text(top),
+        "the top row says which name put it there: %r" % ranked.row_text(top),
+    )
+
+    # --- a word that names nothing lists nothing ---------------------------
+    trial.send(b"\x15")
+    trial.send("/zzz")
+    trial.wait_until(
+        "the composer to hold a word that names nothing",
+        lambda _t: composer_text(trial.peek()) == "/zzz",
+    )
+    empty = trial.grid("menu-no-match")
+    run.require(
+        offered(empty) == [],
+        "an unknown sequence offers nothing at all: %r" % offered(empty),
+    )
+
+    # --- Escape closes it, and keeps it closed while the word grows ---------
+    trial.send(b"\x15")
+    trial.send("/he")
+    trial.wait_until(
+        "the menu to be open before it is dismissed",
+        lambda _t: offered(trial.peek()) == ["/help"],
+    )
+    trial.send(b"\x1b")
+    trial.wait_until(
+        "the menu to close",
+        lambda _t: offered(trial.peek()) == [],
+    )
+    dismissed = trial.grid("menu-dismissed")
+    run.require(offered(dismissed) == [], "Escape closed the menu: %r" % offered(dismissed))
+    run.require(
+        composer_text(dismissed) == "/he",
+        "Escape left the draft alone: %r" % composer_text(dismissed),
+    )
+    # And it did **not** arm the composer's own double-Escape clear, which is
+    # the gesture the same key means when there is no menu to close.
+    run.require(
+        "esc again to clear" not in dismissed.row_text(dismissed.rows - 1),
+        "Escape armed the clear gesture instead of closing the menu: %r"
+        % dismissed.row_text(dismissed.rows - 1),
+    )
+    trial.send("l")
+    trial.wait_until(
+        "the next letter to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "/hel",
+    )
+    grown = trial.grid("menu-suppressed")
+    run.require(
+        offered(grown) == [],
+        "the dismissal survived the next letter of the same word: %r" % offered(grown),
+    )
+
+    # --- and the trigger resets once the word is gone -----------------------
+    trial.send(b"\x15")
+    trial.send("/mod")
+    trial.wait_until(
+        "a new word to open a menu of its own",
+        lambda _t: offered(trial.peek()) == ["/model"],
+    )
+    reset = trial.grid("menu-trigger-reset")
+    run.require(
+        offered(reset) == ["/model"],
+        "a new slash word inherited the old one's dismissal: %r" % offered(reset),
+    )
+
+    # --- Tab completes, and the completed command runs once -----------------
+    trial.send(b"\t")
+    trial.wait_until(
+        "the completed name in the composer",
+        lambda _t: composer_text(trial.peek()) == "/model",
+    )
+    completed = trial.grid("menu-completed")
+    run.require(
+        composer_text(completed) == "/model",
+        "Tab completed the whole name: %r" % composer_text(completed),
+    )
+    # **The trailing space is asserted through the caret**, because a space is
+    # not a cell anyone can read: the composer's marker is two cells and the
+    # name is seven, so a caret at column nine is a caret one cell past the last
+    # letter -- which is the room the argument goes in.
+    run.require(
+        completed.col == 9,
+        "the completion left room for the argument: caret at column %d" % completed.col,
+    )
+    run.require(
+        offered(completed) == [],
+        "the menu outlived the completion it wrote: %r" % offered(completed),
+    )
+    before = len(fixture.bodies())
+    trial.send("\r")
+    trial.wait_until(
+        "the completed command to be answered by the session",
+        lambda _t: trial.peek().find("[shell] model=") is not None,
+    )
+    ran = trial.grid("menu-completed-ran")
+    run.require(
+        ran.find("[shell] model=") is not None,
+        "the completed command was answered by the session",
+    )
+    run.require(
+        len(fixture.bodies()) == before,
+        "the completed command was answered without asking the provider (%d new request(s))"
+        % (len(fixture.bodies()) - before),
+    )
+    run.require(not ran.unknown, "xfx emitted only the sequences it declares: %r" % ran.unknown)
+
+    # --- and it is still a menu with the document pressed against it --------
+    #
+    # Every reading above was taken with blank rows above the menu, because the
+    # session had barely written anything. This one is taken with the answer to
+    # the command that just ran sitting **directly** on top of it: a one-match
+    # menu is one row, so the row above it is the last row of the terminal's own
+    # document. What a menu is is the block the band owns, not "everything above
+    # the rule", and this is the reading that can tell the two apart.
+    trial.send("/he")
+    trial.wait_until(
+        "a one-row menu with the document directly above it",
+        lambda _t: composer_text(trial.peek()) == "/he",
+    )
+    pressed = trial.grid("menu-against-the-document")
+    rule = divider_row(pressed)
+    run.require(
+        offered(pressed) == ["/help"],
+        "the menu is the band's block rather than everything above the rule: %r"
+        % offered(pressed),
+    )
+    run.require(
+        pressed.row_text(rule - 2).strip() != "",
+        "the document really is pressed against the menu (row %r is blank)"
+        % (rule - 2),
+    )
+
+    # The draft goes before the Ctrl-D does: with text under the caret that key
+    # is a forward delete on this surface, not an exit.
+    trial.send(b"\x15\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the menu session left at 0")
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # plumbing
 # ---------------------------------------------------------------------------
 
@@ -3723,6 +4018,7 @@ SCENARIOS = {
     "13-cell-diff-correctness": scenario_13,
     "14-no-op-frame-skip": scenario_14,
     "15-resize-reflow": scenario_15,
+    "16-slash-menu": scenario_16,
 }
 
 
@@ -3792,6 +4088,7 @@ scenarios=(
 	13-cell-diff-correctness
 	14-no-op-frame-skip
 	15-resize-reflow
+	16-slash-menu
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

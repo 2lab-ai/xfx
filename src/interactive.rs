@@ -42,6 +42,13 @@ use crate::workspace::{AccessScope, ProjectContext};
 /// textually and requires an `implemented` row in `docs/parity.md` for each
 /// entry, and refuses any name a `deferred` row claims.
 ///
+/// It stays a flat list of **canonical names** even though [`SLASH_REGISTRY`]
+/// below carries the same six with everything else known about them. The two
+/// are pinned to each other at compile time, so the duplication cannot drift,
+/// and the reason for it is the honesty gate: that script must be able to read
+/// the advertised set out of the source *without building it*, so a repository
+/// whose build is broken still cannot hide a broken promise.
+///
 /// The layout is pinned with `rustfmt::skip` because that script matches the
 /// opening line; see [`crate::cli::ADVERTISED_COMMANDS`].
 #[rustfmt::skip]
@@ -53,6 +60,141 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/version",
     "/quit",
 ];
+
+/// One slash command, whole.
+///
+/// What a front end needs to know about a command in one place: what it is
+/// called, what else it answers to, what `/help` says about it, and whether the
+/// rest of the line is an argument or noise. Before this existed each of those
+/// lived in its own `match` -- and a `match` per fact is a fact per place it can
+/// be got wrong, which is exactly how a completion menu ends up offering a name
+/// the parser does not answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlashSpec {
+    /// The command this describes.
+    pub command: Slash,
+    /// The one name `/help` lists it under, leading slash included.
+    pub name: &'static str,
+    /// Every other name that reaches the same command.
+    ///
+    /// An alias is **not** a seventh command: it is metadata on this row, it is
+    /// never printed as a name of its own, and [`SLASH_COMMANDS`] does not grow
+    /// by one when it is added. What it does is make the parser answer it and
+    /// the completion menu offer the command it belongs to.
+    pub aliases: &'static [&'static str],
+    /// The single line `/help` prints beside the name.
+    pub summary: &'static str,
+    /// Whether the rest of the line means anything to it.
+    ///
+    /// The completion menu's reason for existing: completing a command that
+    /// takes an argument leaves the caret past a space, and completing one that
+    /// does not leaves it at the end of the name.
+    pub has_args: bool,
+}
+
+/// The six, in the order `/help` lists them, with everything known about each.
+///
+/// **One declaration, three readers**: the parser ([`Slash::parse`]), the help
+/// page ([`help_text`]), and the TUI's completion menu (`crate::tui`'s
+/// `picker`). A name, a summary or an alias that only some of them agreed about
+/// would be a command surface that answers differently depending on where you
+/// asked -- which is the one thing a command surface must never be.
+#[rustfmt::skip]
+pub const SLASH_REGISTRY: &[SlashSpec] = &[
+    SlashSpec {
+        command: Slash::Help,
+        name: "/help",
+        aliases: &[],
+        summary: "list these commands",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::New,
+        name: "/new",
+        aliases: &[],
+        summary: "start a new session; the next prompt begins a fresh conversation",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Clear,
+        name: "/clear",
+        aliases: &[],
+        summary: "clear the screen; the conversation and its session are kept",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Model,
+        name: "/model",
+        aliases: &[],
+        summary: "show the model, or `/model <id>` to use another one from now on",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Version,
+        name: "/version",
+        aliases: &[],
+        summary: "show the version this shell was built from",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Quit,
+        name: "/quit",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:457`), and the
+        // only one xfx answers.
+        aliases: &["/exit"],
+        summary: "leave the shell",
+        has_args: false,
+    },
+];
+
+/// The registry row for one command.
+///
+/// Total by construction: the assertion below this proves at **compile time**
+/// that the registry names the same six commands as [`SLASH_COMMANDS`], in the
+/// same order, so the scan cannot come back empty for a `Slash` that exists.
+pub fn slash_spec(command: Slash) -> &'static SlashSpec {
+    SLASH_REGISTRY
+        .iter()
+        .find(|spec| spec.command == command)
+        .expect("every command has exactly one registry row")
+}
+
+/// The two declarations agree, or this crate does not build.
+///
+/// A unit test would find the same drift a moment later; a `const` assertion
+/// finds it without running anything, which matters because one of the two
+/// lists is read by a shell script that never builds the crate at all. What it
+/// cannot check is that each row's `command` is the one its name belongs to --
+/// `Slash` has no `const` equality -- and `the_canonical_list_and_the_registry_are_one_order`
+/// is what checks that half.
+const _: () = {
+    assert!(SLASH_REGISTRY.len() == SLASH_COMMANDS.len());
+    let mut index = 0;
+    while index < SLASH_REGISTRY.len() {
+        assert!(same(SLASH_REGISTRY[index].name, SLASH_COMMANDS[index]));
+        index += 1;
+    }
+};
+
+/// Whether two names are the same, in a `const` context.
+///
+/// `str`'s own comparison is not usable in one, and the alternative to eight
+/// lines here is not checking the agreement until something runs.
+const fn same(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
 
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
@@ -102,39 +244,28 @@ pub enum Slash {
 
 impl Slash {
     /// The name as typed.
+    ///
+    /// Through the registry, like everything else that is known about a
+    /// command: this used to be a `match` of its own, and a `match` that agreed
+    /// with `/help`'s list only because someone kept them in step. There is no
+    /// `summary` beside it any more for the same reason -- `/help` reads
+    /// [`SLASH_REGISTRY`] directly, so there is nothing for a second accessor
+    /// to disagree with.
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Help => "/help",
-            Self::New => "/new",
-            Self::Clear => "/clear",
-            Self::Model => "/model",
-            Self::Version => "/version",
-            Self::Quit => "/quit",
-        }
+        slash_spec(self).name
     }
 
-    /// What `/help` says it does.
-    fn summary(self) -> &'static str {
-        match self {
-            Self::Help => "list these commands",
-            Self::New => "start a new session; the next prompt begins a fresh conversation",
-            Self::Clear => "clear the screen; the conversation and its session are kept",
-            Self::Model => "show the model, or `/model <id>` to use another one from now on",
-            Self::Version => "show the version this shell was built from",
-            Self::Quit => "leave the shell",
-        }
-    }
-
+    /// The command `token` names, if it names one.
+    ///
+    /// **The registry is the whole grammar**, canonical names and aliases
+    /// together, so a front end cannot answer a name the help page does not
+    /// know about and cannot refuse one it does. The match stays exact and
+    /// case-sensitive for the reason [`classify`] gives.
     fn parse(token: &str) -> Option<Self> {
-        match token {
-            "/help" => Some(Self::Help),
-            "/new" => Some(Self::New),
-            "/clear" => Some(Self::Clear),
-            "/model" => Some(Self::Model),
-            "/version" => Some(Self::Version),
-            "/quit" => Some(Self::Quit),
-            _ => None,
-        }
+        SLASH_REGISTRY
+            .iter()
+            .find(|spec| spec.name == token || spec.aliases.contains(&token))
+            .map(|spec| spec.command)
     }
 }
 
@@ -199,11 +330,20 @@ pub fn unknown_command_message(token: &str) -> String {
 }
 
 /// The `/help` page.
+///
+/// **One line per canonical name**, from [`SLASH_REGISTRY`] in its own order,
+/// which is what keeps the page and the parser one declaration. An alias is
+/// said on the line of the command it belongs to rather than on a line of its
+/// own: a page with seven lines on it would be advertising seven commands, and
+/// what the shell has is six with one of them answering to two names.
 pub fn help_text() -> String {
     let mut out = String::from("xfx shell commands\n");
-    for name in SLASH_COMMANDS {
-        let command = Slash::parse(name).expect("every advertised slash command parses");
-        let _ = writeln!(out, "  {:<9} {}", command.name(), command.summary());
+    for spec in SLASH_REGISTRY {
+        let _ = write!(out, "  {:<9} {}", spec.name, spec.summary);
+        if !spec.aliases.is_empty() {
+            let _ = write!(out, " (also {})", spec.aliases.join(", "));
+        }
+        let _ = writeln!(out);
     }
     out.push_str("Anything else is a prompt. Ctrl-C stops a running turn; Ctrl-D leaves.\n");
     out
@@ -867,8 +1007,10 @@ mod tests {
             }
         );
         // No case folding and no prefix guessing: a refusal has to be the same
-        // sentence every time.
-        for near_miss in ["/HELP", "/hel", "/helpme", "/exit"] {
+        // sentence every time. `/exit` is **not** in this list any more: it is
+        // a registry alias for `/quit` and is answered rather than refused
+        // (`exit_is_an_alias_for_quit_and_not_a_seventh_name`).
+        for near_miss in ["/HELP", "/hel", "/helpme", "/exitx"] {
             assert_eq!(
                 classify(near_miss),
                 Submitted::UnknownCommand {
@@ -1012,5 +1154,61 @@ mod tests {
             *interrupts.lock(),
             Activity::Idle { consecutive: 0 }
         ));
+    }
+
+    #[test]
+    fn the_canonical_list_and_the_registry_are_one_order() {
+        assert_eq!(SLASH_REGISTRY.len(), SLASH_COMMANDS.len());
+        for (spec, name) in SLASH_REGISTRY.iter().zip(SLASH_COMMANDS) {
+            assert_eq!(spec.name, *name);
+            assert_eq!(spec.command.name(), *name);
+        }
+    }
+
+    #[test]
+    fn every_canonical_name_has_exactly_one_spec() {
+        for name in SLASH_COMMANDS {
+            let command = Slash::parse(name).expect("a canonical name parses");
+            let found: Vec<&SlashSpec> = SLASH_REGISTRY
+                .iter()
+                .filter(|spec| spec.command == command)
+                .collect();
+            assert_eq!(found.len(), 1, "{name}");
+            assert_eq!(slash_spec(command).name, *name);
+        }
+    }
+
+    #[test]
+    fn exit_is_an_alias_for_quit_and_not_a_seventh_name() {
+        assert_eq!(
+            classify("/exit"),
+            Submitted::Command {
+                command: Slash::Quit,
+                argument: String::new()
+            }
+        );
+        assert!(!SLASH_COMMANDS.contains(&"/exit"));
+        assert_eq!(slash_spec(Slash::Quit).aliases, &["/exit"]);
+        assert_eq!(Slash::Quit.name(), "/quit");
+    }
+
+    #[test]
+    fn help_distinguishes_an_alias_without_advertising_a_seventh_command() {
+        let help = help_text();
+        assert!(help.contains("/exit"), "{help}");
+        assert_eq!(help.lines().count(), SLASH_COMMANDS.len() + 2, "{help}");
+        let named: Vec<&str> = help
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|word| word.starts_with('/'))
+            .collect();
+        assert_eq!(named, SLASH_COMMANDS.to_vec(), "{help}");
+    }
+
+    #[test]
+    fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
+        for spec in SLASH_REGISTRY {
+            assert_eq!(spec.has_args, spec.name == "/model", "{}", spec.name);
+        }
     }
 }
