@@ -1718,6 +1718,101 @@ fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
 }
 
 #[test]
+fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
+    // Item 15 on a real terminal. Four claims, and the first two are the ones a
+    // history without a captured draft would pass: the arrow at the edge of the
+    // draft walks back, `C-p`/`C-n` walk it from anywhere, the half-typed line
+    // the walk began from is what it comes back to, and an edit to a recalled
+    // line ends that walk -- so the next step back starts at the newest entry
+    // again and comes back to the *edited* text.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALL-ONE",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALL-TWO",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    // The composer's whole row, read off the screen for the reason the typing
+    // case reads it that way: a frame is a difference, so the row it changed
+    // was never on the wire in one piece.
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    session.type_bytes(b"alpha prompt");
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALL-ONE");
+    session.type_bytes(b"bravo prompt");
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALL-TWO");
+
+    session.type_bytes(b"half typed");
+    session.wait_until(
+        "the composer to hold the line that was never sent",
+        |text| composer(text) == "> half typed",
+    );
+
+    // Up, from the only row a one-row draft has.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("the newest submitted line to come back", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    // C-p, which is the recall wherever the caret is.
+    session.type_bytes(&[0x10]);
+    session.wait_until("the line before it to come back", |text| {
+        composer(text) == "> alpha prompt"
+    });
+    // C-n, back towards the near end.
+    session.type_bytes(&[0x0e]);
+    session.wait_until("the walk to come forward again", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    // Down at the last row, which is where the draft is waiting.
+    session.type_bytes(b"\x1b[B");
+    session.wait_until("the draft the walk began from to come back", |text| {
+        composer(text) == "> half typed"
+    });
+
+    // An edit ends the walk: the next step back is the newest line again, and
+    // what it comes back to is the text the edit left behind.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("a second walk to reach the newest line", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    session.type_bytes(b"!");
+    session.wait_until("the recalled line to take the keystroke", |text| {
+        composer(text) == "> bravo prompt!"
+    });
+    session.type_bytes(&[0x10]);
+    session.wait_until("the walk to start from the newest line again", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    session.type_bytes(&[0x0e]);
+    session.wait_until("the edited line to be what the walk came back to", |text| {
+        composer(text) == "> bravo prompt!"
+    });
+
+    // Nothing above sent anything: two turns ran, and every recall since was a
+    // composer that changed without a request behind it.
+    assert_eq!(
+        gateway.request_count(),
+        2,
+        "a recall submitted the line it recalled"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn a_terminal_too_small_for_a_band_is_refused_with_a_reason() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();

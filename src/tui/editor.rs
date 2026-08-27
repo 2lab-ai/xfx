@@ -138,6 +138,39 @@ impl Editor {
         true
     }
 
+    /// Replaces the whole draft, or refuses it whole.
+    ///
+    /// What a history recall needs and what [`Self::insert`] cannot give it: a
+    /// recall is not an insertion at the caret, it is *this line instead of
+    /// that one*, and a composer built out of a take plus an insert would be a
+    /// composer that had been momentarily empty -- a state
+    /// `super::paste::Paste::reconcile` would see and act on.
+    ///
+    /// The caret lands at the **end** of the new text, which is where every
+    /// shell with a history puts it: a recalled line is one the user is about
+    /// to add to or send, and a caret parked in front of it would make the
+    /// first keystroke after a recall an insertion into the middle of somebody
+    /// else's sentence. `text.len()` is a grapheme boundary because the end of
+    /// a string always is, which is the obligation this module owes
+    /// [`wrap::cursor_point`].
+    ///
+    /// `false` is the byte budget, and it means the composer kept exactly the
+    /// text it had -- the same refusal [`Self::insert`] gives, for the same
+    /// reason.
+    pub(crate) fn set_text(&mut self, text: &str) -> bool {
+        if text.len() > MAX_COMPOSER_BYTES {
+            return false;
+        }
+        self.text.clear();
+        self.text.push_str(text);
+        self.cursor = self.text.len();
+        // The text under the caret is a different text, so a column remembered
+        // from a run of vertical motion over the old one would aim the next
+        // `Up` at a place nobody chose.
+        self.sticky = None;
+        true
+    }
+
     /// Applies one editing action, on a composer `cols` cells wide.
     ///
     /// `cols` is the width the *text* has, which is not the width of the
@@ -178,7 +211,15 @@ impl Editor {
             //
             // They are named rather than caught by a wildcard so that an action
             // added later has to be routed on purpose.
+            //
+            // The two recall keys are the session's for the same reason
+            // `Submit` is: what they replace is the *whole* draft, and the
+            // composer is what is being replaced rather than what decides to
+            // replace it (`super::shell::Shell::recall`, through
+            // [`Self::set_text`]).
             Action::Submit
+            | Action::HistoryPrevious
+            | Action::HistoryNext
             | Action::Escape
             | Action::Cancel
             | Action::Eof
@@ -485,6 +526,78 @@ mod tests {
         assert!(editor.insert(&"a".repeat(MAX_COMPOSER_BYTES)));
         assert!(!editor.insert("b"), "the budget was exceeded silently");
         assert_eq!(editor.text().len(), MAX_COMPOSER_BYTES);
+    }
+
+    #[test]
+    fn set_text_replaces_the_draft_and_leaves_the_caret_at_its_end() {
+        // What a history recall needs and what nothing else in this module
+        // offers: the whole buffer at once, with the caret where the next
+        // keystroke continues the line rather than in front of it.
+        let mut editor = editor("what was being typed");
+        editor.apply(Action::Home, 80);
+        assert!(editor.set_text("the line that was recalled"));
+        assert_eq!(editor.text(), "the line that was recalled");
+        assert_eq!(
+            editor.point(80),
+            (0, 26),
+            "the caret was left somewhere other than the end of the recalled line"
+        );
+    }
+
+    #[test]
+    fn set_text_forgets_the_column_a_vertical_run_was_aiming_for() {
+        // A recall is not a step in a run of vertical motion: the text under
+        // the caret is a different text, so a column remembered from the old
+        // one would aim the next Up at a place nobody chose.
+        let mut editor = editor("alphabet\nxy\nzulu-long");
+        editor.apply(Action::Home, 80);
+        editor.apply(Action::Right, 80);
+        editor.apply(Action::Right, 80);
+        editor.apply(Action::Right, 80);
+        editor.apply(Action::Up, 80);
+        assert_eq!(editor.point(80), (1, 2), "the short row clamped the column");
+        // A replacement whose caret lands in a column the old run was **not**
+        // aiming for, and whose first row is wide enough to tell the two apart:
+        // with the preferred column still standing the `Up` below would aim at
+        // 3, and with it forgotten it aims at the column the caret is really in.
+        assert!(editor.set_text("abcdefghij\nxy"));
+        assert_eq!(
+            editor.point(80),
+            (1, 2),
+            "the caret is not at the end of the replaced draft"
+        );
+        editor.apply(Action::Up, 80);
+        assert_eq!(
+            editor.point(80),
+            (0, 2),
+            "the replaced draft kept the column the old run was aiming for"
+        );
+    }
+
+    #[test]
+    fn set_text_past_the_budget_refuses_and_changes_nothing() {
+        // The same refusal `insert` gives, and for the same reason: a draft
+        // that half arrived is not the line anybody recalled.
+        let mut editor = editor("kept");
+        editor.apply(Action::Home, 80);
+        // Exactly at the cap is inside it, which is the boundary an off-by-one
+        // would move: a draft of exactly `MAX_COMPOSER_BYTES` is one the
+        // composer can hold, so it is one a recall can put back.
+        assert!(editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES)));
+        assert_eq!(editor.text().len(), MAX_COMPOSER_BYTES);
+        assert!(editor.set_text("kept"));
+        editor.apply(Action::Home, 80);
+        assert!(!editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES + 1)));
+        assert_eq!(
+            editor.text(),
+            "kept",
+            "a refused replacement damaged the draft"
+        );
+        assert_eq!(
+            editor.point(80),
+            (0, 0),
+            "a refused replacement moved the caret"
+        );
     }
 
     #[test]

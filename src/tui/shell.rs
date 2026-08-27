@@ -79,6 +79,7 @@ use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::hint::{self, Hint, Notice};
+use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
@@ -307,6 +308,16 @@ pub(crate) struct Shell {
     /// whether what the composer receives is the text or a summary standing in
     /// for it ([`super::paste`]).
     paste: Paste,
+    /// The lines this session has submitted, and where a walk back through
+    /// them has got to.
+    ///
+    /// Beside the editor rather than inside it, for the reason [`Self::paste`]
+    /// is: what an entry holds is the draft *as the composer held it*, and the
+    /// composer is the thing being replaced rather than the thing that decides
+    /// to replace it. Recording is [`Self::submit`]'s -- the one place a
+    /// submitted line still exists -- and leaving is every edit's
+    /// ([`Self::amended`]).
+    history: History,
     /// The one input machine of the session.
     ///
     /// Held here rather than in the loop because it is *state a keystroke can
@@ -481,6 +492,7 @@ impl Shell {
             context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
+            history: History::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
             // and the band rows share a terminal, and a transcript measured
@@ -1050,7 +1062,7 @@ impl Shell {
         // re-opened on its own completion would be one the user cannot leave by
         // taking something from it.
         self.dismissed.dismiss(Trigger::Slash);
-        self.edited();
+        self.amended();
     }
 
     /// Closes the menu, and remembers that it was closed.
@@ -1549,7 +1561,7 @@ impl Shell {
             }
         }
         if self.editor.insert(typed) {
-            self.edited();
+            self.amended();
         }
     }
 
@@ -1584,7 +1596,7 @@ impl Shell {
                     return;
                 }
                 if self.editor.insert(&text) {
-                    self.edited();
+                    self.amended();
                 }
             }
             // The screen gets the summary; `Paste::expand` is what puts the
@@ -1608,7 +1620,7 @@ impl Shell {
                 // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
                 if self.editor.insert(&summary) {
                     self.paste.placed(occurrence);
-                    self.edited();
+                    self.amended();
                 }
             }
         }
@@ -1620,22 +1632,61 @@ impl Shell {
     /// here rather than falling into a wildcard that silently ignores it.
     fn act(&mut self, action: Action, now: Instant) {
         match action {
-            // The composer's own.
+            // The composer's own, and **moves**: the caret goes somewhere
+            // else and the text does not change, so a recalled line is still
+            // the line on the screen and the walk stays open. Reading a
+            // recalled prompt before stepping further back is exactly this.
             Action::Left
             | Action::Right
-            | Action::Up
-            | Action::Down
             | Action::Home
             | Action::End
             | Action::WordLeft
-            | Action::WordRight
-            | Action::Backspace
+            | Action::WordRight => {
+                self.editor.apply(action, self.text_cols());
+                self.edited();
+            }
+            // The composer's own, and **edits**: the text is the user's now
+            // rather than the recalled line's, so the walk is over
+            // ([`Self::amended`]).
+            Action::Backspace
             | Action::Delete
             | Action::DeleteWordLeft
             | Action::KillToEnd
             | Action::KillToStart => {
                 self.editor.apply(action, self.text_cols());
-                self.edited();
+                self.amended();
+            }
+            // The two keys that are the composer's until the caret has nowhere
+            // left to go, and the history's exactly there.
+            //
+            // The edge is read off **the move itself** rather than off a second
+            // wrap of the draft: `Editor::move_by_row` leaves the caret's row
+            // alone precisely when the row it wanted is off the end of the
+            // wrap, so a row that did not change is the first row for an `Up`
+            // and the last one for a `Down` -- the same fact, measured by the
+            // module that owns the wrap instead of restated by this one.
+            //
+            // A recall that recalls nothing still falls through to
+            // [`Self::edited`], because the keystroke was still applied: the
+            // move recorded the column this run of vertical motion is aiming
+            // for even though the caret could not move, and that is the state
+            // the frame after it is drawn from.
+            Action::Up | Action::Down => {
+                let cols = self.text_cols();
+                let from = self.editor.point(cols).0;
+                self.editor.apply(action, cols);
+                if self.editor.point(cols).0 != from {
+                    self.edited();
+                    return;
+                }
+                let step = if matches!(action, Action::Up) {
+                    HistoryStep::Previous
+                } else {
+                    HistoryStep::Next
+                };
+                if !self.recall(step) {
+                    self.edited();
+                }
             }
             // **The one editing action that adds text**, so it goes the way a
             // typed character goes rather than the way the moves and the
@@ -1666,7 +1717,7 @@ impl Shell {
                     self.leave();
                 } else {
                     self.editor.apply(Action::Delete, self.text_cols());
-                    self.edited();
+                    self.amended();
                 }
             }
             // The whole band is repainted every frame, so a redraw is a frame.
@@ -1683,6 +1734,18 @@ impl Shell {
             // `Ignore` is a keystroke this session has no binding for at all:
             // an event rather than silence, precisely so that it accounts for
             // the bytes it was decoded from.
+            // `C-p` and `C-n`, which are the recall **wherever the caret
+            // is**: the arrows above cannot reach it from the middle of a
+            // multi-row draft, which is the draft a user reaches for a recall
+            // from. A step that recalls nothing changes nothing and asks for
+            // no frame -- a keystroke that did not move the band must not
+            // repaint it.
+            Action::HistoryPrevious => {
+                self.recall(HistoryStep::Previous);
+            }
+            Action::HistoryNext => {
+                self.recall(HistoryStep::Next);
+            }
             Action::Tab | Action::Ignore => {}
         }
     }
@@ -1771,7 +1834,7 @@ impl Shell {
             return;
         }
         self.take_draft();
-        self.edited();
+        self.amended();
     }
 
     /// What one submitted line is, and what happens to it.
@@ -1796,6 +1859,25 @@ impl Shell {
         }
         let text = self.editor.text().to_string();
         let submitted = interactive::classify(&text);
+        // **Before any arm below, because every one of them consumes the
+        // draft**, and the draft is the only place this line exists: the
+        // command arms clear the composer through `run_command`, the prompt arm
+        // through `send`, and a line recorded afterwards would be recorded from
+        // an empty editor. A command is recorded like anything else -- it is a
+        // line the user typed, and running one again is the commonest reason to
+        // reach for the recall. Whitespace and nothing else is the one line
+        // that is not: it is consumed and never written down, so there is
+        // nothing to come back to, and an entry for it would put a keypress
+        // between the user and the line they really sent.
+        //
+        // `Blank` still ends the walk, for the same reason recording one does:
+        // the draft the walk was standing beside has been consumed.
+        if matches!(submitted, Submitted::Blank) {
+            self.history.leave();
+        } else {
+            self.history
+                .record(HistoryEntry::new(text.clone(), Vec::new()));
+        }
         match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
             // pressed Return and a Return that left the composer untouched
@@ -2086,6 +2168,61 @@ impl Shell {
         // is a repaint of the whole thing rather than an optional one.
         self.render.request(Reason::ExternalDamage);
         self.say(CLEARED_NOTICE.to_string());
+    }
+
+    /// One step of a walk back through what has been submitted.
+    ///
+    /// `true` when the composer holds a different line because of it, which is
+    /// what the two arrow keys use to tell "this keystroke was the recall" from
+    /// "this keystroke was a caret move that had nowhere to go".
+    ///
+    /// The draft is handed to [`History::navigate`] rather than read by it:
+    /// entering a walk **captures** what is being typed, and the composer is
+    /// the only thing that knows what that is.
+    fn recall(&mut self, step: HistoryStep) -> bool {
+        let current = HistoryEntry::new(self.editor.text().to_string(), Vec::new());
+        let Some(entry) = self.history.navigate(step, current) else {
+            return false;
+        };
+        if !self.editor.set_text(entry.text()) {
+            // Arithmetic rather than optimism, and taken seriously rather than
+            // unwrapped: every entry and every captured draft came *out* of a
+            // composer, so none of them can be past a cap the composer is
+            // already inside. If one ever were, the editor kept the draft it
+            // had -- so leaving the walk puts the session back exactly where
+            // this keystroke found it.
+            self.history.leave();
+            return false;
+        }
+        // **The blocks go with the draft that was replaced.** A summary is
+        // text; the megabytes it stands for live in `super::paste` and die with
+        // the composer they were pasted into (`Paste::forget`). A recall
+        // replaces the composer, so a block kept across one would be expanded
+        // into whatever later prompt happened to carry the same words -- and
+        // the words are on the screen where anyone can retype them. What a
+        // recalled summary therefore is, in this phase, is words: entries carry
+        // no entities yet (`super::entity`), which is the narrowing
+        // `docs/parity.md` records and which item 21 closes.
+        self.paste.forget();
+        // Not `amended`: an edit ends the walk, and this *is* the walk.
+        self.edited();
+        true
+    }
+
+    /// What a change to the composer's **text** owes, over what a caret move
+    /// owes.
+    ///
+    /// The extra obligation is one thing and it is the walk: the line on the
+    /// screen is the user's own now rather than the one the history handed
+    /// back, so the next step back begins at the newest entry again and comes
+    /// back to *this* text. Split from [`Self::edited`] rather than folded into
+    /// it because the two are different questions -- `Left` through a recalled
+    /// prompt is how a user reads it before deciding to step further back, and
+    /// a rule that ended the walk on every keystroke would make that
+    /// impossible.
+    fn amended(&mut self) {
+        self.history.leave();
+        self.edited();
     }
 
     /// What every change to the composer owes: a frame, and a band the right
@@ -6247,6 +6384,518 @@ mod tests {
             shell.shell.context_meter(),
             Some((12_345, 200_000)),
             "a /new the runtime refused cleared the meter of a conversation that is still there"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // walking back through what has been submitted
+    // -----------------------------------------------------------------------
+
+    /// Clears what a submitted line leaves behind, so the next submission is
+    /// not refused by a queue with the last one still in it.
+    ///
+    /// The runtime holds one piece of work and one behind it
+    /// (`super::worker::WORK_LIMIT`), and a case here that sent three lines
+    /// without taking any of them would be a case about `Rejected::Busy`
+    /// instead of about the recall.
+    fn submitted(shell: &mut Fixture, line: &str) {
+        shell.route_bytes(line.as_bytes());
+        shell.route_bytes(&[0x0d]);
+        let _echo = shell.document();
+        let _taken = shell.sent.try_recv();
+    }
+
+    #[test]
+    fn ctrl_p_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
+        // The whole of item 15 on this surface: what was sent comes back,
+        // newest first, and the half-typed line the walk began from is what it
+        // comes back to.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first line");
+        submitted(&mut shell, "second line");
+        shell.route_bytes(b"half typed");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> second line");
+        assert_eq!(
+            shell.cursor(),
+            (23, 13),
+            "the caret is not at the end of the recalled line"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first line");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first line",
+            "the walk wrapped past the oldest line"
+        );
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.band_rows()[1], "> second line");
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> half typed",
+            "the draft the walk began from was thrown away"
+        );
+    }
+
+    #[test]
+    fn a_recall_asks_for_the_frame_that_shows_it_and_a_recall_of_nothing_asks_for_none() {
+        // The band is repainted whole, so a recall that did not ask for a frame
+        // would leave the terminal showing a draft the composer no longer
+        // holds; and a `C-p` at a session with nothing to recall must not
+        // repaint the band on a link that may be a serial line.
+        let mut shell = shell(24, 80);
+        let _first = shell.render.begin().expect("the first frame");
+        shell.route_bytes(&[0x10]);
+        assert!(
+            shell.render.begin().is_none(),
+            "a recall that recalled nothing repainted the whole band"
+        );
+        submitted(&mut shell, "sent");
+        let _submission = shell.render.begin();
+        shell.route_bytes(&[0x10]);
+        assert!(
+            shell.render.begin().is_some(),
+            "a recall asked for no frame, so the band would go on showing the \
+             draft the composer no longer holds"
+        );
+    }
+
+    #[test]
+    fn a_submitted_command_is_walked_back_to_like_any_other_line() {
+        // A command is a line the user typed, and the commonest reason to
+        // reach for the recall is to run one again. It is recorded before the
+        // draft is consumed, which is the only moment its text still exists.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/version\r");
+        let _echo = shell.document();
+        shell.route_bytes(&[0x10]);
+        // Asked through the caret rather than through a band row: the recalled
+        // draft is a slash word, so the completion menu opens over the rows
+        // above the rule -- and the caret staying in the composer is the same
+        // claim the menu's own cases make.
+        assert_eq!(shell.marked(), "> /version");
+    }
+
+    #[test]
+    fn a_line_the_runtime_refused_is_still_walked_back_to() {
+        // The refusal leaves the draft in the composer and says so on the hint
+        // row, so the line was submitted -- and a history that recorded only
+        // what the runtime accepted would forget exactly the line the user is
+        // most likely to want back.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+        shell.route_bytes(b"third\r");
+        assert_eq!(
+            shell.shell.notice,
+            Some(QUEUE_REJECTED),
+            "the third line was not refused, so this case proves nothing"
+        );
+        assert_eq!(
+            shell.band_rows()[1],
+            "> third",
+            "a refused submission threw the draft away"
+        );
+        // Cleared first, or the draft the refusal left standing would satisfy
+        // this case without a single line having been recorded.
+        shell.route_bytes(b"\x15");
+        assert_eq!(shell.band_rows()[1], "> ");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> third");
+    }
+
+    #[test]
+    fn a_blank_line_is_never_walked_back_to() {
+        // Return on whitespace consumes the line and writes nothing, so there
+        // is nothing to come back to -- and an entry for it would put a press
+        // of `C-p` between the user and the line they really sent.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "real");
+        submitted(&mut shell, "   ");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> real");
+    }
+
+    #[test]
+    fn the_up_arrow_moves_the_caret_until_the_first_row_and_only_then_walks_back() {
+        // The edge rule. An arrow inside a multi-row draft is the movement it
+        // is in every editor; it becomes the recall exactly where it would
+        // otherwise do nothing at all.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"top\x0abottom");
+        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        assert_eq!(
+            shell.marked(),
+            "  bottom",
+            "the caret did not start on the draft's last row"
+        );
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.marked(),
+            "> top",
+            "the arrow did not move the caret up a row of the draft"
+        );
+        assert_eq!(
+            &shell.band_rows()[1..3],
+            &["> top", "  bottom"],
+            "an arrow inside the draft walked the history instead of the rows"
+        );
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "the arrow at the first row did not reach the history"
+        );
+    }
+
+    #[test]
+    fn the_down_arrow_moves_the_caret_until_the_last_row_and_only_then_walks_forward() {
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"half typed");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "the arrow at a one-row draft's only row did not reach the history"
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> half typed",
+            "the arrow at the last row did not bring the draft back"
+        );
+
+        // And inside a taller draft it is a caret move at every row but the
+        // last, and a walk with nothing in it at the last.
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"top\x0abottom");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell.marked(),
+            "  bottom",
+            "the arrow did not move back down"
+        );
+        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            &shell.band_rows()[1..3],
+            &["> top", "  bottom"],
+            "a Down at the last row of a draft nobody had recalled into changed it"
+        );
+    }
+
+    #[test]
+    fn ctrl_p_walks_back_from_a_row_the_arrow_would_only_move_in() {
+        // The difference between the two keys, and the reason there are two:
+        // the caret is on the last of two rows, so `Up` there is a movement --
+        // and `C-p` is the recall wherever the caret is.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"top\x0abottom");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "C-p from the last row of a two-row draft only moved the caret"
+        );
+    }
+
+    #[test]
+    fn typing_after_a_recall_starts_the_next_walk_at_the_newest_line() {
+        // An edit means the line on the screen is the user's own now, so the
+        // walk that produced it is over -- and the edited line is what the next
+        // walk comes back to.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"!");
+        assert_eq!(shell.band_rows()[1], "> first!");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "the walk carried on from the line the edit had left behind"
+        );
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first!",
+            "the edited line was not what the walk came back to"
+        );
+    }
+
+    #[test]
+    fn a_deletion_after_a_recall_leaves_the_walk_too() {
+        // The other half of "an edit leaves the walk": a backspace changes the
+        // text as surely as a keystroke does, and a rule that only watched for
+        // typing would leave the session walking a list its composer had
+        // stopped agreeing with.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.band_rows()[1], "> firs");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a deletion left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_caret_move_after_a_recall_keeps_the_walk_open() {
+        // The mirror of the two cases above, and the one an implementation that
+        // simply left the walk on every keystroke would fail: moving the caret
+        // through a recalled line is how a user reads it before deciding to
+        // step further back.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> second");
+        shell.route_bytes(b"\x1b[D");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first",
+            "a caret move ended the walk, so the recall began again at the newest line"
+        );
+    }
+
+    #[test]
+    fn a_double_escape_after_a_recall_leaves_the_walk_too() {
+        // The gesture that throws the whole draft away is a change to the
+        // composer's text like any other, so the walk it was made during is
+        // over. A rule that watched only for keystrokes that *add* text would
+        // leave the session walking from a position its empty composer had
+        // stopped agreeing with.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the second Escape did not clear the recalled line"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "the cleared composer went on walking from where the recall had reached"
+        );
+    }
+
+    #[test]
+    fn an_inline_paste_after_a_recall_leaves_the_walk_too() {
+        // A paste small enough to land as text is an edit, and the path it
+        // takes into the composer is not the one a keystroke takes.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(b" and more");
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(shell.band_rows()[1], "> first and more");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a pasted edit left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_forward_delete_after_a_recall_leaves_the_walk_too() {
+        // Ctrl-D with text under the caret is the forward delete rather than
+        // the end of the session, and it reaches the editor by a path of its
+        // own -- so it owes the same thing every other edit owes.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        // Home first, which is a caret move and must leave the walk open --
+        // otherwise this case would be about the move rather than the delete.
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(&[0x04]);
+        assert_eq!(shell.band_rows()[1], "> irst");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a forward delete left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_collapsed_paste_after_a_recall_leaves_the_walk_too() {
+        // The other paste path: past `COLLAPSE_ABOVE` codepoints the composer
+        // is given a summary instead of the text, and that is still an edit to
+        // the draft.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes("y".repeat(1200).as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(shell.band_rows()[1], "> first[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a collapsed paste left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn an_arrow_at_the_edge_with_nothing_to_recall_still_asks_for_its_frame() {
+        // What the arrow key did before it could reach the history, and must
+        // go on doing: the keystroke was applied even though the caret could
+        // not move -- the run of vertical motion recorded the column it is
+        // aiming for -- so the band is still owed the frame that keystroke
+        // asked for.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one row");
+        let _typed = shell.render.begin().expect("the frame the typing owed");
+        shell.route_bytes(b"\x1b[A");
+        assert!(
+            shell.render.begin().is_some(),
+            "an arrow at the edge of a draft with nothing behind it asked for \
+             no frame at all"
+        );
+    }
+
+    #[test]
+    fn a_paste_a_recall_stood_aside_comes_back_as_words_rather_than_as_the_block() {
+        // A collapsed paste is a summary in the composer and megabytes in
+        // `super::paste`, and the blocks die with the draft they were pasted
+        // into. A recall replaces the draft, so it has to release them too --
+        // otherwise the summary the walk hands back would still expand, and the
+        // narrowing this phase records would be a silent multiplication
+        // instead.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "earlier");
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the paste was not collapsed, so this case proves nothing"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> earlier");
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the draft the walk began from did not come back"
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            "a block whose draft a recall had replaced was expanded into the prompt"
+        );
+    }
+
+    #[test]
+    fn a_block_does_not_survive_into_a_line_the_walk_hands_back() {
+        // The sharp half of releasing the blocks on a recall, and the half
+        // `Paste::reconcile` cannot reach: a summary's words are on the screen
+        // where anyone can read and type them, so a **recorded line** can
+        // carry them. Reconciling would find that name in the draft the recall
+        // installed and keep the block alive, and the recalled line would then
+        // be expanded into megabytes nobody pasted into it.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "[Pasted text #1, 1 lines]");
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the paste was not collapsed, so this case proves nothing"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the recalled line is not the one whose words match the summary"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            "a block survived the recall and expanded into the line the walk handed back"
+        );
+    }
+
+    #[test]
+    fn a_recalled_line_is_sent_as_itself() {
+        // The end of the gesture, and the claim the band rows above cannot
+        // make: what the runtime is given is the recalled line, and submitting
+        // it records it once rather than twice.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "ask me again");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("ask me again".to_string())
+        );
+        let _echo = shell.document();
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> ask me again");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> ask me again",
+            "the same line sent twice running became two entries"
         );
     }
 }

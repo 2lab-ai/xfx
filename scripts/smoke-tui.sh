@@ -4239,6 +4239,182 @@ def document_rows(grid, needle):
     ]
 
 
+def scenario_17(run):
+    """What was submitted comes back, and so does the draft that stood aside.
+
+    Item 15 on a real terminal. Five claims, and the first one alone is what a
+    history without a captured draft would satisfy: **the arrow walks** from the
+    edge of the draft, **C-p/C-n walk from anywhere**, **the near end is the
+    half-typed line** rather than an empty composer, **the far end does not
+    wrap**, and **an edit ends the walk** -- so the next step back starts at the
+    newest entry again and comes back to the text the edit left behind.
+
+    The two markers are the fixture's answers and nothing else says them, so a
+    prompt echoed into the document can never satisfy a wait for one; the nonce
+    is in both prompts, which is what makes the recalled composer rows the
+    lines this run really sent rather than words that were on the screen.
+    """
+    first = run.marker("first")
+    second = run.marker("second")
+    fixture = start_fixture(
+        run, [fixtures.content_only(first), fixtures.content_only(second)]
+    )
+    trial = run.trial("history", gateway=fixture).settled()
+    from_a_known_composer(run, trial, "history")
+
+    # The discriminator every scenario owes, and the first of the two prompts
+    # the walk below is made of: `discriminate` submits `say <nonce>`.
+    oldest = "say " + run.nonce
+    discriminate(run, trial, fixture, first)
+    trial.wait_until(
+        "the composer to be empty after the first prompt",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    newest = "recall " + run.nonce
+    trial.send(newest + "\r")
+    trial.wait_for(second)
+    trial.wait_until(
+        "the composer to be empty after the second prompt",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+
+    # --- the line that is typed and never sent ------------------------------
+    draft = "unsent " + run.nonce
+    trial.send(draft)
+    trial.wait_until(
+        "the composer to hold the line that is never sent",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+    typed = trial.grid("history-draft")
+    run.require(
+        composer_text(typed) == draft,
+        "the draft the walk will be measured against: %r" % composer_text(typed),
+    )
+
+    # --- Up, from the only row a one-row draft has --------------------------
+    trial.send(b"\x1b[A")
+    trial.wait_until(
+        "the newest submitted line to come back",
+        lambda _t: composer_text(trial.peek()) == newest,
+    )
+    recalled = trial.grid("history-up-newest")
+    run.require(
+        composer_text(recalled) == newest,
+        "the up arrow at the draft's first row did not recall the newest line: %r"
+        % composer_text(recalled),
+    )
+    # The caret is in the composer and at the **end** of the recalled line,
+    # which is the claim the edit further down rests on: a caret left in front
+    # of a recalled line would make the next keystroke an insertion into the
+    # middle of it.
+    marker_row = composer_first_row(recalled)
+    run.require(
+        (recalled.row, recalled.col) == (marker_row, 2 + len(newest)),
+        "the caret is not at the end of the recalled line: row %d col %d, "
+        "composer on row %r" % (recalled.row, recalled.col, marker_row),
+    )
+    run.require(
+        not recalled.unknown,
+        "xfx emitted only the sequences it declares: %r" % recalled.unknown,
+    )
+
+    # --- C-p, which is the recall wherever the caret is ---------------------
+    trial.send(b"\x10")
+    trial.wait_until(
+        "the line before the newest one to come back",
+        lambda _t: composer_text(trial.peek()) == oldest,
+    )
+    stepped = trial.grid("history-ctrl-p-older")
+    run.require(
+        composer_text(stepped) == oldest,
+        "C-p did not reach the older line: %r" % composer_text(stepped),
+    )
+
+    # --- and the far end does not wrap --------------------------------------
+    #
+    # Asserted through the step *after* it, because a refusal paints nothing: a
+    # walk that had wrapped to the newest line would answer this C-n with the
+    # draft instead.
+    trial.send(b"\x10")
+    trial.send(b"\x0e")
+    trial.wait_until(
+        "one step forward from the oldest line to reach the newest",
+        lambda _t: composer_text(trial.peek()) == newest,
+    )
+    bounded = trial.grid("history-oldest-bound")
+    run.require(
+        composer_text(bounded) == newest,
+        "the walk wrapped past the oldest line: %r" % composer_text(bounded),
+    )
+
+    # --- Down at the last row is the draft coming back ----------------------
+    trial.send(b"\x1b[B")
+    trial.wait_until(
+        "the draft the walk began from to come back",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+    returned = trial.grid("history-draft-returned")
+    run.require(
+        composer_text(returned) == draft,
+        "the line that was never sent was lost by the walk: %r"
+        % composer_text(returned),
+    )
+
+    # --- an edit ends the walk ----------------------------------------------
+    trial.send(b"\x1b[A")
+    trial.wait_until(
+        "a second walk to reach the newest line",
+        lambda _t: composer_text(trial.peek()) == newest,
+    )
+    trial.send("!")
+    trial.wait_until(
+        "the recalled line to take the keystroke",
+        lambda _t: composer_text(trial.peek()) == newest + "!",
+    )
+    edited = trial.grid("history-edited")
+    run.require(
+        composer_text(edited) == newest + "!",
+        "the keystroke did not land at the end of the recalled line: %r"
+        % composer_text(edited),
+    )
+    trial.send(b"\x10")
+    trial.wait_until(
+        "the walk to start from the newest line again",
+        lambda _t: composer_text(trial.peek()) == newest,
+    )
+    restarted = trial.grid("history-restarted")
+    run.require(
+        composer_text(restarted) == newest,
+        "the walk carried on from the line the edit had left behind: %r"
+        % composer_text(restarted),
+    )
+    trial.send(b"\x0e")
+    trial.wait_until(
+        "the edited line to be what the second walk comes back to",
+        lambda _t: composer_text(trial.peek()) == newest + "!",
+    )
+    captured = trial.grid("history-edited-draft-returned")
+    run.require(
+        composer_text(captured) == newest + "!",
+        "the edited line was not what the walk came back to: %r"
+        % composer_text(captured),
+    )
+
+    # --- and none of it sent anything ---------------------------------------
+    run.require(
+        len(fixture.bodies()) == 2,
+        "a recall submitted the line it recalled: %d request(s) captured"
+        % len(fixture.bodies()),
+    )
+
+    trial.send(b"\x15")
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after walking the history",
+    )
+
+
 def scenario_18(run):
     """A provider switch reaches only the fixture it switched to.
 
@@ -4464,7 +4640,7 @@ SCENARIOS = {
     "14-no-op-frame-skip": scenario_14,
     "15-resize-reflow": scenario_15,
     "16-slash-menu": scenario_16,
-    # 17 belongs to the history/draft work and is deliberately not here yet.
+    "17-history": scenario_17,
     "18-provider-switch": scenario_18,
     "19-model-catalog-and-context-meter": scenario_19,
 }
@@ -4537,6 +4713,7 @@ scenarios=(
 	14-no-op-frame-skip
 	15-resize-reflow
 	16-slash-menu
+	17-history
 	18-provider-switch
 	19-model-catalog-and-context-meter
 )

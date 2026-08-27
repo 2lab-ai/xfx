@@ -531,6 +531,7 @@ mod activity;
 mod approval;
 mod bridge;
 mod editor;
+mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
@@ -538,6 +539,7 @@ mod frame;
 mod gesture;
 mod grid;
 mod hint;
+mod history;
 mod input;
 mod layout;
 mod pacer;

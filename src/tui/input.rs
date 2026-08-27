@@ -142,6 +142,18 @@ pub(crate) enum Action {
     /// a tab typed at a bare prompt is a keystroke this session has no binding
     /// for rather than a character.
     Tab,
+    /// The line before this one, out of what the session has submitted.
+    ///
+    /// `C-p`, and the `Up` arrow when the caret has no row above it -- but the
+    /// two are **different actions** on purpose: the arrow is the composer's
+    /// first and the recall's only at the edge of the draft
+    /// (`super::shell::Shell::act`), and this one is the recall wherever the
+    /// caret is. A decoder that folded them together would put the edge rule on
+    /// a key whose whole purpose is not to have one.
+    HistoryPrevious,
+    /// The line after it, and the draft the walk began from once there are no
+    /// more. `C-n`, and `Down` at the last row.
+    HistoryNext,
     Escape,
     Cancel,
     Eof,
@@ -643,6 +655,8 @@ fn control(byte: u8) -> Action {
         0x0b => Action::KillToEnd,
         0x0c => Action::Redraw,
         0x0d => Action::Submit,
+        0x0e => Action::HistoryNext,
+        0x10 => Action::HistoryPrevious,
         0x15 => Action::KillToStart,
         0x17 => Action::DeleteWordLeft,
         _ => Action::Ignore,
@@ -1115,6 +1129,8 @@ mod tests {
             (0x0b, Action::KillToEnd),
             (0x0c, Action::Redraw),
             (0x0d, Action::Submit),
+            (0x0e, Action::HistoryNext),
+            (0x10, Action::HistoryPrevious),
             (0x15, Action::KillToStart),
             (0x17, Action::DeleteWordLeft),
             (0x7f, Action::Backspace),
@@ -1138,6 +1154,32 @@ mod tests {
                  binding or it is `Ignore`, and never text"
             );
         }
+    }
+
+    #[test]
+    fn the_two_history_keys_are_bindings_rather_than_arrow_keys() {
+        // `C-p` and `C-n` are the recall on every shell that has one, and they
+        // are **unconditional** here in a way the arrow keys are not: an arrow
+        // is the composer's until the caret has nowhere left to go
+        // (`super::shell`), so a decoder that answered these two with `Up` and
+        // `Down` would make the recall unreachable from the middle of a
+        // multi-row draft -- which is exactly the draft a user reaches for it
+        // from.
+        assert_eq!(
+            decode(&[0x10]),
+            vec![Input::Action(Action::HistoryPrevious)]
+        );
+        assert_eq!(decode(&[0x0e]), vec![Input::Action(Action::HistoryNext)]);
+        assert_ne!(
+            decode(&[0x10]),
+            decode(b"\x1b[A"),
+            "the recall key decodes to the same action the up arrow does"
+        );
+        assert_ne!(
+            decode(&[0x0e]),
+            decode(b"\x1b[B"),
+            "the recall key decodes to the same action the down arrow does"
+        );
     }
 
     #[test]
