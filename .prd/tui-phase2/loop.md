@@ -19,7 +19,7 @@ Seven vertical slices execute in order. Each slice owns one product contract, it
 | 1 | Oracle widening, shadow grid/cell diff/no-op skip, OSC 2 title | 13–14 | planned | this branch / one agent |
 | 2 | Resize debounce/reflow/full repaint + keyboard OSC containment | 15 | planned | this branch / one agent |
 | 3 | Slash registry/router/inline picker | 16 | planned | this branch / one agent |
-| 4 | `/setup` provider switching, `/model` catalog, context meter | 18–19 | planned | this branch / one agent |
+| 4 | `/setup` provider switching, `/model` catalog, context meter | 18–19 | implemented; controller gates + 51/51 mutations + dual-persona review green | this branch / one agent |
 | 5 | Prompt history + draft capture | 17 | planned | this branch / one agent |
 | 6 | Paste entity atomicity/span shift/history renumber/transaction boundary + tab unit | 21 | planned | this branch / one agent |
 | 7 | Alt-screen file-diff approval + QA/carrier closure; kitty/tmux reconciliation | 20 and all 1–21 | planned | this branch / one agent |

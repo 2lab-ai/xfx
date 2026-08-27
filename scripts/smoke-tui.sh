@@ -966,6 +966,170 @@ class Fixture:
                     return
             except OSError:
                 return
+
+
+class Llmux:
+    """A loopback llmux daemon: two probe endpoints and one data plane.
+
+    Answers by **path** rather than by arrival order, because a provider switch
+    probes `GET /` and `GET /models` before any turn runs and a script keyed by
+    order would let the probe eat the reply meant for a prompt. Only
+    `POST /v1/messages` reads the script, and it answers in the Anthropic wire
+    shape -- which is half of what "the provider changed" means: the switch
+    changes the protocol, not only the port.
+    """
+
+    def __init__(self, script, catalog=None, record_path=None):
+        self.script = list(script)
+        self.catalog = catalog if catalog is not None else default_catalog()
+        self.record_path = record_path
+        self.captured = []
+        self.lock = threading.Lock()
+        self.served = 0
+        daemon = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):  # noqa: N802 - the name is the framework's
+                daemon._answer(self)
+
+            def do_GET(self):  # noqa: N802 - the name is the framework's
+                daemon._answer(self)
+
+            def log_message(self, *_args):
+                pass
+
+        self.server = LoopbackHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def url(self):
+        return "http://127.0.0.1:%d" % self.server.server_address[1]
+
+    def requests(self):
+        with self.lock:
+            return list(self.captured)
+
+    def message_requests(self):
+        return [request for request in self.requests() if request["path"] == "/v1/messages"]
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def _answer(self, handler):
+        length = int(handler.headers.get("content-length", "0"))
+        body = handler.rfile.read(length).decode("utf-8", "replace")
+        record = {
+            "method": handler.command,
+            "path": handler.path,
+            "headers": {key.lower(): value for key, value in handler.headers.items()},
+            "body": body,
+        }
+        with self.lock:
+            self.captured.append(record)
+            if self.record_path:
+                with open(self.record_path, "a", encoding="utf-8") as record_file:
+                    record_file.write(json.dumps(record) + "\n")
+
+        path = handler.path.split("?")[0]
+        if path == "/":
+            return self._plain(handler, "llmux")
+        if path == "/models":
+            return self._json(handler, self.catalog)
+        if path != "/v1/messages":
+            return self._plain(handler, "fake llmux: no such path", status=404)
+
+        with self.lock:
+            index = self.served
+            self.served += 1
+        if index >= len(self.script):
+            return self._json(
+                handler, {"error": "fixture: unscripted request"}, status=500
+            )
+        self._stream(handler, self.script[index])
+
+    @staticmethod
+    def _plain(handler, text, status=200):
+        payload = text.encode("utf-8")
+        handler.send_response(status)
+        handler.send_header("content-type", "text/plain")
+        handler.send_header("content-length", str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+
+    @staticmethod
+    def _json(handler, document, status=200):
+        payload = json.dumps(document).encode("utf-8")
+        handler.send_response(status)
+        handler.send_header("content-type", "application/json")
+        handler.send_header("content-length", str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+
+    @staticmethod
+    def _stream(handler, events):
+        handler.send_response(200)
+        handler.send_header("content-type", "text/event-stream")
+        handler.send_header("cache-control", "no-cache")
+        handler.send_header("transfer-encoding", "chunked")
+        handler.send_header("connection", "close")
+        handler.end_headers()
+        for name, payload in events:
+            raw = ("event: %s\ndata: %s\n\n" % (name, json.dumps(payload))).encode("utf-8")
+            try:
+                handler.wfile.write(b"%x\r\n" % len(raw) + raw + b"\r\n")
+                handler.wfile.flush()
+            except OSError:
+                return
+        try:
+            handler.wfile.write(b"0\r\n\r\n")
+            handler.wfile.flush()
+        except OSError:
+            pass
+
+
+def catalog_model(identifier, aliases, efforts, max_context):
+    """One `GET /models` row, with the two columns the browser renders.
+
+    `max_context` is **omitted** rather than nulled when there is none, because
+    that is what a real daemon sends for a model with no published window --
+    and it is what makes the browser's `unknown` column reachable at all.
+    """
+    row = {"id": identifier, "name": identifier, "aliases": aliases,
+           "group": "anthropic", "efforts": efforts}
+    if max_context is not None:
+        row["max_context"] = max_context
+    return row
+
+
+def default_catalog():
+    return {"models": [catalog_model("claude-fable-5[1m]", ["fable"], [], 200000)]}
+
+
+def anthropic_answer(*texts):
+    """The daemon's own wire shape for one complete answer."""
+    events = [
+        ("message_start", {"type": "message_start",
+                           "message": {"id": "msg_fixture", "model": "fable",
+                                       "usage": {"input_tokens": 12345,
+                                                 "output_tokens": 0}}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0,
+                                 "content_block": {"type": "text", "text": ""}}),
+    ]
+    for text in texts:
+        events.append(("content_block_delta", {
+            "type": "content_block_delta", "index": 0,
+            "delta": {"type": "text_delta", "text": text}}))
+    events.extend([
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta",
+                           "delta": {"stop_reason": "end_turn"},
+                           "usage": {"input_tokens": 12345, "output_tokens": 7}}),
+        ("message_stop", {"type": "message_stop"}),
+    ])
+    return events
 PYTHON
 
 cat >"$helpers/pty_tui.py" <<'PYTHON'
@@ -3688,6 +3852,30 @@ def scenario_15(run):
 # ---------------------------------------------------------------------------
 
 
+def hint_text(grid):
+    """The band's last row, which is where the context meter lives."""
+    return grid.row_text(grid.rows - 1).strip()
+
+
+# The canonical palette, in `/help`'s order.
+#
+# Spelled here rather than read out of the binary because this harness must be
+# able to fail a build whose *source* and whose *screen* disagree: a list
+# derived from the same declaration the product renders from could not.
+# `scripts/check-no-stubs.sh` reconciles the same names against
+# `src/interactive.rs` and `docs/parity.md` without building anything, so a drift
+# between this list and the registry is caught in two independent places.
+CANONICAL_COMMANDS = [
+    "/help",
+    "/new",
+    "/clear",
+    "/model",
+    "/setup",
+    "/version",
+    "/quit",
+]
+
+
 def divider_row(grid):
     """The row the band's rule is on, or `None` before a band.
 
@@ -3768,26 +3956,26 @@ def scenario_16(run):
     trial.send("/")
     trial.wait_until(
         "the menu to open on a bare slash",
-        lambda _t: len(offered(trial.peek())) >= 6,
+        lambda _t: len(offered(trial.peek())) >= len(CANONICAL_COMMANDS),
     )
     opened = trial.grid("menu-open")
     run.require(
-        offered(opened)
-        == ["/help", "/new", "/clear", "/model", "/version", "/quit"],
+        offered(opened) == CANONICAL_COMMANDS,
         "a bare slash lists every command in the order /help lists them: %r"
         % offered(opened),
     )
     rule = divider_row(opened)
     run.require(rule is not None, "the band has a rule to place the menu against")
+    count = len(CANONICAL_COMMANDS)
     run.require(
-        menu_rows(opened) == list(range(rule - 6, rule)),
-        "the menu's six rows are the six directly above the rule: %r against a rule at %r"
-        % (menu_rows(opened), rule),
+        menu_rows(opened) == list(range(rule - count, rule)),
+        "the menu's %d rows are the %d directly above the rule: %r against a rule at %r"
+        % (count, count, menu_rows(opened), rule),
     )
     run.require(
-        opened.row_text(rule - 6).startswith("> ")
+        opened.row_text(rule - count).startswith("> ")
         and [opened.row_text(row).startswith("  ") for row in menu_rows(opened)[1:]]
-        == [True] * 5,
+        == [True] * (count - 1),
         "exactly the top row is marked: %r"
         % [opened.row_text(row)[:2] for row in menu_rows(opened)],
     )
@@ -3821,8 +4009,8 @@ def scenario_16(run):
     # --- the alias tier outranks the substring tier ------------------------
     #
     # `/e` names no command, so the only reason `/quit` can be on this list is
-    # the `/exit` alias -- and it must be above the five commands that merely
-    # have an `e` in them.
+    # the `/exit` alias -- and it must be above every command that merely has
+    # an `e` in it.
     trial.send(b"\x15")
     trial.send("/e")
     trial.wait_until(
@@ -3830,9 +4018,12 @@ def scenario_16(run):
         lambda _t: offered(trial.peek())[:1] == ["/quit"],
     )
     ranked = trial.grid("menu-alias-ranking")
+    # `/setup` joins the substring tier on its own `e`, in registry order like
+    # every other tie -- which is the property being asserted, not the length of
+    # the list.
     run.require(
         offered(ranked)
-        == ["/quit", "/help", "/new", "/clear", "/model", "/version"],
+        == ["/quit"] + [name for name in CANONICAL_COMMANDS if name != "/quit"],
         "the alias prefix outranks every substring, ties in registry order: %r"
         % offered(ranked),
     )
@@ -4000,6 +4191,260 @@ def start_fixture(run, script, name="gateway"):
     return fixtures.Fixture(script, record_path=path)
 
 
+def start_daemon(run, script, catalog=None, name="llmux"):
+    path = os.path.join(run.dir, "%s-requests.jsonl" % name)
+    return fixtures.Llmux(script, catalog=catalog, record_path=path)
+
+
+def seeded_home(run, label, document):
+    """A home whose `~/.xfx/settings.json` says `document`, before any launch.
+
+    Built and written **before** the trial exists, because the child reads the
+    profile at startup: a file written after the process is up is a file the
+    session it is meant to configure has already gone past. A provider is a
+    property of the machine, and the profile is where a real one is configured,
+    so writing it here is also what proves the shell reads it.
+    """
+    home = os.path.join(run.dir, label, "home")
+    directory = os.path.join(home, ".xfx")
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    with open(os.path.join(directory, "settings.json"), "w", encoding="utf-8") as handle:
+        json.dump(document, handle)
+    return home
+
+
+def profile_of(trial):
+    """The settings file as it stands now, or `None` when there is not one.
+
+    Read rather than believed. A band that says `provider=llmux` over a profile
+    that still says gateway is exactly the failure the transaction's reload step
+    exists to prevent, and a scenario that only read the screen could not tell
+    the two apart.
+    """
+    path = os.path.join(trial.home, ".xfx", "settings.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def document_rows(grid, needle):
+    """Every row of the screen carrying `needle`.
+
+    Rows are zero-based here, as everywhere else in this harness
+    (`vt_grid.Grid.row_text`).
+    """
+    return [
+        grid.row_text(row) for row in range(grid.rows) if needle in grid.row_text(row)
+    ]
+
+
+def scenario_18(run):
+    """A provider switch reaches only the fixture it switched to.
+
+    Two fixtures are up and exactly one may be asked. That is the whole design
+    of this scenario: with a single fixture running, "the prompt went to the
+    other provider" and "the prompt went nowhere" are the same observation, and
+    a scenario that could not tell them apart would pass a build whose switch
+    silently broke every turn.
+
+    The other half is the **file**. A band that says `provider=llmux` over a
+    profile that still says gateway is exactly the failure the transaction's
+    reload step exists to prevent, so the profile is read off disk rather than
+    inferred from the screen.
+    """
+    gateway_marker = run.marker("gateway")
+    daemon_marker = run.marker("daemon")
+    fixture = start_fixture(run, [fixtures.content_only(gateway_marker)])
+    daemon = start_daemon(run, [fixtures.anthropic_answer(daemon_marker)])
+    home = seeded_home(
+        run,
+        "switch",
+        {
+            "provider": "gateway",
+            "llmux_url": daemon.url(),
+            "models": {"gateway": "zai/glm-5.2"},
+        },
+    )
+    trial = run.trial("switch", gateway=fixture, home=home).settled()
+    from_a_known_composer(run, trial, "switch")
+
+    before = profile_of(trial)
+    run.require(
+        before is not None and before["provider"] == "gateway",
+        "the trial did not start on the provider it was seeded with: %r" % before,
+    )
+
+    # --- the switch --------------------------------------------------------
+    trial.send("/setup llmux\r")
+    # The line the switch is **finished** on. It is sent after the document was
+    # committed and the configuration re-read from it, so waiting for it is
+    # waiting for the reload rather than for the write -- which is the whole
+    # difference between what the session will do and what the write intended.
+    trial.wait_until(
+        "the switch to report the provider it reloaded",
+        lambda _t: "provider=llmux" in trial.peek().text(),
+    )
+    switched = trial.grid("switched")
+    run.require(
+        document_rows(switched, "provider=llmux"),
+        "the switch did not say what the session became: %r" % switched.text(),
+    )
+
+    after = profile_of(trial)
+    run.require(
+        after is not None and after["provider"] == "llmux",
+        "the band reported a switch the settings file does not agree with: %r" % after,
+    )
+    run.require(
+        after.get("llmux_url") == daemon.url(),
+        "the switch recorded a url other than the daemon it probed: %r" % after,
+    )
+    run.require(
+        after.get("models", {}).get("gateway") == "zai/glm-5.2",
+        "switching away from a provider lost the model chosen for it: %r" % after,
+    )
+
+    # --- and the next prompt goes to exactly one of them --------------------
+    trial.send("say the marker\r")
+    trial.wait_until(
+        "the new provider's answer on the screen",
+        lambda _t: daemon_marker in trial.peek().text(),
+    )
+    answered = trial.grid("answered")
+    run.require(
+        daemon_marker in answered.text(),
+        "the daemon's answer is not on the screen",
+    )
+    run.require(
+        gateway_marker not in answered.text(),
+        "the provider that was switched away from answered: %r" % answered.text(),
+    )
+
+    asked = daemon.message_requests()
+    run.require(
+        len(asked) == 1,
+        "the daemon was asked %d times rather than once" % len(asked),
+    )
+    run.require(
+        "say the marker" in asked[0]["body"],
+        "the daemon was asked something else: %r" % asked[0]["body"][:400],
+    )
+    run.require(
+        fixture.request_count() == 0,
+        "the provider that was switched away from was still asked %d time(s)"
+        % fixture.request_count(),
+    )
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after a provider switch",
+    )
+    fixture.stop()
+    daemon.stop()
+
+
+def scenario_19(run):
+    """The catalog browser renders context and effort, and the meter needs both.
+
+    Four claims. The rows carry the **two columns a daemon publishes** and both
+    shapes are driven -- a model with a window and efforts, and one with
+    neither -- because a browser that only ever rendered the happy shape would
+    not be shown to render an absence as an absence. The catalog is what
+    supplies the hint row's **denominator**, the completed turn supplies its
+    **numerator**, and with only one of the two on hand the row says nothing
+    about context rather than reporting a percentage nobody measured.
+    """
+    marker = run.marker("browse")
+    catalog = {
+        "models": [
+            fixtures.catalog_model("claude-fable-5[1m]", ["fable"], ["low", "high"], 1000000),
+            fixtures.catalog_model("plain-model", [], [], None),
+        ]
+    }
+    daemon = start_daemon(run, [fixtures.anthropic_answer(marker)], catalog=catalog)
+    home = seeded_home(
+        run,
+        "browse",
+        {"provider": "llmux", "llmux_url": daemon.url(), "models": {"llmux": "fable"}},
+    )
+    trial = run.trial("browse", home=home).settled()
+    from_a_known_composer(run, trial, "browse")
+
+    # --- nothing is claimed about context before anything has been measured -
+    quiet = trial.grid("before-any-turn")
+    run.require(
+        "Context" not in hint_text(quiet),
+        "the hint row reported a context before a turn had measured one: %r"
+        % hint_text(quiet),
+    )
+
+    # --- a bare /model browses ---------------------------------------------
+    trial.send("/model\r")
+    # Waited on the **last** row the browser will paint, not the first. The rows
+    # arrive from the runtime thread and are painted in the provider's order, so
+    # a wait satisfied by row one can be answered while row two is still owed --
+    # which reads as "the browser did not render an absence" when what really
+    # happened is that the reader looked too early.
+    trial.wait_until(
+        "the catalog rows to arrive from the runtime thread",
+        lambda _t: "plain-model context=unknown efforts=none" in trial.peek().text(),
+    )
+    browsed = trial.grid("browsed")
+    run.require(
+        document_rows(browsed, "catalog="),
+        "the browser did not say how many rows it was shown: %r" % browsed.text(),
+    )
+    run.require(
+        document_rows(browsed, "fable context=1000000 efforts=low,high"),
+        "a published window and effort list are not both rendered: %r" % browsed.text(),
+    )
+    # The other shape a real daemon sends. `unknown` and `none` are said rather
+    # than left blank: an empty column reads as a rendering fault, and the two
+    # facts really are absent rather than zero.
+    run.require(
+        document_rows(browsed, "plain-model context=unknown efforts=none"),
+        "an absent window and an empty effort list are not rendered as absences: %r"
+        % browsed.text(),
+    )
+    # The catalog alone is a denominator with no numerator, and that is not a
+    # meter.
+    run.require(
+        "Context" not in hint_text(browsed),
+        "a catalog with no completed turn put a meter on the hint row: %r"
+        % hint_text(browsed),
+    )
+
+    # --- one completed turn supplies the numerator -------------------------
+    trial.send("say the marker\r")
+    trial.wait_until(
+        "the answer, and the usage that comes with it",
+        lambda _t: marker in trial.peek().text(),
+    )
+    trial.wait_until(
+        "the context meter on the hint row",
+        lambda _t: "Context" in hint_text(trial.peek()),
+    )
+    measured = trial.grid("measured")
+    hint = hint_text(measured)
+    # The fixture reports 12345 input tokens against a published window of
+    # 1000000: thousands, and the percentage between them.
+    run.require(
+        "Context: 12k/1000k 1%" in hint,
+        "the meter is not the fixture's own numbers over the catalog's window: %r" % hint,
+    )
+    run.require(
+        hint.count("Context:") == 1,
+        "the row carries more than one meter: %r" % hint,
+    )
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after browsing the catalog",
+    )
+    daemon.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -4019,6 +4464,9 @@ SCENARIOS = {
     "14-no-op-frame-skip": scenario_14,
     "15-resize-reflow": scenario_15,
     "16-slash-menu": scenario_16,
+    # 17 belongs to the history/draft work and is deliberately not here yet.
+    "18-provider-switch": scenario_18,
+    "19-model-catalog-and-context-meter": scenario_19,
 }
 
 
@@ -4068,7 +4516,7 @@ export XFX_MAX_AGENT_STEPS="1"
 export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
-# The fourteen Phase-1 scenarios of `.prd/06-qa-harness.md`, in its order, and
+# The Phase-1 scenarios of `.prd/06-qa-harness.md`, in its order, and
 # then the Phase-2 ones this drive adds.
 scenarios=(
 	1-launch-and-band-ownership
@@ -4089,6 +4537,8 @@ scenarios=(
 	14-no-op-frame-skip
 	15-resize-reflow
 	16-slash-menu
+	18-provider-switch
+	19-model-catalog-and-context-meter
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

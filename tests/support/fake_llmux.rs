@@ -253,18 +253,63 @@ fn serve(state: &Arc<State>, shutdown: &Arc<AtomicBool>, stream: TcpStream) {
 }
 
 /// A `GET /models` document in the daemon's own shape.
+///
+/// Every entry gets the same effort list and the same window, which is what the
+/// probe and the setup tests need: they are about ids and aliases and do not
+/// look at either column.
 pub fn catalog(entries: &[(&str, &[&str])]) -> Value {
+    let described: Vec<CatalogModel> = entries
+        .iter()
+        .map(|(id, aliases)| CatalogModel {
+            id,
+            aliases,
+            efforts: &[],
+            max_context: Some(200_000),
+        })
+        .collect();
+    described_catalog(&described)
+}
+
+/// One row of a `GET /models` document, with the two columns the browser shows.
+///
+/// `efforts` and `max_context` are what the model catalog UI renders beside a
+/// name, and both are genuinely optional on the wire
+/// (`2lab-ai/llmux@79f66748656b src/catalog.rs:44-63`: `max_context` is an
+/// `Option<u64>` and `efforts` is empty for a model that takes no reasoning
+/// field). A fixture that could only produce one shape could not drive the
+/// `unknown` and `none` columns the browser has to render for the other.
+pub struct CatalogModel<'a> {
+    pub id: &'a str,
+    pub aliases: &'a [&'a str],
+    pub efforts: &'a [&'a str],
+    pub max_context: Option<u64>,
+}
+
+/// A `GET /models` document whose rows carry their own efforts and window.
+pub fn described_catalog(entries: &[CatalogModel<'_>]) -> Value {
     let models: Vec<Value> = entries
         .iter()
-        .map(|(id, aliases)| {
+        .map(|entry| {
             json!({
-                "id": id,
-                "name": id,
-                "aliases": aliases,
+                "id": entry.id,
+                "name": entry.id,
+                "aliases": entry.aliases,
                 "group": "anthropic",
-                "efforts": [],
-                "max_context": 200000,
+                "efforts": entry.efforts,
+                // Omitted rather than nulled when there is none: an absent key
+                // is what a real daemon sends for a model with no published
+                // window, and it is what makes the `unknown` column reachable.
+                "max_context": entry.max_context,
             })
+        })
+        .map(|mut model| {
+            if model["max_context"].is_null() {
+                model
+                    .as_object_mut()
+                    .expect("an object")
+                    .remove("max_context");
+            }
+            model
         })
         .collect();
     json!({ "models": models })

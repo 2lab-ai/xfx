@@ -94,6 +94,8 @@ use crate::interactive::{self, Submitted};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
+use crate::provider::model::CatalogEntry;
+use crate::provider::ProviderId;
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -252,8 +254,8 @@ pub(crate) struct Shell {
     /// How much authority a turn will have before it has to ask.
     ///
     /// Read once and never changed: the mode is settled by the configuration
-    /// and this phase adds no command that moves it -- the six slash names are
-    /// the line shell's and none of them is `/permission`.
+    /// and no command in the palette moves it -- the slash names are the line
+    /// shell's and none of them is `/permission`.
     mode: PermissionMode,
     /// Whether the configured provider has nothing to authenticate with.
     ///
@@ -265,6 +267,35 @@ pub(crate) struct Shell {
     /// [`Self::model`], because both of its inputs are the environment and the
     /// profile, and neither moves under a running session.
     missing_credential: bool,
+    /// The provider a turn will talk to.
+    ///
+    /// Beside [`Self::model`] and settled the same way -- from the
+    /// configuration at startup, and from [`UiEvent::ProviderSelected`]
+    /// afterwards. It is what a catalog row is *about*: entries loaded for one
+    /// provider say nothing about another, so the two move together or the
+    /// browser lists one daemon's models under another's name.
+    provider: ProviderId,
+    /// The rows the last catalog load produced, for the provider above.
+    ///
+    /// Two readers and one of them is not obvious: the browser paints them, and
+    /// the hint row's context meter takes its **denominator** from the entry
+    /// matching the model in force ([`CatalogEntry::max_context`]). Empty until
+    /// a load has succeeded, and emptied on a provider switch, because a window
+    /// published by the daemon xfx has stopped talking to is not this
+    /// conversation's window.
+    catalog: Vec<CatalogEntry>,
+    /// What the last **completed** turn reported as its input tokens.
+    ///
+    /// The meter's numerator, and it is `input_tokens` alone rather than
+    /// input-plus-output on purpose: what a context meter answers is "how much
+    /// of the window does the next request carry", and the next request carries
+    /// the conversation the provider has just counted as its input. Adding the
+    /// output would count this turn's answer twice -- once as output now, and
+    /// again inside the input of the turn after it.
+    ///
+    /// `None` until a turn has finished and said so. Absent is not zero: a
+    /// provider that publishes no usage gets no meter rather than a nought.
+    context_used: Option<u64>,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
     /// The paste that is arriving, and the blocks the composer's summaries
@@ -445,6 +476,9 @@ impl Shell {
             mode: config.permission_mode,
             missing_credential: crate::provider::resolve_credential_for(config.provider, config)
                 .is_none(),
+            provider: config.provider,
+            catalog: Vec::new(),
+            context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
             decoder: Decoder::new(),
@@ -592,10 +626,7 @@ impl Shell {
                 queued: self.queued,
                 mode: self.mode,
                 model: &self.model,
-                // Nothing on the Phase-1 path measures a context: no
-                // [`UiEvent`] carries a usage number, and the Gateway publishes
-                // no window to be the denominator ([`Hint::context_used`]).
-                context_used: None,
+                context_used: self.context_meter(),
                 notice,
                 // The armed half of the double-Escape gesture goes to the
                 // right-hand slot: it is a warning about what the *next*
@@ -606,6 +637,30 @@ impl Shell {
             },
             self.geometry.cols,
         )
+    }
+
+    /// The two numbers of the context meter, or nothing at all.
+    ///
+    /// **Both or neither**, and that is the whole rule. The numerator is a
+    /// completed turn's `input_tokens` and the denominator is the catalog's
+    /// `max_context` for the model in force; either can legitimately be absent
+    /// -- a provider need not publish usage, and the Gateway publishes no
+    /// catalog to hold a window at all -- and a row that filled in a missing
+    /// half with a zero would report a measurement nobody took. So a missing
+    /// half removes the segment rather than defaulting it, which is the same
+    /// rule the activity row's token count follows
+    /// ([`super::activity::Activity::tokens`]).
+    fn context_meter(&self) -> Option<(u64, u64)> {
+        let used = self.context_used?;
+        // Matched by id **or alias**, because the model in force is whatever the
+        // operator or the profile spelled and the catalog publishes both
+        // ([`CatalogEntry::matches`]).
+        let total = self
+            .catalog
+            .iter()
+            .find(|entry| entry.matches(&self.model))
+            .and_then(|entry| entry.max_context)?;
+        Some((used, total))
     }
 
     /// What is in the band's elastic slot, if anything.
@@ -792,6 +847,52 @@ impl Shell {
                 self.say(line);
             }
             UiEvent::Notice(text) => self.say(text),
+            // The switch is **done** by the time this arrives: the file is
+            // written, the configuration has been re-read from it, and the
+            // runtime has swapped. So every field here is adopted rather than
+            // predicted, which is the difference between what the session will
+            // do and what the write intended.
+            UiEvent::ProviderSelected {
+                provider,
+                model,
+                missing_credential,
+            } => {
+                self.provider = provider;
+                self.model = model;
+                self.missing_credential = missing_credential;
+                // The old provider's catalog is not this one's, and the
+                // conversation the meter was counting was dropped with the
+                // bundle. Keeping either would put another daemon's window --
+                // or a dead conversation's tokens -- on the hint row.
+                self.catalog.clear();
+                self.context_used = None;
+                self.say(format!(
+                    "[shell] provider={} model={}; the next prompt starts a fresh conversation",
+                    provider.label(),
+                    self.model
+                ));
+                self.render.request(Reason::Footer);
+            }
+            // The browser. Rendered as document rows rather than into the band's
+            // elastic slot: a catalog is a list the user reads and scrolls back
+            // to, and the slot is for the two things a keystroke is *about*.
+            UiEvent::CatalogLoaded { provider, entries } => {
+                self.catalog = entries;
+                self.provider = provider;
+                self.say(format!("[shell] catalog={} shown", self.catalog.len()));
+                for line in self.catalog_rows() {
+                    self.say(line);
+                }
+                // The denominator may have arrived with it.
+                self.render.request(Reason::Footer);
+            }
+            // The numerator, and only the numerator: see [`Self::context_used`]
+            // for why the output half is deliberately dropped here rather than
+            // added to it.
+            UiEvent::Usage { input, .. } => {
+                self.context_used = input;
+                self.render.request(Reason::Footer);
+            }
             // The turn has stopped and is waiting for a person. Everything
             // about that -- the panel, the rows it costs the document, the
             // focus, and the clock that stops while it is up -- follows from
@@ -829,6 +930,35 @@ impl Shell {
                 self.leave();
             }
         }
+    }
+
+    /// One document row per catalog entry, in the order the provider published
+    /// them.
+    ///
+    /// The line shell's own row for the same fact
+    /// (`interactive`'s `print_catalog`), so a model looks the same whichever
+    /// surface you browse it from. `unknown` and `none` are said rather than
+    /// left blank: a provider really may publish neither a window nor a set of
+    /// effort levels, and an empty column would read as a rendering fault.
+    fn catalog_rows(&self) -> Vec<String> {
+        self.catalog
+            .iter()
+            .map(|entry| {
+                let context = entry
+                    .max_context
+                    .map(|window| window.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let efforts = if entry.efforts.is_empty() {
+                    "none".to_string()
+                } else {
+                    entry.efforts.join(",")
+                };
+                format!(
+                    "[shell]   {} context={context} efforts={efforts}",
+                    entry.preferred_name()
+                )
+            })
+            .collect()
     }
 
     /// Puts a question in front of the user, or refuses it on their behalf.
@@ -1651,14 +1781,15 @@ impl Shell {
     /// the whole reason the routing is a call rather than a `match` of its own:
     /// a command grammar whose answer depends on which front end you typed it
     /// into is exactly the nondeterminism a command surface must not have. The
-    /// names are `interactive::SLASH_COMMANDS`, unchanged and unextended --
-    /// this phase adds no command and no slash name.
+    /// names are `interactive::SLASH_COMMANDS` and nothing else: this surface
+    /// answers exactly what the registry advertises.
     ///
-    /// Nothing here reaches the provider. Five of the six are answered on this
-    /// thread; `/model <id>` and `/new` go to the runtime as
-    /// [`TurnWork`] -- not because they need a turn, but because the model and
-    /// the conversation they change live there and have to change *between*
-    /// turns rather than under one.
+    /// Most of them are answered on this thread. `/new`, `/model` and `/setup`
+    /// go to the runtime as [`TurnWork`] -- `/new` and `/model <id>` because
+    /// the conversation and the model they change live there and have to change
+    /// *between* turns rather than under one, and `/setup` and a bare `/model`
+    /// because they open a socket, which the thread holding the terminal must
+    /// never wait on.
     fn submit(&mut self) {
         if self.editor.is_empty() {
             return;
@@ -1760,7 +1891,7 @@ impl Shell {
         self.say(text.to_string());
     }
 
-    /// One of the six, with the rest of the line as its argument.
+    /// One canonical command, with the rest of the line as its argument.
     ///
     /// The composer is cleared first for all of them: a command is not offered
     /// to anything that can refuse it, so there is no draft to keep.
@@ -1771,7 +1902,7 @@ impl Shell {
     /// (`crate::interactive`'s `run`), because its arms are `async` and reach
     /// for session state this side does not hold. What keeps the two from
     /// drifting is that both read the same registry and both dispatch
-    /// exhaustively: a seventh command stops both from compiling until both
+    /// exhaustively: another command stops both from compiling until both
     /// answer it.
     fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
@@ -1781,12 +1912,13 @@ impl Shell {
     }
 }
 
-/// What each of the six does on this surface.
+/// What each canonical command does on this surface.
 ///
-/// Five of them are answered on the UI thread; `/model <id>` and `/new` are
-/// handed to the runtime as [`TurnWork`] -- not because they need a turn, but
-/// because the model and the conversation they change live there and have to
-/// change *between* turns rather than under one.
+/// Most are answered on the UI thread; `/new`, `/model` and `/setup` are
+/// handed to the runtime as [`TurnWork`] -- because the model and the
+/// conversation they change live there and have to change *between* turns
+/// rather than under one, and because `/setup` and a bare `/model` open a
+/// socket the thread holding the terminal must never wait on.
 impl CommandHandlers for Shell {
     fn help(&mut self) {
         for line in interactive::help_text().lines() {
@@ -1799,6 +1931,17 @@ impl CommandHandlers for Shell {
             self.refused(rejected);
             return;
         }
+        // **After the offer was taken, and not before.** The far side drops the
+        // conversation (`super::worker`'s `TurnWork::New` arm), and the meter's
+        // numerator is a measurement *of that conversation* -- so it goes with
+        // it, and a `/new` the runtime refused leaves a session whose
+        // measurement is still about the conversation on the screen.
+        //
+        // The denominator stays: it is the model's context window, and `/new`
+        // changes neither the provider nor the model. Clearing it would discard
+        // a fact that is still true and cost a socket to learn again.
+        self.context_used = None;
+        self.render.request(Reason::Footer);
         self.say(NEW_SESSION_NOTICE.to_string());
     }
 
@@ -1816,6 +1959,10 @@ impl CommandHandlers for Shell {
 
     fn quit(&mut self) {
         self.leave();
+    }
+
+    fn setup(&mut self, argument: &str) {
+        self.use_provider(argument);
     }
 }
 
@@ -1836,7 +1983,20 @@ impl Shell {
     /// catalog. `docs/parity.md` says so.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
-            self.say(format!("[shell] model={}", self.model));
+            self.say(format!(
+                "[shell] model={} provider={}",
+                self.model,
+                self.provider.label()
+            ));
+            // **The one network call `/model` makes**, and it is made on the
+            // runtime thread rather than here: the UI thread sits in
+            // `pselect(2)` holding the terminal, and a daemon that is not
+            // answering must not be something it waits for. The rows arrive
+            // later as [`UiEvent::CatalogLoaded`], which is why this method
+            // returns having painted only the report.
+            if let Err(rejected) = self.work.submit(TurnWork::Catalog) {
+                self.refused(rejected);
+            }
             return;
         }
         // Before anything else, and in the order
@@ -1864,6 +2024,37 @@ impl Shell {
         }
         self.model = argument.to_string();
         self.say(format!("[shell] model={}", self.model));
+    }
+
+    /// `/setup <provider>`, with the line-oriented shell's meaning.
+    ///
+    /// The command hands the whole transaction to the runtime thread and paints
+    /// nothing about its result: it writes a file, opens a socket and re-reads a
+    /// configuration, none of which may happen on the thread holding the
+    /// terminal, and **none of which this side is entitled to predict.** What
+    /// the session becomes arrives as [`UiEvent::ProviderSelected`] *after* the
+    /// reload, so the model and the credential fact this shell shows are the
+    /// ones the configuration really resolved to -- not the ones the write
+    /// intended, which differ exactly when a layer above the profile outranks
+    /// it.
+    ///
+    /// The name is parsed here only to refuse an argument that names no
+    /// provider, which costs the runtime nothing to be told and would otherwise
+    /// spend a queue place to come back as a failure.
+    fn use_provider(&mut self, argument: &str) {
+        let Some(provider) = ProviderId::parse(argument) else {
+            // xfx's own words, derived from the providers this build has
+            // (`interactive::setup_usage`), so a build that grows one does not
+            // grow a sentence that forgets it. Nothing of the argument is quoted
+            // back, for the reason `/model`'s refusal quotes nothing.
+            self.write_document_line(&interactive::setup_usage());
+            return;
+        };
+        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
+            self.refused(rejected);
+            return;
+        }
+        self.say(format!("[shell] setting up {}", provider.label()));
     }
 
     /// `/clear`: the screen, its scrollback, and what the band remembers of
@@ -4580,15 +4771,15 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // the six slash commands
+    // the canonical slash commands
     // -----------------------------------------------------------------------
 
     #[test]
     fn every_advertised_slash_command_is_answered_without_asking_the_model() {
         // The closed set, driven through the composer one name at a time. What
-        // makes this the real claim rather than six spot checks is that it
-        // reads `interactive::SLASH_COMMANDS`: a seventh name added there
-        // fails here until the TUI answers it too.
+        // makes this the real claim rather than a handful of spot checks is
+        // that it reads `interactive::SLASH_COMMANDS`: a name added there fails
+        // here until the TUI answers it too.
         for name in crate::interactive::SLASH_COMMANDS {
             let mut shell = shell(24, 80);
             shell.route_bytes(name.as_bytes());
@@ -4680,12 +4871,23 @@ mod tests {
         assert!(
             document
                 .iter()
-                .any(|row| row == "[shell] model=second-model"),
+                .any(|row| row.starts_with("[shell] model=second-model")),
             "a bare /model did not report the model in force: {document:?}"
+        );
+        // And it asks the runtime for the catalog -- **the one network call
+        // `/model` makes**, and the reason it is a piece of work rather than
+        // something answered on this thread: the UI thread owns the terminal and
+        // may not wait for a daemon. The report above is painted first and
+        // without waiting for it, so a provider that is down still answers
+        // `/model`.
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Catalog,
+            "a bare /model did not ask the runtime to load the catalog"
         );
         assert!(
             shell.sent.try_recv().is_err(),
-            "a bare /model asked the runtime for something"
+            "a bare /model asked the runtime for more than the catalog"
         );
     }
 
@@ -5352,7 +5554,7 @@ mod tests {
         // against the **whole** menu rather than against whatever the last
         // keystroke happened to leave: a band re-solved before the menu was
         // reconciled would be one keystroke behind, and on this query that is
-        // the difference between six rows and none.
+        // the difference between a full menu and none.
         let mut bare = shell(24, 80);
         bare.route_bytes(b"/");
         assert_eq!(
@@ -5626,8 +5828,9 @@ mod tests {
         shell.route_bytes(b"/");
         shell.settle_band(started);
 
-        // Six matches, one row for them: the window bounds the menu rather
-        // than the band refusing it.
+        // Every command matches a bare slash, and one row is what this screen
+        // has for them: the window bounds the menu rather than the band
+        // refusing it.
         assert_eq!(
             shell.geometry.panel, 1,
             "a six-row screen with a turn on it did not get its one menu row: {:?}",
@@ -5690,6 +5893,360 @@ mod tests {
         assert_eq!(
             shell.cursor(),
             (shell.geometry.input_first, PROMPT_CELLS + 1)
+        );
+    }
+    // -----------------------------------------------------------------------
+    // provider switching, the catalog browser and the context meter
+    // -----------------------------------------------------------------------
+
+    /// A second shell, for the half of a claim the first one cannot hold at the
+    /// same time.
+    fn fixture_with_no_catalog() -> Fixture {
+        shell(24, 80)
+    }
+
+    fn entry(name: &str, window: Option<u64>, efforts: &[&str]) -> CatalogEntry {
+        CatalogEntry {
+            id: format!("vendor/{name}"),
+            aliases: vec![name.to_string()],
+            name: None,
+            efforts: efforts.iter().map(|effort| effort.to_string()).collect(),
+            max_context: window,
+        }
+    }
+
+    #[test]
+    fn setup_hands_the_whole_switch_to_the_runtime_and_predicts_nothing() {
+        // The UI thread writes no file, opens no socket and re-reads no
+        // configuration. What it does is name a provider and wait to be told
+        // what the session became -- which is the difference between showing
+        // what the configuration resolved to and showing what the write meant.
+        let mut shell = shell(24, 80);
+        let before = shell.shell.model.clone();
+        shell.route_bytes(b"/setup llmux\r");
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        assert_eq!(
+            shell.shell.model, before,
+            "the shell changed the model before the runtime had reloaded anything"
+        );
+        assert_eq!(
+            shell.shell.provider,
+            ProviderId::Gateway,
+            "the shell changed the provider before the runtime had reloaded anything"
+        );
+    }
+
+    #[test]
+    fn a_setup_argument_that_names_no_provider_never_reaches_the_runtime() {
+        // Refused here rather than sent, for `/model`'s reason: the far side of
+        // this one writes a file, and a queue place spent on a word that cannot
+        // be a provider is a place a real prompt could have had.
+        let mut shell = shell(24, 80);
+        for argument in ["", "nonesuch", "  ", "llmux extra"] {
+            shell.route_bytes(format!("/setup {argument}\r").as_bytes());
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "`/setup {argument}` reached the runtime"
+            );
+        }
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.contains("gateway") && row.contains("llmux")),
+            "the refusal does not name the providers this build can set up: {document:?}"
+        );
+        // xfx's own words: the *refusal* quotes nothing of the argument, which
+        // is what keeps a hostile one out of the document. The submitted line
+        // itself is echoed like every other one, and that row is the user's own
+        // keystrokes rather than xfx repeating them back as guidance.
+        let refusals: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("xfx: "))
+            .collect();
+        assert_eq!(refusals.len(), 4, "{document:?}");
+        assert!(
+            !refusals.iter().any(|row| row.contains("nonesuch")),
+            "the refusal quoted the argument back: {refusals:?}"
+        );
+    }
+
+    #[test]
+    fn a_selected_provider_replaces_the_model_the_credential_fact_and_the_catalog() {
+        // Everything the previous provider's session knew that is not this
+        // one's. A catalog left standing would put another daemon's context
+        // window under this daemon's model, and a stale credential fact would
+        // go on telling a keyless local session to run `xfx setup`.
+        let mut shell = shell(24, 80);
+        shell.shell.missing_credential = true;
+        shell.shell.model = "old".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("old", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(50_000),
+            output: Some(10),
+        });
+        assert!(shell.shell.context_meter().is_some(), "the meter was armed");
+
+        shell.shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        assert_eq!(shell.shell.provider, ProviderId::Llmux);
+        assert_eq!(shell.shell.model, "fable");
+        assert!(!shell.shell.missing_credential);
+        assert!(
+            shell.shell.catalog.is_empty(),
+            "the old provider's catalog survived the switch"
+        );
+        assert_eq!(
+            shell.shell.context_meter(),
+            None,
+            "the dropped conversation's tokens survived the switch"
+        );
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.contains("provider=llmux") && row.contains("fresh conversation")),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_catalog_browser_renders_a_context_and_an_effort_column_per_row() {
+        let mut shell = shell(24, 80);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![
+                entry("fable", Some(1_000_000), &["low", "high"]),
+                entry("plain", None, &[]),
+            ],
+        });
+        let document = shell.document();
+        assert!(
+            document.iter().any(|row| row == "[shell] catalog=2 shown"),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "[shell]   fable context=1000000 efforts=low,high"),
+            "{document:?}"
+        );
+        // A provider really may publish neither, and an empty column would read
+        // as a rendering fault rather than as an absent fact.
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "[shell]   plain context=unknown efforts=none"),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn usage_and_max_context_drive_one_context_meter() {
+        // Both halves or no meter. Absent is not zero: a provider that publishes
+        // no usage, and a provider that publishes no window, each leave the
+        // segment off the row rather than putting a nought on it.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+
+        assert_eq!(shell.shell.context_meter(), None, "nothing measured yet");
+
+        // A denominator with no numerator is not a meter.
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+
+        // A numerator with no denominator is not a meter either.
+        let mut bare = fixture_with_no_catalog();
+        bare.shell.model = "fable".to_string();
+        bare.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(bare.shell.context_meter(), None);
+        assert!(!bare.hint().contains("Context"), "{}", bare.hint());
+
+        // Both, and exactly one segment.
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        let row = shell.hint();
+        assert!(row.contains("Context: 12k/200k 6%"), "{row}");
+        assert_eq!(row.matches("Context:").count(), 1, "{row}");
+    }
+
+    #[test]
+    fn the_meter_counts_the_input_tokens_and_not_the_output_ones() {
+        // The policy, pinned literally because it is a judgement rather than an
+        // arithmetic fact. What a context meter answers is "how much of the
+        // window does the next request carry", and the next request carries the
+        // conversation the provider has just counted as its *input*. Adding the
+        // output would count this turn's answer twice -- once as output now, and
+        // again inside the input of the turn after it.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(30_000),
+            output: Some(20_000),
+        });
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((30_000, 100_000)),
+            "the meter added the output tokens to the input ones"
+        );
+        assert!(shell.hint().contains("30k/100k"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn a_turn_that_published_no_usage_leaves_the_meter_off() {
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: None,
+            output: None,
+        });
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn the_denominator_follows_the_model_in_force() {
+        // The catalog is a list; the meter is about one row of it, and which row
+        // is decided by the model a turn will actually talk to -- by id or by
+        // alias, because the model in force is whatever the profile spelled.
+        let mut shell = shell(24, 80);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![
+                entry("small", Some(8_000), &[]),
+                entry("large", Some(900_000), &[]),
+            ],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(4_000),
+            output: None,
+        });
+        shell.shell.model = "small".to_string();
+        assert_eq!(shell.shell.context_meter(), Some((4_000, 8_000)));
+        shell.shell.model = "vendor/large".to_string();
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((4_000, 900_000)),
+            "the id spelling did not select the same row its alias does"
+        );
+        shell.shell.model = "absent-from-this-catalog".to_string();
+        assert_eq!(
+            shell.shell.context_meter(),
+            None,
+            "a model the catalog does not publish was given a window anyway"
+        );
+    }
+    #[test]
+    fn a_new_session_clears_the_meter_it_measured_and_keeps_the_window() {
+        // `/new` drops the conversation on the runtime thread
+        // (`super::worker`'s `TurnWork::New` arm), and the meter's numerator is
+        // a measurement **of that conversation**. Left standing it would report
+        // the old conversation's tokens against the fresh one -- a number the
+        // provider never said about the session on the screen, which is the one
+        // thing this row must never do.
+        //
+        // The **denominator stays**. It is the model's context window, and
+        // `/new` changes neither the provider nor the model: clearing it would
+        // throw away a fact that is still true and cost a socket to learn again.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        assert!(shell.hint().contains("Context"), "{}", shell.hint());
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::New,
+            "the conversation drop never reached the thread that owns it"
+        );
+
+        assert_eq!(
+            shell.shell.context_used, None,
+            "the old conversation's tokens survived the session that ended"
+        );
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+        assert_eq!(
+            shell.shell.catalog.len(),
+            1,
+            "the model's context window was thrown away with the conversation"
+        );
+        // Both halves again, and the row is a meter again -- which is what
+        // proves the denominator really was kept rather than merely unread.
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(7),
+            output: None,
+        });
+        assert_eq!(shell.shell.context_meter(), Some((7, 200_000)));
+    }
+
+    #[test]
+    fn a_new_session_the_runtime_refused_keeps_the_conversation_and_its_meter() {
+        // The other side of the same ordering `send` has: nothing is thrown
+        // away for a submission the runtime would not take. A refused `/new`
+        // means the conversation is still there, so its measurement is still
+        // about the session on the screen and clearing it would be a lie in the
+        // opposite direction.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: None,
+        });
+
+        // Fill the queue: one in flight and one waiting is everything the
+        // session holds (`super::worker::WORK_LIMIT`).
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.shell.notice,
+            Some(QUEUE_REJECTED),
+            "the refused /new did not say so on the hint row"
+        );
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((12_345, 200_000)),
+            "a /new the runtime refused cleared the meter of a conversation that is still there"
         );
     }
 }

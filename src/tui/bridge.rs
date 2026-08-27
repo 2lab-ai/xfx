@@ -136,6 +136,45 @@ pub(crate) enum UiEvent {
     Notice(String),
     /// A question only the person at the terminal can answer (Task 17).
     Approval(ApprovalRequest),
+    /// A provider switch committed and the configuration was re-read.
+    ///
+    /// Sent **after** the reload, never after the write: what it carries is what
+    /// the configuration now says, not what the writer intended. The two differ
+    /// exactly when a layer above the profile outranks it, which is the case an
+    /// operator most needs told about and the one an event built from the
+    /// report would get wrong.
+    ProviderSelected {
+        provider: crate::provider::ProviderId,
+        model: String,
+        /// Whether the **new** provider has nothing to authenticate with.
+        ///
+        /// Carried rather than recomputed by the UI, because the question is
+        /// `crate::provider::resolve_credential_for`'s and it needs the whole
+        /// reloaded configuration to answer -- which lives on the runtime
+        /// thread. Without it the hint row's leading segment would keep
+        /// answering for the provider the session *used* to have: a machine
+        /// with no Gateway key that has just switched to a keyless local daemon
+        /// would go on being told to run `xfx setup`.
+        missing_credential: bool,
+    },
+    /// The provider's model catalog, bounded to what the UI will render.
+    ///
+    /// One event per load. The load happens on the runtime thread because it
+    /// opens a socket, and the UI thread must never be the thread that waits.
+    CatalogLoaded {
+        provider: crate::provider::ProviderId,
+        entries: Vec<crate::provider::model::CatalogEntry>,
+    },
+    /// What a **completed** turn spent.
+    ///
+    /// Both halves optional because a provider really may publish neither
+    /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
+    /// number must stay absent: a meter that showed nought per cent for a turn
+    /// nobody measured would be reporting a measurement that was never taken.
+    Usage {
+        input: Option<u64>,
+        output: Option<u64>,
+    },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The runtime cannot continue. **Terminal.**
@@ -181,6 +220,37 @@ impl UiEvent {
                 detail: inert_owned(detail),
             },
             Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // The provider is an enum this crate wrote; the model id is a
+            // string that came out of a settings file or a daemon's catalog,
+            // and is therefore exactly as foreign as a delta.
+            Self::ProviderSelected {
+                provider,
+                model,
+                missing_credential,
+            } => Self::ProviderSelected {
+                provider,
+                model: inert_owned(model),
+                missing_credential,
+            },
+            // **Every string of every row.** A catalog is a document a daemon
+            // on a port serves, so its ids, its display names and its effort
+            // labels are all text the terminal would obey if it were let
+            // through -- and they are about to be painted, one per row.
+            Self::CatalogLoaded { provider, entries } => Self::CatalogLoaded {
+                provider,
+                entries: entries
+                    .into_iter()
+                    .map(|entry| crate::provider::model::CatalogEntry {
+                        id: inert_owned(entry.id),
+                        aliases: entry.aliases.into_iter().map(inert_owned).collect(),
+                        name: entry.name.map(inert_owned),
+                        efforts: entry.efforts.into_iter().map(inert_owned).collect(),
+                        max_context: entry.max_context,
+                    })
+                    .collect(),
+            },
+            // Two numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input, output } => Self::Usage { input, output },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -243,6 +313,20 @@ pub(crate) enum TurnWork {
     Submit(String),
     /// Change the model, with the shell's own `/model` meaning.
     Model(String),
+    /// Switch to this provider: prepare, commit, reload, swap.
+    ///
+    /// A piece of *work* for the same reason `Model` and `New` are, and more
+    /// so: it performs network I/O, it writes a file, and it replaces the
+    /// configuration, the bundle and the conversation together. None of that may
+    /// happen under a running turn, and none of it may happen on the thread
+    /// holding the terminal.
+    Setup(crate::provider::ProviderId),
+    /// Load the configured provider's model catalog.
+    ///
+    /// Work rather than a control message because it opens a socket. The UI
+    /// thread sits in `pselect(2)` holding the terminal and may not wait for a
+    /// daemon that is not answering.
+    Catalog,
     /// Drop the conversation, with the shell's own `/new` meaning: the next
     /// prompt opens a fresh session.
     ///
@@ -1283,5 +1367,90 @@ mod tests {
             "the text itself did not land: {}",
             String::from_utf8_lossy(&out)
         );
+    }
+    /// A catalog row carrying an escape sequence in every string it has.
+    fn hostile_entry() -> crate::provider::model::CatalogEntry {
+        crate::provider::model::CatalogEntry {
+            id: "id\u{1b}[2J".to_string(),
+            aliases: vec!["alias\u{1b}]0;pwned\u{7}".to_string()],
+            name: Some("name\u{1b}[H".to_string()),
+            efforts: vec!["high\u{1b}[3J".to_string()],
+            max_context: Some(200_000),
+        }
+    }
+
+    #[test]
+    fn catalog_rows_are_made_inert_in_every_string_they_carry() {
+        // A catalog is a document a daemon on a port serves. Its ids, its
+        // display names and its effort labels are all about to become rows on a
+        // terminal, so all of them are exactly as foreign as a delta -- and the
+        // policy is applied at the channel rather than at the painter, so a
+        // later reader of this event inherits it.
+        let event = UiEvent::CatalogLoaded {
+            provider: crate::provider::ProviderId::Llmux,
+            entries: vec![hostile_entry()],
+        }
+        .made_inert();
+        let UiEvent::CatalogLoaded { entries, .. } = event else {
+            panic!("the variant changed");
+        };
+        let entry = &entries[0];
+        for text in std::iter::once(&entry.id)
+            .chain(entry.aliases.iter())
+            .chain(entry.name.iter())
+            .chain(entry.efforts.iter())
+        {
+            assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
+            assert!(
+                !text.chars().any(char::is_control),
+                "{text:?} still carries a control character"
+            );
+        }
+        assert_eq!(entry.max_context, Some(200_000), "a number is not text");
+    }
+
+    #[test]
+    fn a_selected_providers_model_is_made_inert_and_its_two_facts_are_not_text() {
+        let event = UiEvent::ProviderSelected {
+            provider: crate::provider::ProviderId::Llmux,
+            model: "model\u{1b}[2J".to_string(),
+            missing_credential: true,
+        }
+        .made_inert();
+        let UiEvent::ProviderSelected {
+            model,
+            missing_credential,
+            provider,
+        } = event
+        else {
+            panic!("the variant changed");
+        };
+        assert!(!model.contains('\u{1b}'), "{model:?}");
+        assert!(missing_credential, "the fact survived the sanitizing");
+        assert_eq!(provider, crate::provider::ProviderId::Llmux);
+    }
+
+    #[test]
+    fn neither_new_work_item_nor_usage_is_a_terminal_event() {
+        // The drain leaves on exactly the two events a turn cannot continue
+        // past. A catalog or a usage number that answered `true` would end the
+        // drain while the worker still owed its conclusion.
+        assert!(!UiEvent::Usage {
+            input: Some(1),
+            output: Some(2)
+        }
+        .is_terminal());
+        assert!(!UiEvent::CatalogLoaded {
+            provider: crate::provider::ProviderId::Gateway,
+            entries: Vec::new()
+        }
+        .is_terminal());
+        assert!(!UiEvent::ProviderSelected {
+            provider: crate::provider::ProviderId::Gateway,
+            model: "m".to_string(),
+            missing_credential: false
+        }
+        .is_terminal());
+        assert!(UiEvent::TurnEnded { failure: None }.is_terminal());
     }
 }

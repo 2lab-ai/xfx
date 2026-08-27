@@ -123,11 +123,21 @@ impl Activity {
     }
 
     /// Records how many tokens the turn has spent so far.
-    // Staged. Nothing on the Phase-1 path produces a usage number: the streamed
-    // event set is closed (`crate::output::Event`) and carries none, so the row
-    // shows a token count only once a turn reports one. The formatting and its
-    // absence are both tested, so the day the event arrives this is a call site
-    // rather than a feature.
+    // Still staged, and the reason has changed. A usage number now exists
+    // ([`super::bridge::UiEvent::Usage`]) -- what it is not is a number about a
+    // turn that is *running*: the provider publishes one total, once, for a turn
+    // that has **completed** (`agent::TurnOutcome::usage`), and it arrives
+    // immediately before the conclusion that takes this row off the screen. So
+    // the number it would put here would be visible for less than a frame and
+    // would be about a turn that had just ended, which is not what a row headed
+    // `Thinking` says. Where it does belong is the hint row's context meter,
+    // which is about the session rather than about one turn
+    // (`super::shell::Shell::context_meter`), and that is where it is used.
+    //
+    // What is kept here is the *per-step* meaning this row would want: a running
+    // total published while the turn is still going. Nothing produces one today.
+    // The formatting and its absence are both tested, so the day a provider
+    // streams incremental usage this is a call site rather than a feature.
     #[allow(dead_code)]
     pub(crate) fn tokens(&mut self, count: u64) {
         self.tokens = count;

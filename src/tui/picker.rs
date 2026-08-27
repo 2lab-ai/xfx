@@ -39,10 +39,14 @@ use crate::interactive::{SlashSpec, SLASH_REGISTRY};
 
 /// The most rows the menu takes, however many commands match.
 ///
-/// Six is the whole registry today, so an ordinary screen shows every match
-/// without scrolling; the window exists for the screens -- and the registries --
-/// where it cannot ([`Picker::rows`]).
-const MOST_ROWS: u16 = 6;
+/// **The registry's own size**, so an ordinary screen shows every match without
+/// scrolling; the window exists for the screens where it cannot
+/// ([`Picker::rows`]). Derived rather than spelled, because a literal here is a
+/// second declaration of how many commands there are: written as `6` it was
+/// exactly right until `/setup` made the palette seven, at which point a bare
+/// `/` would have quietly stopped offering `/quit` -- the menu would have looked
+/// complete and been one command short.
+const MOST_ROWS: u16 = SLASH_REGISTRY.len() as u16;
 
 /// The rows the rest of the band needs before the menu may have any.
 ///
@@ -453,9 +457,10 @@ mod tests {
             ranks(&live)
         );
         // Deterministic within a rank: registry order, which is `/help`'s.
+        // `/setup` joins them on its `e`, in registry order like the rest.
         assert_eq!(
             names(&live)[1..],
-            ["/help", "/new", "/clear", "/model", "/version"]
+            ["/help", "/new", "/clear", "/model", "/setup", "/version"]
         );
     }
 

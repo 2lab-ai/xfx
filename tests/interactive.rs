@@ -253,27 +253,36 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 }
 
 // ---------------------------------------------------------------------------
-// the six slash commands
+// the canonical slash commands
 // ---------------------------------------------------------------------------
 
 #[test]
-fn slash_help_lists_exactly_the_six_commands() {
+fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/help");
     let text = session.wait_for_count(PROMPT, 2);
-    for command in ["/help", "/new", "/clear", "/model", "/version", "/quit"] {
+    // The list is read out of the binary's own declaration rather than spelled
+    // here: a name added to `SLASH_COMMANDS` and forgotten by `/help` is what
+    // this is for, and a copy of the list in the test could be forgotten in the
+    // same edit.
+    for command in xfx::interactive::SLASH_COMMANDS {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
+    assert!(
+        text.contains("/setup"),
+        "the seventh canonical command is not advertised: {text}"
+    );
     // Advertisement is a promise here too: no deferred upstream slash command
-    // may appear.
+    // may appear. `/setup` left this list when it stopped being deferred;
+    // `/models` and `/provider` did not, because the catalog browser is reached
+    // by a bare `/model` rather than by a command of its own.
     for absent in [
         "/resume",
         "/status",
         "/login",
-        "/setup",
         "/permissions",
         "/models",
         "/provider",
@@ -548,9 +557,15 @@ fn an_unknown_slash_command_is_refused_with_the_same_words_every_time() {
     let refusals = diagnostics(&text);
     assert_eq!(refusals.len(), 2, "{text}");
     assert_eq!(refusals[0], refusals[1], "the refusal is not deterministic");
+    // Derived, not spelled: the sentence quotes the registry's own count, so a
+    // command added to the palette cannot leave this line saying a number the
+    // shell no longer has.
     assert_eq!(
         refusals[0],
-        "xfx: `/nonesuch` is not an xfx command; /help lists the six it has"
+        format!(
+            "xfx: `/nonesuch` is not an xfx command; /help lists its {} commands",
+            xfx::interactive::SLASH_COMMANDS.len()
+        )
     );
 
     // A slash command that is not one is never sent to a model: there is no
@@ -590,7 +605,10 @@ fn an_unknown_command_cannot_paint_on_the_terminal_through_the_refusal() {
         refusal.len()
     );
     assert!(
-        refusal.ends_with("/help lists the six it has"),
+        refusal.ends_with(&format!(
+            "/help lists its {} commands",
+            xfx::interactive::SLASH_COMMANDS.len()
+        )),
         "the guidance was pushed off the line: {refusal:?}"
     );
     // The shell is unharmed and still answering.

@@ -25,8 +25,11 @@ cli ─┬─► app ──► agent ──► gateway ──► (network)
   and the diagnostics that explain a settings file it could not use.
 - **`app`** is composition and dispatch: one place that turns a parsed
   invocation into bytes on a stream and an exit code.
-- **`interactive`** is the loop a bare `xfx` runs. It adds a prompt, six slash
-  commands, and an interrupt policy on top of the same services `ask` uses.
+- **`interactive`** is the loop a bare `xfx` runs. It adds a prompt, the seven
+  slash commands of `SLASH_REGISTRY`, and an interrupt policy on top of the same
+  services `ask` uses. The count is the registry's: `/help`, the refusal for an
+  unknown command, and the TUI's completion menu all derive it rather than
+  spell it, so adding a command does not leave a stale number behind.
 - **`gateway`** is the provider boundary. `Provider` is a trait, so a turn can
   be driven by a scripted stream in a test and a real socket in the binary.
 - **`agent`** is the turn state machine: bounded steps, ordered assistant text,

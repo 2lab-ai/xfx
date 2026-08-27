@@ -172,7 +172,7 @@ slash_aliases_from() {
 # Every backticked identifier in the *notes* column of the row named `$3`, of
 # kind `$2`, in `$1`. The surface column is `parity_mentioned_names`' business;
 # this is the one an alias is documented in, because an alias may not have a
-# surface cell of its own without becoming a seventh advertised name.
+# surface cell of its own without becoming an advertised command in its own right.
 parity_notes_names() {
 	awk -v kind="$2" -v name="$3" -F' *\\| *' '
 		NF < 6 { next }
@@ -321,8 +321,8 @@ if [ -f "$shell_source" ]; then
 	# Reconciled against the *notes* of the row of the command they name, both
 	# ways. An alias is a name the parser answers, so it is a promise; it is not
 	# a command, so it may not have a surface cell of its own -- a row named
-	# `/exit` would be a seventh advertised slash command, and the count of
-	# those is the product decision this whole section exists to protect.
+	# `/exit` would make it an advertised slash command, and how many of those
+	# there are is the product decision this whole section exists to protect.
 	if ! grep -q 'pub const SLASH_REGISTRY: &\[SlashSpec\] = &\[' "$shell_source"; then
 		fail "$shell_source does not declare SLASH_REGISTRY; the alias inventory is unverifiable"
 	else

@@ -2403,8 +2403,8 @@ fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
 
 #[test]
 fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
-    // plan:109 -- the TUI answers exactly the six `interactive::SLASH_COMMANDS`
-    // and nothing else. The gateway is scripted with a reply nobody should ever
+    // plan:109 -- the TUI answers exactly `interactive::SLASH_COMMANDS` and
+    // nothing else. The gateway is scripted with a reply nobody should ever
     // see: a command that reached the provider would both show that marker and
     // leave a request behind.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
@@ -2418,9 +2418,9 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
-    // types: `/help`'s summary line, `/version`'s channel, the model report,
-    // `/new`'s sentence, `/clear`'s promise, and a name that is not one of the
-    // six.
+    // types: `/help`'s closing line, `/version`'s channel, the model report,
+    // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
+    // name the registry does not carry.
     session.type_bytes(b"/help\r");
     // The **closing** line of the help page rather than a summary out of the
     // middle of it: the completion menu shows the same summaries while the name
@@ -2431,6 +2431,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for("xfx 0.");
     session.type_bytes(b"/model\r");
     session.wait_for("[shell] model=");
+    // Bare, so it refuses without switching anything -- which still proves the
+    // name is answered by the session, and still costs the provider nothing.
+    session.type_bytes(b"/setup\r");
+    session.wait_for("/setup takes a provider to set up");
     session.type_bytes(b"/new\r");
     session.wait_for("starts a fresh conversation");
     session.type_bytes(b"/notacommand\r");
@@ -2438,9 +2442,9 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/clear\r");
     session.wait_for("the conversation is kept");
 
-    // The sixth, and the reason it leaves this test rather than a Ctrl-D: all
-    // six names are then literally pinned against the zero-request assertion
-    // below rather than five of them.
+    // The last one, and the reason it leaves this test rather than a Ctrl-D:
+    // every canonical name is then literally pinned against the zero-request
+    // assertion below rather than all-but-one of them.
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(
@@ -3793,5 +3797,248 @@ fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really
         after.contains("\u{1b}[30;1H"),
         "the exit re-solved the band from the 24x80 startup fallback for a \
          screen the terminal refused to describe: {after:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// provider switching, the catalog browser and the context meter
+// ---------------------------------------------------------------------------
+
+/// A TUI with a scripted Gateway **and** a scripted llmux both running, the
+/// Gateway selected.
+fn tui_with_both(
+    sandbox: &Sandbox,
+    gateway: &FakeGateway,
+    daemon: &support::fake_llmux::FakeLlmux,
+) -> Command {
+    let mut command = sandbox.command_with_both(gateway, daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command
+}
+
+#[test]
+fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
+    // Scenario 18. Two fixtures are up and only one may be asked. With a single
+    // fixture running, "the prompt went to the other provider" and "the prompt
+    // went nowhere" are the same observation -- so the claim is made with both
+    // listening and a marker that can only have come from one of them.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-THE-GATEWAY-ANSWERED"]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-THE-DAEMON-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+
+    // Before: the profile says gateway, and that is what the band says too.
+    assert_eq!(
+        sandbox.settings().expect("a seeded profile")["provider"],
+        "gateway"
+    );
+
+    session.type_bytes(b"/setup llmux\r");
+    // The line the switch is *finished* on: it is sent after the file was
+    // written and the configuration re-read from it, so waiting for it is
+    // waiting for the reload rather than for the write.
+    session.wait_for("provider=llmux");
+
+    // The file, read rather than believed. A band that said `provider=llmux`
+    // over a profile that still said gateway would be the exact failure the
+    // reload exists to prevent.
+    let settings = sandbox.settings().expect("a profile after the switch");
+    assert_eq!(settings["provider"], "llmux");
+    assert_eq!(
+        settings["llmux_url"],
+        daemon.url(),
+        "the switch recorded a url other than the daemon it probed"
+    );
+    assert_eq!(
+        settings["models"]["gateway"], "zai/glm-5.2",
+        "switching away from a provider lost the model chosen for it"
+    );
+
+    session.type_bytes(b"say the marker\r");
+    session.wait_for("MARKER-THE-DAEMON-ANSWERED");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The whole of scenario 18: exactly one data-plane request, and it reached
+    // the daemon that was switched to.
+    let asked = daemon.only_message_request();
+    // Read out of the daemon's own wire shape rather than the Gateway's: the
+    // switch changed which protocol the turn speaks, which is half of what
+    // "the provider changed" means. `user_messages` reads the Gateway's
+    // `prompt` array and there is deliberately none here.
+    let body: Value = serde_json::from_str(&asked.body).expect("a json body");
+    let sent = serde_json::to_string(&body["messages"]).expect("the messages array");
+    assert!(
+        sent.contains("say the marker"),
+        "the daemon was asked something else: {sent}"
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the provider that was switched away from was still asked"
+    );
+    let text = session.settled_text();
+    assert!(
+        !text.contains("MARKER-THE-GATEWAY-ANSWERED"),
+        "the old provider answered after the switch: {text:?}"
+    );
+}
+
+#[test]
+fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_write() {
+    // Scenario 19. Four claims: the rows carry the two columns a daemon
+    // publishes, a selection is written where a restart will read it, the
+    // restart really continues in it, and the report names the layer that
+    // outranks the file it just wrote.
+    use support::fake_llmux::CatalogModel;
+    let catalog = support::fake_llmux::described_catalog(&[
+        CatalogModel {
+            id: "claude-fable-5[1m]",
+            aliases: &["fable"],
+            efforts: &["low", "high"],
+            max_context: Some(1_000_000),
+        },
+        // The other shape a real daemon sends: no window, no efforts. It is what
+        // makes the `unknown` and `none` columns reachable at all.
+        CatalogModel {
+            id: "plain-model",
+            aliases: &[],
+            efforts: &[],
+            max_context: None,
+        },
+    ]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["answered by the daemon"]),
+    )])
+    .with_catalog(catalog);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+
+    // A bare `/model` browses. The report is painted first and without waiting
+    // for the daemon; the rows arrive from the runtime thread afterwards.
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] catalog=");
+    session.wait_for("fable context=1000000 efforts=low,high");
+    // Both shapes, so the columns are proven to render a fact and its absence
+    // rather than only the happy one.
+    session.wait_for("plain-model context=unknown efforts=none");
+
+    // Select one of them, and leave.
+    session.type_bytes(b"/model plain-model\r");
+    session.wait_for("[shell] model=plain-model");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // A `/model` selection is a session preference rather than a profile write:
+    // the profile still names what `setup` put there, which is the honest
+    // division and the reason the next assertion uses `/setup` for persistence.
+    assert_eq!(
+        sandbox.settings().expect("a profile")["models"]["llmux"],
+        "m-1"
+    );
+
+    // The restart, with a layer above the profile in force. `XFX_MODEL`
+    // outranks the file, so the report has to *say so* -- a setup that wrote a
+    // model the environment overrides and reported success would be a receipt
+    // for a change with no effect.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut restarted = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env("XFX_MODEL", "fable");
+        command.env_remove("TMUX");
+        command
+    });
+    restarted.wait_for(READY);
+    restarted.type_bytes(b"/setup llmux\r");
+    // The caveat lands **before** the selection it is about, so it is read as a
+    // qualification of this switch rather than as news about the next thing.
+    restarted.wait_for("XFX_MODEL");
+    restarted.wait_for("outranks the profile");
+    restarted.wait_for("provider=llmux");
+    restarted.type_bytes(&[0x04]);
+    assert_eq!(restarted.wait_exit().code(), Some(0));
+
+    // And the write really happened underneath the override.
+    assert_eq!(sandbox.settings().expect("a profile")["provider"], "llmux");
+}
+
+#[test]
+fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
+    // The default machine: the Gateway, which publishes no catalog endpoint
+    // this port has evidence for. `/model` there has nothing to browse, and
+    // that is a fact about the provider rather than something that went wrong
+    // -- so the band must say it in the line shell's own words and **must not**
+    // dress it as a failed turn. Reported as one, every Gateway user's first
+    // `/model` reads as a broken session.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-A-MODEL-BROWSE-ASKED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] model=");
+    // Byte for byte what `xfx`'s line shell prints for the same fact, from the
+    // one declaration both surfaces read.
+    session.wait_for("[shell] catalog=unavailable (this provider advertises none)");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    // **The line stands on its own.** `xfx: ` is how this surface prefixes a
+    // turn that went wrong, so the test is not "the words appear somewhere" --
+    // a failure carrying the same words would satisfy that and is exactly the
+    // regression being guarded. Every line that mentions the catalog must be
+    // free of that prefix.
+    let mentions: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("catalog=") || line.contains("catalog"))
+        .collect();
+    assert!(
+        !mentions.is_empty(),
+        "the browse said nothing about the catalog at all: {text:?}"
+    );
+    for line in &mentions {
+        assert!(
+            !line.contains("xfx:"),
+            "a provider with no catalog was reported as a turn failure: {line:?}"
+        );
+    }
+    assert!(
+        !text.contains("advertises no model catalog"),
+        "the failure-shaped wording reached the screen: {text:?}"
+    );
+    // And browsing a catalog that does not exist costs no request at all.
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a bare /model reached the provider"
     );
 }

@@ -88,13 +88,16 @@ pub(crate) struct Hint<'a> {
     /// How much of the model's context window the conversation has spent, as
     /// `(used, total)` in tokens.
     ///
-    /// `None` when nobody has measured it, which on every Phase-1 path is
-    /// always: no [`super::bridge::UiEvent`] carries a usage number, and the
-    /// Gateway publishes no context window to be the denominator either (only
-    /// the llmux catalog does, `provider::model::CatalogEntry::max_context`).
-    /// The row therefore says nothing about context rather than reporting a
-    /// zero nobody measured -- the same rule, and the same staging, as the
-    /// activity row's token count ([`super::activity::Activity::tokens`]).
+    /// `None` when nobody has measured it, and **both halves have to be there**
+    /// for anybody to have. The numerator is a completed turn's `input_tokens`
+    /// ([`super::bridge::UiEvent::Usage`]) and the denominator is the catalog's
+    /// `max_context` for the model in force
+    /// (`provider::model::CatalogEntry::max_context`) -- and either can
+    /// legitimately be absent: a provider need not publish usage, and the
+    /// Gateway publishes no catalog to hold a window at all. So a missing half
+    /// removes the segment rather than defaulting it: a row that filled one in
+    /// with a zero would report a measurement nobody took. `super::shell`'s
+    /// `context_meter` is where the two are put together.
     pub(crate) context_used: Option<(u64, u64)>,
     /// A refusal to show instead of the left-hand segments, if one has just
     /// happened.
@@ -576,5 +579,57 @@ mod tests {
         hint.model = "anthropic/";
         hint.queued = 2;
         assert_eq!(row(&hint, 80), "queued 2 · ask");
+    }
+    #[test]
+    fn the_meter_says_both_numbers_and_the_percentage_between_them() {
+        // render.zig:441-452. Thousands, because the row has no room for six
+        // digits and nobody reads them: the question the segment answers is how
+        // close the conversation is to the end of the window.
+        let mut hint = hint();
+        hint.context_used = Some((12_345, 200_000));
+        let painted = row(&hint, 80);
+        assert!(painted.contains("Context: 12k/200k 6%"), "{painted}");
+
+        // A window of zero is a number a provider can publish, and it reads as
+        // nought per cent rather than as a division.
+        hint.context_used = Some((10, 0));
+        let painted = row(&hint, 80);
+        assert!(painted.contains("Context: 0k/0k 0%"), "{painted}");
+    }
+
+    #[test]
+    fn a_session_that_has_measured_nothing_says_nothing_about_context() {
+        // Absent is not zero. The segment is off the row entirely rather than
+        // reporting `0k/0k`, which would be a measurement nobody took.
+        let hint = hint();
+        assert_eq!(hint.context_used, None);
+        let painted = row(&hint, 80);
+        assert!(!painted.contains("Context"), "{painted}");
+        // And its separator goes with it: a segment that contributed nothing but
+        // still took a `·` would leave one with nothing on one side of it.
+        assert!(!painted.ends_with(SEPARATOR), "{painted}");
+    }
+
+    #[test]
+    fn the_meter_is_the_first_segment_a_narrow_screen_gives_up() {
+        // The order is a priority and the meter is last, so on a screen too
+        // narrow for everything the segments that survive are the ones the user
+        // needed most -- the model above all, because it is what they check
+        // before pressing Return.
+        let mut hint = hint();
+        hint.context_used = Some((12_345, 200_000));
+        let wide = row(&hint, 80);
+        assert!(wide.contains("Context"), "{wide}");
+        assert!(wide.contains("opus 4-7"), "{wide}");
+
+        let narrow = row(&hint, 20);
+        assert!(
+            !narrow.contains("Context"),
+            "the meter outlived a segment that matters more: {narrow}"
+        );
+        assert!(
+            narrow.contains("opus 4-7"),
+            "the model was dropped before the meter: {narrow}"
+        );
     }
 }

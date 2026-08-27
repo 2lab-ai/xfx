@@ -16,7 +16,9 @@
 //!    keyless loopback request, which is the whole credential story.
 //! 3. **Record it.** `backend`, `llmux_url` and `model` are merged into
 //!    `~/.xfx/settings.json`, preserving every other key, and written through a
-//!    staged file and a rename.
+//!    staged file and a rename. The merge and the write are two steps
+//!    ([`prepare`] and `crate::provider::setup::commit`) rather than one, so a
+//!    caller can hold the exact document before any of it reaches disk.
 //!
 //! Two things it deliberately does not do. It sends **no completion request**:
 //! the root ping and the catalog are the receipt, and a setup command that spent
@@ -40,7 +42,7 @@ use crate::provider::profile;
 use super::DEFAULT_URL;
 
 // Re-export the shared setup types from provider::setup
-pub use crate::provider::setup::{SetupError, SetupReport};
+pub use crate::provider::setup::{PreparedSetup, SetupError, SetupReport};
 
 /// The body `GET /` answers on a real daemon
 /// (`2lab-ai/llmux@79f66748656b src/proxy/server.rs:1240`).
@@ -50,11 +52,34 @@ const ROOT_BODY: &str = "llmux";
 const LLMUX_CONFIG_FILE: &str = "llmux.json";
 
 /// Runs the whole command: discover, probe, choose, record.
+///
+/// **Defined as [`prepare`] then `commit`.** Everything it used to do inline it
+/// still does, in the same order and with the same result on disk; what moved is
+/// where the write is, and that move is what lets a caller hold the exact
+/// document before any of it has happened.
 pub async fn run(
     config: &RuntimeConfig,
     env: &Environment,
     explicit_url: Option<&str>,
 ) -> Result<SetupReport, SetupError> {
+    let prepared = prepare(config, env, explicit_url).await?;
+    crate::provider::setup::commit(&prepared)?;
+    Ok(prepared.report)
+}
+
+/// Discovery, the catalog probe, the model selection and the merge -- unwritten.
+///
+/// This is the whole of what used to sit between `run`'s first line and its
+/// `profile::write`. It was inline, which is why a caller could not compute the
+/// expected document beforehand: the URL is not known until the probe answers,
+/// and the model is not known until the catalog does. Both are network facts, so
+/// they cannot be predicted -- they can only be *performed first*, which is what
+/// this does.
+pub async fn prepare(
+    config: &RuntimeConfig,
+    env: &Environment,
+    explicit_url: Option<&str>,
+) -> Result<PreparedSetup, SetupError> {
     let (url, catalog) = discover(config, env, explicit_url).await?;
     let settings_path = config
         .user_settings_path
@@ -92,21 +117,21 @@ pub async fn run(
         model: &model,
         llmux_url: Some(&url),
     };
-    profile::write(&settings_path, existing, &selection).map_err(|err| SetupError::Write {
-        provider: crate::provider::ProviderId::Llmux,
-        path: settings_path.clone(),
-        detail: err.to_string(),
-    })?;
-    Ok(SetupReport {
-        provider: crate::provider::ProviderId::Llmux,
-        url: Some(url),
-        models: Some(catalog.len()),
-        model,
-        model_reason,
-        credential: Some(crate::provider::setup::CredentialSource::KeylessLoopback),
+    let document = profile::document_for(existing, &selection);
+    Ok(PreparedSetup {
+        report: SetupReport {
+            provider: crate::provider::ProviderId::Llmux,
+            url: Some(url),
+            models: Some(catalog.len()),
+            model,
+            model_reason,
+            credential: Some(crate::provider::setup::CredentialSource::KeylessLoopback),
+            settings_path: settings_path.clone(),
+            overridden_by: overriding_layers(config),
+            credential_warning: None,
+        },
         settings_path,
-        overridden_by: overriding_layers(config),
-        credential_warning: None,
+        document,
     })
 }
 
@@ -117,7 +142,7 @@ pub async fn run(
 /// outside: a shell variable that keeps winning, and a workspace entry pinning
 /// this directory to something else. Neither is an error -- both are things the
 /// operator set on purpose -- so this is a warning, not a refusal.
-fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
+pub(crate) fn overriding_layers(config: &RuntimeConfig) -> Option<String> {
     let mut layers: Vec<String> = Vec::new();
     if config.sources.model == SettingSource::ProcessOverride {
         layers.push(crate::config::ENV_MODEL.to_string());
@@ -814,6 +839,104 @@ mod tests {
     }
 
     /// A config rooted at `home`, built the way the loader builds one.
+    /// A daemon that answers the two halves of the identification and nothing
+    /// else, on a port the kernel chose.
+    ///
+    /// Hermetic on purpose: the first candidate of a real run is
+    /// `127.0.0.1:3456`, which on a developer's machine is a live llmux, so a
+    /// test that let discovery run would reach the operator's own daemon and
+    /// pass or fail depending on whether it happened to be up. This one is named
+    /// explicitly through `--url`, so exactly one socket is opened and it is
+    /// this one.
+    async fn fake_daemon(catalog: String) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind loopback");
+        let url = format!("http://{}", listener.local_addr().expect("addr"));
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let catalog = catalog.clone();
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buffer = vec![0u8; 2048];
+                let Ok(read) = socket.read(&mut buffer).await else {
+                    continue;
+                };
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let body = if request.starts_with("GET /models") {
+                    catalog
+                } else {
+                    ROOT_BODY.to_string()
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+        (url, handle)
+    }
+
+    #[tokio::test]
+    async fn llmux_prepare_returns_the_exact_document_and_writes_nothing() {
+        // The seam this task exists to create. Discovery, the probe, the catalog
+        // and the model selection are all network facts, so a caller cannot
+        // predict the document -- it can only be handed one after they have
+        // happened, which is what `prepare` does. And the path is still
+        // untouched when it is: a caller may drop this and leave the machine
+        // exactly as it found it.
+        let home = tempfile::tempdir().expect("temp home");
+        let workspace = tempfile::tempdir().expect("temp workspace");
+        let catalog = json!({
+            "models": [
+                { "id": "claude-fable-5[1m]", "aliases": ["fable"], "max_context": 1_000_000,
+                  "efforts": ["low", "high"] },
+                { "id": "second", "aliases": [] },
+            ],
+        })
+        .to_string();
+        let (url, server) = fake_daemon(catalog).await;
+
+        let env = Environment::new(Some(home.path().to_path_buf()), Default::default());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let settings = home.path().join(".xfx").join("settings.json");
+
+        let prepared = prepare(&config, &env, Some(&url))
+            .await
+            .expect("prepare against the fake daemon");
+        assert!(
+            !settings.exists(),
+            "prepare wrote the settings file; discovery and selection must precede the write"
+        );
+        assert_eq!(prepared.report.url.as_deref(), Some(url.as_str()));
+        assert_eq!(prepared.report.models, Some(2));
+        assert_eq!(
+            prepared.report.model, "fable",
+            "the daemon's first entry, by its published short name"
+        );
+
+        // The document is exactly what the one serializer makes of the selection
+        // that was just decided -- so `commit` has something to be byte-exact
+        // about.
+        let expected = profile::document_for(
+            Map::new(),
+            &profile::Selection {
+                provider: crate::provider::ProviderId::Llmux,
+                model: "fable",
+                llmux_url: Some(&url),
+            },
+        );
+        assert_eq!(prepared.document, expected);
+
+        crate::provider::setup::commit(&prepared).expect("commit");
+        assert_eq!(fs::read(&settings).expect("read"), prepared.document);
+        server.abort();
+    }
+
     fn test_config(home: &Path) -> RuntimeConfig {
         let workspace = tempfile::tempdir().expect("temp workspace");
         let mut config = RuntimeConfig::load_with(

@@ -13,7 +13,7 @@
 //!
 //! What keeps the two surfaces from drifting is therefore not a single call
 //! site. It is that both parse the same `crate::interactive::SLASH_REGISTRY`
-//! and both dispatch through an **exhaustive** `match` on [`Slash`]: a seventh
+//! and both dispatch through an **exhaustive** `match` on [`Slash`]: another
 //! variant stops *both* from compiling -- this one until it grows an arm and
 //! [`CommandHandlers`] a method, and the line shell's until it grows an arm of
 //! its own -- and `crate::interactive::SLASH_COMMANDS` and the parity ledger
@@ -23,8 +23,8 @@
 //!
 //! An **alias** never reaches this module as itself. `classify` resolves
 //! `/exit` to [`Slash::Quit`] out of `crate::interactive::SLASH_REGISTRY`
-//! before anything here runs, which is why the routing has six arms rather than
-//! six plus however many other names the registry has grown.
+//! before anything here runs, which is why the routing has one arm per
+//! canonical command rather than one per name the registry answers.
 
 use crate::interactive::{Slash, Submitted};
 
@@ -43,14 +43,22 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
+    /// `/setup`, with the rest of the line -- already trimmed, and empty when
+    /// there was none.
+    ///
+    /// The argument is the provider to switch to. It is *not* validated here:
+    /// what a provider name may be is `crate::provider::ProviderId::parse`'s to
+    /// say, and a router that pre-screened it would be a second place that
+    /// decides which backend a prompt can go to.
+    fn setup(&mut self, argument: &str);
 }
 
 /// Calls the one handler `submitted` names, or no handler at all.
 ///
 /// **Anything that is not a command is silence here, not a default.** A blank
-/// line, a prompt and a name that is not one of the six are all things this
+/// line, a prompt and a name the registry does not carry are all things this
 /// module has nothing to say about, and a wildcard arm that "helpfully" fell
-/// back to one of the six would be a way for a typo to run a command.
+/// back to one of the commands would be a way for a typo to run one.
 pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) {
     let Submitted::Command { command, argument } = submitted else {
         return;
@@ -60,6 +68,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::New => handlers.new_session(),
         Slash::Clear => handlers.clear(),
         Slash::Model => handlers.model(argument),
+        Slash::Setup => handlers.setup(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -96,6 +105,9 @@ mod tests {
         fn quit(&mut self) {
             self.calls.push("quit".to_string());
         }
+        fn setup(&mut self, argument: &str) {
+            self.calls.push(format!("setup {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -113,6 +125,7 @@ mod tests {
             ("/model", "model "),
             ("/version", "version"),
             ("/quit", "quit"),
+            ("/setup", "setup "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -139,6 +152,35 @@ mod tests {
             routed("/model acme/model-9"),
             vec!["model acme/model-9".to_string()]
         );
+        assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+    }
+
+    /// Advertising without a handler is what this module exists to make
+    /// impossible, and the claim is made over the **registry** rather than over
+    /// a list written here: a name added to `SLASH_COMMANDS` that nobody routed
+    /// would leave `routed` empty, and a name routed to two handlers would leave
+    /// it with two entries.
+    #[test]
+    fn no_advertised_name_is_advertised_without_a_handler() {
+        for name in SLASH_COMMANDS {
+            let calls = routed(name);
+            assert_eq!(
+                calls.len(),
+                1,
+                "{name} reached {} handlers rather than exactly one",
+                calls.len()
+            );
+        }
+    }
+
+    #[test]
+    fn every_registry_name_and_alias_reaches_a_handler() {
+        use crate::interactive::SLASH_REGISTRY;
+        for spec in SLASH_REGISTRY {
+            for name in std::iter::once(&spec.name).chain(spec.aliases.iter()) {
+                assert_eq!(routed(name).len(), 1, "{name} routes to no handler");
+            }
+        }
     }
 
     #[test]

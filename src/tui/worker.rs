@@ -79,11 +79,13 @@ use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{self, Cancellation, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink};
 use crate::agent::{run_turn_saved, TurnRequest};
-use crate::config::RuntimeConfig;
+use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{open_conversation, Conversation};
 use crate::permission::PermissionSession;
-use crate::provider::Bundle;
+use crate::provider::model::{CatalogEntry, CatalogState, ModelSelector, MAX_RENDERED_MODELS};
+use crate::provider::setup::{setup_transaction, SetupProblem};
+use crate::provider::{Bundle, ProviderId};
 use crate::session::{SessionEvent, SessionStore};
 use crate::workspace::ProjectContext;
 
@@ -517,6 +519,13 @@ fn fatal_before_the_runtime(events: &Sender<UiEvent>, message: &'static str) {
 /// TUI usable on a machine with no credential.
 struct Runtime {
     config: RuntimeConfig,
+    /// The variables and home a reload is allowed to observe.
+    ///
+    /// Captured once, on this thread, rather than read again per reload: a
+    /// provider switch re-reads the *file*, and re-reading the environment
+    /// under a running session would let a variable exported after launch
+    /// change what the session is, which is not a thing a settings write did.
+    env: Environment,
     model: String,
     store: SessionStore,
     conversation: Option<Conversation>,
@@ -525,6 +534,15 @@ struct Runtime {
     /// conversation's authority. Held here rather than made per turn -- see the
     /// module header on what "always" is worth.
     prompter: TuiPrompter,
+    /// The catalog of the **currently configured** provider.
+    ///
+    /// Held across turns because loading it costs a socket and its whole
+    /// contract is "once": `ModelSelector::ensure_catalog` attempts a load only
+    /// from `NotLoaded`, so a failed load stays failed and a second `/model`
+    /// reports the same reason without asking a daemon that is not there again.
+    /// Rebuilt -- not merely cleared -- when the provider changes, because its
+    /// fetcher is that provider's endpoint.
+    selector: ModelSelector,
 }
 
 impl Runtime {
@@ -534,13 +552,31 @@ impl Runtime {
         store: SessionStore,
         prompter: TuiPrompter,
     ) -> Self {
+        Self::with_environment(config, Environment::from_process(), model, store, prompter)
+    }
+
+    /// [`Runtime::new`], with the environment named rather than read.
+    ///
+    /// The seam a unit test holds: a reload is a pure function of a settings
+    /// file and an environment, and a test that had to export a variable into
+    /// the process would race every other test in the binary.
+    fn with_environment(
+        config: RuntimeConfig,
+        env: Environment,
+        model: String,
+        store: SessionStore,
+        prompter: TuiPrompter,
+    ) -> Self {
+        let selector = ModelSelector::new(&config);
         Self {
             config,
+            env,
             model,
             store,
             conversation: None,
             provider: None,
             prompter,
+            selector,
         }
     }
 
@@ -577,6 +613,78 @@ impl Runtime {
             .with_prompter(Box::new(self.prompter.clone()))
     }
 
+    /// Switches the provider a turn talks to, and records the choice.
+    ///
+    /// Runs [`setup_transaction`] and, only on a reload that succeeded, performs
+    /// its step (g). The reload closure is built here because this is where the
+    /// workspace and the environment are: a reload is `RuntimeConfig::load_with`
+    /// and nothing else, which is what keeps this from becoming a second place
+    /// that decides what a settings file means.
+    async fn select_provider(
+        &mut self,
+        provider: ProviderId,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Selected, SetupProblem> {
+        let env = self.env.clone();
+        let workspace = self.config.workspace_root.clone();
+        let reload =
+            move || RuntimeConfig::load_with(&env, &workspace).map_err(|err| err.to_string());
+        let reloaded =
+            setup_transaction(&self.config, &self.env, provider, cancelled, &reload).await?;
+        Ok(self.adopt(reloaded))
+    }
+
+    /// Step (g): the swap, all at once.
+    ///
+    /// **Every field from the reloaded configuration**, never from the report:
+    /// the provider, the model, the URL, the sources and a rejected provider
+    /// value all come from what `load_with` made of the file, so a layer that
+    /// outranks the profile still outranks it and the session says what it will
+    /// really do rather than what the write intended.
+    ///
+    /// The bundle and the conversation are dropped **here and not earlier**, so
+    /// a transaction that failed anywhere above leaves a working session alone.
+    /// They are dropped rather than kept because a conversation carried across a
+    /// switch would replay one provider's history into another's wire format,
+    /// and a bundle is a connection to an endpoint that is no longer configured.
+    fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
+        self.config = reloaded;
+        self.model = self.config.model.clone();
+        self.selector = ModelSelector::new(&self.config);
+        self.provider = None;
+        self.conversation = None;
+        // Asked of the **new** provider, here, where the reloaded configuration
+        // is: the UI holds a bool rather than a configuration, so this is the
+        // only place the question can be answered after a switch.
+        let missing_credential =
+            crate::provider::resolve_credential_for(self.config.provider, &self.config).is_none();
+        Selected {
+            provider: self.config.provider,
+            model: self.model.clone(),
+            missing_credential,
+            // Computed from the **reloaded** configuration rather than taken
+            // from the report, and the difference is the whole value of saying
+            // it: the report was decided before the write, against the
+            // configuration that was; this is what outranks the file now that it
+            // has been written. A setup that recorded a model an `XFX_MODEL` in
+            // the shell overrides, and reported plain success, would be a
+            // receipt for a change with no effect.
+            overridden_by: crate::llmux::setup::overriding_layers(&self.config),
+        }
+    }
+
+    /// The configured provider's catalog, bounded to what the UI will render.
+    ///
+    /// **Once per provider.** `ensure_catalog` attempts a load only from
+    /// `NotLoaded`, so a failure is remembered: a second `/model` on a daemon
+    /// that is not there reports the same reason without opening a second
+    /// socket. The bound is applied here rather than at the painter because it
+    /// is the *event* that should not carry ten thousand rows across a channel
+    /// the UI drains one frame at a time.
+    async fn catalog(&mut self) -> CatalogAnswer {
+        from_state(self.selector.ensure_catalog().await)
+    }
+
     /// What `/model <id>` means, with the line shell's own meaning.
     ///
     /// The model a turn talks to, from the next turn on, and a durable record
@@ -598,6 +706,61 @@ impl Runtime {
                 });
         }
     }
+}
+
+/// What a provider switch produced, once the reload has said so.
+#[derive(Debug, PartialEq, Eq)]
+struct Selected {
+    provider: ProviderId,
+    model: String,
+    missing_credential: bool,
+    /// The layer that still outranks the profile the switch just wrote, if
+    /// there is one. `None` is the ordinary case and says nothing.
+    overridden_by: Option<String>,
+}
+
+/// What a `/model` browse produced.
+///
+/// **Three answers, not two**, and the third is the whole point: "there is
+/// nothing to browse" and "xfx could not ask" are different claims about
+/// different things. The first is a property of the provider -- the Gateway
+/// publishes no catalog endpoint this port has evidence for
+/// (`crate::provider::model::catalog_for`) -- and reporting it as a turn
+/// failure made every Gateway user's first `/model` read as a broken session.
+/// The second really is a failure and stays one.
+#[derive(Debug, PartialEq, Eq)]
+enum CatalogAnswer {
+    /// The provider's rows, bounded to what the UI will render.
+    Rows(Vec<CatalogEntry>),
+    /// This provider has no catalog at all. Informational.
+    NoneAdvertised,
+    /// There is a catalog and xfx could not read it. Carries the reason.
+    Unread(String),
+}
+
+/// What a UI is given for a catalog in this state.
+///
+/// The whole of `Runtime::catalog` that is not the load itself, split out so
+/// that the mapping is a claim a test can make over all four states without a
+/// socket. `Unavailable` and `NotLoaded` answer the same way because they are
+/// the same fact from the UI's side -- there is nothing to browse -- and
+/// answering rather than panicking keeps a report from taking the session down.
+fn from_state(state: &CatalogState) -> CatalogAnswer {
+    match state {
+        CatalogState::Loaded(entries) => CatalogAnswer::Rows(bounded(entries)),
+        CatalogState::Failed(reason) => CatalogAnswer::Unread(reason.clone()),
+        CatalogState::Unavailable | CatalogState::NotLoaded => CatalogAnswer::NoneAdvertised,
+    }
+}
+
+/// The rows of `entries` a UI will actually be given.
+///
+/// Bounded at the **event** rather than at the painter, because the cost being
+/// avoided is a ten-thousand-row list crossing a channel the UI drains one
+/// frame at a time. A named function rather than a `take` inline so that "the
+/// browser is bounded" is a claim a test can make without a daemon.
+fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
+    entries.iter().take(MAX_RENDERED_MODELS).cloned().collect()
 }
 
 /// Runs work until the UI says to stop, or until it is gone.
@@ -668,6 +831,16 @@ async fn turn_loop(
             }
             TurnWork::Submit(prompt) => {
                 run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
+            }
+            // Both of these open a socket, so both are work rather than control
+            // messages, and both owe **exactly one** terminal event -- which is
+            // what lets the UI's drain and the queue's accounting treat them
+            // like any other item.
+            TurnWork::Setup(provider) => {
+                run_setup(&mut state, provider, events, &cancel, &control, &mut queue).await
+            }
+            TurnWork::Catalog => {
+                run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
         };
         // **After the terminal event, not before it.** The place `submit`
@@ -847,6 +1020,158 @@ async fn run_turn(
     }
 }
 
+/// Runs one provider switch and sends **exactly one** terminal event for it.
+///
+/// Raced against the control channel so the UI keeps being heard while this
+/// runs -- but **what the race buys here is much narrower than in a turn, and
+/// the narrowness is the contract.** The cancellation is read at step (c) and
+/// nowhere else: it can abandon a switch that has not been written, and it can
+/// never half-undo one that has.
+///
+/// In particular it does **not** shorten a slow probe. Step (b) is
+/// `setup::prepare`, whose HTTP calls do not take the turn's token, so a
+/// Ctrl-C pressed while a daemon is not answering is recorded immediately and
+/// acted on when `prepare` returns -- after its own connect and read timeouts
+/// (`provider::model`'s `CATALOG_CONNECT_TIMEOUT` and `CATALOG_READ_TIMEOUT`,
+/// three and five seconds on loopback). The keystroke is not lost and the
+/// switch really is abandoned; what it is not is instant. Saying otherwise here
+/// would promise a responsiveness the code does not have.
+async fn run_setup(
+    state: &mut Runtime,
+    provider: ProviderId,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let token = turn.token.clone();
+    let outcome = {
+        let cancelled = move || token.is_cancelled();
+        let body = state.select_provider(provider, &cancelled);
+        let (outcome, ended) = raced_against_control(body, control, |through| {
+            turn.cancel();
+            queue.abandon(through);
+        })
+        .await;
+        (outcome, ended)
+    };
+    let (outcome, ended) = outcome;
+    match outcome {
+        Ok(selected) => {
+            // Before the selection, because it is a caveat *on* it: a receipt
+            // that arrived after the good news would read as being about the
+            // next thing rather than about this one.
+            if let Some(source) = selected.overridden_by {
+                bridge::send_terminal(
+                    events,
+                    UiEvent::Notice(format!(
+                        "xfx: {source} outranks the profile, so this configuration is not what \
+                         the next turn in this shell will use"
+                    )),
+                )
+                .await;
+            }
+            // **Not** through `send_ui`. By the time this is sent the file is
+            // written and the runtime has already swapped, so a cancellation
+            // that arrived in the meantime must not be allowed to drop the one
+            // event that tells the UI what the session now is.
+            bridge::send_terminal(
+                events,
+                UiEvent::ProviderSelected {
+                    provider: selected.provider,
+                    model: selected.model,
+                    missing_credential: selected.missing_credential,
+                },
+            )
+            .await;
+            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+            ended
+        }
+        // Nothing was written and nothing changed. The turn is over and there is
+        // no failure to report, because refusing to do something the user
+        // cancelled is not a failure.
+        Err(SetupProblem::Cancelled) => {
+            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+            ended
+        }
+        Err(SetupProblem::Failed(message)) => {
+            bridge::send_terminal(
+                events,
+                UiEvent::TurnEnded {
+                    failure: Some(message),
+                },
+            )
+            .await;
+            ended
+        }
+        // Another writer owns the settings file. The runtime is untouched, this
+        // process cannot say what its configuration is, and it stops rather than
+        // guessing.
+        Err(SetupProblem::Conflict(message)) => {
+            bridge::send_terminal(events, UiEvent::Fatal(message)).await;
+            Ended::Session
+        }
+    }
+}
+
+/// Loads the catalog once and sends **exactly one** terminal event for it.
+async fn run_catalog(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let provider = state.config.provider;
+    let (loaded, ended) = raced_against_control(state.catalog(), control, |through| {
+        turn.cancel();
+        queue.abandon(through);
+    })
+    .await;
+    match loaded {
+        CatalogAnswer::Rows(entries) => {
+            // Through `send_ui`: a catalog whose turn was cancelled is a list
+            // nobody is waiting for any more, and the conclusion below still
+            // closes the item either way.
+            let _ = bridge::send_ui(
+                events,
+                &turn.token,
+                UiEvent::CatalogLoaded { provider, entries },
+            )
+            .await;
+            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+        }
+        // A **notice**, and a turn that ended without a failure. The provider
+        // has no catalog; nothing went wrong. The words are the line shell's
+        // own (`crate::provider::model::NO_CATALOG_NOTICE`), so `/model` says
+        // the same thing on both surfaces rather than reading as a broken
+        // session on one of them.
+        CatalogAnswer::NoneAdvertised => {
+            let _ = bridge::send_ui(
+                events,
+                &turn.token,
+                UiEvent::Notice(crate::provider::model::NO_CATALOG_NOTICE.to_string()),
+            )
+            .await;
+            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+        }
+        // This one really is a failure: there is a catalog and xfx could not
+        // read it, which is a fact about the daemon the operator has to act on.
+        CatalogAnswer::Unread(reason) => {
+            bridge::send_terminal(
+                events,
+                UiEvent::TurnEnded {
+                    failure: Some(format!("xfx: {reason}")),
+                },
+            )
+            .await;
+        }
+    }
+    ended
+}
+
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -1009,6 +1334,27 @@ async fn one_turn(
     // approved something still collected the approval, and asking again next
     // time would be asking a question the user has already answered.
     record_grants(conversation);
+
+    // What the turn spent, from the **completed** turn's own outcome
+    // (`agent::TurnOutcome::usage`, the same value the session log records at
+    // `agent::machine`'s `UsageRecorded`). Only a turn that finished has one: a
+    // turn that failed mid-stream has no total to report, and inventing one
+    // from the deltas that did arrive would put a number on the hint row that
+    // no provider ever said.
+    //
+    // Best effort, like the history notices above: the conclusion below is what
+    // the turn owes, and a meter is worth less than the answer it measures.
+    if let Ok(finished) = &outcome {
+        let _ = bridge::send_ui(
+            events,
+            &turn.token,
+            UiEvent::Usage {
+                input: finished.usage.input_tokens,
+                output: finished.usage.output_tokens,
+            },
+        )
+        .await;
+    }
 
     // Read after the turn, so the answer that did arrive is not withheld
     // because the log of it could not be written -- the same order
@@ -2068,5 +2414,154 @@ mod tests {
             "`ask` mode has nowhere to ask, so every mutation is refused"
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
+    }
+    #[test]
+    fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
+        // A daemon may advertise any number of models; the browser renders at
+        // most `MAX_RENDERED_MODELS` of them, and the cut is made before the
+        // list crosses the channel rather than at the painter.
+        let many: Vec<CatalogEntry> = (0..MAX_RENDERED_MODELS + 50)
+            .map(|index| CatalogEntry {
+                id: format!("model-{index}"),
+                aliases: Vec::new(),
+                name: None,
+                efforts: Vec::new(),
+                max_context: None,
+            })
+            .collect();
+        let shown = bounded(&many);
+        assert_eq!(shown.len(), MAX_RENDERED_MODELS);
+        assert_eq!(shown[0].id, "model-0", "the provider's own order is kept");
+        // A catalog inside the bound is not cut at all.
+        assert_eq!(bounded(&many[..3]).len(), 3);
+        assert_eq!(bounded(&[]).len(), 0);
+    }
+
+    #[test]
+    fn a_provider_with_no_catalog_is_informational_rather_than_a_failed_turn() {
+        // The Gateway advertises no catalog, and that is a **fact about the
+        // provider**, not something that went wrong. The line shell says so in
+        // as many words (`interactive`'s `print_catalog`); a bare `/model` in
+        // the band must not turn the same fact into a turn failure, or every
+        // Gateway user's first `/model` reads as a broken session.
+        assert_eq!(
+            from_state(&CatalogState::Unavailable),
+            CatalogAnswer::NoneAdvertised
+        );
+        assert_eq!(
+            from_state(&CatalogState::NotLoaded),
+            CatalogAnswer::NoneAdvertised
+        );
+        // A genuine failure stays a failure: "xfx could not ask" and "there is
+        // nothing to ask for" are different claims about different things, and
+        // a browser that blurred them would report a daemon that is down as a
+        // provider with no models.
+        assert_eq!(
+            from_state(&CatalogState::Failed("nothing answered".to_string())),
+            CatalogAnswer::Unread("nothing answered".to_string())
+        );
+    }
+
+    #[test]
+    fn a_catalog_that_failed_reports_the_reason_rather_than_an_empty_list() {
+        // The four states, and the one that matters most is `Failed`: a browser
+        // that answered an empty list for a daemon that is down would say the
+        // provider has no models, which is a different and much worse claim than
+        // "xfx could not ask". The load-once half of this contract is
+        // `ModelSelector`'s and is pinned there
+        // (`ensure_catalog_does_not_retry_after_failure`); what is pinned here is
+        // that the reason survives the trip to the UI.
+        assert_eq!(
+            from_state(&CatalogState::Failed("nothing answered".to_string())),
+            CatalogAnswer::Unread("nothing answered".to_string())
+        );
+        let entries = vec![CatalogEntry {
+            id: "m-1".to_string(),
+            aliases: vec!["fable".to_string()],
+            name: None,
+            efforts: Vec::new(),
+            max_context: Some(1),
+        }];
+        assert_eq!(
+            from_state(&CatalogState::Loaded(entries.clone())),
+            CatalogAnswer::Rows(entries)
+        );
+        // An empty catalog is a readable answer and is not a failure here: what
+        // refuses one is the setup probe, which has a reason to.
+        assert_eq!(
+            from_state(&CatalogState::Loaded(Vec::new())),
+            CatalogAnswer::Rows(Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_provider_switch_drops_the_old_bundle_and_the_conversation() {
+        // Step (g), and the two things it must not keep. A conversation carried
+        // across a switch would replay one provider's history into another's
+        // wire format; a bundle is a connection to an endpoint that is no longer
+        // configured. `ready()` builds whatever it does not have, so dropping
+        // them here is exactly what makes the next prompt select the new one.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        // A credential, because a bundle cannot be selected without one and the
+        // thing being measured is that the bundle is *dropped*.
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([(
+                "AI_GATEWAY_API_KEY".to_string(),
+                "xfx-test-key-not-a-real-credential".to_string(),
+            )]),
+        );
+        let before = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+
+        let (events, _rx) = mpsc::channel(bridge::UI_EVENTS);
+        let control = ControlChannel::new(mpsc::unbounded_channel().1);
+        let cancel = Cancellation::new(CancelToken::new());
+        let prompter = TuiPrompter::new(events, control, cancel);
+        let store = SessionStore::open(before.profile_dir.as_ref().expect("a profile dir"))
+            .expect("open the store");
+        let mut runtime =
+            Runtime::with_environment(before.clone(), env, before.model.clone(), store, prompter);
+        // Stand something in for what a session accumulates. The bundle is what
+        // a turn would reuse; `provider` being `Some` is the whole of "there is
+        // a connection to the old endpoint".
+        runtime.provider = Bundle::select(&runtime.config, &CancelToken::new()).ok();
+        assert!(runtime.provider.is_some(), "the fixture needs a bundle");
+        // A real conversation, because "the conversation is dropped" is only a
+        // claim about a session that had one. A `None` left standing would make
+        // the assertion below true of a runtime that never opened one.
+        runtime.conversation = Some(
+            open_conversation(
+                &runtime.store,
+                &runtime.config,
+                &runtime.model,
+                runtime.authority(),
+                &CancelToken::new(),
+            )
+            .expect("open a conversation"),
+        );
+
+        let mut after = before.clone();
+        after.provider = ProviderId::Llmux;
+        after.model = "fable".to_string();
+        after.llmux_url = Some("http://127.0.0.1:3456".to_string());
+        let selected = runtime.adopt(after);
+
+        assert_eq!(selected.provider, ProviderId::Llmux);
+        assert_eq!(selected.model, "fable");
+        assert_eq!(runtime.model, "fable");
+        assert!(
+            runtime.provider.is_none(),
+            "the old bundle survived the swap"
+        );
+        assert!(
+            runtime.conversation.is_none(),
+            "the old conversation survived the swap"
+        );
+        assert_eq!(
+            runtime.config.llmux_url.as_deref(),
+            Some("http://127.0.0.1:3456"),
+            "the swap took the url from anything other than the reloaded configuration"
+        );
     }
 }
