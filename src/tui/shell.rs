@@ -75,6 +75,7 @@ use std::time::Instant;
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
+use super::approval_screen::ApprovalScreen;
 use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
@@ -422,6 +423,17 @@ pub(crate) struct Shell {
     /// than derived from an event, because the answer is a keystroke and the
     /// keystroke has to find something to be an answer *to*.
     panel: Option<Panel>,
+    /// The same question, when the change behind it is too big for the band to
+    /// show and it is being reviewed on a plane of its own
+    /// ([`super::approval_screen`]).
+    ///
+    /// Beside [`Self::panel`] rather than inside it, and **never both at once**
+    /// ([`Self::ask`] installs exactly one): the two surfaces answer the same
+    /// question with the same keys, but only one of them is painted, only one
+    /// takes rows out of the band, and only one has a caret on the band's own
+    /// grid. A single field holding either would have every reader ask which
+    /// kind it was.
+    alternate: Option<ApprovalScreen>,
     /// Which plane the session is composing frames for.
     ///
     /// Taken when a question arrives that the band's summary cannot show, and
@@ -573,6 +585,7 @@ impl Shell {
             activity: Activity::new(),
             phase: 0,
             panel: None,
+            alternate: None,
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
@@ -1065,11 +1078,32 @@ impl Shell {
         // the answer to the question does not put it back in front of a draft
         // the user has since stopped looking at.
         self.dismiss_picker();
-        self.panel = Some(panel);
-        self.owner = match surface {
-            approval::ApprovalSurface::Inline => ScreenOwner::Primary,
-            approval::ApprovalSurface::Alternate => ScreenOwner::Approval,
-        };
+        // **One surface is installed, never two.** The debug assertion is the
+        // hazard written down rather than argued: a second question taking the
+        // alternate plane while one is standing on it would be a `1049h` with no
+        // `1049l` between the two, and the standing question -- whose prompter
+        // is parked on the control channel -- would be left behind a screen
+        // nobody gave back. It cannot be reached today, because a turn asks one
+        // question at a time and waits for its answer, so this states the
+        // hazard where the next edit reads it rather than adding a branch no
+        // test can drive honestly.
+        debug_assert!(
+            !(self.owner == ScreenOwner::Approval && self.alternate.is_some()),
+            "a second question took a plane the first one is still on"
+        );
+        match surface {
+            approval::ApprovalSurface::Inline => {
+                self.panel = Some(panel);
+                self.owner = ScreenOwner::Primary;
+            }
+            // The band keeps none of its rows for this one: the question is
+            // painted on the other plane, and the band underneath stays exactly
+            // the band the restore repaints when the answer gives it back.
+            approval::ApprovalSurface::Alternate => {
+                self.alternate = Some(ApprovalScreen::new(panel.into_request()));
+                self.owner = ScreenOwner::Approval;
+            }
+        }
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
@@ -1078,13 +1112,53 @@ impl Shell {
 
     /// Which plane the session is composing frames for.
     ///
-    /// Read by this checkpoint's own cases and by the alternate surface the next
-    /// one builds on it, which is what an owner state is *for*: the exit, panic
-    /// and signal paths all have to ask whose screen it is before they restore
-    /// anything, and none of them can ask a field they cannot see.
-    #[allow(dead_code)]
+    /// Read by the loop that owns the transitions between the two
+    /// (`super::event_loop`), which is what an owner state is *for*: the frame
+    /// composer, the exit and the restore all have to ask whose screen it is
+    /// before they write anything, and none of them can ask a field they cannot
+    /// see.
     pub(crate) fn screen_owner(&self) -> ScreenOwner {
         self.owner
+    }
+
+    /// Whether a question is in front of the user, on either plane.
+    ///
+    /// One reading for both surfaces, because everything that consults it -- the
+    /// focus, the frozen clock -- is about *a question being up* rather than
+    /// about which surface is showing it.
+    fn asking(&self) -> bool {
+        self.panel.is_some() || self.alternate.is_some()
+    }
+
+    /// The alternate plane's rows, top first: as many as the screen has.
+    ///
+    /// Empty when no question owns that plane, so a caller that asked at the
+    /// wrong moment paints nothing rather than painting a screen out of a
+    /// question that has been answered.
+    pub(crate) fn screen_rows(&self) -> Vec<String> {
+        self.alternate
+            .as_ref()
+            .map(|screen| screen.rows(self.geometry.cols, self.geometry.rows))
+            .unwrap_or_default()
+    }
+
+    /// Where the caret goes on that plane: the marked choice.
+    pub(crate) fn screen_cursor(&self) -> (u16, u16) {
+        self.alternate.as_ref().map_or((1, 0), |screen| {
+            screen.caret(self.geometry.cols, self.geometry.rows)
+        })
+    }
+
+    /// Gives the plane back without answering the question on it.
+    ///
+    /// The exit's, and only the exit's (`super::event_loop`'s `shut_down`): a
+    /// session coming down with a question still up has to leave the terminal on
+    /// the plane its user's shell is on, and there is nobody left to answer.
+    /// Every ordinary way out of a question goes through [`Self::decide`], which
+    /// releases the plane *with* the answer.
+    pub(crate) fn release_screen(&mut self) {
+        self.alternate = None;
+        self.owner = ScreenOwner::Primary;
     }
 
     /// Offers one keystroke to the completion menu, and says whether it was
@@ -1207,6 +1281,29 @@ impl Shell {
     /// stopping there would leave the user watching the turn they interrupted
     /// carry on, with the prompt they had queued behind it running next.
     fn decide(&mut self, event: Input, now: Instant) {
+        // The two keys that walk a change too long for one screen, and they are
+        // bound **only** where there is one to walk: a bounded diff is up to
+        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
+        // dozen rows, so a review surface with no way past its first screenful
+        // would be showing the head of a change and calling it the change. They
+        // are `C-p` and `C-n` -- "the line before this one" and "the line after
+        // it" everywhere else on this surface, and bound to nothing at all at a
+        // question until now. The arrows are deliberately not reused: they walk
+        // the choices, and a key that scrolled *and* chose would be a key that
+        // answers by accident.
+        if let Input::Action(Action::HistoryPrevious | Action::HistoryNext) = event {
+            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+            if let Some(screen) = self.alternate.as_mut() {
+                let delta = if matches!(event, Input::Action(Action::HistoryPrevious)) {
+                    -1
+                } else {
+                    1
+                };
+                screen.scroll_by(delta, cols, rows);
+                self.render.request(Reason::Modal);
+                return;
+            }
+        }
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             Input::Action(Action::Up) => approval::Action::Up,
@@ -1223,10 +1320,15 @@ impl Shell {
             }
             Input::Action(_) | Input::PasteByte(_) => return,
         };
-        let Some(panel) = self.panel.as_mut() else {
-            return;
+        // Whichever surface is holding the question, and there is never more
+        // than one ([`Self::ask`]). Both answer with the same function
+        // (`super::approval::answered`), so which plane a change happened to be
+        // large enough for cannot change what a key means.
+        let answered = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.apply(action),
+            (_, Some(screen)) => screen.apply(action),
+            (None, None) => return,
         };
-        let answered = panel.apply(action);
         let Some(answer) = answered else {
             // The marker moved, which is a frame and nothing else.
             self.render.request(Reason::Modal);
@@ -1240,6 +1342,7 @@ impl Shell {
         // below -- because an owner released on only some of them would be an
         // owner released on the paths somebody remembered.
         self.panel = None;
+        self.alternate = None;
         self.owner = ScreenOwner::Primary;
         match action {
             // One message, both meanings. `Deny` is what the prompter answers a
@@ -1548,8 +1651,10 @@ impl Shell {
         // minutes waiting to be told whether it could edit a file did not spend
         // four minutes thinking. One place decides it -- the field the panel
         // lives in -- so the row and the reason for it cannot disagree, and
-        // both calls are idempotent (`super::activity`).
-        if self.panel.is_some() {
+        // both calls are idempotent (`super::activity`). Either plane: what the
+        // interval measures is the person, and a person reading a change on a
+        // screen of its own is no less a person than one reading a band.
+        if self.asking() {
             self.activity.freeze(now);
         } else {
             self.activity.thaw(now);
@@ -1590,8 +1695,9 @@ impl Shell {
             // The panel has the focus while it is up, and this is the whole of
             // what that means: nothing below runs, so a `1` cannot be typed
             // into the composer and a Ctrl-D cannot leave a session with a turn
-            // waiting on an answer.
-            if self.panel.is_some() {
+            // waiting on an answer. On either plane: the focus belongs to the
+            // question, not to the surface it happens to be asked on.
+            if self.asking() {
                 self.decide(event, now);
                 continue;
             }
@@ -2689,14 +2795,30 @@ mod tests {
             self.control.try_recv().ok()
         }
 
-        /// The band row the caret is on.
+        /// The row the caret is on, on whichever plane the session is composing
+        /// for.
         ///
         /// Asked through the caret rather than by looking for the marker,
-        /// because the claim every panel case makes is that the two agree: the
-        /// marker is what the eye reads and the caret is what the terminal
+        /// because the claim every question case makes is that the two agree:
+        /// the marker is what the eye reads and the caret is what the terminal
         /// says, and a test that read the marker alone would pass with the
         /// caret left in the composer.
+        ///
+        /// The plane is consulted for exactly the same reason. A question the
+        /// band cannot show is painted on the alternate screen
+        /// (`super::approval_screen`), and its caret is a row number on *that*
+        /// grid; reading it off the band would be reading a coordinate against
+        /// the wrong screen.
         fn marked(&self) -> String {
+            if self.shell.screen_owner() == ScreenOwner::Approval {
+                let row = usize::from(self.shell.screen_cursor().0);
+                return self
+                    .shell
+                    .screen_rows()
+                    .get(row - 1)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("the caret is not on a row of the approval screen"));
+            }
             let offset = usize::from(
                 self.shell
                     .cursor()
@@ -5029,12 +5151,17 @@ mod tests {
     }
 
     #[test]
-    fn this_checkpoint_paints_no_alternate_screen_whichever_plane_owns_the_question() {
-        // The one thing 7A must **not** do. The alternate buffer is entered and
-        // left with `CSI ? 1049 h/l`, and the whole restoration matrix that
-        // sequence needs -- exit, panic, both signals, one write -- is the next
-        // checkpoint's. A frame that asked for it now would be an alternate
-        // screen nothing has been written to leave.
+    fn a_question_the_other_plane_owns_is_painted_there_and_not_in_the_band() {
+        // The band underneath the question is an **ordinary** band, and that is
+        // what makes the return cheap and correct: the frame that gives the
+        // plane back repaints exactly this, at exactly these rows, so the
+        // session comes back to the screen it left.
+        //
+        // 7A pinned the opposite -- the band painted an Approval-owned question
+        // because there was no other surface to paint it on, and its own
+        // mutation M32 guarded against this checkpoint half-landing there. This
+        // is that guard turned over: the surface now exists, so the band gives
+        // the rows back rather than keeping a second copy of the question.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(asked_about_a_large_change()));
@@ -5042,11 +5169,124 @@ mod tests {
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
         let painted = shell.band_rows().join("\n");
-        assert!(!painted.contains("1049"), "{painted:?}");
-        assert!(!painted.contains("\u{1b}[?"), "{painted:?}");
-        // And the question is still answerable in the band, which is what makes
-        // the owner a state rather than a surface that does not exist yet.
-        assert!(painted.contains("Permission needed"), "{painted:?}");
+        assert!(
+            !painted.contains("Permission needed"),
+            "the question is up twice, on two planes: {painted:?}"
+        );
+        assert_eq!(
+            shell.geometry.panel, 0,
+            "the band kept rows for a question it is not painting"
+        );
+
+        // And the plane it *is* painted on carries the question, the change and
+        // every answer.
+        let screen = shell.screen_rows();
+        assert_eq!(
+            screen.len(),
+            usize::from(shell.geometry.rows),
+            "the alternate screen is not the whole terminal"
+        );
+        let screen = screen.join("\n");
+        for needle in ["Permission needed", "notes.txt", "1. Yes", "3. No (esc)"] {
+            assert!(screen.contains(needle), "{needle:?} is missing: {screen:?}");
+        }
+        assert!(
+            screen.contains("aaaa"),
+            "the change the screen exists to show is not on it: {screen:?}"
+        );
+
+        // **No row carries the bytes that take the plane.** The `1049` pair is
+        // the frame composer's (`super::frame::Band`), written around a paint
+        // rather than inside one; a row that carried it would be a row a
+        // provider's text could carry it in.
+        for rows in [shell.band_rows(), shell.screen_rows()] {
+            let painted = rows.join("\n");
+            assert!(!painted.contains("1049"), "{painted:?}");
+            assert!(!painted.contains("\u{1b}[?"), "{painted:?}");
+        }
+    }
+
+    #[test]
+    fn an_answered_question_leaves_nothing_composing_for_the_other_plane() {
+        // The surface goes with the answer, in the same statement the panel and
+        // the owner go in. One left behind would keep composing a screen out of
+        // a question that has been answered, and the next frame the loop asked
+        // for on that plane would paint it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert!(!shell.screen_rows().is_empty(), "nothing was installed");
+
+        shell.route_bytes(b"1");
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once))
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(
+            shell.screen_rows().is_empty(),
+            "an answered question is still composing rows for the other plane: {:?}",
+            shell.screen_rows()
+        );
+    }
+
+    #[test]
+    fn an_exit_can_give_the_other_plane_back_without_answering_the_question() {
+        // The exit's own door (`super::event_loop`'s `shut_down`). A session
+        // coming down with a question up has to leave the terminal on the plane
+        // its user's shell is on, and there is nobody left to answer -- so the
+        // plane is released without an answer being invented for the runtime.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.release_screen();
+
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(
+            shell.screen_rows().is_empty(),
+            "the plane was given back and the surface is still composing rows"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the exit answered a question on the user's behalf"
+        );
+    }
+
+    #[test]
+    fn a_change_longer_than_the_screen_can_be_walked_from_the_question() {
+        // A bounded diff is up to 128 KiB and a screen is a few dozen rows, so
+        // a review surface that could not be walked would show the head of a
+        // change and call it the change.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        let first = shell.screen_rows().join("\n");
+
+        // `C-n`, which is "the line after this one" everywhere else on this
+        // surface and was bound to nothing at a question.
+        shell.route_bytes(&[0x0e]);
+        let moved = shell.screen_rows().join("\n");
+        assert_ne!(first, moved, "the change could not be walked");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "walking the change answered the question"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.screen_rows().join("\n"),
+            first,
+            "`C-p` did not walk back"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
     }
 
     #[test]

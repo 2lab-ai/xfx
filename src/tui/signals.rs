@@ -43,6 +43,22 @@ use rustix::io::FdFlags;
 use super::term;
 
 static RESUMED: AtomicBool = AtomicBool::new(false);
+/// Whether a handler has written the abnormal restore -- and with it the
+/// `1049l` that sequence leads with -- since this was last asked.
+///
+/// **Not the same fact as [`RESUMED`], and the difference is a byte on the
+/// wire.** `SIGCONT`'s handler sets the resume flag for *any* continue: a
+/// `SIGSTOP`, which is uncatchable and therefore runs no handler at all, and a
+/// bare `kill -CONT` on a process that was never stopped, as well as the
+/// `SIGTSTP` this session handles. Re-entering raw mode and re-announcing the
+/// mode set for one of those is harmless -- both are idempotent. Taking the
+/// alternate screen again is **not**: `1049h` saves the normal buffer over the
+/// save that is holding the user's real screen, and leaves the pair two enters
+/// to one leave. So the thing the band needs to know is not "did something
+/// continue this process" but "did a handler give the plane back", and only
+/// [`stop_for_job_control`] can answer that -- it is the one place
+/// [`term::restore_pair`] is written on the way down.
+static PLANE_RESTORED: AtomicBool = AtomicBool::new(false);
 static WINCH: AtomicBool = AtomicBool::new(false);
 /// The write end, for the handlers. `-1` until [`install`] runs, and `-1` again
 /// once [`release`] has run.
@@ -493,6 +509,13 @@ extern "C" fn restore_and_reraise(signal: libc::c_int) {
 
 extern "C" fn stop_for_job_control(_signal: libc::c_int) {
     term::restore_pair();
+    // Those bytes led with `1049l` ([`term::abnormal_restore`]), so a session
+    // that was reviewing a change on the alternate screen is on the normal
+    // buffer now. Recorded **here**, where the restore is really written,
+    // rather than inferred from the resume that follows: an uncatchable
+    // `SIGSTOP` never reaches this function and a bare `kill -CONT` never
+    // follows a stop at all, and both of those set the resume flag too.
+    flag_plane_restored();
     // SAFETY: as above. `SIGSTOP` is raised rather than `SIGTSTP` re-raised
     // because only an unblockable stop is a *genuine* stop; the disposition
     // reset is what keeps `install_tstp` honest work rather than ceremony.
@@ -500,6 +523,17 @@ extern "C" fn stop_for_job_control(_signal: libc::c_int) {
         libc::signal(libc::SIGTSTP, libc::SIG_DFL);
         libc::raise(libc::SIGSTOP);
     }
+}
+
+/// Records that the abnormal restore has been written, so the plane it gave
+/// back can be taken again by the thread that owns the terminal.
+///
+/// A plain relaxed-ordering store on a lock-free atomic, which is what makes it
+/// usable from a handler -- the same shape [`flag_resumed`] uses. Written
+/// **after** [`term::restore_pair`] returns, because what it records is that
+/// those bytes went out.
+fn flag_plane_restored() {
+    PLANE_RESTORED.store(true, Ordering::Release);
 }
 
 extern "C" fn flag_resumed(_signal: libc::c_int) {
@@ -530,6 +564,15 @@ fn poke() {
 
 pub(crate) fn take_resumed() -> bool {
     RESUMED.swap(false, Ordering::AcqRel)
+}
+
+/// Whether a handler gave the alternate screen back since this was last asked.
+///
+/// **Taken rather than read**, like every other flag here: the fact is consumed
+/// by the one turn that acts on it, so a later bare `SIGCONT` cannot be answered
+/// by a stop this loop has already dealt with.
+pub(crate) fn take_plane_restored() -> bool {
+    PLANE_RESTORED.swap(false, Ordering::AcqRel)
 }
 
 /// Whether the window changed size since this was last asked.
@@ -687,6 +730,48 @@ mod tests {
         fn drop(&mut self) {
             release();
         }
+    }
+
+    #[test]
+    fn only_the_handler_that_gave_the_plane_back_says_so() {
+        // The provenance the band's plane bookkeeping is gated on. The resume
+        // flag answers "did something continue this process"; this one answers
+        // "did a handler write the abnormal restore", and only the second is a
+        // reason to take the alternate screen again -- `1049h` is not
+        // idempotent, and a spurious one leaves the pair two enters to one
+        // leave.
+        let _serialized = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Whatever an earlier case left behind.
+        let _ = take_plane_restored();
+        let _ = take_resumed();
+
+        // A bare `SIGCONT`, and a `SIGSTOP` that ran no handler at all, reach
+        // the loop as exactly this: resumed, and nothing given back.
+        flag_resumed(libc::SIGCONT);
+        assert!(take_resumed(), "the continue was not recorded");
+        assert!(
+            !take_plane_restored(),
+            "a continue no handler answered claimed the plane had been given back"
+        );
+
+        // And the stop this session handles, which writes `term::restore_pair`
+        // -- `1049l` first -- before it raises `SIGSTOP`.
+        flag_plane_restored();
+        flag_resumed(libc::SIGCONT);
+        assert!(take_resumed());
+        assert!(
+            take_plane_restored(),
+            "the handler gave the plane back and did not say so"
+        );
+        // **Taken, not read**: the next continue must not be answered by a stop
+        // this loop has already dealt with.
+        assert!(
+            !take_plane_restored(),
+            "the flag was read rather than consumed, so one stop answers every \
+             later continue"
+        );
     }
 
     #[test]

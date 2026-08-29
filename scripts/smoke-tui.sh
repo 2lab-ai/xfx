@@ -130,7 +130,17 @@ What is modelled, and nothing else:
 * `DECSET`/`DECRST` for the five private modes xfx sets: `?2026` (synchronized
   output), `?25` (cursor visibility), `?7` (autowrap -- xfx turns it **off**,
   which is why the wrap below is not the usual one), `?2004` (bracketed paste),
-  `?1049` (the alternate screen it only ever *resets*, defensively)
+  `?1049` (**the alternate screen buffer**, with its own cells and its own
+  cursor)
+
+The `?1049` pair is modelled rather than ignored, and that is what makes the
+Phase-2 approval screen assertable at all. A terminal answers `?1049h` by saving
+the cursor, switching to a second, blank buffer, and answering `?1049l` by
+switching back and restoring the cursor -- the normal buffer's cells untouched
+throughout, and no scrollback on the alternate one. An emulator that treated the
+pair as a no-op would report a diff painted on the other plane as a diff painted
+over the user's document, and would report a restore that never happened as a
+band that came back.
 * `CSI 6 n` (the launch's cursor query) and the three `>`/`<` keyboard-protocol
   sequences of `term.rs:32-52`
 * `OSC 2` (the window title, remembered rather than drawn) and `OSC 11` (the
@@ -258,7 +268,7 @@ def cluster_width(cluster):
 class Grid:
     """A bounded VT: exactly the sequences xfx says it emits, and nothing else."""
 
-    def __init__(self, rows, cols):
+    def __init__(self, rows, cols, record_frames=False):
         self.rows, self.cols = rows, cols
         self.cells = [[" "] * cols for _ in range(rows)]
         self.attrs = [[""] * cols for _ in range(rows)]
@@ -266,6 +276,26 @@ class Grid:
         self.sgr = ""
         self.autowrap = True
         self.unknown = []
+        # Which of the terminal's two buffers is on the screen: "primary" is the
+        # normal one xfx paints its band on, "alternate" is the one an approval
+        # screen borrows. A string rather than a bool because every reading of it
+        # in a scenario is a sentence about a plane.
+        self.plane = "primary"
+        # The normal buffer while the alternate one is up: its cells, its
+        # attributes and the cursor the terminal saved with them. `None` while
+        # the normal buffer is the one on the screen.
+        self.saved = None
+        # How many times each half of the pair was seen, so "entered once and
+        # left once" is a count rather than a search through the raw bytes.
+        self.entered_alternate = 0
+        self.left_alternate = 0
+        # The screen after each complete synchronized frame, oldest first, for a
+        # scenario that has to assert about **every** state a terminal could
+        # have presented rather than about the one it ended in. Off by default:
+        # a paced stream produces thousands of frames and no scenario asserts on
+        # more than the recent past of one.
+        self.record_frames = record_frames
+        self.frames = []
         # What has left the top of the screen, which is what a terminal's own
         # scrollback is fed by. Modelled rather than discarded because the
         # launch's whole job is to push the shell's earlier output *there*: an
@@ -356,9 +386,13 @@ class Grid:
     def _newline(self):
         if self.row + 1 >= self.rows:
             # The bottom margin: a linefeed scrolls, which is how xfx's document
-            # appends reach the terminal's own scrollback.
+            # appends reach the terminal's own scrollback. **The normal buffer's
+            # only**: a terminal keeps no scrollback for its alternate buffer, so
+            # a row that leaves the top of that one is gone -- which is exactly
+            # why nothing the document owes may be written while it is up.
             leaving = self.cells.pop(0)
-            self.scrollback.append("".join(leaving).rstrip())
+            if self.plane == "primary":
+                self.scrollback.append("".join(leaving).rstrip())
             del self.scrollback[:-SCROLLBACK_ROWS]
             self.attrs.pop(0)
             self.cells.append([" "] * self.cols)
@@ -447,10 +481,67 @@ class Grid:
                 return
             if params == "7":
                 self.autowrap = final == "h"
+            if params == "1049":
+                self._alternate(final == "h")
+            if params == "2026" and final == "l":
+                self._frame_closed()
             return
         if (private, params, final) in KNOWN_PRIVATE:
             return
         self.unknown.append(match.group(0))
+
+    def _alternate(self, entering):
+        """`?1049h` / `?1049l`: the second buffer, and the cursor saved with it.
+
+        Modelled the way a terminal really behaves, because every assertion the
+        approval scenarios make rests on the difference between the two:
+
+        * entering **saves** the normal buffer and the cursor and hands out a
+          blank one, so text painted on the alternate plane cannot be mistaken
+          for text painted over the user's document;
+        * leaving **restores** both, so "the band came back" is a claim the
+          emulator can be wrong about -- and a product that painted no band on
+          the way back would leave the pre-excursion screen standing, which is
+          why the scenario compares the restored screen with the band it is
+          required to repaint rather than merely with "not blank".
+
+        Entering twice, or leaving a plane that was never entered, is a finding:
+        the pair has to balance or the user is left on a buffer nobody owns.
+        """
+        if entering:
+            self.entered_alternate += 1
+            if self.plane == "alternate":
+                self.unknown.append(b"\x1b[?1049h twice")
+                return
+            self.saved = (
+                [row[:] for row in self.cells],
+                [row[:] for row in self.attrs],
+                self.row,
+                self.col,
+                self.sgr,
+            )
+            self.cells = [[" "] * self.cols for _ in range(self.rows)]
+            self.attrs = [[""] * self.cols for _ in range(self.rows)]
+            self.row = self.col = 0
+            self.plane = "alternate"
+            return
+        self.left_alternate += 1
+        if self.plane == "primary":
+            # A `1049l` on the normal buffer is what every abnormal restore
+            # writes defensively (`src/tui/term.rs`), and a terminal answers it
+            # by doing nothing. Counted, so a scenario can still say how many
+            # there were, and otherwise ignored.
+            return
+        cells, attrs, row, col, sgr = self.saved
+        self.cells, self.attrs = cells, attrs
+        self.row, self.col, self.sgr = row, col, sgr
+        self.saved = None
+        self.plane = "primary"
+
+    def _frame_closed(self):
+        """One synchronized frame has been presented."""
+        if self.record_frames:
+            self.frames.append(self.text())
 
     def _erase_right(self):
         for col in range(self.col, self.cols):
@@ -489,11 +580,24 @@ class Grid:
     def document_text(self):
         """Everything the terminal holds: its scrollback and then its screen.
 
-        The `?1049h` this product never writes is what makes the two one
-        document -- xfx paints on the normal buffer, so a row that scrolled off
-        is still the user's, one wheel-turn away.
+        The **normal** buffer's, and only its: xfx paints its band and its
+        document there, so a row that scrolled off is still the user's, one
+        wheel-turn away. A screen borrowed for an approval has no scrollback and
+        is not part of that document, which is why it is not folded in here.
         """
         return self.scrollback_text() + "\n" + self.text()
+
+    def primary_text(self):
+        """The normal buffer, whichever plane is on the screen.
+
+        The saved copy while an approval screen is up, and the live cells
+        otherwise -- so a scenario can ask "what is the user's own screen still
+        holding" at a moment when it is not the one being displayed.
+        """
+        if self.plane == "primary":
+            return self.text()
+        cells = self.saved[0]
+        return "\n".join("".join(row).rstrip() for row in cells)
 
     def find(self, needle):
         """Where `needle` first appears, as `(row, column)`, or `None`.
@@ -529,6 +633,10 @@ class Grid:
         lines.append("")
         lines.append("cursor: row %d col %d" % (self.row + 1, self.col + 1))
         lines.append("autowrap: %s" % ("on" if self.autowrap else "off"))
+        lines.append(
+            "plane: %s (entered %d, left %d)"
+            % (self.plane, self.entered_alternate, self.left_alternate)
+        )
         lines.append("title: %r" % (self.title,))
         if self.scrollback:
             lines.append("")
@@ -696,6 +804,81 @@ def a_control_byte_on_the_screen_is_still_a_finding():
     require(fed("a\x00b").unknown, "a NUL reached the screen unremarked")
 
 
+def the_alternate_plane_is_a_second_buffer_and_not_the_first_one_scrolled():
+    """`?1049h` hands out a **blank** screen and keeps the one it replaced.
+
+    The claim every approval scenario rests on. An emulator that treated the
+    pair as a no-op would report a diff painted on the other plane as a diff
+    painted over the user's document -- and would report the primary as
+    "restored" when nothing had been restored at all.
+    """
+    grid = fed("PRIMARY-ROW\x1b[?1049hALTERNATE-ROW")
+    require(grid.plane == "alternate", "the emulator stayed on the primary plane")
+    require("ALTERNATE-ROW" in grid.text(), "the alternate plane holds nothing")
+    require(
+        "PRIMARY-ROW" not in grid.text(),
+        "the alternate plane was handed out holding the primary's cells: %r" % grid.text(),
+    )
+    require(
+        "PRIMARY-ROW" in grid.primary_text(),
+        "the normal buffer was lost rather than saved: %r" % grid.primary_text(),
+    )
+
+
+def leaving_the_alternate_plane_restores_the_buffer_and_the_cursor():
+    grid = fed("\x1b[3;5HPRIMARY\x1b[?1049h\x1b[10;1HALTERNATE\x1b[?1049l")
+    require(grid.plane == "primary", "the emulator stayed on the alternate plane")
+    require("PRIMARY" in grid.text(), "the normal buffer was not restored: %r" % grid.text())
+    require(
+        "ALTERNATE" not in grid.text(),
+        "the alternate plane's cells survived the leave: %r" % grid.text(),
+    )
+    require(
+        (grid.row, grid.col) == (2, 11),
+        "the cursor saved with the plane was not restored: %r" % ((grid.row, grid.col),),
+    )
+    require(grid.entered_alternate == 1 and grid.left_alternate == 1, "the pair was not counted")
+
+
+def a_row_that_leaves_the_alternate_plane_reaches_no_scrollback():
+    """A terminal keeps no scrollback for its second buffer.
+
+    Which is the whole reason nothing the document owes may be written while an
+    approval screen is up: a row scrolled off there is gone, and Phase 1 never
+    repaints a document row.
+    """
+    grid = Grid(3, 20).feed(b"\x1b[?1049h" + b"\x1b[3;1Hrow\n" * 4)
+    require(grid.scrollback == [], "the alternate plane fed the scrollback: %r" % grid.scrollback)
+    primary = Grid(3, 20).feed(b"\x1b[3;1Hrow\n" * 4)
+    require(primary.scrollback, "the primary plane stopped feeding the scrollback, so this proves nothing")
+
+
+def entering_the_alternate_plane_twice_is_a_finding():
+    """The pair has to balance or the user is left on a buffer nobody owns."""
+    require(fed("\x1b[?1049h\x1b[?1049h").unknown, "a doubled enter passed unremarked")
+    # And the defensive leave every abnormal restore writes is **not** a
+    # finding: it is written on the normal buffer on purpose, and a terminal
+    # answers it by doing nothing.
+    grid = fed("PRIMARY\x1b[?1049l")
+    require(not grid.unknown, "a defensive leave was reported as a defect: %r" % (grid.unknown,))
+    require("PRIMARY" in grid.text(), "a defensive leave erased the normal buffer")
+
+
+def a_frame_is_recorded_only_when_it_is_asked_for():
+    """Per-frame snapshots, which is how "no intermediate blank grid" is asked.
+
+    A scenario that could only read the screen a session **ended** on could not
+    tell a restore that was one write from one that was two: the end state is
+    the same either way, and the blank grid lives in the middle.
+    """
+    stream = "\x1b[?2026hone\x1b[?2026l\x1b[?2026h\x1b[1;1Htwo\x1b[?2026l"
+    recorded = Grid(3, 20, record_frames=True).feed(stream.encode())
+    require(len(recorded.frames) == 2, "frames were not recorded: %r" % (recorded.frames,))
+    require("one" in recorded.frames[0], "the first frame was not captured")
+    require("two" in recorded.frames[1], "the second frame was not captured")
+    require(not fed(stream).frames, "frames were recorded by an emulator that was not asked to")
+
+
 TESTS = (
     a_zwj_family_is_one_cluster_two_cells_wide,
     a_combining_mark_stays_with_the_cell_it_marks,
@@ -708,6 +891,11 @@ TESTS = (
     the_sgr_the_product_emits_is_accepted,
     the_title_stack_is_accepted_and_other_window_operations_are_not,
     a_control_byte_on_the_screen_is_still_a_finding,
+    the_alternate_plane_is_a_second_buffer_and_not_the_first_one_scrolled,
+    leaving_the_alternate_plane_restores_the_buffer_and_the_cursor,
+    a_row_that_leaves_the_alternate_plane_reaches_no_scrollback,
+    entering_the_alternate_plane_twice_is_a_finding,
+    a_frame_is_recorded_only_when_it_is_asked_for,
 )
 
 
@@ -811,6 +999,50 @@ def edit_then_finish(marker):
                     "call-1",
                     "edit_file",
                     {"path": "notes.txt", "old_string": "alpha", "new_string": "beta"},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+# How many lines the scripted large edit replaces.
+#
+# Short lines rather than one long one, and the shape is load-bearing:
+# `read_file` clips a line past `ToolLimits::max_read_line_len` and a clipped
+# read is not a complete view, so `edit_file` refuses to replace a file this
+# session has only partly read (`src/tools/mutate.rs`). Twenty lines is
+# comfortably past the 160 bytes the band's own summary quotes
+# (`src/permission/authority.rs`), which is what makes the question one the band
+# cannot show.
+LARGE_EDIT_LINES = 20
+
+
+def large_edit_sides():
+    """What the file holds before the scripted edit, and after it."""
+    before = "\n".join("alpha line %d" % line for line in range(LARGE_EDIT_LINES))
+    after = "\n".join("beta line %d" % line for line in range(LARGE_EDIT_LINES))
+    return before, after
+
+
+def large_edit_then_finish(marker):
+    """Read `notes.txt`, replace the whole of it, then say `marker`.
+
+    `edit_then_finish` with a change the band's own summary cannot show, which
+    is the only difference that matters: the surface a question is asked on is
+    chosen by the **change** and never by the terminal
+    (`src/tui/approval.rs`'s `ApprovalSurface::for_request`).
+    """
+    before, after = large_edit_sides()
+    return [
+        {"events": [tool_call("call-0", "read_file", {"path": "notes.txt"}), finish("tool-calls")]},
+        {
+            "events": [
+                tool_call(
+                    "call-1",
+                    "edit_file",
+                    {"path": "notes.txt", "old_string": before, "new_string": after},
                 ),
                 finish("tool-calls"),
             ]
@@ -1600,8 +1832,18 @@ PERMISSION_TITLE = "Permission needed"
 # The second choice's wording for anything that is not a shell command.
 ALWAYS_WORDING = "don't ask again for this request"
 
+# The bytes that take the terminal's second buffer and give it back. Spelled out
+# here rather than imported, for the reason every needle in this suite is.
+# Response-only: no scenario types them.
+ALTERNATE_ENTER = "\x1b[?1049h"
+ALTERNATE_LEAVE = "\x1b[?1049l"
+
 # The hint row of a session with a credential, on the compiled-in defaults.
 HINT_AUTO = "auto · glm-5.2"
+
+# The half of it that does not name the permission mode, for a scenario driven
+# in `ask` rather than on the defaults.
+HINT_MODEL = "glm-5.2"
 
 FRAME_BEGIN_BYTES = pty.FRAME_BEGIN.encode()
 FRAME_END_BYTES = pty.FRAME_END.encode()
@@ -1696,6 +1938,7 @@ class Trial:
         nonblocking_output=False,
         answer_probes=True,
         notes=False,
+        notes_text="alpha\n",
         home=None,
         tmux=False,
     ):
@@ -1710,7 +1953,7 @@ class Trial:
         self.notes = os.path.join(self.workspace, "notes.txt")
         if notes:
             with open(self.notes, "w", encoding="utf-8") as handle:
-                handle.write("alpha\n")
+                handle.write(notes_text)
 
         binary = run.faulty if faulty else run.binary
         # Built from nothing, exactly as `tests/support/sandbox.rs` does. The
@@ -1820,7 +2063,7 @@ class Trial:
 
     # -- evidence ---------------------------------------------------------
 
-    def peek(self):
+    def peek(self, record_frames=False):
         """The grid as it stands, with no snapshot written.
 
         Fed only as far as the last **complete** frame. Everything the band
@@ -1839,10 +2082,10 @@ class Trial:
         begins = captured.rfind(FRAME_BEGIN_BYTES)
         if begins >= 0 and captured.find(FRAME_END_BYTES, begins) < 0:
             captured = captured[:begins]
-        return Grid(self.rows, self.cols).feed(captured)
+        return Grid(self.rows, self.cols, record_frames=record_frames).feed(captured)
 
-    def grid(self, label):
-        grid = self.peek()
+    def grid(self, label, record_frames=False):
+        grid = self.peek(record_frames=record_frames)
         self.snapshots += 1
         path = os.path.join(self.dir, "grid-%02d-%s.txt" % (self.snapshots, label))
         with open(path, "w", encoding="utf-8") as handle:
@@ -4767,6 +5010,151 @@ def scenario_21(run):
     fixture.stop()
 
 
+# ---------------------------------------------------------------------------
+# 20. a change reviewed on a screen of its own
+# ---------------------------------------------------------------------------
+
+
+def scenario_20(run):
+    """A large edit is reviewed on the alternate plane, and the band comes back.
+
+    Phase-2 item 14 on a real terminal, judged on **cells of two grids**. Four
+    claims, and each needs the widened oracle to be sayable at all:
+
+    * the plane is taken once, and the change is on it;
+    * the user's own screen -- the document above the band, and the band -- is
+      untouched while it is up, which is a claim about the buffer the terminal
+      *saved*, not about the one it is showing;
+    * the answer gives the plane back and repaints the band, and the screen the
+      session comes back to is the one it left;
+    * **no frame in between shows a blank grid.** The end state is the same
+      whether the restore was one write or two, so the middle is where the
+      difference lives, and per-frame snapshots are the only place to look.
+    """
+    marker = run.marker("altscreen")
+    fixture = start_fixture(run, fixtures.large_edit_then_finish(marker))
+    before, after = fixtures.large_edit_sides()
+    trial = run.trial(
+        "alternate-screen",
+        gateway=fixture,
+        mode="ask",
+        notes=True,
+        notes_text=before + "\n",
+    ).settled()
+
+    # The screen the session is required to come back to, read before it goes
+    # anywhere: this is the comparison the whole scenario turns on, and one
+    # taken afterwards would be comparing the restore with itself.
+    trial.send("edit the notes " + run.nonce + "\r")
+    # The document row the tool wrote before the question, which is what makes
+    # "the user's own screen survived" a claim with something on it.
+    trial.wait_for("[tool] read_file ok")
+
+    trial.wait_for(ALTERNATE_ENTER)
+    # Waited for on the **grid** rather than on the wire, because `peek` reads
+    # only as far as the last complete frame: the bytes that take the plane are
+    # written in front of the frame that paints it, so a wait satisfied by the
+    # title arriving can still be a wait that ends inside the paint.
+    trial.wait_until(
+        "the question to be painted on the plane it took",
+        lambda _t: trial.peek().find(PERMISSION_TITLE) is not None,
+    )
+    grid = trial.grid("on-the-alternate-plane")
+
+    run.require(grid.plane == "alternate", "the question is not on a plane of its own")
+    run.require(
+        grid.entered_alternate == 1,
+        "the plane was taken %d times" % grid.entered_alternate,
+    )
+    run.require(grid.left_alternate == 0, "the plane was given back before it was answered")
+    run.require(grid.find(PERMISSION_TITLE) is not None, "the screen does not name itself")
+    for needle in ("before", "after", "alpha line 19", "beta line 0"):
+        run.require(
+            grid.find(needle) is not None,
+            "%r is not on the screen that exists to show the change" % needle,
+        )
+    for choice in ("1. Yes", "3. No (esc)"):
+        run.require(grid.find(choice) is not None, "the screen dropped %r" % choice)
+    run.require(
+        read(trial.notes) == before + "\n", "the edit ran before it was approved"
+    )
+    # The user's own screen, which is the buffer the terminal saved rather than
+    # the one it is showing. Nothing of the change is on it, and the band and
+    # the document it had are still there.
+    primary = grid.primary_text()
+    run.require(
+        "beta line" not in primary,
+        "the change was painted on the user's own screen: %r" % primary,
+    )
+    run.require(
+        "read_file ok" in primary,
+        "the document the session had before the question is gone: %r" % primary,
+    )
+    run.require(
+        HINT_MODEL in primary,
+        "the band the restore has to repaint is not on the saved buffer: %r" % primary,
+    )
+
+    trial.send(b"1")
+    trial.wait_for(marker)
+    # A `require` rather than a wait, so a session that answers the question and
+    # never gives the plane back fails on a named claim instead of on a timeout
+    # whose message is about the harness.
+    run.require(ALTERNATE_LEAVE in trial.text(), "the plane was never given back")
+    run.require(read(trial.notes) == after + "\n", "`1` did not let the edit through")
+
+    trial.wait_until(
+        "the band to be painted on the primary plane again",
+        lambda _t: trial.peek().plane == "primary"
+        and trial.peek().find(HINT_MODEL) is not None,
+    )
+    grid = trial.grid("back-on-the-primary-plane", record_frames=True)
+    run.require(grid.plane == "primary", "the session is still on the borrowed plane")
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 1,
+        "the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(
+        grid.row_text(grid.rows - 1).strip() != "",
+        "the band's hint row was not repainted by the restore",
+    )
+    run.require(
+        grid.find("beta line") is None,
+        "the change stayed on the user's screen after the question was answered",
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # **Every** frame, not the last one: a restore written as two writes leaves
+    # a frame between them holding the terminal's own restored buffer with no
+    # band on it, and a scenario that only read the end state would pass.
+    blank = [index for index, frame in enumerate(grid.frames) if not frame.strip()]
+    run.require(
+        not blank,
+        "the session presented %d blank frame(s) at %r" % (len(blank), blank[:5]),
+    )
+    run.require(len(grid.frames) > 2, "no frames were recorded, so the check above proves nothing")
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
+    settled = trial.session.settled_text()
+    run.require(
+        settled.count(ALTERNATE_ENTER) == settled.count(ALTERNATE_LEAVE) == 1,
+        "the plane was entered %d times and left %d over the whole session"
+        % (settled.count(ALTERNATE_ENTER), settled.count(ALTERNATE_LEAVE)),
+    )
+    run.require(
+        settled.rfind(ALTERNATE_LEAVE) < settled.rfind(pty.RESTORE),
+        "the exit restored the terminal before giving the plane back",
+    )
+    fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -4789,6 +5177,7 @@ SCENARIOS = {
     "17-history": scenario_17,
     "18-provider-switch": scenario_18,
     "19-model-catalog-and-context-meter": scenario_19,
+    "20-alternate-screen-approval": scenario_20,
     "21-paste-entities": scenario_21,
 }
 
@@ -4863,6 +5252,7 @@ scenarios=(
 	17-history
 	18-provider-switch
 	19-model-catalog-and-context-meter
+	20-alternate-screen-approval
 	21-paste-entities
 )
 

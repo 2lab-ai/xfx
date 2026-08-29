@@ -3157,6 +3157,428 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// the other plane
+// ---------------------------------------------------------------------------
+
+/// `CSI ? 1049 h` / `l`, spelled out for the reason every needle here is.
+///
+/// Response-only, like `READY`: no test types these, so waiting for one cannot
+/// be satisfied by the pty echoing the suite's own keystrokes.
+const ENTERS_ALTERNATE: &str = "\u{1b}[?1049h";
+const LEAVES_ALTERNATE: &str = "\u{1b}[?1049l";
+
+/// How many lines of the file the scripted edit replaces.
+///
+/// Sixty short lines rather than one long one, and the shape matters: `read_file`
+/// clips a line past `ToolLimits::max_read_line_len` and a clipped read is not a
+/// complete view, so `edit_file` refuses to replace a file this session has only
+/// partly read (`src/tools/mutate.rs`'s `read_proof_missing`). Twenty lines is
+/// comfortably past the 160 bytes the band's own summary quotes
+/// (`src/permission/authority.rs`), so the question is one the band cannot show.
+const LARGE_EDIT_LINES: usize = 20;
+
+/// What the file holds before the scripted edit, and after it.
+fn large_edit_sides() -> (String, String) {
+    let before: Vec<String> = (0..LARGE_EDIT_LINES)
+        .map(|line| format!("alpha line {line}"))
+        .collect();
+    let after: Vec<String> = (0..LARGE_EDIT_LINES)
+        .map(|line| format!("beta line {line}"))
+        .collect();
+    (before.join("\n"), after.join("\n"))
+}
+
+/// A workspace holding one file whose whole body the model is scripted to
+/// replace, and the file's path.
+fn with_a_large_file(sandbox: &Sandbox) -> (std::path::PathBuf, String, String) {
+    let (before, after) = large_edit_sides();
+    let path = sandbox.workspace.join("notes.txt");
+    std::fs::write(&path, format!("{before}\n")).expect("write the fixture");
+    (path, before, after)
+}
+
+/// Read the file, replace the whole of it, then say `marker`.
+fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-1",
+                "edit_file",
+                serde_json::json!({
+                    "path": "notes.txt",
+                    "old_string": before,
+                    "new_string": after,
+                }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(support::fake_gateway::content_only(&["the edit is done"])),
+    ]
+}
+
+/// A session parked on a question about a change too big for the band.
+///
+/// Returns the pty and the session, both alive, with the alternate screen
+/// already taken and the question painted on it.
+fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, Session) {
+    let (_path, before, after) = with_a_large_file(sandbox);
+    let gateway = FakeGateway::start(large_edit_then_finish(&before, &after));
+    pty.resize(24, 80);
+    let mut command = tui_with(sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(ENTERS_ALTERNATE);
+    session.wait_for(PERMISSION_TITLE);
+    (gateway, session)
+}
+
+#[test]
+fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back() {
+    // The whole excursion, on a real terminal: the plane is taken, the question
+    // and the change are painted on it, the answer gives the plane back, and
+    // the band the session had before is the band it has after -- at the same
+    // coordinates, with the document above it untouched.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    let text = session.text();
+    let entered = text.find(ENTERS_ALTERNATE).expect("the plane was taken");
+    let asked = text.find(PERMISSION_TITLE).expect("the question");
+    assert!(
+        entered < asked,
+        "the question was painted before the plane was taken: {text:?}"
+    );
+    assert_eq!(
+        text.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was taken more than once: {text:?}"
+    );
+    assert!(
+        !text.contains(LEAVES_ALTERNATE),
+        "the plane was given back before it was answered: {text:?}"
+    );
+    // The change itself is on that screen -- **both** halves of it -- which is
+    // the whole reason it exists: the band's own summary quotes 160 bytes.
+    for needle in ["before", "alpha line 19", "after", "beta line 0"] {
+        assert!(
+            text.contains(needle),
+            "{needle:?} was not shown on the screen that exists to show it: {text:?}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().0),
+        "the edit ran before it was approved"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for(LEAVES_ALTERNATE);
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "`1` did not let the edit through"
+    );
+
+    // The band is back, whole, at the foot of the screen.
+    session.wait_until(
+        "the band to be painted on the primary plane again",
+        |text| Screen::painted(text, 24, 80).is_some_and(|screen| screen.divider() == Some(22)),
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        settled.matches(LEAVES_ALTERNATE).count(),
+        "the alternate screen was entered and left a different number of times"
+    );
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the excursion happened more than once: {settled:?}"
+    );
+    // A normal exit that has already given the plane back writes no second
+    // leave: `term::RESTORE` carries none, deliberately.
+    let last_leave = settled.rfind(LEAVES_ALTERNATE).expect("the leave");
+    let restore = settled.rfind(RESTORE).expect("the restore");
+    assert!(
+        last_leave < restore,
+        "the exit left the alternate screen after restoring the terminal: {settled:?}"
+    );
+    drop(gateway);
+}
+
+#[test]
+fn sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
+    // A supervisor's signal at the worst moment there is. The handler writes
+    // the abnormal restore -- which leads with `1049l` for exactly this case --
+    // and re-raises, so the user is left on their own buffer with a cooked
+    // terminal rather than on an approval screen nobody will ever answer.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Sized before the reading is taken, because the size is one of the fields
+    // compared: the session is about to be given a 24x80 terminal, and a
+    // reading taken of an unsized pty would differ from the one it gives back
+    // for a reason that has nothing to do with the restore.
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    session.signal(Signal::TERM);
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::TERM.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+
+    // Reaped before the stream is settled: with no writer left, what is in the
+    // pty is all there will ever be, which is what makes the counts below
+    // claims about the whole session rather than about a snapshot of it.
+    session.wait_exit();
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was taken more than once: {settled:?}"
+    );
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the death left the alternate screen {} times, not once",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
+    // Each signal separately: a hangup is not a termination, and a handler
+    // installed for one and not the other is a terminal left on a plane its
+    // owner cannot see.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Sized before the reading is taken, because the size is one of the fields
+    // compared: the session is about to be given a 24x80 terminal, and a
+    // reading taken of an unsized pty would differ from the one it gives back
+    // for a reason that has nothing to do with the restore.
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    session.signal(Signal::HUP);
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::HUP.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty));
+
+    session.wait_exit();
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the death left the alternate screen {} times, not once",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() {
+    // The one path on which the terminal changes plane without a frame saying
+    // so, driven at a real process. `SIGTSTP` runs the stop handler, which
+    // writes the abnormal restore -- `1049l` first -- and stops with the user's
+    // own buffer back; `SIGCONT` re-announces the mode set, which carries no
+    // `1049h`. So the session comes back owing a question on a plane the
+    // terminal is no longer showing, and it has to take that plane again before
+    // it paints the review anywhere.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+    let before_stop = session.text();
+    assert_eq!(
+        before_stop.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was not taken once before the stop: {before_stop:?}"
+    );
+
+    session.signal(Signal::TSTP);
+    session.wait_state("the child to really stop", |state| {
+        matches!(state, Wait::Stopped(_))
+    });
+    // The handler gave the plane back on its way down: that is what makes the
+    // retake below necessary rather than decorative.
+    assert_eq!(
+        session.text().matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the stop handler did not give the plane back: {:?}",
+        session.text()
+    );
+
+    session.signal(Signal::CONT);
+    // Response-only, and the claim: a second enter, which only the resume can
+    // have produced.
+    session.wait_for_count(ENTERS_ALTERNATE, 2);
+    session.wait_until(
+        "the question to be painted back onto its own plane",
+        |text| {
+            text.rmatch_indices(ENTERS_ALTERNATE)
+                .next()
+                .is_some_and(|(at, _)| text[at..].contains(PERMISSION_TITLE))
+        },
+    );
+
+    // And it is still answerable: the review came back as a review, not as a
+    // screen nobody can act on.
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "the question that survived a stop did not let the edit through"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        settled.matches(LEAVES_ALTERNATE).count(),
+        "the plane was entered and left a different number of times across the stop: {settled:?}"
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on() {
+    // `SIGSTOP` is uncatchable, so it stops the process without running
+    // `signals`'s `stop_for_job_control` -- nothing writes the abnormal restore
+    // and nothing writes its leading `1049l`. The terminal is therefore still on
+    // the approval plane when `SIGCONT` arrives, and `SIGCONT`'s handler sets
+    // the same resume flag a handled `SIGTSTP` does.
+    //
+    // Re-entering raw mode and re-announcing the mode set on that flag is
+    // harmless: both are idempotent. Taking the plane again is not. A session
+    // that did it would save the normal buffer a second time -- over the save
+    // holding the user's real screen -- and would leave two enters against one
+    // leave, so the exit gives back a buffer that is not the one it took.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+    assert_eq!(
+        session.text().matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was not taken once before the stop"
+    );
+
+    session.signal(Signal::STOP);
+    session.wait_state("the child to really stop", |state| {
+        matches!(state, Wait::Stopped(_))
+    });
+    // The discriminating fact: no handler ran, so nothing gave the plane back.
+    assert!(
+        !session.text().contains(LEAVES_ALTERNATE),
+        "an uncatchable stop somehow wrote a restore: {:?}",
+        session.text()
+    );
+
+    session.signal(Signal::CONT);
+    // Driven to a state only the resume can produce -- the mode set is
+    // re-announced on every resume, handled or not -- so the absence asserted
+    // below is measured after the session has really been through it rather
+    // than before it got there.
+    session.wait_for_count(READY, 2);
+
+    assert_eq!(
+        session.text().matches(ENTERS_ALTERNATE).count(),
+        1,
+        "a plane nothing gave back was taken a second time: {:?}",
+        session.text()
+    );
+
+    // And the question is still there and still answerable, on the plane it
+    // never left.
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "the question that survived an uncatchable stop did not let the edit through"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was entered more than once across the stop: {settled:?}"
+    );
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the plane was left {} times, so the pair does not balance",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_small_change_is_still_asked_in_the_band_and_takes_no_plane() {
+    // The bound on all of the above. The common case must not have acquired a
+    // full-screen detour: a question the band can show whole is asked with the
+    // document still visible above it, and nothing asks for `1049`.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert!(
+        !settled.contains(ENTERS_ALTERNATE),
+        "a question the band can hold took a screen of its own: {settled:?}"
+    );
+    assert!(
+        !settled.contains(LEAVES_ALTERNATE),
+        "a session that took no plane reset one anyway: {settled:?}"
+    );
+}
+
 /// The last elapsed time the activity row has shown, in seconds.
 fn elapsed_on_activity_row(text: &str) -> Option<u64> {
     let mut latest = None;

@@ -391,32 +391,66 @@ impl Panel {
     }
 
     /// What one keystroke does. `Some` is an answer; `None` moved the marker.
-    ///
-    /// The digits answer **without** moving the marker, and that is deliberate
-    /// rather than incidental: a `3` is a refusal, not a refusal plus a marker
-    /// left on the refusal for whatever key comes next.
     pub(crate) fn apply(&mut self, action: Action) -> Option<ApprovalAnswer> {
-        match action {
-            Action::Text('1') => Some(ApprovalAnswer::Once),
-            Action::Text('2') => Some(ApprovalAnswer::Always),
-            Action::Text('3') => Some(ApprovalAnswer::Deny),
-            // Every other character. A panel that has the focus swallows them
-            // rather than letting them fall into a composer the user cannot
-            // see the caret in.
-            Action::Text(_) => None,
-            Action::Up => {
-                self.selected = (self.selected + CHOICES.len() - 1) % CHOICES.len();
-                None
-            }
-            Action::Down | Action::Tab => {
-                self.selected = (self.selected + 1) % CHOICES.len();
-                None
-            }
-            Action::Submit => Some(CHOICES[self.selected]),
-            // A decision xfx was never given is a refusal.
-            Action::Escape | Action::Cancel => Some(ApprovalAnswer::Deny),
-        }
+        answered(action, &mut self.selected)
     }
+
+    /// The question this panel was built around, for a surface that is going to
+    /// ask it somewhere else ([`super::approval_screen::ApprovalScreen`]).
+    ///
+    /// By value, so there is never a moment at which two objects hold the same
+    /// question and only one of them is the one being answered.
+    pub(crate) fn into_request(self) -> ApprovalRequest {
+        self.request
+    }
+}
+
+/// What one keystroke means to whichever surface has the focus.
+///
+/// A free function rather than a method, because there are two surfaces -- the
+/// band's [`Panel`] and the alternate plane's
+/// [`super::approval_screen::ApprovalScreen`] -- and "which key means which
+/// answer" is one fact about xfx rather than one fact per surface. Two copies
+/// would be two chances for a `2` to mean different things depending on how big
+/// the change happened to be, which is a decision the *user* never made.
+///
+/// The digits answer **without** moving the marker, and that is deliberate
+/// rather than incidental: a `3` is a refusal, not a refusal plus a marker left
+/// on the refusal for whatever key comes next.
+pub(crate) fn answered(action: Action, selected: &mut usize) -> Option<ApprovalAnswer> {
+    match action {
+        Action::Text('1') => Some(ApprovalAnswer::Once),
+        Action::Text('2') => Some(ApprovalAnswer::Always),
+        Action::Text('3') => Some(ApprovalAnswer::Deny),
+        // Every other character. A surface that has the focus swallows them
+        // rather than letting them fall into a composer the user cannot see the
+        // caret in.
+        Action::Text(_) => None,
+        Action::Up => {
+            *selected = (*selected + CHOICES.len() - 1) % CHOICES.len();
+            None
+        }
+        Action::Down | Action::Tab => {
+            *selected = (*selected + 1) % CHOICES.len();
+            None
+        }
+        Action::Submit => Some(CHOICES[*selected]),
+        // A decision xfx was never given is a refusal.
+        Action::Escape | Action::Cancel => Some(ApprovalAnswer::Deny),
+    }
+}
+
+/// What the three choices are called, for a question about `tool`.
+///
+/// In the order [`CHOICES`] numbers them, so an index is one thing on both
+/// surfaces.
+pub(crate) fn labels(tool: &str) -> [&'static str; CHOICES.len()] {
+    let always = if tool == TERMINAL_TOOL {
+        ALWAYS_COMMAND
+    } else {
+        ALWAYS_REQUEST
+    };
+    [ONCE_CHOICE, always, DENY_CHOICE]
 }
 
 /// `text` wrapped into exactly `rows` rows of a `cols`-wide screen, indented.

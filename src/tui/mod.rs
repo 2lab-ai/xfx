@@ -170,7 +170,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // around it -- `shutdown` has already run either way.
     #[cfg(feature = "fault-injection")]
     if fault::injected(fault::Fault::AfterRaw) {
-        term::shutdown(band.painted_top())?;
+        term::shutdown(band.painted_top(), band.on_alternate())?;
         return Err(io::Error::other("the poll set could not be created"));
     }
     // The matrix row for a panic while the terminal is raw. It unwinds past
@@ -185,7 +185,14 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // no `?`, no early return. Everything that can fail happens inside `hold`,
     // which reports its failure rather than escaping with it.
     let held = hold(config, tmux, &wakeup, blocked, &mut band);
-    let restored = term::shutdown(band.painted_top());
+    // The plane the terminal is really on, asked of the band rather than of the
+    // session: `event_loop::shut_down` gives an approval screen back in one
+    // frame on every way out of the loop, so this is `false` on every ordinary
+    // exit -- and it is the backstop for one that never reached the loop at
+    // all. Conditional, because `RESTORE` deliberately carries no `1049l`: an
+    // exit that reset a buffer it never took would swap in, on a terminal that
+    // models one, a screen its user was not looking at.
+    let restored = term::shutdown(band.painted_top(), band.on_alternate());
     // The terminal is back, so the signals go back too -- before `wakeup` is
     // dropped, because the handlers were handed its write end and outlive it.
     signals::release();
@@ -529,6 +536,7 @@ fn fail(message: &str) -> ExitCode {
 
 mod activity;
 mod approval;
+mod approval_screen;
 mod bridge;
 mod editor;
 mod entity;

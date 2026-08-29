@@ -58,6 +58,24 @@ const ERASE_BELOW: &str = "\x1b[J";
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\x1b[K";
 
+/// Erase the whole screen.
+///
+/// Written by the frame that takes the alternate buffer and by nothing else: a
+/// terminal hands out that buffer holding whatever was last on it, and the rows
+/// this band is about to place are the only ones it knows about.
+const ERASE_SCREEN: &str = "\x1b[2J";
+
+/// Take the terminal's alternate screen buffer, saving the cursor.
+///
+/// The one sequence the main surface never writes ([`super::term::RESTORE`]
+/// carries no leave for exactly that reason). It is written only for a question
+/// whose change the band cannot show, and only for as long as that question is
+/// up.
+const ENTER_ALTERNATE: &str = "\x1b[?1049h";
+
+/// Give it back, restoring the normal buffer and the cursor with it.
+const LEAVE_ALTERNATE: &str = "\x1b[?1049l";
+
 /// The band, and the buffer it is built in.
 pub(crate) struct Band {
     /// Kept across frames so building one allocates nothing after the first.
@@ -117,6 +135,68 @@ pub(crate) struct Band {
     /// on the rest of every band row. This says the opposite: nothing about
     /// those rows is known, so the frame erases them before it paints.
     damaged: bool,
+    /// The lowest row this band has itself placed a **document** row on, and
+    /// has not since scrolled off the top of the screen.
+    ///
+    /// `None` for a session that has written no document row, and for one whose
+    /// screen the band can no longer describe ([`Self::invalidate`]).
+    ///
+    /// It is what makes [`Self::carry_document`] narrow. The band shares the
+    /// screen with the terminal's own document and Phase 1's model is that rows
+    /// the band covers are covered -- a composer that wraps grows over whatever
+    /// the terminal happens to hold, and that is the accepted trade. What is
+    /// **not** acceptable is the band growing over a row *xfx itself wrote and
+    /// nothing will ever repaint*: that row is in neither the screen nor the
+    /// terminal's scrollback afterwards. This is the only row number that tells
+    /// the two apart.
+    document_bottom: Option<u16>,
+    /// Which of the terminal's two buffers this band's bytes are landing on, as
+    /// far as bytes that were **really delivered** can say.
+    ///
+    /// A record of the wire rather than of an intention, and that is the whole
+    /// of what it is for. `super::shell::ScreenOwner` says whose screen the
+    /// session *wants* to be composing for; this says which one the terminal is
+    /// actually showing, and the two differ for exactly one write -- the one
+    /// that changes it. Everything that has to be balanced is balanced against
+    /// this: an enter is written only from `Primary`, a leave only from
+    /// `Approval`, and the exit asks it rather than the shell
+    /// ([`super::term::shutdown`]) because by then the shell may have released a
+    /// plane whose bytes are still on the terminal.
+    showing: super::shell::ScreenOwner,
+    /// What the alternate buffer is holding, while this band is on it.
+    ///
+    /// The other plane's shadow, and it is a whole-screen one rather than a
+    /// [`Grid`] because that plane is repainted whole ([`Self::paint_alternate`]).
+    /// It exists for the same reason [`Commit::NoChange`] does: an approval
+    /// screen is up for as long as a person takes to read a change, and the
+    /// band's animation asks for a frame twice a second the whole time -- so a
+    /// repaint that did not check would write a full screen, unchanged, twice a
+    /// second, forever, on whatever link the session is on.
+    alternate: Option<(Vec<String>, (u16, u16))>,
+}
+
+/// One frame, and the plane it belongs to.
+///
+/// The pair is a type rather than two values because they are one fact: bytes
+/// that take, hold or give back a plane are only meaningful together with which
+/// plane they leave the terminal on. A caller writes [`Self::bytes`] in one
+/// `write_all` and only then records [`Self::owner`], which is the ordering the
+/// whole restoration matrix rests on.
+pub(crate) struct ScreenFrame {
+    owner: super::shell::ScreenOwner,
+    bytes: Vec<u8>,
+}
+
+impl ScreenFrame {
+    /// Which plane the terminal is on once these bytes have landed.
+    pub(crate) fn owner(&self) -> super::shell::ScreenOwner {
+        self.owner
+    }
+
+    /// The whole frame, to be written in exactly one call.
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 /// What one frame cost.
@@ -144,6 +224,219 @@ impl Band {
             // A band that has painted nothing knows nothing, and the first
             // frame is a whole one for the same reason every damaged frame is.
             damaged: true,
+            document_bottom: None,
+            // The normal buffer, which is the one xfx is launched on and the one
+            // it comes back to.
+            showing: super::shell::ScreenOwner::Primary,
+            alternate: None,
+        }
+    }
+
+    /// Whether the terminal is showing the alternate buffer this band took.
+    ///
+    /// Asked by the exit ([`super::term::shutdown`]) and by the loop that owns
+    /// the transitions, and answered from bytes that were delivered rather than
+    /// from what the session wants.
+    pub(crate) fn on_alternate(&self) -> bool {
+        matches!(self.showing, super::shell::ScreenOwner::Approval)
+    }
+
+    /// Builds the frame that **takes** the alternate buffer: the mode set, an
+    /// erase, and the whole surface painted onto it.
+    ///
+    /// One frame rather than two, for the reason the restore below is one: a
+    /// `1049h` on its own hands the user whatever the terminal's other buffer
+    /// was holding -- the last `less`, the last `vim` -- until the next tick
+    /// gets round to painting something.
+    ///
+    /// **It records nothing about the primary plane, and that is the load-
+    /// bearing half.** [`Self::painted`] is the normal buffer's top row and is
+    /// what the exit clears from; [`Self::shadow`] is a claim about the normal
+    /// buffer's cells. Neither is true of the screen these bytes land on, and a
+    /// frame that updated either would leave the exit erasing from a row number
+    /// that means nothing on the plane the user is left looking at -- taking the
+    /// shell's own output above the band with it.
+    pub(crate) fn enter_alternate(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) -> ScreenFrame {
+        let mut bytes = Vec::with_capacity(ENTER_ALTERNATE.len());
+        bytes.extend_from_slice(ENTER_ALTERNATE.as_bytes());
+        self.paint_alternate(&mut bytes, rows, geometry, cursor);
+        // The buffer the terminal is about to hand out is blank, so what these
+        // bytes put on it is the whole of what is on it.
+        self.alternate = Some((rows.to_vec(), cursor));
+        ScreenFrame {
+            owner: super::shell::ScreenOwner::Approval,
+            bytes,
+        }
+    }
+
+    /// The same surface again, on a plane this band is already on.
+    ///
+    /// What a resize asks for, and what a marker that moved asks for. No
+    /// `1049h`: the plane is taken, and taking it twice is a save of the normal
+    /// buffer over the save that is holding the user's own screen.
+    ///
+    /// **Empty bytes when the screen already holds this**, which is
+    /// [`Commit::NoChange`] on the other plane and is not an optimization: the
+    /// band asks for a frame twice a second while a turn is running
+    /// (`super::render_request`), and a person reading a change takes minutes,
+    /// so a repaint that did not check would write a full unchanged screen for
+    /// as long as they read it.
+    pub(crate) fn repaint_alternate(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) -> ScreenFrame {
+        let mut bytes = Vec::new();
+        if self.alternate.as_ref() != Some(&(rows.to_vec(), cursor)) {
+            self.paint_alternate(&mut bytes, rows, geometry, cursor);
+            self.alternate = Some((rows.to_vec(), cursor));
+        }
+        ScreenFrame {
+            owner: super::shell::ScreenOwner::Approval,
+            bytes,
+        }
+    }
+
+    /// One whole-screen paint of the other plane.
+    ///
+    /// Whole rather than a difference, and it is not an optimization left
+    /// undone: the diff exists because the band shares its rows with a document
+    /// nothing else repaints, and this surface shares its screen with nothing at
+    /// all. A shadow of it would be a second grid to keep honest across a plane
+    /// change that a terminal, not this process, performs.
+    ///
+    /// Its own buffer rather than [`Self::buffer`], so that a frame on this
+    /// plane cannot leave the primary plane's reusable buffer holding rows that
+    /// belong to the other one.
+    fn paint_alternate(
+        &self,
+        bytes: &mut Vec<u8>,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) {
+        bytes.extend_from_slice(BEGIN_FRAME.as_bytes());
+        cup(bytes, 1, 1);
+        bytes.extend_from_slice(ERASE_SCREEN.as_bytes());
+        for (offset, row) in rows.iter().enumerate() {
+            let Ok(offset) = u16::try_from(offset) else {
+                break;
+            };
+            let line = offset.saturating_add(1);
+            if line > geometry.rows {
+                // More rows than the screen has. Dropped rather than written
+                // onto the row below the last, which a terminal answers by
+                // scrolling -- on a buffer whose top row is gone for good.
+                break;
+            }
+            cup(bytes, line, 1);
+            bytes.extend_from_slice(row_text(row, geometry.cols).as_bytes());
+        }
+        cup(bytes, cursor.0, cursor.1.saturating_add(1));
+        bytes.extend_from_slice(END_FRAME.as_bytes());
+    }
+
+    /// Builds the one frame that gives the primary plane back: the leave, the
+    /// hidden cursor, and the **whole** band repainted, in one vector.
+    ///
+    /// Three things and one write, because each of the three alone is a state a
+    /// terminal can be caught in:
+    ///
+    /// * `1049l` alone shows the user the buffer the terminal saved, with the
+    ///   band as it was before the question -- stale by however long the
+    ///   question was up.
+    /// * a repaint alone paints the band onto the plane being left.
+    /// * two writes are two presentations on any terminal without synchronized
+    ///   output, and the one in between is the blank grid this ordering exists
+    ///   to make unreachable.
+    ///
+    /// **Whole rather than a difference.** The terminal has been showing another
+    /// buffer, and what it restores is its own saved copy of this one; the
+    /// shadow describes the cells this band last wrote there, which is a claim
+    /// about a screen a `1049` pair has since saved and restored. So the band's
+    /// own rows are all written, and everything above them is the terminal's to
+    /// give back -- which is what a `1049` pair is *for*, and why the document
+    /// is not repainted here.
+    ///
+    /// Nothing is recorded: these bytes are owed until they are delivered, and
+    /// [`Self::frame_landed`] is what the caller calls once they are.
+    pub(crate) fn restore_primary(
+        &mut self,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) -> ScreenFrame {
+        // What the screen will hold once this lands: the shadow it held before
+        // the excursion -- which is what the terminal restores with the plane --
+        // with this band painted over it. Built before the bytes, and adopted
+        // only by `frame_landed`, for the reason `commit` builds it there.
+        self.plan(rows, geometry);
+        self.buffer.clear();
+        self.buffer.extend_from_slice(LEAVE_ALTERNATE.as_bytes());
+        self.buffer.extend_from_slice(BEGIN_FRAME.as_bytes());
+        // The window title, which the terminal may have given back with the
+        // plane. Asked for again on the frame that is a whole repaint anyway.
+        self.shown_title = None;
+        self.retitle();
+        // The rows a band that shrank while the question was up no longer owns,
+        // then its own rows and everything below them.
+        self.release(geometry);
+        cup(&mut self.buffer, geometry.band_top(), 1);
+        self.buffer.extend_from_slice(ERASE_BELOW.as_bytes());
+        for (offset, row) in rows.iter().enumerate() {
+            let Ok(offset) = u16::try_from(offset) else {
+                break;
+            };
+            let line = geometry.band_top().saturating_add(offset);
+            if line > geometry.hint {
+                break;
+            }
+            cup(&mut self.buffer, line, 1);
+            self.buffer
+                .extend_from_slice(row_text(row, geometry.cols).as_bytes());
+        }
+        cup(&mut self.buffer, cursor.0, cursor.1.saturating_add(1));
+        self.buffer.extend_from_slice(END_FRAME.as_bytes());
+        // The top of what this frame is about to write, recorded before the
+        // write for the reason `render` records it there: a frame that failed
+        // halfway has still written some of it.
+        self.painted = Some(self.top(geometry));
+        ScreenFrame {
+            owner: super::shell::ScreenOwner::Primary,
+            bytes: self.buffer.clone(),
+        }
+    }
+
+    /// Records that a [`ScreenFrame`] reached the terminal.
+    ///
+    /// One recorder for all three of them, and it reads the plane out of the
+    /// **frame** rather than out of the branch that chose it: which buffer the
+    /// terminal is on is a fact about bytes that were delivered, so it is taken
+    /// from the thing that was delivered.
+    ///
+    /// A restore is additionally a *whole* repaint of the band, so once it has
+    /// landed the band knows exactly what is on its own rows again and the next
+    /// ordinary frame is a difference from it. The two alternate frames record
+    /// nothing else: nothing they wrote is on the normal buffer.
+    pub(crate) fn frame_landed(
+        &mut self,
+        frame: &ScreenFrame,
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) {
+        self.showing = frame.owner();
+        if matches!(frame.owner(), super::shell::ScreenOwner::Primary) {
+            // The terminal takes its alternate buffer back when the plane is
+            // given up, so what this band believed was on it is a claim about a
+            // screen that no longer exists.
+            self.alternate = None;
+            self.landed(geometry, cursor);
         }
     }
 
@@ -204,6 +497,15 @@ impl Band {
         self.shadow.resize(rows, cols);
         self.target.resize(rows, cols);
         self.painted = self.painted.map(|top| top.min(rows));
+        // A row number on a screen that has been re-wrapped, erased or handed
+        // back and taken again is not a row number any more.
+        self.document_bottom = None;
+        // Nor is a claim about what the *other* plane is holding. The skip in
+        // [`Self::repaint_alternate`] is an equality against exactly this, so a
+        // cache that outlived the damage would answer "the terminal already
+        // holds this" about a screen this band has just said it cannot
+        // describe -- and would suppress the repaint the damage asked for.
+        self.alternate = None;
         self.caret = None;
         self.damaged = true;
         // What the terminal was told, rather than what this band wants: see the
@@ -553,6 +855,138 @@ impl Band {
         self.buffer.clone()
     }
 
+    /// Records that something which is **not a frame** gave the alternate plane
+    /// back.
+    ///
+    /// There is exactly one such writer, and it is the reason this is not
+    /// [`Self::frame_landed`]: the stop handler. A `SIGTSTP` at a question runs
+    /// `super::signals`'s `stop_for_job_control`, which writes
+    /// [`super::term::abnormal_restore`] -- `1049l` first, unconditionally,
+    /// because an exit that does not know what is on the screen may not ask --
+    /// and stops the process with the user's own buffer back. The `SIGCONT`
+    /// that follows re-announces the mode set (`super::resume`), and the mode
+    /// set carries **no** `1049h`.
+    ///
+    /// So the terminal is on the normal buffer and this band's record says
+    /// otherwise, and the record is what every transition is decided from
+    /// ([`Self::on_alternate`]). Left uncorrected the next tick asks for a
+    /// *repaint* of a plane the terminal is not showing: either nothing at all,
+    /// because the cache says the screen already holds it -- a session with no
+    /// band and no question on it -- or a full-screen erase and repaint of the
+    /// approval surface **onto the buffer the user was just given back**.
+    ///
+    /// Told, the band is where it started: the next tick finds the session
+    /// still owning the question, takes the plane again with `1049h` and paints
+    /// the whole surface onto it ([`Self::enter_alternate`]).
+    pub(crate) fn plane_given_back(&mut self) {
+        self.showing = super::shell::ScreenOwner::Primary;
+        // And nothing is known about the buffer that was handed back either: it
+        // is the terminal's own again, and whatever this band last painted on
+        // it went with it.
+        self.alternate = None;
+    }
+
+    /// How many rows the band has taken from the document since the last frame
+    /// that landed.
+    ///
+    /// The mirror of the window [`Self::release`] gives back. `painted` is the
+    /// band's top as of the last delivered write, so a `painted` **below** the
+    /// band's top now means the band has grown into rows that were the
+    /// document's -- one row when a turn starts and its activity row appears,
+    /// one when the composer wraps onto a second line, several when a question
+    /// opens a panel.
+    ///
+    /// Zero on a band that knows nothing about the screen. A resize, a
+    /// `/clear`, a Ctrl-L and a resume all reach here with a `painted` from the
+    /// screen that *was*, and the terminal has since re-wrapped or erased its
+    /// own document by rules this module does not model -- so those rows are
+    /// not this band's to move. A resize to a shorter screen is the case that
+    /// would otherwise look exactly like a band that grew.
+    fn grown(&self, geometry: &Geometry) -> u16 {
+        if self.damaged {
+            return 0;
+        }
+        // Only rows this band wrote the document onto, and only once the band
+        // has actually reached them. A band that grew over rows the *terminal*
+        // holds is Phase 1's accepted trade -- the composer wrapping as a draft
+        // is typed grows over whatever is above it, and scrolling the screen on
+        // every keystroke that wrapped would be a worse answer than covering a
+        // row nothing here wrote.
+        let bottom = match self.document_bottom {
+            Some(bottom) => bottom,
+            None => return 0,
+        };
+        let top = geometry.band_top();
+        if bottom < top {
+            return 0;
+        }
+        bottom.saturating_sub(top).saturating_add(1)
+    }
+
+    /// Carries the document up out of the way of a band that has grown, in one
+    /// write and one flush.
+    ///
+    /// **The counterpart [`Self::release`] never had.** That function handles a
+    /// band that *shrank*: the rows it gave back were its own, so it erases
+    /// them. This handles the other direction, and the difference is whose text
+    /// is on the rows: a band that grows takes rows the **document** is holding,
+    /// and the only thing a terminal can do with a row it has no room for is
+    /// scroll it -- off the top of the screen and into its own scrollback,
+    /// where it is still the user's.
+    ///
+    /// Without it those rows are destroyed rather than moved, and it is not a
+    /// corner: a submitted line is echoed into the document the instant it is
+    /// submitted, on the bottom document row, and the turn it started is
+    /// announced by the runtime a moment later. Whether the band grows onto that
+    /// row before or after the echo lands on it is the scheduler's to choose,
+    /// so the loss is a **flake** -- which is how it was found, as a
+    /// disagreement between two builds of `scripts/smoke-tui.sh`'s scenario 13
+    /// that had each raced differently.
+    ///
+    /// A real linefeed from the bottom margin ([`scroll_one`]), which is the
+    /// same instrument [`Self::render_append`] makes room with and the only one
+    /// that feeds native scrollback -- so the two writers move the document by
+    /// the same means and a row carried here is a row an append would have
+    /// carried the same way.
+    ///
+    /// **Nothing is recorded until the write lands**, exactly as
+    /// [`Self::append_document`] records nothing: the shadow is swapped and the
+    /// band's top is raised only by a write that succeeded, so a screen that
+    /// refused this is owed it again.
+    pub(crate) fn carry_document(
+        &mut self,
+        out: &mut impl Write,
+        geometry: &Geometry,
+    ) -> io::Result<()> {
+        let grown = self.grown(geometry);
+        if grown == 0 {
+            return Ok(());
+        }
+        self.buffer.clear();
+        self.target.clone_from(&self.shadow);
+        for _ in 0..grown {
+            scroll_one(&mut self.buffer, geometry);
+            self.target.scroll_up(1);
+        }
+        out.write_all(&self.buffer)?;
+        out.flush()?;
+        std::mem::swap(&mut self.shadow, &mut self.target);
+        // The rows moved up with the screen. A bottom that has reached the top
+        // of the screen has left it, and what leaves the top is in the
+        // terminal's own scrollback -- there is nothing left here to protect.
+        self.document_bottom = self
+            .document_bottom
+            .and_then(|bottom| bottom.checked_sub(grown))
+            .filter(|bottom| *bottom > 0);
+        // The band's top is now its own again, so the frame that follows erases
+        // from a row the document has been carried off.
+        self.delivered(geometry);
+        // The scroll left the caret on the bottom row, which is not where the
+        // last frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(())
+    }
+
     /// Erases the rows a band that shrank no longer owns.
     ///
     /// Nothing when the band grew or stayed where it was: growing paints over
@@ -621,6 +1055,11 @@ impl Band {
         // The release rode along at the head of those bytes, so the same rule
         // applies: delivered, and only then is the band's top its divider.
         std::mem::swap(&mut self.shadow, &mut self.target);
+        // The document's newest row is on the row above the band, wherever the
+        // append put it: every row this function places is anchored there, and
+        // it is the row a band that grows next takes first
+        // ([`Self::carry_document`]).
+        self.document_bottom = Some(geometry.band_top().saturating_sub(1)).filter(|row| *row > 0);
         self.delivered(geometry);
         // An append leaves the caret wherever its last `place` put it, which is
         // not where the last frame left it: the next frame owes a `CUP`.
@@ -819,6 +1258,16 @@ mod tests {
         vec!["--".to_string(), "> ".to_string(), "hint".to_string()]
     }
 
+    /// The same band with the row a running turn puts above the divider.
+    fn running_rows() -> Vec<String> {
+        vec![
+            "\u{2022} Thinking  0s".to_string(),
+            "--".to_string(),
+            "> ".to_string(),
+            "hint".to_string(),
+        ]
+    }
+
     /// A terminal, to the extent a document append can move one.
     ///
     /// The exact-byte tests above say what goes on the wire; this says what the
@@ -928,6 +1377,11 @@ mod tests {
             }
             self.scrolled_off.push(self.lines.remove(0));
             self.lines.push(String::new());
+        }
+
+        /// What row `line` -- one-based, as the terminal counts -- says.
+        fn row(&self, line: u16) -> String {
+            self.lines[usize::from(line) - 1].clone()
         }
 
         /// The document rows still on the screen, top first.
@@ -2462,5 +2916,564 @@ mod tests {
         assert_eq!(before, Some(6));
         band.invalidate(tall.rows, tall.cols);
         assert_eq!(band.painted_top(), before);
+    }
+
+    #[test]
+    fn a_band_that_grows_carries_the_document_up_instead_of_being_painted_over_it() {
+        // The mirror of `Band::release`, and the case that had no counterpart.
+        //
+        // A prompt echo is written to the document the instant it is submitted,
+        // on the bottom document row -- `band_top - 1`, with `band_top` the
+        // **idle** band's. The turn it started is announced by the runtime a
+        // moment later (`UiEvent::TurnStarted`), the band grows by its activity
+        // row, and `band_top` becomes the row that echo is on. Every frame from
+        // then on opens with `CUP(band_top,1)` + `ED`, so the row the user just
+        // submitted is erased -- gone from the screen, and never in scrollback,
+        // because this phase never repaints a document row.
+        //
+        // Which of the two happens first is the scheduler's to choose, so the
+        // loss is a flake: `scripts/smoke-tui.sh`'s scenario 13 found it as a
+        // disagreement between two builds that had each raced differently.
+        let idle = geometry();
+        let running =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        assert_eq!(
+            running.band_top() + 1,
+            idle.band_top(),
+            "the turn's row did not grow the band, so this case proves nothing"
+        );
+
+        let mut band = Band::new();
+        let mut screen = Screen::under_a_painted_band(&idle);
+        let mut sink = Vec::new();
+        band.commit(&mut Vec::new(), &band_rows(), &idle, (23, 2))
+            .expect("the idle band");
+        band.append_document(&mut sink, 1, &["say hello".to_string()], &idle)
+            .expect("the prompt echo");
+        screen.feed(&sink);
+        sink.clear();
+        assert_eq!(
+            screen.row(idle.band_top() - 1),
+            "say hello",
+            "the echo was not written on the bottom document row"
+        );
+
+        // The turn is announced: the band grows, and the document is carried up
+        // out of its way **before** anything is painted at the new top.
+        band.carry_document(&mut sink, &running)
+            .expect("the document is carried up");
+        screen.feed(&sink);
+
+        assert_eq!(
+            screen.row(running.band_top() - 1),
+            "say hello",
+            "the echo is not on the bottom row of the document the band left"
+        );
+        assert!(
+            screen.document().contains(&"say hello".to_string()),
+            "the row the user submitted was lost: {:?}",
+            screen.document()
+        );
+        // And the row the frame is about to erase from holds nothing of the
+        // document's, which is the whole of what the carry buys.
+        assert_ne!(
+            screen.row(running.band_top()),
+            "say hello",
+            "the echo is still on the row every frame erases from"
+        );
+
+        // The row moved, so the band knows where it is now: a second growth
+        // carries it again, and a band that recorded nothing would either carry
+        // the same row twice or stop protecting it.
+        let panelled = crate::tui::layout::solve(24, 80, 1).expect("a band");
+        let taller = crate::tui::layout::solve_with(24, 80, 3, true)
+            .expect("a band with a three-row composer and a turn in it");
+        assert!(
+            taller.band_top() < running.band_top(),
+            "the band did not grow again, so this case proves nothing"
+        );
+        let _ = panelled;
+        sink.clear();
+        band.carry_document(&mut sink, &taller)
+            .expect("the document is carried up again");
+        screen.feed(&sink);
+        assert!(
+            screen.document().contains(&"say hello".to_string()),
+            "the row was lost on the second growth: {:?}",
+            screen.document()
+        );
+        assert_eq!(
+            screen.row(taller.band_top() - 1),
+            "say hello",
+            "the second carry did not put the row clear of the band"
+        );
+    }
+
+    #[test]
+    fn a_band_that_grows_over_rows_this_band_never_wrote_carries_nothing() {
+        // Phase 1's accepted trade, and the bound that keeps the carry narrow.
+        // The band shares the screen with the terminal's own document: a
+        // composer that wraps as a draft is typed grows over whatever is above
+        // it, and scrolling the user's screen on every keystroke that wrapped
+        // would be a worse answer than covering a row this session never wrote.
+        // Only a row **xfx placed and nothing will ever repaint** is carried.
+        let idle = geometry();
+        let grown = crate::tui::layout::solve(24, 80, 5).expect("a five-row composer");
+        assert!(
+            grown.band_top() < idle.band_top(),
+            "the composer did not grow the band, so this case proves nothing"
+        );
+        let mut band = Band::new();
+        let mut written = Vec::new();
+        band.commit(&mut Vec::new(), &band_rows(), &idle, (23, 2))
+            .expect("the idle band");
+
+        band.carry_document(&mut written, &grown)
+            .expect("a band that grew over the terminal's own document");
+        assert!(
+            written.is_empty(),
+            "a band that grew over rows nothing here wrote scrolled the screen: {:?}",
+            String::from_utf8_lossy(&written)
+        );
+    }
+
+    #[test]
+    fn a_band_that_did_not_grow_carries_nothing_and_writes_nothing() {
+        // The bound. A scroll is not reversible -- what leaves the top of the
+        // screen is in the terminal's own scrollback for good -- so a carry on
+        // a band that did not take a row would push the document up for nothing,
+        // once per frame, forever.
+        let idle = geometry();
+        let mut band = Band::new();
+        let mut written = Vec::new();
+        band.commit(&mut Vec::new(), &band_rows(), &idle, (23, 2))
+            .expect("the idle band");
+
+        band.carry_document(&mut written, &idle)
+            .expect("a band that did not grow");
+        assert!(
+            written.is_empty(),
+            "a band that took no row scrolled the document anyway: {:?}",
+            String::from_utf8_lossy(&written)
+        );
+
+        // And a band that *shrank* carries nothing either: those rows are
+        // `release`'s, and it erases them rather than moving anything.
+        let running =
+            crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
+        band.commit(&mut Vec::new(), &running_rows(), &running, (22, 2))
+            .expect("the running band");
+        band.carry_document(&mut written, &idle)
+            .expect("a band that shrank");
+        assert!(
+            written.is_empty(),
+            "a band that gave a row back scrolled the document: {:?}",
+            String::from_utf8_lossy(&written)
+        );
+    }
+
+    #[test]
+    fn a_screen_the_band_knows_nothing_about_is_not_carried() {
+        // A resize, a `/clear`, a Ctrl-L or a resume: the terminal has re-wrapped
+        // or erased its own document by rules this module does not model, so the
+        // rows above the band are not this band's to move. `damaged` is the one
+        // fact that says so, and a resize to a shorter screen is exactly the case
+        // that would otherwise look like a band that grew.
+        let tall = crate::tui::layout::solve(24, 80, 1).expect("a band");
+        let short = crate::tui::layout::solve(12, 80, 1).expect("a shorter band");
+        let mut band = Band::new();
+        let mut written = Vec::new();
+        band.commit(&mut Vec::new(), &band_rows(), &tall, (23, 2))
+            .expect("the tall band");
+        // A document row this band really wrote, so the absence below is the
+        // damage rule biting rather than there being nothing to carry.
+        band.append_document(&mut written, 1, &["say hello".to_string()], &tall)
+            .expect("the prompt echo");
+        written.clear();
+        assert!(
+            band.painted_top().is_some_and(|top| top > short.band_top()),
+            "the screen did not shrink past the band's top, so this proves nothing"
+        );
+
+        band.invalidate(short.rows, short.cols);
+        band.carry_document(&mut written, &short)
+            .expect("a screen the band knows nothing about");
+        assert!(
+            written.is_empty(),
+            "a resized screen's document was scrolled by a band that cannot describe it: {:?}",
+            String::from_utf8_lossy(&written)
+        );
+
+        // **And still nothing once the whole repaint has landed.** `damaged` is
+        // cleared by the frame that answers it, and what must not survive that
+        // frame is the *row number*: it was a row on the screen that was, and on
+        // this one it names a row the band never wrote. A band that kept it
+        // would scroll the user's document by the difference between two
+        // screens the moment anything grew.
+        band.commit(&mut Vec::new(), &band_rows(), &short, (short.rows, 2))
+            .expect("the whole repaint the resize asked for");
+        let taller = crate::tui::layout::solve(12, 80, 3).expect("a three-row composer");
+        assert!(
+            taller.band_top() < short.band_top(),
+            "the band did not grow on the new screen, so this case proves nothing"
+        );
+        band.carry_document(&mut written, &taller)
+            .expect("a band that grew on a screen it has only just learned");
+        assert!(
+            written.is_empty(),
+            "a row number from the screen that was outlived the repaint: {:?}",
+            String::from_utf8_lossy(&written)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the other plane
+    // -----------------------------------------------------------------------
+
+    /// `CSI ? 1049 h` and `CSI ? 1049 l`, spelled here rather than imported for
+    /// the reason every needle in this module's tests is: a test that read the
+    /// constant it is checking would pass for whatever the module declared.
+    const ENTERS_ALTERNATE: &str = "\u{1b}[?1049h";
+    const LEAVES_ALTERNATE: &str = "\u{1b}[?1049l";
+
+    /// A full-screen approval surface, as `super::super::approval_screen` builds
+    /// one: as many rows as the terminal has.
+    fn screen_rows(rows: u16) -> Vec<String> {
+        (0..rows).map(|row| format!("screen row {row}")).collect()
+    }
+
+    /// A band that has painted one ordinary frame on the primary plane, and the
+    /// screen it painted it on.
+    fn painted_primary() -> (Band, Geometry) {
+        let geometry = geometry();
+        let mut band = Band::new();
+        band.commit(&mut Vec::new(), &band_rows(), &geometry, (23, 2))
+            .expect("a frame the screen took");
+        (band, geometry)
+    }
+
+    #[test]
+    fn entering_the_alternate_screen_asks_for_it_and_paints_the_whole_of_it() {
+        // The enter is one frame: the mode set that takes the plane, and then a
+        // screen painted from its first row. A `1049h` on its own would show
+        // the user whatever the terminal's alternate buffer happened to be
+        // holding until the next tick got round to painting one.
+        let (mut band, geometry) = painted_primary();
+        let frame = band.enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0));
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+
+        assert_eq!(
+            frame.owner(),
+            super::super::shell::ScreenOwner::Approval,
+            "the frame that takes the plane does not say whose it is"
+        );
+        assert!(
+            text.starts_with(ENTERS_ALTERNATE),
+            "the plane was painted before it was taken: {text:?}"
+        );
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "the alternate screen was entered more than once in one frame: {text:?}"
+        );
+        // And the buffer it was handed is **erased** before anything is placed
+        // on it: a terminal hands out its alternate screen holding whatever was
+        // last on it, and rows this band never wrote are rows it cannot
+        // describe.
+        assert!(
+            text.contains(&format!("\u{1b}[1;1H{ERASE_SCREEN}")),
+            "the plane was painted without being cleared first: {text:?}"
+        );
+        for row in 1..=geometry.rows {
+            let painted = format!("\u{1b}[{row};1Hscreen row {}", row - 1);
+            assert!(
+                text.contains(&painted),
+                "row {row} of the alternate screen was not painted: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn alternate_frames_never_update_band_painted() {
+        // `Band::painted` is the **normal** buffer's top row, and it is what
+        // `super::super::term::shutdown` clears from. A frame on the other
+        // plane that moved it would make the exit erase from a row number that
+        // means nothing on the screen the user is left looking at -- taking the
+        // shell's own output with it.
+        let (mut band, geometry) = painted_primary();
+        let before = band.painted_top();
+        assert_eq!(before, Some(geometry.band_top()));
+
+        let entered = band.enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        assert_eq!(band.painted_top(), before, "the enter moved the band's top");
+
+        band.repaint_alternate(&screen_rows(geometry.rows), &geometry, (8, 0));
+        assert_eq!(
+            band.painted_top(),
+            before,
+            "a repaint on the other plane moved the band's top"
+        );
+    }
+
+    #[test]
+    fn a_repaint_the_other_plane_already_holds_costs_nothing() {
+        // `Commit::NoChange` on the other plane. The band asks for a frame
+        // twice a second while a turn is running, and a question is up for as
+        // long as a person takes to read a change -- so a repaint that did not
+        // check would write a whole unchanged screen, forever, on whatever link
+        // the session is on.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+        let entered = band.enter_alternate(&rows, &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        assert!(!entered.bytes().is_empty(), "the enter wrote nothing");
+
+        assert!(
+            band.repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "a screen the terminal already holds was written again"
+        );
+        // And a marker that moved is a frame, so the skip is a skip rather than
+        // a surface that stopped painting.
+        assert!(
+            !band
+                .repaint_alternate(&rows, &geometry, (8, 0))
+                .bytes()
+                .is_empty(),
+            "the caret moved and nothing was written"
+        );
+        let mut moved = rows.clone();
+        moved[3] = "> 2. Yes, and".to_string();
+        assert!(
+            !band
+                .repaint_alternate(&moved, &geometry, (8, 0))
+                .bytes()
+                .is_empty(),
+            "a row changed and nothing was written"
+        );
+    }
+
+    #[test]
+    fn a_repaint_after_damage_is_never_suppressed_by_what_the_plane_used_to_hold() {
+        // [`Band::invalidate`] is this band saying it knows nothing about the
+        // screen -- a resize, a `/clear`, a Ctrl-L, or the terminal being handed
+        // back to the shell by a stop and taken again. What it must not leave
+        // behind is a claim about the *other* plane's cells: the skip in
+        // `repaint_alternate` is an equality against that claim, so a cache that
+        // survived the damage would answer "the terminal already holds this"
+        // about a screen the band has just said it cannot describe -- and the
+        // repaint the damage asked for would be suppressed.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+        let entered = band.enter_alternate(&rows, &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        assert!(
+            band.repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "the screen did not already hold this, so the case below proves nothing"
+        );
+
+        band.invalidate(geometry.rows, geometry.cols);
+
+        assert!(
+            !band
+                .repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "a damaged plane was left believing what it used to hold, so the \
+             repaint the damage asked for was skipped"
+        );
+    }
+
+    #[test]
+    fn a_plane_the_terminal_gave_back_behind_the_bands_back_is_taken_again() {
+        // The stop handler is the one writer that is not a frame. `SIGTSTP`
+        // lands, `super::super::signals`'s `stop_for_job_control` writes the
+        // abnormal restore -- which leads with `1049l` -- and the process stops
+        // with the user's own screen back. `super::super::resume` re-announces
+        // the mode set and it carries no `1049h`, so the terminal is on the
+        // normal buffer while this band still believes it is on the other one.
+        //
+        // Told, the band takes the plane again from scratch; not told, its next
+        // frame is either nothing at all (the cache says the screen holds this
+        // already) or a full-screen erase and repaint **on the user's own
+        // buffer**.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+        let entered = band.enter_alternate(&rows, &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        assert!(band.on_alternate());
+
+        band.plane_given_back();
+
+        assert!(
+            !band.on_alternate(),
+            "the band still believes it is on a plane the handler gave back"
+        );
+        let retaken = band.enter_alternate(&rows, &geometry, (7, 0));
+        let text = String::from_utf8(retaken.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.starts_with(ENTERS_ALTERNATE),
+            "the plane was not taken again: {text:?}"
+        );
+        assert!(
+            text.contains("screen row 0"),
+            "the plane was taken again and nothing was painted on it: {text:?}"
+        );
+    }
+
+    #[test]
+    fn restore_primary_composes_1049l_hidden_cursor_and_a_complete_repaint_in_one_screen_frame() {
+        // One vector, in this order, or the user sees the terminal's own
+        // restored buffer -- or a blank one -- for as long as it takes the next
+        // write to arrive.
+        let (mut band, geometry) = painted_primary();
+        let entered = band.enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+
+        let frame = band.restore_primary(&band_rows(), &geometry, (23, 2));
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+
+        assert_eq!(
+            frame.owner(),
+            super::super::shell::ScreenOwner::Primary,
+            "the frame that gives the plane back does not say whose it is"
+        );
+        let leaves = text.find(LEAVES_ALTERNATE).expect("the leave");
+        assert_eq!(
+            leaves, 0,
+            "something was written before the leave: {text:?}"
+        );
+        let hidden = text.find("\u{1b}[?25l").expect("the cursor is hidden");
+        assert!(
+            leaves < hidden,
+            "the cursor was hidden on the plane being left: {text:?}"
+        );
+        // The **whole** band, not a difference from a shadow: the terminal has
+        // been showing another plane, and a diff against what it held before it
+        // was taken is a claim nothing on this path can make.
+        for (offset, row) in band_rows().iter().enumerate() {
+            let line = geometry.band_top() + u16::try_from(offset).expect("a band row");
+            let painted = format!("\u{1b}[{line};1H{row}");
+            assert!(
+                text.contains(&painted),
+                "row {line} of the band was not repainted by the restore: {text:?}"
+            );
+            assert!(
+                text.find(&painted).expect("the row") > hidden,
+                "the band was repainted before the cursor was hidden: {text:?}"
+            );
+        }
+        assert!(
+            text.ends_with(END_FRAME),
+            "the restore did not close its frame: {text:?}"
+        );
+        assert_eq!(
+            text.matches(LEAVES_ALTERNATE).count(),
+            1,
+            "the restore left the alternate screen more than once: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_restore_names_the_row_the_exit_clears_from_before_it_is_written() {
+        // The rule every frame in this module keeps, on the one path that grew
+        // a second writer. `Band::painted` is lowered **before** the bytes go
+        // out, because `write_all` can fail with some of them delivered: a
+        // restore that recorded nothing until it landed would leave the exit
+        // clearing from a row *below* the rows it had already painted, and the
+        // top of the band would survive the exit on the user's screen.
+        //
+        // Driven through a band that **grew** while the question was up -- the
+        // composer took a second row -- because that is the direction in which
+        // the two answers differ: the new top is above the old one.
+        let short = crate::tui::layout::solve(24, 80, 1).expect("a one-row composer");
+        let tall = crate::tui::layout::solve(24, 80, 2).expect("a two-row composer");
+        let mut band = Band::new();
+        band.commit(&mut Vec::new(), &band_rows(), &short, (23, 2))
+            .expect("a frame the screen took");
+        assert_eq!(band.painted_top(), Some(short.band_top()));
+
+        let entered = band.enter_alternate(&screen_rows(short.rows), &short, (7, 0));
+        band.frame_landed(&entered, &short, (7, 0));
+        let grown = vec![
+            "--".to_string(),
+            "> ".to_string(),
+            "second".to_string(),
+            "hint".to_string(),
+        ];
+        band.restore_primary(&grown, &tall, (23, 2));
+
+        assert_eq!(
+            band.painted_top(),
+            Some(tall.band_top()),
+            "the restore painted rows the exit would not have cleared from"
+        );
+        assert!(
+            tall.band_top() < short.band_top(),
+            "the band did not grow, so this case proves nothing"
+        );
+    }
+
+    #[test]
+    fn restoration_never_shows_an_intermediate_blank_grid() {
+        // Every state a terminal can be in between the leave and the repaint is
+        // a state this vector puts it in, because there is nothing else on the
+        // wire until the whole of it has been written. So the property is
+        // checked the only way it is checkable: no prefix of the restore ends
+        // with the plane given back and the band not yet on it.
+        let (mut band, geometry) = painted_primary();
+        let entered = band.enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        let frame = band.restore_primary(&band_rows(), &geometry, (23, 2));
+
+        // The frame is wrapped in synchronized output, which is what makes the
+        // whole of it one presentation on a terminal that supports it -- and
+        // the `1049l` is inside that wrapper rather than in front of it.
+        let text = String::from_utf8(frame.bytes().to_vec()).expect("utf-8");
+        assert!(
+            text.contains(BEGIN_FRAME),
+            "the restore was not presented as one frame: {text:?}"
+        );
+        let opened = text.find(BEGIN_FRAME).expect("the frame opens");
+        let closed = text.rfind(END_FRAME).expect("the frame closes");
+        for row in band_rows() {
+            let at = text.find(&row).expect("a band row");
+            assert!(
+                opened < at && at < closed,
+                "{row:?} was painted outside the frame that presents it: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_band_the_restore_repaints_is_the_one_the_exit_then_clears_from() {
+        // The restore is a **whole** frame, so once it has landed the band knows
+        // exactly what is on those rows again: the shadow is what it painted,
+        // the top is its own top row, and the next ordinary frame is a
+        // difference from that rather than a second whole repaint.
+        let (mut band, geometry) = painted_primary();
+        let entered = band.enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0));
+        band.frame_landed(&entered, &geometry, (7, 0));
+        assert!(band.on_alternate(), "the band forgot which plane it is on");
+
+        let restored = band.restore_primary(&band_rows(), &geometry, (23, 2));
+        band.frame_landed(&restored, &geometry, (23, 2));
+        assert!(
+            !band.on_alternate(),
+            "the band still believes it is on the plane it just gave back"
+        );
+        assert_eq!(band.painted_top(), Some(geometry.band_top()));
+
+        let mut screen = Vec::new();
+        assert_eq!(
+            band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+                .expect("a frame the screen took"),
+            Commit::NoChange,
+            "the restore did not leave the band knowing what it had painted"
+        );
     }
 }

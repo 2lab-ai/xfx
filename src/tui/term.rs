@@ -171,18 +171,30 @@ fn restore_attrs(owned: &Owned) -> io::Result<()> {
 // recorded, and the two belong to one another.
 pub(crate) fn restore_pair() {
     let Some(owned) = OWNED.get() else { return };
-    let bytes = if TMUX.load(Ordering::Acquire) {
-        ABNORMAL_RESTORE_TMUX
-    } else {
-        ABNORMAL_RESTORE
-    }
-    .as_bytes();
+    let bytes = abnormal_restore(TMUX.load(Ordering::Acquire)).as_bytes();
     // SAFETY: `write` is async-signal-safe, the fd was recorded at entry and is
     // owned by the process for its whole life, and the buffer is 'static.
     unsafe {
         libc::write(owned.output, bytes.as_ptr().cast(), bytes.len());
     }
     let _ = restore_attrs(owned);
+}
+
+/// The bytes a panic and both death signals write, whichever plane was on the
+/// screen.
+///
+/// One function rather than a branch at each of the three call sites, because
+/// the property those sites share is the whole of what makes them correct: an
+/// exit that does not know what is on the screen may not ask, so it leads with
+/// `1049l` unconditionally. An approval screen that was up when the process died
+/// is therefore given back by exactly the same bytes as a session that never
+/// took one, and neither path has to consult a state a handler may not read.
+pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
+    if tmux {
+        ABNORMAL_RESTORE_TMUX
+    } else {
+        ABNORMAL_RESTORE
+    }
 }
 
 /// The normal exit, in upstream's order (`app_lifecycle.zig:578-593`): write the
@@ -199,7 +211,17 @@ pub(crate) fn restore_pair() {
 /// Every step is attempted even when an earlier one failed, and the first error
 /// is the one returned. A terminal left raw is worse than an unreported write
 /// error, so there is no `?` between here and the end of the function.
-pub(crate) fn shutdown(band_top: Option<u16>) -> io::Result<()> {
+/// `on_alternate` is the plane the terminal is still on, asked of the band
+/// rather than of the session ([`super::frame::Band::on_alternate`]): what has
+/// to be given back is what was really written, and a session that has released
+/// the plane in its own state may still have those bytes on the screen. A
+/// planned exit ordinarily finds this `false` -- the loop gives the plane back
+/// in one frame the instant the question is answered -- and this is the
+/// backstop for an exit that got out some other way. It is **conditional**,
+/// unlike [`abnormal_restore`]: a `1049l` written by a session that never took
+/// the alternate buffer swaps in, on a terminal that models one, a screen its
+/// user was not looking at.
+pub(crate) fn shutdown(band_top: Option<u16>, on_alternate: bool) -> io::Result<()> {
     let Some(owned) = OWNED.get() else {
         return Ok(());
     };
@@ -207,7 +229,13 @@ pub(crate) fn shutdown(band_top: Option<u16>) -> io::Result<()> {
     // rather than the raw fd because this path may take a lock and buffer,
     // which the signal path may not.
     let mut out = io::stdout().lock();
-    shutdown_with(&mut out, owned, TMUX.load(Ordering::Acquire), band_top)
+    shutdown_with(
+        &mut out,
+        owned,
+        TMUX.load(Ordering::Acquire),
+        band_top,
+        on_alternate,
+    )
 }
 
 /// The exit above, against an explicit screen and an explicit ownership record,
@@ -218,9 +246,15 @@ fn shutdown_with(
     owned: &Owned,
     tmux: bool,
     band_top: Option<u16>,
+    on_alternate: bool,
 ) -> io::Result<()> {
     let restore = if tmux { RESTORE_TMUX } else { RESTORE };
-    let screen = write!(out, "{restore}").and_then(|()| out.flush());
+    // The plane first, and everything else after it. Every sequence in
+    // `RESTORE` is about the surface the user is left looking at -- the title
+    // popped, the autowrap put back, the cursor shown -- so one written while
+    // the alternate buffer is still up is one restored for the wrong screen.
+    let leave = if on_alternate { "\x1b[?1049l" } else { "" };
+    let screen = write!(out, "{leave}{restore}").and_then(|()| out.flush());
     let attrs = restore_attrs(owned);
     let cleanup = match band_top {
         // Leaves the transcript in scrollback and the cursor on a clean line.
@@ -663,7 +697,7 @@ mod tests {
         enter_raw(input.as_fd(), &saved).expect("enter raw mode");
 
         let owned = owned_over(&input, &input, saved.clone());
-        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21))
+        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21), false)
             .expect_err("a screen that refuses every write must be reported");
 
         assert_eq!(err.kind(), io::ErrorKind::BrokenPipe, "{err}");
@@ -682,7 +716,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, None).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, RESTORE, "the exit wrote more than the restore");
@@ -705,7 +739,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, Some(21)).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, Some(21), false).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, format!("{RESTORE}\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n"));
@@ -718,12 +752,126 @@ mod tests {
         let owned = owned_over(&input, &input, saved);
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, true, None).expect("shut down");
+        shutdown_with(&mut screen, &owned, true, None, false).expect("shut down");
 
         assert_eq!(
             String::from_utf8(screen).expect("the screen bytes are utf-8"),
             RESTORE_TMUX
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the plane an exit may still be on
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_normal_exit_from_the_alternate_screen_leaves_it_before_it_restores_anything() {
+        // The ordinary restore carries no `1049l`, because the main surface
+        // never takes the alternate screen. An approval that did take it is the
+        // one case that has to be given back, and it has to be given back
+        // *first*: every sequence in `RESTORE` is about the plane the user is
+        // left looking at, and a title popped or an autowrap restored on the
+        // alternate buffer is one restored for the wrong surface.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = Vec::new();
+        shutdown_with(&mut screen, &owned, false, Some(22), true).expect("shut down");
+        let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
+
+        assert!(
+            text.starts_with("\u{1b}[?1049l"),
+            "the exit restored the terminal on a plane it had not given back: {text:?}"
+        );
+        assert_eq!(
+            text.matches("\u{1b}[?1049l").count(),
+            1,
+            "the exit left the alternate screen twice: {text:?}"
+        );
+        assert_eq!(
+            text,
+            format!("\u{1b}[?1049l{RESTORE}\u{1b}[22;1H\u{1b}[J\u{1b}[?25h\n"),
+            "the exit wrote something other than the leave and the ordinary restore"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "the terminal is still raw"
+        );
+    }
+
+    #[test]
+    fn an_exit_that_never_took_the_other_plane_still_leaves_nothing_to_give_back() {
+        // The other half, and the one a defensive `1049l` on every exit would
+        // break: a session that stayed on the normal buffer must not reset an
+        // alternate screen it never entered -- on a terminal that models one,
+        // that swaps in a buffer the user was not looking at.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        let owned = owned_over(&input, &input, saved);
+
+        let mut screen = Vec::new();
+        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
+
+        assert_eq!(
+            String::from_utf8(screen).expect("the screen bytes are utf-8"),
+            RESTORE
+        );
+    }
+
+    #[test]
+    fn ui_panic_while_alternate_is_owned_restores_ownership_and_terminal_state() {
+        // A panic and both death signals leave through the same pair
+        // ([`restore_pair`]): the abnormal restore, which leads with `1049l`
+        // whichever plane was on the screen, and then the captured `termios`.
+        // The sequence is defensive by design -- an exit that does not know
+        // what is on the screen may not ask -- so an approval screen that was
+        // up when the process died is given back by exactly the same bytes.
+        for tmux in [false, true] {
+            let restore = abnormal_restore(tmux);
+            assert!(
+                restore.starts_with("\u{1b}[?1049l"),
+                "the abnormal restore does not leave the alternate screen first: {restore:?}"
+            );
+            assert!(
+                restore.ends_with("\u{1b}[?25h"),
+                "the abnormal restore does not give the cursor back: {restore:?}"
+            );
+        }
+
+        // And the line discipline with it, on the descriptor it was taken from.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        assert_ne!(
+            live(input.as_fd()),
+            words(&saved),
+            "raw mode changed nothing, so the restore proves nothing"
+        );
+        restore_attrs(&owned_over(&input, &input, saved.clone())).expect("restore");
+        assert_eq!(live(input.as_fd()), words(&saved));
+    }
+
+    #[test]
+    fn sigterm_and_sighup_while_alternate_is_owned_restore_ownership_and_terminal_state() {
+        // Each signal separately, and both through the one pair a handler may
+        // use. This is the seam; `tests/tui.rs` drives the two signals at a real
+        // process that really is on the alternate screen.
+        assert_eq!(
+            abnormal_restore(false),
+            ABNORMAL_RESTORE,
+            "a handler would write something other than the abnormal restore"
+        );
+        assert_eq!(abnormal_restore(true), ABNORMAL_RESTORE_TMUX);
+        for restore in [abnormal_restore(false), abnormal_restore(true)] {
+            assert_eq!(
+                restore.matches("\u{1b}[?1049l").count(),
+                1,
+                "a handler leaves the alternate screen more than once: {restore:?}"
+            );
+        }
     }
 
     #[test]
