@@ -157,6 +157,22 @@ pub(crate) enum UiEvent {
         /// would go on being told to run `xfx setup`.
         missing_credential: bool,
     },
+    /// What `/model <id>` came back as, from the selector that owns the rule.
+    ///
+    /// Sent **after** the decision, and it carries the model in force
+    /// afterwards -- the new one when the id was applied, the standing one when
+    /// it was refused -- for the reason [`Self::ProviderSelected`] carries the
+    /// reloaded configuration's: the UI cannot know whether an id will be
+    /// taken, because the **catalog** decides and the catalog is on the runtime
+    /// thread. A band that adopted the id it submitted would put a model the
+    /// provider does not publish on its hint row and report it to the next bare
+    /// `/model`, while the turn after it was held in another one.
+    ///
+    /// Structured rather than a sentence: which model is in force is a fact the
+    /// hint row reads, and a UI given only prose would have to parse it back
+    /// out. The wording is the surface's ([`super::shell`]), exactly as the
+    /// line shell's is its own (`crate::interactive`'s `apply_model`).
+    ModelAnswered { model: String, outcome: ModelAnswer },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -179,6 +195,27 @@ pub(crate) enum UiEvent {
     TurnEnded { failure: Option<String> },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
+}
+
+/// What the selector made of one `/model <id>`.
+///
+/// The three answers [`crate::provider::model::ModelOutcome`] gives a caller
+/// that asked it to *select* something, carried across the channel without the
+/// fields the UI has no use for: `Reported` belongs to a bare `/model`, which
+/// this front end answers on its own thread and follows with a catalog load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModelAnswer {
+    /// Applied, and recorded where a resumed session will read it.
+    ///
+    /// `unverified` is the reason the catalog could not confirm the id -- a
+    /// provider that advertises none, or a load that failed -- and `None` when
+    /// it did. It is not a refusal: a daemon that is down must not stop an
+    /// operator changing a preference.
+    Applied { unverified: Option<String> },
+    /// Already the model in force. Nothing was written down.
+    Unchanged,
+    /// Refused, in xfx's own words, with nothing changed and nothing recorded.
+    Refused { reason: String },
 }
 
 impl UiEvent {
@@ -232,6 +269,22 @@ impl UiEvent {
                 model: inert_owned(model),
                 missing_credential,
             },
+            // The model id came off a settings file, a daemon's catalog or the
+            // composer, and the reason quotes the id it is about -- so both are
+            // as foreign as a delta, and neither is exempt for having been
+            // decided by xfx's own selector.
+            Self::ModelAnswered { model, outcome } => Self::ModelAnswered {
+                model: inert_owned(model),
+                outcome: match outcome {
+                    ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
+                        unverified: unverified.map(inert_owned),
+                    },
+                    ModelAnswer::Unchanged => ModelAnswer::Unchanged,
+                    ModelAnswer::Refused { reason } => ModelAnswer::Refused {
+                        reason: inert_owned(reason),
+                    },
+                },
+            },
             // **Every string of every row.** A catalog is a document a daemon
             // on a port serves, so its ids, its display names and its effort
             // labels are all text the terminal would obey if it were let
@@ -263,6 +316,12 @@ impl UiEvent {
             // them again where they enter the UI, because the property this
             // channel promises is about every event it carries rather than about
             // the producers that happened to build them correctly.
+            //
+            // What survives both passes is the **line structure**: `inert`
+            // exempts `\n` and `\r` deliberately, and a diff's breaks are the
+            // change's own lines, which the review screen turns into rows. A
+            // seam that flattened them here would take the shape out of the one
+            // surface built to show it.
             Self::Approval(request) => Self::Approval(ApprovalRequest {
                 tool: request.tool,
                 target: inert_owned(request.target),
@@ -1453,6 +1512,67 @@ mod tests {
         assert!(!model.contains('\u{1b}'), "{model:?}");
         assert!(missing_credential, "the fact survived the sanitizing");
         assert_eq!(provider, crate::provider::ProviderId::Llmux);
+    }
+
+    #[test]
+    fn every_string_a_model_answer_carries_is_made_inert() {
+        // A model id comes off a settings file, a daemon's catalog or the
+        // composer, and both of the sentences beside it quote it back -- so an
+        // answer that let one through would paint an escape sequence onto a
+        // document row, having been built by xfx's own selector rather than by
+        // a model, which is exactly the producer a reader stops suspecting.
+        let hostile = "model\u{1b}[2J".to_string();
+        let UiEvent::ModelAnswered { model, outcome } = (UiEvent::ModelAnswered {
+            model: hostile.clone(),
+            outcome: ModelAnswer::Applied {
+                unverified: Some(hostile.clone()),
+            },
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        assert!(!model.contains('\u{1b}'), "{model:?}");
+        let ModelAnswer::Applied { unverified } = outcome else {
+            panic!("the answer changed");
+        };
+        let unverified = unverified.expect("the caveat survived");
+        assert!(!unverified.contains('\u{1b}'), "{unverified:?}");
+
+        // And the refusal, which is the arm that quotes the id back by name.
+        let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
+            model: "plain".to_string(),
+            outcome: ModelAnswer::Refused {
+                reason: hostile.clone(),
+            },
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        let ModelAnswer::Refused { reason } = outcome else {
+            panic!("the answer changed");
+        };
+        assert!(!reason.contains('\u{1b}'), "{reason:?}");
+
+        // The answer with nothing to say is carried through unchanged.
+        let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
+            model: "plain".to_string(),
+            outcome: ModelAnswer::Unchanged,
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        assert_eq!(outcome, ModelAnswer::Unchanged);
+    }
+
+    #[test]
+    fn a_model_answer_is_not_a_terminal_event() {
+        // `/model` is not a turn and owes no conclusion; a drain that left on
+        // one would end while the worker was still publishing.
+        assert!(!UiEvent::ModelAnswered {
+            model: "m-1".to_string(),
+            outcome: ModelAnswer::Unchanged,
+        }
+        .is_terminal());
     }
 
     #[test]

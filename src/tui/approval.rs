@@ -167,15 +167,19 @@ pub(crate) enum Action {
 /// A property of the **change**, not of the terminal: [`Self::for_request`] is
 /// given the question and nothing else -- no rows, no columns -- so that the
 /// answer cannot start depending on how big somebody's window happens to be.
-/// The band's own refusal of a screen too short for the panel is a separate and
-/// later question ([`super::layout::fits_panel`]), and it is about whether the
-/// question can be *asked* rather than about which surface would ask it best.
+/// Whether a screen is too short to *ask* on is a separate and later question,
+/// and it is asked **once the surface is known**, of that surface: the band's
+/// panel by [`super::layout::fits_panel`], which is the only thing that knows
+/// what the rest of the band is costing, and the review plane by
+/// [`super::approval_screen::ApprovalScreen::presents_choices`], which owns
+/// every row of the screen it takes. Asking one surface's fit question about
+/// the other's question is how a short window came to refuse a change the
+/// plane can show whole.
 ///
-/// Two variants and no payload yet. The alternate plane's renderer, its
-/// lifecycle and the `1049` bytes it takes to enter and leave are the next
-/// checkpoint's, and a variant carrying a screen that does not exist would be a
-/// promise this checkpoint cannot keep; what is settled here is the choice, and
-/// the state that records it ([`super::shell::ScreenOwner`]).
+/// Two variants and no payload: what is settled here is the choice and the
+/// state that records it ([`super::shell::ScreenOwner`]); the plane's renderer,
+/// its lifecycle and the `1049` bytes that enter and leave it are
+/// [`super::approval_screen`]'s and [`super::frame`]'s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ApprovalSurface {
     /// The band's own panel, with the document still visible above it.
@@ -393,15 +397,6 @@ impl Panel {
     /// What one keystroke does. `Some` is an answer; `None` moved the marker.
     pub(crate) fn apply(&mut self, action: Action) -> Option<ApprovalAnswer> {
         answered(action, &mut self.selected)
-    }
-
-    /// The question this panel was built around, for a surface that is going to
-    /// ask it somewhere else ([`super::approval_screen::ApprovalScreen`]).
-    ///
-    /// By value, so there is never a moment at which two objects hold the same
-    /// question and only one of them is the one being answered.
-    pub(crate) fn into_request(self) -> ApprovalRequest {
-        self.request
     }
 }
 

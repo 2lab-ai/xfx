@@ -3273,12 +3273,29 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     );
     // The change itself is on that screen -- **both** halves of it -- which is
     // the whole reason it exists: the band's own summary quotes 160 bytes.
-    for needle in ["before", "alpha line 19", "after", "beta line 0"] {
+    //
+    // **Line for line**, and that is why the tail of the change is not on the
+    // first screenful: the review keeps the file's own line breaks and gives
+    // each one a row (`permission::bounded_diff_side`), so twenty lines are
+    // twenty rows rather than one wrapped run. What the first screen owes is
+    // the head of the change under its heading; the rest is reached by walking,
+    // which is asserted below and is why the walk exists at all.
+    for needle in ["before", "alpha line 0", "alpha line 10"] {
         assert!(
             text.contains(needle),
             "{needle:?} was not shown on the screen that exists to show it: {text:?}"
         );
     }
+    assert!(
+        !text.contains("alpha line 0\\nalpha line 1"),
+        "the file's line breaks were flattened into one run: {text:?}"
+    );
+    // `C-n` walks the change, and the tail of the first side and the head of
+    // the second are down there.
+    session.type_bytes(&[0x0e; 12]);
+    session.wait_for("alpha line 19");
+    session.wait_for("after");
+    session.wait_for("beta line 0");
     assert_eq!(
         std::fs::read_to_string(&path).expect("read back"),
         format!("{}\n", large_edit_sides().0),
@@ -4668,6 +4685,89 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
 
     // And the write really happened underneath the override.
     assert_eq!(sandbox.settings().expect("a profile")["provider"], "llmux");
+}
+
+#[test]
+fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_keeps_the_old_one() {
+    // Scenario 19's other half, and the one a screen alone cannot settle: the
+    // **wire** says which model the session is really in. A front end that
+    // accepted an id the daemon does not publish would put it on the hint row,
+    // report it to the next bare `/model`, write it into the session log, and
+    // send it as the `model` field of the next request -- where it comes back
+    // as a provider error about a model nobody has.
+    use support::fake_llmux::CatalogModel;
+    let catalog = support::fake_llmux::described_catalog(&[CatalogModel {
+        id: "m-1",
+        aliases: &["fable"],
+        efforts: &[],
+        max_context: None,
+    }]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-A-CATALOG-REFUSAL-ANSWERED"]),
+    )])
+    .with_catalog(catalog);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+
+    // The catalog has to be **loaded** for the membership rule to have anything
+    // to decide against, and a bare `/model` is what loads it -- the same order
+    // the line shell's `/model` uses.
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] catalog=");
+    session.wait_for("fable context=unknown efforts=none");
+
+    session.type_bytes(b"/model not-in-the-catalog\r");
+    session.wait_for("does not publish not-in-the-catalog in its catalog");
+
+    // Asked again, because a refusal is a claim about **what the session is in**
+    // and the report is the only place this surface says it: a band that had
+    // taken the id would answer the second browse with it.
+    session.type_bytes(b"/model\r");
+    // And the next turn is held in the model that was in force all along.
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-CATALOG-REFUSAL-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let request = daemon.only_message_request().json();
+    assert_eq!(
+        request["model"], "m-1",
+        "the refused id was sent as the model of the next turn: {request}"
+    );
+
+    let text = session.settled_text();
+    // Counted rather than searched for: the first browse said it too, so a
+    // report that came back with the refused id would still leave one of these
+    // in the stream.
+    assert_eq!(
+        text.matches("model=m-1 provider=").count(),
+        2,
+        "a browse after the refusal did not report the model in force: {text:?}"
+    );
+    assert!(
+        !text.contains("not-in-the-catalog provider="),
+        "the band reported a model the daemon does not publish: {text:?}"
+    );
+    assert!(
+        !text.contains("[shell] model=not-in-the-catalog"),
+        "the band reported a model the daemon does not publish: {text:?}"
+    );
+    // **A refusal is not a caveat.** An id the catalog does not publish is
+    // refused; the "accepted but not checked" sentence belongs to a catalog
+    // that could not be read, and a session that said it here would have
+    // applied the id and merely apologized for it.
+    assert!(
+        !text.contains("not checked against the provider's catalog"),
+        "a refused id was reported as an unverified selection: {text:?}"
+    );
 }
 
 #[test]

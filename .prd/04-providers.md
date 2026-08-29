@@ -1,15 +1,50 @@
 # xfx — Provider architecture
 
-Status: **specification, nothing implemented.** v0.1.0 has two backends behind one `Provider` trait
-and no notion of a provider *identity*: `docs/parity.md` records `provider`, `models`, `login`,
-`logout`, `Codex / ChatGPT subscription`, `fx login credential`, and `stored API key credential` all
-as deferred. This document is the target for the next epic.
+Status: **half shipped, half a target, and the line between them is MVS steps 2 and 3 below.**
+
+**Shipped**, and therefore current-tense in `docs/parity.md` rather than a promise here: provider
+*identity* (`ProviderId::{Gateway, Llmux}` with a per-provider bundle selected per turn), the
+profile-only `provider` + `models{}` persistence and its migration from `backend`/`llmux_url`,
+`xfx setup <provider>` and the `/setup` slash command on both front ends, the keyless-loopback
+credential resolved from configuration alone, and the fetched **model catalog** with `/model`
+browsing it and selecting from it — including the refusal of an id the loaded catalog does not
+publish, on both front ends. That is MVS steps 1 and 2, and option **D** of §Policy risks.
+
+**Still a target**, and absent from the binary rather than stubbed: Codex and Grok as providers of
+their own. There is no ChatGPT or xAI subscription credential, no OAuth of any kind, no Responses
+wire, and no `login`/`logout` — `docs/parity.md` records `login`, `logout`,
+`Codex / ChatGPT subscription`, `fx login credential` and `stored API key credential` as deferred,
+and they stay deferred until the registration question in §Policy risks is answered. **The current
+user-facing route to a `gpt-` or `grok-` model is a llmux daemon that serves it**: those ids arrive
+in llmux's own catalog and are selected like any other, which is one backend's catalog naming them
+rather than a provider inside xfx.
+
+**How to read the rest of this document.** Every section is marked below with which side of that
+line it is on. The **target** sections are kept in full rather than trimmed to what shipped: they
+are the design the shipped half was built against, and the next epic's specification. Nothing here
+outranks `docs/parity.md`, which describes the binary.
+
+| Section | Status |
+|---|---|
+| §Shape | **target**, except the two-axis separation and the `Bundle`, which shipped as `ProviderId::{Gateway, Llmux}` |
+| §Credential sources and precedence | **shipped** for the Gateway's two variables and `llmux_loopback`; **target** for the two subscription rows and the persisted preference |
+| §Codex, §Grok, §The response side, §Session files | **target**. No Responses wire and no OAuth exist in the binary |
+| §llmux as the fourth provider | **shipped**, as the second: identity, keyless credential, `GET /models` catalog with aliases and efforts, Anthropic Messages transport |
+| §`/setup` and `/model` | **shipped** for switching, the transaction, the persistence and the catalog browser; **target** for the sign-in/credential/team menu choices and `/logout` |
+| §Profile migration | **shipped** |
+| §MVS order | steps 1–2 **shipped**; 3–5 **target** |
+| §Policy risks | **open**, and it is the gate on step 3 |
 
 Evidence base: [`research/auth-providers.md`](research/auth-providers.md), read against upstream `fx`
 at **HEAD `ef1d0d0`** — later than xfx's pin `580a0c5d`. Every `file:line` is upstream-relative and
-comes from that note; `[추정]` marks are preserved.
+comes from that note; `[추정]` marks are preserved. Upstream coordinates are **not** re-verified by
+the shipped half: what shipped is described by `docs/parity.md` and by the code.
 
 ## Shape
+
+> **Target**, with one part shipped: xfx has `ProviderId::{Gateway, Llmux}` and a
+> `Bundle` selected per turn. `Codex` and `Grok` are not variants of that enum in the binary, and
+> `CredentialSource`'s two subscription rows do not exist.
 
 Upstream keeps **two axes separate**, and copying that separation is most of the design:
 
@@ -55,6 +90,10 @@ testable without a browser, and what keeps Codex and Grok from duplicating a tra
 
 ## Credential sources and precedence
 
+> **Target** for the precedence chain and the persisted preference. What ships is the three rows of
+> the table below that are not subscriptions: `VERCEL_OIDC_TOKEN`, `AI_GATEWAY_API_KEY` and
+> `llmux_loopback`, resolved provider-scoped with no fallback between providers and no I/O.
+
 One resolver, `credentials.resolvePreferring` (`credentials.zig:309-355`), in order:
 
 1. the persisted `credential_source` preference — an explicit user choice wins, but a **subscription
@@ -97,6 +136,8 @@ split is what lets both commands stay "always safe to run".
 must be rewritten in the same change — the ledger is the contract, not the code comment.
 
 ## Codex (ChatGPT subscription) — protocol spec
+
+> **Target. None of this is in the binary**: no OAuth, no token store, no Responses transport.
 
 Upstream: `src/core/auth/chatgpt_oauth.zig`. Browser + loopback authorization-code + PKCE(S256). It
 reuses the device-flow runtime with empty `device_code`/`user_code` and the authorization URL in
@@ -142,6 +183,8 @@ reuses the device-flow runtime with empty `device_code`/`user_code` and the auth
 
 ## Grok (xAI subscription) — protocol spec
 
+> **Target. None of this is in the binary**, for the same reason Codex's is not.
+
 Upstream: `src/core/auth/grok_oauth.zig`. Same skeleton, four real differences.
 
 - **Constants** (`:14-26`): `client_id = b1a00492-073a-47ea-816f-4c329264a828`; issuer
@@ -167,6 +210,9 @@ Upstream: `src/core/auth/grok_oauth.zig`. Same skeleton, four real differences.
   (`xai_grok_models.zig:11-18,251-289`).
 
 ## The response side — Responses SSE and its normalization
+
+> **Target.** xfx decodes two wires today, the Gateway's and Anthropic Messages; the Responses wire
+> arrives with the providers that speak it.
 
 Codex and Grok share one decoder: `src/gateway/responses_protocol.zig`, a `Reducer` fed one decoded
 SSE `data:` payload at a time (`applyJson` `:239-380`) and finalized once (`finish` `:385-443`). Each
@@ -438,6 +484,9 @@ exactly the degrade path 0.1.0 already ships for a Gateway-continued session.
 
 ## Session files
 
+> **Target** for the subscription token files. The session *event log*'s two-field provenance
+> (`raw_content`/`responses_state` keyed by wire) shipped and is in `docs/parity.md`.
+
 Upstream stores three files under `~/.fx/`; xfx's homes are **`~/.xfx/codex-auth.json`** and
 **`~/.xfx/grok-auth.json`** (upstream's names are `chatgpt-auth.json` / `grok-auth.json`,
 `profile_paths.zig:5-8`; xfx renames the first for the same reason it renamed everything else — the
@@ -465,7 +514,13 @@ Vercel device login it buys nothing, and it is ~450 lines of migration state mac
 
 ## llmux as the fourth provider
 
-llmux is already a working transport; what it lacks is an identity in a provider set.
+> **Shipped**, and as the *second* provider rather than the fourth: the two subscription providers
+> this document numbers ahead of it do not exist in the binary. Everything in this section is in
+> `docs/parity.md`'s `llmux` provider row and its `llmux keyless loopback credential` row; what
+> follows is the design it was built from, kept because the impedance mismatches at the end are
+> still the reasons the code looks the way it does.
+
+llmux was already a working transport; what it lacked was an identity in a provider set.
 
 - **`ProviderId::Llmux`** with a `ProviderEntry {slug: "llmux", subscription: false, name: "llmux",
   description: "local keyless daemon"}` so `/setup` and `/model` can list it.
@@ -503,6 +558,11 @@ Impedance mismatches the note flags, each a real design decision:
 
 ## `/setup` and `/model` — the user-facing surface
 
+> **Half shipped.** `/setup <provider>` exists on both front ends and runs the transaction below;
+> `/model` is the catalog browser below, on both front ends, and refuses an id the loaded catalog
+> does not publish. **Target**: the sign-in, credential-switch and team menu choices, and
+> `/logout` — all three need credentials xfx does not have.
+
 Upstream **removed `/provider` in 0.0.5** and folded provider switching into `/setup` (the top-level
 `fx provider` CLI command survives). That settles a design question for free: **do not build a
 `/provider` slash command.** See [`05-upstream-delta.md`](05-upstream-delta.md) §B2.
@@ -526,10 +586,11 @@ Persistence: top-level `provider` plus a `models` object keyed by provider tag
 **profile-only** keys, like `model` and `backend` are today — a shared repository must not choose
 which endpoint receives a prompt.
 
-`/model` becomes a catalog browser: provider-advertised models with **context window and effort
-levels** (`model_menu_presentation.zig:279-286`, `picker_presentation.zig:456,520`). xfx already has a
-catalog source for llmux; the interactive surface is what is missing, and it is the highest
-feel-per-line item in the epic. `xfx setup llmux`'s existing behavior — keep the profile's model when
+`/model` is a catalog browser: provider-advertised models with **context window and effort levels**
+(`model_menu_presentation.zig:279-286`, `picker_presentation.zig:456,520`). Both front ends browse it
+and select from it through one `ModelSelector`, so the catalog-membership refusal is one rule rather
+than one per surface; the TUI's selection is a piece of work on the runtime thread, because that is
+where the catalog and the socket that filled it are. `xfx setup llmux`'s existing behavior — keep the profile's model when
 the catalog has it, else take the catalog's first entry, warn when a higher layer still outranks the
 write — is the semantics to generalize, not to replace.
 
@@ -538,6 +599,9 @@ subscription, else gateway (`auth_transition.zig:40-54`), then reconciles the ac
 down the precedence order (`auth_runtime.zig:1482-1504`).
 
 ## Profile migration — shipped `backend` to target `provider`
+
+> **Shipped.** `provider` and `models{}` are read and written, `backend`/`llmux_url` are kept in
+> step for older binaries, and the conflict case is a named `doctor` check.
 
 v0.1.0 persists a **flat** profile: `backend` (`gateway|llmux`), `llmux_url`, and one `model`
 (`src/config.rs`, `docs/parity.md` "backend selection" row). The target persists `provider` plus a
@@ -586,6 +650,10 @@ operator-chosen** value, never to a built-in one. The one new failure mode is th
 paragraph above, which is why it is reported by `doctor` rather than resolved silently.
 
 ## MVS order
+
+> Steps 1 and 2 are **shipped**; 3, 4 and 5 are **target**. The order below is unchanged, and it is
+> also the receipt for why the shipped half could ship first: it needed no OAuth, no browser and no
+> third-party approval.
 
 1. **Provider frame + llmux and Gateway as two `ProviderId`s.** Enum, bundle, selection runtime,
    persistence (`provider` + `models{}`). Pure plumbing, no network, no OAuth — and both transports

@@ -77,13 +77,17 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
 
 use super::approval::{ControlChannel, TuiPrompter};
-use super::bridge::{self, Cancellation, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink};
+use super::bridge::{
+    self, Cancellation, ModelAnswer, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink,
+};
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{open_conversation, Conversation};
 use crate::permission::PermissionSession;
-use crate::provider::model::{CatalogEntry, CatalogState, ModelSelector, MAX_RENDERED_MODELS};
+use crate::provider::model::{
+    CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
+};
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{SessionEvent, SessionStore};
@@ -428,7 +432,6 @@ impl Drop for Finished {
 /// before its first prompt.
 pub(crate) fn spawn(
     config: RuntimeConfig,
-    model: String,
     cancel: Cancellation,
 ) -> io::Result<(Worker, Receiver<UiEvent>)> {
     let store = open_store(&config)?;
@@ -463,7 +466,7 @@ pub(crate) fn spawn(
                 return;
             };
             runtime.block_on(turn_loop(
-                Runtime::new(config, model, store, prompter),
+                Runtime::new(config, store, prompter),
                 &events_tx,
                 &mut work_rx,
                 control,
@@ -526,7 +529,6 @@ struct Runtime {
     /// under a running session would let a variable exported after launch
     /// change what the session is, which is not a thing a settings write did.
     env: Environment,
-    model: String,
     store: SessionStore,
     conversation: Option<Conversation>,
     provider: Option<Bundle>,
@@ -534,25 +536,28 @@ struct Runtime {
     /// conversation's authority. Held here rather than made per turn -- see the
     /// module header on what "always" is worth.
     prompter: TuiPrompter,
-    /// The catalog of the **currently configured** provider.
+    /// The model in force, and the catalog of the **currently configured**
+    /// provider.
     ///
-    /// Held across turns because loading it costs a socket and its whole
-    /// contract is "once": `ModelSelector::ensure_catalog` attempts a load only
-    /// from `NotLoaded`, so a failed load stays failed and a second `/model`
-    /// reports the same reason without asking a daemon that is not there again.
-    /// Rebuilt -- not merely cleared -- when the provider changes, because its
-    /// fetcher is that provider's endpoint.
+    /// **One field, not two**, and that is the point of it being here at all:
+    /// the model a turn is held in and the catalog a `/model` is judged against
+    /// are the same object's two halves, and a `String` beside this one would
+    /// be a second answer to "which model is this session in" that only one
+    /// caller updates. `Runtime::model` reads it.
+    ///
+    /// Held across turns because loading the catalog costs a socket and its
+    /// whole contract is "once": `ModelSelector::ensure_catalog` attempts a
+    /// load only from `NotLoaded`, so a failed load stays failed and a second
+    /// `/model` reports the same reason without asking a daemon that is not
+    /// there again. Rebuilt -- not merely cleared -- when the provider changes,
+    /// because its fetcher is that provider's endpoint and its model is that
+    /// provider's model.
     selector: ModelSelector,
 }
 
 impl Runtime {
-    fn new(
-        config: RuntimeConfig,
-        model: String,
-        store: SessionStore,
-        prompter: TuiPrompter,
-    ) -> Self {
-        Self::with_environment(config, Environment::from_process(), model, store, prompter)
+    fn new(config: RuntimeConfig, store: SessionStore, prompter: TuiPrompter) -> Self {
+        Self::with_environment(config, Environment::from_process(), store, prompter)
     }
 
     /// [`Runtime::new`], with the environment named rather than read.
@@ -563,7 +568,6 @@ impl Runtime {
     fn with_environment(
         config: RuntimeConfig,
         env: Environment,
-        model: String,
         store: SessionStore,
         prompter: TuiPrompter,
     ) -> Self {
@@ -571,7 +575,6 @@ impl Runtime {
         Self {
             config,
             env,
-            model,
             store,
             conversation: None,
             provider: None,
@@ -586,15 +589,26 @@ impl Runtime {
             self.provider = Some(Bundle::select(&self.config, mirror)?);
         }
         if self.conversation.is_none() {
+            let model = self.model().to_string();
             self.conversation = Some(open_conversation(
                 &self.store,
                 &self.config,
-                &self.model,
+                &model,
                 self.authority(),
                 mirror,
             )?);
         }
         Ok(())
+    }
+
+    /// The model this session's next turn is held in.
+    ///
+    /// Read from the selector rather than kept beside it: what `/model`
+    /// changes and what a turn is sent under have to be one fact, or a refusal
+    /// the selector made would leave the two disagreeing about which model the
+    /// session is in.
+    fn model(&self) -> &str {
+        self.selector.model()
     }
 
     /// The permission authority a turn on this thread runs under.
@@ -649,7 +663,10 @@ impl Runtime {
     /// and a bundle is a connection to an endpoint that is no longer configured.
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
         self.config = reloaded;
-        self.model = self.config.model.clone();
+        // The model comes back with it, because the selector is where the model
+        // is: rebuilding it from the reloaded configuration is what makes the
+        // switch's model the one the file now says rather than the one the
+        // session was in.
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
@@ -660,7 +677,7 @@ impl Runtime {
             crate::provider::resolve_credential_for(self.config.provider, &self.config).is_none();
         Selected {
             provider: self.config.provider,
-            model: self.model.clone(),
+            model: self.model().to_string(),
             missing_credential,
             // Computed from the **reloaded** configuration rather than taken
             // from the report, and the difference is the whole value of saying
@@ -687,24 +704,38 @@ impl Runtime {
 
     /// What `/model <id>` means, with the line shell's own meaning.
     ///
-    /// The model a turn talks to, from the next turn on, and a durable record
-    /// of it so that a resumed session continues in the model the conversation
-    /// was actually held in (`interactive::apply_model`). Nothing else: which
-    /// *provider* a prompt goes to is decided by the configuration, and a
-    /// front end that could change it would be a second place that decides.
-    fn use_model(&mut self, name: String) {
-        if name == self.model {
-            return;
+    /// **The decision is [`ModelSelector::apply`]'s and is not remade here.**
+    /// That is where the whole catalog is, and the catalog is what decides: an
+    /// id the provider publishes is applied, an id it does not is refused by
+    /// name rather than sent, and an id nothing could be checked against is
+    /// applied carrying the reason it was not. A front end that judged
+    /// membership for itself would be a second reading of a list only one of
+    /// the two holds -- which is exactly how this surface came to accept ids
+    /// the line shell refuses.
+    ///
+    /// What is this function's own is the **durable** half: a selection is
+    /// recorded so that a resumed session continues in the model the
+    /// conversation was actually held in, from the same outcome
+    /// `interactive::apply_model` records it from. Nothing else: which
+    /// *provider* a prompt goes to is decided by the configuration, and a front
+    /// end that could change it would be a second place that decides.
+    fn use_model(&mut self, name: &str) -> ModelOutcome {
+        let outcome = self.selector.apply(ModelRequest::Select(name));
+        // **Only a selection is written down.** A refusal changed nothing and
+        // an unchanged model is not a change; a log entry for either would be
+        // read back by every later resume as a preference this session never
+        // expressed.
+        if let ModelOutcome::Selected { model, .. } = &outcome {
+            if let Some(conversation) = self.conversation.as_mut() {
+                conversation
+                    .recorder
+                    .commit(SessionEvent::PreferencesChanged {
+                        model: Some(model.clone()),
+                        permission_mode: None,
+                    });
+            }
         }
-        self.model = name;
-        if let Some(conversation) = self.conversation.as_mut() {
-            conversation
-                .recorder
-                .commit(SessionEvent::PreferencesChanged {
-                    model: Some(self.model.clone()),
-                    permission_mode: None,
-                });
-        }
+        outcome
     }
 }
 
@@ -816,7 +847,7 @@ async fn turn_loop(
         };
         let ended = match item {
             TurnWork::Model(name) => {
-                state.use_model(name);
+                run_model(&mut state, &name, events).await;
                 Ended::Turn
             }
             // `/new`, with the line shell's own meaning: the recorder is
@@ -1115,6 +1146,43 @@ async fn run_setup(
     }
 }
 
+/// Applies one `/model <id>` and tells the UI what the selector made of it.
+///
+/// **No I/O and no cancellation arm**, unlike its two neighbours: the decision
+/// is a pure function of a catalog this thread already holds, so there is
+/// nothing here for a Ctrl-C to interrupt and nothing to race a control message
+/// against. The load that fills that catalog is `run_catalog`'s, and a bare
+/// `/model` is what asks for it.
+///
+/// The answer goes through [`bridge::send_terminal`] rather than `send_ui`, for
+/// the reason a provider switch's does: by the time it is sent the change has
+/// been made and written into the session log, and a cancellation that dropped
+/// the one event saying so would leave the band showing a model the session is
+/// no longer in.
+async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
+    let outcome = state.use_model(name);
+    let answered = match outcome {
+        ModelOutcome::Selected { unverified, .. } => ModelAnswer::Applied { unverified },
+        ModelOutcome::Unchanged { .. } => ModelAnswer::Unchanged,
+        ModelOutcome::Refused { reason } => ModelAnswer::Refused { reason },
+        // A select request cannot produce a report. Answered rather than
+        // asserted away: a `/model` that took the session down because an enum
+        // grew an arm would be a worse failure than one that says nothing.
+        ModelOutcome::Reported { .. } => return,
+    };
+    bridge::send_terminal(
+        events,
+        UiEvent::ModelAnswered {
+            // **The model in force afterwards**, read back from the selector
+            // rather than echoed from the request: on a refusal that is the
+            // standing model, and it is the one the band must show.
+            model: state.model().to_string(),
+            outcome: answered,
+        },
+    )
+    .await;
+}
+
 /// Loads the catalog once and sends **exactly one** terminal event for it.
 async fn run_catalog(
     state: &mut Runtime,
@@ -1266,6 +1334,10 @@ async fn one_turn(
     if let Err(message) = state.ready(&turn.mirror) {
         return Some(message);
     }
+    // Read before the conversation is borrowed, and read from the selector that
+    // owns it: the model this turn is sent under is the model `/model` last
+    // applied, whatever the configuration said at launch.
+    let model = state.model().to_string();
     // Two fields of one struct rather than one method returning both: the
     // provider is read and the conversation is written, and the borrow checker
     // is what keeps that honest.
@@ -1307,7 +1379,7 @@ async fn one_turn(
     }
 
     let request = TurnRequest {
-        model: state.model.clone(),
+        model,
         prompt,
         history: replay.messages,
         max_steps: state.config.max_agent_steps,
@@ -2138,7 +2210,7 @@ mod tests {
         // the future is polled by hand so "parked" is observed rather than
         // waited for. A pty cannot arrange it (`tests/tui.rs`'s slow-ui case
         // proves the *other* half, the deadline).
-        let (_home, _workspace, mut state) = recording("any-model");
+        let (_home, _workspace, mut state) = recording();
         // The premise, proven rather than assumed: this turn concludes without
         // opening a socket, because the sandbox has no credential for the
         // configured provider. `one_turn` therefore returns the refusal and
@@ -2289,7 +2361,14 @@ mod tests {
         )
     }
 
-    fn recording(model: &str) -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
+    /// A `Runtime` with an open conversation, held in the model the
+    /// configuration resolves to.
+    ///
+    /// The model is **not** a parameter: the selector owns it, and a fixture
+    /// that named a different one would be building a session production
+    /// cannot produce -- `spawn` constructs the selector from the same
+    /// configuration the conversation is opened against.
+    fn recording() -> (tempfile::TempDir, tempfile::TempDir, Runtime) {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let config = config(home.path(), workspace.path());
@@ -2297,19 +2376,31 @@ mod tests {
         let conversation = open_conversation(
             &store,
             &config,
-            model,
+            &config.model.clone(),
             PermissionSession::new(config.permission_mode),
             &CancelToken::new(),
         )
         .expect("open a conversation");
-        let mut state = Runtime::new(config, model.to_string(), store, a_prompter());
+        let mut state = Runtime::new(config, store, a_prompter());
         state.conversation = Some(conversation);
         (home, workspace, state)
     }
 
+    /// One catalog row, published under `id`.
+    fn published(id: &str) -> CatalogEntry {
+        CatalogEntry {
+            id: id.to_string(),
+            aliases: Vec::new(),
+            name: None,
+            efforts: Vec::new(),
+            max_context: None,
+        }
+    }
+
     #[test]
     fn a_model_change_is_recorded_where_a_resumed_session_will_read_it() {
-        let (_home, _workspace, mut state) = recording("first-model");
+        let (_home, _workspace, mut state) = recording();
+        let first = state.model().to_string();
         assert_eq!(
             state
                 .conversation
@@ -2318,13 +2409,22 @@ mod tests {
                 .recorder
                 .state()
                 .model,
-            "first-model"
+            first
         );
+        // Published, so the catalog is not the thing being measured here.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
 
-        state.use_model("second-model".to_string());
+        let outcome = state.use_model("second-model");
 
+        assert!(
+            matches!(&outcome, ModelOutcome::Selected { model, previous, .. }
+                if model == "second-model" && previous == &first),
+            "{outcome:?}"
+        );
         // The next turn talks to it ...
-        assert_eq!(state.model, "second-model");
+        assert_eq!(state.model(), "second-model");
         // ... and so does the next `xfx ask --resume-id <id>`, which is the
         // half that a field alone would not give.
         assert_eq!(
@@ -2341,7 +2441,8 @@ mod tests {
 
     #[test]
     fn the_same_model_again_records_nothing() {
-        let (_home, _workspace, mut state) = recording("same");
+        let (_home, _workspace, mut state) = recording();
+        let same = state.model().to_string();
         let before = state
             .conversation
             .as_ref()
@@ -2350,9 +2451,10 @@ mod tests {
             .state()
             .last_event_seq;
 
-        state.use_model("same".to_string());
+        let outcome = state.use_model(&same);
 
-        assert_eq!(state.model, "same");
+        assert!(matches!(&outcome, ModelOutcome::Unchanged { model } if model == &same));
+        assert_eq!(state.model(), same);
         assert_eq!(
             state
                 .conversation
@@ -2364,6 +2466,81 @@ mod tests {
             before,
             "a model that did not change was written to the log anyway"
         );
+    }
+
+    #[test]
+    fn a_model_a_loaded_catalog_does_not_publish_is_refused_and_the_session_keeps_its_own() {
+        // The rule lives in `ModelSelector::apply`, beside the whole catalog,
+        // and the runtime thread is where the TUI's `/model` reaches it: a
+        // front end that applied an id the provider does not publish would
+        // write that id into the session log and send it as a header on the
+        // next turn, and the failure would arrive as a provider error about a
+        // model nobody has.
+        let (_home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("published-model")]));
+        let standing = state.model().to_string();
+        let before = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .last_event_seq;
+
+        let refused = state.use_model("not-published");
+
+        assert!(
+            matches!(&refused, ModelOutcome::Refused { reason } if reason.contains("not-published")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            state.model(),
+            standing,
+            "an id the catalog does not publish became the model the next turn talks to"
+        );
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .recorder
+                .state()
+                .last_event_seq,
+            before,
+            "a refused id was written into the log a later resume reads"
+        );
+
+        // And the same catalog admits the id it does publish, so the refusal
+        // above is the membership rule rather than a selector that refuses
+        // everything.
+        assert!(matches!(
+            state.use_model("published-model"),
+            ModelOutcome::Selected { .. }
+        ));
+        assert_eq!(state.model(), "published-model");
+    }
+
+    #[test]
+    fn a_catalog_that_could_not_be_read_admits_the_id_and_says_it_was_not_checked() {
+        // The third answer, and it is not a refusal: a provider that publishes
+        // no catalog, or one xfx could not read, must not stop an operator
+        // changing a preference. What the caller owes then is the caveat, and
+        // the caveat is the reason the check did not happen.
+        let (_home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+
+        let outcome = state.use_model("unverifiable-model");
+
+        assert!(
+            matches!(&outcome, ModelOutcome::Selected { unverified: Some(reason), .. }
+                if reason == "nothing answered"),
+            "{outcome:?}"
+        );
+        assert_eq!(state.model(), "unverifiable-model");
     }
 
     /// A `Runtime` whose band has already answered "always", with a
@@ -2400,14 +2577,15 @@ mod tests {
             Cancellation::new(CancelToken::new()),
         );
 
-        let mut state = Runtime::new(config, "any-model".to_string(), store, prompter);
+        let mut state = Runtime::new(config, store, prompter);
         // Through `authority()`, which is what `ready` opens a real
         // conversation with: a fixture that built its own permission session
         // would be asserting against its own argument.
+        let model = state.model().to_string();
         let conversation = open_conversation(
             &state.store,
             &state.config,
-            &state.model,
+            &model,
             state.authority(),
             &CancelToken::new(),
         )
@@ -2516,7 +2694,7 @@ mod tests {
         // `tests/tui.rs::ask_mode_asks_in_the_band_and_a_yes_lets_the_edit_through`
         // is: it types `1` into the band, and only a prompter that hears the
         // band can turn that into an edit.
-        let (_home, _workspace, state) = recording("any-model");
+        let (_home, _workspace, state) = recording();
         assert!(
             state.authority().has_prompter(),
             "`ask` mode has nowhere to ask, so every mutation is refused"
@@ -2628,8 +2806,7 @@ mod tests {
         let prompter = TuiPrompter::new(events, control, cancel);
         let store = SessionStore::open(before.profile_dir.as_ref().expect("a profile dir"))
             .expect("open the store");
-        let mut runtime =
-            Runtime::with_environment(before.clone(), env, before.model.clone(), store, prompter);
+        let mut runtime = Runtime::with_environment(before.clone(), env, store, prompter);
         // Stand something in for what a session accumulates. The bundle is what
         // a turn would reuse; `provider` being `Some` is the whole of "there is
         // a connection to the old endpoint".
@@ -2638,11 +2815,12 @@ mod tests {
         // A real conversation, because "the conversation is dropped" is only a
         // claim about a session that had one. A `None` left standing would make
         // the assertion below true of a runtime that never opened one.
+        let model = runtime.model().to_string();
         runtime.conversation = Some(
             open_conversation(
                 &runtime.store,
                 &runtime.config,
-                &runtime.model,
+                &model,
                 runtime.authority(),
                 &CancelToken::new(),
             )
@@ -2657,7 +2835,7 @@ mod tests {
 
         assert_eq!(selected.provider, ProviderId::Llmux);
         assert_eq!(selected.model, "fable");
-        assert_eq!(runtime.model, "fable");
+        assert_eq!(runtime.model(), "fable");
         assert!(
             runtime.provider.is_none(),
             "the old bundle survived the swap"

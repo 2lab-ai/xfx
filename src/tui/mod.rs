@@ -246,8 +246,7 @@ fn hold(
     // failure in this function is: `hold` reports, and `session` restores.
     // Nothing has been spawned yet when it fires.
     let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
-    let (mut worker, mut events) =
-        worker::spawn(config.clone(), config.model.clone(), cancel.clone())?;
+    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone())?;
 
     // The block lifts inside `install`, so anything held across the transition
     // is delivered there. A held `SIGTSTP` is the case that has to be answered

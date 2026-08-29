@@ -1054,6 +1054,105 @@ def large_edit_then_finish(marker):
     ]
 
 
+def large_write_content():
+    """What the scripted whole-file write puts down."""
+    return "\n".join("gamma line %d" % line for line in range(LARGE_EDIT_LINES)) + "\n"
+
+
+def spelled_out_breaks(text):
+    """`text` with every line break replaced by the two characters that spell one.
+
+    The concrete collision the review surface has to survive: this string and
+    `text` are different files -- one has a hundred lines, the other has one --
+    and an escaping that wrote a line break as a backslash and an `n` without
+    escaping the backslash itself rendered them as the same payload, so the
+    screen showed a change of every line in the file as a change of nothing.
+    """
+    return text.replace("\n", "\\n")
+
+
+def collision_write_then_finish(marker, content):
+    """Read `notes.txt` again, replace it with its own text spelled out, say `marker`."""
+    return [
+        {"events": [tool_call("call-4", "read_file", {"path": "notes.txt"}), finish("tool-calls")]},
+        {
+            "events": [
+                tool_call(
+                    "call-5",
+                    "write_file",
+                    {"path": "notes.txt", "content": spelled_out_breaks(content)},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+# How many escape bytes the scripted control payload carries.
+#
+# Past the 160 bytes the band's own summary quotes, so the question is one this
+# screen has to show rather than one the sentence already showed whole.
+CONTROL_PAYLOAD_BYTES = 161
+
+
+def control_payload():
+    """A payload of nothing but `ESC`.
+
+    Delivered by the **fixture**, which is the model's side of the wire, and
+    never typed: the harness types keystrokes into a real terminal, and a raw
+    `ESC` typed there is an escape sequence to the input decoder rather than
+    content. Coming from a tool call it is exactly what it is in life -- bytes a
+    model asked to be written into a file -- and the screen has to disarm it.
+    """
+    return "\u001b" * CONTROL_PAYLOAD_BYTES
+
+
+def control_write_then_finish(marker):
+    """Read `notes.txt` again, replace it with control bytes, then say `marker`."""
+    return [
+        {"events": [tool_call("call-6", "read_file", {"path": "notes.txt"}), finish("tool-calls")]},
+        {
+            "events": [
+                tool_call(
+                    "call-7",
+                    "write_file",
+                    {"path": "notes.txt", "content": control_payload()},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+def large_write_then_finish(marker):
+    """Read `notes.txt` again, replace the whole file, then say `marker`.
+
+    The **second** shape of a change too big for the band's summary, and the one
+    that is not an edit: `write_file` replaces everything, so its "before" is the
+    file that is there and its "after" is the text that would arrive
+    (`src/tools/mutate.rs`'s `execute_write_file`). The read is not decoration
+    here either -- the file changed since the turn above read it, so its digest
+    no longer matches the proof that turn recorded and the write would be
+    refused with "read it again first".
+    """
+    return [
+        {"events": [tool_call("call-2", "read_file", {"path": "notes.txt"}), finish("tool-calls")]},
+        {
+            "events": [
+                tool_call(
+                    "call-3",
+                    "write_file",
+                    {"path": "notes.txt", "content": large_write_content()},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
 class LoopbackHTTPServer(ThreadingHTTPServer):
     """`HTTPServer` without the reverse-DNS lookup it does while binding.
 
@@ -5018,13 +5117,37 @@ def scenario_21(run):
 # ---------------------------------------------------------------------------
 
 
+def has_row(grid, text):
+    """Whether some row of `grid` is exactly `text`, ignoring its indent.
+
+    Row-exact rather than a substring, and the difference is load-bearing on
+    this screen: the band's own summary quotes the head of the change *inside a
+    sentence*, so a check written as a substring would be satisfied by the
+    summary and would never see the change at all.
+    """
+    return any(grid.row_text(row).strip() == text for row in range(grid.rows))
+
+
+def rows_below(grid, header):
+    """Every row under the row that is exactly `header`, in order.
+
+    What the two halves of a change are told apart by: `before` and `after` are
+    rows of their own, so "what the after side is showing" is the rows after
+    that one and nothing else.
+    """
+    for row in range(grid.rows):
+        if grid.row_text(row).strip() == header:
+            return [grid.row_text(index) for index in range(row + 1, grid.rows)]
+    return []
+
+
 def scenario_20(run):
-    """A large edit is reviewed on the alternate plane, and the band comes back.
+    """Large changes are reviewed on the alternate plane, and the band comes back.
 
     Phase-2 item 14 on a real terminal, judged on **cells of two grids**. Four
     claims, and each needs the widened oracle to be sayable at all:
 
-    * the plane is taken once, and the change is on it;
+    * the plane is taken once per question, and the change is on it;
     * the user's own screen -- the document above the band, and the band -- is
       untouched while it is up, which is a claim about the buffer the terminal
       *saved*, not about the one it is showing;
@@ -5033,10 +5156,31 @@ def scenario_20(run):
     * **no frame in between shows a blank grid.** The end state is the same
       whether the restore was one write or two, so the middle is where the
       difference lives, and per-frame snapshots are the only place to look.
+
+    Driven **twice, through the two mutations that have a before and an after**:
+    an `edit_file` whose two strings outrun the summary, and a `write_file` that
+    replaces the whole file. The second is not a repetition -- a whole-file write
+    is the largest change this product makes, its "before" is the file that is
+    there rather than a string the model sent, and it reached the alternate plane
+    only when `execute_write_file` began carrying the pair. The two halves also
+    discriminate each other: the edit's screen shows `alpha`/`beta` and the
+    write's `beta`/`gamma`, so a screen showing the wrong change fails on a
+    named cell rather than passing for looking right.
     """
     marker = run.marker("altscreen")
-    fixture = start_fixture(run, fixtures.large_edit_then_finish(marker))
+    written_marker = run.marker("altscreen-write")
+    spelled_marker = run.marker("altscreen-spelled")
+    control_marker = run.marker("altscreen-control")
+    written = fixtures.large_write_content()
+    fixture = start_fixture(
+        run,
+        fixtures.large_edit_then_finish(marker)
+        + fixtures.large_write_then_finish(written_marker)
+        + fixtures.collision_write_then_finish(spelled_marker, written)
+        + fixtures.control_write_then_finish(control_marker),
+    )
     before, after = fixtures.large_edit_sides()
+    spelled = fixtures.spelled_out_breaks(written)
     trial = run.trial(
         "alternate-screen",
         gateway=fixture,
@@ -5071,13 +5215,50 @@ def scenario_20(run):
     )
     run.require(grid.left_alternate == 0, "the plane was given back before it was answered")
     run.require(grid.find(PERMISSION_TITLE) is not None, "the screen does not name itself")
-    for needle in ("before", "after", "alpha line 19", "beta line 0"):
+    # **Line for line.** The review keeps the file's own breaks and gives each
+    # one a row (`permission::bounded_diff_side`), so twenty lines are twenty
+    # rows rather than one wrapped run -- which is why the tail of the change is
+    # not on the first screenful, and why the walk below exists.
+    for needle in ("before", "alpha line 0", "alpha line 10"):
         run.require(
             grid.find(needle) is not None,
             "%r is not on the screen that exists to show the change" % needle,
         )
+    run.require(
+        grid.find("alpha line 0\\nalpha line 1") is None,
+        "the file's line breaks were flattened into one run: %r" % grid.text(),
+    )
+    own_rows = [
+        row
+        for row in range(grid.rows)
+        if grid.row_text(row).strip() in ("alpha line 0", "alpha line 1", "alpha line 2")
+    ]
+    run.require(
+        len(own_rows) == 3,
+        "the file's lines were not given rows of their own: %r"
+        % [grid.row_text(row) for row in range(grid.rows)],
+    )
     for choice in ("1. Yes", "3. No (esc)"):
         run.require(grid.find(choice) is not None, "the screen dropped %r" % choice)
+    # And the second half is reached by walking, which is what a viewport onto a
+    # change longer than a screen is for. Walked past its end on purpose: the
+    # viewport clamps there (`ApprovalScreen::scroll_by`), so the last row of
+    # the change is a position this does not have to count its way to.
+    trial.send(b"\x0e" * 60)
+    trial.wait_until(
+        "the walk to reach the last line of the change",
+        lambda _t: has_row(trial.peek(), "beta line 19"),
+    )
+    walked = trial.grid("walked-to-the-far-side-of-the-change")
+    for needle in ("beta line 17", "beta line 18", "beta line 19"):
+        run.require(
+            has_row(walked, needle),
+            "%r was not reached by walking the change" % needle,
+        )
+    run.require(
+        walked.plane == "alternate" and walked.left_alternate == 0,
+        "walking the change gave the plane back",
+    )
     run.require(
         read(trial.notes) == before + "\n", "the edit ran before it was approved"
     )
@@ -5143,11 +5324,267 @@ def scenario_20(run):
     )
     run.require(len(grid.frames) > 2, "no frames were recorded, so the check above proves nothing")
 
+    # --- and the same for a whole-file write --------------------------------
+    #
+    # The other mutation with a before and an after, and the one whose "before"
+    # is the file rather than a string the model sent. Same session, so the
+    # plane is taken a **second** time and given back a second time: the pair
+    # has to balance per question, not once per session.
+    trial.send("rewrite the notes " + run.nonce + "\r")
+    trial.wait_until(
+        "the write's question to be painted on the plane it took",
+        lambda _t: trial.peek().plane == "alternate"
+        and trial.peek().find(PERMISSION_TITLE) is not None
+        and trial.peek().find("gamma line 0") is not None,
+    )
+    grid = trial.grid("write-on-the-alternate-plane")
+
+    run.require(grid.plane == "alternate", "the write's question is not on a plane of its own")
+    run.require(
+        grid.entered_alternate == 2 and grid.left_alternate == 1,
+        "the plane was taken %d times and given back %d before the write was answered"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(
+        grid.find(PERMISSION_TITLE) is not None,
+        "the write's screen does not name itself",
+    )
+    # **Both halves, and both are the write's own.** The "before" is the file
+    # this session is replacing -- which is the *edit's* result, so a screen
+    # showing the edit again fails here -- and the "after" is the text the write
+    # would put down.
+    for needle in ("before", "beta line 0", "beta line 10"):
+        run.require(
+            grid.find(needle) is not None,
+            "%r is not on the screen that exists to show the write" % needle,
+        )
+    for choice in ("1. Yes", "3. No (esc)"):
+        run.require(grid.find(choice) is not None, "the write's screen dropped %r" % choice)
+    trial.send(b"\x0e" * 60)
+    trial.wait_until(
+        "the walk to reach the last line the write would put down",
+        lambda _t: has_row(trial.peek(), "gamma line 19"),
+    )
+    walked = trial.grid("walked-to-the-text-the-write-would-put-down")
+    for needle in ("gamma line 17", "gamma line 18", "gamma line 19"):
+        run.require(
+            has_row(walked, needle),
+            "%r was not reached by walking the write" % needle,
+        )
+    run.require(
+        read(trial.notes) == after + "\n",
+        "the write ran before it was approved",
+    )
+    primary = grid.primary_text()
+    run.require(
+        "gamma line" not in primary,
+        "the write was painted on the user's own screen: %r" % primary,
+    )
+
+    trial.send(b"1")
+    trial.wait_for(written_marker)
+    run.require(
+        read(trial.notes) == written,
+        "`1` did not let the write through: %r" % read(trial.notes)[:60],
+    )
+    trial.wait_until(
+        "the band to be painted on the primary plane after the write",
+        lambda _t: trial.peek().plane == "primary"
+        and trial.peek().find(HINT_MODEL) is not None,
+    )
+    grid = trial.grid("back-on-the-primary-plane-after-the-write", record_frames=True)
+    run.require(grid.plane == "primary", "the session is still on the borrowed plane")
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 2,
+        "the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(
+        grid.row_text(grid.rows - 1).strip() != "",
+        "the band's hint row was not repainted by the write's restore",
+    )
+    run.require(
+        grid.find("gamma line") is None,
+        "the write stayed on the user's screen after the question was answered",
+    )
+    run.require(
+        grid.find(written_marker) is not None,
+        "the write turn's own marker is rendered",
+    )
+    run.require(
+        not grid.unknown,
+        "xfx emitted only the sequences it declares: %r" % grid.unknown,
+    )
+    blank = [index for index, frame in enumerate(grid.frames) if not frame.strip()]
+    run.require(
+        not blank,
+        "the write's restore presented %d blank frame(s) at %r" % (len(blank), blank[:5]),
+    )
+
+    # --- and a change only its line structure tells apart --------------------
+    #
+    # The **collision**: the file that is there and the same characters with
+    # every line break spelled out as a backslash and an `n`. They are two
+    # different files -- twenty lines against one -- and an escaping that spent
+    # a backslash on a break without escaping the backslash itself rendered them
+    # as one string, so this screen showed the whole change as a no-op. What is
+    # asserted here is not that the two sides are different text: it is that
+    # they are different **shapes**, which is the only thing a reader can see.
+    trial.send("spell the breaks out " + run.nonce + "\r")
+    trial.wait_until(
+        "the collision's question to be painted on the plane it took",
+        lambda _t: trial.peek().plane == "alternate"
+        and trial.peek().find(PERMISSION_TITLE) is not None
+        and has_row(trial.peek(), "gamma line 0"),
+    )
+    grid = trial.grid("a-change-only-its-line-structure-tells-apart")
+
+    run.require(grid.plane == "alternate", "the collision is not on a plane of its own")
+    run.require(
+        grid.entered_alternate == 3 and grid.left_alternate == 2,
+        "the plane was taken %d times and given back %d before the collision was answered"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    # The side whose breaks are real is **rows**: each line occupies a row of
+    # its own with nothing else on it.
+    for needle in ("before", "gamma line 0", "gamma line 1", "gamma line 2"):
+        run.require(
+            has_row(grid, needle),
+            "%r is not a row of its own on the side whose breaks are real: %r"
+            % (needle, grid.text()),
+        )
+    run.require(
+        read(trial.notes) == written,
+        "the collision write ran before it was approved",
+    )
+
+    # And the side that only *spells* the breaks is **not** rows. Anchored under
+    # the `after` heading rather than searched for anywhere, because the band's
+    # summary quotes the head of the same payload inside a sentence and a
+    # substring check would be satisfied by it.
+    trial.send(b"\x0e" * 60)
+    trial.wait_until(
+        "the walk to reach the text the collision would put down",
+        lambda _t: has_row(trial.peek(), "after"),
+    )
+    walked = trial.grid("the-spelled-out-side-is-not-rows")
+    shown = rows_below(walked, "after")
+    run.require(
+        any("gamma line 0\\\\ngamma line 1" in row for row in shown),
+        "the spelled-out break was not shown as a literal escape: %r" % shown,
+    )
+    run.require(
+        not any(row.strip() == "gamma line 1" for row in shown),
+        "the spelled-out breaks were given rows, so the two sides read alike: %r" % shown,
+    )
+
+    trial.send(b"1")
+    trial.wait_for(spelled_marker)
+    run.require(
+        read(trial.notes) == spelled,
+        "`1` did not let the collision write through: %r" % read(trial.notes)[:60],
+    )
+    trial.wait_until(
+        "the band to be painted on the primary plane after the collision",
+        lambda _t: trial.peek().plane == "primary"
+        and trial.peek().find(HINT_MODEL) is not None,
+    )
+    grid = trial.grid("back-on-the-primary-plane-after-the-collision", record_frames=True)
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 3,
+        "the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(
+        not grid.unknown,
+        "xfx emitted only the sequences it declares: %r" % grid.unknown,
+    )
+    blank = [index for index, frame in enumerate(grid.frames) if not frame.strip()]
+    run.require(
+        not blank,
+        "the collision's restore presented %d blank frame(s) at %r" % (len(blank), blank[:5]),
+    )
+
+    # --- and a change made of bytes the terminal would obey -------------------
+    #
+    # The payload arrives from the **fixture**, which is the model's side of the
+    # wire, and is never typed: a raw `ESC` typed at a real terminal is an
+    # escape sequence to the input decoder rather than content, so driving this
+    # from the keyboard would be measuring the harness. Coming from a tool call
+    # it is what it is in life -- bytes a model asked to be written into a file.
+    #
+    # Two claims the grid can make and a unit test cannot: the control is
+    # **named by its code point** on the screen, so a reader is told which byte
+    # it was rather than that one was there; and the emulator finds **no
+    # sequence it does not know**, which is how "a hundred and sixty-one escape
+    # bytes reached the review and none of them reached the terminal" is a
+    # measurement rather than a hope. The pairwise claim -- that two *different*
+    # controls stay two different screens -- is proven over the whole 65-scalar
+    # domain in `cargo test`, at the boundary and at the renderer, because
+    # driving it here would cost two more approval turns to say less.
+    trial.send("write the control bytes " + run.nonce + "\r")
+    trial.wait_until(
+        "the control payload's question to be painted on the plane it took",
+        lambda _t: trial.peek().plane == "alternate"
+        and trial.peek().find(PERMISSION_TITLE) is not None
+        and trial.peek().find("\\u{001B}") is not None,
+    )
+    grid = trial.grid("a-change-made-of-bytes-the-terminal-would-obey")
+
+    run.require(grid.plane == "alternate", "the control payload is not on a plane of its own")
+    run.require(
+        grid.entered_alternate == 4 and grid.left_alternate == 3,
+        "the plane was taken %d times and given back %d before the controls were answered"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    shown = rows_below(grid, "after")
+    run.require(
+        any("\\u{001B}" in row for row in shown),
+        "the escape byte was not named by its code point under the after heading: %r" % shown,
+    )
+    run.require(
+        not any("\ufffd" in row for row in shown),
+        "a control was blanked to one symbol instead of being named: %r" % shown,
+    )
+    # **Nothing executable reached the terminal.** The emulator fails the run on
+    # any sequence it does not know, so an escape byte that had been passed
+    # through rather than named would land here rather than on a reader.
+    run.require(
+        not grid.unknown,
+        "a control byte reached the terminal: %r" % grid.unknown,
+    )
+    run.require(
+        read(trial.notes) == spelled,
+        "the control write ran before it was approved",
+    )
+
+    trial.send(b"1")
+    trial.wait_for(control_marker)
+    run.require(
+        read(trial.notes) == "\x1b" * 161,
+        "`1` did not let the control write through",
+    )
+    trial.wait_until(
+        "the band to be painted on the primary plane after the controls",
+        lambda _t: trial.peek().plane == "primary"
+        and trial.peek().find(HINT_MODEL) is not None,
+    )
+    grid = trial.grid("back-on-the-primary-plane-after-the-controls", record_frames=True)
+    run.require(
+        grid.entered_alternate == grid.left_alternate == 4,
+        "the plane was taken %d times and given back %d"
+        % (grid.entered_alternate, grid.left_alternate),
+    )
+    run.require(
+        not grid.unknown,
+        "xfx emitted only the sequences it declares: %r" % grid.unknown,
+    )
+
     trial.send(b"\x04")
     run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
     settled = trial.session.settled_text()
     run.require(
-        settled.count(ALTERNATE_ENTER) == settled.count(ALTERNATE_LEAVE) == 1,
+        settled.count(ALTERNATE_ENTER) == settled.count(ALTERNATE_LEAVE) == 4,
         "the plane was entered %d times and left %d over the whole session"
         % (settled.count(ALTERNATE_ENTER), settled.count(ALTERNATE_LEAVE)),
     )

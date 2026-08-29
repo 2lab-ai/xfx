@@ -76,7 +76,7 @@ use std::time::Instant;
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::approval_screen::ApprovalScreen;
-use super::bridge::{TurnControl, TurnWork, UiEvent};
+use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -501,6 +501,21 @@ pub(crate) enum ScreenOwner {
     Primary,
     /// A question with a change too large for the band to show.
     Approval,
+}
+
+/// A question composed for the surface it belongs on, before anything is
+/// installed.
+///
+/// The value [`Shell::ask`] decides with. It exists so that the fit question --
+/// which is a *different* question on the two surfaces -- is asked of the thing
+/// that would actually be painted, and so that the refusal for both is written
+/// once: a second `say`/`Deny` pair in a second arm is a second chance to
+/// forget the rule that a decision xfx was never given is a refusal.
+enum Asked {
+    /// The band's own panel, with the document still above it.
+    Inline(Panel),
+    /// A screen of its own, for a change the band's summary cannot show.
+    Alternate(ApprovalScreen),
 }
 
 /// One of xfx's own document writes, waiting for its place in the stream.
@@ -961,6 +976,41 @@ impl Shell {
                 ));
                 self.render.request(Reason::Footer);
             }
+            // What the selector made of a `/model <id>`, and the model in force
+            // afterwards. **Taken rather than predicted**: the catalog decides,
+            // the catalog is on the runtime thread, and a band that adopted the
+            // id it submitted would show a model the provider does not publish
+            // and report it to the next bare `/model`.
+            UiEvent::ModelAnswered { model, outcome } => {
+                self.model = model;
+                match outcome {
+                    ModelAnswer::Applied { unverified } => {
+                        self.say(format!("[shell] model={}", self.model));
+                        // The caveat *after* the change, because it is a caveat
+                        // on it: the selection stands, and what could not be
+                        // done is check it. One sentence for both front ends
+                        // (`provider::model::unverified_notice`), so a daemon
+                        // that is down reads the same wherever `/model` was
+                        // typed.
+                        if let Some(reason) = unverified {
+                            self.say(crate::provider::model::unverified_notice(&reason));
+                        }
+                    }
+                    ModelAnswer::Unchanged => {
+                        self.say(format!("[shell] model={} unchanged", self.model));
+                    }
+                    // xfx's own words, from the selector. Nothing of the id is
+                    // quoted back by this surface: the reason already carries
+                    // whatever of it belongs in the document, and it crossed
+                    // the channel inert like every other string on it.
+                    ModelAnswer::Refused { reason } => {
+                        self.say(format!("xfx: {reason}"));
+                    }
+                }
+                // The hint row's model label follows the model in force,
+                // whichever way the answer went.
+                self.render.request(Reason::Footer);
+            }
             // The browser. Rendered as document rows rather than into the band's
             // elastic slot: a catalog is a list the user reads and scrolls back
             // to, and the slot is for the two things a keystroke is *about*.
@@ -1051,25 +1101,46 @@ impl Shell {
 
     /// Puts a question in front of the user, or refuses it on their behalf.
     ///
-    /// The refusal is not a fallback to be tidied up later: a panel that did
-    /// not fit would be painted with its choices below the last row of the
-    /// screen, and the session would sit waiting for a keystroke about a
-    /// question the user cannot read. `ask` mode's own rule decides it -- a
-    /// decision xfx was never given is a refusal.
+    /// The refusal is not a fallback to be tidied up later: a question painted
+    /// with its choices below the last row of the screen would leave the
+    /// session waiting for a keystroke about something the user cannot read.
+    /// `ask` mode's own rule decides it -- a decision xfx was never given is a
+    /// refusal.
+    ///
+    /// **Each surface answers the fit question for itself**, because they are
+    /// two different questions. The band's panel takes rows *from the band*,
+    /// so whether it fits depends on everything else the band is costing
+    /// ([`layout::fits_panel`]); the review plane takes a screen of its own, so
+    /// what it needs is that the screen can carry its three answers
+    /// ([`ApprovalScreen::presents_choices`]). Asking the band's question about
+    /// a question the band was never going to show is how a short window came
+    /// to deny a change the plane can display whole.
     fn ask(&mut self, request: ApprovalRequest) {
         // Which plane the question belongs on, settled from the change itself
         // before anything is installed ([`approval::ApprovalSurface`]).
         let surface = approval::ApprovalSurface::for_request(&request);
-        let panel = Panel::new(request);
-        let rows = panel.height(self.geometry.cols, self.geometry.rows);
-        if !layout::fits_panel(self.geometry.rows, self.geometry.cols, rows) {
+        let composed = match surface {
+            approval::ApprovalSurface::Inline => {
+                let panel = Panel::new(request);
+                let rows = panel.height(self.geometry.cols, self.geometry.rows);
+                layout::fits_panel(self.geometry.rows, self.geometry.cols, rows)
+                    .then_some(Asked::Inline(panel))
+            }
+            approval::ApprovalSurface::Alternate => {
+                let screen = ApprovalScreen::new(request);
+                screen
+                    .presents_choices(self.geometry.cols, self.geometry.rows)
+                    .then_some(Asked::Alternate(screen))
+            }
+        };
+        let Some(composed) = composed else {
             // **Before the owner moves.** A question that was never asked has
             // no screen to give back, and a session left owning a plane with
             // nothing on it would compose its next frame for nobody.
             self.say(PANEL_TOO_SMALL.to_string());
             self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
             return;
-        }
+        };
         // The two share one slot and one of them owns the focus, so the menu
         // goes **before** the question is installed rather than being left for
         // the geometry to prefer away: a menu still open behind a question is a
@@ -1091,16 +1162,16 @@ impl Shell {
             !(self.owner == ScreenOwner::Approval && self.alternate.is_some()),
             "a second question took a plane the first one is still on"
         );
-        match surface {
-            approval::ApprovalSurface::Inline => {
+        match composed {
+            Asked::Inline(panel) => {
                 self.panel = Some(panel);
                 self.owner = ScreenOwner::Primary;
             }
             // The band keeps none of its rows for this one: the question is
             // painted on the other plane, and the band underneath stays exactly
             // the band the restore repaints when the answer gives it back.
-            approval::ApprovalSurface::Alternate => {
-                self.alternate = Some(ApprovalScreen::new(panel.into_request()));
+            Asked::Alternate(screen) => {
+                self.alternate = Some(screen);
                 self.owner = ScreenOwner::Approval;
             }
         }
@@ -2291,18 +2362,27 @@ impl CommandHandlers for Shell {
 impl Shell {
     /// `/model`, with the line-oriented shell's meaning.
     ///
-    /// With no argument it **reports**; with one it applies from the next turn
-    /// on and is recorded in the session log, so a resumed conversation
-    /// continues in the model it was actually held in -- which is
-    /// [`TurnWork::Model`]'s whole job on the far side (`super::worker`'s
-    /// `Runtime::use_model`).
+    /// With no argument it **reports** and asks for the catalog; with one it
+    /// hands the id to the thread that owns the rule and paints nothing about
+    /// the result. [`TurnWork::Model`] is answered by
+    /// `crate::provider::model::ModelSelector::apply` on the runtime thread
+    /// (`super::worker`'s `run_model`), which is where the whole catalog is --
+    /// so whether an id is applied, refused as one the provider does not
+    /// publish, or applied unverified is **not a question this side can
+    /// answer**. What it does answer is the one question that is about the
+    /// argument rather than about the catalog: what a model id may be
+    /// ([`model_id_problem`], the first thing `apply` asks), refused here so
+    /// that an id carrying a control character never reaches the log the far
+    /// side writes it into.
+    ///
+    /// The result comes back as [`UiEvent::ModelAnswered`], which is what moves
+    /// this shell's own model and paints the line.
     ///
     /// **Narrower than the line shell in one way, and it is a boundary rather
     /// than an omission**: that shell loads the provider's catalog to report
-    /// with, and prints it. Reaching an endpoint is the parallel plan's, not
-    /// this one's, and the load is asynchronous on a thread that must not wait
-    /// for anything -- so the TUI reports the model in force and lists no
-    /// catalog. `docs/parity.md` says so.
+    /// with, and prints it inline. The load is asynchronous on a thread that
+    /// must not wait for anything, so the TUI reports the model in force at
+    /// once and the rows arrive afterwards as their own event.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
             self.say(format!(
@@ -2336,16 +2416,15 @@ impl Shell {
             self.write_document_line(&format!("xfx: {problem}"));
             return;
         }
-        if argument == self.model {
-            self.say(format!("[shell] model={} unchanged", self.model));
-            return;
-        }
+        // **And nothing else is decided here.** Whether the id is the one
+        // already in force, one the provider publishes, or one it does not, is
+        // the selector's to say -- and it says all three from the same catalog
+        // (`ModelSelector::apply`). A short-circuit for "the same model again"
+        // on this side would be a second reading of a fact this side keeps a
+        // copy of rather than owns.
         if let Err(rejected) = self.work.submit(TurnWork::Model(argument.to_string())) {
             self.refused(rejected);
-            return;
         }
-        self.model = argument.to_string();
-        self.say(format!("[shell] model={}", self.model));
     }
 
     /// `/setup <provider>`, with the line-oriented shell's meaning.
@@ -5133,21 +5212,69 @@ mod tests {
     }
 
     #[test]
-    fn a_question_refused_because_it_does_not_fit_never_takes_the_screen() {
-        // The refusal happens before anything is installed, so there is nothing
-        // to give back -- and an owner moved by a question that was never asked
-        // would strand the session on an empty plane.
+    fn a_short_screen_reviews_a_large_change_on_the_plane_that_can_show_it() {
+        // **The band's fit is the band's question.** A change too big for the
+        // summary is never asked in the band at all -- it takes a plane of its
+        // own, and every row of that plane is the question -- so measuring it
+        // against the rows the band's panel would have needed is refusing on
+        // behalf of a surface that was never going to be used. Ten rows is
+        // exactly that case: the inline panel really does not fit there
+        // (`a_screen_too_small_to_show_the_question_refuses_it_and_says_so`
+        // pins the inline half at the same size), and the plane shows the
+        // question whole.
         let mut shell = shell(10, 80);
-        turn_running(&mut shell, b"edit the notes\r");
+        let started = turn_running(&mut shell, b"edit the notes\r");
 
         shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
 
-        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            None,
+            "a question the plane can show was answered on the user's behalf"
         );
-        assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
+        let painted = shell.screen_rows().join("\n");
+        for choice in ["1. Yes", "2. Yes, and", "3. No (esc)"] {
+            assert!(
+                painted.contains(choice),
+                "the plane dropped {choice:?} on a {}-row screen: {painted:?}",
+                shell.geometry.rows
+            );
+        }
+        assert!(
+            !shell.released().contains(&PANEL_TOO_SMALL.to_string()),
+            "the session was told the screen was too small for a question it is showing"
+        );
+    }
+
+    #[test]
+    fn every_screen_a_session_can_run_on_can_ask_a_question_on_the_other_plane() {
+        // The premise the refusal above rests on, driven rather than argued: a
+        // session exists only on a screen the band fits on
+        // (`layout::MIN_ROWS`/`MIN_COLS`), and on **every** such screen the
+        // review plane can put all three answers in front of the user. So the
+        // fail-closed branch in `ask` guards a case no live geometry reaches,
+        // and the refusal it would produce is a hazard written down rather
+        // than a behaviour a session can be walked into.
+        for rows in layout::MIN_ROWS..=40 {
+            for cols in [layout::MIN_COLS, 40, 80, 200] {
+                let mut shell = shell(rows, cols);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+                shell.settle_band(started);
+                assert_eq!(
+                    shell.screen_owner(),
+                    ScreenOwner::Approval,
+                    "a {rows}x{cols} screen refused a question the plane can show"
+                );
+                assert_eq!(
+                    shell.controlled(),
+                    None,
+                    "a {rows}x{cols} screen answered on the user's behalf"
+                );
+            }
+        }
     }
 
     #[test]
@@ -5756,6 +5883,12 @@ mod tests {
             TurnWork::Model("second-model".to_string()),
             "the model change never reached the thread that owns the session log"
         );
+        // The thread that owns the rule answers, and that answer -- not the
+        // submission -- is what the band's own model becomes.
+        shell.apply(UiEvent::ModelAnswered {
+            model: "second-model".to_string(),
+            outcome: ModelAnswer::Applied { unverified: None },
+        });
 
         shell.route_bytes(b"/model\r");
         let document = shell.document();
@@ -5779,6 +5912,86 @@ mod tests {
         assert!(
             shell.sent.try_recv().is_err(),
             "a bare /model asked the runtime for more than the catalog"
+        );
+    }
+
+    #[test]
+    fn the_model_the_band_shows_is_the_one_the_runtime_applied_and_never_a_prediction() {
+        // The **catalog-membership** refusal lives where the catalog is
+        // (`provider::model::ModelSelector::apply`, on the runtime thread), so
+        // this side cannot know whether an id will be taken. A band that
+        // adopted the id it submitted would put a model the provider does not
+        // publish on the hint row, report it to a bare `/model`, and disagree
+        // with the model the next turn is actually held in.
+        let mut shell = shell(24, 80);
+        let in_force = shell.shell.model.clone();
+
+        shell.route_bytes(b"/model second-model\r");
+
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Model("second-model".to_string()),
+            "the model change never reached the thread that owns the rule"
+        );
+        assert_eq!(
+            shell.shell.model, in_force,
+            "the band adopted a model nothing has accepted yet"
+        );
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.starts_with("[shell] model=")),
+            "the band reported a model change the runtime has not made: {document:?}"
+        );
+
+        // The answer is what moves it, and the answer carries the model in
+        // force -- so a refusal leaves the band showing the model the session
+        // is really in rather than the one it asked for.
+        shell.apply(UiEvent::ModelAnswered {
+            model: in_force.clone(),
+            outcome: ModelAnswer::Refused {
+                reason: "gateway does not publish second-model in its catalog".to_string(),
+            },
+        });
+        assert_eq!(shell.shell.model, in_force);
+        assert_eq!(
+            shell.document(),
+            vec!["xfx: gateway does not publish second-model in its catalog".to_string()],
+            "the refusal is not the line the line shell gives"
+        );
+
+        // And a selection moves it, with the caveat both surfaces say when the
+        // catalog could not confirm it.
+        shell.apply(UiEvent::ModelAnswered {
+            model: "second-model".to_string(),
+            outcome: ModelAnswer::Applied {
+                unverified: Some("nothing answered".to_string()),
+            },
+        });
+        assert_eq!(shell.shell.model, "second-model");
+        // Joined, because the document wraps to the screen: what is being
+        // pinned is the two lines' text, not where an 80-column band broke the
+        // second one.
+        let document = shell.document().join("");
+        assert!(
+            document.starts_with("[shell] model=second-model"),
+            "{document:?}"
+        );
+        // The literal, not the function that produces it: a test that asked
+        // `unverified_notice` what it says would agree with any answer it gave.
+        assert!(
+            document.ends_with(
+                "xfx: nothing answered, so this model was not checked against \
+                 the provider's catalog"
+            ),
+            "the caveat is not the sentence the line shell gives: {document:?}"
+        );
+        // And it really is the sentence both front ends say, which is the half
+        // a literal alone cannot pin.
+        assert!(
+            document.ends_with(&crate::provider::model::unverified_notice(
+                "nothing answered"
+            )),
+            "the two front ends say an unchecked selection differently: {document:?}"
         );
     }
 

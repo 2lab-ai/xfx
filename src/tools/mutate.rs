@@ -281,6 +281,17 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         return ToolResult::failure(reason);
     }
 
+    // The pair a screen review shows, built **here**, from the preimage this
+    // executor read and the exact text that would replace it -- the same two
+    // things the staged bytes and the fingerprint are built from, rather than a
+    // second reading of the file by whatever renders the question. A whole-file
+    // write is the largest change this product makes; the band's 160-byte
+    // summary can only quote the beginning of what would arrive and says
+    // nothing at all about what would leave.
+    //
+    // Bounded and escaped at this boundary, like an edit's, because the
+    // preimage may be a quarter of a megabyte and the content four
+    // (`ToolLimits`), and nothing downstream may be handed either whole.
     let plan = MutationPlan::new(
         MutationKind::Write,
         located.full().to_path_buf(),
@@ -288,7 +299,8 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         located.target_scope(),
         preimage.summary(),
         bytes.to_vec(),
-    );
+    )
+    .with_diff(ApprovalDiff::of(&preimage.as_text(), &input.content));
     commit(context, located, plan, |plan| {
         format!(
             "Wrote {} ({} bytes)",
@@ -450,6 +462,30 @@ enum TargetState {
 }
 
 impl TargetState {
+    /// What is at the target now, as a review surface may show it.
+    ///
+    /// Three answers, and each is a fact rather than a rendering:
+    ///
+    /// * nothing is there -- the empty string, which the review screen says as
+    ///   `(nothing)`. A fabricated before would be a diff against a file that
+    ///   does not exist;
+    /// * text -- the text, which the permission boundary then escapes and
+    ///   bounds like any other side ([`crate::permission::ApprovalDiff::of`]);
+    /// * bytes that are not UTF-8 -- what they are and how many
+    ///   ([`crate::permission::non_text_summary`]), because they have no text
+    ///   form: shown lossily they would read as a file whose contents are
+    ///   replacement characters, and a reviewer would be approving a diff
+    ///   against something that is not there.
+    fn as_text(&self) -> String {
+        match self {
+            Self::Absent => String::new(),
+            Self::Present { bytes, .. } => match std::str::from_utf8(bytes) {
+                Ok(text) => text.to_string(),
+                Err(_) => crate::permission::non_text_summary(bytes.len()),
+            },
+        }
+    }
+
     fn summary(&self) -> Preimage {
         match self {
             Self::Absent => Preimage::Absent,
@@ -1364,7 +1400,11 @@ mod tests {
 
         let diff = recorder.last().diff.expect("an edit carries its diff");
         assert_eq!(diff.before, "alpha");
-        assert_eq!(diff.after, "beta\\ngamma");
+        // The break is **kept**, because the surface this side is built for
+        // places rows and a break is where a row ends
+        // (`crate::permission::bounded_diff_side`). The band's own one-line
+        // summary still names it.
+        assert_eq!(diff.after, "beta\ngamma");
     }
 
     #[test]
@@ -1393,25 +1433,147 @@ mod tests {
     }
 
     #[test]
-    fn a_write_and_a_create_have_no_before_and_after_to_review_so_the_question_stays_in_the_band() {
-        // `write_file` replaces everything, so its "before" is the whole
-        // previous file and the honest summary of it is the digest the prompt
-        // already names; `create_folder` changes no content at all. Neither has
-        // a pair a diff screen could show, so neither asks for one.
-        let (_dir, context, recorder) = asking("alpha\n");
-        let write = decode_write_file(&json!({ "path": "notes.txt", "content": "beta\n" }))
+    fn a_write_asks_with_the_file_it_is_replacing_and_the_text_replacing_it() {
+        // **A whole-file write is the largest change this product makes**, and
+        // for a long time it was the one asked about in a sentence: a digest,
+        // a size, and 160 bytes of preview. The pair is right there -- the
+        // preimage this executor has already read (and holds a complete read
+        // proof for) and the exact text that would replace it -- so the review
+        // surface gets it, bounded and escaped at this boundary like an edit's.
+        let (_dir, context, recorder) = asking("alpha\nand more\n");
+        let write = decode_write_file(&json!({ "path": "notes.txt", "content": "beta\ngamma" }))
             .expect("decodes");
+
         let written = execute_write_file(&write, &context);
         assert!(
             !written.ok,
             "the fixture prompter denies: {}",
             written.output
         );
+
+        let diff = recorder.last().diff.expect("a write carries its diff");
+        // Line for line, with the breaks kept: the review screen turns each one
+        // into a row, so the file reads as the file.
+        assert_eq!(diff.before, "alpha\nand more\n");
+        assert_eq!(diff.after, "beta\ngamma");
+        // **And a small one is still answered in the band.** Which surface a
+        // question takes is the change's size against the summary's own bound
+        // (`ApprovalDiff::wants_screen`), so a write the sentence already
+        // showed whole does not hide the document behind a screen.
         assert!(
-            recorder.last().diff.is_none(),
-            "a write invented a diff the tool cannot honestly produce"
+            !diff.wants_screen(),
+            "a change the band's own summary shows whole took a screen of its own"
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_path_with_nothing_at_it_says_so_rather_than_inventing_a_before() {
+        // A create is a change with one side, and the surface has a way of
+        // saying that (`super::super::tui::approval_screen`'s `(nothing)`).
+        // An empty string is the honest before; a fabricated one would be a
+        // diff against a file that does not exist.
+        let (dir, context, recorder) = asking("alpha\n");
+        let _ = dir;
+        let write = decode_write_file(&json!({ "path": "fresh.txt", "content": "beta\n" }))
+            .expect("decodes");
+
+        let written = execute_write_file(&write, &context);
+        assert!(
+            !written.ok,
+            "the fixture prompter denies: {}",
+            written.output
         );
 
+        let diff = recorder.last().diff.expect("a write carries its diff");
+        assert_eq!(diff.before, "");
+        assert_eq!(diff.after, "beta\n");
+    }
+
+    #[test]
+    fn a_write_over_bytes_that_are_not_text_names_them_instead_of_showing_them() {
+        // The one case a before/after cannot be rendered as text, and the
+        // failure to avoid is a **lossy** one: bytes that are not UTF-8 shown
+        // as replacement characters would read as a file whose contents are
+        // question marks, and a reviewer would be approving a diff against
+        // something that is not what is there. So the side says what it is --
+        // the same sentence `MutationPlan::preview` uses for the same fact.
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        let bytes = [0xffu8, 0xfe, 0x00, 0x41];
+        std::fs::write(dir.path().join("notes.txt"), bytes).expect("the fixture file");
+        let scope = crate::workspace::AccessScope::primary_only(dir.path()).expect("scope");
+        let path = scope.primary().join("notes.txt");
+        let recorder = Recorder::default();
+        let context = ToolContext::new(scope).with_permissions(
+            crate::permission::PermissionSession::new(crate::permission::PermissionMode::Ask)
+                .with_prompter(Box::new(recorder.clone())),
+        );
+        let metadata = std::fs::metadata(&path).expect("the fixture's metadata");
+        record_read(&context, &path, &metadata, &bytes, true);
+        let write = decode_write_file(&json!({ "path": "notes.txt", "content": "beta\n" }))
+            .expect("decodes");
+
+        let written = execute_write_file(&write, &context);
+        assert!(
+            !written.ok,
+            "the fixture prompter denies: {}",
+            written.output
+        );
+
+        let diff = recorder.last().diff.expect("a write carries its diff");
+        // The literal, not the function that produces it: a test that asked
+        // `non_text_summary` what it says would agree with any answer it gave,
+        // including an empty one.
+        assert_eq!(
+            diff.before, "<4 bytes of non-UTF-8 data>",
+            "a file that is not text was rendered as lossy text"
+        );
+        // And it is the **shared** sentence, which is the half a literal alone
+        // would not pin: the band's preview of a write's bytes and this screen's
+        // "before" say the same thing about the same fact.
+        assert_eq!(
+            diff.before,
+            crate::permission::non_text_summary(bytes.len())
+        );
+        assert!(
+            !diff.before.contains('\u{fffd}'),
+            "the bytes were shown as replacement characters: {:?}",
+            diff.before
+        );
+        assert_eq!(diff.after, "beta\n");
+    }
+
+    #[test]
+    fn a_write_larger_than_the_bound_is_cut_before_it_leaves_the_permission_boundary() {
+        // One bound, at the boundary that builds the question, exactly as an
+        // edit's is: the preimage may be a quarter of a megabyte and the
+        // content four, and nothing downstream may be handed either whole.
+        let contents = "a".repeat(100_000);
+        let (_dir, context, recorder) = asking(&contents);
+        let write =
+            decode_write_file(&json!({ "path": "notes.txt", "content": "b".repeat(100_000) }))
+                .expect("decodes");
+
+        let written = execute_write_file(&write, &context);
+        assert!(
+            !written.ok,
+            "the fixture prompter denies: {}",
+            written.output
+        );
+
+        let diff = recorder.last().diff.expect("a write carries its diff");
+        assert_eq!(diff.before.len(), 65_536);
+        assert_eq!(diff.after.len(), 65_536);
+        assert!(diff.before.ends_with('\u{2026}'));
+        assert!(diff.after.ends_with('\u{2026}'));
+        // And this one is exactly the change the band cannot show.
+        assert!(diff.wants_screen());
+    }
+
+    #[test]
+    fn a_create_folder_has_no_before_and_after_to_review_so_its_question_stays_in_the_band() {
+        // It changes no content at all: there is no pair a diff screen could
+        // show, and inventing one would be a screen about nothing.
+        let (_dir, context, recorder) = asking("alpha\n");
         let create = decode_create_folder(&json!({ "path": "made" })).expect("decodes");
         let created = execute_create_folder(&create, &context);
         assert!(

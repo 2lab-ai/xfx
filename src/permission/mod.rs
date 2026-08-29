@@ -49,10 +49,11 @@ pub mod policy;
 pub use crate::config::PermissionMode;
 
 pub use authority::{
-    bounded_diff_side, bounded_excerpt, ApprovalDiff, AuthorityError, AuthorityLedger, CommandPlan,
-    CommandRoute, ContentHash, ExecutionAuthority, FileIdentity, MutationExcerpt, MutationKind,
-    MutationPlan, Nonce, Preimage, PreparedCommand, PreparedMutation, ReadRecord, ReadTracker,
-    TargetScope, MAX_APPROVAL_DIFF_SIDE_BYTES, MAX_EXCERPT_BYTES,
+    bounded_diff_side, bounded_excerpt, non_text_summary, scalar_token, ApprovalDiff,
+    AuthorityError, AuthorityLedger, CommandPlan, CommandRoute, ContentHash, ExecutionAuthority,
+    FileIdentity, MutationExcerpt, MutationKind, MutationPlan, Nonce, Preimage, PreparedCommand,
+    PreparedMutation, ReadRecord, ReadTracker, TargetScope, MAX_APPROVAL_DIFF_SIDE_BYTES,
+    MAX_EXCERPT_BYTES,
 };
 pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{

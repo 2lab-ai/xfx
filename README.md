@@ -10,13 +10,14 @@ run a bounded set of commands to answer you -- under a permission mode you choos
 and a session log you can resume.
 
 It is **a behavioral port of the load-bearing loop, not a reimplementation of the
-whole product.** Upstream `fx` is far larger: it has an interactive TUI, MCP,
-skills, subagents, an ACP server, OAuth logins, a model catalog, an updater, and
-26 tools. xfx v0.1 has one provider, eight tools, six commands, and a
-line-oriented shell. Everything absent is absent *from the binary* -- not hidden
-behind a flag, not stubbed to return success. The row-by-row account is
-[`docs/parity.md`](docs/parity.md), and CI fails if the binary ever advertises
-something that ledger does not record as implemented.
+whole product.** Upstream `fx` is far larger: it has MCP, skills, subagents, an
+ACP server, OAuth logins, an updater, and 26 tools. xfx has two backends behind
+one provider boundary, eight tools, seven named commands plus the shell a bare
+`xfx` opens, seven slash commands in that shell, and an opt-in full-screen TUI
+that is narrower than upstream's. Everything absent is absent *from the binary*
+-- not hidden behind a flag, not stubbed to return success. The row-by-row
+account is [`docs/parity.md`](docs/parity.md), and CI fails if the binary ever
+advertises something that ledger does not record as implemented.
 
 xfx is not `fx`. The binary is `xfx`, the profile home is `~/.xfx`, and the
 project file is `.xfx.json`, so installing it cannot shadow or corrupt an
@@ -44,7 +45,9 @@ a source revision; a build from a tag answers `build_channel=release` instead.
 | | |
 |---|---|
 | **Ask** | `xfx ask "..."` runs one bounded, multi-step turn: streamed assistant text, tool calls executed locally, then exactly one terminal event. `--json` gives you JSONL. |
-| **Shell** | A bare `xfx` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Six commands: `/help`, `/new`, `/clear`, `/model`, `/version`, `/quit`. |
+| **Shell** | A bare `xfx` opens a line-oriented shell on your terminal. It never takes the alternate screen, so your scrollback survives. Seven commands: `/help`, `/new`, `/clear`, `/model`, `/setup`, `/version`, `/quit`. |
+| **TUI** | `XFX_TUI=1` on a bare `xfx` opts into a full-screen band instead: a divider, the composer and a status row at the bottom of the terminal's **normal** buffer, with a slash-completion menu, prompt history, framed paste and the same seven commands. It borrows the alternate screen for one thing only -- reviewing a change too large for a one-line summary -- and gives it straight back. Opt-in, and narrower than upstream's: [`docs/parity.md`](docs/parity.md)'s `full-screen TUI` row is the whole contract. |
+| **Models** | `/model` reports the model in force and browses the provider's catalog when it publishes one; `/model <id>` switches from the next turn on and records it in the session, and an id the loaded catalog does not publish is refused by name rather than sent. `/setup <gateway\|llmux>` switches which backend a prompt goes to. |
 | **Tools** | `list_files`, `glob_files`, `grep_files`, `read_file`, `write_file`, `edit_file`, `create_folder`, and `terminal` (one action: `exec`). Reads are bounded; writes are canonicalized inside the workspace, staged in the same directory, and renamed atomically. |
 | **Permissions** | `ask` asks you on the terminal, `auto` admits bounded reversible changes and a reporting-only command grammar, `yolo` skips the checks and says so on stderr. |
 | **Sessions** | Every turn is recorded to an append-only log under `~/.xfx/sessions/<id>/`, with an atomically published manifest. `xfx sessions`, `xfx session <id>`, and `xfx ask --resume last` read it back. `--no-save` writes nothing at all. |
@@ -54,15 +57,25 @@ a source revision; a build from a tag answers `build_channel=release` instead.
 ## What it does not do
 
 Deliberately, and completely -- these produce an error, never a quiet no-op:
-Vercel `login`/`logout`, Codex OAuth, a model catalog or provider switching,
-ACP, MCP, skills, subagents, web tools, background or durable terminals, images
-and vision, a full-screen TUI, replay, usage and credits, GitHub workflows, the
-updater, WASM, and N-API. `docs/parity.md` records each one with the upstream
-evidence for what it is.
+Vercel `login`/`logout`, **Codex and Grok as providers of their own** (no
+ChatGPT or xAI subscription OAuth, and no direct route to either; the way to
+reach a `gpt-` or `grok-` model here is a llmux daemon that exposes it, see
+[Backends](#backends)), ACP, MCP, skills, subagents, web tools, background or
+durable terminals, images and vision, replay, usage and credits, GitHub
+workflows, the updater, WASM, and N-API. `docs/parity.md` records each one with
+the upstream evidence for what it is.
 
-`xfx setup` exists but is narrower than upstream's, which is interactive
-credential onboarding for the Gateway -- that part is still absent. The only
-target is `llmux`; see [Backends](#backends).
+Three surfaces exist but are **narrower** than upstream's rather than absent,
+and each says where its edge is: the full-screen TUI (opt-in, and everything it
+does not do is in the `full-screen TUI` row of the ledger), the model catalog
+(browsed and selected from, with no standalone `models` command), and `xfx
+setup` -- which switches providers and proves a llmux daemon, but is **not**
+interactive credential onboarding for the Gateway; that part is still absent.
+The setup targets are `gateway` and `llmux`; see [Backends](#backends).
+
+Provider *switching* is `xfx setup <provider>` and `/setup <provider>`, which is
+where upstream moved it in 0.0.5; the standalone `provider` command name is not
+advertised.
 
 **xfx does not claim parity with `fx`, and it never will claim it in a version
 number.** If a claim in this file disagrees with `docs/parity.md`, the ledger is
@@ -261,7 +274,7 @@ $ xfx
 xfx 0.1.0 (release, revision 52ece6cd8184) -- unofficial, experimental Rust port of fx
 [shell] model=zai/glm-5.2 permission_mode=auto sandbox=none
 [shell] workspace=/home/you/project
-[shell] type a prompt, or /help for the 6 commands; Ctrl-D leaves
+[shell] type a prompt, or /help for the 7 commands; Ctrl-D leaves
 > what changed in this repo today
 ```
 
@@ -322,6 +335,15 @@ llmux would need its own credential story and xfx does not have one. Neither
 llmux client honours `HTTP_PROXY` or `ALL_PROXY`, for the same reason.
 
 xfx neither reads nor forwards an llmux key at any point.
+
+**Which models you can reach is the daemon's business, not xfx's.** llmux
+publishes a catalog over `GET /models` and xfx browses exactly that: whatever
+ids it lists -- including `gpt-` and `grok-` ones, when the daemon is configured
+to serve them -- are what `/model` shows and what `/model <id>` will accept. That
+is not a Codex or an xAI provider inside xfx: there is no subscription OAuth
+here, no second transport, and no credential for either. It is one backend
+whose catalog happens to name them, and every request still goes to the loopback
+daemon over the Anthropic Messages wire.
 
 ## How it works
 

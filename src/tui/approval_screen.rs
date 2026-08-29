@@ -19,7 +19,13 @@
 //! at the channel, and `crate::permission::bounded_diff_side` already escaped
 //! the diff at the permission boundary. Neither is trusted, and the reason is
 //! not defensiveness -- it is that this surface asks a **different** question of
-//! the text than either of them answered:
+//! the text than either of them answered.
+//!
+//! One of the two deliberately hands this module something to do: the diff's
+//! **line breaks are kept** at the permission boundary, because they are the
+//! change's own structure and this is the surface that can show it. Turning
+//! them into rows is this module's half of that contract, and it is why the
+//! split below comes first.
 //!
 //! * A raw `\n` is inert to a terminal's *state* and is not inert to a **row**:
 //!   it moves the cursor down one line in the middle of a screen whose rows this
@@ -95,17 +101,33 @@ fn reorders(character: char) -> bool {
 
 /// What a character a terminal would obey becomes on this screen.
 ///
-/// The three whitespace controls keep their names, exactly as the permission
-/// boundary spells them (`crate::permission::bounded_diff_side`), so a diff that
-/// arrived already escaped is unchanged by passing through here again. Every
-/// other control, and every reordering character, becomes `U+FFFD`: visible,
-/// one cell wide, and inert.
-fn tamed(character: char) -> Option<&'static str> {
+/// Reached only for what is left **inside** a line: [`safe_rows`] splits on real
+/// breaks first, so the `\n` arm here is for a break that arrived from
+/// somewhere this module does not trust rather than for the ones the permission
+/// boundary keeps. The other two whitespace controls keep the names that
+/// boundary gives them (`crate::permission::bounded_diff_side`), so a diff that
+/// arrived already escaped is unchanged by passing through here again -- and a
+/// backslash is passed through untouched for the same reason: the escaping was
+/// done once, where the change was known, and doing it twice would show a
+/// reader an escape the payload never carried.
+///
+/// Everything else -- every other control, and every reordering character --
+/// is named by its **code point** (`crate::permission::scalar_token`), the same
+/// spelling the permission boundary spends on a control. Not one replacement
+/// character for all of them: a screen that painted `ESC` and `BEL` the same
+/// way, or one bidi override the same as another, would show two payloads a
+/// model can swap as one screen. The bidi characters are this pass's own
+/// business rather than the boundary's, because they are neither controls nor
+/// text and the boundary passes them through as the printable characters they
+/// technically are.
+fn tamed(character: char) -> Option<String> {
     match character {
-        '\n' => Some("\\n"),
-        '\r' => Some("\\r"),
-        '\t' => Some("\\t"),
-        _ if character.is_control() || reorders(character) => Some("\u{fffd}"),
+        '\n' => Some("\\n".to_string()),
+        '\r' => Some("\\r".to_string()),
+        '\t' => Some("\\t".to_string()),
+        _ if character.is_control() || reorders(character) => {
+            Some(crate::permission::scalar_token(character))
+        }
         _ => None,
     }
 }
@@ -124,7 +146,7 @@ fn safe_rows(text: &str, budget: u16) -> Vec<String> {
         let mut safe = String::with_capacity(line.len());
         for character in line.chars() {
             match tamed(character) {
-                Some(replacement) => safe.push_str(replacement),
+                Some(replacement) => safe.push_str(&replacement),
                 None => safe.push(character),
             }
         }
@@ -229,6 +251,41 @@ impl ApprovalScreen {
     /// focus while it is up.
     pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> (u16, u16) {
         (self.compose(cols, terminal_rows).caret, 0)
+    }
+
+    /// Whether this screen can put **all three** answers in front of the user
+    /// at this size.
+    ///
+    /// Asked of the composition itself rather than of a remembered minimum, and
+    /// that is the whole of why it is honest: [`Self::compose`] is what drops
+    /// rows when the screen runs out of them, so the only way to know what a
+    /// screen loses is to compose it and look. Two ways to lose an answer, and
+    /// both are checked here -- a row truncated off the bottom, and a row
+    /// clipped so far that nothing of the label survives beside its marker.
+    ///
+    /// A `false` is a screen on which xfx cannot ask, and
+    /// [`super::shell::Shell::ask`] refuses on the user's behalf rather than
+    /// leaving a session waiting for a keystroke about a question with no
+    /// visible answers -- the same rule [`super::layout::fits_panel`] applies
+    /// to the band's own panel. Every screen a session can really run on is
+    /// above this bound (`super::layout::MIN_ROWS`/`MIN_COLS`), which is
+    /// pinned in `super::shell`; the guard is the hazard written down where
+    /// the next edit reads it.
+    pub(crate) fn presents_choices(&self, cols: u16, terminal_rows: u16) -> bool {
+        let painted = self.compose(cols, terminal_rows).rows;
+        approval::labels(self.request.tool)
+            .iter()
+            .enumerate()
+            .all(|(index, label)| {
+                let marker = if index == self.selected {
+                    MARKER
+                } else {
+                    INDENT
+                };
+                let whole = format!("{marker}{label}");
+                let shown = clip(&whole, cols);
+                shown.len() > marker.len() && painted.iter().any(|row| row == shown)
+            })
     }
 
     /// The rows above the change: what is being asked, and about what.
@@ -399,6 +456,35 @@ mod tests {
     }
 
     #[test]
+    fn a_screen_that_cannot_show_all_three_answers_says_so() {
+        // The other half of the case above, and the one the shell acts on: a
+        // screen the question cannot be *asked* on is refused rather than
+        // painted with an answer missing. Two ways to lose one, and the bound
+        // is different for each -- a row that never survived the truncation,
+        // and a row clipped down to its own marker.
+        let screen = screen();
+        for rows in [4u16, 5, 6, 8, 10, 24, 40] {
+            assert!(
+                screen.presents_choices(80, rows),
+                "a {rows}-row screen was refused a question it can show"
+            );
+        }
+        for rows in [1u16, 2, 3] {
+            assert!(
+                !screen.presents_choices(80, rows),
+                "a {rows}-row screen claimed to show three answers it has no rows for"
+            );
+        }
+        assert!(
+            !screen.presents_choices(2, 24),
+            "a screen two cells wide claimed to show answers clipped to their markers"
+        );
+        // And the narrowest screen a band -- and therefore a session -- exists
+        // on is comfortably above that bound.
+        assert!(screen.presents_choices(super::super::layout::MIN_COLS, 24));
+    }
+
+    #[test]
     fn the_caret_sits_on_the_marked_choice_and_walks_with_it() {
         let mut screen = screen();
         let marked = |screen: &ApprovalScreen| {
@@ -485,6 +571,66 @@ mod tests {
     }
 
     #[test]
+    fn a_change_built_at_the_permission_boundary_keeps_its_lines_and_its_literals_apart() {
+        // **End to end through the boundary, not by hand.** The pair a reviewer
+        // found: a payload whose line breaks are real, and one that merely
+        // contains a backslash and an `n`. They are two different files, and a
+        // screen that showed them the same way would let a model replace a
+        // hundred-line file with one line of literal escapes and call it a
+        // no-op. What the screen owes is not merely two different strings --
+        // it is two different **shapes**: rows where the breaks are real, and a
+        // visible escape where they are spelled out.
+        let real = "A\n".repeat(3);
+        let literal = "A\\n".repeat(3);
+        let screen = ApprovalScreen::new(ApprovalRequest {
+            tool: "edit_file",
+            target: "notes.txt".to_string(),
+            summary: "edit `notes.txt`".to_string(),
+            always_scope: "allow every future edit_file to `notes.txt`".to_string(),
+            diff: Some(crate::permission::ApprovalDiff::of(&real, &literal)),
+        });
+        let painted = screen.rows(80, 40);
+        let at = |needle: &str| {
+            painted
+                .iter()
+                .position(|row| row.trim() == needle)
+                .unwrap_or_else(|| panic!("no row is exactly {needle:?}: {painted:?}"))
+        };
+        let before = at(BEFORE_HEADER);
+        let after = at(AFTER_HEADER);
+
+        // The side whose breaks are real is **rows**: one per line, each
+        // carrying the line and nothing else.
+        let rows: Vec<&String> = painted[before + 1..after].iter().collect();
+        assert_eq!(
+            rows.iter().filter(|row| row.trim() == "A").count(),
+            3,
+            "the file's three lines are not three rows: {rows:?}"
+        );
+        for row in &rows {
+            assert!(
+                !row.contains("\\n"),
+                "a real line break was spelled out instead of ending a row: {row:?}"
+            );
+        }
+
+        // The side that only *spells* a break is one row, and the escape is
+        // visible on it -- doubled, because the payload's own backslash is
+        // escaped too, which is what keeps the two apart.
+        let shown: String = painted[after + 1..].join("");
+        assert!(
+            shown.contains("A\\\\nA\\\\nA\\\\n"),
+            "the literal backslash-n was not shown as a literal: {shown:?}"
+        );
+        assert!(
+            !painted[after + 1..]
+                .iter()
+                .any(|row| row.trim() == "A" && !row.contains('\\')),
+            "the spelled-out breaks were rendered as rows, so the two sides read alike"
+        );
+    }
+
+    #[test]
     fn nothing_a_terminal_would_obey_or_reorder_reaches_a_row() {
         // Both classes, because they are different failures. A control is a
         // sequence the terminal *executes*; a bidi override is a display
@@ -506,11 +652,65 @@ mod tests {
     }
 
     #[test]
+    fn two_characters_a_row_may_not_carry_are_not_shown_as_one() {
+        // The screen's half of the same rule the permission boundary keeps: a
+        // character that may not reach a row is **named** rather than blanked,
+        // so two of them that a payload could swap are two different screens.
+        // Both classes, because they are two different failures -- a control is
+        // a sequence the terminal executes, a bidi override is a display
+        // instruction it obeys -- and neither is `char::is_control` alone.
+        let shown =
+            |payload: &str| ApprovalScreen::new(asked_about(payload, "unchanged")).rows(80, 40);
+        for (one, other) in [
+            ('\u{1b}', '\u{7}'),
+            ('\u{9b}', '\u{9d}'),
+            ('\u{202e}', '\u{202d}'),
+            ('\u{2066}', '\u{2069}'),
+        ] {
+            let first = shown(&one.to_string().repeat(4));
+            let second = shown(&other.to_string().repeat(4));
+            assert_ne!(
+                first, second,
+                "{one:?} and {other:?} are painted as the same screen"
+            );
+            // Row by row, because the rows are what the terminal is given: a
+            // join would put a line break between them and then measure the
+            // separator this test wrote rather than the screen.
+            for painted in [&first, &second] {
+                for row in painted {
+                    for character in row.chars() {
+                        assert!(
+                            !character.is_control(),
+                            "a control character reached a row: {row:?}"
+                        );
+                        assert!(
+                            !reorders(character),
+                            "a reordering character reached a row: {row:?}"
+                        );
+                    }
+                }
+            }
+            // And what stands in for them names which one it was.
+            assert!(
+                first
+                    .join("")
+                    .contains(&crate::permission::scalar_token(one)),
+                "{one:?} is not named on the screen: {first:?}"
+            );
+        }
+    }
+
+    #[test]
     fn a_change_already_escaped_at_the_permission_boundary_is_unchanged_here() {
         // The diff arrives having been escaped once
         // (`crate::permission::bounded_diff_side`), and escaping an escaped
         // string has to be a no-op or the second pass would double every
         // backslash and the reader would be shown a change nobody is making.
+        //
+        // A tab and a CR, not a line break: the boundary **keeps** real breaks
+        // for this surface to turn into rows, and
+        // `a_change_built_at_the_permission_boundary_keeps_its_lines_and_its_literals_apart`
+        // is where that half is pinned.
         let escaped = "alpha\\nbeta\\tgamma";
         let screen = ApprovalScreen::new(asked_about(escaped, escaped));
         let painted = screen.rows(80, 40).join("\n");

@@ -992,9 +992,13 @@ async fn apply_model(
         } => {
             writeln!(io::stdout(), "[shell] model={model}")?;
             if let Some(reason) = unverified {
+                // The sentence is shared with the band
+                // (`provider::model::unverified_notice`); where it is written
+                // is this surface's own business.
                 writeln!(
                     io::stderr(),
-                    "xfx: {reason}, so this model was not checked against the provider's catalog"
+                    "{}",
+                    crate::provider::model::unverified_notice(&reason)
                 )?;
             }
             // Durable when there is something to record it in: a resumed session must

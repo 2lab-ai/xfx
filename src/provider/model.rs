@@ -338,6 +338,18 @@ pub const MAX_RENDERED_MODELS: usize = 100;
 /// user's first `/model` read as a broken session.
 pub const NO_CATALOG_NOTICE: &str = "[shell] catalog=unavailable (this provider advertises none)";
 
+/// What a surface says about a selection nothing could confirm.
+///
+/// Beside [`NO_CATALOG_NOTICE`] and for the same reason: it is a sentence about
+/// a fact **the selector** discovered ([`ModelOutcome::Selected`]'s
+/// `unverified`), so the two front ends may render it in their own place -- the
+/// line shell on stderr, the band as a document row -- but not in their own
+/// words. It is a caveat and never a refusal: the model was applied, and what
+/// could not be done was check it against a catalog that is not there.
+pub fn unverified_notice(reason: &str) -> String {
+    format!("xfx: {reason}, so this model was not checked against the provider's catalog")
+}
+
 /// Selects, changes, and renders model choices from a catalog when one exists.
 ///
 /// The selector for the configured provider and its active model. Does no I/O
@@ -487,8 +499,16 @@ impl ModelSelector {
         }
     }
 
+    /// The catalog this selector decides against, named rather than fetched.
+    ///
+    /// `pub(crate)` because the **membership refusal** is a rule two front ends
+    /// depend on, and the one that reaches it through a worker thread
+    /// (`crate::tui::worker`) has to be able to hold a loaded catalog without
+    /// opening a socket. Still `#[cfg(test)]`: no shipped binary can reach it,
+    /// so a catalog is still only ever loaded from the provider that published
+    /// it.
     #[cfg(test)]
-    fn set_catalog_for_test(&mut self, state: CatalogState) {
+    pub(crate) fn set_catalog_for_test(&mut self, state: CatalogState) {
         self.catalog_state = state;
     }
 }
