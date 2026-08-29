@@ -1039,6 +1039,25 @@ impl Band {
 
     /// [`render_append`](Self::render_append) plus exactly one write and one
     /// flush, for the same reason [`commit`](Self::commit) is one of each.
+    /// Whether the **primary** plane is holding bytes this band has not framed
+    /// since.
+    ///
+    /// The caret answers it, and it is not a coincidence that it does: every
+    /// way the band's rows stop being where the last frame put them --- an
+    /// append or a carry, which scroll the screen, and
+    /// [`invalidate`](Self::invalidate), which says the rows are not knowable
+    /// at all --- leaves the caret somewhere no frame placed it, and only a
+    /// landed frame puts it back. So "the caret is not where a frame left it"
+    /// and "the band is not where a frame left it" are the same fact.
+    ///
+    /// Asked by the transition barrier before the terminal is handed to a
+    /// question ([`super::event_loop`]): `1049h` **saves this buffer**, and a
+    /// buffer whose band is a row above where it belongs is the one the user is
+    /// given back when the question is answered.
+    pub(crate) fn owes_primary_frame(&self) -> bool {
+        self.caret.is_none()
+    }
+
     pub(crate) fn append_document(
         &mut self,
         out: &mut impl Write,

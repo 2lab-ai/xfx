@@ -147,6 +147,21 @@ are still on the terminal; it writes the mode reset only when the answer is that
 the terminal is still there, because resetting a buffer the session never took
 would swap in a screen the user was not looking at.
 
+**Going the other way, the primary plane is paid before it is left.** One tick
+takes a batch of events and composes one frame afterwards, so the row a tool call
+put in the document and the question that follows it are decided together; a
+frame routed straight to the other buffer would leave that row owed until the
+plane came back. And the rows are only half of it -- an append *scrolls* the
+screen, which moves the band up out from under the coordinates the last frame put
+it at, and the mode set saves the buffer it leaves. So the transition writes what
+the primary plane owes, in the order an ordinary tick writes it (the document's
+rows, then the band's frame), and only then hands the terminal over. A screen no
+band fits on is the one exception, because there a row number is a claim about a
+screen that may not exist and a scroll cannot be taken back; a plane that owes
+nothing is still entered in a single write; and a refused write at either step
+ends the tick with the plane where it was, because what would otherwise be saved
+is a screen this session cannot describe.
+
 **The panic hook and the signal handlers cannot ask, and do not.** They run where
 a lock may not be taken and a state may not be read, so each writes one
 compile-time-constant restore that leads with the reset **unconditionally**: an
