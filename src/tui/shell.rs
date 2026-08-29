@@ -884,6 +884,18 @@ impl Shell {
         std::mem::take(&mut self.pending)
     }
 
+    /// Whether the **primary** plane is owed rows that have not been written.
+    ///
+    /// Asked without taking them, by the one thing that has to know before it
+    /// decides what to write: the frame that would hand the terminal to a
+    /// question on the other buffer, where a document row cannot be written at
+    /// all (`super::event_loop`'s `commit_frame`). Text the pacer is still
+    /// holding is deliberately **not** counted -- it is not a row yet, and it
+    /// waits for its own release whichever plane the session is on.
+    pub(crate) fn owes_document(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Gives back writes the loop took and did not attempt.
     ///
     /// [`Self::take_pending`] hands over **everything** owed, and a loop that

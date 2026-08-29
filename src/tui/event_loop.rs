@@ -756,7 +756,37 @@ fn commit_frame(
     // band cannot show is reviewed on the terminal's other buffer, and both the
     // frames that live there and the one write that gives the plane back are
     // this function's -- nothing below may run while the terminal is on it.
-    if band.on_alternate() || shell.screen_owner() == super::shell::ScreenOwner::Approval {
+    //
+    // **Except what the primary plane already owed, which is paid before the
+    // plane changes hands.** One tick takes a *batch* of events
+    // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+    // call put in the document and the question that follows it are both
+    // applied before anything is written -- and a frame routed straight to the
+    // other buffer leaves that row owed ([`paint_alternate`]), which on this
+    // surface means never: it lands only when the plane comes back, minutes
+    // later, under an answer to a question whose tool call left no trace.
+    // Splitting the two events across ticks hides it, which is what local
+    // scheduling and one CI runner did while two faster ones did not.
+    //
+    // It is a **barrier rather than a delay**: the rows are written and then
+    // the plane is taken, in this same tick, so a question still costs one
+    // extra write only when there was really something owed.
+    let taking_the_plane =
+        !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Approval;
+    if band.on_alternate() || taking_the_plane {
+        // Not on a screen no band fits on: there, `blind` says the row numbers
+        // are claims about a screen that may not exist, and an append is a
+        // scroll that cannot be taken back. Those rows keep waiting for a
+        // screen, exactly as they do without a question.
+        if taking_the_plane
+            && !shell.blind()
+            && shell.owes_document()
+            && !commit_document(shell, band, out, failures, now)?
+        {
+            // The write was refused and counted. The rows stay owed and so does
+            // the plane: the next tick offers both again, in this order.
+            return Ok(());
+        }
         return paint_alternate(shell, band, out, failures, now);
     }
     if shell.take_clearing() {
@@ -804,10 +834,62 @@ fn commit_frame(
     // A refused carry is owed again -- nothing is recorded until it lands
     // (`Band::carry_document`) -- and it counts against the same budget every
     // other refused write does.
+    if !commit_document(shell, band, out, failures, now)? {
+        return Ok(());
+    }
+    let Some(attempt) = shell.render.begin() else {
+        return Ok(());
+    };
+    if attempt.damaged() {
+        // Something that is not this band wrote on the screen -- a resume that
+        // handed the terminal to the shell and took it back, a `/clear` that
+        // erased it, a Ctrl-L asking for exactly this. The shadow is a claim
+        // about what is on those rows and that claim is now false about all of
+        // them, so the frame below is a whole one rather than a difference from
+        // a screen that no longer exists.
+        band.invalidate(shell.geometry.rows, shell.geometry.cols);
+    }
+    match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
+        // A frame that wrote nothing is a frame the screen already had, so the
+        // budget is whole for the same reason a delivered one leaves it whole.
+        Ok(_) => {
+            failures.succeeded();
+            Ok(())
+        }
+        Err(err) => {
+            shell.render.restore(attempt);
+            match failures.failed(err, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(()),
+            }
+        }
+    }
+}
+
+/// What the **document** is owed: the rows a growing band pushed up, and the
+/// appends the session has not written yet.
+///
+/// `Ok(true)` when everything owed has landed, `Ok(false)` when a write was
+/// refused and counted against the frame budget -- which ends the caller's tick
+/// rather than this function, because what may be attempted after a refused
+/// write is the caller's question and not this one's.
+///
+/// A function of its own because there are **two** callers and they must not
+/// drift: the ordinary primary frame below, and the barrier above that pays the
+/// document before the plane changes hands. Written twice, the second copy
+/// would be the one that forgot the carry, or the order, or that a refused
+/// append is not owed again.
+fn commit_document(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<bool> {
     if let Err(err) = band.carry_document(out, &shell.geometry) {
         return match failures.failed(err, now) {
             Some(fatal) => Err(fatal),
-            None => Ok(()),
+            None => Ok(false),
         };
     }
     // Before the frame, and before the `begin` below, for two reasons. An
@@ -840,38 +922,12 @@ fn commit_frame(
             shell.restore_pending(untried);
             return match failures.failed(err, now) {
                 Some(fatal) => Err(fatal),
-                None => Ok(()),
+                None => Ok(false),
             };
         }
         index += 1;
     }
-    let Some(attempt) = shell.render.begin() else {
-        return Ok(());
-    };
-    if attempt.damaged() {
-        // Something that is not this band wrote on the screen -- a resume that
-        // handed the terminal to the shell and took it back, a `/clear` that
-        // erased it, a Ctrl-L asking for exactly this. The shadow is a claim
-        // about what is on those rows and that claim is now false about all of
-        // them, so the frame below is a whole one rather than a difference from
-        // a screen that no longer exists.
-        band.invalidate(shell.geometry.rows, shell.geometry.cols);
-    }
-    match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
-        // A frame that wrote nothing is a frame the screen already had, so the
-        // budget is whole for the same reason a delivered one leaves it whole.
-        Ok(_) => {
-            failures.succeeded();
-            Ok(())
-        }
-        Err(err) => {
-            shell.render.restore(attempt);
-            match failures.failed(err, now) {
-                Some(fatal) => Err(fatal),
-                None => Ok(()),
-            }
-        }
-    }
+    Ok(true)
 }
 
 /// Everything that happens while the question owns the terminal's other buffer,
@@ -1044,6 +1100,8 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+
+    use tokio::sync::mpsc;
 
     // The debounce the loop's own cases advance a clock past. Imported rather
     // than pinned because these cases are not the ones that claim what it is --
@@ -2955,6 +3013,311 @@ mod tests {
         out.calls = 0;
         commit_frame(shell, band, out, failures, Instant::now(), Reconciled)
             .expect("the frame that takes the plane");
+    }
+
+    #[test]
+    fn a_document_row_owed_when_the_plane_changes_hands_is_written_before_it_does() {
+        // **One tick takes a batch of events, and a batch can cross a plane.**
+        // `take_ui_events` drains up to `bridge::UI_EVENTS` of them and the tick
+        // composes exactly one frame afterwards, so a tool result and the
+        // question that follows it are both applied before anything is
+        // written -- and that one frame, seeing the question already owns the
+        // screen, is routed to the other buffer. What the primary plane owes
+        // stays owed (`paint_alternate`), so the tool's own row never reaches
+        // the document at all: the user is asked about a change whose tool call
+        // left no trace, and the row lands minutes later when the plane comes
+        // back.
+        //
+        // Slow scheduling splits the two events across two ticks and hides it,
+        // which is exactly what happened: this passed locally and on one CI
+        // runner and failed on the two faster ones (run 33256925472, exact head
+        // f45d005 -- Linux and arm64 macOS waited out scenario 20's
+        // `[tool] read_file ok` while the alternate screen was already up).
+        //
+        // Driven through the real drain with both events already in the
+        // channel, so the batch is a fact rather than a race: no sleep, no
+        // scheduler, nothing this test has to hope for.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::ToolResult {
+                call_id: "call-0".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                detail: String::new(),
+            })
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+        out.calls = 0;
+
+        // The tick's own order (`run`): the batch, then the settle, then the
+        // one frame.
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the batch did not reach the question, so this case proves nothing"
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("[tool] read_file ok")
+            .unwrap_or_else(|| panic!("the tool's row never reached the document: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            row < took,
+            "the plane changed hands with a document row still owed: {written:?}"
+        );
+        assert!(band.on_alternate(), "the loop forgot which plane it is on");
+        assert!(
+            shell.take_pending().is_empty(),
+            "the document is still owed rows the plane was taken over"
+        );
+    }
+
+    #[test]
+    fn the_barrier_is_about_an_owed_row_rather_than_about_the_event_that_made_it() {
+        // The fix is a property of the **plane transition**, not of `read_file`
+        // and not of a tool call: anything that puts a row in the document in
+        // the same batch as the question has the same claim on the primary
+        // buffer. A guard written around the event that happened to expose it
+        // would leave every other producer -- a notice, a turn's failure line,
+        // the sentence a refusal writes -- with the defect intact.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: something worth saying".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("something worth saying")
+            .unwrap_or_else(|| panic!("the notice never reached the document: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            row < took,
+            "the plane changed hands with a row owed: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_refused_row_keeps_the_plane_as_well_as_the_row() {
+        // The barrier's own failure path. A write that was refused leaves the
+        // document owed, and taking the plane anyway would put the question on
+        // the other buffer with the row still waiting -- the very state the
+        // barrier exists to prevent, reached through the door it added. So the
+        // tick ends: the rows stay owed, the plane stays where it is, and the
+        // next tick offers both again in this order.
+        // **Two** rows, because the two halves of the refusal rule are
+        // different: the one the terminal was offered may have moved the screen
+        // already and is not offered again (`commit_document`), and the one
+        // behind it moved nothing and is still owed.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: a row that will not land".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(UiEvent::Notice("xfx: the row behind it".to_string()))
+            .expect("the channel has room");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut CountingScreen::default(),
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        // A screen that refuses **the append and nothing else**, which is the
+        // only writer that can tell the two behaviours apart: one that refused
+        // everything would leave the plane untaken whatever the loop decided,
+        // because the bytes that take it would be refused too.
+        let mut out = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a refused write is counted, not fatal on its own");
+
+        assert!(
+            !band.on_alternate(),
+            "the plane was taken over a row the terminal refused"
+        );
+        assert!(
+            !String::from_utf8_lossy(&out.written).contains(ENTERS_ALTERNATE),
+            "the plane was offered the terminal over a row that did not land"
+        );
+        assert!(
+            shell.owes_document(),
+            "the rows behind the refused one were dropped instead of staying owed"
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question was forgotten with the frame"
+        );
+        // And the next tick, onto a screen that works, pays the document and
+        // then takes the plane -- in that order, which is the whole rule.
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame after the refusal");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("the row behind it")
+            .unwrap_or_else(|| panic!("the surviving row never landed: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(row < took, "the retry took the plane first: {written:?}");
+    }
+
+    #[test]
+    fn the_barrier_writes_nothing_on_a_screen_no_band_fits_on() {
+        // The one place the barrier may not pay what is owed. `blind` means the
+        // row numbers are claims about a screen that may not exist, and an
+        // append is a **scroll**: what leaves the top of the screen is in the
+        // terminal's own scrollback for good, so a row placed by a coordinate
+        // the terminal no longer has cannot be taken back by any later frame.
+        // Those rows keep waiting for a screen, exactly as they do when no
+        // question is pending.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((4, 80), &asked),
+        );
+        assert!(
+            shell.blind(),
+            "the fixture is not on a screen it must not write"
+        );
+
+        shell.apply(UiEvent::Notice("xfx: a row with nowhere to go".to_string()));
+        shell.apply(a_change_too_big_for_the_band());
+        assert!(
+            shell.owes_document(),
+            "the fixture owes no row, so this proves nothing"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the frame");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains("a row with nowhere to go"),
+            "a document row was scrolled onto a screen the band does not fit on: {written:?}"
+        );
+        assert!(
+            shell.owes_document(),
+            "the row was taken and dropped instead of staying owed"
+        );
     }
 
     #[test]
