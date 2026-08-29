@@ -3230,6 +3230,126 @@ fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gatewa
 ///
 /// Returns the pty and the session, both alive, with the alternate screen
 /// already taken and the question painted on it.
+/// What the question's own frame owes the first screenful, and what every case
+/// below reads out of it.
+///
+/// The title, the heading of the side being replaced, and the head of that side
+/// down to the row the assertions reach. Named as a set because the wait and
+/// the assertions have to be about the *same* set: a wait that stopped one row
+/// short of what is asserted is a wait that hands a half-painted screen to a
+/// `contains`.
+const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 10"];
+
+/// Whether `text` holds the question, whole, on the other plane.
+///
+/// **A complete frame, not two raw needles.** `1049h` and the title are bytes
+/// the product writes early in the frame that paints the review, so a predicate
+/// over them is satisfied while the rest of that frame is still in flight --
+/// and the snapshot a test takes next holds however much of it the reader
+/// happened to have. `last_frame` is the suite's existing answer to exactly
+/// this (a frame still open reads as no frame at all), and the smoke harness's
+/// `peek()` is the same rule on the other side of the fence.
+///
+/// Evidence: main CI run 33265879860 at merge `09fa056`, arm64 macOS only. The
+/// capture ends mid-frame at `alpha lin` -- the title and rows 0..9 had
+/// arrived, row 10 was still being written, and
+/// `a_change_too_big_for_the_band_is_reviewed_…` asserted against it.
+fn the_question_is_painted(text: &str) -> bool {
+    text.contains(ENTERS_ALTERNATE)
+        && last_frame(text)
+            .is_some_and(|frame| PAINTED_QUESTION.iter().all(|needle| frame.contains(needle)))
+}
+
+/// Waits for that frame and returns everything the terminal has received.
+///
+/// The return is the reading the predicate was satisfied by, so a caller that
+/// asserts on it is asserting about the screen it waited for rather than about
+/// whatever a second `text()` call happens to find.
+fn wait_for_the_painted_question(session: &Session) -> String {
+    session.wait_until(
+        "one complete frame of the question on the other plane",
+        the_question_is_painted,
+    )
+}
+
+/// The question's frame as the product writes it, cut off after `rows` of the
+/// side being replaced and closed only if `whole`.
+///
+/// A byte string rather than a session: this case is about **the harness's own
+/// rule**, so it has to be able to present a half-written frame on purpose, and
+/// a real terminal cannot be asked to stop in the middle.
+fn a_review_frame(rows: usize, whole: bool) -> String {
+    let mut text = String::from("\u{1b}[?2004l");
+    text.push_str(ENTERS_ALTERNATE);
+    text.push_str(FRAME_BEGIN);
+    text.push_str("\u{1b}[1;1H\u{1b}[2J\u{1b}[1;1H");
+    text.push_str(PERMISSION_TITLE);
+    text.push_str("\u{1b}[2;1H  edit_file notes.txt\u{1b}[4;1H  before");
+    for line in 0..rows {
+        text.push_str(&format!("\u{1b}[{};1H    alpha line {line}", line + 6));
+    }
+    if !whole {
+        // Row 10, half delivered -- the exact shape the runner captured.
+        text.push_str("\u{1b}[16;1H    alpha lin");
+        return text;
+    }
+    text.push_str("\u{1b}[21;1H> 1. Yes");
+    text.push_str(FRAME_END);
+    text
+}
+
+#[test]
+fn a_question_still_being_painted_is_not_a_painted_question() {
+    // The harness rule this suite reads the review through, pinned on bytes.
+    //
+    // Main CI run 33265879860 at merge `09fa056` failed on arm64 macOS alone,
+    // at the `alpha line 10` needle, with a capture that ends mid-frame at
+    // `alpha lin`. Nothing was wrong with the product: `1049h` and the title
+    // are written early in that frame, the setup waited for those two raw
+    // needles, and the assertion then read a screen the terminal was still
+    // receiving. The three green targets were not right, they were slower to
+    // ask.
+    let half = a_review_frame(10, false);
+    // The **old** rule is satisfied by exactly these bytes, which is the whole
+    // explanation of the flake and the reason this case is not a tautology.
+    assert!(
+        half.contains(ENTERS_ALTERNATE) && half.contains(PERMISSION_TITLE),
+        "the case does not reproduce what the old wait accepted"
+    );
+    assert!(
+        !the_question_is_painted(&half),
+        "a frame the terminal is still receiving read as a painted question"
+    );
+
+    // The same frame, finished.
+    let whole = a_review_frame(14, true);
+    assert!(
+        the_question_is_painted(&whole),
+        "a complete frame carrying every needle read as no question at all"
+    );
+
+    // A complete frame is not an answer for a *later* one. The plane is taken
+    // once and repainted on resume (`SIGCONT`), so a rule that let history
+    // stand in would hand a case the screen from before the signal.
+    let stale = format!("{whole}{}", a_review_frame(10, false));
+    assert!(
+        !the_question_is_painted(&stale),
+        "a finished frame answered for the half-written one after it"
+    );
+
+    // And completeness alone is not enough: the rows the assertions reach are
+    // part of the contract, so a frame that stopped short still waits.
+    let short = a_review_frame(4, true);
+    assert!(
+        short.contains(PERMISSION_TITLE) && last_frame(&short).is_some(),
+        "the case does not present a complete frame"
+    );
+    assert!(
+        !the_question_is_painted(&short),
+        "a complete frame missing the rows the suite asserts read as painted"
+    );
+}
+
 fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, Session) {
     let (_path, before, after) = with_a_large_file(sandbox);
     let gateway = FakeGateway::start(large_edit_then_finish(&before, &after));
@@ -3239,8 +3359,12 @@ fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, 
     let session = Session::spawn_without_taking_the_terminal(pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
-    session.wait_for(ENTERS_ALTERNATE);
-    session.wait_for(PERMISSION_TITLE);
+    // **Returns on a whole frame, never on the bytes that open one.** Every
+    // case below takes a reading immediately after this and asserts about the
+    // screen it describes -- three of them signal the process on it -- so the
+    // contract of this function is the screen being finished, not the plane
+    // having been taken.
+    wait_for_the_painted_question(&session);
     (gateway, session)
 }
 
@@ -3255,7 +3379,10 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     let path = sandbox.workspace.join("notes.txt");
     let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
 
-    let text = session.text();
+    // The reading the wait was satisfied by rather than a fresh `text()`: the
+    // two differ by whatever arrived in between, and this case's needles are
+    // about one screen.
+    let text = wait_for_the_painted_question(&session);
     let entered = text.find(ENTERS_ALTERNATE).expect("the plane was taken");
     let asked = text.find(PERMISSION_TITLE).expect("the question");
     assert!(
@@ -3280,9 +3407,15 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     // twenty rows rather than one wrapped run. What the first screen owes is
     // the head of the change under its heading; the rest is reached by walking,
     // which is asserted below and is why the walk exists at all.
+    //
+    // Read out of the **frame**, not out of everything the session has ever
+    // written: the document above the band carries the tool's own rows, so a
+    // needle answered by the scrollback would be answered by a screen the user
+    // is not looking at.
+    let frame = last_frame(&text).expect("the wait returns on a complete frame");
     for needle in ["before", "alpha line 0", "alpha line 10"] {
         assert!(
-            text.contains(needle),
+            frame.contains(needle),
             "{needle:?} was not shown on the screen that exists to show it: {text:?}"
         );
     }
