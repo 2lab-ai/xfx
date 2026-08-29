@@ -2109,6 +2109,114 @@ mod tests {
         );
     }
 
+    /// How many times a parked turn is re-polled before the case gives up on it
+    /// being parked.
+    ///
+    /// It bounds a **premise**, not the property: the turn below must be parked
+    /// in its terminal send, and one poll that happened to return `Pending` for
+    /// some other reason would satisfy a single check. Nothing else can move it
+    /// -- this test owns the only receiver -- so any of these polls returning
+    /// `Ready` is the defect.
+    const PARKED_POLLS: usize = 8;
+
+    #[test]
+    fn a_concluded_turn_reaches_the_ui_through_a_channel_that_had_no_room_for_it() {
+        // The third arm of the drain protocol, at the real `run_turn` rather
+        // than at a second copy of `bridge::send_terminal`: the turn has
+        // **already concluded** -- nothing is cancelled, nothing is streaming --
+        // and its one terminal event cannot enter the `UiEvent` channel because
+        // the event that opened the turn is still sitting in it. `send_terminal`
+        // is deliberately not selected against cancellation, so what has to be
+        // true is that the *drain* frees the permit and the conclusion arrives
+        // on the very next poll, inside `DRAIN_DEADLINE`. A turn whose
+        // conclusion needed the token, or a send that gave up on a full channel,
+        // would leave the UI draining until its deadline and then reporting a
+        // runtime that never said it was done.
+        //
+        // Deterministic by construction rather than by timing: this test owns
+        // the only receiver, so the permit is freed exactly where it says, and
+        // the future is polled by hand so "parked" is observed rather than
+        // waited for. A pty cannot arrange it (`tests/tui.rs`'s slow-ui case
+        // proves the *other* half, the deadline).
+        let (_home, _workspace, mut state) = recording("any-model");
+        // The premise, proven rather than assumed: this turn concludes without
+        // opening a socket, because the sandbox has no credential for the
+        // configured provider. `one_turn` therefore returns the refusal and
+        // sends nothing of its own, so the only events in flight are the two
+        // `run_turn` owes.
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint, so the conclusion below \
+             would not be deterministic"
+        );
+
+        // One permit, which `TurnStarted` takes. The channel is then full for
+        // exactly as long as nobody receives.
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(1);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let outstanding = AtomicUsize::new(1);
+        let cancel = Cancellation::new(CancelToken::new());
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 1,
+        };
+
+        let started = Instant::now();
+        let (ended, concluded) = on_a_runtime(async {
+            let mut turn = std::pin::pin!(run_turn(
+                &mut state,
+                "anything".to_string(),
+                &events,
+                &cancel,
+                &control,
+                &mut queue,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(turn.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(
+                    pending,
+                    "poll {poll}: the turn returned without its conclusion \
+                     having anywhere to go"
+                );
+            }
+            assert_eq!(
+                events.capacity(),
+                0,
+                "the channel had room, so nothing was proven about a full one"
+            );
+            assert_eq!(
+                seen.recv().await,
+                Some(UiEvent::TurnStarted),
+                "the event the drain frees a permit by taking"
+            );
+
+            // The drain has freed a permit. The conclusion is owed and nothing
+            // else can produce it.
+            let ended = turn.await;
+            (ended, seen.try_recv())
+        });
+
+        assert_eq!(ended, Ended::Turn, "the session ended with the turn");
+        let Ok(UiEvent::TurnEnded { failure: Some(why) }) = concluded else {
+            panic!("the concluded turn's terminal event never arrived: {concluded:?}");
+        };
+        assert!(
+            !why.is_empty(),
+            "the conclusion arrived without saying why the turn failed"
+        );
+        assert!(
+            started.elapsed() < DRAIN_DEADLINE,
+            "the conclusion outlived the deadline the UI drains under: {:?}",
+            started.elapsed()
+        );
+    }
+
     #[test]
     fn the_fatal_sent_before_the_runtime_exists_cannot_command_the_terminal() {
         // The one send that does not go through `bridge::send_ui` or

@@ -192,10 +192,27 @@ impl Sandbox {
 /// `tests/tui.rs` answers it in the band, and two copies of the script would be
 /// two chances for the two surfaces to be tested against different mutations.
 pub fn edit_then_finish() -> Vec<Reply> {
+    edit_then_finish_called(SCRIPTED_CALLS)
+}
+
+/// The call-id prefix [`edit_then_finish`] uses.
+pub const SCRIPTED_CALLS: &str = "call";
+
+/// [`edit_then_finish`] with its two call ids named.
+///
+/// A **second** turn in the same durable session replays the first turn's tool
+/// calls as history, and a call id that appears twice in one conversation is
+/// refused before anything runs -- results correlated by id could not be told
+/// apart. So a scenario that drives the same script twice against one session
+/// (`an_always_answered_at_an_ask_prompt_admits_the_same_change_on_the_next_resume`)
+/// needs distinct ids, and it takes them from here rather than from a second
+/// copy of the script: the whole point of that case is that the *same* mutation
+/// is proposed again.
+pub fn edit_then_finish_called(prefix: &str) -> Vec<Reply> {
     vec![
         Reply::Sse(fake_gateway::sse_body(&[
             fake_gateway::tool_call(
-                "call-0",
+                &format!("{prefix}-0"),
                 "read_file",
                 serde_json::json!({ "path": "notes.txt" }),
             ),
@@ -203,7 +220,7 @@ pub fn edit_then_finish() -> Vec<Reply> {
         ])),
         Reply::Sse(fake_gateway::sse_body(&[
             fake_gateway::tool_call(
-                "call-1",
+                &format!("{prefix}-1"),
                 "edit_file",
                 serde_json::json!({
                     "path": "notes.txt",

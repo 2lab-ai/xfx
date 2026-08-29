@@ -132,6 +132,34 @@ carries cancellations and approval answers, is unbounded, and is drained
 *inside* the turn -- which is why an answer cannot queue behind a prompt the
 turn will not dequeue until it ends.
 
+**Which screen the session is composing for is a state of its own, and only a
+question moves it.** The band, the composer and the terminal's own document live
+on the normal buffer for the whole of an ordinary session; a change too large for
+the band's one-line summary takes the alternate buffer for as long as that
+question is unanswered, and gives it back on the way out. The state is
+deliberately two facts rather than one: what the *session* wants (`ScreenOwner`,
+held by the shell) and which buffer the terminal is **really** showing (held by
+the band, and advanced only by bytes that were delivered). Everything that has to
+be balanced is balanced against the second -- an enter is written only from the
+primary side, a leave only from the alternate one, and **the normal exit asks the
+band rather than the shell**, which by then may have released a plane whose bytes
+are still on the terminal; it writes the mode reset only when the answer is that
+the terminal is still there, because resetting a buffer the session never took
+would swap in a screen the user was not looking at.
+
+**The panic hook and the signal handlers cannot ask, and do not.** They run where
+a lock may not be taken and a state may not be read, so each writes one
+compile-time-constant restore that leads with the reset **unconditionally**: an
+exit that does not know what is on the screen may not consult anything, and a
+process that died on a review screen must leave the user on their own buffer
+whatever else is true. So the two kinds of exit are precise and defensive
+respectively, and the difference is which of them is allowed to ask a question.
+
+Coming back from the excursion in the ordinary way is one `write_all` carrying
+the mode reset, the hidden cursor and the complete band repaint, because two
+writes are two presentations and what a terminal would show between them is a
+blank screen.
+
 Thread and runtime ownership is specified in full in
 [`.prd/03-tui-port.md`](../.prd/03-tui-port.md) §"Runtime topology
 (authoritative)"; `.prd/02-architecture.md` §"Concurrency and process model"

@@ -3805,6 +3805,86 @@ mod faults {
         );
     }
 
+    /// What the injected panic says, so the ordering assertion below names the
+    /// panic it is about rather than any text containing "panicked".
+    const ALTERNATE_PANIC: &str = "the approval screen panicked";
+
+    #[test]
+    fn a_panic_while_the_other_plane_is_owned_gives_back_the_plane_and_the_terminal() {
+        // The row 7B could only prove at the seam. `abnormal_restore` is
+        // unconditional and shared by the panic hook and both signal handlers,
+        // and the two **signals** are driven at a real process on the alternate
+        // screen -- but no fault panicked *after* a question had taken the
+        // plane, so the panic arm of that shared restore was never run against a
+        // terminal that really was on the other buffer. This is that arm: the
+        // fault is injected inside `event_loop::paint_alternate`, after the
+        // entering frame has been written, flushed and recorded, and before any
+        // byte that could answer the question is read.
+        //
+        // What must hold is both halves of one restore. The plane goes back --
+        // otherwise the user is left looking at a review screen belonging to a
+        // process that no longer exists, with their own shell buffer saved
+        // behind it -- and the line discipline goes back with it, which only
+        // `tcsetattr` can do and which the `termios` comparison is the whole
+        // proof of.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        // Sized before the reading, like the signal cases: the size is one of
+        // the fields compared.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (_path, before_text, after_text) = with_a_large_file(&sandbox);
+        let gateway = FakeGateway::start(large_edit_then_finish(&before_text, &after_text));
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_PERMISSION_MODE", "ask");
+        command.env("XFX_TUI_FAULT", "alternate-panic");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"edit the notes\r");
+        // Response-only, and it is the premise of everything below: the plane
+        // was really taken before the panic that has to give it back.
+        session.wait_for(ENTERS_ALTERNATE);
+
+        let status = session.wait_exit();
+        assert!(!status.success(), "a panic exited zero");
+
+        // Settled rather than snapshotted: the ordering below is about the last
+        // bytes the process writes.
+        let text = session.settled_text();
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "the plane was taken more than once: {text:?}"
+        );
+        assert_eq!(
+            text.matches(LEAVES_ALTERNATE).count(),
+            1,
+            "the panic left the alternate screen {} times, not once: {text:?}",
+            text.matches(LEAVES_ALTERNATE).count()
+        );
+        let entered = text.find(ENTERS_ALTERNATE).expect("the plane was taken");
+        let left = text
+            .find(LEAVES_ALTERNATE)
+            .expect("the panic never gave the plane back");
+        assert!(
+            entered < left,
+            "the plane was given back before it was taken: {text:?}"
+        );
+        assert!(
+            text.contains(ABNORMAL_RESTORE),
+            "the hook wrote something other than the whole abnormal restore: {text:?}"
+        );
+        let message = text
+            .find(ALTERNATE_PANIC)
+            .expect("the panic message never reached the terminal");
+        assert!(
+            left < message,
+            "the report was printed onto the plane it was about to leave: {text:?}"
+        );
+        assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+        drop(gateway);
+    }
+
     #[test]
     fn a_failure_after_raw_mode_still_gives_the_terminal_back() {
         let sandbox = Sandbox::new();

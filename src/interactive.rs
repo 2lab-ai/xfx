@@ -1301,6 +1301,43 @@ mod tests {
     }
 
     #[test]
+    fn the_notice_a_cancelled_turn_writes_promises_the_exit_this_table_honours() {
+        // `Interrupts::signalled` writes `app::INTERRUPT_NOTICE` on the arm
+        // below, so the sentence is a claim about this state machine. The claim
+        // it may make is the one the next arm keeps -- a press while the turn is
+        // still `Running { cancelled: true }` exits 130 -- and not the one
+        // `end_turn` takes away: from `Idle` the next press offers a fresh
+        // prompt line, and it takes two of them to leave.
+        //
+        // Driven through `signalled` rather than by writing the state, so the
+        // arm that writes the notice is the arm that is measured. The exiting
+        // arm is not called: it is `process::exit`, which a test cannot survive,
+        // so what is asserted is the state that reaches it.
+        let cancel = CancelToken::new();
+        let interrupts = Interrupts::new(cancel.clone());
+        interrupts.begin_turn();
+
+        interrupts.signalled();
+
+        assert!(cancel.is_cancelled(), "the turn was not asked to stop");
+        assert!(
+            matches!(*interrupts.lock(), Activity::Running { cancelled: true }),
+            "the notice was written from a state whose next press does not exit"
+        );
+        interrupts.end_turn();
+        assert!(
+            matches!(*interrupts.lock(), Activity::Idle { consecutive: 0 }),
+            "a turn that ended left the exiting arm armed"
+        );
+        assert!(
+            crate::app::INTERRUPT_NOTICE.contains("before it stops"),
+            "the notice promises an exit this table does not honour once the \
+             turn has ended: {}",
+            crate::app::INTERRUPT_NOTICE
+        );
+    }
+
+    #[test]
     fn the_canonical_list_and_the_registry_are_one_order() {
         assert_eq!(SLASH_REGISTRY.len(), SLASH_COMMANDS.len());
         for (spec, name) in SLASH_REGISTRY.iter().zip(SLASH_COMMANDS) {

@@ -1,9 +1,17 @@
 # TUI Phase 2 — SSOT
 
-Status: in-progress
-Date: 2026-08-26
+Status: shipped
+Date: 2026-08-26 (shipped 2026-08-29)
 Base: main @ f1913a6be24f
 Carrier: https://github.com/2lab-ai/xfx/issues/19
+Successor carrier: https://github.com/2lab-ai/xfx/issues/20
+
+> `shipped` is a claim about **this branch**, and it is exactly this much: every product contract
+> below is in the binary, every Phase-1 and Phase-2 QA scenario is registered and green on a real
+> terminal, every carrier row has a terminal disposition, and the Phase-2 documents describe what
+> the code does rather than what it will do. What it is **not** is a claim about merge, preview or
+> a real-environment receipt: those are the acceptance rows below that the coordinator owns, and
+> they are still open.
 
 > 이 문서 속 좌표와 항목은 리드지 진실이 아니다. 실행 세션은 현재 repo에서 재검증한다.
 

@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 #
-# The Phase-1 TUI acceptance gate, on a real terminal.
+# The TUI acceptance gate, on a real terminal.
 #
 #   scripts/smoke-tui.sh <path-to-xfx> --faulty <path-to-xfx-with-faults> [evidence-dir]
 #
 # The second runner beside `scripts/smoke.sh`, which keeps running unchanged:
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
-# one drives the Phase-1 scenarios of `.prd/06-qa-harness.md`, and the Phase-2
-# ones as they land, against a **release** binary on a real pseudoterminal, with
-# a cell-grid oracle and an evidence directory.
+# one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12 and
+# Phase 2's 13-21, plus the two lettered rows 3b and 10b -- against a
+# **release** binary on a real pseudoterminal, with a cell-grid oracle and an
+# evidence directory. The count it prints is the length of the list below and
+# the check total is summed from what the scenarios wrote down, so neither
+# number can be a claim this comment made.
 #
 # The oracle is judged before the product is. `helpers/oracle_test.py` runs
 # first and the whole suite stops if one of the emulator's own claims is false:
@@ -5183,16 +5186,29 @@ SCENARIOS = {
 
 
 def main():
+    # `--list` is an option rather than a scenario name spelled like one, which
+    # is what it was: `argparse` reads a leading `--list` as an unknown option
+    # and refuses before the branch that answered it could ever run. It is the
+    # runner's half of the registration gate -- the shell script compares this
+    # list against its own -- so it has to be reachable.
     parser = argparse.ArgumentParser()
-    parser.add_argument("scenario")
-    parser.add_argument("--binary", required=True)
-    parser.add_argument("--faulty", required=True)
-    parser.add_argument("--evidence", required=True)
+    parser.add_argument("scenario", nargs="?")
+    parser.add_argument("--list", action="store_true", dest="listing")
+    parser.add_argument("--binary")
+    parser.add_argument("--faulty")
+    parser.add_argument("--evidence")
     arguments = parser.parse_args()
-    if arguments.scenario == "--list":
+    if arguments.listing:
         for name in SCENARIOS:
             print(name)
         return 0
+    # Required for a run, and checked here rather than by `required=True`,
+    # because a listing needs none of them.
+    for name in ("scenario", "binary", "faulty", "evidence"):
+        if not getattr(arguments, name):
+            parser.error("%s is required to drive a scenario" % name)
+    if arguments.scenario not in SCENARIOS:
+        parser.error("no scenario named %r is registered" % arguments.scenario)
     run = Run(arguments.scenario, arguments.binary, arguments.faulty, arguments.evidence)
     try:
         SCENARIOS[arguments.scenario](run)
@@ -5228,8 +5244,11 @@ export XFX_MAX_AGENT_STEPS="1"
 export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
-# The Phase-1 scenarios of `.prd/06-qa-harness.md`, in its order, and
-# then the Phase-2 ones this drive adds.
+# Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
+# the two lettered rows the drain and the mid-turn approval added, then Phase
+# 2's 13-21. This list and `SCENARIOS` in the python helper are the two
+# registrations, and they are one order -- a name in either that the other does
+# not have is a scenario nothing runs or a runner nothing names.
 scenarios=(
 	1-launch-and-band-ownership
 	2-cursor-probe-and-scrollback-push
@@ -5258,6 +5277,24 @@ scenarios=(
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \
 	"$binary" "$faulty" "$evidence"
+
+# The two registrations are reconciled rather than trusted. A scenario written
+# and never listed here runs in no gate; a name listed here with no runner is a
+# `KeyError` in the middle of a suite, which reads like a scenario that failed
+# rather than like a list that is wrong. Both are silent in the only way that
+# matters -- the printed count still looks right -- so the comparison happens
+# before anything is driven.
+if ! registered="$(python3 "$helpers/scenarios.py" --list 2>&1)"; then
+	printf 'smoke-tui: the scenario list and the runner disagree\n' >&2
+	printf '  the runner could not list what it has: %s\n' "$registered" >&2
+	exit 1
+fi
+if [ "$registered" != "$(printf '%s\n' "${scenarios[@]}")" ]; then
+	printf 'smoke-tui: the scenario list and the runner disagree\n' >&2
+	printf '  listed here : %s\n' "${scenarios[*]}" >&2
+	printf '  registered  : %s\n' "$(printf '%s ' $registered)" >&2
+	exit 1
+fi
 
 failures=0
 passed=0

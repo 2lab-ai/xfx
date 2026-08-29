@@ -25,6 +25,17 @@ pub(crate) enum Fault {
     /// channel and parks the producer in `send().await`, which is the state the
     /// drain protocol has to get a session out of.
     SlowUi,
+    /// A panic on the UI thread **while the approval screen owns the alternate
+    /// buffer**: the hook must give that buffer back as well as the line
+    /// discipline.
+    ///
+    /// It is a row of its own rather than a variant of [`Self::UiFrame`]
+    /// because the state it is taken in is one no keystroke can produce and no
+    /// other fault reaches: the terminal is on the buffer this session took,
+    /// and the restore that answers it has to be the one that leads with
+    /// `1049l`. Injected after the entering frame has been written, flushed and
+    /// recorded, and before the answer that would give the plane back.
+    AlternatePanic,
     /// **Not a failure**: the Phase-1 whole-band painter, kept as the reference
     /// the cell diff is judged against.
     ///
@@ -52,6 +63,7 @@ impl Fault {
             Self::NonOwnerPanic => "non-owner-panic",
             Self::WorkerTurn => "worker-turn",
             Self::SlowUi => "slow-ui",
+            Self::AlternatePanic => "alternate-panic",
             Self::FullPaintReference => "full-paint-reference",
         }
     }

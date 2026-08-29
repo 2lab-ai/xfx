@@ -932,6 +932,19 @@ fn paint_alternate(
                     band.frame_landed(&frame, &shell.geometry, shell.screen_cursor());
                     let _ = shell.render.begin();
                     failures.succeeded();
+                    // The matrix row for a panic while the **other** plane is
+                    // owned, and it is taken exactly here for two reasons. The
+                    // entering frame has been written, flushed and recorded, so
+                    // the terminal really is on the buffer the hook has to give
+                    // back -- injected a statement earlier it would prove
+                    // nothing the `ui-frame` row does not. And it is before the
+                    // loop reads another byte, so no answer can race it: the
+                    // question is up and unanswerable, which is the state a
+                    // panic here leaves a user in.
+                    #[cfg(feature = "fault-injection")]
+                    if super::fault::injected(super::fault::Fault::AlternatePanic) {
+                        panic!("the approval screen panicked");
+                    }
                     Ok(())
                 }
                 Err(err) => match failures.failed(err, now) {
