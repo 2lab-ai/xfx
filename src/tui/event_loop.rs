@@ -3609,6 +3609,103 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_asked_for_on_a_screen_no_band_fits_on_waits_for_one_that_does() {
+        // The other half of the blind rule, and the one the integration suite
+        // leans on: not "nothing happened to want a frame", but **a frame was
+        // genuinely owed and still nothing was written**. Ctrl-L is the shape
+        // of it a user can produce at will -- `Action::Redraw` raises
+        // `Reason::ExternalDamage` from inside the approval panel
+        // (`super::shell`), so a frame is asked for by a keystroke that answers
+        // no question and changes no state.
+        //
+        // Written because the pty case that used to carry this claim could pass
+        // on a session that wanted nothing. It cannot any more, and this is
+        // where the claim is deterministic: no signal, no scheduler, no clock
+        // but the one this test hands in.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((4, 80), &asked),
+        );
+        assert!(
+            shell.blind(),
+            "the fixture is not on a screen it must not write"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::ExternalDamage);
+        // Three ticks, because one proves only that the tick after the resolve
+        // is quiet: the rule is that the screen stays unwritten for as long as
+        // it cannot hold a band, not that the first frame after the news is.
+        for tick in 0..3 {
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                start + RESIZE_DEBOUNCE + Duration::from_millis(tick * 8),
+                Reconciled,
+            )
+            .expect("a tick on a screen no band fits on");
+        }
+        assert!(
+            out.written.is_empty(),
+            "a frame a keystroke asked for was painted onto a screen no band fits on: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+
+        // And it is **held**, not dropped. The screen grows to a different one
+        // from the one it left, so what comes back is a re-solve rather than
+        // the frame that was owed -- and it lands at the coordinates the
+        // terminal really has.
+        shell.render.mark_resize(start + RESIZE_DEBOUNCE);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE + RESIZE_DEBOUNCE,
+            sized((30, 100), &asked),
+        );
+        assert!(!shell.blind(), "the session is still refusing to write");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start + RESIZE_DEBOUNCE + RESIZE_DEBOUNCE,
+            Reconciled,
+        )
+        .expect("the frame the screen can hold");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.is_empty(),
+            "the frame the small screen held was dropped instead of owed"
+        );
+        assert!(
+            written.contains("\u{1b}[30;1H"),
+            "the held frame landed at the coordinates of the screen that was: {written:?}"
+        );
+    }
+
+    #[test]
     fn a_question_the_band_cannot_show_takes_the_plane_in_one_frame() {
         let mut shell = shell();
         let mut band = Band::new();

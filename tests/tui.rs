@@ -4536,15 +4536,64 @@ fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it
     let quiet = wait_until_quiet(&session);
 
     // Five rows: one short of the smallest screen a band fits on.
+    //
+    // **The measurement starts where the session's knowledge does.** `resize`
+    // is two syscalls -- the ioctl that changes the pty, then the `kill` that
+    // tells the child -- and a real terminal has the same gap: the kernel
+    // raises `SIGWINCH` after the size has already changed, and no process can
+    // withhold a frame for a size nobody has told it about. `Shell::blind`
+    // (`src/tui/shell.rs:2703`) is `resize_pending || screen != geometry`, and
+    // neither is true until the handler has run. So a frame composed in that
+    // gap is composed for the screen the session still believes in, and it is
+    // not a frame written *while blind*.
+    //
+    // PR #22 exact head `075ce7b`, run 33267386932: x86-64 macOS alone caught
+    // exactly one of them -- 43 bytes,
+    // `\x1b[?2026h\x1b[?25l\x1b[13;1H \x1b[17;1H\x1b[?2026l\x1b[?25h`, a
+    // complete minimal frame addressing rows 13 and 17, which exist on the
+    // twenty-four-row screen the session still had and not on the five-row one
+    // the pty had already become.
     resize(&pty, &session, 5, 80);
     settle_after_a_winch(&session);
+    let observed = wait_until_quiet(&session);
+
+    // What is still asserted about that gap, because it is the part that is
+    // really a rule: whatever landed there was **frames, whole, and no
+    // scroll**. A band frame is absolute `CUP`s and a terminal answers a `CUP`
+    // past its last row by clamping it, so a frame at stale coordinates is
+    // ugly and recoverable. A document append is not: it is a scroll, and what
+    // leaves the top of the screen is in the terminal's native scrollback for
+    // good. That one may never happen, gap or no gap.
+    let text = session.text();
+    let in_the_gap = text
+        .get(quiet..observed)
+        .expect("both readings are settled, so both are character boundaries");
+    assert!(
+        !in_the_gap.contains('\n'),
+        "a scroll reached the terminal while the pty was already too small: {in_the_gap:?}"
+    );
+    assert_eq!(
+        in_the_gap.matches(FRAME_BEGIN).count(),
+        in_the_gap.matches(FRAME_END).count(),
+        "the gap holds half a frame: {in_the_gap:?}"
+    );
+
+    // And now the claim itself, on the far side of the session's knowledge:
+    // the too-small screen has been observed and resolved, so `blind` is
+    // established, and Ctrl-L asks for a frame the session cannot paint.
+    // `Action::Redraw` inside the approval panel raises
+    // `Reason::ExternalDamage` (`src/tui/shell.rs:2015`) and answers nothing,
+    // which makes this a frame that is genuinely owed rather than a stretch of
+    // time in which nothing happened to want one. The old assertion could pass
+    // on a session with nothing to say; this one cannot.
+    session.type_bytes(&[0x0c]);
     let after_shrinking = wait_until_quiet(&session);
     assert_eq!(
         after_shrinking,
-        quiet,
+        observed,
         "the session wrote {} byte(s) onto a screen no band fits on: {:?}",
-        after_shrinking - quiet,
-        &session.text()[quiet..]
+        after_shrinking - observed,
+        &session.text()[observed..]
     );
     assert_eq!(
         std::fs::read_to_string(&notes).expect("read back"),
