@@ -57,7 +57,7 @@ Apply `rules/DEV.md` §4 plus all of these. Each row states the receipt that clo
 | Every Phase-1 and Phase-2 QA scenario passes on release binaries on native macOS and Linux runners | exact-head PR run **33269357061**, all four native targets success; merge CI **33269934848**, all four success |
 | `scripts/smoke-tui.sh` exits 0 and prints an evidence directory containing raw logs, grid snapshots and termios captures | `23 scenarios + the oracle, 511 checks, 0 failures`, repeated locally and on every CI target |
 | Issue #19 has a terminal disposition for every inherited item and closes | closed 2026-08-29; the spine in `loop.md` holds the dispositions, and the four re-deferrals are on issue #20 |
-| The merged main commit publishes through the preview channel only | preview run **33269934844** success; prerelease tag `preview-2026-08-29-190455-33269934844-1-c5cbad561e62`; tap commit `4e7f5b19`. No `v*` tag and no stable release |
+| The merged main commit publishes through the preview channel only | preview run **33269934844** success; prerelease tag `preview-2026-08-29-190455-33269934844-1-c5cbad561e62`; tap commit `4e7f5b19`. This drive created no new `v*` tag and no stable release |
 | `brew upgrade xfx-preview` installs that preview and a real-config `XFX_TUI=1 xfx` session produces a captured response and exits cleanly | Homebrew reports `2026.08.29.190455.33269934844.1`; `xfx status --json` reports preview revision `c5cbad561e62` and provider llmux on loopback; the session receipt is in §Delivery |
 
 ## Delivery
@@ -71,7 +71,10 @@ The chain, end to end, as observed:
    **33269934848**: all four success.
 3. **Preview.** Run **33269934844** success, publishing prerelease tag
    `preview-2026-08-29-190455-33269934844-1-c5cbad561e62` and tap commit `4e7f5b19`. The preview
-   channel is the only channel used; the non-goal against stable releases and `v*` tags holds.
+   channel is the only channel this drive used, and this drive created no new `v*` tag and no
+   stable release, so the non-goal holds. The repository's release list already carries a
+   historical stable `v0.1.0` from before this drive; that is not this drive's doing and is not
+   disturbed by it.
 4. **Install.** Homebrew upgraded to `2026.08.29.190455.33269934844.1`. `xfx status --json` on that
    install reports preview revision `c5cbad561e62` and provider llmux on loopback.
 5. **Live session.** A real-config `XFX_TUI=1 xfx` in an empty workspace: `/model gpt-5.6-sol`, then
