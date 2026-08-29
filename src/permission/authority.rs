@@ -361,6 +361,68 @@ pub struct MutationExcerpt {
     pub after: String,
 }
 
+/// The largest one side of a screen-reviewed change may be, **after escaping**.
+///
+/// A question therefore carries at most twice this, and the number is a literal
+/// rather than a function of the terminal: what it bounds is a payload on a
+/// channel, and the channel is sized before anybody knows how tall the screen
+/// is. Large enough that a real edit arrives whole -- upstream's own review
+/// surface shows a file, not a sentence -- and small enough that a hostile model
+/// cannot make one approval cost megabytes of queue.
+pub const MAX_APPROVAL_DIFF_SIDE_BYTES: usize = 64 * 1024;
+
+/// The mark a bounded rendering ends with when it had to stop early.
+///
+/// A rendering that stopped mid-word without saying so would read as the whole
+/// of what xfx was about to do.
+const CLIPPED: char = '\u{2026}';
+
+/// What one character of foreign text becomes when a prompt quotes it.
+///
+/// One answer for both bounded renderings, so the band's summary and the
+/// screen's diff cannot escape by two different sets of rules. And it is a
+/// *value* rather than a `push` because the cost has to be knowable **before**
+/// it is spent: that is what lets [`bounded_diff_side`] cut between tokens
+/// instead of at a byte index.
+enum Escaped {
+    /// A control character with a name, written the way source writes it.
+    Token(&'static str),
+    /// Everything else: the character itself, or the replacement standing in
+    /// for a control character with no name.
+    Char(char),
+}
+
+impl Escaped {
+    fn of(character: char) -> Self {
+        match character {
+            '\n' => Self::Token("\\n"),
+            '\r' => Self::Token("\\r"),
+            '\t' => Self::Token("\\t"),
+            // Everything else the terminal would act on rather than draw: `ESC`
+            // and `BEL`, and the C1 range where a single scalar *is* a `CSI` or
+            // an `OSC` on a terminal that decodes it. Replaced rather than
+            // dropped, so a reader can see that something was there.
+            other if other.is_control() => Self::Char('\u{fffd}'),
+            other => Self::Char(other),
+        }
+    }
+
+    /// How many bytes this costs, asked before it is spent.
+    fn len(&self) -> usize {
+        match self {
+            Self::Token(token) => token.len(),
+            Self::Char(character) => character.len_utf8(),
+        }
+    }
+
+    fn push_onto(&self, out: &mut String) {
+        match self {
+            Self::Token(token) => out.push_str(token),
+            Self::Char(character) => out.push(*character),
+        }
+    }
+}
+
 /// Renders `text` on one line, bounded, with the clipping made visible.
 ///
 /// Newlines and other control characters are escaped rather than printed: an
@@ -369,23 +431,99 @@ pub struct MutationExcerpt {
 pub fn bounded_excerpt(text: &str) -> String {
     let mut out = String::new();
     let mut clipped = false;
-    for ch in text.chars() {
+    for character in text.chars() {
         if out.len() >= MAX_EXCERPT_BYTES {
             clipped = true;
             break;
         }
-        match ch {
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c.is_control() => out.push('\u{fffd}'),
-            c => out.push(c),
-        }
+        Escaped::of(character).push_onto(&mut out);
     }
     if clipped {
-        out.push('\u{2026}');
+        out.push(CLIPPED);
     }
     out
+}
+
+/// One side of a change, escaped **and then** cut to
+/// [`MAX_APPROVAL_DIFF_SIDE_BYTES`].
+///
+/// The order is the guarantee. Cutting the raw text first and escaping the
+/// remainder would measure a bound against bytes that do not exist yet: a
+/// payload of control characters triples on the way out, so 64 KiB of input
+/// would leave here as 192 KiB of replacement characters on a channel sized for
+/// 64.
+///
+/// Three properties follow from cutting between [`Escaped`] tokens rather than
+/// at a byte index, and all three are user-visible:
+///
+/// 1. The cut is on a character boundary, so a four-byte scalar cannot be halved
+///    -- which a `String` cannot even represent.
+/// 2. It is on a *token* boundary, so `\n` cannot be halved either. Half of one
+///    is a lone backslash, which reads as an escape of whatever follows it.
+/// 3. The mark is paid for **inside** the bound rather than appended after it,
+///    which is why the room for it is remembered as the loop goes: only the loop
+///    knows where the boundaries were.
+pub fn bounded_diff_side(text: &str) -> String {
+    let mut out = String::new();
+    // The longest prefix, at a token boundary, that still leaves room for the
+    // mark.
+    let mut with_room_to_mark = 0usize;
+    for character in text.chars() {
+        let escaped = Escaped::of(character);
+        if out.len() + escaped.len() > MAX_APPROVAL_DIFF_SIDE_BYTES {
+            out.truncate(with_room_to_mark);
+            out.push(CLIPPED);
+            return out;
+        }
+        escaped.push_onto(&mut out);
+        if out.len() + CLIPPED.len_utf8() <= MAX_APPROVAL_DIFF_SIDE_BYTES {
+            with_room_to_mark = out.len();
+        }
+    }
+    out
+}
+
+/// What a change replaces and with what, bounded for review on a screen.
+///
+/// Beside [`MutationExcerpt`] rather than in place of it, because they answer
+/// two different questions. The excerpt is a sentence's worth of each side, and
+/// it is what the band's one-line summary quotes; this is the whole of each
+/// side up to [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and it exists because the risk
+/// of an edit lives in bytes the sentence had to leave out.
+///
+/// Both fields are already escaped and already bounded: the payload is made
+/// inert at the permission boundary, where the change is known, rather than at
+/// whichever surface happens to render it. A second surface added later
+/// inherits the property by using this type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalDiff {
+    pub before: String,
+    pub after: String,
+}
+
+impl ApprovalDiff {
+    /// The two sides, each escaped and bounded.
+    pub fn of(before: &str, after: &str) -> Self {
+        Self {
+            before: bounded_diff_side(before),
+            after: bounded_diff_side(after),
+        }
+    }
+
+    /// Whether this change is bigger than the band's own summary can show.
+    ///
+    /// The comparison is against [`MAX_EXCERPT_BYTES`] because that is exactly
+    /// how much of each side the summary quotes: a change whose sides both fit
+    /// in it has already been shown whole, and a second surface would repeat
+    /// the band to hide the document behind it.
+    ///
+    /// Deliberately **not** a function of the terminal's height. A rule keyed on
+    /// rows would review a one-word edit on a full screen the moment somebody
+    /// made their window short, and leave a hundred-kilobyte replacement in two
+    /// rows of summary on a tall one.
+    pub fn wants_screen(&self) -> bool {
+        self.before.len() > MAX_EXCERPT_BYTES || self.after.len() > MAX_EXCERPT_BYTES
+    }
 }
 
 /// One exact filesystem change, decided and not yet made.
@@ -405,6 +543,10 @@ pub struct MutationPlan {
     /// What an approval prompt shows. Derived from data the fingerprint already
     /// covers, so it is deliberately not part of the fingerprint itself.
     excerpt: Option<MutationExcerpt>,
+    /// The same, for a review that has a screen rather than two rows. Held
+    /// beside the excerpt rather than replacing it: the band still asks its
+    /// one-line question whichever surface reviews the change.
+    diff: Option<ApprovalDiff>,
     fingerprint: ContentHash,
 }
 
@@ -442,6 +584,7 @@ impl MutationPlan {
             preimage,
             after,
             excerpt: None,
+            diff: None,
             fingerprint,
         }
     }
@@ -452,9 +595,30 @@ impl MutationPlan {
         self
     }
 
+    /// The same plan, carrying the bounded diff a screen review would show.
+    ///
+    /// Not part of the fingerprint, for the reason the excerpt is not: it is a
+    /// *rendering* of bytes the fingerprint already covers, and a plan whose
+    /// identity moved when somebody changed how it is displayed would be a plan
+    /// an authority could no longer be matched to.
+    pub fn with_diff(mut self, diff: ApprovalDiff) -> Self {
+        self.diff = Some(diff);
+        self
+    }
+
     /// What this change replaces and with what, when the tool could say.
     pub fn excerpt(&self) -> Option<&MutationExcerpt> {
         self.excerpt.as_ref()
+    }
+
+    /// The whole of both sides, bounded, when the tool could say.
+    ///
+    /// `None` is not "no change": `write_file` replaces everything, so its
+    /// "before" is the whole previous file and the honest summary of it is the
+    /// digest the prompt already names, and `create_folder` changes no content
+    /// at all. Neither has a pair a diff surface could show.
+    pub fn diff(&self) -> Option<&ApprovalDiff> {
+        self.diff.as_ref()
     }
 
     /// A bounded, escaped preview of the bytes that will be written.
@@ -1059,6 +1223,183 @@ mod tests {
         assert_eq!(base.target(), Path::new("/w/a.txt"));
         assert_eq!(base.staged_bytes(), b"new");
         assert_eq!(base.kind(), MutationKind::Edit);
+    }
+
+    // -----------------------------------------------------------------------
+    // the bounded diff a screen review is given
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_diff_side_is_escaped_before_it_is_cut_so_the_bound_is_in_bytes_that_really_exist() {
+        // The order is the whole guarantee. Cutting the raw text first and
+        // escaping afterwards would let a payload of pure control bytes leave
+        // the bound by a factor of three, because each of them becomes a
+        // three-byte replacement character *after* the cut has been measured.
+        let side = bounded_diff_side(&"\u{1b}".repeat(40_000));
+        assert!(
+            side.len() <= 65_536,
+            "the escaped side outran the literal 64 KiB bound at {} bytes",
+            side.len()
+        );
+        assert!(
+            !side.contains('\u{1b}'),
+            "an escape survived the bounding: {:?}",
+            side.chars().take(8).collect::<String>()
+        );
+        assert!(side.ends_with('\u{2026}'), "the cut was silent");
+    }
+
+    #[test]
+    fn a_diff_side_is_cut_on_a_character_boundary_and_never_inside_one() {
+        // Every character here is four bytes, so a cut placed by byte index
+        // alone would land inside one three times out of four -- and a `String`
+        // cannot even hold that, so the failure would be a panic in front of a
+        // user rather than a wrong screen.
+        let side = bounded_diff_side(&"\u{1f642}".repeat(20_000));
+        assert_eq!(side.len(), 65_535);
+        assert_eq!(side.chars().filter(|c| *c == '\u{1f642}').count(), 16_383);
+        assert!(side.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn a_diff_side_never_cuts_one_of_its_own_escape_tokens_in_half() {
+        // `\n` leaves this function as **two** characters, and half of one is a
+        // lone backslash sitting in front of the ellipsis -- which reads as an
+        // escape of the mark that says the text was cut.
+        let side = bounded_diff_side(&"\n".repeat(40_000));
+        assert_eq!(side.len(), 65_535);
+        assert_eq!(side.matches("\\n").count(), 32_766);
+        assert!(side.ends_with('\u{2026}'));
+        assert!(
+            !side.trim_end_matches('\u{2026}').ends_with('\\'),
+            "the cut left half an escape token: {:?}",
+            side.chars().rev().take(4).collect::<String>()
+        );
+    }
+
+    #[test]
+    fn a_cut_diff_side_carries_exactly_one_ellipsis_and_pays_for_it_inside_the_bound() {
+        // An ellipsis appended *after* the bound was filled is a side one byte
+        // -- or three -- longer than the number the channel was sized for.
+        let side = bounded_diff_side(&"x".repeat(100_000));
+        assert_eq!(
+            side.len(),
+            65_536,
+            "the mark was paid for outside the literal 64 KiB bound"
+        );
+        assert_eq!(side.chars().filter(|c| *c == '\u{2026}').count(), 1);
+        assert_eq!(side.matches('x').count(), 65_533);
+    }
+
+    #[test]
+    fn a_diff_side_that_fits_is_neither_cut_nor_marked() {
+        // The common case, and the one an ellipsis on every side would make a
+        // lie: a small change must arrive whole and say so by not saying
+        // anything.
+        let side = bounded_diff_side("alpha\n\tbeta\r\n");
+        assert_eq!(side, "alpha\\n\\tbeta\\r\\n");
+        assert!(!side.contains('\u{2026}'));
+
+        // And the exact boundary, which is the case an off-by-one lands on: a
+        // side that fills the bound to the last byte is not too long for it.
+        let exact = bounded_diff_side(&"x".repeat(65_536));
+        assert_eq!(exact.len(), 65_536);
+        assert!(
+            !exact.contains('\u{2026}'),
+            "a side that fits exactly was reported as cut"
+        );
+    }
+
+    #[test]
+    fn the_bands_own_excerpt_still_escapes_and_marks_exactly_as_it_did() {
+        // The two bounded renderings share their escape rules
+        // ([`Escaped`]), so the summary the band quotes is pinned here in its
+        // own right: a change made for the screen's payload must not silently
+        // move what the line shell and the panel have always shown.
+        assert_eq!(bounded_excerpt("alpha\n\tbeta\r"), "alpha\\n\\tbeta\\r");
+        assert_eq!(bounded_excerpt("\u{1b}[2J"), "\u{fffd}[2J");
+        assert_eq!(bounded_excerpt(""), "");
+
+        let cut = bounded_excerpt(&"x".repeat(400));
+        assert!(cut.ends_with('\u{2026}'), "{cut:?}");
+        assert_eq!(cut.matches('x').count(), 160);
+
+        // 160 characters is the last input that is *not* cut: the check is made
+        // before a character is added, so the mark appears only when there was
+        // something left to add.
+        let whole = bounded_excerpt(&"x".repeat(160));
+        assert_eq!(whole.len(), 160);
+        assert!(!whole.contains('\u{2026}'), "{whole:?}");
+    }
+
+    #[test]
+    fn a_control_byte_in_a_diff_cannot_become_a_csi_or_an_osc() {
+        // Both introducers, because they are two different bytes: `ESC [` is
+        // the seven-bit CSI and `U+009B` is the eight-bit one a terminal in a
+        // single-byte locale decodes on its own.
+        let side = bounded_diff_side("\u{1b}[2J\u{9b}31m\u{9d}0;pwned\u{7}\u{0}");
+        assert!(
+            !side.chars().any(char::is_control),
+            "a control character reached the payload: {side:?}"
+        );
+        for injected in ['\u{1b}', '\u{9b}', '\u{9d}', '\u{7}', '\u{0}'] {
+            assert!(!side.contains(injected), "{injected:?} survived: {side:?}");
+        }
+        assert!(side.contains('\u{fffd}'), "{side:?}");
+        assert!(
+            side.contains("[2J") && side.contains("pwned"),
+            "the visible text was dropped instead of being disarmed: {side:?}"
+        );
+    }
+
+    #[test]
+    fn both_sides_of_a_diff_are_bounded_so_one_question_carries_at_most_128_kib() {
+        let diff = ApprovalDiff::of(&"a".repeat(200_000), &"b".repeat(200_000));
+        assert_eq!(diff.before.len(), 65_536);
+        assert_eq!(diff.after.len(), 65_536);
+        assert!(diff.before.len() + diff.after.len() <= 131_072);
+    }
+
+    #[test]
+    fn a_change_the_bands_own_summary_could_not_have_shown_asks_for_a_screen() {
+        // 160 bytes is what the inline summary quotes of each side, and the
+        // literal is written here rather than imported: the rule this pins is
+        // "bigger than what the band already shows", and a test that imported
+        // the number would follow it wherever it went instead of noticing.
+        assert!(!ApprovalDiff::of(&"a".repeat(160), &"b".repeat(160)).wants_screen());
+        assert!(ApprovalDiff::of(&"a".repeat(161), "b").wants_screen());
+        assert!(ApprovalDiff::of("a", &"b".repeat(161)).wants_screen());
+        assert!(!ApprovalDiff::of("", "").wants_screen());
+    }
+
+    #[test]
+    fn a_plan_carries_the_diff_a_screen_would_show_without_changing_what_it_is_a_plan_for() {
+        // The diff is a *rendering* of data the fingerprint already covers, so
+        // attaching one must not move the identity of the change -- the same
+        // rule the excerpt is held to.
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            PathBuf::from("/w/a.txt"),
+            "a.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"new".to_vec(),
+        );
+        let fingerprint = plan.fingerprint();
+        assert!(
+            plan.diff().is_none(),
+            "a plan invents a diff nobody gave it"
+        );
+
+        let plan = plan.with_diff(ApprovalDiff::of("alpha\n", "beta"));
+        let carried = plan.diff().expect("the plan kept the diff");
+        assert_eq!(carried.before, "alpha\\n");
+        assert_eq!(carried.after, "beta");
+        assert_eq!(
+            plan.fingerprint(),
+            fingerprint,
+            "a rendering changed the identity of the change it renders"
+        );
     }
 
     #[test]

@@ -162,6 +162,42 @@ pub(crate) enum Action {
     Cancel,
 }
 
+/// Where a question is put in front of the user.
+///
+/// A property of the **change**, not of the terminal: [`Self::for_request`] is
+/// given the question and nothing else -- no rows, no columns -- so that the
+/// answer cannot start depending on how big somebody's window happens to be.
+/// The band's own refusal of a screen too short for the panel is a separate and
+/// later question ([`super::layout::fits_panel`]), and it is about whether the
+/// question can be *asked* rather than about which surface would ask it best.
+///
+/// Two variants and no payload yet. The alternate plane's renderer, its
+/// lifecycle and the `1049` bytes it takes to enter and leave are the next
+/// checkpoint's, and a variant carrying a screen that does not exist would be a
+/// promise this checkpoint cannot keep; what is settled here is the choice, and
+/// the state that records it ([`super::shell::ScreenOwner`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ApprovalSurface {
+    /// The band's own panel, with the document still visible above it.
+    Inline,
+    /// A screen of its own, for a change the band's summary cannot show.
+    Alternate,
+}
+
+impl ApprovalSurface {
+    /// Which surface this question belongs on.
+    pub(crate) fn for_request(request: &ApprovalRequest) -> Self {
+        match request.diff.as_ref() {
+            // A change bigger than the sentence the band quotes. Everything
+            // else -- a command, a whole-file write, a directory, an edit the
+            // summary already showed whole -- is a question the band answers
+            // without hiding the document behind it.
+            Some(diff) if diff.wants_screen() => Self::Alternate,
+            _ => Self::Inline,
+        }
+    }
+}
+
 /// The question, and which answer is marked.
 #[derive(Debug, Clone)]
 pub(crate) struct Panel {
@@ -627,6 +663,7 @@ impl ApprovalPrompter for TuiPrompter {
 mod tests {
     use super::*;
 
+    use crate::permission::ApprovalDiff;
     use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::task::{Context, Wake};
@@ -640,7 +677,61 @@ mod tests {
             summary: "replace `alpha` with `beta` in notes.txt".into(),
             always_scope:
                 "allow every future edit_file to `notes.txt` for the rest of this session".into(),
+            diff: None,
         }
+    }
+
+    /// The same question, carrying a change of `bytes` on each side.
+    fn with_diff(bytes: usize) -> ApprovalRequest {
+        let mut asked = request("edit_file");
+        asked.diff = Some(ApprovalDiff {
+            before: "a".repeat(bytes),
+            after: "b".repeat(bytes),
+        });
+        asked
+    }
+
+    #[test]
+    fn a_change_bigger_than_the_bands_own_summary_is_reviewed_on_a_screen_of_its_own() {
+        // The rule is about the *change*, and [`ApprovalSurface::for_request`]
+        // is given nothing else to decide from -- no rows, no columns. A rule
+        // keyed on the terminal's height would put a one-word edit on a full
+        // screen the moment somebody made their window short, and would leave a
+        // hundred-kilobyte replacement in a two-row summary on a tall one.
+        assert_eq!(
+            ApprovalSurface::for_request(&with_diff(161)),
+            ApprovalSurface::Alternate
+        );
+        let mut one_sided = request("edit_file");
+        one_sided.diff = Some(ApprovalDiff {
+            before: String::new(),
+            after: "b".repeat(161),
+        });
+        assert_eq!(
+            ApprovalSurface::for_request(&one_sided),
+            ApprovalSurface::Alternate,
+            "a change that only adds is still a change too big for the band"
+        );
+    }
+
+    #[test]
+    fn a_small_change_and_a_question_with_no_diff_at_all_stay_in_the_band() {
+        // Two separate cases with one answer. A command has no diff to review;
+        // an edit whose whole before and after the summary already quotes has
+        // nothing a second surface would add, and taking the screen for it
+        // would hide the document to say what the band just said.
+        assert_eq!(
+            ApprovalSurface::for_request(&request("terminal")),
+            ApprovalSurface::Inline
+        );
+        assert_eq!(
+            ApprovalSurface::for_request(&request("edit_file")),
+            ApprovalSurface::Inline
+        );
+        assert_eq!(
+            ApprovalSurface::for_request(&with_diff(160)),
+            ApprovalSurface::Inline
+        );
     }
 
     #[test]

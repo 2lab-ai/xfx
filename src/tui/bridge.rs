@@ -66,7 +66,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
-use crate::permission::{ApprovalAnswer, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -255,11 +255,23 @@ impl UiEvent {
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
             // whole product for an escape sequence to be sitting.
+            //
+            // **Both sides of the diff too**, and they are the largest quotation
+            // of a file this product carries: 64 KiB each. The permission
+            // boundary escapes them where the change is known
+            // (`crate::permission::bounded_diff_side`) and this seam escapes
+            // them again where they enter the UI, because the property this
+            // channel promises is about every event it carries rather than about
+            // the producers that happened to build them correctly.
             Self::Approval(request) => Self::Approval(ApprovalRequest {
                 tool: request.tool,
                 target: inert_owned(request.target),
                 summary: inert_owned(request.summary),
                 always_scope: inert_owned(request.always_scope),
+                diff: request.diff.map(|diff| ApprovalDiff {
+                    before: inert_owned(diff.before),
+                    after: inert_owned(diff.after),
+                }),
             }),
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
@@ -1275,6 +1287,15 @@ mod tests {
                 target: "\x1b[2Jsrc/main.rs".into(),
                 summary: "write \x1b[2Jsomething".into(),
                 always_scope: "\x1b[2Jsrc".into(),
+                // Both sides of the diff, because they are the largest quotation
+                // of a file this product ever carries and the policy has to hold
+                // for a payload built by a caller that did not escape it -- the
+                // permission boundary's own bounding is the first seam, and this
+                // is the second.
+                diff: Some(ApprovalDiff {
+                    before: "\x1b[2Jold".into(),
+                    after: "\x1b]0;new\x07".into(),
+                }),
             }),
         ] {
             send_ui(&tx, &cancel, event).await.expect("room");
@@ -1308,6 +1329,10 @@ mod tests {
                 target: " [2Jsrc/main.rs".into(),
                 summary: "write  [2Jsomething".into(),
                 always_scope: " [2Jsrc".into(),
+                diff: Some(ApprovalDiff {
+                    before: " [2Jold".into(),
+                    after: " ]0;new ".into(),
+                }),
             })),
             "an approval quotes a file, which is where an escape would be"
         );

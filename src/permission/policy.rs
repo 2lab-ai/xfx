@@ -23,8 +23,8 @@ use std::io::{self, IsTerminal, Write};
 use crate::config::PermissionMode;
 
 use super::authority::{
-    issue, AuthorityError, AuthorityLedger, CommandPlan, ExecutionAuthority, MutationPlan,
-    TargetScope,
+    issue, ApprovalDiff, AuthorityError, AuthorityLedger, CommandPlan, ExecutionAuthority,
+    MutationPlan, TargetScope,
 };
 use super::command::CommandEffect;
 
@@ -198,6 +198,21 @@ impl ProposedAction<'_> {
         }
     }
 
+    /// The whole of both sides of the change, bounded, when there are two.
+    ///
+    /// Taken from the plan that is **being judged**, never rebuilt beside it. A
+    /// diff computed a second time -- by the prompt, or by whatever renders it
+    /// -- would be a second reading of the change, and two readings are two
+    /// answers to the only question that matters here: what is being approved.
+    pub fn diff(&self) -> Option<ApprovalDiff> {
+        match self {
+            Self::Mutation(plan) => plan.diff().cloned(),
+            // A command has no before and after. What it would do is the command
+            // itself, and [`Self::summary`] quotes that whole.
+            Self::Command(_) => None,
+        }
+    }
+
     /// What answering "always" would additionally allow, in plain words.
     ///
     /// A grant is keyed by tool and target, and for a file that means *the path*,
@@ -315,6 +330,14 @@ pub struct ApprovalRequest {
     pub summary: String,
     /// What answering "always" would additionally allow.
     pub always_scope: String,
+    /// The whole of both sides of the change, bounded, when the action has two.
+    ///
+    /// Beside the summary rather than inside it: the summary is a sentence and
+    /// stays one, on every surface. This is the payload a review with room for
+    /// it can show, and it is `None` for every action that has no honest pair --
+    /// a command, a whole-file write, a directory. A surface that has only rows
+    /// ignores it and asks exactly the question it asked before.
+    pub diff: Option<ApprovalDiff>,
 }
 
 /// What the user answered.
@@ -581,6 +604,7 @@ impl PermissionSession {
             target: target.clone(),
             summary: action.summary(),
             always_scope: self.always_scope_for(action),
+            diff: action.diff(),
         };
         let Some(prompter) = self.prompter.as_mut() else {
             return PolicyDecision::Deny {
@@ -896,6 +920,52 @@ mod tests {
             "an unrecorded turn must not promise durability: {scope}"
         );
         assert!(!scope.contains("--resume-id"), "{scope}");
+    }
+
+    #[test]
+    fn the_question_carries_the_plans_own_diff_and_invents_one_for_nothing_else() {
+        // The payload travels **with the decision**, from the plan that was
+        // judged rather than from anything the UI could recompute: a diff built
+        // beside the question would be a second reading of the change, and two
+        // readings are two answers to "what is being approved".
+        let plan =
+            write_plan(TargetScope::PrimaryWorkspace).with_diff(ApprovalDiff::of("alpha", "beta"));
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_prompter(Box::new(
+            RecordingPrompter {
+                asked: std::sync::Arc::clone(&asked),
+            },
+        ));
+
+        session.decide(ProposedAction::Mutation(&plan));
+
+        let carried = asked.lock().expect("lock")[0]
+            .diff
+            .clone()
+            .expect("the question carries the plan's diff");
+        assert_eq!(carried.before, "alpha");
+        assert_eq!(carried.after, "beta");
+
+        // A plan that never had one, and a command, which has no before and
+        // after at all: what a command would do is the command, and the summary
+        // already quotes that whole.
+        let bare = write_plan(TargetScope::PrimaryWorkspace);
+        session.decide(ProposedAction::Mutation(&bare));
+        assert!(
+            asked.lock().expect("lock")[1].diff.is_none(),
+            "a question invented a diff its plan never carried"
+        );
+
+        let dir = tempfile::tempdir().expect("a temporary root");
+        let scope = crate::workspace::AccessScope::primary_only(dir.path()).expect("a usable root");
+        let command =
+            CommandPlan::prepare("pwd", &scope, None, &crate::tools::ToolLimits::default())
+                .expect("a plannable command");
+        session.decide(ProposedAction::Command(&command));
+        assert!(
+            asked.lock().expect("lock")[2].diff.is_none(),
+            "a command was given a before and an after it does not have"
+        );
     }
 
     #[test]
