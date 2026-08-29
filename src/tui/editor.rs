@@ -41,10 +41,18 @@
 //! breaks and tabs, and both are text rather than bytes the terminal would
 //! obey. That is what makes submitting a composer into the transcript safe: an
 //! `ESC [ 2 J` cannot be in it to be written back. A pasted **tab** is the one
-//! character the composer holds and does not show: the wrap measures a control
-//! at no cells and the painter drops it (`super::frame::row_text`), so pasted
-//! indentation is sent whole and drawn as nothing. Rendering it is Phase 2's,
-//! with the rest of the block model.
+//! control the composer both holds and shows: [`wrap::TAB_WIDTH`] measures it
+//! at four cells and the row this module hands the painter has it expanded to
+//! that many spaces, so pasted indentation is sent whole *and* drawn, and the
+//! caret sits on the glyph it belongs to rather than four columns from it.
+//!
+//! # What a block is
+//!
+//! A collapsed paste is an **entity**: a span of this buffer, held beside the
+//! text and moved by every edit ([`super::entity`]). Every motion below steps
+//! over one whole and every delete that overlaps one takes all of it, which is
+//! what makes the caret's second invariant true -- it is never *inside* a unit
+//! -- and what makes a summary a thing rather than the words it looks like.
 //!
 //! # The two caps
 //!
@@ -57,6 +65,7 @@
 
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
+use super::entity::{Direction, Entities, EntityKind, Span};
 use super::input::Action;
 use super::wrap::{self, Row};
 
@@ -67,10 +76,21 @@ pub(crate) const MAX_COMPOSER_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) struct Editor {
     text: String,
     /// A byte offset into [`text`](Self::text), always on a grapheme boundary.
+    ///
+    /// And never **inside** an entity ([`entities`](Self::entities)): every
+    /// motion below steps over one whole, which is what makes a collapsed
+    /// paste a unit rather than a word the caret can be lost in.
     cursor: usize,
     /// The column vertical motion is aiming for, in cells, while a run of it
     /// lasts. `None` the moment anything else moves the caret.
     sticky: Option<u16>,
+    /// The collapsed pastes this text stands on, as runs of it.
+    ///
+    /// Held **here** rather than beside the composer because a span is a range
+    /// of this buffer: every insertion and every deletion has to move it, and a
+    /// set of spans kept anywhere else would be a set that had to be told about
+    /// each of them by a caller that could forget (`super::entity`).
+    entities: Entities,
 }
 
 impl Editor {
@@ -79,7 +99,24 @@ impl Editor {
             text: String::new(),
             cursor: 0,
             sticky: None,
+            entities: Entities::new(),
         }
+    }
+
+    /// The collapsed pastes the text stands on.
+    pub(crate) fn entities(&self) -> &Entities {
+        &self.entities
+    }
+
+    /// The text with every block put back where its summary stands -- what a
+    /// submit sends.
+    pub(crate) fn expanded(&self) -> String {
+        self.entities.expand(&self.text)
+    }
+
+    /// How many bytes the draft is holding out of sight, behind its summaries.
+    pub(crate) fn retained(&self) -> usize {
+        self.entities.retained()
     }
 
     /// The text as it stands.
@@ -99,21 +136,20 @@ impl Editor {
     /// after.
     ///
     /// Handed out as text rather than as the cursor offset on purpose: the
-    /// offset is this module's invariant (always a grapheme boundary,
-    /// `wrap::cursor_point` panics on one that is not), and a caller given the
-    /// number would be a caller doing arithmetic on it.
+    /// offset is this module's invariant (always a grapheme boundary, never
+    /// inside an entity, and `wrap::cursor_point` panics on one that is not
+    /// even a `char` boundary), and a caller given the number would be a caller
+    /// doing arithmetic on it.
+    ///
+    /// The **prospective** question this and its other half used to answer --
+    /// "what draft would this keystroke produce" -- is gone with the name-based
+    /// block model: an edit can no longer release megabytes by damaging a
+    /// summary, so `super::shell` asks the budget once and about the text as it
+    /// stands. What is left is the cases below, which read the caret through it
+    /// rather than being handed the offset.
+    #[cfg(test)]
     pub(crate) fn before_caret(&self) -> &str {
         &self.text[..self.cursor]
-    }
-
-    /// The text behind the caret -- everything an insertion would land before.
-    ///
-    /// The other half of [`Self::before_caret`], and handed out for the same
-    /// reason: together they are what a caller needs to ask a question about
-    /// the draft an edit *would* produce, without being given the offset to do
-    /// arithmetic on.
-    pub(crate) fn after_caret(&self) -> &str {
-        &self.text[self.cursor..]
     }
 
     /// Inserts `text` at the caret, or refuses it whole.
@@ -125,7 +161,13 @@ impl Editor {
         if self.text.len().saturating_add(text.len()) > MAX_COMPOSER_BYTES {
             return false;
         }
-        self.text.insert_str(self.cursor, text);
+        let at = self.cursor;
+        self.text.insert_str(at, text);
+        // The blocks after the insertion are that many bytes further along, and
+        // a block the insertion landed *inside* is a block whose summary is no
+        // longer its summary -- which cannot happen from the keyboard and is
+        // answered anyway (`super::entity::Entities::shift_after_insert`).
+        self.entities.shift_after_insert(at, text.len());
         // **Not** simply `cursor + text.len()`. An insertion can *merge* what
         // was on either side of it into one cluster -- a ZWJ typed between two
         // emoji is the whole of that case -- and the offset the insertion ended
@@ -133,9 +175,31 @@ impl Editor {
         // caller below, and `wrap::cursor_point` above them, is owed a
         // boundary, so the caret is snapped to the first one at or after where
         // the text went in: after the merged glyph rather than into it.
-        self.cursor = boundary_at_or_after(&self.text, self.cursor + text.len());
+        self.cursor = boundary_at_or_after(&self.text, at + text.len());
         self.sticky = None;
         true
+    }
+
+    /// Inserts a collapsed paste's summary at the caret and records the block
+    /// it stands for, or refuses the pair whole.
+    ///
+    /// One call rather than an insert and a registration, because the span is
+    /// *where the summary went*: a caller that did the two steps itself would
+    /// be a caller doing arithmetic on the offset this module keeps as an
+    /// invariant, and a failed insert would leave a block naming bytes that are
+    /// not there.
+    pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Span> {
+        let at = self.cursor;
+        if !self.insert(summary) {
+            return None;
+        }
+        let span = Span {
+            start: at,
+            end: at.saturating_add(summary.len()),
+            kind,
+        };
+        self.entities.register(span.clone());
+        Some(span)
     }
 
     /// Replaces the whole draft, or refuses it whole.
@@ -143,8 +207,9 @@ impl Editor {
     /// What a history recall needs and what [`Self::insert`] cannot give it: a
     /// recall is not an insertion at the caret, it is *this line instead of
     /// that one*, and a composer built out of a take plus an insert would be a
-    /// composer that had been momentarily empty -- a state
-    /// `super::paste::Paste::reconcile` would see and act on.
+    /// composer that had been momentarily empty -- and would have thrown away
+    /// the recalled line's blocks on the way through, since a `take` is what
+    /// ends a draft's entities.
     ///
     /// The caret lands at the **end** of the new text, which is where every
     /// shell with a history puts it: a recalled line is one the user is about
@@ -157,12 +222,18 @@ impl Editor {
     /// `false` is the byte budget, and it means the composer kept exactly the
     /// text it had -- the same refusal [`Self::insert`] gives, for the same
     /// reason.
-    pub(crate) fn set_text(&mut self, text: &str) -> bool {
+    pub(crate) fn set_text(&mut self, text: &str, entities: Entities) -> bool {
         if text.len() > MAX_COMPOSER_BYTES {
             return false;
         }
         self.text.clear();
         self.text.push_str(text);
+        // The blocks arrive **with** the text, because they are runs of it: a
+        // recall that kept the old ones would have spans measured against a
+        // draft that is gone, and a recall that dropped them would put a
+        // summary on the screen standing for nothing
+        // (`super::shell::Shell::recall`).
+        self.entities = entities;
         self.cursor = self.text.len();
         // The text under the caret is a different text, so a column remembered
         // from a run of vertical motion over the old one would aim the next
@@ -179,17 +250,22 @@ impl Editor {
     /// only actions whose answer depends on where the text wraps.
     pub(crate) fn apply(&mut self, action: Action, cols: u16) {
         match action {
-            Action::Left => self.move_to(before(&self.text, self.cursor)),
-            Action::Right => self.move_to(after(&self.text, self.cursor)),
-            Action::WordLeft => self.move_to(self.word_left()),
-            Action::WordRight => self.move_to(self.word_right()),
+            Action::Left => self.move_to(self.left()),
+            Action::Right => self.move_to(self.right()),
+            Action::WordLeft => self.move_to(self.outside(self.word_left(), Direction::Backward)),
+            Action::WordRight => self.move_to(self.outside(self.word_right(), Direction::Forward)),
             Action::Home => self.move_to(self.line_start()),
             Action::End => self.move_to(self.line_end()),
             Action::Up => self.move_by_row(Step::Up, cols),
             Action::Down => self.move_by_row(Step::Down, cols),
-            Action::Backspace => self.delete(before(&self.text, self.cursor), self.cursor),
-            Action::Delete => self.delete(self.cursor, after(&self.text, self.cursor)),
-            Action::DeleteWordLeft => self.delete(self.word_left(), self.cursor),
+            Action::Backspace => self.delete(self.left(), self.cursor),
+            Action::Delete => self.delete(self.cursor, self.right()),
+            Action::DeleteWordLeft => {
+                self.delete(
+                    self.outside(self.word_left(), Direction::Backward),
+                    self.cursor,
+                );
+            }
             Action::KillToEnd => self.delete(self.cursor, self.line_end()),
             Action::KillToStart => self.delete(self.line_start(), self.cursor),
             Action::InsertNewline => {
@@ -235,6 +311,9 @@ impl Editor {
     pub(crate) fn take(&mut self) -> String {
         self.cursor = 0;
         self.sticky = None;
+        // The blocks die with the draft they were pasted into. One that
+        // outlived it would be a span into a buffer that has been emptied.
+        self.entities.clear();
         std::mem::take(&mut self.text)
     }
 
@@ -248,7 +327,14 @@ impl Editor {
     pub(crate) fn rows(&self, cols: u16) -> Vec<String> {
         wrap::wrap(&self.text, cols.max(1))
             .into_iter()
-            .map(|row| body(&self.text[row.start..row.end]).to_string())
+            .map(|row| {
+                // Expanded here rather than at the painter, because the wrap
+                // that produced this row already measured the tab at
+                // `wrap::TAB_WIDTH` cells: a row handed over with the control
+                // still in it would be a row the terminal indents by its own
+                // tab stop, which is not the number the caret was placed from.
+                wrap::expand_tabs(body(&self.text[row.start..row.end])).into_owned()
+            })
             .collect()
     }
 
@@ -280,9 +366,66 @@ impl Editor {
         if start >= end {
             return;
         }
-        self.text.replace_range(start..end, "");
-        self.cursor = start;
+        // **What it really has to lose.** A deletion that overlaps a block at
+        // all takes the whole of it, so what is removed is the widened range
+        // rather than the one that was asked for -- a backspace at a summary's
+        // right edge removes the block instead of damaging its name
+        // (`super::entity::Entities::delete_touching`).
+        let taken = self.entities.delete_touching(start..end);
+        self.text.replace_range(taken.clone(), "");
+        self.cursor = taken.start;
         self.sticky = None;
+    }
+
+    /// Where a step back goes: the near side of the unit the caret is at the
+    /// end of, or one grapheme.
+    fn left(&self) -> usize {
+        self.entities
+            .step_over(self.cursor, Direction::Backward)
+            .unwrap_or_else(|| before(&self.text, self.cursor))
+    }
+
+    /// Where a step forward goes: the far side of the unit the caret is at the
+    /// start of, or one grapheme.
+    fn right(&self) -> usize {
+        self.entities
+            .step_over(self.cursor, Direction::Forward)
+            .unwrap_or_else(|| after(&self.text, self.cursor))
+    }
+
+    /// `at`, pushed out of any unit it is inside, the way the motion was going.
+    ///
+    /// The word moves need it and the two kills do not: a summary has spaces in
+    /// it, so a word move measured on the text alone stops between the words of
+    /// a name -- inside a unit -- while a line boundary never can, because a
+    /// summary holds no line break.
+    fn outside(&self, at: usize, direction: Direction) -> usize {
+        match self.entities.inside(at) {
+            Some(span) => match direction {
+                Direction::Backward => span.start,
+                Direction::Forward => span.end,
+            },
+            None => at,
+        }
+    }
+
+    /// `at`, moved to the **nearer** edge of any unit it is inside.
+    ///
+    /// The vertical moves' answer, and it is nearest-edge rather than a refusal
+    /// because a refusal is a caret that cannot get past a row with a summary
+    /// on it: `Down` would stop moving. The column the run is aiming for is
+    /// kept, so walking on through the block lands where the run wanted.
+    fn beside(&self, at: usize) -> usize {
+        match self.entities.inside(at) {
+            Some(span) => {
+                if at.saturating_sub(span.start) <= span.end.saturating_sub(at) {
+                    span.start
+                } else {
+                    span.end
+                }
+            }
+            None => at,
+        }
     }
 
     /// One row up or down, at the column this run of vertical motion wants.
@@ -304,7 +447,8 @@ impl Editor {
             return;
         };
         let last = wanted + 1 == rows.len();
-        self.cursor = self.offset_on(&rows[wanted], last, target);
+        let landed = self.offset_on(&rows[wanted], last, target);
+        self.cursor = self.beside(landed);
     }
 
     /// The offset on `row` at `target` cells from its left edge, or as close to
@@ -459,11 +603,377 @@ fn after(text: &str, at: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::entity::{Entities, EntityKind, Span};
 
     fn editor(text: &str) -> Editor {
         let mut editor = Editor::new();
         assert!(editor.insert(text));
         editor
+    }
+
+    /// A composer holding `before`, one collapsed block, and `after`, with the
+    /// run the block's summary occupies.
+    fn with_block(before: &str, text: &str, after: &str) -> (Editor, std::ops::Range<usize>) {
+        let mut editor = Editor::new();
+        assert!(editor.insert(before));
+        let lines = text.lines().count();
+        let name = crate::tui::paste::summary(1, lines);
+        let span = editor
+            .insert_entity(
+                &name,
+                EntityKind::Paste {
+                    id: 1,
+                    text: std::sync::Arc::from(text),
+                    lines,
+                },
+            )
+            .expect("the block fits the composer");
+        assert!(editor.insert(after));
+        (editor, span.range())
+    }
+
+    /// Where the caret is, in bytes, without handing the tests the offset the
+    /// module keeps as an invariant.
+    fn caret(editor: &Editor) -> usize {
+        editor.before_caret().len()
+    }
+
+    #[test]
+    fn a_backspace_at_a_blocks_right_edge_removes_the_whole_block() {
+        // The narrowing item 16 closes: Phase 1 edited the *name*, leaving a
+        // damaged summary on the screen and a block nobody could send.
+        let (mut editor, span) = with_block("see ", "y\ny", "");
+        assert_eq!(caret(&editor), span.end);
+        editor.apply(Action::Backspace, 80);
+        assert_eq!(editor.text(), "see ", "the backspace edited the name");
+        assert!(
+            editor.entities().is_empty(),
+            "the block outlived its summary"
+        );
+        assert_eq!(caret(&editor), span.start);
+        assert_eq!(editor.expanded(), "see ");
+    }
+
+    #[test]
+    fn a_delete_at_a_blocks_left_edge_removes_the_whole_block() {
+        let (mut editor, span) = with_block("see ", "y", " ok");
+        editor.apply(Action::Home, 80);
+        for _ in 0..span.start {
+            editor.apply(Action::Right, 80);
+        }
+        assert_eq!(caret(&editor), span.start);
+        editor.apply(Action::Delete, 80);
+        assert_eq!(editor.text(), "see  ok");
+        assert!(editor.entities().is_empty());
+    }
+
+    #[test]
+    fn a_word_delete_that_reaches_a_block_takes_all_of_it() {
+        // A summary has spaces in it, so a word delete that stopped where the
+        // words do would cut it in half.
+        let (mut editor, _) = with_block("see ", "y", "");
+        editor.apply(Action::DeleteWordLeft, 80);
+        assert_eq!(editor.text(), "see ");
+        assert!(editor.entities().is_empty());
+    }
+
+    #[test]
+    fn the_kills_take_a_block_whole_or_not_at_all() {
+        let (mut editor, _) = with_block("see ", "y", "");
+        editor.apply(Action::KillToStart, 80);
+        assert_eq!(editor.text(), "");
+        assert!(editor.entities().is_empty());
+
+        let (mut editor, span) = with_block("see ", "y", " ok");
+        editor.apply(Action::Home, 80);
+        for _ in 0..span.start {
+            editor.apply(Action::Right, 80);
+        }
+        editor.apply(Action::KillToEnd, 80);
+        assert_eq!(editor.text(), "see ");
+        assert!(editor.entities().is_empty());
+    }
+
+    #[test]
+    fn the_horizontal_moves_step_over_a_block_as_one_unit() {
+        let (mut editor, span) = with_block("see ", "y", " ok");
+        for _ in 0..3 {
+            editor.apply(Action::Left, 80);
+        }
+        assert_eq!(
+            caret(&editor),
+            span.end,
+            "the caret is not at the right edge"
+        );
+        editor.apply(Action::Left, 80);
+        assert_eq!(
+            caret(&editor),
+            span.start,
+            "a left step landed inside the name"
+        );
+        editor.apply(Action::Right, 80);
+        assert_eq!(
+            caret(&editor),
+            span.end,
+            "a right step landed inside the name"
+        );
+    }
+
+    #[test]
+    fn the_word_moves_step_over_a_block_as_one_unit() {
+        let (mut editor, span) = with_block("see ", "y", " ok");
+        editor.apply(Action::End, 80);
+        editor.apply(Action::WordLeft, 80);
+        // Over `ok`, which stops at the start of that word -- one byte past the
+        // block's right edge, because the space between them is the word move's
+        // own boundary rather than the unit's.
+        assert_eq!(caret(&editor), span.end + 1);
+        editor.apply(Action::WordLeft, 80);
+        assert_eq!(
+            caret(&editor),
+            span.start,
+            "a word move stopped between the words of a summary"
+        );
+        editor.apply(Action::WordRight, 80);
+        assert_eq!(caret(&editor), span.end);
+    }
+
+    #[test]
+    fn a_vertical_move_never_lands_inside_a_block() {
+        // The one motion whose target is a *column* rather than an offset: the
+        // row below can have a summary where the column is, and a caret there
+        // would be a caret inside a unit.
+        let mut editor = Editor::new();
+        assert!(editor.insert("xxxxxxxxxxxx\n"));
+        let name = crate::tui::paste::summary(1, 1);
+        let span = editor
+            .insert_entity(
+                &name,
+                EntityKind::Paste {
+                    id: 1,
+                    text: std::sync::Arc::from("y"),
+                    lines: 1,
+                },
+            )
+            .expect("the block fits")
+            .range();
+        editor.apply(Action::Home, 80);
+        editor.apply(Action::Up, 80);
+        for _ in 0..10 {
+            editor.apply(Action::Right, 80);
+        }
+        assert_eq!(caret(&editor), 10);
+        editor.apply(Action::Down, 80);
+        let at = caret(&editor);
+        assert!(
+            at == span.start || at == span.end,
+            "the caret landed inside the block, at {at} of {span:?}"
+        );
+        assert_eq!(at, span.start, "the caret was pushed to the far edge");
+    }
+
+    #[test]
+    fn text_typed_beside_a_block_leaves_it_whole_and_expanding() {
+        let (mut editor, span) = with_block("see ", "y", "");
+        assert!(editor.insert("!"));
+        assert_eq!(editor.expanded(), "see y!");
+        editor.apply(Action::Home, 80);
+        assert!(editor.insert("? "));
+        assert_eq!(editor.expanded(), "? see y!");
+        assert_eq!(editor.entities().len(), 1);
+        assert_eq!(editor.entities().spans()[0].start, span.start + 2);
+    }
+
+    #[test]
+    fn a_block_put_in_front_of_another_expands_in_the_order_they_are_read() {
+        // The spans are kept in the order they appear in the draft, not in the
+        // order they were registered: a paste at the caret can land in front of
+        // a block that is already there, and an expansion that walked
+        // registration order would splice the two the wrong way round.
+        let (mut editor, _) = with_block("", "second", "");
+        editor.apply(Action::Home, 80);
+        let name = crate::tui::paste::summary(2, 1);
+        editor
+            .insert_entity(
+                &name,
+                EntityKind::Paste {
+                    id: 2,
+                    text: std::sync::Arc::from("first"),
+                    lines: 1,
+                },
+            )
+            .expect("the block fits");
+        assert_eq!(editor.entities().len(), 2);
+        assert_eq!(
+            editor.expanded(),
+            "firstsecond",
+            "the blocks were expanded in the order they were pasted rather than \
+             the order they are read in"
+        );
+    }
+
+    #[test]
+    fn the_words_of_a_summary_typed_by_hand_are_only_words() {
+        // Identity is the span, not the text: a second copy of the name is
+        // never expanded, however exactly it matches.
+        let (mut editor, _) = with_block("", "y", "");
+        assert!(editor.insert(&crate::tui::paste::summary(1, 1)));
+        assert_eq!(
+            editor.expanded(),
+            format!("y{}", crate::tui::paste::summary(1, 1)),
+            "typed words stood in for a block"
+        );
+    }
+
+    #[test]
+    fn taking_the_draft_takes_its_blocks_with_it() {
+        let (mut editor, _) = with_block("see ", "y", "");
+        assert_eq!(
+            editor.take(),
+            format!("see {}", crate::tui::paste::summary(1, 1))
+        );
+        assert!(editor.entities().is_empty(), "a block outlived its draft");
+        assert_eq!(editor.expanded(), "");
+    }
+
+    #[test]
+    fn a_recall_replaces_the_text_and_the_blocks_together() {
+        let (mut editor, _) = with_block("see ", "y", "");
+        let mut entities = Entities::new();
+        let name = crate::tui::paste::summary(7, 1);
+        entities.register(Span {
+            start: 0,
+            end: name.len(),
+            kind: EntityKind::Paste {
+                id: 7,
+                text: std::sync::Arc::from("z"),
+                lines: 1,
+            },
+        });
+        assert!(editor.set_text(&name, entities));
+        assert_eq!(editor.text(), name);
+        assert_eq!(
+            editor.expanded(),
+            "z",
+            "the recalled draft kept the old blocks"
+        );
+    }
+
+    /// A composer holding `blocks` collapsed pastes inside a draft of about
+    /// `bytes` bytes -- the shape the cost claims are about.
+    fn loaded(bytes: usize, blocks: usize) -> Editor {
+        let mut editor = Editor::new();
+        let per = bytes / blocks;
+        for index in 0..blocks {
+            let id = u32::try_from(index + 1).expect("a test never mints that many");
+            let name = crate::tui::paste::summary(id, 1);
+            // The summary is part of the draft, so the filler is what is left
+            // of this block's share of it -- a draft built past
+            // `MAX_COMPOSER_BYTES` would be refused rather than measured.
+            assert!(editor.insert(&"x".repeat(per.saturating_sub(name.len()))));
+            editor
+                .insert_entity(
+                    &name,
+                    EntityKind::Paste {
+                        id,
+                        text: std::sync::Arc::from("yyy"),
+                        lines: 1,
+                    },
+                )
+                .expect("the block fits");
+        }
+        editor
+    }
+
+    #[test]
+    fn a_keystroke_reads_the_draft_no_times_however_many_blocks_it_holds() {
+        // **The receipt the retained-block cap was removed on.** The old model
+        // re-read the whole draft once per block on every keystroke, which is
+        // why it needed a bound of 64; the spans cost integer arithmetic, and
+        // the count that proves it is portable in a way a stopwatch is not.
+        //
+        // The two points are the ones the plan names: a megabyte with the old
+        // cap's worth of blocks, and the composer's whole budget with fifteen
+        // times as many.
+        for (bytes, blocks) in [(1024 * 1024, 64), (8 * 1024 * 1024 - 4096, 1000)] {
+            let mut editor = loaded(bytes, blocks);
+            assert_eq!(editor.entities().len(), blocks);
+            crate::tui::entity::scans::reset();
+            assert!(editor.insert("z"));
+            editor.apply(Action::Backspace, 80);
+            editor.apply(Action::Left, 80);
+            editor.apply(Action::Right, 80);
+            assert_eq!(
+                crate::tui::entity::scans::taken(),
+                0,
+                "a keystroke on a draft holding {blocks} blocks read it {} time(s)",
+                crate::tui::entity::scans::taken()
+            );
+        }
+    }
+
+    #[test]
+    fn a_submit_reads_the_draft_once_however_many_blocks_it_holds() {
+        for (bytes, blocks) in [(1024 * 1024, 64), (8 * 1024 * 1024 - 4096, 1000)] {
+            let editor = loaded(bytes, blocks);
+            crate::tui::entity::scans::reset();
+            let prompt = editor.expanded();
+            assert_eq!(
+                crate::tui::entity::scans::taken(),
+                1,
+                "{blocks} blocks cost {} reads of the draft",
+                crate::tui::entity::scans::taken()
+            );
+            assert_eq!(prompt.matches("yyy").count(), blocks);
+        }
+    }
+
+    /// The stopwatch beside the counter, and it is a **receipt** rather than a
+    /// gate: it measures the machine it runs on, so it is the counter above
+    /// that binds and this that is quoted. Ignored by default because a debug
+    /// build measures the compiler rather than the code -- run it with
+    /// `cargo test --release --lib tui::editor -- --ignored`.
+    #[test]
+    #[ignore = "timing receipt: release only, see the task report"]
+    fn an_edit_and_a_submit_stay_inside_the_ceiling_on_this_machine() {
+        const CEILING: std::time::Duration = std::time::Duration::from_millis(250);
+        for (bytes, blocks) in [(1024 * 1024, 64), (8 * 1024 * 1024 - 4096, 1000)] {
+            let mut editor = loaded(bytes, blocks);
+            let started = std::time::Instant::now();
+            assert!(editor.insert("z"));
+            editor.apply(Action::Backspace, 80);
+            let keystroke = started.elapsed();
+
+            let started = std::time::Instant::now();
+            let prompt = editor.expanded();
+            let submit = started.elapsed();
+            assert_eq!(prompt.matches("yyy").count(), blocks);
+
+            println!("{bytes} bytes, {blocks} blocks: keystroke {keystroke:?}, submit {submit:?}");
+            assert!(
+                keystroke <= CEILING,
+                "a keystroke on {bytes} bytes and {blocks} blocks took {keystroke:?}"
+            );
+            assert!(
+                submit <= CEILING,
+                "a submit of {bytes} bytes and {blocks} blocks took {submit:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pasted_tab_is_the_same_run_of_cells_measured_and_painted() {
+        // Phase 1 kept a tab in the text and drew nothing for it, so the caret
+        // sat a column away from where the text was. One width, and the
+        // painter uses the same one.
+        let editor = editor("a\tb");
+        let cells = usize::from(wrap::TAB_WIDTH);
+        assert_eq!(editor.rows(80), vec![format!("a{}b", " ".repeat(cells))]);
+        assert_eq!(
+            editor.point(80),
+            (0, 1 + wrap::TAB_WIDTH + 1),
+            "the caret is not past the cells the tab paints"
+        );
     }
 
     #[test]
@@ -535,7 +1045,7 @@ mod tests {
         // keystroke continues the line rather than in front of it.
         let mut editor = editor("what was being typed");
         editor.apply(Action::Home, 80);
-        assert!(editor.set_text("the line that was recalled"));
+        assert!(editor.set_text("the line that was recalled", Entities::new()));
         assert_eq!(editor.text(), "the line that was recalled");
         assert_eq!(
             editor.point(80),
@@ -560,7 +1070,7 @@ mod tests {
         // aiming for, and whose first row is wide enough to tell the two apart:
         // with the preferred column still standing the `Up` below would aim at
         // 3, and with it forgotten it aims at the column the caret is really in.
-        assert!(editor.set_text("abcdefghij\nxy"));
+        assert!(editor.set_text("abcdefghij\nxy", Entities::new()));
         assert_eq!(
             editor.point(80),
             (1, 2),
@@ -583,11 +1093,11 @@ mod tests {
         // Exactly at the cap is inside it, which is the boundary an off-by-one
         // would move: a draft of exactly `MAX_COMPOSER_BYTES` is one the
         // composer can hold, so it is one a recall can put back.
-        assert!(editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES)));
+        assert!(editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES), Entities::new()));
         assert_eq!(editor.text().len(), MAX_COMPOSER_BYTES);
-        assert!(editor.set_text("kept"));
+        assert!(editor.set_text("kept", Entities::new()));
         editor.apply(Action::Home, 80);
-        assert!(!editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES + 1)));
+        assert!(!editor.set_text(&"a".repeat(MAX_COMPOSER_BYTES + 1), Entities::new()));
         assert_eq!(
             editor.text(),
             "kept",

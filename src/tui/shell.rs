@@ -77,17 +77,19 @@ use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::bridge::{TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
+use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
-use super::paste::{Paste, Pasted};
+use super::paste::{self, Paste, Pasted, Refusal};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::Palette;
+use super::transaction::{EditTransaction, LastTransaction};
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
@@ -178,6 +180,23 @@ const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
 /// paste that vanished without a word looks exactly like a terminal that never
 /// sent it.
 const PASTE_REFUSED: &str = "that paste is larger than 8 MiB; nothing was taken";
+
+/// The hint row's refusal for a paste this session has no number left for.
+///
+/// Its own sentence rather than [`PASTE_REFUSED`]'s, because the two are
+/// different problems with different answers: a paste past the budget is one a
+/// user can make smaller, and a session four billion pastes deep is one they
+/// have to leave. Reachable only through `Paste::with_next`, which is why the
+/// case that proves it is a cargo test rather than a scenario.
+const PASTE_UNNUMBERED: &str = "this session has no paste numbers left; nothing was taken";
+
+/// The hint row's word for a recalled line whose blocks could not be renumbered.
+///
+/// The same exhaustion seen from the other side: the summaries are still on the
+/// screen, because they are the line as it was submitted, but they stand for
+/// nothing now and the line would be sent as the words it looks like. Said,
+/// rather than left for the user to discover in what the model answers.
+const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are words now";
 
 /// What `/clear` leaves behind after it has erased the screen.
 ///
@@ -299,15 +318,23 @@ pub(crate) struct Shell {
     context_used: Option<u64>,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
-    /// The paste that is arriving, and the blocks the composer's summaries
-    /// name.
+    /// The paste that is arriving, and the numbers this session has spent.
     ///
     /// Held beside the editor rather than inside it because a paste is *not* an
     /// edit until it is finished: the bytes between the markers are content
     /// being filtered and counted, and only [`Action::PasteEnd`] decides
     /// whether what the composer receives is the text or a summary standing in
-    /// for it ([`super::paste`]).
+    /// for it ([`super::paste`]). The blocks themselves live in the composer,
+    /// as spans of the draft (`super::entity`).
     paste: Paste,
+    /// What the last edit did, in the terms an undo would need.
+    ///
+    /// Overwritten by every edit ([`Self::edited`]) and read by nothing on a
+    /// Phase-2 path: it is the seam item 18 builds its stack on, and what it is
+    /// here to fix now is the boundary only this moment knows -- one framed
+    /// paste is one transaction, whatever it weighed
+    /// ([`super::transaction`]).
+    transaction: LastTransaction,
     /// The lines this session has submitted, and where a walk back through
     /// them has got to.
     ///
@@ -492,6 +519,7 @@ impl Shell {
             context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
+            transaction: LastTransaction::new(),
             history: History::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
@@ -1540,25 +1568,20 @@ impl Shell {
         // shows for a collapsed paste is 25 bytes standing for as much as 8
         // MiB, so a composer that counted only its own text would let a
         // keystroke build a prompt twice the size of the cap
-        // ([`super::paste::Paste::admits`]). Refused silently, like every other
+        // ([`super::paste::fits`]). Refused silently, like every other
         // keystroke the budget refuses.
-        if !self.paste.admits(self.editor.text().len(), typed.len()) {
-            // The cheap question said no, and it is the *conservative* one: it
-            // charges for every block the draft holds now. This keystroke may
-            // be landing inside one of their names -- which damages it, and
-            // releases the megabytes it was standing for
-            // ([`super::paste::Paste::reconcile`]) -- so the draft this edit
-            // would produce can be well inside a budget the draft it starts
-            // from is at. Asked only here, because a cheap yes is always a
-            // real yes: an edit can only ever release blocks, never add one.
-            let mut next =
-                String::with_capacity(self.editor.text().len().saturating_add(typed.len()));
-            next.push_str(self.editor.before_caret());
-            next.push_str(typed);
-            next.push_str(self.editor.after_caret());
-            if !self.paste.admits_draft(&next) {
-                return;
-            }
+        //
+        // One question rather than two. While a block was a *name*, a keystroke
+        // could land inside a summary and release the megabytes behind it, so
+        // this had to be asked again of the draft the edit would produce. A
+        // block is a span now: the caret is never inside one, so a keystroke
+        // can only ever add its own bytes and the cheap answer is the true one.
+        if !paste::fits(
+            self.editor.text().len(),
+            self.editor.retained(),
+            typed.len(),
+        ) {
+            return;
         }
         if self.editor.insert(typed) {
             self.amended();
@@ -1580,13 +1603,15 @@ impl Shell {
     fn pasted(&mut self) {
         let pasted = self
             .paste
-            .finish(self.editor.before_caret(), self.editor.after_caret());
-        if self.paste.refused() {
-            self.notice = Some(PASTE_REFUSED);
-            self.render.request(Reason::Footer);
-            return;
-        }
+            .finish(self.editor.text().len(), self.editor.retained());
         match pasted {
+            Pasted::Refused(refusal) => {
+                self.notice = Some(match refusal {
+                    Refusal::Oversized => PASTE_REFUSED,
+                    Refusal::Unnumbered => PASTE_UNNUMBERED,
+                });
+                self.render.request(Reason::Footer);
+            }
             Pasted::Inline(text) => {
                 // An empty paste is not an edit: asking for a frame and
                 // re-solving the band for a composer nobody changed is the
@@ -1599,18 +1624,22 @@ impl Shell {
                     self.amended();
                 }
             }
-            // The screen gets the summary; `Paste::expand` is what puts the
-            // text back, at submit, so 1800 codepoints are never painted into
-            // a band and never re-wrapped by the next keystroke.
-            Pasted::Collapsed { summary, .. } => {
-                // **Which copy of its own name this one is.** Those words can
-                // already be in the draft -- typed, or pasted back off the
-                // screen -- and the block has to stand for the copy the paste
-                // is about to put there rather than for the first one that
-                // happens to match. Counted in front of the caret, because
-                // that is where the insertion lands; anything after it is a
-                // later copy and is not this block's.
-                let occurrence = self.editor.before_caret().matches(&summary).count();
+            // The screen gets the summary and the text goes behind it as an
+            // entity, so 1800 codepoints are never painted into a band and
+            // never re-wrapped by the next keystroke -- and the block is that
+            // run of the draft rather than those words wherever they appear.
+            Pasted::Collapsed {
+                summary,
+                id,
+                text,
+                lines,
+            } => {
+                // Kept for the transaction below, before the edit that makes it
+                // stale. Two copies of a draft that can be 8 MiB, held until
+                // the next keystroke overwrites them, which is the price of an
+                // undo that can put an insertion back
+                // ([`super::transaction`]).
+                let before = self.editor.text().to_string();
                 // No arm for a composer that refuses the summary, and that is
                 // arithmetic rather than optimism: a block is only collapsed
                 // past `COLLAPSE_ABOVE` codepoints, the budget admitted the
@@ -1618,10 +1647,22 @@ impl Shell {
                 // number -- so the room left over is never smaller than a name
                 // ([`super::paste`]'s
                 // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
-                if self.editor.insert(&summary) {
-                    self.paste.placed(occurrence);
-                    self.amended();
-                }
+                let Some(entity) = self
+                    .editor
+                    .insert_entity(&summary, EntityKind::Paste { id, text, lines })
+                else {
+                    return;
+                };
+                self.amended();
+                // **After the edit**, because `amended` runs through
+                // [`Self::edited`], which records `Other` for every change to
+                // the composer. One paste is one boundary however many bytes
+                // and however many reads of the terminal it arrived in.
+                self.transaction.record(EditTransaction::InsertPaste {
+                    before,
+                    after: self.editor.text().to_string(),
+                    entity,
+                });
             }
         }
     }
@@ -1643,7 +1684,7 @@ impl Shell {
             | Action::WordLeft
             | Action::WordRight => {
                 self.editor.apply(action, self.text_cols());
-                self.edited();
+                self.moved();
             }
             // The composer's own, and **edits**: the text is the user's now
             // rather than the recalled line's, so the walk is over
@@ -1665,18 +1706,12 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
-            //
-            // A recall that recalls nothing still falls through to
-            // [`Self::edited`], because the keystroke was still applied: the
-            // move recorded the column this run of vertical motion is aiming
-            // for even though the caret could not move, and that is the state
-            // the frame after it is drawn from.
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
                 self.editor.apply(action, cols);
                 if self.editor.point(cols).0 != from {
-                    self.edited();
+                    self.moved();
                     return;
                 }
                 let step = if matches!(action, Action::Up) {
@@ -1685,7 +1720,16 @@ impl Shell {
                     HistoryStep::Next
                 };
                 if !self.recall(step) {
-                    self.edited();
+                    // A recall that recalled nothing still owes a frame,
+                    // because the keystroke was still applied: the move
+                    // recorded the column this run of vertical motion is aiming
+                    // for even though the caret could not move, and that is the
+                    // state the frame after it is drawn from. Repaint only --
+                    // [`Self::moved`] rather than [`Self::edited`] -- because
+                    // nothing about the text changed, so the undo boundary the
+                    // last edit left is still the truth about the last edit
+                    // ([`super::transaction`]).
+                    self.moved();
                 }
             }
             // **The one editing action that adds text**, so it goes the way a
@@ -1813,14 +1857,14 @@ impl Shell {
 
     /// Empties the composer, and with it the paste blocks its summaries named.
     ///
-    /// The pair is one operation rather than two call sites that must remember
-    /// each other: a block that outlived the draft it was pasted into would be
-    /// expanded into a **later** prompt that happened to contain the same
-    /// summary -- which is text a user can type by hand -- and it would hold
-    /// the whole paste for the rest of the session
-    /// ([`super::paste::Paste::forget`]).
+    /// One operation rather than two call sites that must remember each other:
+    /// a block that outlived the draft it was pasted into would hold the whole
+    /// paste for the rest of the session, and a span into a buffer that has
+    /// been emptied names bytes that are not there.
     fn take_draft(&mut self) -> String {
-        self.paste.forget();
+        // The blocks go with the text, because they are runs of it: the
+        // composer's own `take` clears them (`super::editor::Editor::take`), so
+        // there is no second call site that has to remember to.
         self.editor.take()
     }
 
@@ -1875,8 +1919,15 @@ impl Shell {
         if matches!(submitted, Submitted::Blank) {
             self.history.leave();
         } else {
-            self.history
-                .record(HistoryEntry::new(text.clone(), Vec::new()));
+            // **With the blocks its summaries name.** An entry is the line as
+            // the composer held it, which for a collapsed paste is 25 bytes
+            // standing for as much as 8 MiB; an entry that recorded only the
+            // words would recall a summary that stands for nothing
+            // (`super::entity::EntitySnapshot`).
+            self.history.record(HistoryEntry::new(
+                text.clone(),
+                self.editor.entities().snapshots(),
+            ));
         }
         match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
@@ -1915,10 +1966,32 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                let prompt = self.paste.expand(prompt);
-                self.send(prompt, &text);
+                self.send(self.expanded_prompt(&text, prompt), &text);
             }
         }
+    }
+
+    /// The prompt a draft really sends: its blocks put back, trimmed exactly
+    /// as [`crate::interactive::classify`] trimmed the line.
+    ///
+    /// Expanded from the **whole** draft and then cut, rather than expanded
+    /// from the trimmed line, because the spans are runs of the draft and a
+    /// classifier that removed two leading spaces would have moved every one of
+    /// them. The cut is exact: the bytes `classify` trimmed are whitespace, a
+    /// summary is not, so no span can begin inside either end -- the expansion
+    /// changes nothing in front of the first non-blank byte or behind the last.
+    ///
+    /// `classified` is what the classifier made of the same line, and it is
+    /// what this hands back when the draft holds no blocks at all -- the two
+    /// are the same string then, and that is asserted rather than assumed.
+    fn expanded_prompt(&self, text: &str, classified: &str) -> String {
+        if self.editor.entities().is_empty() {
+            return classified.to_string();
+        }
+        let expanded = self.editor.expanded();
+        let lead = text.len().saturating_sub(text.trim_start().len());
+        let tail = text.len().saturating_sub(text.trim_end().len());
+        expanded[lead..expanded.len().saturating_sub(tail)].to_string()
     }
 
     /// Offers a prompt to the runtime.
@@ -2180,11 +2253,32 @@ impl Shell {
     /// entering a walk **captures** what is being typed, and the composer is
     /// the only thing that knows what that is.
     fn recall(&mut self, step: HistoryStep) -> bool {
-        let current = HistoryEntry::new(self.editor.text().to_string(), Vec::new());
+        // The draft the walk stands aside carries its blocks too, so a walk
+        // that comes back to a half-typed line comes back to the whole of it.
+        let current = HistoryEntry::new(
+            self.editor.text().to_string(),
+            self.editor.entities().snapshots(),
+        );
         let Some(entry) = self.history.navigate(step, current) else {
             return false;
         };
-        if !self.editor.set_text(entry.text()) {
+        // **Fresh numbers, and the draft is rewritten to say them.** The
+        // entry's own numbers belong to a draft that has been sent; minting
+        // them again would put two live blocks under one name, and the one on
+        // the screen is the one a user would expect to be theirs. The allocator
+        // is the session's ([`super::paste::Paste::ids`]), so a paste after
+        // this recall cannot collide with what it just minted.
+        let wanted = entry.entities().len();
+        let mut text = entry.text().to_string();
+        let mut entities = Entities::recalled(entry.entities());
+        entities.renumber_recalled(&mut text, self.paste.ids());
+        if entities.len() < wanted {
+            // The end of the id space, seen from the recall: those summaries
+            // are words now, and a line that will be sent as its own
+            // description is a line the user has to be told about.
+            self.notice = Some(RECALL_UNNUMBERED);
+        }
+        if !self.editor.set_text(&text, entities) {
             // Arithmetic rather than optimism, and taken seriously rather than
             // unwrapped: every entry and every captured draft came *out* of a
             // composer, so none of them can be past a cap the composer is
@@ -2194,16 +2288,11 @@ impl Shell {
             self.history.leave();
             return false;
         }
-        // **The blocks go with the draft that was replaced.** A summary is
-        // text; the megabytes it stands for live in `super::paste` and die with
-        // the composer they were pasted into (`Paste::forget`). A recall
-        // replaces the composer, so a block kept across one would be expanded
-        // into whatever later prompt happened to carry the same words -- and
-        // the words are on the screen where anyone can retype them. What a
-        // recalled summary therefore is, in this phase, is words: entries carry
-        // no entities yet (`super::entity`), which is the narrowing
-        // `docs/parity.md` records and which item 21 closes.
-        self.paste.forget();
+        // Nothing to forget beside the composer: the blocks the replaced draft
+        // held were spans of that text and went with it
+        // (`super::editor::Editor::set_text`), and the ones now in the composer
+        // are the recalled entry's, under numbers this session has just minted.
+        //
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited();
         true
@@ -2225,18 +2314,34 @@ impl Shell {
         self.edited();
     }
 
-    /// What every change to the composer owes: a frame, and a band the right
-    /// height for the text it now holds.
+    /// What a change to the composer's **text** owes, over what a caret move
+    /// owes: the undo boundary.
+    ///
+    /// **Every text change passes through here and no caret move does**, which
+    /// is the whole of the split. What an item-18 stack needs to know is what
+    /// the last change to the text was; a field written by the repaint path
+    /// would say "an ordinary edit" after a `Left`, and an undo built on it
+    /// would take a megabyte back a grapheme at a time. The paste path records
+    /// its own boundary *after* calling through here ([`Self::pasted`]), so one
+    /// framed paste is one transaction and the keystroke after it is another.
+    ///
+    /// Nothing else is owed. While a block was a name this also had to re-read
+    /// the draft once per block to see which of them the edit had damaged; a
+    /// block is a span now and the edit already moved it (`super::entity`).
     fn edited(&mut self) {
-        // **Every composer edit passes through here**, which is why the blocks
-        // are reconciled here and nowhere else: a summary is text, and an edit
-        // that damaged one left a block that can never be expanded into a
-        // prompt but was still being charged for
-        // ([`super::paste::Paste::reconcile`]).
-        self.paste.reconcile(self.editor.text());
-        // And the menu, **before** the band is re-solved: the rows it takes are
-        // rows of the band, so a geometry solved from the menu the last
-        // keystroke wanted would put the divider a row out.
+        self.transaction.record(EditTransaction::Other);
+        self.moved();
+    }
+
+    /// What **any** keystroke that touched the composer owes: a frame, and a
+    /// band the right height for the text it now holds.
+    ///
+    /// A caret move owes exactly this and nothing more. The menu is reconciled
+    /// here rather than beside the text changes because it is a view of the
+    /// draft *and* of the caret, and it is reconciled **before** the band is
+    /// re-solved: the rows it takes are rows of the band, so a geometry solved
+    /// from the menu the last keystroke wanted would put the divider a row out.
+    fn moved(&mut self) {
         self.reconcile_picker();
         self.refit();
         self.render.request(Reason::Footer);
@@ -2391,7 +2496,7 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
-    use super::super::paste::{MAX_PASTE_BYTES, MAX_RETAINED_BLOCKS};
+    use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
     use std::collections::BTreeMap;
@@ -3132,9 +3237,10 @@ mod tests {
     #[test]
     fn a_summary_the_user_typed_a_second_copy_of_is_only_words() {
         // The words of a summary are on the screen where the user can read and
-        // retype them. One of the copies in a draft is the placeholder; the
-        // rest are text, and a block that expanded into all of them would send
-        // the paste as many times as the draft says its name.
+        // retype them. **The block is the span the paste made**, so a second
+        // copy of the name is text wherever it is: an expansion that matched
+        // the words would send the paste as many times as the draft says its
+        // name.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"\x1b[200~");
@@ -3152,8 +3258,9 @@ mod tests {
 
     #[test]
     fn a_summary_already_in_the_draft_is_not_the_one_the_paste_stands_behind() {
-        // The draft held those words *before* anything was pasted, so they were
-        // never a placeholder -- and the paste that landed after them is.
+        // The draft held those words *before* anything was pasted, so no span
+        // covers them -- and the run the paste itself put there is the block,
+        // whichever of the two a search for the name would have found first.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"[Pasted text #1, 1 lines] ");
@@ -3172,11 +3279,12 @@ mod tests {
 
     #[test]
     fn a_copy_of_a_summary_after_the_caret_is_not_the_placeholder_either() {
-        // The other side of the same question. The words were already in the
-        // draft, but the paste landed in front of them, so *this* one is the
-        // first copy and the words that were there are the second -- which is
-        // why the copies are counted in front of the caret rather than in the
-        // whole draft.
+        // The other side of the same question, and the one the old name-based
+        // model had to count copies to answer: the paste lands *in front of*
+        // words that already look like its summary, so the first copy in the
+        // draft is the block and the second is text. A span needs no counting
+        // -- it is the run the insertion made, and the words after it were
+        // never it.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"[Pasted text #1, 1 lines]");
@@ -3265,41 +3373,6 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_typed_in_front_of_the_placeholder_moves_it_and_never_doubles_it() {
-        // **The Phase-2 debt, pinned.** Spans are not tracked through edits, so
-        // a copy of a summary that appears in front of the placeholder *after*
-        // the paste landed is expanded in its stead: the block goes to the
-        // wrong copy of its own name. That is the price of not tracking spans,
-        // and it is the acceptable half. The other half -- the block being sent
-        // twice -- must never happen, so both are asserted here and a change
-        // that turns misplacing into multiplying fails this test rather than
-        // passing quietly.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1200);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        shell.route_bytes(&[0x01]); // C-a: in front of the placeholder
-        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
-        shell.route_bytes(&[0x0d]);
-
-        let TurnWork::Submit(prompt) = shell.picks_up() else {
-            panic!("nothing was submitted");
-        };
-        assert_eq!(
-            prompt,
-            format!("{block} [Pasted text #1, 1 lines]"),
-            "the copy typed in front of the placeholder is not the one that \
-             was expanded"
-        );
-        assert_eq!(
-            prompt.matches(&block).count(),
-            1,
-            "the block was sent once per copy of its name"
-        );
-    }
-
-    #[test]
     fn a_summary_backspaced_away_gives_its_budget_back() {
         // Phase 1 lets a user backspace into a summary -- it is text in the
         // composer, not an atomic entity -- and nothing about that calls
@@ -3334,37 +3407,6 @@ mod tests {
     }
 
     #[test]
-    fn a_name_damaged_and_typed_back_is_words_rather_than_the_block_again() {
-        // Damaging a name releases its block for good. Writing those words
-        // again afterwards is writing, not repairing: what the draft holds is
-        // a summary-shaped piece of text, and the block it used to name is
-        // gone. Anything else would let a user resurrect megabytes by typing a
-        // bracket.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1200);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-
-        // One character off the end is enough to make the placeholder
-        // unfindable.
-        shell.route_bytes(&[0x7f]);
-        shell.route_bytes(b"]");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
-            "the draft is not back to the words it started with"
-        );
-
-        shell.route_bytes(&[0x0d]);
-        assert_eq!(
-            shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
-            "a name the user repaired by hand brought its block back"
-        );
-    }
-
-    #[test]
     fn a_composed_newline_is_weighed_like_any_other_keystroke() {
         // `C-j` is the one editing action that *adds* text, so it is the one
         // that has to ask the budget the same question a typed character does.
@@ -3389,49 +3431,6 @@ mod tests {
             full,
             "a composed newline landed past the budget the draft's hidden \
              block is already using"
-        );
-    }
-
-    #[test]
-    fn a_keystroke_that_damages_a_name_is_weighed_against_what_it_leaves() {
-        // The draft is at the cap and the caret is **inside** the summary. That
-        // keystroke damages the name, which releases the megabytes it was
-        // standing for -- so the draft it produces is well inside the budget.
-        // Refusing it would be refusing a keystroke on account of bytes the
-        // keystroke itself gets rid of.
-        let mut shell = shell(24, 80);
-        // The whole budget less the name that will stand in for it, which is
-        // the largest block a draft can hold: a collapsed paste is charged its
-        // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        let summary = shell.editor.text().to_string();
-        assert_eq!(summary, "[Pasted text #1, 1 lines]");
-
-        shell.route_bytes(b"\x1b[D"); // Left: between the last letter and the `]`
-        shell.route_bytes(b"z");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 linesz]",
-            "a keystroke was refused for a block that the keystroke itself \
-             releases"
-        );
-
-        // And the release is permanent: putting the name back by hand does not
-        // bring the block back.
-        shell.route_bytes(&[0x7f]);
-        assert_eq!(
-            shell.editor.text(),
-            summary,
-            "the draft is not back to the name"
-        );
-        shell.route_bytes(&[0x0d]);
-        assert_eq!(
-            shell.picks_up(),
-            TurnWork::Submit(summary),
-            "a name repaired by hand brought eight megabytes back with it"
         );
     }
 
@@ -3467,146 +3466,6 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_stops_taking_blocks_at_the_cap_and_a_released_slot_comes_back() {
-        // The bookkeeping that keeps the budget honest re-reads the draft once
-        // per retained block on every keystroke, so the block count is a cost
-        // as well as a number ([`super::super::paste::MAX_RETAINED_BLOCKS`]).
-        // The number is spelled out rather than read from the module it is
-        // checking, for the reason `tests/tui.rs` spells out the band's rows: a
-        // test that took the cap from the thing enforcing it would pass for
-        // *any* cap -- including one that brings the scan cost back.
-        const CAP: usize = 64;
-        assert_eq!(
-            CAP, MAX_RETAINED_BLOCKS,
-            "the cap moved; read the scan-cost table in `MAX_RETAINED_BLOCKS`'s \
-             doc before changing this number"
-        );
-
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..CAP {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-        let full = shell.editor.text().to_string();
-        assert!(
-            shell.notice.is_none(),
-            "a paste inside the cap was refused: {:?}",
-            shell.notice
-        );
-        assert!(
-            full.contains(&format!("[Pasted text #{CAP}, 1 lines]")),
-            "the last block inside the cap is not in the draft"
-        );
-
-        // The one past it is refused, and says so.
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert_eq!(
-            shell.editor.text(),
-            full,
-            "a block past the cap landed in the draft"
-        );
-        assert_eq!(
-            shell.notice,
-            Some(PASTE_REFUSED),
-            "a block past the cap was dropped without a word"
-        );
-
-        // And a slot an edit gives back is a slot the next paste can have. The
-        // backspace damages the last name, which releases its block; the paste
-        // after it is the 65th to be *kept*, so it is the 65th number too --
-        // the refused one never spent hers.
-        shell.route_bytes(&[0x7f]);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert!(
-            shell
-                .editor
-                .text()
-                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
-            "the slot a damaged name gave back was not reused: {:?}",
-            shell.editor.text()
-        );
-    }
-
-    #[test]
-    fn an_inline_paste_is_not_what_the_block_cap_counts() {
-        // The cap is about the blocks a draft holds, because each one is
-        // another read of the draft on every keystroke. A paste small enough to
-        // be text keeps no block and costs no read, so a draft at the cap still
-        // takes one.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..MAX_RETAINED_BLOCKS {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-
-        shell.route_bytes(b"\x1b[200~short\x1b[201~");
-        assert!(
-            shell.editor.text().ends_with("short"),
-            "an inline paste was refused for a count it does not add to"
-        );
-    }
-
-    #[test]
-    fn a_paste_that_lands_in_a_name_is_weighed_against_what_it_releases() {
-        // The same rule a keystroke gets: a paste is admitted against the draft
-        // it *leaves*. This one lands inside the summary, so it damages the
-        // name and releases the eight megabytes it was standing for -- the
-        // draft it produces is nearly empty.
-        let mut shell = shell(24, 80);
-        // The whole budget less the name that will stand in for it, which is
-        // the largest block a draft can hold: a collapsed paste is charged its
-        // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
-
-        shell.route_bytes(b"\x1b[D"); // Left: inside the name
-        shell.route_bytes(b"\x1b[200~short\x1b[201~");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 linesshort]",
-            "a paste was refused for a block that the paste itself releases"
-        );
-    }
-
-    #[test]
-    fn a_collapsed_paste_that_replaces_a_name_at_the_cap_is_taken() {
-        // At the cap, and this paste lands inside an existing name: it damages
-        // that one and adds its own, so the draft it leaves holds the same
-        // number of blocks it held before.
-        const CAP: usize = 64;
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..CAP {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-
-        shell.route_bytes(b"\x1b[D"); // Left: inside the last name
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert!(
-            shell
-                .editor
-                .text()
-                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
-            "a paste that leaves the block count where it found it was refused"
-        );
-    }
-
-    #[test]
     fn a_paste_in_front_of_a_name_that_survives_it_is_still_weighed_against_it() {
         // The other side of the paste's prospective question, and the same one
         // `a_keystroke_in_front_of_a_name_that_survives_it_is_still_weighed_against_it`
@@ -3627,6 +3486,442 @@ mod tests {
             full,
             "a paste landed past the budget, in front of a name whose block it \
              does not release"
+        );
+    }
+
+    /// A collapsed block in the composer, and the text it stands for.
+    ///
+    /// The paste is driven through the byte path rather than built, because
+    /// what item 16 is about is what the keys do to it afterwards.
+    fn collapsed(shell: &mut Shell, lines: usize) -> String {
+        let text = if lines > 1 {
+            let mut text = "y".repeat(1200);
+            for _ in 1..lines {
+                text.push('\n');
+                text.push('y');
+            }
+            text
+        } else {
+            "y".repeat(1200)
+        };
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(text.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        text
+    }
+
+    #[test]
+    fn a_backspace_at_a_collapsed_pastes_edge_takes_the_whole_block() {
+        // The narrowing item 16 closes. Phase 1 edited the summary's last
+        // character, which left a damaged name on the screen standing for
+        // nothing.
+        let mut shell = shell(24, 80);
+        let _block = collapsed(&mut shell, 1);
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(&[0x7f]);
+        assert!(
+            shell.editor.is_empty(),
+            "the backspace edited the name instead of removing the block: {:?}",
+            shell.editor.text()
+        );
+        shell.route_bytes(b"hello");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("hello".to_string()),
+            "the removed block was sent anyway"
+        );
+    }
+
+    #[test]
+    fn a_forward_delete_at_a_collapsed_pastes_left_edge_takes_the_whole_block() {
+        let mut shell = shell(24, 80);
+        let _block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x01]); // C-a, to the left edge
+        shell.route_bytes(&[0x04]); // C-d is a forward delete with text under it
+        assert!(
+            shell.editor.is_empty(),
+            "the delete edited the name instead: {:?}",
+            shell.editor.text()
+        );
+    }
+
+    #[test]
+    fn the_caret_steps_over_a_collapsed_paste_as_one_unit() {
+        // One `Left` from the right edge is in front of the *whole* summary, so
+        // the keystroke after it lands beside the block rather than in its
+        // name.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(b"\x1b[D");
+        shell.route_bytes(b"!");
+        assert_eq!(
+            shell.editor.text(),
+            "![Pasted text #1, 1 lines]",
+            "a left step landed inside the name"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(format!("!{block}")),
+            "the block did not survive a keystroke beside it"
+        );
+    }
+
+    #[test]
+    fn a_recalled_paste_comes_back_as_a_block_with_a_fresh_number() {
+        // The whole of the recall narrowing item 15 wrote down: an entry
+        // carries the blocks its summaries named, and a recall renumbers them
+        // so that no two live blocks answer to one name.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the recalled summary kept a number this session had already used"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "a recalled summary was sent as the words it looks like"
+        );
+    }
+
+    #[test]
+    fn a_draft_holds_far_more_blocks_than_the_old_cap_and_sends_every_one() {
+        // `MAX_RETAINED_BLOCKS` was a bound on the *time* a keystroke cost,
+        // because the old bookkeeping re-read the draft once per block. The
+        // spans cost arithmetic, so the bound is gone -- and what proves it is
+        // a draft holding many times the old cap whose every block is sent.
+        const BLOCKS: usize = 100;
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1001);
+        for _ in 0..BLOCKS {
+            shell.route_bytes(b"\x1b[200~");
+            shell.route_bytes(block.as_bytes());
+            shell.route_bytes(b"\x1b[201~");
+        }
+        assert_eq!(shell.notice, None, "a paste past the old cap was refused");
+        assert!(
+            shell
+                .editor
+                .text()
+                .contains(&format!("[Pasted text #{BLOCKS}, 1 lines]")),
+            "the last block is not in the draft"
+        );
+        shell.route_bytes(&[0x0d]);
+        let TurnWork::Submit(prompt) = shell.picks_up() else {
+            panic!("nothing was submitted");
+        };
+        assert_eq!(
+            prompt.matches(&block).count(),
+            BLOCKS,
+            "not every block reached the prompt"
+        );
+        assert!(
+            !prompt.contains("Pasted text"),
+            "a summary was sent in place of its block"
+        );
+    }
+
+    #[test]
+    fn a_history_entry_carries_the_blocks_its_summaries_named() {
+        // Two lines with a block each: the walk back has to put the right one
+        // behind the right summary, and neither may be the other's.
+        let mut shell = shell(24, 80);
+        let first = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(first.clone()));
+        let second = collapsed(&mut shell, 2);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(second.clone()));
+
+        shell.route_bytes(&[0x10]); // C-p: the newest line
+        assert_eq!(
+            shell.editor.expanded(),
+            second,
+            "the newest line came back without the block its summary named"
+        );
+        shell.route_bytes(&[0x10]); // C-p: the one before it
+        assert_eq!(
+            shell.editor.expanded(),
+            first,
+            "the older line came back with the newer line's block"
+        );
+        // Asked of the composer rather than of a third submission, because the
+        // runtime holds two pieces of work at once (`super::worker::WORK_LIMIT`)
+        // and both are still in hand: what `expanded` answers is exactly what
+        // `submit` would send.
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #4, 1 lines]",
+            "the walk handed back numbers this session had already spent"
+        );
+    }
+
+    #[test]
+    fn a_draft_with_blank_edges_sends_the_block_and_the_trimming_both() {
+        // The classifier trims a submitted line
+        // (`crate::interactive::classify`) and the spans are runs of the draft
+        // it trimmed, so the two have to be reconciled somewhere: expanding the
+        // *trimmed* line with the untrimmed line's spans would splice the block
+        // two bytes out of place. Expanded whole and cut instead, which is
+        // exact because what is trimmed is whitespace and a summary is not.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"  ");
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(b"  ");
+        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 lines]  ");
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "the prompt is the block with the line's own blank edges trimmed"
+        );
+    }
+
+    #[test]
+    fn one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in() {
+        // **The boundary an undo will take**, fixed at the only moment that
+        // knows it. A paste is one gesture and a great many bytes, and the
+        // bytes arrive in as many reads as the terminal feels like: a boundary
+        // inferred later from the buffer would be a boundary per read, or per
+        // grapheme, and an undo built on it would take a megabyte back a
+        // character at a time. There is no `C-z` on this surface -- item 18
+        // brings the stack -- so this case is the seam's only reader, which is
+        // what `.prd/06-qa-harness.md`'s scenario 21 points at.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~");
+        let chunk = vec![b'y'; 64];
+        for _ in 0..40 {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
+
+        let Some(EditTransaction::InsertPaste {
+            before,
+            after,
+            entity,
+        }) = shell.transaction.last()
+        else {
+            panic!(
+                "a framed paste did not record one insert transaction: {:?}",
+                shell.transaction.last()
+            );
+        };
+        assert_eq!(before, "", "the draft before the paste was not recorded");
+        assert_eq!(after, "[Pasted text #1, 1 lines]");
+        assert_eq!(entity.range(), 0..after.len());
+        assert_eq!(
+            entity.text().len(),
+            40 * 64,
+            "the transaction's entity does not carry the whole paste"
+        );
+
+        // And the next edit overwrites it, because what an undo needs to know
+        // is what the *last* change was.
+        shell.route_bytes(b"!");
+        assert!(
+            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+            "a keystroke after a paste left the paste boundary standing: {:?}",
+            shell.transaction.last()
+        );
+    }
+
+    #[test]
+    fn a_caret_move_leaves_the_paste_boundary_standing_and_an_edit_takes_it_down() {
+        // **A move is not an edit.** The boundary an undo would take is a fact
+        // about the last change to the *text*; a keystroke that only moved the
+        // caret has not changed the text, so a stack built on this seam would
+        // find "the last edit was an ordinary one" after a `Left` and take the
+        // paste back a grapheme at a time -- which is the whole thing the
+        // boundary exists to prevent.
+        let mut shell = shell(24, 80);
+        // Two rows, so that `Up` and `Down` have somewhere to go inside the
+        // draft: typed **before** the paste, because typing is an edit and the
+        // boundary this case is about is the paste's.
+        shell.route_bytes(&[b'x'; 100]);
+        let _block = collapsed(&mut shell, 1);
+        assert!(
+            matches!(
+                shell.transaction.last(),
+                Some(EditTransaction::InsertPaste { .. })
+            ),
+            "the paste did not record a boundary, so this case proves nothing"
+        );
+
+        // Every key the composer binds that moves the caret and nothing else.
+        // `Up`/`Down` are here twice over: once inside a two-row draft, where
+        // they move, and once at its edges, where they reach for the history,
+        // find none and change nothing at all.
+        for (name, keys) in [
+            ("Left", &b"\x1b[D"[..]),
+            ("Right", &b"\x1b[C"[..]),
+            ("Home", &b"\x1b[H"[..]),
+            ("End", &b"\x1b[F"[..]),
+            ("WordLeft", &b"\x1b[1;5D"[..]),
+            ("WordRight", &b"\x1b[1;5C"[..]),
+            ("C-a", &[0x01][..]),
+            ("C-e", &[0x05][..]),
+            ("Up", &b"\x1b[A"[..]),
+            ("Down", &b"\x1b[B"[..]),
+            ("Up at the first row", &b"\x1b[A\x1b[A\x1b[A"[..]),
+            ("Down at the last row", &b"\x1b[B\x1b[B\x1b[B"[..]),
+        ] {
+            shell.route_bytes(keys);
+            assert!(
+                matches!(
+                    shell.transaction.last(),
+                    Some(EditTransaction::InsertPaste { .. })
+                ),
+                "{name} moved the caret and took the paste boundary down with it: {:?}",
+                shell.transaction.last()
+            );
+        }
+
+        // And an edit -- any edit -- does take it down, because after one the
+        // last change to the text is not the paste.
+        shell.route_bytes(b"!");
+        assert!(
+            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+            "a keystroke after a paste left the paste boundary standing: {:?}",
+            shell.transaction.last()
+        );
+    }
+
+    #[test]
+    fn every_kind_of_edit_takes_the_paste_boundary_down() {
+        // The other half, once per family, because "an edit overwrites it" is a
+        // claim about the funnel every text change goes through rather than
+        // about the one keystroke that is easiest to test.
+        let edits: [(&str, &[u8]); 5] = [
+            ("a typed character", b"!"),
+            ("a backspace", &[0x7f]),
+            ("a kill to the start", &[0x15]),
+            ("a composed newline", &[0x0a]),
+            ("a word delete", &[0x17]),
+        ];
+        for (name, keys) in edits {
+            let mut shell = shell(24, 80);
+            let _block = collapsed(&mut shell, 1);
+            assert!(
+                matches!(
+                    shell.transaction.last(),
+                    Some(EditTransaction::InsertPaste { .. })
+                ),
+                "{name}: the paste did not record a boundary"
+            );
+            shell.route_bytes(keys);
+            assert!(
+                matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+                "{name} left the paste boundary standing: {:?}",
+                shell.transaction.last()
+            );
+        }
+    }
+
+    #[test]
+    fn a_paste_with_no_number_left_says_so_and_leaves_the_draft_alone() {
+        // The end of the id space. Wrapping or saturating would put two live
+        // blocks under one name -- and then a recall, which finds a block by
+        // its number, would expand the wrong paste. Refused instead, and said,
+        // because a paste that vanished without a word looks like a terminal
+        // that never sent it.
+        let mut shell = shell(24, 80);
+        shell.paste = Paste::with_next(u32::MAX);
+        shell.route_bytes(b"a draft worth keeping");
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes("y".repeat(1200).as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "a paste with no number left changed the draft"
+        );
+        assert_eq!(shell.notice, Some(PASTE_UNNUMBERED));
+        assert!(
+            shell.hint().contains(PASTE_UNNUMBERED),
+            "the refusal is not on the hint row: {:?}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn a_pasted_line_is_not_folded_into_the_typed_words_that_look_like_it() {
+        // The dedupe is adjacent-only and by text, which is right until a
+        // summary is involved: the words are on the screen where a user can
+        // type them, and the number the session mints next can make the two
+        // lines identical. Folding them would drop the entry that stands on the
+        // block and hand back the one that stands on nothing.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string())
+        );
+        let _echo = shell.document();
+
+        let block = collapsed(&mut shell, 1);
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the paste did not take the number the typed line names, so this \
+             case proves nothing"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
+
+        shell.route_bytes(&[0x10]); // C-p: one step back
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the pasted line was folded into the typed one: {:?}",
+            shell.editor.text()
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the recalled line lost the block it stood on"
+        );
+    }
+
+    #[test]
+    fn a_recall_with_no_numbers_left_hands_back_words_and_says_so() {
+        // The same exhaustion from the other side. A recalled block cannot keep
+        // the number it was submitted under -- that number belongs to a draft
+        // that is gone, and minting it again is the collision above -- so a
+        // session with none left hands the line back as the words on the
+        // screen, and says that is what it did.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block));
+
+        *shell.paste.ids() = u32::MAX;
+        shell.route_bytes(&[0x10]); // C-p
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the recalled line is not the one that was submitted"
+        );
+        assert!(
+            shell.editor.entities().is_empty(),
+            "a block was kept under a number nobody minted"
+        );
+        assert_eq!(shell.notice, Some(RECALL_UNNUMBERED));
+        assert_eq!(
+            shell.editor.expanded(),
+            "[Pasted text #1, 1 lines]",
+            "the summary still stood for eight megabytes"
         );
     }
 
@@ -6805,13 +7100,16 @@ mod tests {
     }
 
     #[test]
-    fn a_paste_a_recall_stood_aside_comes_back_as_words_rather_than_as_the_block() {
-        // A collapsed paste is a summary in the composer and megabytes in
-        // `super::paste`, and the blocks die with the draft they were pasted
-        // into. A recall replaces the draft, so it has to release them too --
-        // otherwise the summary the walk hands back would still expand, and the
-        // narrowing this phase records would be a silent multiplication
-        // instead.
+    fn a_paste_the_walk_stood_aside_comes_back_as_the_block_with_a_new_number() {
+        // **The narrowing item 15 recorded, closed.** A walk captures the
+        // half-typed draft and hands it back at the near end, and until item 16
+        // what came back was the summary's *words*: the block died with the
+        // draft the recall replaced, so the line the user had been composing
+        // would have been sent as its own description.
+        //
+        // The draft now travels with its blocks, and what comes back is
+        // renumbered like any other recall -- the number a user reads is one
+        // this session has minted once.
         let mut shell = shell(24, 80);
         submitted(&mut shell, "earlier");
         let block = "y".repeat(1200);
@@ -6829,15 +7127,16 @@ mod tests {
         shell.route_bytes(&[0x0e]);
         assert_eq!(
             shell.band_rows()[1],
-            "> [Pasted text #1, 1 lines]",
-            "the draft the walk began from did not come back"
+            "> [Pasted text #2, 1 lines]",
+            "the draft the walk began from did not come back, or came back \
+             under a number this session had already used"
         );
 
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
-            "a block whose draft a recall had replaced was expanded into the prompt"
+            TurnWork::Submit(block),
+            "the block the walk stood aside was sent as the words it looks like"
         );
     }
 

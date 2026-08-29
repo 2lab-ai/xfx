@@ -553,6 +553,7 @@ mod shell;
 mod signals;
 mod term;
 mod theme;
+mod transaction;
 mod transcript;
 mod worker;
 mod wrap;

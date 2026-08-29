@@ -19,10 +19,18 @@
 //! The line **as the composer held it**, which for a collapsed paste is the
 //! summary rather than the megabytes behind it. That is what makes an entry
 //! cheap enough to keep a hundred of, and it is why [`HistoryEntry`] carries a
-//! `Vec<`[`EntitySnapshot`]`>` beside the text: the blocks a summary names die
-//! with the draft (`super::paste::Paste::forget`), so an entry that meant to
-//! put one back would have to have remembered it. This phase records the empty
-//! vector -- a recalled summary is words -- and item 21 fills it in.
+//! `Vec<`[`EntitySnapshot`]`>` beside the text: the blocks a summary names are
+//! spans of the *composer's* text and die with the draft they were pasted into
+//! (`super::editor::Editor::take`), so an entry that means to put one back has
+//! to have remembered it. The `Arc` in a snapshot is what makes that cheap: a
+//! hundred entries naming one paste hold one copy of it.
+//!
+//! A recall turns the snapshots back into live spans and gives each of them a
+//! **fresh** paste number from the session's own allocator
+//! (`super::entity::Entities::renumber_recalled`), because the number the entry
+//! was submitted under belongs to a draft that is gone -- and two live blocks
+//! answering to one name is how a recall comes to expand somebody else's
+//! paste.
 //!
 //! # The two ends of the walk
 //!
@@ -56,11 +64,7 @@ pub(crate) enum HistoryStep {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct HistoryEntry {
     text: String,
-    /// The collapsed pastes the line stood on.
-    ///
-    /// Empty on every entry this phase records -- see the module's note on what
-    /// an entry is.
-    #[allow(dead_code)]
+    /// The collapsed pastes the line stood on, as runs of [`Self::text`].
     entities: Vec<EntitySnapshot>,
 }
 
@@ -75,9 +79,9 @@ impl HistoryEntry {
     }
 
     /// The collapsed pastes it stood on.
-    // Item 21 is the first reader: what it is for is putting a block back when
-    // the summary that names it is recalled.
-    #[allow(dead_code)]
+    ///
+    /// What `super::shell::Shell::recall` builds the recalled draft's live
+    /// spans from.
     pub(crate) fn entities(&self) -> &[EntitySnapshot] {
         &self.entities
     }
@@ -118,12 +122,21 @@ impl History {
     /// not want two presses of `Up` to get past it; a `/help` with something
     /// else between the two really was typed twice, and both are kept, because
     /// the walk is what was typed rather than a set of what was typed.
+    ///
+    /// A repeat is the same **line**, which is its text *and* the blocks it
+    /// stands on, and not the same reading of it. A summary is ordinary text a
+    /// user can type by hand, and the number the session mints next can make
+    /// the typed words and a pasted line identical on the screen -- one of them
+    /// standing on eight megabytes. Folding by text alone would drop whichever
+    /// arrived second, which for the pasted one is the block itself: the walk
+    /// would hand back the words and the prompt would be sent as its own
+    /// description.
     pub(crate) fn record(&mut self, entry: HistoryEntry) {
         self.leave();
         if self
             .entries
             .front()
-            .is_some_and(|newest| newest.text == entry.text)
+            .is_some_and(|newest| newest.text == entry.text && newest.entities == entry.entities)
         {
             return;
         }
@@ -196,8 +209,9 @@ impl History {
 mod tests {
     use super::*;
 
-    /// One recorded line, with no entities on it -- which is every entry this
-    /// phase records ([`HistoryEntry`]).
+    /// One recorded line with no blocks on it, which is what the cases in this
+    /// module are about: what an entry *carries* is
+    /// `super::super::entity`'s and the walk is what is checked here.
     fn entry(text: &str) -> HistoryEntry {
         HistoryEntry::new(text.to_string(), Vec::new())
     }
@@ -206,6 +220,57 @@ mod tests {
     /// about rather than as the struct they arrive in.
     fn recalled(entry: Option<HistoryEntry>) -> Option<String> {
         entry.map(|entry| entry.text().to_string())
+    }
+
+    #[test]
+    fn an_entry_and_a_captured_draft_both_carry_the_blocks_they_stood_on() {
+        // The carrier, filled in. Two lines with a block each and a draft with
+        // one of its own: the walk has to hand each of them back with *its*
+        // blocks, because the summaries are 25 bytes of identical-looking text
+        // and the megabytes behind them are what the prompt is made of.
+        let block =
+            |text: &str, at: usize| EntitySnapshot::new(at, at + 25, std::sync::Arc::from(text), 1);
+        let mut history = History::new();
+        history.record(HistoryEntry::new(
+            "older [Pasted text #1, 1 lines]".to_string(),
+            vec![block("older block", 6)],
+        ));
+        history.record(HistoryEntry::new(
+            "newer [Pasted text #2, 1 lines]".to_string(),
+            vec![block("newer block", 6)],
+        ));
+        let draft = HistoryEntry::new(
+            "[Pasted text #3, 1 lines] half typed".to_string(),
+            vec![block("draft block", 0)],
+        );
+
+        let newest = history
+            .navigate(HistoryStep::Previous, draft)
+            .expect("the newest line");
+        assert_eq!(newest.entities().len(), 1);
+        assert_eq!(&**newest.entities()[0].text(), "newer block");
+        assert_eq!(newest.entities()[0].span(), 6..31);
+
+        let oldest = history
+            .navigate(HistoryStep::Previous, newest)
+            .expect("the line before it");
+        assert_eq!(
+            &**oldest.entities()[0].text(),
+            "older block",
+            "the older line came back with the newer line's block"
+        );
+
+        let returned = history
+            .navigate(HistoryStep::Next, oldest)
+            .expect("the newest line again");
+        let handed_back = history
+            .navigate(HistoryStep::Next, returned)
+            .expect("the draft");
+        assert_eq!(
+            &**handed_back.entities()[0].text(),
+            "draft block",
+            "the draft the walk stood aside lost the block it was standing on"
+        );
     }
 
     #[test]
@@ -348,6 +413,60 @@ mod tests {
             recalled(history.navigate(HistoryStep::Previous, entry("between"))),
             Some("same".to_string()),
             "a repeat that was not adjacent was folded into the first one"
+        );
+    }
+
+    #[test]
+    fn a_repeat_that_stands_on_a_different_block_is_a_line_of_its_own() {
+        // **Adjacent repeats are folded by what a line *is*, not by how it
+        // reads.** A summary is ordinary text, so a user can type
+        // `[Pasted text #1, 1 lines]` by hand and then paste a block that the
+        // session numbers `#1` -- two lines that look identical, one of which
+        // stands on eight megabytes. Folding them by text alone throws the
+        // block away and hands the words back in its place, which is the one
+        // thing a recall must never do.
+        let block = EntitySnapshot::new(0, 25, std::sync::Arc::from("the block"), 1);
+        let words = "[Pasted text #1, 1 lines]";
+        let mut history = History::new();
+        history.record(HistoryEntry::new(words.to_string(), Vec::new()));
+        history.record(HistoryEntry::new(words.to_string(), vec![block]));
+
+        let newest = history
+            .navigate(HistoryStep::Previous, entry(""))
+            .expect("the newest line");
+        assert_eq!(newest.text(), words);
+        assert_eq!(
+            newest.entities().len(),
+            1,
+            "the pasted line was folded into the words that look like it"
+        );
+        let older = history
+            .navigate(HistoryStep::Previous, newest)
+            .expect("the line the user typed");
+        assert!(
+            older.entities().is_empty(),
+            "the typed line came back carrying somebody else's block"
+        );
+    }
+
+    #[test]
+    fn a_repeat_that_stands_on_the_same_blocks_is_still_one_entry() {
+        // The other side: two lines that are the same text **and** the same
+        // blocks are one line to walk back through, exactly as two `/help`s
+        // are. What is folded is what a recall could not tell apart.
+        let block = || EntitySnapshot::new(0, 25, std::sync::Arc::from("the block"), 1);
+        let words = "[Pasted text #1, 1 lines]";
+        let mut history = History::new();
+        history.record(HistoryEntry::new(words.to_string(), vec![block()]));
+        history.record(HistoryEntry::new(words.to_string(), vec![block()]));
+        assert_eq!(
+            recalled(history.navigate(HistoryStep::Previous, entry(""))),
+            Some(words.to_string())
+        );
+        assert_eq!(
+            recalled(history.navigate(HistoryStep::Previous, entry(words))),
+            None,
+            "the same line standing on the same block was recorded twice"
         );
     }
 

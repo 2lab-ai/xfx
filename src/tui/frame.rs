@@ -714,6 +714,14 @@ pub(crate) fn cup(buffer: &mut Vec<u8>, row: u16, column: u16) {
 /// that function runs *before* the wrap, so a space it leaves is a cell the
 /// wrap counts; this runs after, and a cell added here would push the row one
 /// column wider than the wrap measured it.
+///
+/// The **tab** is the one control that is expanded rather than dropped, and it
+/// is the same arithmetic read the other way: the wrap measures it at
+/// `super::wrap::TAB_WIDTH` cells (item 16, because a paste can put one in the
+/// composer), so dropping it here would paint a row one glyph *narrower* than
+/// the caret was placed from. The composer hands its rows over already
+/// expanded (`super::editor::Editor::rows`); this is the same answer for a row
+/// that reached the painter by any other road.
 pub(crate) fn row_text(row: &str, cols: u16) -> Cow<'_, str> {
     if row.chars().any(obeyed) {
         return Cow::Owned(clip(&tamed(row), cols).to_string());
@@ -750,7 +758,11 @@ fn tamed(row: &str) -> String {
         }
         let mut characters = rest.chars();
         let character = characters.next().unwrap_or_default();
-        if !obeyed(character) {
+        if character == '\t' {
+            for _ in 0..super::wrap::TAB_WIDTH {
+                out.push(' ');
+            }
+        } else if !obeyed(character) {
             out.push(character);
         }
         rest = characters.as_str();
@@ -1273,6 +1285,26 @@ mod tests {
         // for exactly that reason.
         let row = "a\u{1b}[2Jb\u{1b}[?1049hc\u{1b}]0;title\u{7}d\u{1b}[31me\u{1b}[38;5;240mf\u{7}g";
         assert_eq!(row_text(row, 80), "abcde\u{1b}[38;5;240mfg");
+    }
+
+    #[test]
+    fn a_tab_is_painted_as_the_cells_the_wrap_measured_it_at() {
+        // The other half of item 16's tab: the wrap counts a tab at
+        // `wrap::TAB_WIDTH` cells because a paste can put one in the composer,
+        // so the painter has to write that many. Dropping it -- which is what
+        // every other control gets -- would paint the row four columns narrower
+        // than the caret was placed from.
+        let cells = usize::from(super::super::wrap::TAB_WIDTH);
+        let painted = row_text("a\tb", 80);
+        assert_eq!(painted, format!("a{}b", " ".repeat(cells)));
+        assert_eq!(
+            super::super::wrap::width(&painted),
+            super::super::wrap::width("a\tb"),
+            "the painted row is a different width from the measured one"
+        );
+        // And it is still clipped in cells: a tab that crosses the margin is
+        // cut with the row rather than after it.
+        assert_eq!(row_text("a\tb", 3), "a  ");
     }
 
     /// Every row of `text` wrapped to `cols`, painted as `place` would paint

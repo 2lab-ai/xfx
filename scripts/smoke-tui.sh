@@ -4621,6 +4621,152 @@ def scenario_19(run):
     daemon.stop()
 
 
+def scenario_21(run):
+    """A collapsed paste is one thing to the keys, and comes back renumbered.
+
+    Item 16 on a real terminal, and the three claims of `06-qa-harness.md`'s
+    row 21 that only a terminal can make together:
+
+    * **movement** steps over the summary as one unit, so the keystroke after a
+      single `Left` lands in front of the whole of it rather than inside its
+      name;
+    * **delete** takes the whole block: one backspace at the right edge, and the
+      screen is empty rather than holding a damaged name;
+    * **history** hands the line back with its block under a number this session
+      has not used, and what is *sent* is the paste rather than the words.
+
+    The row's fourth clause -- the undo boundary -- is a cargo receipt
+    (`tui::shell::tests::one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in`)
+    rather than a key here, because there is no `C-z` on this surface until item
+    18: driving one would assert against a binding that does not exist.
+
+    The two markers are the fixture's own answers and nothing else says them, so
+    a prompt echoed into the document can never satisfy a wait for one; the
+    nonce is in both prompts, which is what makes the block on the wire this
+    run's rather than words that were on the screen.
+    """
+    atomic = run.marker("atomic")
+    recalled = run.marker("recalled")
+    fixture = start_fixture(
+        run, [fixtures.content_only(atomic), fixtures.content_only(recalled)]
+    )
+    trial = run.trial("paste-entities", gateway=fixture).settled()
+    from_a_known_composer(run, trial, "paste-entities")
+
+    def paste(block):
+        trial.send(b"\x1b[200~")
+        trial.send(block.encode("utf-8"))
+        trial.send(b"\x1b[201~")
+
+    # --- one backspace takes the whole block --------------------------------
+    first = "y" * 1100
+    paste(first)
+    trial.wait_until(
+        "the first paste to be summarized",
+        lambda _t: composer_text(trial.peek()) == "[Pasted text #1, 1 lines]",
+    )
+    collapsed = trial.grid("collapsed")
+    run.require(
+        composer_text(collapsed) == "[Pasted text #1, 1 lines]",
+        "a large paste is a summary on screen: %r" % composer_text(collapsed),
+    )
+    run.require(
+        not collapsed.unknown,
+        "xfx emitted only the sequences it declares: %r" % collapsed.unknown,
+    )
+    trial.send(b"\x7f")
+    trial.wait_until(
+        "one backspace to take the whole block",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    removed = trial.grid("backspaced")
+    run.require(
+        composer_text(removed) == "",
+        "the backspace edited the summary instead of removing the block: %r"
+        % composer_text(removed),
+    )
+
+    # --- the caret steps over the next one as one unit ----------------------
+    #
+    # And it is `#2`: a number a block was given is never given again, so the
+    # one the backspace took is spent.
+    second = "z" * 1100 + " " + run.nonce
+    paste(second)
+    trial.wait_until(
+        "the second paste to be summarized",
+        lambda _t: composer_text(trial.peek()) == "[Pasted text #2, 1 lines]",
+    )
+    trial.send(b"\x1b[D")
+    trial.send("see ")
+    trial.wait_until(
+        "the keystroke to land in front of the whole unit",
+        lambda _t: composer_text(trial.peek()) == "see [Pasted text #2, 1 lines]",
+    )
+    stepped = trial.grid("stepped-over")
+    run.require(
+        composer_text(stepped) == "see [Pasted text #2, 1 lines]",
+        "a left step landed inside the summary: %r" % composer_text(stepped),
+    )
+    # The caret is between what was typed and the unit it was typed in front
+    # of, which is the cell claim the row cannot make: a `Left` that had stepped
+    # *into* the summary would leave the same text on the row -- `see` would sit
+    # one character inside the name -- and only the caret says which happened.
+    marker_row = composer_first_row(stepped)
+    run.require(
+        (stepped.row, stepped.col) == (marker_row, 2 + len("see ")),
+        "the caret is not beside the unit it was typed in front of: row %d col %d, "
+        "composer on row %r" % (stepped.row, stepped.col, marker_row),
+    )
+
+    trial.send(b"\x0d")
+    trial.wait_for(atomic)
+    sent = user_messages(fixture.requests()[0])[-1]
+    run.require(run.nonce in sent, "the nonce this run minted is in the request xfx sent")
+    run.require(
+        sent == "see " + second,
+        "the block beside the keystroke is what was sent: %r" % sent[:60],
+    )
+    run.require(
+        first not in sent,
+        "the block one backspace removed was sent anyway",
+    )
+    answered = trial.grid("answered")
+    run.require(answered.find(atomic) is not None, "the fixture's own marker is rendered")
+    run.require(answered.text().strip() != "", "the screen is not blank")
+
+    # --- and the recall renumbers it ----------------------------------------
+    trial.send(b"\x1b[A")
+    trial.wait_until(
+        "the submitted line to come back under a fresh number",
+        lambda _t: composer_text(trial.peek()) == "see [Pasted text #3, 1 lines]",
+    )
+    renumbered = trial.grid("recalled")
+    run.require(
+        composer_text(renumbered) == "see [Pasted text #3, 1 lines]",
+        "the recalled line kept a number this session had already used: %r"
+        % composer_text(renumbered),
+    )
+    trial.send(b"\x0d")
+    trial.wait_for(recalled)
+    resent = user_messages(fixture.requests()[1])[-1]
+    run.require(
+        resent == "see " + second,
+        "the recalled summary was sent as the words it looks like: %r" % resent[:60],
+    )
+    run.require(
+        "Pasted text" not in resent,
+        "a summary reached the model in place of its block",
+    )
+
+    trial.send(b"\x15")
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after the paste entities were driven",
+    )
+    fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -4643,6 +4789,7 @@ SCENARIOS = {
     "17-history": scenario_17,
     "18-provider-switch": scenario_18,
     "19-model-catalog-and-context-meter": scenario_19,
+    "21-paste-entities": scenario_21,
 }
 
 
@@ -4716,6 +4863,7 @@ scenarios=(
 	17-history
 	18-provider-switch
 	19-model-catalog-and-context-meter
+	21-paste-entities
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

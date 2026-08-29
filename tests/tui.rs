@@ -1718,6 +1718,95 @@ fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
 }
 
 #[test]
+fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
+    // Item 16 on a real terminal, and the two halves that only a terminal can
+    // show together: a **key** treats the summary as one thing, and a **recall**
+    // brings the block back under a number this session has not used.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-ATOMIC"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALLED",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+    let paste = |session: &mut Session, block: &str| {
+        session.type_bytes(b"\x1b[200~");
+        session.type_bytes(block.as_bytes());
+        session.type_bytes(b"\x1b[201~");
+    };
+
+    // One backspace at the summary's right edge removes the **whole** block:
+    // Phase 1 took one character off its name and left the rest on the screen.
+    let first = "y".repeat(1100);
+    paste(&mut session, &first);
+    session.wait_until("the paste to be summarized", |text| {
+        composer(text) == "> [Pasted text #1, 1 lines]"
+    });
+    session.type_bytes(&[0x7f]);
+    session.wait_until("the whole block to go with one backspace", |text| {
+        composer(text) == ">"
+    });
+
+    // A number is never reused, so the next paste is #2 -- and the caret steps
+    // over it as one unit, so the keystroke after a single `Left` lands in
+    // front of the whole summary rather than inside its name.
+    let second = "z".repeat(1100);
+    paste(&mut session, &second);
+    session.wait_until("the second paste to be summarized", |text| {
+        composer(text) == "> [Pasted text #2, 1 lines]"
+    });
+    session.type_bytes(b"\x1b[D");
+    session.type_bytes(b"see ");
+    session.wait_until("the caret to have stepped over the whole unit", |text| {
+        composer(text) == "> see [Pasted text #2, 1 lines]"
+    });
+
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-ATOMIC");
+    let sent = user_messages(&gateway.requests()[0].json()).join("\n");
+    assert_eq!(
+        sent,
+        format!("see {second}"),
+        "the block beside the keystroke was not the thing that was sent"
+    );
+    assert!(
+        !sent.contains(&first),
+        "the block a backspace removed was sent anyway"
+    );
+
+    // And the recall: the line comes back with its block, under the next
+    // number rather than the one it was submitted with.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("the submitted line to come back renumbered", |text| {
+        composer(text) == "> see [Pasted text #3, 1 lines]"
+    });
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALLED");
+    let recalled = user_messages(&gateway.requests()[1].json()).join("\n");
+    assert!(
+        recalled.ends_with(&second),
+        "the recalled summary was sent as the words it looks like"
+    );
+    assert!(
+        !recalled.contains("Pasted text"),
+        "a summary reached the model: {:.60}",
+        recalled
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     // Item 15 on a real terminal. Four claims, and the first two are the ones a
     // history without a captured draft would pass: the arrow at the edge of the
