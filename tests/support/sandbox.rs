@@ -105,6 +105,58 @@ impl Sandbox {
         self.command()
     }
 
+    /// A command wired to a scripted Gateway **and** a scripted llmux at once,
+    /// with the Gateway selected.
+    ///
+    /// Both fixtures are up and only one of them is configured, which is the
+    /// whole point: a provider switch is only proven by a request reaching the
+    /// daemon that was switched **to** and none reaching the one that was
+    /// switched away from. With a single fixture running, "the prompt went
+    /// somewhere else" and "the prompt went nowhere" look the same.
+    ///
+    /// The llmux url is written into the profile the way `xfx setup llmux`
+    /// writes it, so `/setup llmux` finds this daemon rather than discovering
+    /// whatever is on the developer's own loopback port -- which on a real
+    /// machine is a live daemon and would make the test's answer depend on
+    /// whether it happened to be running.
+    pub fn command_with_both(&self, gateway: &FakeGateway, daemon: &FakeLlmux) -> Command {
+        let dir = self.home.join(".xfx");
+        fs::create_dir_all(&dir).expect("create the profile dir");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+                .expect("tighten the profile dir");
+        }
+        fs::write(
+            dir.join("settings.json"),
+            format!(
+                "{{\"provider\":\"gateway\",\"llmux_url\":{},\"models\":{{\"gateway\":\"zai/glm-5.2\"}}}}",
+                serde_json::to_string(&daemon.url()).expect("a url is serializable")
+            ),
+        )
+        .expect("write the profile");
+        let mut command = self.command();
+        command.env("AI_GATEWAY_API_KEY", TEST_KEY);
+        command.env("XFX_GATEWAY_URL", gateway.chat_url());
+        command
+    }
+
+    /// The settings file this sandbox's profile lives in.
+    pub fn settings_path(&self) -> PathBuf {
+        self.home.join(".xfx").join("settings.json")
+    }
+
+    /// The profile as JSON, or `None` when there is not one.
+    ///
+    /// Read rather than believed: a test that asserted a provider switch from
+    /// the terminal alone would be asserting what the band said, and what the
+    /// band says is exactly what a switch that wrote nothing would also say.
+    pub fn settings(&self) -> Option<serde_json::Value> {
+        let text = fs::read_to_string(self.settings_path()).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
     pub fn sessions_dir(&self) -> PathBuf {
         self.home.join(".xfx").join("sessions")
     }
@@ -140,10 +192,27 @@ impl Sandbox {
 /// `tests/tui.rs` answers it in the band, and two copies of the script would be
 /// two chances for the two surfaces to be tested against different mutations.
 pub fn edit_then_finish() -> Vec<Reply> {
+    edit_then_finish_called(SCRIPTED_CALLS)
+}
+
+/// The call-id prefix [`edit_then_finish`] uses.
+pub const SCRIPTED_CALLS: &str = "call";
+
+/// [`edit_then_finish`] with its two call ids named.
+///
+/// A **second** turn in the same durable session replays the first turn's tool
+/// calls as history, and a call id that appears twice in one conversation is
+/// refused before anything runs -- results correlated by id could not be told
+/// apart. So a scenario that drives the same script twice against one session
+/// (`an_always_answered_at_an_ask_prompt_admits_the_same_change_on_the_next_resume`)
+/// needs distinct ids, and it takes them from here rather than from a second
+/// copy of the script: the whole point of that case is that the *same* mutation
+/// is proposed again.
+pub fn edit_then_finish_called(prefix: &str) -> Vec<Reply> {
     vec![
         Reply::Sse(fake_gateway::sse_body(&[
             fake_gateway::tool_call(
-                "call-0",
+                &format!("{prefix}-0"),
                 "read_file",
                 serde_json::json!({ "path": "notes.txt" }),
             ),
@@ -151,7 +220,7 @@ pub fn edit_then_finish() -> Vec<Reply> {
         ])),
         Reply::Sse(fake_gateway::sse_body(&[
             fake_gateway::tool_call(
-                "call-1",
+                &format!("{prefix}-1"),
                 "edit_file",
                 serde_json::json!({
                     "path": "notes.txt",

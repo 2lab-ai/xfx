@@ -14,8 +14,8 @@
 //! [`crate::agent::TurnMachine`] per prompt, a bundle from the same
 //! [`crate::provider::Bundle::select`], the same [`crate::tools`] registry under the
 //! same [`crate::permission`] authority, and the same
-//! [`crate::session::SessionStore`]. The shell adds a loop, six slash commands,
-//! and an interrupt policy -- not a second way to talk to a model, and not a
+//! [`crate::session::SessionStore`]. The shell adds a loop, the slash commands
+//! of [`SLASH_REGISTRY`], and an interrupt policy -- not a second way to talk to a model, and not a
 //! second place that decides which backend a prompt goes to.
 
 use std::fmt::Write as _;
@@ -25,12 +25,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
-use crate::config::{PermissionMode, RuntimeConfig};
+use crate::config::{Environment, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{safe_one_line, Event, EventSink, TextSink, SANDBOX_LABEL};
+use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
 use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
-use crate::provider::Bundle;
+use crate::provider::{Bundle, ProviderId};
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
 use crate::tools::ToolContext;
 use crate::workspace::{AccessScope, ProjectContext};
@@ -42,6 +42,13 @@ use crate::workspace::{AccessScope, ProjectContext};
 /// textually and requires an `implemented` row in `docs/parity.md` for each
 /// entry, and refuses any name a `deferred` row claims.
 ///
+/// It stays a flat list of **canonical names** even though [`SLASH_REGISTRY`]
+/// below carries the same names with everything else known about them. The two
+/// are pinned to each other at compile time, so the duplication cannot drift,
+/// and the reason for it is the honesty gate: that script must be able to read
+/// the advertised set out of the source *without building it*, so a repository
+/// whose build is broken still cannot hide a broken promise.
+///
 /// The layout is pinned with `rustfmt::skip` because that script matches the
 /// opening line; see [`crate::cli::ADVERTISED_COMMANDS`].
 #[rustfmt::skip]
@@ -50,9 +57,153 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/new",
     "/clear",
     "/model",
+    "/setup",
     "/version",
     "/quit",
 ];
+
+/// One slash command, whole.
+///
+/// What a front end needs to know about a command in one place: what it is
+/// called, what else it answers to, what `/help` says about it, and whether the
+/// rest of the line is an argument or noise. Before this existed each of those
+/// lived in its own `match` -- and a `match` per fact is a fact per place it can
+/// be got wrong, which is exactly how a completion menu ends up offering a name
+/// the parser does not answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlashSpec {
+    /// The command this describes.
+    pub command: Slash,
+    /// The one name `/help` lists it under, leading slash included.
+    pub name: &'static str,
+    /// Every other name that reaches the same command.
+    ///
+    /// An alias is **not** a command of its own: it is metadata on this row, it
+    /// is never printed as a name of its own, and [`SLASH_COMMANDS`] does not
+    /// grow by one when it is added. What it does is make the parser answer it and
+    /// the completion menu offer the command it belongs to.
+    pub aliases: &'static [&'static str],
+    /// The single line `/help` prints beside the name.
+    pub summary: &'static str,
+    /// Whether the rest of the line means anything to it.
+    ///
+    /// The completion menu's reason for existing: completing a command that
+    /// takes an argument leaves the caret past a space, and completing one that
+    /// does not leaves it at the end of the name.
+    pub has_args: bool,
+}
+
+/// Every canonical command, in the order `/help` lists them, with everything
+/// known about each.
+///
+/// **One declaration, three readers**: the parser ([`Slash::parse`]), the help
+/// page ([`help_text`]), and the TUI's completion menu (`crate::tui`'s
+/// `picker`). A name, a summary or an alias that only some of them agreed about
+/// would be a command surface that answers differently depending on where you
+/// asked -- which is the one thing a command surface must never be.
+#[rustfmt::skip]
+pub const SLASH_REGISTRY: &[SlashSpec] = &[
+    SlashSpec {
+        command: Slash::Help,
+        name: "/help",
+        aliases: &[],
+        summary: "list these commands",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::New,
+        name: "/new",
+        aliases: &[],
+        summary: "start a new session; the next prompt begins a fresh conversation",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Clear,
+        name: "/clear",
+        aliases: &[],
+        summary: "clear the screen; the conversation and its session are kept",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Model,
+        name: "/model",
+        aliases: &[],
+        summary: "show the model, or `/model <id>` to use another one from now on",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Setup,
+        name: "/setup",
+        aliases: &[],
+        summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Version,
+        name: "/version",
+        aliases: &[],
+        summary: "show the version this shell was built from",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Quit,
+        name: "/quit",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:457`), and the
+        // only one xfx answers.
+        aliases: &["/exit"],
+        summary: "leave the shell",
+        has_args: false,
+    },
+];
+
+/// The registry row for one command.
+///
+/// Total by construction: the assertion below this proves at **compile time**
+/// that the registry names the same commands as [`SLASH_COMMANDS`], in the
+/// same order, so the scan cannot come back empty for a `Slash` that exists.
+pub fn slash_spec(command: Slash) -> &'static SlashSpec {
+    SLASH_REGISTRY
+        .iter()
+        .find(|spec| spec.command == command)
+        .expect("every command has exactly one registry row")
+}
+
+/// The two declarations agree, or this crate does not build.
+///
+/// A unit test would find the same drift a moment later; a `const` assertion
+/// finds it without running anything, which matters because one of the two
+/// lists is read by a shell script that never builds the crate at all. What it
+/// cannot check is that each row's `command` is the one its name belongs to --
+/// `Slash` has no `const` equality -- and `the_canonical_list_and_the_registry_are_one_order`
+/// is what checks that half.
+const _: () = {
+    assert!(SLASH_REGISTRY.len() == SLASH_COMMANDS.len());
+    let mut index = 0;
+    while index < SLASH_REGISTRY.len() {
+        assert!(same(SLASH_REGISTRY[index].name, SLASH_COMMANDS[index]));
+        index += 1;
+    }
+};
+
+/// Whether two names are the same, in a `const` context.
+///
+/// `str`'s own comparison is not usable in one, and the alternative to eight
+/// lines here is not checking the agreement until something runs.
+const fn same(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut index = 0;
+    while index < left.len() {
+        if left[index] != right[index] {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
 
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
@@ -89,52 +240,48 @@ const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 // what a submitted line is
 // ---------------------------------------------------------------------------
 
-/// One of the six.
+/// One canonical slash command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slash {
     Help,
     New,
     Clear,
     Model,
+    /// Switch the provider a turn talks to, and record the choice.
+    ///
+    /// The only command in the palette that writes to `~/.xfx/settings.json`
+    /// and the only one that reaches the network, which is why it is a command
+    /// of its own rather than an argument of `/model`: `/model` chooses among
+    /// what the *current* provider offers, and this chooses the provider.
+    Setup,
     Version,
     Quit,
 }
 
 impl Slash {
     /// The name as typed.
+    ///
+    /// Through the registry, like everything else that is known about a
+    /// command: this used to be a `match` of its own, and a `match` that agreed
+    /// with `/help`'s list only because someone kept them in step. There is no
+    /// `summary` beside it any more for the same reason -- `/help` reads
+    /// [`SLASH_REGISTRY`] directly, so there is nothing for a second accessor
+    /// to disagree with.
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Help => "/help",
-            Self::New => "/new",
-            Self::Clear => "/clear",
-            Self::Model => "/model",
-            Self::Version => "/version",
-            Self::Quit => "/quit",
-        }
+        slash_spec(self).name
     }
 
-    /// What `/help` says it does.
-    fn summary(self) -> &'static str {
-        match self {
-            Self::Help => "list these commands",
-            Self::New => "start a new session; the next prompt begins a fresh conversation",
-            Self::Clear => "clear the screen; the conversation and its session are kept",
-            Self::Model => "show the model, or `/model <id>` to use another one from now on",
-            Self::Version => "show the version this shell was built from",
-            Self::Quit => "leave the shell",
-        }
-    }
-
+    /// The command `token` names, if it names one.
+    ///
+    /// **The registry is the whole grammar**, canonical names and aliases
+    /// together, so a front end cannot answer a name the help page does not
+    /// know about and cannot refuse one it does. The match stays exact and
+    /// case-sensitive for the reason [`classify`] gives.
     fn parse(token: &str) -> Option<Self> {
-        match token {
-            "/help" => Some(Self::Help),
-            "/new" => Some(Self::New),
-            "/clear" => Some(Self::Clear),
-            "/model" => Some(Self::Model),
-            "/version" => Some(Self::Version),
-            "/quit" => Some(Self::Quit),
-            _ => None,
-        }
+        SLASH_REGISTRY
+            .iter()
+            .find(|spec| spec.name == token || spec.aliases.contains(&token))
+            .map(|spec| spec.command)
     }
 }
 
@@ -143,7 +290,7 @@ impl Slash {
 pub enum Submitted {
     /// Nothing was typed. Nothing happens.
     Blank,
-    /// One of the six, with the rest of the line as its argument.
+    /// One canonical command, with the rest of the line as its argument.
     Command { command: Slash, argument: String },
     /// A line that begins with `/` and names nothing.
     UnknownCommand { token: String },
@@ -191,19 +338,35 @@ pub fn classify(line: &str) -> Submitted {
 /// and a very long one would push the guidance off the end of it. The backticks
 /// are part of the same job: once control characters have become spaces, the
 /// reader still has to be able to see where the quoted text stops.
+///
+/// **The count is derived, never spelled.** It used to read "the six it has",
+/// which was a second declaration of the palette's size beside
+/// [`SLASH_COMMANDS`] -- and a second declaration is a second thing that can
+/// drift. `/setup` made it wrong the moment it was added, in the one sentence
+/// whose whole job is to be exactly true about what the shell has.
 pub fn unknown_command_message(token: &str) -> String {
     format!(
-        "xfx: `{}` is not an xfx command; /help lists the six it has",
-        safe_one_line(token, MAX_QUOTED_COMMAND_BYTES)
+        "xfx: `{}` is not an xfx command; /help lists its {} commands",
+        safe_one_line(token, MAX_QUOTED_COMMAND_BYTES),
+        SLASH_COMMANDS.len()
     )
 }
 
 /// The `/help` page.
+///
+/// **One line per canonical name**, from [`SLASH_REGISTRY`] in its own order,
+/// which is what keeps the page and the parser one declaration. An alias is
+/// said on the line of the command it belongs to rather than on a line of its
+/// own: a page with one line per *name* would be advertising one command per
+/// name, and what the shell has is one command answering to two of them.
 pub fn help_text() -> String {
     let mut out = String::from("xfx shell commands\n");
-    for name in SLASH_COMMANDS {
-        let command = Slash::parse(name).expect("every advertised slash command parses");
-        let _ = writeln!(out, "  {:<9} {}", command.name(), command.summary());
+    for spec in SLASH_REGISTRY {
+        let _ = write!(out, "  {:<9} {}", spec.name, spec.summary);
+        if !spec.aliases.is_empty() {
+            let _ = write!(out, " (also {})", spec.aliases.join(", "));
+        }
+        let _ = writeln!(out);
     }
     out.push_str("Anything else is a prompt. Ctrl-C stops a running turn; Ctrl-D leaves.\n");
     out
@@ -401,12 +564,20 @@ pub async fn run(
         writeln!(diagnostics, "{YOLO_WARNING}")?;
     }
 
+    // Owned from here down, because `/setup` replaces it. Everything below
+    // reads the configuration through this binding, so a provider switch is one
+    // assignment rather than a set of fields kept in step by hand -- and the
+    // value it is assigned comes from re-reading the file that was just
+    // written, never from what the writer believed it wrote.
+    let mut config = config.clone();
+    let env = Environment::from_process();
+
     let cancel = CancelToken::new();
     let interrupts = Arc::new(Interrupts::new(cancel.clone()));
     let signal_target = Arc::clone(&interrupts);
     spawn_interrupt_thread(move || signal_target.signalled());
 
-    let mut selector = ModelSelector::new(config);
+    let mut selector = ModelSelector::new(&config);
     let mut model = selector.model().to_string();
     let mut conversation: Option<Conversation> = None;
     // Built on first use: a shell must open on a machine with no credential --
@@ -414,7 +585,7 @@ pub async fn run(
     // reach for a network endpoint until there is something to send.
     let mut bundle: Option<Bundle> = None;
 
-    write!(io::stdout(), "{}", banner(config, &model))?;
+    write!(io::stdout(), "{}", banner(&config, &model))?;
     io::stdout().flush()?;
 
     loop {
@@ -448,10 +619,21 @@ pub async fn run(
                         model =
                             apply_model(&argument, &mut selector, conversation.as_mut()).await?;
                     }
+                    Slash::Setup => {
+                        model = apply_setup(
+                            &argument,
+                            &env,
+                            &mut config,
+                            &mut selector,
+                            &mut bundle,
+                            &mut conversation,
+                        )
+                        .await?;
+                    }
                     Slash::Clear => {
                         let mut stdout = io::stdout();
                         write!(stdout, "{CLEAR_SCREEN}")?;
-                        write!(stdout, "{}", banner(config, &model))?;
+                        write!(stdout, "{}", banner(&config, &model))?;
                         writeln!(stdout, "{}", kept_line(conversation.as_ref()))?;
                     }
                     Slash::New => {
@@ -468,7 +650,7 @@ pub async fn run(
                 io::stdout().flush()?;
             }
             Submitted::Prompt(prompt) => {
-                let bundle_ref = match ensure_provider(&mut bundle, config, &cancel) {
+                let bundle_ref = match ensure_provider(&mut bundle, &config, &cancel) {
                     Ok(bundle) => bundle,
                     Err(message) => {
                         report_turn_failure(message)?;
@@ -479,7 +661,7 @@ pub async fn run(
                     Some(existing) => existing,
                     slot @ None => match open_conversation(
                         &store,
-                        config,
+                        &config,
                         &model,
                         crate::app::permission_session(mode),
                         &cancel,
@@ -496,7 +678,7 @@ pub async fn run(
                     conversation,
                     &model,
                     prompt,
-                    config,
+                    &config,
                     &interrupts,
                 )
                 .await?;
@@ -636,7 +818,8 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
         CatalogState::Unavailable => {
             writeln!(
                 io::stdout(),
-                "[shell] catalog=unavailable (this provider advertises none)"
+                "{}",
+                crate::provider::model::NO_CATALOG_NOTICE
             )?;
         }
         CatalogState::NotLoaded => {
@@ -672,6 +855,98 @@ fn print_catalog(catalog: &crate::provider::model::CatalogState) -> io::Result<(
         }
     }
     Ok(())
+}
+
+/// What `/setup` says when it was not given a provider it can set up.
+///
+/// Derived from [`ProviderId::ALL`] rather than spelled, for the reason
+/// [`unknown_command_message`] derives its count: a provider added to the build
+/// and not to this sentence would be a provider the shell can switch to and
+/// will not admit to.
+pub fn setup_usage() -> String {
+    let names: Vec<&str> = ProviderId::ALL.iter().map(|id| id.label()).collect();
+    format!(
+        "xfx: /setup takes a provider to set up -- {}",
+        names.join(" or ")
+    )
+}
+
+/// Applies `/setup <provider>`, returning the model in force afterwards.
+///
+/// The command's whole shape is that the **file** decides, not this function:
+/// the transaction writes `~/.xfx/settings.json` through the same
+/// `provider::setup::run` the `xfx setup` subcommand runs -- so the on-disk
+/// bytes are the same bytes -- and then the configuration is **re-read from
+/// that file**. Nothing here assigns a provider, a model or a URL from what the
+/// writer believed it wrote; a layer that outranks the profile still outranks it
+/// after the write, and the report says which one.
+///
+/// The bundle and the conversation go with it. A conversation carried across a
+/// provider switch would replay one provider's history into another's wire
+/// format, and a bundle is a connection to the endpoint that is no longer the
+/// one configured.
+async fn apply_setup(
+    argument: &str,
+    env: &Environment,
+    config: &mut RuntimeConfig,
+    selector: &mut ModelSelector,
+    bundle: &mut Option<Bundle>,
+    conversation: &mut Option<Conversation>,
+) -> io::Result<String> {
+    let Some(provider) = ProviderId::parse(argument) else {
+        writeln!(io::stderr(), "{}", setup_usage())?;
+        return Ok(selector.model().to_string());
+    };
+    let report = match crate::provider::setup::run(config, env, provider, None).await {
+        Ok(report) => report,
+        Err(err) => {
+            // The old provider is kept, whole: nothing was written, so nothing
+            // about this session has changed.
+            writeln!(io::stderr(), "xfx: {err}")?;
+            return Ok(selector.model().to_string());
+        }
+    };
+    let settings_path = report.settings_path.clone();
+    let snapshot = crate::output::SetupSnapshot::new(&report);
+    write!(io::stdout(), "{}", snapshot.render(OutputFormat::Text))?;
+    if let Some(warning) = snapshot.override_warning() {
+        writeln!(io::stderr(), "{warning}")?;
+    }
+    if let Some(warning) = snapshot.credential_warning() {
+        writeln!(io::stderr(), "{}", warning)?;
+    }
+
+    // Re-read, rather than believed. `load_with` is the only thing in the
+    // product that decides what a settings file means, and a shell that set the
+    // fields itself would be a second such thing -- one that cannot see the
+    // environment override the report just warned about.
+    match RuntimeConfig::load_with(env, &config.workspace_root) {
+        Ok(reloaded) => {
+            *config = reloaded;
+            *selector = ModelSelector::new(config);
+            *bundle = None;
+            *conversation = None;
+            let model = selector.model().to_string();
+            writeln!(
+                io::stdout(),
+                "[shell] provider={} model={model}; the next prompt starts a fresh conversation",
+                config.provider.label()
+            )?;
+            Ok(model)
+        }
+        Err(err) => {
+            // The file on disk is the new one and this process cannot read it.
+            // Saying so is the whole of what is left to do: inventing the
+            // provider from the report would be running against a
+            // configuration nothing has parsed.
+            writeln!(
+                io::stderr(),
+                "xfx: {} was written but could not be re-read: {err}",
+                settings_path.display()
+            )?;
+            Ok(selector.model().to_string())
+        }
+    }
 }
 
 /// Applies `/model`, returning the model in force afterwards.
@@ -717,9 +992,13 @@ async fn apply_model(
         } => {
             writeln!(io::stdout(), "[shell] model={model}")?;
             if let Some(reason) = unverified {
+                // The sentence is shared with the band
+                // (`provider::model::unverified_notice`); where it is written
+                // is this surface's own business.
                 writeln!(
                     io::stderr(),
-                    "xfx: {reason}, so this model was not checked against the provider's catalog"
+                    "{}",
+                    crate::provider::model::unverified_notice(&reason)
                 )?;
             }
             // Durable when there is something to record it in: a resumed session must
@@ -759,7 +1038,7 @@ fn kept_line(conversation: Option<&Conversation>) -> String {
 
 /// The version line `/version` prints.
 ///
-/// Visible to the crate because the TUI answers the same six commands from the
+/// Visible to the crate because the TUI answers the same commands from the
 /// same declarations rather than growing a second `/version` that could drift
 /// from this one (`crate::tui::shell`).
 pub(crate) fn version_line() -> String {
@@ -807,11 +1086,12 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_six_commands() {
+    fn the_shell_advertises_exactly_seven_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        assert_eq!(SLASH_COMMANDS.len(), 6);
+        // Seven since `/setup`; `/models` and `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 7);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -867,8 +1147,10 @@ mod tests {
             }
         );
         // No case folding and no prefix guessing: a refusal has to be the same
-        // sentence every time.
-        for near_miss in ["/HELP", "/hel", "/helpme", "/exit"] {
+        // sentence every time. `/exit` is **not** in this list any more: it is
+        // a registry alias for `/quit` and is answered rather than refused
+        // (`exit_is_an_alias_for_quit_and_not_a_canonical_name`).
+        for near_miss in ["/HELP", "/hel", "/helpme", "/exitx"] {
             assert_eq!(
                 classify(near_miss),
                 Submitted::UnknownCommand {
@@ -885,9 +1167,15 @@ mod tests {
             unknown_command_message("/nonesuch"),
             unknown_command_message("/nonesuch")
         );
+        // Exact, and derived: the sentence quotes the registry's own count, so
+        // this expectation moves with the palette instead of pinning a word
+        // that goes stale the next time a command is added.
         assert_eq!(
             unknown_command_message("/nonesuch"),
-            "xfx: `/nonesuch` is not an xfx command; /help lists the six it has"
+            format!(
+                "xfx: `/nonesuch` is not an xfx command; /help lists its {} commands",
+                SLASH_COMMANDS.len()
+            )
         );
     }
 
@@ -915,7 +1203,10 @@ mod tests {
         assert!(message.contains('…'), "{message:?}");
         // The guidance is the part worth reading, so it survives the clip.
         assert!(
-            message.ends_with("/help lists the six it has"),
+            message.ends_with(&format!(
+                "/help lists its {} commands",
+                SLASH_COMMANDS.len()
+            )),
             "{message:?}"
         );
     }
@@ -948,7 +1239,6 @@ mod tests {
             "/status",
             "/login",
             "/logout",
-            "/setup",
             "/permissions",
             "/models",
             "/provider",
@@ -1012,5 +1302,149 @@ mod tests {
             *interrupts.lock(),
             Activity::Idle { consecutive: 0 }
         ));
+    }
+
+    #[test]
+    fn the_notice_a_cancelled_turn_writes_promises_the_exit_this_table_honours() {
+        // `Interrupts::signalled` writes `app::INTERRUPT_NOTICE` on the arm
+        // below, so the sentence is a claim about this state machine. The claim
+        // it may make is the one the next arm keeps -- a press while the turn is
+        // still `Running { cancelled: true }` exits 130 -- and not the one
+        // `end_turn` takes away: from `Idle` the next press offers a fresh
+        // prompt line, and it takes two of them to leave.
+        //
+        // Driven through `signalled` rather than by writing the state, so the
+        // arm that writes the notice is the arm that is measured. The exiting
+        // arm is not called: it is `process::exit`, which a test cannot survive,
+        // so what is asserted is the state that reaches it.
+        let cancel = CancelToken::new();
+        let interrupts = Interrupts::new(cancel.clone());
+        interrupts.begin_turn();
+
+        interrupts.signalled();
+
+        assert!(cancel.is_cancelled(), "the turn was not asked to stop");
+        assert!(
+            matches!(*interrupts.lock(), Activity::Running { cancelled: true }),
+            "the notice was written from a state whose next press does not exit"
+        );
+        interrupts.end_turn();
+        assert!(
+            matches!(*interrupts.lock(), Activity::Idle { consecutive: 0 }),
+            "a turn that ended left the exiting arm armed"
+        );
+        assert!(
+            crate::app::INTERRUPT_NOTICE.contains("before it stops"),
+            "the notice promises an exit this table does not honour once the \
+             turn has ended: {}",
+            crate::app::INTERRUPT_NOTICE
+        );
+    }
+
+    #[test]
+    fn the_canonical_list_and_the_registry_are_one_order() {
+        assert_eq!(SLASH_REGISTRY.len(), SLASH_COMMANDS.len());
+        for (spec, name) in SLASH_REGISTRY.iter().zip(SLASH_COMMANDS) {
+            assert_eq!(spec.name, *name);
+            assert_eq!(spec.command.name(), *name);
+        }
+    }
+
+    #[test]
+    fn every_canonical_name_has_exactly_one_spec() {
+        for name in SLASH_COMMANDS {
+            let command = Slash::parse(name).expect("a canonical name parses");
+            let found: Vec<&SlashSpec> = SLASH_REGISTRY
+                .iter()
+                .filter(|spec| spec.command == command)
+                .collect();
+            assert_eq!(found.len(), 1, "{name}");
+            assert_eq!(slash_spec(command).name, *name);
+        }
+    }
+
+    #[test]
+    fn exit_is_an_alias_for_quit_and_not_a_canonical_name() {
+        assert_eq!(
+            classify("/exit"),
+            Submitted::Command {
+                command: Slash::Quit,
+                argument: String::new()
+            }
+        );
+        assert!(!SLASH_COMMANDS.contains(&"/exit"));
+        assert_eq!(slash_spec(Slash::Quit).aliases, &["/exit"]);
+        assert_eq!(Slash::Quit.name(), "/quit");
+    }
+
+    #[test]
+    fn help_distinguishes_an_alias_without_advertising_another_command() {
+        let help = help_text();
+        assert!(help.contains("/exit"), "{help}");
+        assert_eq!(help.lines().count(), SLASH_COMMANDS.len() + 2, "{help}");
+        let named: Vec<&str> = help
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|word| word.starts_with('/'))
+            .collect();
+        assert_eq!(named, SLASH_COMMANDS.to_vec(), "{help}");
+    }
+
+    #[test]
+    fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
+        // The two that mean something by the rest of the line: `/model <id>`
+        // picks among what a provider offers, `/setup <provider>` picks the
+        // provider. Every other name is the whole command.
+        for spec in SLASH_REGISTRY {
+            let takes_one = matches!(spec.name, "/model" | "/setup");
+            assert_eq!(spec.has_args, takes_one, "{}", spec.name);
+        }
+    }
+
+    #[test]
+    fn setup_is_the_seventh_canonical_command() {
+        // Task 4's one new name. It is canonical rather than an alias: it takes
+        // an argument, it has a handler of its own on both surfaces, and it is
+        // the only command in the palette that can change which provider a turn
+        // talks to.
+        assert!(SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+        assert_eq!(Slash::parse("/setup"), Some(Slash::Setup));
+        assert_eq!(Slash::Setup.name(), "/setup");
+        assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
+        assert!(help_text().contains("/setup"), "{}", help_text());
+    }
+
+    #[test]
+    fn the_standalone_catalog_commands_are_still_deferred() {
+        // `/setup` is the *only* name this task adds. `/models` and `/provider`
+        // are upstream commands xfx does not answer, and the catalog browser
+        // this task builds is reached by bare `/model` rather than by either of
+        // them -- so advertising one would be advertising a surface that is not
+        // there.
+        for absent in ["/models", "/provider"] {
+            assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
+            assert_eq!(Slash::parse(absent), None, "{absent} parses");
+            assert!(!help_text().contains(absent), "help advertises {absent}");
+        }
+    }
+
+    #[test]
+    fn the_unknown_command_refusal_counts_the_registry_rather_than_a_literal() {
+        // The refusal used to say "the six it has" as a literal, which is a
+        // second declaration of the palette's size and therefore a second thing
+        // that can drift out of step with it. It is derived now: a name added
+        // to the registry changes this sentence without anybody editing it.
+        let refusal = unknown_command_message("/nonesuch");
+        assert!(
+            refusal.contains(&SLASH_COMMANDS.len().to_string()),
+            "the refusal does not carry the registry's own count: {refusal}"
+        );
+        assert!(
+            !refusal.contains("six"),
+            "the refusal still spells a count as a literal word: {refusal}"
+        );
+        // Still one bounded, sanitized line: deriving the count must not have
+        // moved the guidance off the end of it.
+        assert!(refusal.ends_with("commands"), "{refusal}");
     }
 }

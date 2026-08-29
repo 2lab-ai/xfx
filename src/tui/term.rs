@@ -26,30 +26,43 @@ use rustix::termios::{
 
 /// The modes the TUI turns on when it takes the terminal.
 ///
-/// modifyOtherKeys, the kitty keyboard push, bracketed paste, and autowrap off
-/// (`terminal.zig:4-13`). Mouse reporting is deliberately absent: the wheel
-/// stays the terminal's own scrollback (`terminal.zig:135-142`).
-pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l";
+/// modifyOtherKeys, the kitty keyboard push, bracketed paste, autowrap off
+/// (`terminal.zig:4-13`) and `XTWINOPS 22 ; 2` -- the push of the terminal's
+/// own **window title** onto its title stack, so the one the band sets
+/// (`OSC 2`, `super::frame::title`) is borrowed rather than taken. The window
+/// title only, rather than the icon name with it, because that is the only one
+/// xfx sets: a push that claimed more than the pop gives back is a stack entry
+/// left behind on every exit.
+///
+/// The push is the **last** thing in the mode set and the pop is the first
+/// thing in every restore below, so the title a session sets exists only
+/// between the two -- and a terminal that models no title stack ignores both
+/// and keeps whatever its user gave it.
+///
+/// Mouse reporting is deliberately absent: the wheel stays the terminal's own
+/// scrollback (`terminal.zig:135-142`).
+pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t";
 
 /// The same, without the kitty keyboard push, which breaks key input under
 /// tmux (`terminal.zig:29-34`).
-pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l";
+pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[22;2t";
 
 /// The normal exit's restore sequence, with **no** `1049l`: the main surface
 /// was never on the alternate screen (`app_lifecycle.zig:39-41`).
-pub(crate) const RESTORE: &str = "\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE: &str = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
-pub(crate) const RESTORE_TMUX: &str = "\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
 /// not own was on screen (`app_lifecycle.zig:36-38`).
 pub(crate) const ABNORMAL_RESTORE: &str =
-    "\x1b[?1049l\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The abnormal restore for tmux.
-pub(crate) const ABNORMAL_RESTORE_TMUX: &str = "\x1b[?1049l\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const ABNORMAL_RESTORE_TMUX: &str =
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
 
 /// The dimensions a terminal that will not answer is treated as having.
 const DEFAULT_ROWS: u16 = 24;
@@ -158,18 +171,30 @@ fn restore_attrs(owned: &Owned) -> io::Result<()> {
 // recorded, and the two belong to one another.
 pub(crate) fn restore_pair() {
     let Some(owned) = OWNED.get() else { return };
-    let bytes = if TMUX.load(Ordering::Acquire) {
-        ABNORMAL_RESTORE_TMUX
-    } else {
-        ABNORMAL_RESTORE
-    }
-    .as_bytes();
+    let bytes = abnormal_restore(TMUX.load(Ordering::Acquire)).as_bytes();
     // SAFETY: `write` is async-signal-safe, the fd was recorded at entry and is
     // owned by the process for its whole life, and the buffer is 'static.
     unsafe {
         libc::write(owned.output, bytes.as_ptr().cast(), bytes.len());
     }
     let _ = restore_attrs(owned);
+}
+
+/// The bytes a panic and both death signals write, whichever plane was on the
+/// screen.
+///
+/// One function rather than a branch at each of the three call sites, because
+/// the property those sites share is the whole of what makes them correct: an
+/// exit that does not know what is on the screen may not ask, so it leads with
+/// `1049l` unconditionally. An approval screen that was up when the process died
+/// is therefore given back by exactly the same bytes as a session that never
+/// took one, and neither path has to consult a state a handler may not read.
+pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
+    if tmux {
+        ABNORMAL_RESTORE_TMUX
+    } else {
+        ABNORMAL_RESTORE
+    }
 }
 
 /// The normal exit, in upstream's order (`app_lifecycle.zig:578-593`): write the
@@ -186,7 +211,17 @@ pub(crate) fn restore_pair() {
 /// Every step is attempted even when an earlier one failed, and the first error
 /// is the one returned. A terminal left raw is worse than an unreported write
 /// error, so there is no `?` between here and the end of the function.
-pub(crate) fn shutdown(band_top: Option<u16>) -> io::Result<()> {
+/// `on_alternate` is the plane the terminal is still on, asked of the band
+/// rather than of the session ([`super::frame::Band::on_alternate`]): what has
+/// to be given back is what was really written, and a session that has released
+/// the plane in its own state may still have those bytes on the screen. A
+/// planned exit ordinarily finds this `false` -- the loop gives the plane back
+/// in one frame the instant the question is answered -- and this is the
+/// backstop for an exit that got out some other way. It is **conditional**,
+/// unlike [`abnormal_restore`]: a `1049l` written by a session that never took
+/// the alternate buffer swaps in, on a terminal that models one, a screen its
+/// user was not looking at.
+pub(crate) fn shutdown(band_top: Option<u16>, on_alternate: bool) -> io::Result<()> {
     let Some(owned) = OWNED.get() else {
         return Ok(());
     };
@@ -194,7 +229,13 @@ pub(crate) fn shutdown(band_top: Option<u16>) -> io::Result<()> {
     // rather than the raw fd because this path may take a lock and buffer,
     // which the signal path may not.
     let mut out = io::stdout().lock();
-    shutdown_with(&mut out, owned, TMUX.load(Ordering::Acquire), band_top)
+    shutdown_with(
+        &mut out,
+        owned,
+        TMUX.load(Ordering::Acquire),
+        band_top,
+        on_alternate,
+    )
 }
 
 /// The exit above, against an explicit screen and an explicit ownership record,
@@ -205,9 +246,15 @@ fn shutdown_with(
     owned: &Owned,
     tmux: bool,
     band_top: Option<u16>,
+    on_alternate: bool,
 ) -> io::Result<()> {
     let restore = if tmux { RESTORE_TMUX } else { RESTORE };
-    let screen = write!(out, "{restore}").and_then(|()| out.flush());
+    // The plane first, and everything else after it. Every sequence in
+    // `RESTORE` is about the surface the user is left looking at -- the title
+    // popped, the autowrap put back, the cursor shown -- so one written while
+    // the alternate buffer is still up is one restored for the wrong screen.
+    let leave = if on_alternate { "\x1b[?1049l" } else { "" };
+    let screen = write!(out, "{leave}{restore}").and_then(|()| out.flush());
     let attrs = restore_attrs(owned);
     let cleanup = match band_top {
         // Leaves the transcript in scrollback and the cursor on a clean line.
@@ -217,9 +264,11 @@ fn shutdown_with(
     screen.and(attrs).and(cleanup)
 }
 
-/// The terminal's dimensions, or 24x80 when it will not say. A terminal query,
-/// so it lives here; `layout::solve` takes rows and columns as arguments and
-/// stays pure, which is what makes its unit tests possible.
+/// The terminal's dimensions, or 24x80 when it will not say. **The reading a
+/// launch takes**; a running session takes [`reported_window_size`] instead,
+/// which keeps a refusal a refusal. A terminal query, so it lives here;
+/// `layout::solve` takes rows and columns as arguments and stays pure, which
+/// is what makes its unit tests possible.
 ///
 /// **Asked of standard output, and that is the ruling rather than the
 /// accident.** This module keeps the two descriptors apart because a redirected
@@ -247,7 +296,31 @@ pub(crate) fn window_size() -> (u16, u16) {
     size_or_default(tcgetwinsize(io::stdout()))
 }
 
-/// The dimensions a `TIOCGWINSZ` answer means.
+/// The terminal's dimensions as it reports them, or `(0, 0)` when it reports
+/// nothing usable. **The reading a running session takes**, and the one
+/// [`window_size`] must not be used for.
+///
+/// The same ioctl on the same descriptor, and a different question, because the
+/// caller is in a different position. A **launch** has no band and has to solve
+/// one from some number, so a terminal that will not say its size is answered
+/// with 24x80: a guess is the only thing that lets a session start at all. A
+/// **running** session already has a band on a screen it measured, so the same
+/// refusal is not a screen to move to -- it is a reading to ignore. Answering
+/// it with the startup fallback would take a 40x132 session, whose terminal
+/// declined to answer a single `TIOCGWINSZ` (or which is on a pty whose size
+/// was never set, which answers `0x0` *successfully*), and move its band onto
+/// rows 22 to 24 of a screen that is nothing of the kind.
+///
+/// `(0, 0)` rather than an `Option` because that is what the one caller means
+/// by it and what its own contract already refuses: `super::shell::Shell::resize`
+/// answers a zero in either dimension with `Resize::Unchanged`, so "the
+/// terminal said nothing" and "the terminal said nothing new" arrive at the
+/// same place by the same door.
+pub(crate) fn reported_window_size() -> (u16, u16) {
+    size_as_reported(tcgetwinsize(io::stdout()))
+}
+
+/// The dimensions a `TIOCGWINSZ` answer means **at launch**.
 ///
 /// A zero is treated exactly like a refusal: a pty whose size was never set
 /// answers `0x0` successfully, and a layout solved against zero rows would
@@ -256,6 +329,18 @@ fn size_or_default(size: Result<Winsize, rustix::io::Errno>) -> (u16, u16) {
     match size {
         Ok(size) if size.ws_row > 0 && size.ws_col > 0 => (size.ws_row, size.ws_col),
         _ => (DEFAULT_ROWS, DEFAULT_COLS),
+    }
+}
+
+/// The same answer read **after** launch: the size, or nothing at all.
+///
+/// A zero and a refusal are one fact here too, and it is the opposite fact:
+/// neither says anything about the screen the band is already on, so neither
+/// may move it. See [`reported_window_size`].
+fn size_as_reported(size: Result<Winsize, rustix::io::Errno>) -> (u16, u16) {
+    match size {
+        Ok(size) if size.ws_row > 0 && size.ws_col > 0 => (size.ws_row, size.ws_col),
+        _ => (0, 0),
     }
 }
 
@@ -450,24 +535,82 @@ mod tests {
         // Spelled out independently of the declarations, so this pins the whole
         // sequence -- every escape, and the order they arrive in -- rather than
         // comparing a constant with itself.
-        assert_eq!(MODE_SET, "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l");
-        assert_eq!(MODE_SET_TMUX, "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l");
+        assert_eq!(
+            MODE_SET,
+            "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+        );
+        assert_eq!(
+            MODE_SET_TMUX,
+            "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+        );
         assert_eq!(
             RESTORE,
-            "\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE,
-            "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE_TMUX,
-            "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
         );
+    }
+
+    /// `XTWINOPS 22 ; 2` and `23 ; 2`, spelled here rather than imported for the
+    /// reason every needle in this module's tests is: a test that read the
+    /// constant it is checking would pass for whatever the module declared.
+    const PUSH_TITLE: &str = "\u{1b}[22;2t";
+    const POP_TITLE: &str = "\u{1b}[23;2t";
+
+    #[test]
+    fn every_session_pushes_the_terminals_title_once_and_pops_it_once() {
+        // The title is the user's, borrowed. A push without a pop leaves `xfx`
+        // on the window for the rest of that terminal's life; a pop without a
+        // push takes away a title xfx never set, and a stack entry that belongs
+        // to whatever ran before it.
+        for set in [MODE_SET, MODE_SET_TMUX] {
+            assert_eq!(set.matches(PUSH_TITLE).count(), 1, "{set:?}");
+            assert!(
+                !set.contains(POP_TITLE),
+                "a mode set popped a title: {set:?}"
+            );
+        }
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert_eq!(restore.matches(POP_TITLE).count(), 1, "{restore:?}");
+            assert!(
+                !restore.contains(PUSH_TITLE),
+                "a restore pushed a title: {restore:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_title_is_given_back_before_anything_else_a_restore_does() {
+        // Ordering, because one of these restores is written from a signal
+        // handler onto a terminal that may be about to lose its process: the
+        // sooner the user's own title is back, the smaller the window in which
+        // a second failure leaves it as xfx's.
+        for restore in [RESTORE, RESTORE_TMUX] {
+            assert!(restore.starts_with(POP_TITLE), "{restore:?}");
+        }
+        for restore in [ABNORMAL_RESTORE, ABNORMAL_RESTORE_TMUX] {
+            // Behind the defensive `1049l` and nothing else: a title popped on
+            // the alternate screen would be popped for the wrong surface.
+            assert!(
+                restore.starts_with(&format!("\u{1b}[?1049l{POP_TITLE}")),
+                "{restore:?}"
+            );
+        }
     }
 
     #[test]
@@ -554,7 +697,7 @@ mod tests {
         enter_raw(input.as_fd(), &saved).expect("enter raw mode");
 
         let owned = owned_over(&input, &input, saved.clone());
-        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21))
+        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21), false)
             .expect_err("a screen that refuses every write must be reported");
 
         assert_eq!(err.kind(), io::ErrorKind::BrokenPipe, "{err}");
@@ -573,7 +716,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, None).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, RESTORE, "the exit wrote more than the restore");
@@ -596,7 +739,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, Some(21)).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, Some(21), false).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, format!("{RESTORE}\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n"));
@@ -609,12 +752,126 @@ mod tests {
         let owned = owned_over(&input, &input, saved);
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, true, None).expect("shut down");
+        shutdown_with(&mut screen, &owned, true, None, false).expect("shut down");
 
         assert_eq!(
             String::from_utf8(screen).expect("the screen bytes are utf-8"),
             RESTORE_TMUX
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the plane an exit may still be on
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_normal_exit_from_the_alternate_screen_leaves_it_before_it_restores_anything() {
+        // The ordinary restore carries no `1049l`, because the main surface
+        // never takes the alternate screen. An approval that did take it is the
+        // one case that has to be given back, and it has to be given back
+        // *first*: every sequence in `RESTORE` is about the plane the user is
+        // left looking at, and a title popped or an autowrap restored on the
+        // alternate buffer is one restored for the wrong surface.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = Vec::new();
+        shutdown_with(&mut screen, &owned, false, Some(22), true).expect("shut down");
+        let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
+
+        assert!(
+            text.starts_with("\u{1b}[?1049l"),
+            "the exit restored the terminal on a plane it had not given back: {text:?}"
+        );
+        assert_eq!(
+            text.matches("\u{1b}[?1049l").count(),
+            1,
+            "the exit left the alternate screen twice: {text:?}"
+        );
+        assert_eq!(
+            text,
+            format!("\u{1b}[?1049l{RESTORE}\u{1b}[22;1H\u{1b}[J\u{1b}[?25h\n"),
+            "the exit wrote something other than the leave and the ordinary restore"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "the terminal is still raw"
+        );
+    }
+
+    #[test]
+    fn an_exit_that_never_took_the_other_plane_still_leaves_nothing_to_give_back() {
+        // The other half, and the one a defensive `1049l` on every exit would
+        // break: a session that stayed on the normal buffer must not reset an
+        // alternate screen it never entered -- on a terminal that models one,
+        // that swaps in a buffer the user was not looking at.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        let owned = owned_over(&input, &input, saved);
+
+        let mut screen = Vec::new();
+        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
+
+        assert_eq!(
+            String::from_utf8(screen).expect("the screen bytes are utf-8"),
+            RESTORE
+        );
+    }
+
+    #[test]
+    fn ui_panic_while_alternate_is_owned_restores_ownership_and_terminal_state() {
+        // A panic and both death signals leave through the same pair
+        // ([`restore_pair`]): the abnormal restore, which leads with `1049l`
+        // whichever plane was on the screen, and then the captured `termios`.
+        // The sequence is defensive by design -- an exit that does not know
+        // what is on the screen may not ask -- so an approval screen that was
+        // up when the process died is given back by exactly the same bytes.
+        for tmux in [false, true] {
+            let restore = abnormal_restore(tmux);
+            assert!(
+                restore.starts_with("\u{1b}[?1049l"),
+                "the abnormal restore does not leave the alternate screen first: {restore:?}"
+            );
+            assert!(
+                restore.ends_with("\u{1b}[?25h"),
+                "the abnormal restore does not give the cursor back: {restore:?}"
+            );
+        }
+
+        // And the line discipline with it, on the descriptor it was taken from.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        assert_ne!(
+            live(input.as_fd()),
+            words(&saved),
+            "raw mode changed nothing, so the restore proves nothing"
+        );
+        restore_attrs(&owned_over(&input, &input, saved.clone())).expect("restore");
+        assert_eq!(live(input.as_fd()), words(&saved));
+    }
+
+    #[test]
+    fn sigterm_and_sighup_while_alternate_is_owned_restore_ownership_and_terminal_state() {
+        // Each signal separately, and both through the one pair a handler may
+        // use. This is the seam; `tests/tui.rs` drives the two signals at a real
+        // process that really is on the alternate screen.
+        assert_eq!(
+            abnormal_restore(false),
+            ABNORMAL_RESTORE,
+            "a handler would write something other than the abnormal restore"
+        );
+        assert_eq!(abnormal_restore(true), ABNORMAL_RESTORE_TMUX);
+        for restore in [abnormal_restore(false), abnormal_restore(true)] {
+            assert_eq!(
+                restore.matches("\u{1b}[?1049l").count(),
+                1,
+                "a handler leaves the alternate screen more than once: {restore:?}"
+            );
+        }
     }
 
     #[test]
@@ -652,5 +909,89 @@ mod tests {
             })),
             (40, 132)
         );
+    }
+
+    #[test]
+    fn a_reported_size_keeps_a_zero_rather_than_inventing_a_screen() {
+        // The post-launch reading. A pty whose size was never set answers `0x0`
+        // successfully, and a running session already has a band on a screen of
+        // a known size -- so a zero is *no new information*, and the caller
+        // that gets it leaves the band exactly where it is.
+        for (rows, cols) in [(0, 80), (24, 0), (0, 0)] {
+            assert_eq!(
+                size_as_reported(Ok(Winsize {
+                    ws_row: rows,
+                    ws_col: cols,
+                    ws_xpixel: 0,
+                    ws_ypixel: 0,
+                })),
+                (0, 0),
+                "{rows}x{cols} was answered with a screen the terminal never described"
+            );
+        }
+    }
+
+    #[test]
+    fn a_terminal_that_will_not_say_its_size_after_launch_says_nothing_at_all() {
+        // A refusal and a zero are the same fact on this side of the launch,
+        // and it is not the fact they are at launch: there the band has to be
+        // solved from *something*, here there is already one.
+        assert_eq!(size_as_reported(Err(rustix::io::Errno::NOTTY)), (0, 0));
+        assert_eq!(size_as_reported(Err(rustix::io::Errno::BADF)), (0, 0));
+    }
+
+    #[test]
+    fn a_reported_size_a_terminal_really_gives_is_taken_at_its_word() {
+        assert_eq!(
+            size_as_reported(Ok(Winsize {
+                ws_row: 40,
+                ws_col: 132,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            })),
+            (40, 132)
+        );
+    }
+
+    #[test]
+    fn the_launch_and_the_running_session_read_the_same_refusal_differently() {
+        // The whole reason there are two functions, stated as the one thing
+        // that must never become true of them: that they agree. A launch has no
+        // band and must solve one from a number, so a refusal is 24x80 there; a
+        // running session has a band on a screen it measured, so a refusal
+        // there is a reading to ignore rather than a screen to move to. One
+        // function serving both would move a 40x132 session's band onto rows
+        // 22-24 because its terminal declined to answer once.
+        let refused: [Result<Winsize, rustix::io::Errno>; 2] = [
+            Err(rustix::io::Errno::NOTTY),
+            Ok(Winsize {
+                ws_row: 0,
+                ws_col: 0,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            }),
+        ];
+        for reading in refused {
+            assert_eq!(size_or_default(reading), (DEFAULT_ROWS, DEFAULT_COLS));
+            assert_eq!(size_as_reported(reading), (0, 0));
+            assert_ne!(
+                size_or_default(reading),
+                size_as_reported(reading),
+                "the launch fallback and the post-launch reading became one answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_size_the_terminal_gives_means_the_same_thing_to_both_of_them() {
+        // The other side of it: the two differ **only** on a reading that says
+        // nothing. A session whose window really is 40x132 is told so by either.
+        let real = Ok(Winsize {
+            ws_row: 40,
+            ws_col: 132,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        });
+        assert_eq!(size_or_default(real), size_as_reported(real));
     }
 }

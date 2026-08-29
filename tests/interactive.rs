@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
-use support::sandbox::{edit_then_finish, with_notes, Sandbox, TEST_KEY};
+use support::sandbox::{edit_then_finish, edit_then_finish_called, with_notes, Sandbox, TEST_KEY};
 
 /// The prompt the shell writes before reading a line.
 const PROMPT: &str = "> ";
@@ -253,27 +253,36 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 }
 
 // ---------------------------------------------------------------------------
-// the six slash commands
+// the canonical slash commands
 // ---------------------------------------------------------------------------
 
 #[test]
-fn slash_help_lists_exactly_the_six_commands() {
+fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/help");
     let text = session.wait_for_count(PROMPT, 2);
-    for command in ["/help", "/new", "/clear", "/model", "/version", "/quit"] {
+    // The list is read out of the binary's own declaration rather than spelled
+    // here: a name added to `SLASH_COMMANDS` and forgotten by `/help` is what
+    // this is for, and a copy of the list in the test could be forgotten in the
+    // same edit.
+    for command in xfx::interactive::SLASH_COMMANDS {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
+    assert!(
+        text.contains("/setup"),
+        "the seventh canonical command is not advertised: {text}"
+    );
     // Advertisement is a promise here too: no deferred upstream slash command
-    // may appear.
+    // may appear. `/setup` left this list when it stopped being deferred;
+    // `/models` and `/provider` did not, because the catalog browser is reached
+    // by a bare `/model` rather than by a command of its own.
     for absent in [
         "/resume",
         "/status",
         "/login",
-        "/setup",
         "/permissions",
         "/models",
         "/provider",
@@ -548,9 +557,15 @@ fn an_unknown_slash_command_is_refused_with_the_same_words_every_time() {
     let refusals = diagnostics(&text);
     assert_eq!(refusals.len(), 2, "{text}");
     assert_eq!(refusals[0], refusals[1], "the refusal is not deterministic");
+    // Derived, not spelled: the sentence quotes the registry's own count, so a
+    // command added to the palette cannot leave this line saying a number the
+    // shell no longer has.
     assert_eq!(
         refusals[0],
-        "xfx: `/nonesuch` is not an xfx command; /help lists the six it has"
+        format!(
+            "xfx: `/nonesuch` is not an xfx command; /help lists its {} commands",
+            xfx::interactive::SLASH_COMMANDS.len()
+        )
     );
 
     // A slash command that is not one is never sent to a model: there is no
@@ -590,7 +605,10 @@ fn an_unknown_command_cannot_paint_on_the_terminal_through_the_refusal() {
         refusal.len()
     );
     assert!(
-        refusal.ends_with("/help lists the six it has"),
+        refusal.ends_with(&format!(
+            "/help lists its {} commands",
+            xfx::interactive::SLASH_COMMANDS.len()
+        )),
         "the guidance was pushed off the line: {refusal:?}"
     );
     // The shell is unharmed and still answering.
@@ -1039,6 +1057,123 @@ fn an_always_answered_on_the_terminal_is_written_where_a_resume_will_read_it() {
             .expect("canonicalize")
             .to_string_lossy()
     );
+}
+
+/// Every `permission_grant_recorded` frame in the sandbox's session logs.
+fn recorded_grants(sandbox: &Sandbox) -> Vec<Value> {
+    recorded_frames(sandbox)
+        .into_iter()
+        .filter(|frame| frame["event"]["kind"] == "permission_grant_recorded")
+        .collect()
+}
+
+#[test]
+fn an_always_answered_at_an_ask_prompt_admits_the_same_change_on_the_next_resume() {
+    // **`xfx ask`'s own path**, not the shell's. `app::ask` builds the durable
+    // permission session, restores what a past turn recorded, and records what
+    // this one collected; each of those three steps is what makes the sentence
+    // the prompt sells -- "and in every later `xfx ask --resume-id <id>` of this
+    // saved session" -- true. Until now the command that makes that promise was
+    // only pinned by unit tests either side of it and by suites that *seeded* a
+    // grant into the log by hand, so nothing proved that an "always" a person
+    // really typed at a real terminal ends up where the next `--resume-id`
+    // reads it.
+    //
+    // It runs here rather than in `tests/sessions.rs` because it needs the one
+    // thing that file has no machinery for: `TtyPrompter` exists only when
+    // stdin and stderr are both terminals, so the question can be asked at all
+    // only on a pty.
+    //
+    // Two processes, and the second one is the assertion. Both are driven on a
+    // real terminal, so the second one *could* be asked -- a resume that had
+    // lost the grant would print the question rather than proceeding, and the
+    // absence asserted at the end is therefore an absence from a run that had
+    // every means of producing it.
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let target = fs::canonicalize(&notes)
+        .expect("canonicalize")
+        .to_string_lossy()
+        .into_owned();
+
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "fix the notes"]);
+    let mut first = Session::spawn(&pty, command);
+
+    let asked = first.wait_for("xfx wants to");
+    assert!(asked.contains("[a] always"), "{asked}");
+    first.type_line("a");
+    first.wait_for("the edit is done");
+    assert_eq!(first.wait_exit().code(), Some(0));
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "beta\n",
+        "the approved edit did not land"
+    );
+    drop(gateway);
+
+    // One grant, naming the file by absolute path -- the key the next run will
+    // match on, rather than a count.
+    let granted = recorded_grants(&sandbox);
+    assert_eq!(
+        granted.len(),
+        1,
+        "`ask`'s own `always` is not in the session log, so it ended with the \
+         process that collected it: {granted:?}"
+    );
+    assert_eq!(granted[0]["event"]["tool"], "edit_file");
+    assert_eq!(granted[0]["event"]["target"], target);
+
+    // And the id the question promised the approval would survive into is the
+    // id this test resumes with. Read off the terminal rather than from the
+    // store, so the promise being kept is the promise that was *made*.
+    let session_id = sandbox
+        .session_ids()
+        .into_iter()
+        .next()
+        .expect("one recorded session");
+    assert!(
+        first
+            .settled_text()
+            .contains(&format!("xfx ask --resume-id {session_id}")),
+        "the prompt did not name the session the grant would survive into"
+    );
+
+    // The same change again, in a new process, on a terminal that can ask.
+    fs::write(&notes, "alpha\n").expect("put the fixture back");
+    // Distinct call ids, because the resumed turn replays the first one's tool
+    // calls as history and one id may name exactly one call in a conversation.
+    // The *mutation* is identical, which is the claim; only the correlation
+    // handles differ.
+    let resumed_gateway = FakeGateway::start(edit_then_finish_called("resumed"));
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&resumed_gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.args(["ask", "--resume-id", &session_id, "fix the notes again"]);
+    let mut second = Session::spawn(&pty, command);
+    second.wait_for("the edit is done");
+    assert_eq!(second.wait_exit().code(), Some(0));
+
+    assert_eq!(
+        fs::read_to_string(&notes).expect("read the file"),
+        "beta\n",
+        "the restored grant did not admit the same change"
+    );
+    let text = second.settled_text();
+    assert!(
+        !text.contains("xfx wants to"),
+        "the resume asked a question the user had already answered: {text:?}"
+    );
+    assert_eq!(
+        recorded_grants(&sandbox).len(),
+        1,
+        "the restored grant was written down a second time, so a resumed \
+         session's log grows one frame per resume"
+    );
+    drop(resumed_gateway);
 }
 
 /// Every frame of every session log in the sandbox, oldest first.

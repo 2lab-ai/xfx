@@ -25,11 +25,44 @@
 //! * **Cells, not bytes and not `char`s.** A terminal paints cells, so a wide
 //!   glyph costs two and never straddles the margin. Control characters cost
 //!   none: they are the escape bytes and line breaks that live *in* the text
-//!   and paint nothing. Phase 1 does not expand a tab -- it is a control
-//!   character here like any other, and nothing in this phase writes one.
+//!   and paint nothing. The **tab** is the exception, and item 16 is why: a
+//!   paste is the one way a tab reaches the composer, and a character measured
+//!   at no cells but written into the text puts the caret a column away from
+//!   the glyph it is supposed to sit on. It measures [`TAB_WIDTH`] here and is
+//!   painted as that many spaces ([`expand_tabs`], `super::frame::row_text`),
+//!   so measure and paint are one number in two places rather than two answers.
+
+use std::borrow::Cow;
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+/// How many cells a tab paints.
+///
+/// **A fixed run, not a tab stop.** Every measurement here is of one cluster at
+/// a time ([`width`]), so a width that depended on the column the tab happens
+/// to be in could not be expressed -- and a wrap that answered "it depends"
+/// would disagree with the painter on any row it broke. Four rather than eight
+/// because the composer is a band a few rows tall inside a gutter: one
+/// character taking a tenth of an eighty-column row is indentation that has
+/// eaten the line it indents.
+pub(crate) const TAB_WIDTH: u16 = 4;
+
+/// `text` with every tab replaced by the cells it measures.
+///
+/// The painter's half of [`TAB_WIDTH`]: the composer hands its rows over
+/// already expanded, so what reaches the terminal is spaces the wrap has
+/// already counted rather than a control the terminal would obey with a tab
+/// stop of its own.
+///
+/// Borrowed when there is no tab, which is every row of nearly every session:
+/// the allocation belongs to the pasted indentation that needs it.
+pub(crate) fn expand_tabs(text: &str) -> Cow<'_, str> {
+    if !text.contains('\t') {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(text.replace('\t', &" ".repeat(usize::from(TAB_WIDTH))))
+}
 
 /// One visual row: the half-open byte range of the text it shows, and the
 /// cells it takes.
@@ -281,7 +314,13 @@ fn cluster_width(cluster: &str) -> u16 {
 }
 
 /// One cluster's cells: none when it paints nothing.
+///
+/// The tab is the one control with a width, because it is the one control a
+/// draft may hold and the painter draws it ([`TAB_WIDTH`]).
 fn cluster_cells(cluster: &str) -> usize {
+    if cluster == "\t" {
+        return usize::from(TAB_WIDTH);
+    }
     if cluster.chars().all(char::is_control) {
         return 0;
     }
@@ -481,6 +520,41 @@ mod tests {
         assert_eq!(width("\r\n"), 0);
         assert_eq!(width(""), 0);
         assert_eq!(width("\u{c548}"), 2);
+    }
+
+    #[test]
+    fn a_tab_measures_the_cells_the_painter_writes_for_it() {
+        // Item 16: a paste is the one way a tab reaches a draft, and Phase 1
+        // measured it at nothing and painted nothing -- which is consistent
+        // until you ask where the caret goes, because the *text* is still there
+        // and every offset after it is a column short. One number, and the
+        // painter's expansion is the same one.
+        // The number is spelled out as well as read from the constant, for the
+        // reason `history`'s cap is: a test that took the width from the thing
+        // enforcing it would pass for any width, including one that puts a
+        // tenth of an eighty-column row under one character.
+        assert_eq!(TAB_WIDTH, 4);
+        assert_eq!(width("\t"), TAB_WIDTH);
+        assert_eq!(width("a\tb"), TAB_WIDTH + 2);
+        let painted = format!("a{}b", " ".repeat(usize::from(TAB_WIDTH)));
+        assert_eq!(expand_tabs("a\tb"), painted);
+        assert_eq!(
+            width(&painted),
+            width("a\tb"),
+            "the painted row is a different number of cells from the measured one"
+        );
+        // Borrowed when there is nothing to expand, which is every row of
+        // nearly every session.
+        assert!(matches!(
+            expand_tabs("plain"),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        // And the cells are cells the break is taken on: four of them do not
+        // fit beside `ab` in a four-column row, so the tab takes a row of its
+        // own -- which a control measured at nothing never could.
+        let text = "ab\tcd";
+        let rows = wrap(text, 4);
+        assert_eq!(texts(text, &rows), vec!["ab", "\t", "cd"]);
     }
 
     #[test]

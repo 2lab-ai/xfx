@@ -98,14 +98,18 @@ jobs:
       - name: Tests
         run: cargo test --locked --all-targets
 
-      # The restoration matrix has rows that only a deliberate failure can
-      # drive: a panic while the terminal is raw, and an initialization that
-      # dies on either side of raw mode. The feature that produces them is off
-      # in every shipped build, so this is the only place those rows run.
+      # Two kinds of row need the fault injector: restoration-matrix rows that
+      # only a deliberate failure can drive -- a panic while the terminal is raw,
+      # an initialization that dies on either side of raw mode -- and the lib unit
+      # rows whose fault seams are compiled out of every shipped build. The
+      # integration invocation runs the first kind and the `--lib` invocation the
+      # second; neither runs the other's rows. The local common gate runs both
+      # too, and this job is what proves them on every native target.
       - name: Tests, with the fault injector
         run: |
           cargo clippy --locked --all-targets --features fault-injection -- -D warnings
           cargo test --locked --features fault-injection --test tui
+          cargo test --locked --lib --features fault-injection
 
       - name: No stubs, and the parity ledger reconciles
         run: ./scripts/check-no-stubs.sh

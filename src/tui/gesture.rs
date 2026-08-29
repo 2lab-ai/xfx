@@ -323,6 +323,43 @@ mod tests {
     }
 
     #[test]
+    fn the_notice_a_cancel_writes_promises_the_exit_this_table_really_honours() {
+        // `super::super::shell::Shell::interrupt` writes `app::INTERRUPT_NOTICE`
+        // on the `Cancel` this table returns, so the sentence is a claim about
+        // *this* function. The claim it may make is the one the right-hand
+        // column keeps: a press that lands while the turn is still stopping
+        // leaves with 130. The press after the conclusion is a different
+        // gesture -- `turn_ended` clears `asked_to_stop`, and the runtime gives
+        // the place back, so the row is the idle one and it clears a draft.
+        //
+        // The qualifier is quoted rather than imported for the reason every
+        // policy literal here is: a test that read the notice into its own
+        // expectation would pass whatever the notice became, including the
+        // unconditional promise this case exists to keep out.
+        let mut gestures = Gestures::default();
+        let now = Instant::now();
+        assert_eq!(gestures.interrupt(now, true), Interrupt::Cancel);
+        // Still stopping: this is the press the notice is about.
+        assert_eq!(gestures.interrupt(now, true), Interrupt::Leave);
+
+        let mut gestures = Gestures::default();
+        assert_eq!(gestures.interrupt(now, true), Interrupt::Cancel);
+        gestures.turn_ended();
+        assert_eq!(
+            gestures.interrupt(now, false),
+            Interrupt::Clear,
+            "a press after the turn stopped left the session, which is the \
+             only reading that would make an unconditional notice true"
+        );
+        assert!(
+            crate::app::INTERRUPT_NOTICE.contains("before it stops"),
+            "the notice promises an exit this table does not honour once the \
+             turn has concluded: {}",
+            crate::app::INTERRUPT_NOTICE
+        );
+    }
+
+    #[test]
     fn a_turn_that_ended_takes_the_cancellation_that_stopped_it_with_it() {
         // The chain must not outlive the turn it was about. A user who stops one
         // answer and asks another question would otherwise find the first

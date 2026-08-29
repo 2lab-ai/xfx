@@ -15,6 +15,13 @@
 #      not start with a backticked name.
 #   5. No surface name appears in more than one row, so "exactly one row per
 #      surface" is a property rather than an intention.
+#   6. Every alias in the shell's `SLASH_REGISTRY` is documented on the row of
+#      the command it names, and every slash name a row's notes claim is one the
+#      shell really answers. An alias is a promise with no row of its own -- it
+#      is not a command, it does not appear in `SLASH_COMMANDS`, and `/help`
+#      prints it beside the name it aliases -- so without this direction a name
+#      the parser accepts could be documented nowhere, or a name nobody answers
+#      could be advertised as an alias.
 #
 # The check is text-level on purpose: it must run without building, so a broken
 # build cannot hide a broken promise. `tests/parity.rs` runs the same
@@ -133,6 +140,72 @@ inventory_from() {
 	' "$1"
 }
 
+# The alias inventory of the shell's slash registry, as `canonical<TAB>alias`
+# lines, read textually like every other inventory here.
+#
+# The registry is a table of structs rather than a flat `&[&str]`, so this scans
+# between its opening line and the `];` that closes it, remembers the `name:` of
+# the spec it is inside, and prints one line per literal in that spec's
+# `aliases:` array. Truncating at the first `]` after `aliases:` is what keeps a
+# one-line spec's later fields -- `summary:` especially -- out of the answer.
+slash_aliases_from() {
+	awk '
+		index($0, "pub const SLASH_REGISTRY: &[SlashSpec] = &[") { capturing = 1; next }
+		capturing && /^\];/ { exit }
+		capturing {
+			line = $0
+			if (match(line, /name: "[^"]*"/)) {
+				current = substr(line, RSTART + 7, RLENGTH - 8)
+			}
+			if (index(line, "aliases:")) {
+				rest = substr(line, index(line, "aliases:"))
+				if (match(rest, /\]/)) { rest = substr(rest, 1, RSTART) }
+				while (match(rest, /"[^"]*"/)) {
+					print current "\t" substr(rest, RSTART + 1, RLENGTH - 2)
+					rest = substr(rest, RSTART + RLENGTH)
+				}
+			}
+		}
+	' "$1"
+}
+
+# Every backticked identifier in the *notes* column of the row named `$3`, of
+# kind `$2`, in `$1`. The surface column is `parity_mentioned_names`' business;
+# this is the one an alias is documented in, because an alias may not have a
+# surface cell of its own without becoming an advertised command in its own right.
+parity_notes_names() {
+	awk -v kind="$2" -v name="$3" -F' *\\| *' '
+		NF < 6 { next }
+		$2 != "`" name "`" || $3 != kind { next }
+		{
+			notes = $5
+			while (match(notes, /`[^`]+`/)) {
+				print substr(notes, RSTART + 1, RLENGTH - 2)
+				notes = substr(notes, RSTART + RLENGTH)
+			}
+		}
+	' "$1"
+}
+
+# Every backticked slash-shaped identifier any note of a row of kind `$2` and
+# status `$3` claims, as `row<TAB>name` lines.
+parity_notes_slash_claims() {
+	awk -v kind="$2" -v status="$3" -F' *\\| *' '
+		NF < 6 { next }
+		$3 != kind || $4 != status { next }
+		$2 !~ /^`.*`$/ { next }
+		{
+			row = $2
+			gsub(/`/, "", row)
+			notes = $5
+			while (match(notes, /`\/[^` ]+`/)) {
+				print row "\t" substr(notes, RSTART + 1, RLENGTH - 2)
+				notes = substr(notes, RSTART + RLENGTH)
+			}
+		}
+	' "$1"
+}
+
 # All surface names of one kind and status, one per line.
 parity_names() {
 	grep -E "^\| \`[^\`]+\` \| $1 \| $2 \|" "$parity" 2>/dev/null |
@@ -241,6 +314,49 @@ if [ -f "$shell_source" ]; then
 	else
 		check_inventory "$shell_source" \
 			"$(inventory_from "$shell_source" SLASH_COMMANDS)" slash
+	fi
+
+	# --- 2c. the registry's aliases ----------------------------------------
+	#
+	# Reconciled against the *notes* of the row of the command they name, both
+	# ways. An alias is a name the parser answers, so it is a promise; it is not
+	# a command, so it may not have a surface cell of its own -- a row named
+	# `/exit` would make it an advertised slash command, and how many of those
+	# there are is the product decision this whole section exists to protect.
+	if ! grep -q 'pub const SLASH_REGISTRY: &\[SlashSpec\] = &\[' "$shell_source"; then
+		fail "$shell_source does not declare SLASH_REGISTRY; the alias inventory is unverifiable"
+	else
+		canonical="$(inventory_from "$shell_source" SLASH_COMMANDS)"
+		aliases="$(slash_aliases_from "$shell_source")"
+
+		# 1. every alias is documented, on the row of its own command
+		while IFS="$(printf '\t')" read -r command alias; do
+			[ -n "$alias" ] || continue
+			if ! printf '%s\n' "$canonical" | grep -qxF -- "$command"; then
+				fail "slash alias \`$alias\` names \`$command\`, which is not in SLASH_COMMANDS"
+				continue
+			fi
+			if ! parity_notes_names "$parity" slash "$command" | grep -qxF -- "$alias"; then
+				fail "slash alias \`$alias\` is answered by $shell_source but the \`$command\` row in $parity does not name it"
+			fi
+		done <<<"$aliases"
+
+		# 2. nothing documented as deferred is answered as an alias
+		while IFS="$(printf '\t')" read -r _command alias; do
+			[ -n "$alias" ] || continue
+			if parity_mentioned_names slash deferred | grep -qxF -- "$alias"; then
+				fail "slash alias \`$alias\` is answered by $shell_source but a deferred row in $parity claims it"
+			fi
+		done <<<"$aliases"
+
+		# 3. and the other way: a slash name an implemented row's notes claim is
+		#    a name the shell really has, canonical or alias
+		while IFS="$(printf '\t')" read -r row name; do
+			[ -n "$name" ] || continue
+			printf '%s\n' "$canonical" | grep -qxF -- "$name" && continue
+			printf '%s\n' "$aliases" | cut -f2 | grep -qxF -- "$name" && continue
+			fail "the \`$row\` row in $parity names \`$name\`, which $shell_source neither lists nor aliases"
+		done <<<"$(parity_notes_slash_claims "$parity" slash implemented)"
 	fi
 fi
 

@@ -75,23 +75,31 @@ use std::time::Instant;
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
-use super::bridge::{TurnControl, TurnWork, UiEvent};
+use super::approval_screen::ApprovalScreen;
+use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::editor::{self, Editor};
+use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::hint::{self, Hint, Notice};
+use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::pacer::Pacer;
-use super::paste::{Paste, Pasted};
+use super::paste::{self, Paste, Pasted, Refusal};
+use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::render_request::{Reason, RenderRequest};
+use super::router::{self, CommandHandlers};
 use super::theme::Palette;
+use super::transaction::{EditTransaction, LastTransaction};
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
-use crate::interactive::{self, Slash, Submitted};
+use crate::interactive::{self, Submitted};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
+use crate::provider::model::CatalogEntry;
+use crate::provider::ProviderId;
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -174,6 +182,23 @@ const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
 /// sent it.
 const PASTE_REFUSED: &str = "that paste is larger than 8 MiB; nothing was taken";
 
+/// The hint row's refusal for a paste this session has no number left for.
+///
+/// Its own sentence rather than [`PASTE_REFUSED`]'s, because the two are
+/// different problems with different answers: a paste past the budget is one a
+/// user can make smaller, and a session four billion pastes deep is one they
+/// have to leave. Reachable only through `Paste::with_next`, which is why the
+/// case that proves it is a cargo test rather than a scenario.
+const PASTE_UNNUMBERED: &str = "this session has no paste numbers left; nothing was taken";
+
+/// The hint row's word for a recalled line whose blocks could not be renumbered.
+///
+/// The same exhaustion seen from the other side: the summaries are still on the
+/// screen, because they are the line as it was submitted, but they stand for
+/// nothing now and the line would be sent as the words it looks like. Said,
+/// rather than left for the user to discover in what the model answers.
+const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are words now";
+
 /// What `/clear` leaves behind after it has erased the screen.
 ///
 /// The line-oriented shell prints its banner and a `kept` line here
@@ -198,9 +223,39 @@ const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a 
 /// away and mean something different on this surface than it does on the other.
 pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 
+/// What a screen that changed size did to the band.
+///
+/// Three answers rather than a `bool`, because the caller owes a different
+/// thing for each and two of them owe nothing at all
+/// (`super::event_loop::resolve_resize`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Resize {
+    /// The screen is the size it already was, or it would not say what size it
+    /// is. Neither is news, and neither costs a frame.
+    Unchanged,
+    /// The band was re-solved and everything the terminal is holding is now a
+    /// claim about a screen that no longer exists.
+    Repaint(Geometry),
+    /// No band fits on this screen. Nothing is re-solved, **nothing is
+    /// answered**, and the band is left where it was until the screen can hold
+    /// one again.
+    TooSmall,
+}
+
 /// The UI's state: what the band shows, and what it owes the screen.
 pub(crate) struct Shell {
     pub(crate) geometry: Geometry,
+    /// The screen's size as the terminal last reported it.
+    ///
+    /// The same two numbers as [`Self::geometry`] for as long as a band fits on
+    /// it, and a **separate fact** for exactly the window in which one does
+    /// not: [`Resize::TooSmall`] leaves the geometry describing the screen the
+    /// band was last solved for, so a shell that asked its geometry "what size
+    /// is the screen" would answer a size the terminal has contradicted -- and
+    /// a window dragged small and back to where it started would be reported as
+    /// no news, leaving the band solved for a screen the terminal re-wrapped
+    /// twice.
+    screen: (u16, u16),
     pub(crate) render: RenderRequest,
     /// The colours the band paints its own rows in.
     ///
@@ -220,8 +275,8 @@ pub(crate) struct Shell {
     /// How much authority a turn will have before it has to ask.
     ///
     /// Read once and never changed: the mode is settled by the configuration
-    /// and this phase adds no command that moves it -- the six slash names are
-    /// the line shell's and none of them is `/permission`.
+    /// and no command in the palette moves it -- the slash names are the line
+    /// shell's and none of them is `/permission`.
     mode: PermissionMode,
     /// Whether the configured provider has nothing to authenticate with.
     ///
@@ -233,17 +288,64 @@ pub(crate) struct Shell {
     /// [`Self::model`], because both of its inputs are the environment and the
     /// profile, and neither moves under a running session.
     missing_credential: bool,
+    /// The provider a turn will talk to.
+    ///
+    /// Beside [`Self::model`] and settled the same way -- from the
+    /// configuration at startup, and from [`UiEvent::ProviderSelected`]
+    /// afterwards. It is what a catalog row is *about*: entries loaded for one
+    /// provider say nothing about another, so the two move together or the
+    /// browser lists one daemon's models under another's name.
+    provider: ProviderId,
+    /// The rows the last catalog load produced, for the provider above.
+    ///
+    /// Two readers and one of them is not obvious: the browser paints them, and
+    /// the hint row's context meter takes its **denominator** from the entry
+    /// matching the model in force ([`CatalogEntry::max_context`]). Empty until
+    /// a load has succeeded, and emptied on a provider switch, because a window
+    /// published by the daemon xfx has stopped talking to is not this
+    /// conversation's window.
+    catalog: Vec<CatalogEntry>,
+    /// What the last **completed** turn reported as its input tokens.
+    ///
+    /// The meter's numerator, and it is `input_tokens` alone rather than
+    /// input-plus-output on purpose: what a context meter answers is "how much
+    /// of the window does the next request carry", and the next request carries
+    /// the conversation the provider has just counted as its input. Adding the
+    /// output would count this turn's answer twice -- once as output now, and
+    /// again inside the input of the turn after it.
+    ///
+    /// `None` until a turn has finished and said so. Absent is not zero: a
+    /// provider that publishes no usage gets no meter rather than a nought.
+    context_used: Option<u64>,
     /// The text being composed, and where the caret is in it.
     editor: Editor,
-    /// The paste that is arriving, and the blocks the composer's summaries
-    /// name.
+    /// The paste that is arriving, and the numbers this session has spent.
     ///
     /// Held beside the editor rather than inside it because a paste is *not* an
     /// edit until it is finished: the bytes between the markers are content
     /// being filtered and counted, and only [`Action::PasteEnd`] decides
     /// whether what the composer receives is the text or a summary standing in
-    /// for it ([`super::paste`]).
+    /// for it ([`super::paste`]). The blocks themselves live in the composer,
+    /// as spans of the draft (`super::entity`).
     paste: Paste,
+    /// What the last edit did, in the terms an undo would need.
+    ///
+    /// Overwritten by every edit ([`Self::edited`]) and read by nothing on a
+    /// Phase-2 path: it is the seam item 18 builds its stack on, and what it is
+    /// here to fix now is the boundary only this moment knows -- one framed
+    /// paste is one transaction, whatever it weighed
+    /// ([`super::transaction`]).
+    transaction: LastTransaction,
+    /// The lines this session has submitted, and where a walk back through
+    /// them has got to.
+    ///
+    /// Beside the editor rather than inside it, for the reason [`Self::paste`]
+    /// is: what an entry holds is the draft *as the composer held it*, and the
+    /// composer is the thing being replaced rather than the thing that decides
+    /// to replace it. Recording is [`Self::submit`]'s -- the one place a
+    /// submitted line still exists -- and leaving is every edit's
+    /// ([`Self::amended`]).
+    history: History,
     /// The one input machine of the session.
     ///
     /// Held here rather than in the loop because it is *state a keystroke can
@@ -321,6 +423,40 @@ pub(crate) struct Shell {
     /// than derived from an event, because the answer is a keystroke and the
     /// keystroke has to find something to be an answer *to*.
     panel: Option<Panel>,
+    /// The same question, when the change behind it is too big for the band to
+    /// show and it is being reviewed on a plane of its own
+    /// ([`super::approval_screen`]).
+    ///
+    /// Beside [`Self::panel`] rather than inside it, and **never both at once**
+    /// ([`Self::ask`] installs exactly one): the two surfaces answer the same
+    /// question with the same keys, but only one of them is painted, only one
+    /// takes rows out of the band, and only one has a caret on the band's own
+    /// grid. A single field holding either would have every reader ask which
+    /// kind it was.
+    alternate: Option<ApprovalScreen>,
+    /// Which plane the session is composing frames for.
+    ///
+    /// Taken when a question arrives that the band's summary cannot show, and
+    /// given back the instant that question is answered -- by a choice, by a
+    /// refusal, or by the interrupt that refuses it on the user's behalf. Held
+    /// beside [`Self::panel`] rather than derived from it because the two are
+    /// different facts: the panel says a question is up, this says whose screen
+    /// it is up on.
+    owner: ScreenOwner,
+    /// The completion menu the draft is asking for, while it is asking for one.
+    ///
+    /// The other occupant of the band's elastic slot, and the two are mutually
+    /// exclusive by construction: [`Self::ask`] closes a menu before it
+    /// installs a question, and [`Self::fit`] reads the question first. What a
+    /// menu is **not** is a second [`Self::panel`] -- it never takes the caret
+    /// and it swallows only the five keys it binds ([`super::picker`]).
+    picker: Option<Picker>,
+    /// The trigger whose menu the user closed, while it is still the trigger.
+    ///
+    /// Held here rather than in the menu, because it has to outlive one: what
+    /// it is for is that the *next* keystroke does not re-open what Escape just
+    /// closed.
+    dismissed: Dismissed,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -342,6 +478,46 @@ pub(crate) struct Shell {
     leaving: Option<Leaving>,
 }
 
+/// Which plane the session is composing frames for.
+///
+/// A **separate enum**, not another meaning of `Option<Panel>`. The band's
+/// elastic slot answers "what is in the band"; this answers "whose screen is it"
+/// -- and the two really can disagree, because a question can be asked on a
+/// surface the band is not painting. Collapsing them would make a frame's plane
+/// a function of whether a field happened to be `Some`, which is exactly the
+/// kind of implicit state a restoration path cannot check.
+///
+/// This checkpoint takes the state and gives it back; it emits no alternate
+/// screen. The renderer, the `1049` bytes that enter and leave one, and the
+/// exit/panic/signal restoration that has to account for the owner are the next
+/// one's -- and the order is deliberate: the state a restore path reads has to
+/// exist and be correct before anything can be written that depends on it being
+/// given back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ScreenOwner {
+    /// The normal buffer: the user's document, with xfx's band at the bottom.
+    /// The main TUI surface never gives this up.
+    #[default]
+    Primary,
+    /// A question with a change too large for the band to show.
+    Approval,
+}
+
+/// A question composed for the surface it belongs on, before anything is
+/// installed.
+///
+/// The value [`Shell::ask`] decides with. It exists so that the fit question --
+/// which is a *different* question on the two surfaces -- is asked of the thing
+/// that would actually be painted, and so that the refusal for both is written
+/// once: a second `say`/`Deny` pair in a second arm is a second chance to
+/// forget the rule that a decision xfx was never given is a refusal.
+enum Asked {
+    /// The band's own panel, with the document still above it.
+    Inline(Panel),
+    /// A screen of its own, for a change the band's summary cannot show.
+    Alternate(ApprovalScreen),
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
@@ -350,6 +526,18 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+}
+
+/// What the band's elastic slot is holding.
+///
+/// A borrow rather than a state: which of the two it is follows from the fields
+/// ([`Shell::slot`]), so there is no third answer for a flag to drift into.
+#[derive(Debug, Clone, Copy)]
+enum Slot<'a> {
+    /// A decision the turn is waiting on. It owns the focus.
+    Question(&'a Panel),
+    /// A completion menu for what the composer holds. It owns nothing but rows.
+    Menu(&'a Picker),
 }
 
 /// How a session ended, which is the same question as what it exits with.
@@ -373,6 +561,7 @@ impl Shell {
     ) -> Self {
         Self {
             geometry,
+            screen: (geometry.rows, geometry.cols),
             palette,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
@@ -386,8 +575,13 @@ impl Shell {
             mode: config.permission_mode,
             missing_credential: crate::provider::resolve_credential_for(config.provider, config)
                 .is_none(),
+            provider: config.provider,
+            catalog: Vec::new(),
+            context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
+            transaction: LastTransaction::new(),
+            history: History::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
             // and the band rows share a terminal, and a transcript measured
@@ -406,6 +600,10 @@ impl Shell {
             activity: Activity::new(),
             phase: 0,
             panel: None,
+            alternate: None,
+            owner: ScreenOwner::Primary,
+            picker: None,
+            dismissed: Dismissed::default(),
             activity_row: None,
             clearing: false,
             fatal: None,
@@ -429,13 +627,22 @@ impl Shell {
         if self.geometry.activity.is_some() {
             rows.push(self.activity_row.clone().unwrap_or_default());
         }
-        // The question, in the rows the geometry gave it and only while it gave
-        // them: the panel's height and the band's are one fact settled together
+        // The question -- or, when there is no question, the completion menu --
+        // in the rows the geometry gave the slot and only while it gave them:
+        // the block's height and the band's are one fact settled together
         // ([`Self::refit`]), so rows painted without the geometry's agreement
-        // would push the hint row off the bottom of the screen.
+        // would push the hint row off the bottom of the screen. The order is
+        // the one [`Self::fit`] solved with, and it is the whole of "they are
+        // mutually exclusive": a question outranks a menu.
         if self.geometry.panel > 0 {
-            if let Some(panel) = self.panel.as_ref() {
-                rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+            match self.slot() {
+                Some(Slot::Question(panel)) => {
+                    rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+                }
+                Some(Slot::Menu(picker)) => {
+                    rows.extend(picker.rows(self.geometry.cols, self.geometry.rows));
+                }
+                None => {}
             }
         }
         rows.push(self.painted(
@@ -522,10 +729,7 @@ impl Shell {
                 queued: self.queued,
                 mode: self.mode,
                 model: &self.model,
-                // Nothing on the Phase-1 path measures a context: no
-                // [`UiEvent`] carries a usage number, and the Gateway publishes
-                // no window to be the denominator ([`Hint::context_used`]).
-                context_used: None,
+                context_used: self.context_meter(),
                 notice,
                 // The armed half of the double-Escape gesture goes to the
                 // right-hand slot: it is a warning about what the *next*
@@ -538,12 +742,63 @@ impl Shell {
         )
     }
 
+    /// The two numbers of the context meter, or nothing at all.
+    ///
+    /// **Both or neither**, and that is the whole rule. The numerator is a
+    /// completed turn's `input_tokens` and the denominator is the catalog's
+    /// `max_context` for the model in force; either can legitimately be absent
+    /// -- a provider need not publish usage, and the Gateway publishes no
+    /// catalog to hold a window at all -- and a row that filled in a missing
+    /// half with a zero would report a measurement nobody took. So a missing
+    /// half removes the segment rather than defaulting it, which is the same
+    /// rule the activity row's token count follows
+    /// ([`super::activity::Activity::tokens`]).
+    fn context_meter(&self) -> Option<(u64, u64)> {
+        let used = self.context_used?;
+        // Matched by id **or alias**, because the model in force is whatever the
+        // operator or the profile spelled and the catalog publishes both
+        // ([`CatalogEntry::matches`]).
+        let total = self
+            .catalog
+            .iter()
+            .find(|entry| entry.matches(&self.model))
+            .and_then(|entry| entry.max_context)?;
+        Some((used, total))
+    }
+
+    /// What is in the band's elastic slot, if anything.
+    ///
+    /// **One place answers it**, because the two readers -- the height
+    /// [`Self::fit`] solves for and the rows [`Self::band_rows`] paints -- are
+    /// the pair whose disagreement leaves a stale row standing in the band.
+    ///
+    /// The two occupants are mutually exclusive by construction: [`Self::ask`]
+    /// dismisses a menu before it installs a question, and while a question is
+    /// up every keystroke goes to it ([`Self::consume`]), so nothing can call
+    /// [`Self::edited`] and open one behind it. The order below is therefore a
+    /// statement of which would win rather than a case the session reaches --
+    /// and it is stated once rather than twice, so it cannot be answered two
+    /// ways.
+    fn slot(&self) -> Option<Slot<'_>> {
+        if let Some(panel) = self.panel.as_ref() {
+            return Some(Slot::Question(panel));
+        }
+        self.picker.as_ref().map(Slot::Menu)
+    }
+
     /// Where the caret goes: the terminal's own row, and the number of cells to
     /// the left of it on that row.
     pub(crate) fn cursor(&self) -> (u16, u16) {
         // While a question is up the panel has the focus, so the caret sits on
         // the choice Enter would take. A caret left blinking in the composer
         // would say the next keystroke goes there, and it does not.
+        //
+        // **A completion menu is the opposite case and takes no branch here**:
+        // it is a view of what the composer holds, the typing goes on going
+        // into the composer, and the caret says so. The rows it takes move the
+        // composer down, and the composer's own row is read out of the geometry
+        // below -- so the caret follows the menu's height without knowing the
+        // menu exists.
         if self.geometry.panel > 0 {
             if let Some(panel) = self.panel.as_ref() {
                 return (
@@ -629,6 +884,18 @@ impl Shell {
         std::mem::take(&mut self.pending)
     }
 
+    /// Whether the **primary** plane is owed rows that have not been written.
+    ///
+    /// Asked without taking them, by the one thing that has to know before it
+    /// decides what to write: the frame that would hand the terminal to a
+    /// question on the other buffer, where a document row cannot be written at
+    /// all (`super::event_loop`'s `commit_frame`). Text the pacer is still
+    /// holding is deliberately **not** counted -- it is not a row yet, and it
+    /// waits for its own release whichever plane the session is on.
+    pub(crate) fn owes_document(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     /// Gives back writes the loop took and did not attempt.
     ///
     /// [`Self::take_pending`] hands over **everything** owed, and a loop that
@@ -695,6 +962,87 @@ impl Shell {
                 self.say(line);
             }
             UiEvent::Notice(text) => self.say(text),
+            // The switch is **done** by the time this arrives: the file is
+            // written, the configuration has been re-read from it, and the
+            // runtime has swapped. So every field here is adopted rather than
+            // predicted, which is the difference between what the session will
+            // do and what the write intended.
+            UiEvent::ProviderSelected {
+                provider,
+                model,
+                missing_credential,
+            } => {
+                self.provider = provider;
+                self.model = model;
+                self.missing_credential = missing_credential;
+                // The old provider's catalog is not this one's, and the
+                // conversation the meter was counting was dropped with the
+                // bundle. Keeping either would put another daemon's window --
+                // or a dead conversation's tokens -- on the hint row.
+                self.catalog.clear();
+                self.context_used = None;
+                self.say(format!(
+                    "[shell] provider={} model={}; the next prompt starts a fresh conversation",
+                    provider.label(),
+                    self.model
+                ));
+                self.render.request(Reason::Footer);
+            }
+            // What the selector made of a `/model <id>`, and the model in force
+            // afterwards. **Taken rather than predicted**: the catalog decides,
+            // the catalog is on the runtime thread, and a band that adopted the
+            // id it submitted would show a model the provider does not publish
+            // and report it to the next bare `/model`.
+            UiEvent::ModelAnswered { model, outcome } => {
+                self.model = model;
+                match outcome {
+                    ModelAnswer::Applied { unverified } => {
+                        self.say(format!("[shell] model={}", self.model));
+                        // The caveat *after* the change, because it is a caveat
+                        // on it: the selection stands, and what could not be
+                        // done is check it. One sentence for both front ends
+                        // (`provider::model::unverified_notice`), so a daemon
+                        // that is down reads the same wherever `/model` was
+                        // typed.
+                        if let Some(reason) = unverified {
+                            self.say(crate::provider::model::unverified_notice(&reason));
+                        }
+                    }
+                    ModelAnswer::Unchanged => {
+                        self.say(format!("[shell] model={} unchanged", self.model));
+                    }
+                    // xfx's own words, from the selector. Nothing of the id is
+                    // quoted back by this surface: the reason already carries
+                    // whatever of it belongs in the document, and it crossed
+                    // the channel inert like every other string on it.
+                    ModelAnswer::Refused { reason } => {
+                        self.say(format!("xfx: {reason}"));
+                    }
+                }
+                // The hint row's model label follows the model in force,
+                // whichever way the answer went.
+                self.render.request(Reason::Footer);
+            }
+            // The browser. Rendered as document rows rather than into the band's
+            // elastic slot: a catalog is a list the user reads and scrolls back
+            // to, and the slot is for the two things a keystroke is *about*.
+            UiEvent::CatalogLoaded { provider, entries } => {
+                self.catalog = entries;
+                self.provider = provider;
+                self.say(format!("[shell] catalog={} shown", self.catalog.len()));
+                for line in self.catalog_rows() {
+                    self.say(line);
+                }
+                // The denominator may have arrived with it.
+                self.render.request(Reason::Footer);
+            }
+            // The numerator, and only the numerator: see [`Self::context_used`]
+            // for why the output half is deliberately dropped here rather than
+            // added to it.
+            UiEvent::Usage { input, .. } => {
+                self.context_used = input;
+                self.render.request(Reason::Footer);
+            }
             // The turn has stopped and is waiting for a person. Everything
             // about that -- the panel, the rows it costs the document, the
             // focus, and the clock that stops while it is up -- follows from
@@ -734,26 +1082,267 @@ impl Shell {
         }
     }
 
+    /// One document row per catalog entry, in the order the provider published
+    /// them.
+    ///
+    /// The line shell's own row for the same fact
+    /// (`interactive`'s `print_catalog`), so a model looks the same whichever
+    /// surface you browse it from. `unknown` and `none` are said rather than
+    /// left blank: a provider really may publish neither a window nor a set of
+    /// effort levels, and an empty column would read as a rendering fault.
+    fn catalog_rows(&self) -> Vec<String> {
+        self.catalog
+            .iter()
+            .map(|entry| {
+                let context = entry
+                    .max_context
+                    .map(|window| window.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let efforts = if entry.efforts.is_empty() {
+                    "none".to_string()
+                } else {
+                    entry.efforts.join(",")
+                };
+                format!(
+                    "[shell]   {} context={context} efforts={efforts}",
+                    entry.preferred_name()
+                )
+            })
+            .collect()
+    }
+
     /// Puts a question in front of the user, or refuses it on their behalf.
     ///
-    /// The refusal is not a fallback to be tidied up later: a panel that did
-    /// not fit would be painted with its choices below the last row of the
-    /// screen, and the session would sit waiting for a keystroke about a
-    /// question the user cannot read. `ask` mode's own rule decides it -- a
-    /// decision xfx was never given is a refusal.
+    /// The refusal is not a fallback to be tidied up later: a question painted
+    /// with its choices below the last row of the screen would leave the
+    /// session waiting for a keystroke about something the user cannot read.
+    /// `ask` mode's own rule decides it -- a decision xfx was never given is a
+    /// refusal.
+    ///
+    /// **Each surface answers the fit question for itself**, because they are
+    /// two different questions. The band's panel takes rows *from the band*,
+    /// so whether it fits depends on everything else the band is costing
+    /// ([`layout::fits_panel`]); the review plane takes a screen of its own, so
+    /// what it needs is that the screen can carry its three answers
+    /// ([`ApprovalScreen::presents_choices`]). Asking the band's question about
+    /// a question the band was never going to show is how a short window came
+    /// to deny a change the plane can display whole.
     fn ask(&mut self, request: ApprovalRequest) {
-        let panel = Panel::new(request);
-        let rows = panel.height(self.geometry.cols, self.geometry.rows);
-        if !layout::fits_panel(self.geometry.rows, self.geometry.cols, rows) {
+        // Which plane the question belongs on, settled from the change itself
+        // before anything is installed ([`approval::ApprovalSurface`]).
+        let surface = approval::ApprovalSurface::for_request(&request);
+        let composed = match surface {
+            approval::ApprovalSurface::Inline => {
+                let panel = Panel::new(request);
+                let rows = panel.height(self.geometry.cols, self.geometry.rows);
+                layout::fits_panel(self.geometry.rows, self.geometry.cols, rows)
+                    .then_some(Asked::Inline(panel))
+            }
+            approval::ApprovalSurface::Alternate => {
+                let screen = ApprovalScreen::new(request);
+                screen
+                    .presents_choices(self.geometry.cols, self.geometry.rows)
+                    .then_some(Asked::Alternate(screen))
+            }
+        };
+        let Some(composed) = composed else {
+            // **Before the owner moves.** A question that was never asked has
+            // no screen to give back, and a session left owning a plane with
+            // nothing on it would compose its next frame for nobody.
             self.say(PANEL_TOO_SMALL.to_string());
             self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
             return;
+        };
+        // The two share one slot and one of them owns the focus, so the menu
+        // goes **before** the question is installed rather than being left for
+        // the geometry to prefer away: a menu still open behind a question is a
+        // menu whose keys the panel is swallowing, which is a menu the user
+        // cannot see and cannot use. Dismissed rather than merely dropped, so
+        // the answer to the question does not put it back in front of a draft
+        // the user has since stopped looking at.
+        self.dismiss_picker();
+        // **One surface is installed, never two.** The debug assertion is the
+        // hazard written down rather than argued: a second question taking the
+        // alternate plane while one is standing on it would be a `1049h` with no
+        // `1049l` between the two, and the standing question -- whose prompter
+        // is parked on the control channel -- would be left behind a screen
+        // nobody gave back. It cannot be reached today, because a turn asks one
+        // question at a time and waits for its answer, so this states the
+        // hazard where the next edit reads it rather than adding a branch no
+        // test can drive honestly.
+        debug_assert!(
+            !(self.owner == ScreenOwner::Approval && self.alternate.is_some()),
+            "a second question took a plane the first one is still on"
+        );
+        match composed {
+            Asked::Inline(panel) => {
+                self.panel = Some(panel);
+                self.owner = ScreenOwner::Primary;
+            }
+            // The band keeps none of its rows for this one: the question is
+            // painted on the other plane, and the band underneath stays exactly
+            // the band the restore repaints when the answer gives it back.
+            Asked::Alternate(screen) => {
+                self.alternate = Some(screen);
+                self.owner = ScreenOwner::Approval;
+            }
         }
-        self.panel = Some(panel);
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// Which plane the session is composing frames for.
+    ///
+    /// Read by the loop that owns the transitions between the two
+    /// (`super::event_loop`), which is what an owner state is *for*: the frame
+    /// composer, the exit and the restore all have to ask whose screen it is
+    /// before they write anything, and none of them can ask a field they cannot
+    /// see.
+    pub(crate) fn screen_owner(&self) -> ScreenOwner {
+        self.owner
+    }
+
+    /// Whether a question is in front of the user, on either plane.
+    ///
+    /// One reading for both surfaces, because everything that consults it -- the
+    /// focus, the frozen clock -- is about *a question being up* rather than
+    /// about which surface is showing it.
+    fn asking(&self) -> bool {
+        self.panel.is_some() || self.alternate.is_some()
+    }
+
+    /// The alternate plane's rows, top first: as many as the screen has.
+    ///
+    /// Empty when no question owns that plane, so a caller that asked at the
+    /// wrong moment paints nothing rather than painting a screen out of a
+    /// question that has been answered.
+    pub(crate) fn screen_rows(&self) -> Vec<String> {
+        self.alternate
+            .as_ref()
+            .map(|screen| screen.rows(self.geometry.cols, self.geometry.rows))
+            .unwrap_or_default()
+    }
+
+    /// Where the caret goes on that plane: the marked choice.
+    pub(crate) fn screen_cursor(&self) -> (u16, u16) {
+        self.alternate.as_ref().map_or((1, 0), |screen| {
+            screen.caret(self.geometry.cols, self.geometry.rows)
+        })
+    }
+
+    /// Gives the plane back without answering the question on it.
+    ///
+    /// The exit's, and only the exit's (`super::event_loop`'s `shut_down`): a
+    /// session coming down with a question still up has to leave the terminal on
+    /// the plane its user's shell is on, and there is nobody left to answer.
+    /// Every ordinary way out of a question goes through [`Self::decide`], which
+    /// releases the plane *with* the answer.
+    pub(crate) fn release_screen(&mut self) {
+        self.alternate = None;
+        self.owner = ScreenOwner::Primary;
+    }
+
+    /// Offers one keystroke to the completion menu, and says whether it was
+    /// taken.
+    ///
+    /// **Before the editor and before the gestures**, which is the whole of
+    /// what "the menu binds a key" means: an Up while a menu is open moves the
+    /// mark rather than the caret, and an Escape closes the menu rather than
+    /// arming the gesture that clears the composer.
+    ///
+    /// Enter is the one that is answered `false` on purpose. It closes the menu
+    /// -- the line is being run, and a menu about a draft that is on its way to
+    /// the runtime is about nothing -- and then goes on to mean what it means
+    /// everywhere else. A menu that swallowed it would make every command take
+    /// two Returns.
+    fn offer_to_picker(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = PickerAction::of(*action) else {
+            return false;
+        };
+        let Some(picker) = self.picker.as_mut() else {
+            return false;
+        };
+        match picker.apply(request) {
+            PickerOutcome::Changed => {
+                // The mark moved, which is a frame and nothing else: the band
+                // is the same height and the draft is untouched.
+                self.render.request(Reason::Modal);
+                true
+            }
+            PickerOutcome::Complete(name) => {
+                self.complete(name);
+                true
+            }
+            PickerOutcome::Dismiss => {
+                self.dismiss_picker();
+                matches!(request, PickerAction::Escape)
+            }
+        }
+    }
+
+    /// Puts a completed name in the composer, in place of the word that was
+    /// being typed.
+    ///
+    /// The whole draft is the query ([`super::picker::Trigger::of`]), so this
+    /// is a replacement rather than a splice -- and it goes through
+    /// [`Self::take_draft`] like every other thing that empties the composer,
+    /// so the paste bookkeeping cannot be left describing text that is gone.
+    fn complete(&mut self, name: &'static str) {
+        self.take_draft();
+        // Refused only by the byte budget, and a command name is nine bytes at
+        // its longest against a cap of eight mebibytes ([`editor::Editor`]) --
+        // into a composer this call has just emptied.
+        let _ = self.editor.insert(&picker::completed(name));
+        // The menu has done what it was for. Dismissed rather than closed,
+        // because the text it just wrote is still a slash word: a menu that
+        // re-opened on its own completion would be one the user cannot leave by
+        // taking something from it.
+        self.dismissed.dismiss(Trigger::Slash);
+        self.amended();
+    }
+
+    /// Closes the menu, and remembers that it was closed.
+    ///
+    /// Silent when there is none, so every caller can say "there is no menu
+    /// now" without first asking whether there was one.
+    fn dismiss_picker(&mut self) {
+        let Some(picker) = self.picker.take() else {
+            return;
+        };
+        self.dismissed.dismiss(picker.trigger());
+        // The band just gave the menu's rows back to the document.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Settles what menu the draft is asking for, if any.
+    ///
+    /// Called from [`Self::edited`] and from nowhere else, which is what makes
+    /// "the menu is a view of the composer" true rather than intended: there is
+    /// no path that changes the draft without coming through here, and none
+    /// that changes the menu without the draft having changed.
+    fn reconcile_picker(&mut self) {
+        if !self.dismissed.admits(Trigger::of(self.editor.text())) {
+            self.picker = None;
+            return;
+        }
+        // Rebuilt only when the query really changed: an arrow key that moved
+        // the caret inside the same word must not put the mark back on the
+        // first row.
+        if self
+            .picker
+            .as_ref()
+            .is_some_and(|open| open.query() == self.editor.text())
+        {
+            return;
+        }
+        let query = self.editor.text().to_string();
+        self.picker = Picker::open(&query);
     }
 
     /// One keystroke, while a question has the focus.
@@ -775,6 +1364,29 @@ impl Shell {
     /// stopping there would leave the user watching the turn they interrupted
     /// carry on, with the prompt they had queued behind it running next.
     fn decide(&mut self, event: Input, now: Instant) {
+        // The two keys that walk a change too long for one screen, and they are
+        // bound **only** where there is one to walk: a bounded diff is up to
+        // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
+        // dozen rows, so a review surface with no way past its first screenful
+        // would be showing the head of a change and calling it the change. They
+        // are `C-p` and `C-n` -- "the line before this one" and "the line after
+        // it" everywhere else on this surface, and bound to nothing at all at a
+        // question until now. The arrows are deliberately not reused: they walk
+        // the choices, and a key that scrolled *and* chose would be a key that
+        // answers by accident.
+        if let Input::Action(Action::HistoryPrevious | Action::HistoryNext) = event {
+            let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+            if let Some(screen) = self.alternate.as_mut() {
+                let delta = if matches!(event, Input::Action(Action::HistoryPrevious)) {
+                    -1
+                } else {
+                    1
+                };
+                screen.scroll_by(delta, cols, rows);
+                self.render.request(Reason::Modal);
+                return;
+            }
+        }
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             Input::Action(Action::Up) => approval::Action::Up,
@@ -791,10 +1403,15 @@ impl Shell {
             }
             Input::Action(_) | Input::PasteByte(_) => return,
         };
-        let Some(panel) = self.panel.as_mut() else {
-            return;
+        // Whichever surface is holding the question, and there is never more
+        // than one ([`Self::ask`]). Both answer with the same function
+        // (`super::approval::answered`), so which plane a change happened to be
+        // large enough for cannot change what a key means.
+        let answered = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.apply(action),
+            (_, Some(screen)) => screen.apply(action),
+            (None, None) => return,
         };
-        let answered = panel.apply(action);
         let Some(answer) = answered else {
             // The marker moved, which is a frame and nothing else.
             self.render.request(Reason::Modal);
@@ -802,8 +1419,14 @@ impl Shell {
         };
         // The panel goes **before** anything is sent, so the band's next paint
         // is a band with no question in it whatever the runtime does next --
-        // including asking a second question straight away.
+        // including asking a second question straight away. The screen goes back
+        // with it, in the same statement and on every one of the four ways out
+        // -- a digit, Enter on the marked choice, Escape, and the interrupt
+        // below -- because an owner released on only some of them would be an
+        // owner released on the paths somebody remembered.
         self.panel = None;
+        self.alternate = None;
+        self.owner = ScreenOwner::Primary;
         match action {
             // One message, both meanings. `Deny` is what the prompter answers a
             // cancellation with on the far side, so sending `Answer(Deny)` here
@@ -822,13 +1445,6 @@ impl Shell {
         // ([`Self::tick_activity`]).
         self.refit();
         self.render.request(Reason::Modal);
-    }
-
-    /// How many rows the band owes the question, and none when there is none.
-    fn panel_rows(&self) -> u16 {
-        self.panel.as_ref().map_or(0, |panel| {
-            panel.height(self.geometry.cols, self.geometry.rows)
-        })
     }
 
     /// Adds answer text to the stream, where the pacer releases it.
@@ -1118,8 +1734,10 @@ impl Shell {
         // minutes waiting to be told whether it could edit a file did not spend
         // four minutes thinking. One place decides it -- the field the panel
         // lives in -- so the row and the reason for it cannot disagree, and
-        // both calls are idempotent (`super::activity`).
-        if self.panel.is_some() {
+        // both calls are idempotent (`super::activity`). Either plane: what the
+        // interval measures is the person, and a person reading a change on a
+        // screen of its own is no less a person than one reading a band.
+        if self.asking() {
             self.activity.freeze(now);
         } else {
             self.activity.thaw(now);
@@ -1160,9 +1778,17 @@ impl Shell {
             // The panel has the focus while it is up, and this is the whole of
             // what that means: nothing below runs, so a `1` cannot be typed
             // into the composer and a Ctrl-D cannot leave a session with a turn
-            // waiting on an answer.
-            if self.panel.is_some() {
+            // waiting on an answer. On either plane: the focus belongs to the
+            // question, not to the surface it happens to be asked on.
+            if self.asking() {
                 self.decide(event, now);
+                continue;
+            }
+            // And the completion menu takes the five keys it binds, before the
+            // editor and before the gestures see them. Everything else falls
+            // through with the menu still up, because a menu is a view of the
+            // draft and typing is what the draft is made of.
+            if self.offer_to_picker(&event) {
                 continue;
             }
             match event {
@@ -1192,28 +1818,23 @@ impl Shell {
         // shows for a collapsed paste is 25 bytes standing for as much as 8
         // MiB, so a composer that counted only its own text would let a
         // keystroke build a prompt twice the size of the cap
-        // ([`super::paste::Paste::admits`]). Refused silently, like every other
+        // ([`super::paste::fits`]). Refused silently, like every other
         // keystroke the budget refuses.
-        if !self.paste.admits(self.editor.text().len(), typed.len()) {
-            // The cheap question said no, and it is the *conservative* one: it
-            // charges for every block the draft holds now. This keystroke may
-            // be landing inside one of their names -- which damages it, and
-            // releases the megabytes it was standing for
-            // ([`super::paste::Paste::reconcile`]) -- so the draft this edit
-            // would produce can be well inside a budget the draft it starts
-            // from is at. Asked only here, because a cheap yes is always a
-            // real yes: an edit can only ever release blocks, never add one.
-            let mut next =
-                String::with_capacity(self.editor.text().len().saturating_add(typed.len()));
-            next.push_str(self.editor.before_caret());
-            next.push_str(typed);
-            next.push_str(self.editor.after_caret());
-            if !self.paste.admits_draft(&next) {
-                return;
-            }
+        //
+        // One question rather than two. While a block was a *name*, a keystroke
+        // could land inside a summary and release the megabytes behind it, so
+        // this had to be asked again of the draft the edit would produce. A
+        // block is a span now: the caret is never inside one, so a keystroke
+        // can only ever add its own bytes and the cheap answer is the true one.
+        if !paste::fits(
+            self.editor.text().len(),
+            self.editor.retained(),
+            typed.len(),
+        ) {
+            return;
         }
         if self.editor.insert(typed) {
-            self.edited();
+            self.amended();
         }
     }
 
@@ -1232,13 +1853,15 @@ impl Shell {
     fn pasted(&mut self) {
         let pasted = self
             .paste
-            .finish(self.editor.before_caret(), self.editor.after_caret());
-        if self.paste.refused() {
-            self.notice = Some(PASTE_REFUSED);
-            self.render.request(Reason::Footer);
-            return;
-        }
+            .finish(self.editor.text().len(), self.editor.retained());
         match pasted {
+            Pasted::Refused(refusal) => {
+                self.notice = Some(match refusal {
+                    Refusal::Oversized => PASTE_REFUSED,
+                    Refusal::Unnumbered => PASTE_UNNUMBERED,
+                });
+                self.render.request(Reason::Footer);
+            }
             Pasted::Inline(text) => {
                 // An empty paste is not an edit: asking for a frame and
                 // re-solving the band for a composer nobody changed is the
@@ -1248,21 +1871,25 @@ impl Shell {
                     return;
                 }
                 if self.editor.insert(&text) {
-                    self.edited();
+                    self.amended();
                 }
             }
-            // The screen gets the summary; `Paste::expand` is what puts the
-            // text back, at submit, so 1800 codepoints are never painted into
-            // a band and never re-wrapped by the next keystroke.
-            Pasted::Collapsed { summary, .. } => {
-                // **Which copy of its own name this one is.** Those words can
-                // already be in the draft -- typed, or pasted back off the
-                // screen -- and the block has to stand for the copy the paste
-                // is about to put there rather than for the first one that
-                // happens to match. Counted in front of the caret, because
-                // that is where the insertion lands; anything after it is a
-                // later copy and is not this block's.
-                let occurrence = self.editor.before_caret().matches(&summary).count();
+            // The screen gets the summary and the text goes behind it as an
+            // entity, so 1800 codepoints are never painted into a band and
+            // never re-wrapped by the next keystroke -- and the block is that
+            // run of the draft rather than those words wherever they appear.
+            Pasted::Collapsed {
+                summary,
+                id,
+                text,
+                lines,
+            } => {
+                // Kept for the transaction below, before the edit that makes it
+                // stale. Two copies of a draft that can be 8 MiB, held until
+                // the next keystroke overwrites them, which is the price of an
+                // undo that can put an insertion back
+                // ([`super::transaction`]).
+                let before = self.editor.text().to_string();
                 // No arm for a composer that refuses the summary, and that is
                 // arithmetic rather than optimism: a block is only collapsed
                 // past `COLLAPSE_ABOVE` codepoints, the budget admitted the
@@ -1270,10 +1897,22 @@ impl Shell {
                 // number -- so the room left over is never smaller than a name
                 // ([`super::paste`]'s
                 // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
-                if self.editor.insert(&summary) {
-                    self.paste.placed(occurrence);
-                    self.edited();
-                }
+                let Some(entity) = self
+                    .editor
+                    .insert_entity(&summary, EntityKind::Paste { id, text, lines })
+                else {
+                    return;
+                };
+                self.amended();
+                // **After the edit**, because `amended` runs through
+                // [`Self::edited`], which records `Other` for every change to
+                // the composer. One paste is one boundary however many bytes
+                // and however many reads of the terminal it arrived in.
+                self.transaction.record(EditTransaction::InsertPaste {
+                    before,
+                    after: self.editor.text().to_string(),
+                    entity,
+                });
             }
         }
     }
@@ -1284,22 +1923,64 @@ impl Shell {
     /// here rather than falling into a wildcard that silently ignores it.
     fn act(&mut self, action: Action, now: Instant) {
         match action {
-            // The composer's own.
+            // The composer's own, and **moves**: the caret goes somewhere
+            // else and the text does not change, so a recalled line is still
+            // the line on the screen and the walk stays open. Reading a
+            // recalled prompt before stepping further back is exactly this.
             Action::Left
             | Action::Right
-            | Action::Up
-            | Action::Down
             | Action::Home
             | Action::End
             | Action::WordLeft
-            | Action::WordRight
-            | Action::Backspace
+            | Action::WordRight => {
+                self.editor.apply(action, self.text_cols());
+                self.moved();
+            }
+            // The composer's own, and **edits**: the text is the user's now
+            // rather than the recalled line's, so the walk is over
+            // ([`Self::amended`]).
+            Action::Backspace
             | Action::Delete
             | Action::DeleteWordLeft
             | Action::KillToEnd
             | Action::KillToStart => {
                 self.editor.apply(action, self.text_cols());
-                self.edited();
+                self.amended();
+            }
+            // The two keys that are the composer's until the caret has nowhere
+            // left to go, and the history's exactly there.
+            //
+            // The edge is read off **the move itself** rather than off a second
+            // wrap of the draft: `Editor::move_by_row` leaves the caret's row
+            // alone precisely when the row it wanted is off the end of the
+            // wrap, so a row that did not change is the first row for an `Up`
+            // and the last one for a `Down` -- the same fact, measured by the
+            // module that owns the wrap instead of restated by this one.
+            Action::Up | Action::Down => {
+                let cols = self.text_cols();
+                let from = self.editor.point(cols).0;
+                self.editor.apply(action, cols);
+                if self.editor.point(cols).0 != from {
+                    self.moved();
+                    return;
+                }
+                let step = if matches!(action, Action::Up) {
+                    HistoryStep::Previous
+                } else {
+                    HistoryStep::Next
+                };
+                if !self.recall(step) {
+                    // A recall that recalled nothing still owes a frame,
+                    // because the keystroke was still applied: the move
+                    // recorded the column this run of vertical motion is aiming
+                    // for even though the caret could not move, and that is the
+                    // state the frame after it is drawn from. Repaint only --
+                    // [`Self::moved`] rather than [`Self::edited`] -- because
+                    // nothing about the text changed, so the undo boundary the
+                    // last edit left is still the truth about the last edit
+                    // ([`super::transaction`]).
+                    self.moved();
+                }
             }
             // **The one editing action that adds text**, so it goes the way a
             // typed character goes rather than the way the moves and the
@@ -1330,7 +2011,7 @@ impl Shell {
                     self.leave();
                 } else {
                     self.editor.apply(Action::Delete, self.text_cols());
-                    self.edited();
+                    self.amended();
                 }
             }
             // The whole band is repainted every frame, so a redraw is a frame.
@@ -1341,10 +2022,24 @@ impl Shell {
             // turn.
             Action::PasteStart => self.paste.begin(),
             Action::PasteEnd => self.pasted(),
-            // Not this task's: `Tab` is the approval panel's and the composer
-            // has no completion for it to drive, and an `Ignore` is a keystroke
-            // this session has no binding for -- an event rather than silence
-            // precisely so that it accounts for the bytes it was decoded from.
+            // `Tab` reaches here only with no menu and no question up -- both
+            // bind it, and both are offered every keystroke before this runs --
+            // and there is nothing else on this surface for it to complete. An
+            // `Ignore` is a keystroke this session has no binding for at all:
+            // an event rather than silence, precisely so that it accounts for
+            // the bytes it was decoded from.
+            // `C-p` and `C-n`, which are the recall **wherever the caret
+            // is**: the arrows above cannot reach it from the middle of a
+            // multi-row draft, which is the draft a user reaches for a recall
+            // from. A step that recalls nothing changes nothing and asks for
+            // no frame -- a keystroke that did not move the band must not
+            // repaint it.
+            Action::HistoryPrevious => {
+                self.recall(HistoryStep::Previous);
+            }
+            Action::HistoryNext => {
+                self.recall(HistoryStep::Next);
+            }
             Action::Tab | Action::Ignore => {}
         }
     }
@@ -1412,14 +2107,14 @@ impl Shell {
 
     /// Empties the composer, and with it the paste blocks its summaries named.
     ///
-    /// The pair is one operation rather than two call sites that must remember
-    /// each other: a block that outlived the draft it was pasted into would be
-    /// expanded into a **later** prompt that happened to contain the same
-    /// summary -- which is text a user can type by hand -- and it would hold
-    /// the whole paste for the rest of the session
-    /// ([`super::paste::Paste::forget`]).
+    /// One operation rather than two call sites that must remember each other:
+    /// a block that outlived the draft it was pasted into would hold the whole
+    /// paste for the rest of the session, and a span into a buffer that has
+    /// been emptied names bytes that are not there.
     fn take_draft(&mut self) -> String {
-        self.paste.forget();
+        // The blocks go with the text, because they are runs of it: the
+        // composer's own `take` clears them (`super::editor::Editor::take`), so
+        // there is no second call site that has to remember to.
         self.editor.take()
     }
 
@@ -1433,7 +2128,7 @@ impl Shell {
             return;
         }
         self.take_draft();
-        self.edited();
+        self.amended();
     }
 
     /// What one submitted line is, and what happens to it.
@@ -1443,20 +2138,48 @@ impl Shell {
     /// the whole reason the routing is a call rather than a `match` of its own:
     /// a command grammar whose answer depends on which front end you typed it
     /// into is exactly the nondeterminism a command surface must not have. The
-    /// names are `interactive::SLASH_COMMANDS`, unchanged and unextended --
-    /// this phase adds no command and no slash name.
+    /// names are `interactive::SLASH_COMMANDS` and nothing else: this surface
+    /// answers exactly what the registry advertises.
     ///
-    /// Nothing here reaches the provider. Five of the six are answered on this
-    /// thread; `/model <id>` and `/new` go to the runtime as
-    /// [`TurnWork`] -- not because they need a turn, but because the model and
-    /// the conversation they change live there and have to change *between*
-    /// turns rather than under one.
+    /// Most of them are answered on this thread. `/new`, `/model` and `/setup`
+    /// go to the runtime as [`TurnWork`] -- `/new` and `/model <id>` because
+    /// the conversation and the model they change live there and have to change
+    /// *between* turns rather than under one, and `/setup` and a bare `/model`
+    /// because they open a socket, which the thread holding the terminal must
+    /// never wait on.
     fn submit(&mut self) {
         if self.editor.is_empty() {
             return;
         }
         let text = self.editor.text().to_string();
-        match interactive::classify(&text) {
+        let submitted = interactive::classify(&text);
+        // **Before any arm below, because every one of them consumes the
+        // draft**, and the draft is the only place this line exists: the
+        // command arms clear the composer through `run_command`, the prompt arm
+        // through `send`, and a line recorded afterwards would be recorded from
+        // an empty editor. A command is recorded like anything else -- it is a
+        // line the user typed, and running one again is the commonest reason to
+        // reach for the recall. Whitespace and nothing else is the one line
+        // that is not: it is consumed and never written down, so there is
+        // nothing to come back to, and an entry for it would put a keypress
+        // between the user and the line they really sent.
+        //
+        // `Blank` still ends the walk, for the same reason recording one does:
+        // the draft the walk was standing beside has been consumed.
+        if matches!(submitted, Submitted::Blank) {
+            self.history.leave();
+        } else {
+            // **With the blocks its summaries name.** An entry is the line as
+            // the composer held it, which for a collapsed paste is 25 bytes
+            // standing for as much as 8 MiB; an entry that recorded only the
+            // words would recall a summary that stands for nothing
+            // (`super::entity::EntitySnapshot`).
+            self.history.record(HistoryEntry::new(
+                text.clone(),
+                self.editor.entities().snapshots(),
+            ));
+        }
+        match &submitted {
             // Whitespace and nothing else. The line is consumed -- the user
             // pressed Return and a Return that left the composer untouched
             // would look like a session that had stopped listening -- and
@@ -1465,9 +2188,9 @@ impl Shell {
                 self.take_draft();
                 self.edited();
             }
-            Submitted::Command { command, argument } => {
+            Submitted::Command { .. } => {
                 self.echo(&text);
-                self.run_command(command, &argument);
+                self.run_command(&submitted);
             }
             // A line that begins with `/` and names nothing is a mistake, not a
             // question, and it is answered with the same refusal the
@@ -1480,10 +2203,10 @@ impl Shell {
                 // the echo above gives: it is in the document now, and a
                 // composer that kept it would have the user's next line typed
                 // onto the end of it.
+                let refusal = interactive::unknown_command_message(token);
                 self.take_draft();
                 self.edited();
                 self.echo(&text);
-                let refusal = interactive::unknown_command_message(&token);
                 self.write_document_line(&refusal);
             }
             // **Expanded here, and only here.** What the composer holds for a
@@ -1493,10 +2216,32 @@ impl Shell {
             // that echoed eight megabytes back at the user would be the paint
             // the collapse exists to prevent.
             Submitted::Prompt(prompt) => {
-                let prompt = self.paste.expand(&prompt);
-                self.send(prompt, &text);
+                self.send(self.expanded_prompt(&text, prompt), &text);
             }
         }
+    }
+
+    /// The prompt a draft really sends: its blocks put back, trimmed exactly
+    /// as [`crate::interactive::classify`] trimmed the line.
+    ///
+    /// Expanded from the **whole** draft and then cut, rather than expanded
+    /// from the trimmed line, because the spans are runs of the draft and a
+    /// classifier that removed two leading spaces would have moved every one of
+    /// them. The cut is exact: the bytes `classify` trimmed are whitespace, a
+    /// summary is not, so no span can begin inside either end -- the expansion
+    /// changes nothing in front of the first non-blank byte or behind the last.
+    ///
+    /// `classified` is what the classifier made of the same line, and it is
+    /// what this hands back when the draft holds no blocks at all -- the two
+    /// are the same string then, and that is asserted rather than assumed.
+    fn expanded_prompt(&self, text: &str, classified: &str) -> String {
+        if self.editor.entities().is_empty() {
+            return classified.to_string();
+        }
+        let expanded = self.editor.expanded();
+        let lead = text.len().saturating_sub(text.trim_start().len());
+        let tail = text.len().saturating_sub(text.trim_end().len());
+        expanded[lead..expanded.len().saturating_sub(tail)].to_string()
     }
 
     /// Offers a prompt to the runtime.
@@ -1551,51 +2296,121 @@ impl Shell {
         self.say(text.to_string());
     }
 
-    /// One of the six, with the rest of the line as its argument.
+    /// One canonical command, with the rest of the line as its argument.
     ///
     /// The composer is cleared first for all of them: a command is not offered
     /// to anything that can refuse it, so there is no draft to keep.
-    fn run_command(&mut self, command: Slash, argument: &str) {
+    ///
+    /// **Which handler runs is [`super::router`]'s to decide, not this
+    /// module's.** That is this surface's only dispatch point; the
+    /// line-oriented shell has an exhaustive `match` of its own
+    /// (`crate::interactive`'s `run`), because its arms are `async` and reach
+    /// for session state this side does not hold. What keeps the two from
+    /// drifting is that both read the same registry and both dispatch
+    /// exhaustively: another command stops both from compiling until both
+    /// answer it.
+    fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
         self.edited();
         self.gestures.submitted();
-        match command {
-            Slash::Quit => self.leave(),
-            Slash::Help => {
-                for line in interactive::help_text().lines() {
-                    self.say(line.to_string());
-                }
-            }
-            Slash::Version => self.say(interactive::version_line()),
-            Slash::Model => self.use_model(argument),
-            Slash::Clear => self.clear_screen(),
-            Slash::New => {
-                if let Err(rejected) = self.work.submit(TurnWork::New) {
-                    self.refused(rejected);
-                    return;
-                }
-                self.say(NEW_SESSION_NOTICE.to_string());
-            }
+        router::route(submitted, self);
+    }
+}
+
+/// What each canonical command does on this surface.
+///
+/// Most are answered on the UI thread; `/new`, `/model` and `/setup` are
+/// handed to the runtime as [`TurnWork`] -- because the model and the
+/// conversation they change live there and have to change *between* turns
+/// rather than under one, and because `/setup` and a bare `/model` open a
+/// socket the thread holding the terminal must never wait on.
+impl CommandHandlers for Shell {
+    fn help(&mut self) {
+        for line in interactive::help_text().lines() {
+            self.say(line.to_string());
         }
     }
 
+    fn new_session(&mut self) {
+        if let Err(rejected) = self.work.submit(TurnWork::New) {
+            self.refused(rejected);
+            return;
+        }
+        // **After the offer was taken, and not before.** The far side drops the
+        // conversation (`super::worker`'s `TurnWork::New` arm), and the meter's
+        // numerator is a measurement *of that conversation* -- so it goes with
+        // it, and a `/new` the runtime refused leaves a session whose
+        // measurement is still about the conversation on the screen.
+        //
+        // The denominator stays: it is the model's context window, and `/new`
+        // changes neither the provider nor the model. Clearing it would discard
+        // a fact that is still true and cost a socket to learn again.
+        self.context_used = None;
+        self.render.request(Reason::Footer);
+        self.say(NEW_SESSION_NOTICE.to_string());
+    }
+
+    fn clear(&mut self) {
+        self.clear_screen();
+    }
+
+    fn model(&mut self, argument: &str) {
+        self.use_model(argument);
+    }
+
+    fn version(&mut self) {
+        self.say(interactive::version_line());
+    }
+
+    fn quit(&mut self) {
+        self.leave();
+    }
+
+    fn setup(&mut self, argument: &str) {
+        self.use_provider(argument);
+    }
+}
+
+impl Shell {
     /// `/model`, with the line-oriented shell's meaning.
     ///
-    /// With no argument it **reports**; with one it applies from the next turn
-    /// on and is recorded in the session log, so a resumed conversation
-    /// continues in the model it was actually held in -- which is
-    /// [`TurnWork::Model`]'s whole job on the far side (`super::worker`'s
-    /// `Runtime::use_model`).
+    /// With no argument it **reports** and asks for the catalog; with one it
+    /// hands the id to the thread that owns the rule and paints nothing about
+    /// the result. [`TurnWork::Model`] is answered by
+    /// `crate::provider::model::ModelSelector::apply` on the runtime thread
+    /// (`super::worker`'s `run_model`), which is where the whole catalog is --
+    /// so whether an id is applied, refused as one the provider does not
+    /// publish, or applied unverified is **not a question this side can
+    /// answer**. What it does answer is the one question that is about the
+    /// argument rather than about the catalog: what a model id may be
+    /// ([`model_id_problem`], the first thing `apply` asks), refused here so
+    /// that an id carrying a control character never reaches the log the far
+    /// side writes it into.
+    ///
+    /// The result comes back as [`UiEvent::ModelAnswered`], which is what moves
+    /// this shell's own model and paints the line.
     ///
     /// **Narrower than the line shell in one way, and it is a boundary rather
     /// than an omission**: that shell loads the provider's catalog to report
-    /// with, and prints it. Reaching an endpoint is the parallel plan's, not
-    /// this one's, and the load is asynchronous on a thread that must not wait
-    /// for anything -- so the TUI reports the model in force and lists no
-    /// catalog. `docs/parity.md` says so.
+    /// with, and prints it inline. The load is asynchronous on a thread that
+    /// must not wait for anything, so the TUI reports the model in force at
+    /// once and the rows arrive afterwards as their own event.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
-            self.say(format!("[shell] model={}", self.model));
+            self.say(format!(
+                "[shell] model={} provider={}",
+                self.model,
+                self.provider.label()
+            ));
+            // **The one network call `/model` makes**, and it is made on the
+            // runtime thread rather than here: the UI thread sits in
+            // `pselect(2)` holding the terminal, and a daemon that is not
+            // answering must not be something it waits for. The rows arrive
+            // later as [`UiEvent::CatalogLoaded`], which is why this method
+            // returns having painted only the report.
+            if let Err(rejected) = self.work.submit(TurnWork::Catalog) {
+                self.refused(rejected);
+            }
             return;
         }
         // Before anything else, and in the order
@@ -1613,16 +2428,46 @@ impl Shell {
             self.write_document_line(&format!("xfx: {problem}"));
             return;
         }
-        if argument == self.model {
-            self.say(format!("[shell] model={} unchanged", self.model));
-            return;
-        }
+        // **And nothing else is decided here.** Whether the id is the one
+        // already in force, one the provider publishes, or one it does not, is
+        // the selector's to say -- and it says all three from the same catalog
+        // (`ModelSelector::apply`). A short-circuit for "the same model again"
+        // on this side would be a second reading of a fact this side keeps a
+        // copy of rather than owns.
         if let Err(rejected) = self.work.submit(TurnWork::Model(argument.to_string())) {
+            self.refused(rejected);
+        }
+    }
+
+    /// `/setup <provider>`, with the line-oriented shell's meaning.
+    ///
+    /// The command hands the whole transaction to the runtime thread and paints
+    /// nothing about its result: it writes a file, opens a socket and re-reads a
+    /// configuration, none of which may happen on the thread holding the
+    /// terminal, and **none of which this side is entitled to predict.** What
+    /// the session becomes arrives as [`UiEvent::ProviderSelected`] *after* the
+    /// reload, so the model and the credential fact this shell shows are the
+    /// ones the configuration really resolved to -- not the ones the write
+    /// intended, which differ exactly when a layer above the profile outranks
+    /// it.
+    ///
+    /// The name is parsed here only to refuse an argument that names no
+    /// provider, which costs the runtime nothing to be told and would otherwise
+    /// spend a queue place to come back as a failure.
+    fn use_provider(&mut self, argument: &str) {
+        let Some(provider) = ProviderId::parse(argument) else {
+            // xfx's own words, derived from the providers this build has
+            // (`interactive::setup_usage`), so a build that grows one does not
+            // grow a sentence that forgets it. Nothing of the argument is quoted
+            // back, for the reason `/model`'s refusal quotes nothing.
+            self.write_document_line(&interactive::setup_usage());
+            return;
+        };
+        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
         }
-        self.model = argument.to_string();
-        self.say(format!("[shell] model={}", self.model));
+        self.say(format!("[shell] setting up {}", provider.label()));
     }
 
     /// `/clear`: the screen, its scrollback, and what the band remembers of
@@ -1656,15 +2501,106 @@ impl Shell {
         self.say(CLEARED_NOTICE.to_string());
     }
 
-    /// What every change to the composer owes: a frame, and a band the right
-    /// height for the text it now holds.
+    /// One step of a walk back through what has been submitted.
+    ///
+    /// `true` when the composer holds a different line because of it, which is
+    /// what the two arrow keys use to tell "this keystroke was the recall" from
+    /// "this keystroke was a caret move that had nowhere to go".
+    ///
+    /// The draft is handed to [`History::navigate`] rather than read by it:
+    /// entering a walk **captures** what is being typed, and the composer is
+    /// the only thing that knows what that is.
+    fn recall(&mut self, step: HistoryStep) -> bool {
+        // The draft the walk stands aside carries its blocks too, so a walk
+        // that comes back to a half-typed line comes back to the whole of it.
+        let current = HistoryEntry::new(
+            self.editor.text().to_string(),
+            self.editor.entities().snapshots(),
+        );
+        let Some(entry) = self.history.navigate(step, current) else {
+            return false;
+        };
+        // **Fresh numbers, and the draft is rewritten to say them.** The
+        // entry's own numbers belong to a draft that has been sent; minting
+        // them again would put two live blocks under one name, and the one on
+        // the screen is the one a user would expect to be theirs. The allocator
+        // is the session's ([`super::paste::Paste::ids`]), so a paste after
+        // this recall cannot collide with what it just minted.
+        let wanted = entry.entities().len();
+        let mut text = entry.text().to_string();
+        let mut entities = Entities::recalled(entry.entities());
+        entities.renumber_recalled(&mut text, self.paste.ids());
+        if entities.len() < wanted {
+            // The end of the id space, seen from the recall: those summaries
+            // are words now, and a line that will be sent as its own
+            // description is a line the user has to be told about.
+            self.notice = Some(RECALL_UNNUMBERED);
+        }
+        if !self.editor.set_text(&text, entities) {
+            // Arithmetic rather than optimism, and taken seriously rather than
+            // unwrapped: every entry and every captured draft came *out* of a
+            // composer, so none of them can be past a cap the composer is
+            // already inside. If one ever were, the editor kept the draft it
+            // had -- so leaving the walk puts the session back exactly where
+            // this keystroke found it.
+            self.history.leave();
+            return false;
+        }
+        // Nothing to forget beside the composer: the blocks the replaced draft
+        // held were spans of that text and went with it
+        // (`super::editor::Editor::set_text`), and the ones now in the composer
+        // are the recalled entry's, under numbers this session has just minted.
+        //
+        // Not `amended`: an edit ends the walk, and this *is* the walk.
+        self.edited();
+        true
+    }
+
+    /// What a change to the composer's **text** owes, over what a caret move
+    /// owes.
+    ///
+    /// The extra obligation is one thing and it is the walk: the line on the
+    /// screen is the user's own now rather than the one the history handed
+    /// back, so the next step back begins at the newest entry again and comes
+    /// back to *this* text. Split from [`Self::edited`] rather than folded into
+    /// it because the two are different questions -- `Left` through a recalled
+    /// prompt is how a user reads it before deciding to step further back, and
+    /// a rule that ended the walk on every keystroke would make that
+    /// impossible.
+    fn amended(&mut self) {
+        self.history.leave();
+        self.edited();
+    }
+
+    /// What a change to the composer's **text** owes, over what a caret move
+    /// owes: the undo boundary.
+    ///
+    /// **Every text change passes through here and no caret move does**, which
+    /// is the whole of the split. What an item-18 stack needs to know is what
+    /// the last change to the text was; a field written by the repaint path
+    /// would say "an ordinary edit" after a `Left`, and an undo built on it
+    /// would take a megabyte back a grapheme at a time. The paste path records
+    /// its own boundary *after* calling through here ([`Self::pasted`]), so one
+    /// framed paste is one transaction and the keystroke after it is another.
+    ///
+    /// Nothing else is owed. While a block was a name this also had to re-read
+    /// the draft once per block to see which of them the edit had damaged; a
+    /// block is a span now and the edit already moved it (`super::entity`).
     fn edited(&mut self) {
-        // **Every composer edit passes through here**, which is why the blocks
-        // are reconciled here and nowhere else: a summary is text, and an edit
-        // that damaged one left a block that can never be expanded into a
-        // prompt but was still being charged for
-        // ([`super::paste::Paste::reconcile`]).
-        self.paste.reconcile(self.editor.text());
+        self.transaction.record(EditTransaction::Other);
+        self.moved();
+    }
+
+    /// What **any** keystroke that touched the composer owes: a frame, and a
+    /// band the right height for the text it now holds.
+    ///
+    /// A caret move owes exactly this and nothing more. The menu is reconciled
+    /// here rather than beside the text changes because it is a view of the
+    /// draft *and* of the caret, and it is reconciled **before** the band is
+    /// re-solved: the rows it takes are rows of the band, so a geometry solved
+    /// from the menu the last keystroke wanted would put the divider a row out.
+    fn moved(&mut self) {
+        self.reconcile_picker();
         self.refit();
         self.render.request(Reason::Footer);
     }
@@ -1681,22 +2617,48 @@ impl Shell {
     /// had. `the_smallest_band_still_grows_by_the_rule_rather_than_by_luck` is
     /// where that claim is checked from the smallest screen up.
     fn refit(&mut self) {
-        let limit = layout::input_row_limit(self.geometry.rows);
-        let rows = self.editor.rows(self.text_cols()).len();
-        let wanted = u16::try_from(rows.clamp(1, usize::from(limit))).unwrap_or(limit);
+        let (rows, cols) = (self.geometry.rows, self.geometry.cols);
+        let Some(geometry) = self.fit(rows, cols) else {
+            return;
+        };
+        if geometry == self.geometry {
+            return;
+        }
+        self.geometry = geometry;
+        // The divider moved, so every row of the band is somewhere else.
+        self.render.request(Reason::Resize);
+    }
+
+    /// The band this shell wants on a screen of `rows` x `cols`, or `None` when
+    /// no band fits on one.
+    ///
+    /// Every height the band has, derived from this shell's own state and from
+    /// the screen it is given rather than from the screen it is on -- which is
+    /// what lets [`Self::resize`] ask the question about a screen the geometry
+    /// does not describe yet. The composer's is a function of the **width**,
+    /// so a re-solve that measured the draft against the old one would put the
+    /// divider where the old wrap said it went.
+    fn fit(&self, rows: u16, cols: u16) -> Option<Geometry> {
+        let limit = layout::input_row_limit(rows);
+        let wrapped = self
+            .editor
+            .rows(cols.saturating_sub(PROMPT_CELLS).max(1))
+            .len();
+        let wanted = u16::try_from(wrapped.clamp(1, usize::from(limit))).unwrap_or(limit);
         // The band's other height: whether the turn's row is above the divider.
         // Carried through every re-solve rather than defaulted, or a keystroke
         // typed while a turn ran would take that row away and the frame after
         // it would put it back.
         let activity = self.activity_row.is_some();
-        // The band's third height: the rows a pending decision is taking.
-        let panel = self.panel_rows();
-        if wanted == self.geometry.input_rows()
-            && activity == self.geometry.activity.is_some()
-            && panel == self.geometry.panel
-        {
-            return;
-        }
+        // The band's third height: the rows a pending decision -- or a
+        // completion menu -- is taking, asked of the screen in question because
+        // a narrower one wraps the summary onto more of them and a shorter one
+        // shows fewer matches.
+        let panel = match self.slot() {
+            Some(Slot::Question(panel)) => panel.height(cols, rows),
+            Some(Slot::Menu(picker)) => picker.height(cols, rows),
+            None => 0,
+        };
         // **The composer gives way to the question, one row at a time.** A
         // panel and a tall draft together can want more rows than the screen
         // has, and the draft is the half that can afford to lose one: a
@@ -1706,26 +2668,93 @@ impl Shell {
         // search is bounded by the cap and always finds an answer for a panel
         // that [`layout::fits_panel`] admitted, because that is the same
         // question asked of a one-row composer.
-        let Some(geometry) = (1..=wanted).rev().find_map(|input_rows| {
-            layout::solve_band(
-                self.geometry.rows,
-                self.geometry.cols,
-                input_rows,
-                activity,
-                panel,
-            )
-        }) else {
-            return;
+        (1..=wanted)
+            .rev()
+            .find_map(|input_rows| layout::solve_band(rows, cols, input_rows, activity, panel))
+    }
+
+    /// Whether this session's row numbers are claims about a screen that may
+    /// not exist -- and therefore whether anything may be written at all.
+    ///
+    /// Two intervals, and they are the same defect a tick apart. Both are
+    /// **derived**, because a flag and the geometry are two answers to one
+    /// question and the way they go wrong is that they disagree; here the state
+    /// *is* the two numbers and the outstanding signal.
+    ///
+    /// * **A `SIGWINCH` nobody has resolved yet.** The signal means the
+    ///   terminal has already changed size, and the band is deliberately not
+    ///   re-solved for [`super::render_request::RESIZE_DEBOUNCE`] afterwards --
+    ///   so for that whole interval the geometry describes the screen that was.
+    ///   Withholding is not the same as answering the signal at once, which is
+    ///   what the debounce exists to prevent: nothing is measured and nothing
+    ///   is re-solved, the frame is simply owed until the deadline comes round.
+    /// * **A screen no band fits on**, for as long as [`Resize::TooSmall`]
+    ///   leaves it so: the terminal has reported a size, and it is one the band
+    ///   cannot be solved for, so the geometry stays describing the screen it
+    ///   was last solved for until the screen grows again.
+    ///
+    /// What it buys is that nothing is written on such a screen at all. A band
+    /// painted from a stale geometry addresses rows the terminal no longer has,
+    /// and a terminal answers a `CUP` past its last row by **clamping** it --
+    /// silently -- so the whole band lands on the bottom row on top of itself.
+    /// A document append is worse, because it cannot be taken back: it is a
+    /// scroll, and what leaves the top of the screen is in the terminal's
+    /// native scrollback for good.
+    pub(crate) fn blind(&self) -> bool {
+        self.render.resize_pending() || self.screen != (self.geometry.rows, self.geometry.cols)
+    }
+
+    /// Re-solves the band for a screen that changed size.
+    ///
+    /// The whole of what a `SIGWINCH` moves on this surface, and the boundary
+    /// is what keeps it affordable: **the band and the unfinished line, and
+    /// nothing above them.** Every finished row was written into the terminal's
+    /// own document once and is in its native scrollback now, where the
+    /// terminal re-wrapped it by rules xfx does not model -- repainting it
+    /// would mean owning a viewport this phase deliberately does not own.
+    ///
+    /// Three answers, and two of them change nothing:
+    ///
+    /// * A screen the terminal **will not describe** -- `0x0`, which a pty
+    ///   whose size was never set answers successfully -- is
+    ///   [`Resize::Unchanged`]. At launch that reading is a refusal and the
+    ///   band is solved from 24x80 (`super::term::window_size`); here there is
+    ///   already a band on a screen of a known size, and replacing it with a
+    ///   fallback would move the band for a measurement that said nothing.
+    /// * A screen that is **the size it already was** is `Unchanged` too: a
+    ///   terminal sends a winch for a font change, and a burst sends several
+    ///   for one gesture.
+    /// * A screen **no band fits on** is [`Resize::TooSmall`]. Nothing is
+    ///   re-solved and, above all, nothing is answered: a pending question
+    ///   refused here would be a decision the user never made, taken because a
+    ///   window was dragged. The size is still recorded, so the band is
+    ///   re-solved when the screen grows again -- including back to exactly the
+    ///   size it left, which a shell that remembered only its geometry would
+    ///   report as no news.
+    ///
+    /// Otherwise the band is re-solved, the unfinished line is re-wrapped, and
+    /// one frame is asked for. The caller owes the shadow
+    /// (`super::event_loop::resolve_resize`), which is a claim about a screen
+    /// that no longer exists.
+    pub(crate) fn resize(&mut self, rows: u16, cols: u16) -> Resize {
+        if rows == 0 || cols == 0 || (rows, cols) == self.screen {
+            return Resize::Unchanged;
+        }
+        self.screen = (rows, cols);
+        let Some(geometry) = self.fit(rows, cols) else {
+            return Resize::TooSmall;
         };
         self.geometry = geometry;
-        // The divider moved, so every row of the band is somewhere else.
+        self.transcript.resize_unfinished(cols);
+        // Every row of the band is somewhere else, and so is every column.
         self.render.request(Reason::Resize);
+        Resize::Repaint(geometry)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::paste::{MAX_PASTE_BYTES, MAX_RETAINED_BLOCKS};
+    use super::super::paste::MAX_PASTE_BYTES;
     use super::*;
 
     use std::collections::BTreeMap;
@@ -1857,14 +2886,30 @@ mod tests {
             self.control.try_recv().ok()
         }
 
-        /// The band row the caret is on.
+        /// The row the caret is on, on whichever plane the session is composing
+        /// for.
         ///
         /// Asked through the caret rather than by looking for the marker,
-        /// because the claim every panel case makes is that the two agree: the
-        /// marker is what the eye reads and the caret is what the terminal
+        /// because the claim every question case makes is that the two agree:
+        /// the marker is what the eye reads and the caret is what the terminal
         /// says, and a test that read the marker alone would pass with the
         /// caret left in the composer.
+        ///
+        /// The plane is consulted for exactly the same reason. A question the
+        /// band cannot show is painted on the alternate screen
+        /// (`super::approval_screen`), and its caret is a row number on *that*
+        /// grid; reading it off the band would be reading a coordinate against
+        /// the wrong screen.
         fn marked(&self) -> String {
+            if self.shell.screen_owner() == ScreenOwner::Approval {
+                let row = usize::from(self.shell.screen_cursor().0);
+                return self
+                    .shell
+                    .screen_rows()
+                    .get(row - 1)
+                    .cloned()
+                    .unwrap_or_else(|| panic!("the caret is not on a row of the approval screen"));
+            }
             let offset = usize::from(
                 self.shell
                     .cursor()
@@ -2466,9 +3511,10 @@ mod tests {
     #[test]
     fn a_summary_the_user_typed_a_second_copy_of_is_only_words() {
         // The words of a summary are on the screen where the user can read and
-        // retype them. One of the copies in a draft is the placeholder; the
-        // rest are text, and a block that expanded into all of them would send
-        // the paste as many times as the draft says its name.
+        // retype them. **The block is the span the paste made**, so a second
+        // copy of the name is text wherever it is: an expansion that matched
+        // the words would send the paste as many times as the draft says its
+        // name.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"\x1b[200~");
@@ -2486,8 +3532,9 @@ mod tests {
 
     #[test]
     fn a_summary_already_in_the_draft_is_not_the_one_the_paste_stands_behind() {
-        // The draft held those words *before* anything was pasted, so they were
-        // never a placeholder -- and the paste that landed after them is.
+        // The draft held those words *before* anything was pasted, so no span
+        // covers them -- and the run the paste itself put there is the block,
+        // whichever of the two a search for the name would have found first.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"[Pasted text #1, 1 lines] ");
@@ -2506,11 +3553,12 @@ mod tests {
 
     #[test]
     fn a_copy_of_a_summary_after_the_caret_is_not_the_placeholder_either() {
-        // The other side of the same question. The words were already in the
-        // draft, but the paste landed in front of them, so *this* one is the
-        // first copy and the words that were there are the second -- which is
-        // why the copies are counted in front of the caret rather than in the
-        // whole draft.
+        // The other side of the same question, and the one the old name-based
+        // model had to count copies to answer: the paste lands *in front of*
+        // words that already look like its summary, so the first copy in the
+        // draft is the block and the second is text. A span needs no counting
+        // -- it is the run the insertion made, and the words after it were
+        // never it.
         let mut shell = shell(24, 80);
         let block = "y".repeat(1200);
         shell.route_bytes(b"[Pasted text #1, 1 lines]");
@@ -2599,41 +3647,6 @@ mod tests {
     }
 
     #[test]
-    fn a_summary_typed_in_front_of_the_placeholder_moves_it_and_never_doubles_it() {
-        // **The Phase-2 debt, pinned.** Spans are not tracked through edits, so
-        // a copy of a summary that appears in front of the placeholder *after*
-        // the paste landed is expanded in its stead: the block goes to the
-        // wrong copy of its own name. That is the price of not tracking spans,
-        // and it is the acceptable half. The other half -- the block being sent
-        // twice -- must never happen, so both are asserted here and a change
-        // that turns misplacing into multiplying fails this test rather than
-        // passing quietly.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1200);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        shell.route_bytes(&[0x01]); // C-a: in front of the placeholder
-        shell.route_bytes(b"[Pasted text #1, 1 lines] ");
-        shell.route_bytes(&[0x0d]);
-
-        let TurnWork::Submit(prompt) = shell.picks_up() else {
-            panic!("nothing was submitted");
-        };
-        assert_eq!(
-            prompt,
-            format!("{block} [Pasted text #1, 1 lines]"),
-            "the copy typed in front of the placeholder is not the one that \
-             was expanded"
-        );
-        assert_eq!(
-            prompt.matches(&block).count(),
-            1,
-            "the block was sent once per copy of its name"
-        );
-    }
-
-    #[test]
     fn a_summary_backspaced_away_gives_its_budget_back() {
         // Phase 1 lets a user backspace into a summary -- it is text in the
         // composer, not an atomic entity -- and nothing about that calls
@@ -2668,37 +3681,6 @@ mod tests {
     }
 
     #[test]
-    fn a_name_damaged_and_typed_back_is_words_rather_than_the_block_again() {
-        // Damaging a name releases its block for good. Writing those words
-        // again afterwards is writing, not repairing: what the draft holds is
-        // a summary-shaped piece of text, and the block it used to name is
-        // gone. Anything else would let a user resurrect megabytes by typing a
-        // bracket.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1200);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-
-        // One character off the end is enough to make the placeholder
-        // unfindable.
-        shell.route_bytes(&[0x7f]);
-        shell.route_bytes(b"]");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 lines]",
-            "the draft is not back to the words it started with"
-        );
-
-        shell.route_bytes(&[0x0d]);
-        assert_eq!(
-            shell.picks_up(),
-            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
-            "a name the user repaired by hand brought its block back"
-        );
-    }
-
-    #[test]
     fn a_composed_newline_is_weighed_like_any_other_keystroke() {
         // `C-j` is the one editing action that *adds* text, so it is the one
         // that has to ask the budget the same question a typed character does.
@@ -2723,49 +3705,6 @@ mod tests {
             full,
             "a composed newline landed past the budget the draft's hidden \
              block is already using"
-        );
-    }
-
-    #[test]
-    fn a_keystroke_that_damages_a_name_is_weighed_against_what_it_leaves() {
-        // The draft is at the cap and the caret is **inside** the summary. That
-        // keystroke damages the name, which releases the megabytes it was
-        // standing for -- so the draft it produces is well inside the budget.
-        // Refusing it would be refusing a keystroke on account of bytes the
-        // keystroke itself gets rid of.
-        let mut shell = shell(24, 80);
-        // The whole budget less the name that will stand in for it, which is
-        // the largest block a draft can hold: a collapsed paste is charged its
-        // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        let summary = shell.editor.text().to_string();
-        assert_eq!(summary, "[Pasted text #1, 1 lines]");
-
-        shell.route_bytes(b"\x1b[D"); // Left: between the last letter and the `]`
-        shell.route_bytes(b"z");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 linesz]",
-            "a keystroke was refused for a block that the keystroke itself \
-             releases"
-        );
-
-        // And the release is permanent: putting the name back by hand does not
-        // bring the block back.
-        shell.route_bytes(&[0x7f]);
-        assert_eq!(
-            shell.editor.text(),
-            summary,
-            "the draft is not back to the name"
-        );
-        shell.route_bytes(&[0x0d]);
-        assert_eq!(
-            shell.picks_up(),
-            TurnWork::Submit(summary),
-            "a name repaired by hand brought eight megabytes back with it"
         );
     }
 
@@ -2801,146 +3740,6 @@ mod tests {
     }
 
     #[test]
-    fn a_draft_stops_taking_blocks_at_the_cap_and_a_released_slot_comes_back() {
-        // The bookkeeping that keeps the budget honest re-reads the draft once
-        // per retained block on every keystroke, so the block count is a cost
-        // as well as a number ([`super::super::paste::MAX_RETAINED_BLOCKS`]).
-        // The number is spelled out rather than read from the module it is
-        // checking, for the reason `tests/tui.rs` spells out the band's rows: a
-        // test that took the cap from the thing enforcing it would pass for
-        // *any* cap -- including one that brings the scan cost back.
-        const CAP: usize = 64;
-        assert_eq!(
-            CAP, MAX_RETAINED_BLOCKS,
-            "the cap moved; read the scan-cost table in `MAX_RETAINED_BLOCKS`'s \
-             doc before changing this number"
-        );
-
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..CAP {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-        let full = shell.editor.text().to_string();
-        assert!(
-            shell.notice.is_none(),
-            "a paste inside the cap was refused: {:?}",
-            shell.notice
-        );
-        assert!(
-            full.contains(&format!("[Pasted text #{CAP}, 1 lines]")),
-            "the last block inside the cap is not in the draft"
-        );
-
-        // The one past it is refused, and says so.
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert_eq!(
-            shell.editor.text(),
-            full,
-            "a block past the cap landed in the draft"
-        );
-        assert_eq!(
-            shell.notice,
-            Some(PASTE_REFUSED),
-            "a block past the cap was dropped without a word"
-        );
-
-        // And a slot an edit gives back is a slot the next paste can have. The
-        // backspace damages the last name, which releases its block; the paste
-        // after it is the 65th to be *kept*, so it is the 65th number too --
-        // the refused one never spent hers.
-        shell.route_bytes(&[0x7f]);
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert!(
-            shell
-                .editor
-                .text()
-                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
-            "the slot a damaged name gave back was not reused: {:?}",
-            shell.editor.text()
-        );
-    }
-
-    #[test]
-    fn an_inline_paste_is_not_what_the_block_cap_counts() {
-        // The cap is about the blocks a draft holds, because each one is
-        // another read of the draft on every keystroke. A paste small enough to
-        // be text keeps no block and costs no read, so a draft at the cap still
-        // takes one.
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..MAX_RETAINED_BLOCKS {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-
-        shell.route_bytes(b"\x1b[200~short\x1b[201~");
-        assert!(
-            shell.editor.text().ends_with("short"),
-            "an inline paste was refused for a count it does not add to"
-        );
-    }
-
-    #[test]
-    fn a_paste_that_lands_in_a_name_is_weighed_against_what_it_releases() {
-        // The same rule a keystroke gets: a paste is admitted against the draft
-        // it *leaves*. This one lands inside the summary, so it damages the
-        // name and releases the eight megabytes it was standing for -- the
-        // draft it produces is nearly empty.
-        let mut shell = shell(24, 80);
-        // The whole budget less the name that will stand in for it, which is
-        // the largest block a draft can hold: a collapsed paste is charged its
-        // text and its name both.
-        let block = "y".repeat(MAX_PASTE_BYTES - "[Pasted text #1, 1 lines]".len());
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
-
-        shell.route_bytes(b"\x1b[D"); // Left: inside the name
-        shell.route_bytes(b"\x1b[200~short\x1b[201~");
-        assert_eq!(
-            shell.editor.text(),
-            "[Pasted text #1, 1 linesshort]",
-            "a paste was refused for a block that the paste itself releases"
-        );
-    }
-
-    #[test]
-    fn a_collapsed_paste_that_replaces_a_name_at_the_cap_is_taken() {
-        // At the cap, and this paste lands inside an existing name: it damages
-        // that one and adds its own, so the draft it leaves holds the same
-        // number of blocks it held before.
-        const CAP: usize = 64;
-        let mut shell = shell(24, 80);
-        let block = "y".repeat(1001);
-        for _ in 0..CAP {
-            shell.route_bytes(b"\x1b[200~");
-            shell.route_bytes(block.as_bytes());
-            shell.route_bytes(b"\x1b[201~");
-        }
-
-        shell.route_bytes(b"\x1b[D"); // Left: inside the last name
-        shell.route_bytes(b"\x1b[200~");
-        shell.route_bytes(block.as_bytes());
-        shell.route_bytes(b"\x1b[201~");
-        assert!(
-            shell
-                .editor
-                .text()
-                .contains(&format!("[Pasted text #{}, 1 lines]", CAP + 1)),
-            "a paste that leaves the block count where it found it was refused"
-        );
-    }
-
-    #[test]
     fn a_paste_in_front_of_a_name_that_survives_it_is_still_weighed_against_it() {
         // The other side of the paste's prospective question, and the same one
         // `a_keystroke_in_front_of_a_name_that_survives_it_is_still_weighed_against_it`
@@ -2961,6 +3760,442 @@ mod tests {
             full,
             "a paste landed past the budget, in front of a name whose block it \
              does not release"
+        );
+    }
+
+    /// A collapsed block in the composer, and the text it stands for.
+    ///
+    /// The paste is driven through the byte path rather than built, because
+    /// what item 16 is about is what the keys do to it afterwards.
+    fn collapsed(shell: &mut Shell, lines: usize) -> String {
+        let text = if lines > 1 {
+            let mut text = "y".repeat(1200);
+            for _ in 1..lines {
+                text.push('\n');
+                text.push('y');
+            }
+            text
+        } else {
+            "y".repeat(1200)
+        };
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(text.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        text
+    }
+
+    #[test]
+    fn a_backspace_at_a_collapsed_pastes_edge_takes_the_whole_block() {
+        // The narrowing item 16 closes. Phase 1 edited the summary's last
+        // character, which left a damaged name on the screen standing for
+        // nothing.
+        let mut shell = shell(24, 80);
+        let _block = collapsed(&mut shell, 1);
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(&[0x7f]);
+        assert!(
+            shell.editor.is_empty(),
+            "the backspace edited the name instead of removing the block: {:?}",
+            shell.editor.text()
+        );
+        shell.route_bytes(b"hello");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("hello".to_string()),
+            "the removed block was sent anyway"
+        );
+    }
+
+    #[test]
+    fn a_forward_delete_at_a_collapsed_pastes_left_edge_takes_the_whole_block() {
+        let mut shell = shell(24, 80);
+        let _block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x01]); // C-a, to the left edge
+        shell.route_bytes(&[0x04]); // C-d is a forward delete with text under it
+        assert!(
+            shell.editor.is_empty(),
+            "the delete edited the name instead: {:?}",
+            shell.editor.text()
+        );
+    }
+
+    #[test]
+    fn the_caret_steps_over_a_collapsed_paste_as_one_unit() {
+        // One `Left` from the right edge is in front of the *whole* summary, so
+        // the keystroke after it lands beside the block rather than in its
+        // name.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(b"\x1b[D");
+        shell.route_bytes(b"!");
+        assert_eq!(
+            shell.editor.text(),
+            "![Pasted text #1, 1 lines]",
+            "a left step landed inside the name"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(format!("!{block}")),
+            "the block did not survive a keystroke beside it"
+        );
+    }
+
+    #[test]
+    fn a_recalled_paste_comes_back_as_a_block_with_a_fresh_number() {
+        // The whole of the recall narrowing item 15 wrote down: an entry
+        // carries the blocks its summaries named, and a recall renumbers them
+        // so that no two live blocks answer to one name.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the recalled summary kept a number this session had already used"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "a recalled summary was sent as the words it looks like"
+        );
+    }
+
+    #[test]
+    fn a_draft_holds_far_more_blocks_than_the_old_cap_and_sends_every_one() {
+        // `MAX_RETAINED_BLOCKS` was a bound on the *time* a keystroke cost,
+        // because the old bookkeeping re-read the draft once per block. The
+        // spans cost arithmetic, so the bound is gone -- and what proves it is
+        // a draft holding many times the old cap whose every block is sent.
+        const BLOCKS: usize = 100;
+        let mut shell = shell(24, 80);
+        let block = "y".repeat(1001);
+        for _ in 0..BLOCKS {
+            shell.route_bytes(b"\x1b[200~");
+            shell.route_bytes(block.as_bytes());
+            shell.route_bytes(b"\x1b[201~");
+        }
+        assert_eq!(shell.notice, None, "a paste past the old cap was refused");
+        assert!(
+            shell
+                .editor
+                .text()
+                .contains(&format!("[Pasted text #{BLOCKS}, 1 lines]")),
+            "the last block is not in the draft"
+        );
+        shell.route_bytes(&[0x0d]);
+        let TurnWork::Submit(prompt) = shell.picks_up() else {
+            panic!("nothing was submitted");
+        };
+        assert_eq!(
+            prompt.matches(&block).count(),
+            BLOCKS,
+            "not every block reached the prompt"
+        );
+        assert!(
+            !prompt.contains("Pasted text"),
+            "a summary was sent in place of its block"
+        );
+    }
+
+    #[test]
+    fn a_history_entry_carries_the_blocks_its_summaries_named() {
+        // Two lines with a block each: the walk back has to put the right one
+        // behind the right summary, and neither may be the other's.
+        let mut shell = shell(24, 80);
+        let first = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(first.clone()));
+        let second = collapsed(&mut shell, 2);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(second.clone()));
+
+        shell.route_bytes(&[0x10]); // C-p: the newest line
+        assert_eq!(
+            shell.editor.expanded(),
+            second,
+            "the newest line came back without the block its summary named"
+        );
+        shell.route_bytes(&[0x10]); // C-p: the one before it
+        assert_eq!(
+            shell.editor.expanded(),
+            first,
+            "the older line came back with the newer line's block"
+        );
+        // Asked of the composer rather than of a third submission, because the
+        // runtime holds two pieces of work at once (`super::worker::WORK_LIMIT`)
+        // and both are still in hand: what `expanded` answers is exactly what
+        // `submit` would send.
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #4, 1 lines]",
+            "the walk handed back numbers this session had already spent"
+        );
+    }
+
+    #[test]
+    fn a_draft_with_blank_edges_sends_the_block_and_the_trimming_both() {
+        // The classifier trims a submitted line
+        // (`crate::interactive::classify`) and the spans are runs of the draft
+        // it trimmed, so the two have to be reconciled somewhere: expanding the
+        // *trimmed* line with the untrimmed line's spans would splice the block
+        // two bytes out of place. Expanded whole and cut instead, which is
+        // exact because what is trimmed is whitespace and a summary is not.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"  ");
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(b"  ");
+        assert_eq!(shell.editor.text(), "  [Pasted text #1, 1 lines]  ");
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "the prompt is the block with the line's own blank edges trimmed"
+        );
+    }
+
+    #[test]
+    fn one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in() {
+        // **The boundary an undo will take**, fixed at the only moment that
+        // knows it. A paste is one gesture and a great many bytes, and the
+        // bytes arrive in as many reads as the terminal feels like: a boundary
+        // inferred later from the buffer would be a boundary per read, or per
+        // grapheme, and an undo built on it would take a megabyte back a
+        // character at a time. There is no `C-z` on this surface -- item 18
+        // brings the stack -- so this case is the seam's only reader, which is
+        // what `.prd/06-qa-harness.md`'s scenario 21 points at.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"\x1b[200~");
+        let chunk = vec![b'y'; 64];
+        for _ in 0..40 {
+            shell.route_bytes(&chunk);
+        }
+        shell.route_bytes(b"\x1b[201~");
+
+        let Some(EditTransaction::InsertPaste {
+            before,
+            after,
+            entity,
+        }) = shell.transaction.last()
+        else {
+            panic!(
+                "a framed paste did not record one insert transaction: {:?}",
+                shell.transaction.last()
+            );
+        };
+        assert_eq!(before, "", "the draft before the paste was not recorded");
+        assert_eq!(after, "[Pasted text #1, 1 lines]");
+        assert_eq!(entity.range(), 0..after.len());
+        assert_eq!(
+            entity.text().len(),
+            40 * 64,
+            "the transaction's entity does not carry the whole paste"
+        );
+
+        // And the next edit overwrites it, because what an undo needs to know
+        // is what the *last* change was.
+        shell.route_bytes(b"!");
+        assert!(
+            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+            "a keystroke after a paste left the paste boundary standing: {:?}",
+            shell.transaction.last()
+        );
+    }
+
+    #[test]
+    fn a_caret_move_leaves_the_paste_boundary_standing_and_an_edit_takes_it_down() {
+        // **A move is not an edit.** The boundary an undo would take is a fact
+        // about the last change to the *text*; a keystroke that only moved the
+        // caret has not changed the text, so a stack built on this seam would
+        // find "the last edit was an ordinary one" after a `Left` and take the
+        // paste back a grapheme at a time -- which is the whole thing the
+        // boundary exists to prevent.
+        let mut shell = shell(24, 80);
+        // Two rows, so that `Up` and `Down` have somewhere to go inside the
+        // draft: typed **before** the paste, because typing is an edit and the
+        // boundary this case is about is the paste's.
+        shell.route_bytes(&[b'x'; 100]);
+        let _block = collapsed(&mut shell, 1);
+        assert!(
+            matches!(
+                shell.transaction.last(),
+                Some(EditTransaction::InsertPaste { .. })
+            ),
+            "the paste did not record a boundary, so this case proves nothing"
+        );
+
+        // Every key the composer binds that moves the caret and nothing else.
+        // `Up`/`Down` are here twice over: once inside a two-row draft, where
+        // they move, and once at its edges, where they reach for the history,
+        // find none and change nothing at all.
+        for (name, keys) in [
+            ("Left", &b"\x1b[D"[..]),
+            ("Right", &b"\x1b[C"[..]),
+            ("Home", &b"\x1b[H"[..]),
+            ("End", &b"\x1b[F"[..]),
+            ("WordLeft", &b"\x1b[1;5D"[..]),
+            ("WordRight", &b"\x1b[1;5C"[..]),
+            ("C-a", &[0x01][..]),
+            ("C-e", &[0x05][..]),
+            ("Up", &b"\x1b[A"[..]),
+            ("Down", &b"\x1b[B"[..]),
+            ("Up at the first row", &b"\x1b[A\x1b[A\x1b[A"[..]),
+            ("Down at the last row", &b"\x1b[B\x1b[B\x1b[B"[..]),
+        ] {
+            shell.route_bytes(keys);
+            assert!(
+                matches!(
+                    shell.transaction.last(),
+                    Some(EditTransaction::InsertPaste { .. })
+                ),
+                "{name} moved the caret and took the paste boundary down with it: {:?}",
+                shell.transaction.last()
+            );
+        }
+
+        // And an edit -- any edit -- does take it down, because after one the
+        // last change to the text is not the paste.
+        shell.route_bytes(b"!");
+        assert!(
+            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+            "a keystroke after a paste left the paste boundary standing: {:?}",
+            shell.transaction.last()
+        );
+    }
+
+    #[test]
+    fn every_kind_of_edit_takes_the_paste_boundary_down() {
+        // The other half, once per family, because "an edit overwrites it" is a
+        // claim about the funnel every text change goes through rather than
+        // about the one keystroke that is easiest to test.
+        let edits: [(&str, &[u8]); 5] = [
+            ("a typed character", b"!"),
+            ("a backspace", &[0x7f]),
+            ("a kill to the start", &[0x15]),
+            ("a composed newline", &[0x0a]),
+            ("a word delete", &[0x17]),
+        ];
+        for (name, keys) in edits {
+            let mut shell = shell(24, 80);
+            let _block = collapsed(&mut shell, 1);
+            assert!(
+                matches!(
+                    shell.transaction.last(),
+                    Some(EditTransaction::InsertPaste { .. })
+                ),
+                "{name}: the paste did not record a boundary"
+            );
+            shell.route_bytes(keys);
+            assert!(
+                matches!(shell.transaction.last(), Some(EditTransaction::Other)),
+                "{name} left the paste boundary standing: {:?}",
+                shell.transaction.last()
+            );
+        }
+    }
+
+    #[test]
+    fn a_paste_with_no_number_left_says_so_and_leaves_the_draft_alone() {
+        // The end of the id space. Wrapping or saturating would put two live
+        // blocks under one name -- and then a recall, which finds a block by
+        // its number, would expand the wrong paste. Refused instead, and said,
+        // because a paste that vanished without a word looks like a terminal
+        // that never sent it.
+        let mut shell = shell(24, 80);
+        shell.paste = Paste::with_next(u32::MAX);
+        shell.route_bytes(b"a draft worth keeping");
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes("y".repeat(1200).as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "a paste with no number left changed the draft"
+        );
+        assert_eq!(shell.notice, Some(PASTE_UNNUMBERED));
+        assert!(
+            shell.hint().contains(PASTE_UNNUMBERED),
+            "the refusal is not on the hint row: {:?}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn a_pasted_line_is_not_folded_into_the_typed_words_that_look_like_it() {
+        // The dedupe is adjacent-only and by text, which is right until a
+        // summary is involved: the words are on the screen where a user can
+        // type them, and the number the session mints next can make the two
+        // lines identical. Folding them would drop the entry that stands on the
+        // block and hand back the one that stands on nothing.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string())
+        );
+        let _echo = shell.document();
+
+        let block = collapsed(&mut shell, 1);
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the paste did not take the number the typed line names, so this \
+             case proves nothing"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
+
+        shell.route_bytes(&[0x10]); // C-p: one step back
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the pasted line was folded into the typed one: {:?}",
+            shell.editor.text()
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the recalled line lost the block it stood on"
+        );
+    }
+
+    #[test]
+    fn a_recall_with_no_numbers_left_hands_back_words_and_says_so() {
+        // The same exhaustion from the other side. A recalled block cannot keep
+        // the number it was submitted under -- that number belongs to a draft
+        // that is gone, and minting it again is the collision above -- so a
+        // session with none left hands the line back as the words on the
+        // screen, and says that is what it did.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(shell.picks_up(), TurnWork::Submit(block));
+
+        *shell.paste.ids() = u32::MAX;
+        shell.route_bytes(&[0x10]); // C-p
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the recalled line is not the one that was submitted"
+        );
+        assert!(
+            shell.editor.entities().is_empty(),
+            "a block was kept under a number nobody minted"
+        );
+        assert_eq!(shell.notice, Some(RECALL_UNNUMBERED));
+        assert_eq!(
+            shell.editor.expanded(),
+            "[Pasted text #1, 1 lines]",
+            "the summary still stood for eight megabytes"
         );
     }
 
@@ -3568,7 +4803,18 @@ mod tests {
             always_scope:
                 "allow every future edit_file to `notes.txt` for the rest of this session"
                     .to_string(),
+            diff: None,
         }
+    }
+
+    /// The same question about a change too big for the band's own summary.
+    fn asked_about_a_large_change() -> ApprovalRequest {
+        let mut request = asked();
+        request.diff = Some(crate::permission::ApprovalDiff {
+            before: "a".repeat(4_000),
+            after: "b".repeat(4_000),
+        });
+        request
     }
 
     /// A shell with a turn running and a question in front of the user.
@@ -3867,6 +5113,319 @@ mod tests {
             "the turn was charged for the time it spent waiting for a person: \
              {after:?}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // which plane the question belongs to
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_change_too_big_for_the_band_gives_the_screen_to_the_approval_plane_and_an_answer_gives_it_back(
+    ) {
+        // The owner is a state of the *session*, not a property of the request:
+        // it is taken when the question arrives and it has to be given back
+        // when the question is answered, or the plane a later frame is composed
+        // for would be one nobody is looking at.
+        let mut shell = shell(24, 80);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "a change the band cannot show was left for the band to show"
+        );
+
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once))
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Primary,
+            "an answered question kept the screen"
+        );
+    }
+
+    #[test]
+    fn a_small_mutation_keeps_the_primary_plane_and_is_asked_in_the_band() {
+        // The common case, and the one a screen would be a regression for: the
+        // document stays visible behind a question the band can hold whole.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert_eq!(shell.geometry.panel, 8);
+        assert!(shell.band_rows().join("\n").contains("Permission needed"));
+    }
+
+    #[test]
+    fn a_question_the_approval_plane_owns_still_takes_the_focus_and_every_choice() {
+        // Routing is settled by the question having the focus, not by which
+        // plane is painting it. Every one of the three answers, the marker
+        // walk, and the refusal keys -- because a surface that changed which
+        // keystroke means what would be a second input model to get wrong.
+        for (typed, answer) in [
+            (&b"1"[..], ApprovalAnswer::Once),
+            (&b"2"[..], ApprovalAnswer::Always),
+            (&b"3"[..], ApprovalAnswer::Deny),
+            (&[0x1b][..], ApprovalAnswer::Deny),
+        ] {
+            let mut shell = shell(24, 80);
+            let started = turn_running(&mut shell, b"edit the notes\r");
+            shell.route_bytes(b"a draft");
+            shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+            shell.settle_band(started);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+            assert_eq!(shell.marked(), "> 1. Yes", "the caret left the question");
+
+            shell.route_bytes(typed);
+            shell.settle_input(Instant::now() + Duration::from_millis(100));
+
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer(answer)),
+                "{typed:?} did not answer a question the approval plane owns"
+            );
+            assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+            assert_eq!(
+                shell.editor.text(),
+                "a draft",
+                "the keystroke fell through into the composer"
+            );
+        }
+    }
+
+    #[test]
+    fn an_interrupt_at_a_question_the_approval_plane_owns_gives_the_screen_back_as_well() {
+        // Ctrl-C is the one key that is not an answer on this surface -- it
+        // stops the turn and the prompter turns that into the refusal. The
+        // screen has to come back on that path too, or an interrupt would leave
+        // the session composing frames for a plane with no question on it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.route_bytes(&[0x03]);
+
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(
+            matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
+            "the interrupt was answered instead of being passed on"
+        );
+    }
+
+    #[test]
+    fn a_short_screen_reviews_a_large_change_on_the_plane_that_can_show_it() {
+        // **The band's fit is the band's question.** A change too big for the
+        // summary is never asked in the band at all -- it takes a plane of its
+        // own, and every row of that plane is the question -- so measuring it
+        // against the rows the band's panel would have needed is refusing on
+        // behalf of a surface that was never going to be used. Ten rows is
+        // exactly that case: the inline panel really does not fit there
+        // (`a_screen_too_small_to_show_the_question_refuses_it_and_says_so`
+        // pins the inline half at the same size), and the plane shows the
+        // question whole.
+        let mut shell = shell(10, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a question the plane can show was answered on the user's behalf"
+        );
+        let painted = shell.screen_rows().join("\n");
+        for choice in ["1. Yes", "2. Yes, and", "3. No (esc)"] {
+            assert!(
+                painted.contains(choice),
+                "the plane dropped {choice:?} on a {}-row screen: {painted:?}",
+                shell.geometry.rows
+            );
+        }
+        assert!(
+            !shell.released().contains(&PANEL_TOO_SMALL.to_string()),
+            "the session was told the screen was too small for a question it is showing"
+        );
+    }
+
+    #[test]
+    fn every_screen_a_session_can_run_on_can_ask_a_question_on_the_other_plane() {
+        // The premise the refusal above rests on, driven rather than argued: a
+        // session exists only on a screen the band fits on
+        // (`layout::MIN_ROWS`/`MIN_COLS`), and on **every** such screen the
+        // review plane can put all three answers in front of the user. So the
+        // fail-closed branch in `ask` guards a case no live geometry reaches,
+        // and the refusal it would produce is a hazard written down rather
+        // than a behaviour a session can be walked into.
+        for rows in layout::MIN_ROWS..=40 {
+            for cols in [layout::MIN_COLS, 40, 80, 200] {
+                let mut shell = shell(rows, cols);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+                shell.settle_band(started);
+                assert_eq!(
+                    shell.screen_owner(),
+                    ScreenOwner::Approval,
+                    "a {rows}x{cols} screen refused a question the plane can show"
+                );
+                assert_eq!(
+                    shell.controlled(),
+                    None,
+                    "a {rows}x{cols} screen answered on the user's behalf"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_question_the_other_plane_owns_is_painted_there_and_not_in_the_band() {
+        // The band underneath the question is an **ordinary** band, and that is
+        // what makes the return cheap and correct: the frame that gives the
+        // plane back repaints exactly this, at exactly these rows, so the
+        // session comes back to the screen it left.
+        //
+        // 7A pinned the opposite -- the band painted an Approval-owned question
+        // because there was no other surface to paint it on, and its own
+        // mutation M32 guarded against this checkpoint half-landing there. This
+        // is that guard turned over: the surface now exists, so the band gives
+        // the rows back rather than keeping a second copy of the question.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        let painted = shell.band_rows().join("\n");
+        assert!(
+            !painted.contains("Permission needed"),
+            "the question is up twice, on two planes: {painted:?}"
+        );
+        assert_eq!(
+            shell.geometry.panel, 0,
+            "the band kept rows for a question it is not painting"
+        );
+
+        // And the plane it *is* painted on carries the question, the change and
+        // every answer.
+        let screen = shell.screen_rows();
+        assert_eq!(
+            screen.len(),
+            usize::from(shell.geometry.rows),
+            "the alternate screen is not the whole terminal"
+        );
+        let screen = screen.join("\n");
+        for needle in ["Permission needed", "notes.txt", "1. Yes", "3. No (esc)"] {
+            assert!(screen.contains(needle), "{needle:?} is missing: {screen:?}");
+        }
+        assert!(
+            screen.contains("aaaa"),
+            "the change the screen exists to show is not on it: {screen:?}"
+        );
+
+        // **No row carries the bytes that take the plane.** The `1049` pair is
+        // the frame composer's (`super::frame::Band`), written around a paint
+        // rather than inside one; a row that carried it would be a row a
+        // provider's text could carry it in.
+        for rows in [shell.band_rows(), shell.screen_rows()] {
+            let painted = rows.join("\n");
+            assert!(!painted.contains("1049"), "{painted:?}");
+            assert!(!painted.contains("\u{1b}[?"), "{painted:?}");
+        }
+    }
+
+    #[test]
+    fn an_answered_question_leaves_nothing_composing_for_the_other_plane() {
+        // The surface goes with the answer, in the same statement the panel and
+        // the owner go in. One left behind would keep composing a screen out of
+        // a question that has been answered, and the next frame the loop asked
+        // for on that plane would paint it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert!(!shell.screen_rows().is_empty(), "nothing was installed");
+
+        shell.route_bytes(b"1");
+
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once))
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(
+            shell.screen_rows().is_empty(),
+            "an answered question is still composing rows for the other plane: {:?}",
+            shell.screen_rows()
+        );
+    }
+
+    #[test]
+    fn an_exit_can_give_the_other_plane_back_without_answering_the_question() {
+        // The exit's own door (`super::event_loop`'s `shut_down`). A session
+        // coming down with a question up has to leave the terminal on the plane
+        // its user's shell is on, and there is nobody left to answer -- so the
+        // plane is released without an answer being invented for the runtime.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.release_screen();
+
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert!(
+            shell.screen_rows().is_empty(),
+            "the plane was given back and the surface is still composing rows"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the exit answered a question on the user's behalf"
+        );
+    }
+
+    #[test]
+    fn a_change_longer_than_the_screen_can_be_walked_from_the_question() {
+        // A bounded diff is up to 128 KiB and a screen is a few dozen rows, so
+        // a review surface that could not be walked would show the head of a
+        // change and call it the change.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.settle_band(started);
+        let first = shell.screen_rows().join("\n");
+
+        // `C-n`, which is "the line after this one" everywhere else on this
+        // surface and was bound to nothing at a question.
+        shell.route_bytes(&[0x0e]);
+        let moved = shell.screen_rows().join("\n");
+        assert_ne!(first, moved, "the change could not be walked");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "walking the change answered the question"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.screen_rows().join("\n"),
+            first,
+            "`C-p` did not walk back"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
     }
 
     #[test]
@@ -4242,15 +5801,15 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // the six slash commands
+    // the canonical slash commands
     // -----------------------------------------------------------------------
 
     #[test]
     fn every_advertised_slash_command_is_answered_without_asking_the_model() {
         // The closed set, driven through the composer one name at a time. What
-        // makes this the real claim rather than six spot checks is that it
-        // reads `interactive::SLASH_COMMANDS`: a seventh name added there
-        // fails here until the TUI answers it too.
+        // makes this the real claim rather than a handful of spot checks is
+        // that it reads `interactive::SLASH_COMMANDS`: a name added there fails
+        // here until the TUI answers it too.
         for name in crate::interactive::SLASH_COMMANDS {
             let mut shell = shell(24, 80);
             shell.route_bytes(name.as_bytes());
@@ -4336,18 +5895,115 @@ mod tests {
             TurnWork::Model("second-model".to_string()),
             "the model change never reached the thread that owns the session log"
         );
+        // The thread that owns the rule answers, and that answer -- not the
+        // submission -- is what the band's own model becomes.
+        shell.apply(UiEvent::ModelAnswered {
+            model: "second-model".to_string(),
+            outcome: ModelAnswer::Applied { unverified: None },
+        });
 
         shell.route_bytes(b"/model\r");
         let document = shell.document();
         assert!(
             document
                 .iter()
-                .any(|row| row == "[shell] model=second-model"),
+                .any(|row| row.starts_with("[shell] model=second-model")),
             "a bare /model did not report the model in force: {document:?}"
+        );
+        // And it asks the runtime for the catalog -- **the one network call
+        // `/model` makes**, and the reason it is a piece of work rather than
+        // something answered on this thread: the UI thread owns the terminal and
+        // may not wait for a daemon. The report above is painted first and
+        // without waiting for it, so a provider that is down still answers
+        // `/model`.
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Catalog,
+            "a bare /model did not ask the runtime to load the catalog"
         );
         assert!(
             shell.sent.try_recv().is_err(),
-            "a bare /model asked the runtime for something"
+            "a bare /model asked the runtime for more than the catalog"
+        );
+    }
+
+    #[test]
+    fn the_model_the_band_shows_is_the_one_the_runtime_applied_and_never_a_prediction() {
+        // The **catalog-membership** refusal lives where the catalog is
+        // (`provider::model::ModelSelector::apply`, on the runtime thread), so
+        // this side cannot know whether an id will be taken. A band that
+        // adopted the id it submitted would put a model the provider does not
+        // publish on the hint row, report it to a bare `/model`, and disagree
+        // with the model the next turn is actually held in.
+        let mut shell = shell(24, 80);
+        let in_force = shell.shell.model.clone();
+
+        shell.route_bytes(b"/model second-model\r");
+
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Model("second-model".to_string()),
+            "the model change never reached the thread that owns the rule"
+        );
+        assert_eq!(
+            shell.shell.model, in_force,
+            "the band adopted a model nothing has accepted yet"
+        );
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.starts_with("[shell] model=")),
+            "the band reported a model change the runtime has not made: {document:?}"
+        );
+
+        // The answer is what moves it, and the answer carries the model in
+        // force -- so a refusal leaves the band showing the model the session
+        // is really in rather than the one it asked for.
+        shell.apply(UiEvent::ModelAnswered {
+            model: in_force.clone(),
+            outcome: ModelAnswer::Refused {
+                reason: "gateway does not publish second-model in its catalog".to_string(),
+            },
+        });
+        assert_eq!(shell.shell.model, in_force);
+        assert_eq!(
+            shell.document(),
+            vec!["xfx: gateway does not publish second-model in its catalog".to_string()],
+            "the refusal is not the line the line shell gives"
+        );
+
+        // And a selection moves it, with the caveat both surfaces say when the
+        // catalog could not confirm it.
+        shell.apply(UiEvent::ModelAnswered {
+            model: "second-model".to_string(),
+            outcome: ModelAnswer::Applied {
+                unverified: Some("nothing answered".to_string()),
+            },
+        });
+        assert_eq!(shell.shell.model, "second-model");
+        // Joined, because the document wraps to the screen: what is being
+        // pinned is the two lines' text, not where an 80-column band broke the
+        // second one.
+        let document = shell.document().join("");
+        assert!(
+            document.starts_with("[shell] model=second-model"),
+            "{document:?}"
+        );
+        // The literal, not the function that produces it: a test that asked
+        // `unverified_notice` what it says would agree with any answer it gave.
+        assert!(
+            document.ends_with(
+                "xfx: nothing answered, so this model was not checked against \
+                 the provider's catalog"
+            ),
+            "the caveat is not the sentence the line shell gives: {document:?}"
+        );
+        // And it really is the sentence both front ends say, which is the half
+        // a literal alone cannot pin.
+        assert!(
+            document.ends_with(&crate::provider::model::unverified_notice(
+                "nothing answered"
+            )),
+            "the two front ends say an unchecked selection differently: {document:?}"
         );
     }
 
@@ -4715,6 +6371,1514 @@ mod tests {
         assert!(
             !shell.document().iter().any(|row| row.contains("panicked")),
             "the fatal was painted into a band that is about to be taken down"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the screen changing size under the band
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_wider_screen_rewraps_the_composer_and_unfinished_tail() {
+        // The whole of what a resize owns on this side of the divider. The
+        // composer's height is a function of the width it is wrapped to, so a
+        // band re-solved without re-measuring the draft would put the divider
+        // where the *old* wrap said it went; and the unfinished line's rows are
+        // what the next append measures its scroll against.
+        let mut shell = shell(24, 40);
+        // Thirty-eight cells of draft on a screen whose composer has 38: two
+        // rows here, one row at eighty.
+        shell.route_bytes("x".repeat(50).as_bytes());
+        assert_eq!(shell.geometry.input_rows(), 2);
+        let narrow_divider = shell.geometry.divider;
+        shell.apply(UiEvent::Delta("y".repeat(50)));
+        let _ = shell.released();
+
+        assert_eq!(
+            shell.resize(24, 80),
+            Resize::Repaint(shell.geometry),
+            "a screen that really changed size was reported as no news"
+        );
+
+        assert_eq!(shell.geometry.cols, 80);
+        assert_eq!(
+            shell.geometry.input_rows(),
+            1,
+            "the draft was re-solved against the width it no longer has"
+        );
+        assert!(
+            shell.geometry.divider > narrow_divider,
+            "the divider did not move when the composer stopped wrapping"
+        );
+        // The composer's rows, as the band now paints them: one row, not two.
+        let rows = shell.band_rows();
+        assert_eq!(
+            rows.len(),
+            usize::from(shell.geometry.band_rows()),
+            "the band painted a number of rows the geometry does not own"
+        );
+        // And the tail: one more delta writes the whole unfinished line at the
+        // new width rather than at the old one.
+        shell.apply(UiEvent::Delta("z".to_string()));
+        let tail = shell.released();
+        assert!(
+            tail.iter().all(|row| super::super::wrap::width(row) <= 80),
+            "the tail was re-wrapped to something other than the screen: {tail:?}"
+        );
+        assert!(
+            !tail.iter().any(|row| row.len() == 40),
+            "a row wrapped to the old width survived the resize: {tail:?}"
+        );
+    }
+
+    #[test]
+    fn zero_by_zero_after_launch_is_no_new_information() {
+        // A pty whose size was never set answers `0x0` successfully. At launch
+        // that is a refusal and the band is solved from 24x80
+        // (`super::term::window_size`); once a session is running it is the
+        // opposite -- there *is* a band on a screen of a known size, and
+        // replacing it with a fallback would move the band for a measurement
+        // that said nothing.
+        let mut shell = shell(40, 100);
+        let before = shell.geometry;
+        assert_eq!(shell.resize(0, 0), Resize::Unchanged);
+        assert_eq!(shell.geometry, before);
+        assert_eq!(shell.resize(0, 100), Resize::Unchanged);
+        assert_eq!(shell.resize(40, 0), Resize::Unchanged);
+        assert_eq!(shell.geometry, before);
+        assert!(
+            shell.render.begin().is_none() || before == shell.geometry,
+            "a measurement that said nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_resize_to_the_size_the_screen_already_is_asks_for_nothing() {
+        // A `SIGWINCH` a terminal sends for a font change, or the second of a
+        // burst the first already answered. Repainting for one would make an
+        // idle session's cost a function of how often its terminal talks.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        assert_eq!(shell.resize(24, 80), Resize::Unchanged);
+        assert!(
+            shell.render.begin().is_none(),
+            "a resize to the size the screen already is asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_resize_asks_for_one_frame_and_names_a_resize_as_the_reason() {
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        assert!(
+            shell.render.begin().is_some(),
+            "the band moved and nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn resize_keeps_the_question_and_its_answer_channel() {
+        // A resize is not an answer. The panel is the only thing on this
+        // surface holding a turn open, and a re-solve that dropped it would
+        // leave the runtime parked on a channel nobody will ever write to --
+        // while the user watches a band with no question in it.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        assert_eq!(shell.geometry.panel, 8);
+
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+
+        assert_eq!(
+            shell.geometry.panel, 8,
+            "the question lost its rows when the screen changed size"
+        );
+        assert!(
+            shell.band_rows().join("\n").contains("Permission needed"),
+            "the question is no longer painted: {:?}",
+            shell.band_rows()
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the resize answered the question on the user's behalf"
+        );
+        // And the answer still reaches the runtime afterwards.
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            "the keystroke that answers the question stopped reaching the runtime"
+        );
+    }
+
+    #[test]
+    fn a_screen_too_small_for_the_band_keeps_the_question_until_it_grows_again() {
+        // The one case a re-solve has no answer for. Refusing the question here
+        // would be a decision the user never made, taken because a window was
+        // dragged; and answering it would be worse. So the shell keeps
+        // everything it holds, paints nothing new, and re-solves when the
+        // screen can hold a band again.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        let before = shell.geometry;
+
+        assert_eq!(shell.resize(4, 80), Resize::TooSmall);
+        assert_eq!(
+            shell.geometry, before,
+            "the band was solved for a screen that cannot hold one"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a window that got smaller answered the question"
+        );
+
+        // And the screen grows again. The size it comes back to is the one it
+        // left, which is exactly the case a shell that only remembered its
+        // geometry would report as "no news".
+        assert!(matches!(shell.resize(24, 80), Resize::Repaint(_)));
+        assert_eq!(shell.geometry.panel, 8);
+        assert!(
+            shell.band_rows().join("\n").contains("Permission needed"),
+            "the question was not painted after the screen grew back"
+        );
+        shell.route_bytes(b"1");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            "the decision no longer reaches the runtime"
+        );
+    }
+
+    #[test]
+    fn a_resize_keeps_the_turns_row_above_the_divider() {
+        // The band's other height. A re-solve that defaulted it would take the
+        // activity row away from a turn that is still running, and the next
+        // settle would put it back -- one frame of the band jumping for every
+        // resize.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"say something\r");
+        shell.settle_band(started);
+        assert!(shell.geometry.activity.is_some());
+
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        assert!(
+            shell.geometry.activity.is_some(),
+            "the running turn lost its row when the screen changed size"
+        );
+        assert_eq!(shell.geometry.activity, Some(shell.geometry.divider - 1));
+    }
+
+    #[test]
+    fn the_caret_stays_in_the_composer_across_a_resize() {
+        // The band's rows and the caret are derived from one geometry, so a
+        // resize that moved one without the other would leave the terminal's
+        // cursor on the divider or below the hint row.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
+        let (row, cells) = shell.cursor();
+        assert_eq!(row, shell.geometry.input_first);
+        assert_eq!(cells, PROMPT_CELLS + 5);
+    }
+
+    #[test]
+    fn a_truncated_report_does_not_throw_the_draft_away() {
+        // What the decoder's phantom Escape costs where it is really paid. A
+        // terminal answering `OSC 11` and being cut off mid-report ends the
+        // string with an `ESC`, and the byte behind it can be another one -- a
+        // keystroke, or the head of a sequence still arriving. Two Escapes
+        // inside `gesture::CLEAR_WINDOW` are the gesture that empties the
+        // composer, so a decoder that invents the first one lets a report xfx
+        // asked for delete what the user was writing.
+        //
+        // The clock is read **after** each burst rather than before: the bare
+        // `ESC` this hands back is resolved by `Decoder::ESC_TIMEOUT` measured
+        // from the byte's own arrival, and a deadline computed from before it
+        // is a few microseconds short of firing at all -- which would make this
+        // case pass by never resolving the escape it is about.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a draft worth keeping");
+        assert_eq!(shell.editor.text(), "a draft worth keeping");
+
+        shell.route_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\x1b");
+        let reported = Instant::now();
+        shell.settle_input(reported + Duration::from_millis(60));
+        assert_eq!(
+            shell.editor.text(),
+            "a draft worth keeping",
+            "a truncated background report emptied the composer"
+        );
+
+        // And the gesture still belongs to the user: the escape the report
+        // handed back is one press, so their own next Escape is the second and
+        // it clears the draft as it always did.
+        shell.route_bytes(b"\x1b");
+        let typed = Instant::now();
+        shell.settle_input(typed + Duration::from_millis(60));
+        assert_eq!(
+            shell.editor.text(),
+            "",
+            "the double-Escape gesture stopped working after a truncated report"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the inline slash menu
+    // -----------------------------------------------------------------------
+
+    /// The band's rows above the divider: what the menu, if there is one, put
+    /// there.
+    ///
+    /// Read off the painted band rather than off the field, because the claim
+    /// every case below makes is about what is on the screen -- and a menu the
+    /// geometry gave rows to but nothing painted into is the exact defect the
+    /// one-iterator rule exists to prevent.
+    fn menu(shell: &Shell) -> Vec<String> {
+        let rows = shell.band_rows();
+        let rule = divider(usize::from(shell.geometry.cols));
+        let at = rows
+            .iter()
+            .position(|row| *row == rule)
+            .expect("the band has a divider");
+        // Past the row a running turn owns, which is above the slot rather than
+        // in it: a reader that counted it would report an idle band as one with
+        // a one-row menu on it the moment a turn started.
+        let from = usize::from(u8::from(shell.geometry.activity.is_some()));
+        rows[from..at].to_vec()
+    }
+
+    #[test]
+    fn typing_a_slash_word_opens_the_menu_in_the_bands_elastic_slot() {
+        let mut narrowed = shell(24, 80);
+        narrowed.route_bytes(b"/he");
+
+        assert!(
+            narrowed.geometry.panel > 0,
+            "the band gave the menu no rows: {:?}",
+            narrowed.geometry
+        );
+        let rows = menu(&narrowed);
+        assert_eq!(
+            usize::from(narrowed.geometry.panel),
+            rows.len(),
+            "the rows the band solved for and the rows it painted disagree"
+        );
+
+        // A bare slash names every command, which is what pins the geometry
+        // against the **whole** menu rather than against whatever the last
+        // keystroke happened to leave: a band re-solved before the menu was
+        // reconciled would be one keystroke behind, and on this query that is
+        // the difference between a full menu and none.
+        let mut bare = shell(24, 80);
+        bare.route_bytes(b"/");
+        assert_eq!(
+            usize::from(bare.geometry.panel),
+            crate::interactive::SLASH_COMMANDS.len(),
+            "a bare slash did not offer every command: {:?}",
+            menu(&bare)
+        );
+        assert_eq!(usize::from(bare.geometry.panel), menu(&bare).len());
+        assert!(
+            rows.iter().any(|row| row.contains("/help")),
+            "the menu does not offer the command the draft names: {rows:?}"
+        );
+        assert!(
+            rows[0].starts_with("> "),
+            "the first match is not the marked one: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_menu_never_steals_the_composers_caret() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/mo");
+
+        assert!(shell.geometry.panel > 0, "there is no menu to steal it");
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 3),
+            "the caret left the text the user is typing"
+        );
+        // And the row it is on is the composer's, holding the draft.
+        assert_eq!(shell.marked(), format!("{PROMPT}/mo"));
+    }
+
+    #[test]
+    fn escape_dismisses_the_menu_without_arming_the_clear_gesture() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to dismiss");
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+
+        assert_eq!(shell.geometry.panel, 0, "the menu is still taking rows");
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        // The draft is untouched -- Escape closed a menu, it did not edit.
+        assert_eq!(shell.editor.text(), "/he");
+        // And the gesture is where it was: a second Escape must not clear a
+        // composer whose owner was only closing a menu.
+        assert_eq!(shell.hint(), IDLE_HINT, "the clear gesture was armed");
+    }
+
+    #[test]
+    fn a_dismissal_survives_query_growth_until_the_draft_stops_being_a_command() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/he");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.geometry.panel, 0);
+
+        shell.route_bytes(b"l");
+        assert_eq!(
+            shell.geometry.panel, 0,
+            "the menu came back on the next letter of the word it was dismissed for"
+        );
+        assert_eq!(shell.editor.text(), "/hel");
+
+        // The word goes, and the dismissal with it.
+        shell.route_bytes(&[0x15]);
+        assert!(shell.editor.is_empty());
+        shell.route_bytes(b"/h");
+        assert!(
+            shell.geometry.panel > 0,
+            "a new slash word inherited the old one's dismissal"
+        );
+    }
+
+    #[test]
+    fn tab_completes_the_marked_command_and_closes_the_menu() {
+        let mut with_argument = shell(24, 80);
+        with_argument.route_bytes(b"/mod");
+        assert!(with_argument.geometry.panel > 0);
+
+        with_argument.route_bytes(b"\t");
+        assert_eq!(
+            with_argument.editor.text(),
+            "/model ",
+            "a command that takes an argument was completed without room for one"
+        );
+        assert_eq!(
+            with_argument.geometry.panel, 0,
+            "the menu outlived the completion"
+        );
+
+        // A command that takes no argument is completed exactly, so the next
+        // Return runs it.
+        let mut exact = shell(24, 80);
+        exact.route_bytes(b"/vers");
+        exact.route_bytes(b"\t");
+        assert_eq!(exact.editor.text(), "/version");
+        assert_eq!(exact.geometry.panel, 0);
+        exact.route_bytes(&[0x0d]);
+        let document = exact.document();
+        assert_eq!(document.first().map(String::as_str), Some("/version"));
+        assert!(document.len() > 1, "{document:?}");
+    }
+
+    #[test]
+    fn enter_runs_the_line_rather_than_taking_the_marked_row() {
+        // The menu is open on an exact name, and the marked row is a different
+        // command: Enter must still run what was typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new");
+        assert!(shell.geometry.panel > 0);
+        shell.route_bytes(&[0x0d]);
+
+        assert_eq!(shell.geometry.panel, 0, "the menu outlived the submission");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::New,
+            "Enter took the menu's row instead of running the line"
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn a_slash_word_that_names_nothing_opens_no_menu() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/zzz");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+        assert!(menu(&shell).is_empty());
+    }
+
+    #[test]
+    fn a_question_takes_the_slot_the_menu_was_using() {
+        // The one order a session can produce both in: a turn is running, the
+        // user starts typing a command at it, and the turn asks a question.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"/he");
+        assert!(shell.geometry.panel > 0, "there is no menu to displace");
+
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        let _ = shell.document();
+
+        let rows = menu(&shell);
+        assert!(
+            rows.iter().any(|row| row.contains(approval::TITLE)),
+            "the question did not take the slot: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("list these commands")),
+            "the menu and the question were painted together: {rows:?}"
+        );
+        assert_eq!(
+            shell.geometry.panel,
+            approval::COMPACT_ROWS,
+            "the slot is the question's height rather than the menu's"
+        );
+        // The question has the focus, so the caret is on it rather than in the
+        // composer the menu left the draft in.
+        assert_eq!(shell.cursor().1, 0, "the caret stayed in the composer");
+
+        // And answering it does not put the menu back in front of a draft the
+        // user stopped looking at a question ago: the menu was *dismissed*,
+        // not merely covered.
+        shell.route_bytes(b"3");
+        assert_eq!(
+            shell.geometry.panel,
+            0,
+            "the answered question left something in the slot: {:?}",
+            menu(&shell)
+        );
+        assert!(menu(&shell).is_empty(), "{:?}", menu(&shell));
+        assert_eq!(shell.editor.text(), "/he", "the draft did not survive");
+    }
+
+    #[test]
+    fn the_slot_never_holds_both_a_question_and_a_menu() {
+        // The premise `Shell::slot`'s ordering rests on, driven rather than
+        // argued: the order in that function decides which of the two wins, and
+        // it can only ever be exercised by a session that has both. This walks
+        // the one sequence that comes closest -- a turn running, a menu open, a
+        // question arriving, the answer, and typing afterwards -- and requires
+        // the two never to be up together at any step of it.
+        let mut shell = shell(24, 80);
+        let both = |shell: &Shell, at: &str| {
+            assert!(
+                !(shell.panel.is_some() && shell.picker.is_some()),
+                "a question and a menu were up together {at}"
+            );
+        };
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        both(&shell, "while a turn started");
+        shell.route_bytes(b"/he");
+        both(&shell, "with a menu open");
+        shell.apply(UiEvent::Approval(asked()));
+        shell.settle_band(started);
+        both(&shell, "when the question arrived");
+        // Every keystroke goes to the question while it is up, so nothing can
+        // open a menu behind it -- including the letters of a slash word.
+        shell.route_bytes(b"/quit");
+        both(&shell, "while the question had the focus");
+        assert!(!shell.leaving(), "a keystroke leaked past the question");
+        shell.route_bytes(b"3");
+        both(&shell, "once the question was answered");
+        shell.route_bytes(b"l");
+        both(&shell, "with the draft edited again");
+    }
+
+    #[test]
+    fn a_menu_that_offers_nothing_binds_nothing() {
+        // A menu with no matches is not a menu with an empty list -- it is no
+        // menu at all, and the keys it would have bound go on meaning what they
+        // mean. Driven rather than asserted about the field, because the way a
+        // zero-match menu goes wrong is arithmetic: a mark taken modulo an
+        // empty list divides by zero.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/zzz");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/zzz", "the draft was edited");
+        assert_eq!(shell.geometry.panel, 0, "{:?}", menu(&shell));
+    }
+
+    #[test]
+    fn the_mark_survives_a_keystroke_that_did_not_change_the_word() {
+        // The mark is state, and the list it indexes is derived: a rebuild on
+        // every edit would put the mark back on the first row every time the
+        // caret moved, which is a menu the user cannot walk down and then
+        // correct a letter in.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        shell.route_bytes(b"\x1b[B");
+        // A caret move, and nothing else: the word is what it was.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/");
+
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            shell.editor.text(),
+            "/new",
+            "the mark was reset by a keystroke that changed no letter"
+        );
+    }
+
+    #[test]
+    fn the_shortest_screen_still_shows_a_menu_while_a_turn_is_running() {
+        // The band's tightest case, and the one a reserve that is a row short
+        // breaks silently: the smallest screen a band fits on, with a turn
+        // running -- so the activity row is taking one of its rows -- and the
+        // query that offers the most matches. A menu that wanted two rows here
+        // makes `layout::solve_band` refuse the whole band (`content_bottom`
+        // reaches 0), `fit` answers `None`, `refit` keeps the geometry it had,
+        // and the session is then left with a menu that binds Up, Down, Tab,
+        // Enter and Esc while painting **nothing** -- keys taken away from the
+        // composer by something the user cannot see.
+        //
+        // Every number below is written out rather than derived from the
+        // reserve, because a test that recomputed the constant it is protecting
+        // would pass for whatever that constant became.
+        let mut shell = shell(layout::MIN_ROWS, layout::MIN_COLS);
+        let started = turn_running(&mut shell, b"say it\r");
+        assert!(
+            shell.geometry.activity.is_some(),
+            "there is no turn running, so this is not the case under test"
+        );
+        shell.route_bytes(b"/");
+        shell.settle_band(started);
+
+        // Every command matches a bare slash, and one row is what this screen
+        // has for them: the window bounds the menu rather than the band
+        // refusing it.
+        assert_eq!(
+            shell.geometry.panel, 1,
+            "a six-row screen with a turn on it did not get its one menu row: {:?}",
+            shell.geometry
+        );
+        assert_eq!(menu(&shell).len(), 1, "{:?}", menu(&shell));
+        assert!(menu(&shell)[0].starts_with("> /help"), "{:?}", menu(&shell));
+
+        // And the band really is the band this screen and this state solve to,
+        // rather than the one the previous keystroke left standing. This is the
+        // assertion a refused `fit` fails: `refit` keeps a stale geometry, so
+        // the two stop agreeing.
+        assert_eq!(
+            shell.fit(layout::MIN_ROWS, layout::MIN_COLS),
+            Some(shell.geometry),
+            "the band was not re-solved for the screen it is on"
+        );
+        assert_eq!(
+            (
+                shell.geometry.activity,
+                shell.geometry.panel_first(),
+                shell.geometry.divider,
+                shell.geometry.input_first,
+                shell.geometry.hint,
+                shell.geometry.content_bottom,
+            ),
+            (Some(2), 3, 4, 5, 6, 1),
+            "the six rows are not laid out as a turn, a menu, a rule, a \
+             composer and a hint with one document row left: {:?}",
+            shell.geometry
+        );
+
+        // The composer keeps its row and the caret stays in it.
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(shell.cursor(), (5, PROMPT_CELLS + 1));
+        assert_eq!(shell.marked(), format!("{PROMPT}/"));
+        // And the band paints exactly the rows it solved for.
+        assert_eq!(
+            shell.band_rows().len(),
+            usize::from(shell.geometry.band_rows())
+        );
+    }
+
+    #[test]
+    fn the_menu_fits_the_shortest_screen_a_band_fits_on() {
+        // A question can be refused on a screen too small for it; a completion
+        // never is, because it can always show fewer matches. The claim is that
+        // the smallest band still has a menu **and** a composer on it.
+        let mut shell = shell(layout::MIN_ROWS, layout::MIN_COLS);
+        shell.route_bytes(b"/");
+
+        assert_eq!(
+            shell.geometry.panel, 1,
+            "the shortest screen got no menu at all, or more than it can hold"
+        );
+        let rows = menu(&shell);
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert!(rows[0].starts_with("> /help"), "{rows:?}");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 1)
+        );
+    }
+    // -----------------------------------------------------------------------
+    // provider switching, the catalog browser and the context meter
+    // -----------------------------------------------------------------------
+
+    /// A second shell, for the half of a claim the first one cannot hold at the
+    /// same time.
+    fn fixture_with_no_catalog() -> Fixture {
+        shell(24, 80)
+    }
+
+    fn entry(name: &str, window: Option<u64>, efforts: &[&str]) -> CatalogEntry {
+        CatalogEntry {
+            id: format!("vendor/{name}"),
+            aliases: vec![name.to_string()],
+            name: None,
+            efforts: efforts.iter().map(|effort| effort.to_string()).collect(),
+            max_context: window,
+        }
+    }
+
+    #[test]
+    fn setup_hands_the_whole_switch_to_the_runtime_and_predicts_nothing() {
+        // The UI thread writes no file, opens no socket and re-reads no
+        // configuration. What it does is name a provider and wait to be told
+        // what the session became -- which is the difference between showing
+        // what the configuration resolved to and showing what the write meant.
+        let mut shell = shell(24, 80);
+        let before = shell.shell.model.clone();
+        shell.route_bytes(b"/setup llmux\r");
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        assert_eq!(
+            shell.shell.model, before,
+            "the shell changed the model before the runtime had reloaded anything"
+        );
+        assert_eq!(
+            shell.shell.provider,
+            ProviderId::Gateway,
+            "the shell changed the provider before the runtime had reloaded anything"
+        );
+    }
+
+    #[test]
+    fn a_setup_argument_that_names_no_provider_never_reaches_the_runtime() {
+        // Refused here rather than sent, for `/model`'s reason: the far side of
+        // this one writes a file, and a queue place spent on a word that cannot
+        // be a provider is a place a real prompt could have had.
+        let mut shell = shell(24, 80);
+        for argument in ["", "nonesuch", "  ", "llmux extra"] {
+            shell.route_bytes(format!("/setup {argument}\r").as_bytes());
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "`/setup {argument}` reached the runtime"
+            );
+        }
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.contains("gateway") && row.contains("llmux")),
+            "the refusal does not name the providers this build can set up: {document:?}"
+        );
+        // xfx's own words: the *refusal* quotes nothing of the argument, which
+        // is what keeps a hostile one out of the document. The submitted line
+        // itself is echoed like every other one, and that row is the user's own
+        // keystrokes rather than xfx repeating them back as guidance.
+        let refusals: Vec<&String> = document
+            .iter()
+            .filter(|row| row.starts_with("xfx: "))
+            .collect();
+        assert_eq!(refusals.len(), 4, "{document:?}");
+        assert!(
+            !refusals.iter().any(|row| row.contains("nonesuch")),
+            "the refusal quoted the argument back: {refusals:?}"
+        );
+    }
+
+    #[test]
+    fn a_selected_provider_replaces_the_model_the_credential_fact_and_the_catalog() {
+        // Everything the previous provider's session knew that is not this
+        // one's. A catalog left standing would put another daemon's context
+        // window under this daemon's model, and a stale credential fact would
+        // go on telling a keyless local session to run `xfx setup`.
+        let mut shell = shell(24, 80);
+        shell.shell.missing_credential = true;
+        shell.shell.model = "old".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("old", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(50_000),
+            output: Some(10),
+        });
+        assert!(shell.shell.context_meter().is_some(), "the meter was armed");
+
+        shell.shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        assert_eq!(shell.shell.provider, ProviderId::Llmux);
+        assert_eq!(shell.shell.model, "fable");
+        assert!(!shell.shell.missing_credential);
+        assert!(
+            shell.shell.catalog.is_empty(),
+            "the old provider's catalog survived the switch"
+        );
+        assert_eq!(
+            shell.shell.context_meter(),
+            None,
+            "the dropped conversation's tokens survived the switch"
+        );
+        let document = shell.document();
+        assert!(
+            document
+                .iter()
+                .any(|row| row.contains("provider=llmux") && row.contains("fresh conversation")),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_catalog_browser_renders_a_context_and_an_effort_column_per_row() {
+        let mut shell = shell(24, 80);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![
+                entry("fable", Some(1_000_000), &["low", "high"]),
+                entry("plain", None, &[]),
+            ],
+        });
+        let document = shell.document();
+        assert!(
+            document.iter().any(|row| row == "[shell] catalog=2 shown"),
+            "{document:?}"
+        );
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "[shell]   fable context=1000000 efforts=low,high"),
+            "{document:?}"
+        );
+        // A provider really may publish neither, and an empty column would read
+        // as a rendering fault rather than as an absent fact.
+        assert!(
+            document
+                .iter()
+                .any(|row| row == "[shell]   plain context=unknown efforts=none"),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn usage_and_max_context_drive_one_context_meter() {
+        // Both halves or no meter. Absent is not zero: a provider that publishes
+        // no usage, and a provider that publishes no window, each leave the
+        // segment off the row rather than putting a nought on it.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+
+        assert_eq!(shell.shell.context_meter(), None, "nothing measured yet");
+
+        // A denominator with no numerator is not a meter.
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+
+        // A numerator with no denominator is not a meter either.
+        let mut bare = fixture_with_no_catalog();
+        bare.shell.model = "fable".to_string();
+        bare.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(bare.shell.context_meter(), None);
+        assert!(!bare.hint().contains("Context"), "{}", bare.hint());
+
+        // Both, and exactly one segment.
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        let row = shell.hint();
+        assert!(row.contains("Context: 12k/200k 6%"), "{row}");
+        assert_eq!(row.matches("Context:").count(), 1, "{row}");
+    }
+
+    #[test]
+    fn the_meter_counts_the_input_tokens_and_not_the_output_ones() {
+        // The policy, pinned literally because it is a judgement rather than an
+        // arithmetic fact. What a context meter answers is "how much of the
+        // window does the next request carry", and the next request carries the
+        // conversation the provider has just counted as its *input*. Adding the
+        // output would count this turn's answer twice -- once as output now, and
+        // again inside the input of the turn after it.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(30_000),
+            output: Some(20_000),
+        });
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((30_000, 100_000)),
+            "the meter added the output tokens to the input ones"
+        );
+        assert!(shell.hint().contains("30k/100k"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn a_turn_that_published_no_usage_leaves_the_meter_off() {
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(100_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: None,
+            output: None,
+        });
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn the_denominator_follows_the_model_in_force() {
+        // The catalog is a list; the meter is about one row of it, and which row
+        // is decided by the model a turn will actually talk to -- by id or by
+        // alias, because the model in force is whatever the profile spelled.
+        let mut shell = shell(24, 80);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![
+                entry("small", Some(8_000), &[]),
+                entry("large", Some(900_000), &[]),
+            ],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(4_000),
+            output: None,
+        });
+        shell.shell.model = "small".to_string();
+        assert_eq!(shell.shell.context_meter(), Some((4_000, 8_000)));
+        shell.shell.model = "vendor/large".to_string();
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((4_000, 900_000)),
+            "the id spelling did not select the same row its alias does"
+        );
+        shell.shell.model = "absent-from-this-catalog".to_string();
+        assert_eq!(
+            shell.shell.context_meter(),
+            None,
+            "a model the catalog does not publish was given a window anyway"
+        );
+    }
+    #[test]
+    fn a_new_session_clears_the_meter_it_measured_and_keeps_the_window() {
+        // `/new` drops the conversation on the runtime thread
+        // (`super::worker`'s `TurnWork::New` arm), and the meter's numerator is
+        // a measurement **of that conversation**. Left standing it would report
+        // the old conversation's tokens against the fresh one -- a number the
+        // provider never said about the session on the screen, which is the one
+        // thing this row must never do.
+        //
+        // The **denominator stays**. It is the model's context window, and
+        // `/new` changes neither the provider nor the model: clearing it would
+        // throw away a fact that is still true and cost a socket to learn again.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: Some(9),
+        });
+        assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
+        assert!(shell.hint().contains("Context"), "{}", shell.hint());
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::New,
+            "the conversation drop never reached the thread that owns it"
+        );
+
+        assert_eq!(
+            shell.shell.context_used, None,
+            "the old conversation's tokens survived the session that ended"
+        );
+        assert_eq!(shell.shell.context_meter(), None);
+        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+        assert_eq!(
+            shell.shell.catalog.len(),
+            1,
+            "the model's context window was thrown away with the conversation"
+        );
+        // Both halves again, and the row is a meter again -- which is what
+        // proves the denominator really was kept rather than merely unread.
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(7),
+            output: None,
+        });
+        assert_eq!(shell.shell.context_meter(), Some((7, 200_000)));
+    }
+
+    #[test]
+    fn a_new_session_the_runtime_refused_keeps_the_conversation_and_its_meter() {
+        // The other side of the same ordering `send` has: nothing is thrown
+        // away for a submission the runtime would not take. A refused `/new`
+        // means the conversation is still there, so its measurement is still
+        // about the session on the screen and clearing it would be a lie in the
+        // opposite direction.
+        let mut shell = shell(24, 80);
+        shell.shell.model = "fable".to_string();
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("fable", Some(200_000), &[])],
+        });
+        shell.shell.apply(UiEvent::Usage {
+            input: Some(12_345),
+            output: None,
+        });
+
+        // Fill the queue: one in flight and one waiting is everything the
+        // session holds (`super::worker::WORK_LIMIT`).
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.shell.notice,
+            Some(QUEUE_REJECTED),
+            "the refused /new did not say so on the hint row"
+        );
+        assert_eq!(
+            shell.shell.context_meter(),
+            Some((12_345, 200_000)),
+            "a /new the runtime refused cleared the meter of a conversation that is still there"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // walking back through what has been submitted
+    // -----------------------------------------------------------------------
+
+    /// Clears what a submitted line leaves behind, so the next submission is
+    /// not refused by a queue with the last one still in it.
+    ///
+    /// The runtime holds one piece of work and one behind it
+    /// (`super::worker::WORK_LIMIT`), and a case here that sent three lines
+    /// without taking any of them would be a case about `Rejected::Busy`
+    /// instead of about the recall.
+    fn submitted(shell: &mut Fixture, line: &str) {
+        shell.route_bytes(line.as_bytes());
+        shell.route_bytes(&[0x0d]);
+        let _echo = shell.document();
+        let _taken = shell.sent.try_recv();
+    }
+
+    #[test]
+    fn ctrl_p_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
+        // The whole of item 15 on this surface: what was sent comes back,
+        // newest first, and the half-typed line the walk began from is what it
+        // comes back to.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first line");
+        submitted(&mut shell, "second line");
+        shell.route_bytes(b"half typed");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> second line");
+        assert_eq!(
+            shell.cursor(),
+            (23, 13),
+            "the caret is not at the end of the recalled line"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first line");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first line",
+            "the walk wrapped past the oldest line"
+        );
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.band_rows()[1], "> second line");
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> half typed",
+            "the draft the walk began from was thrown away"
+        );
+    }
+
+    #[test]
+    fn a_recall_asks_for_the_frame_that_shows_it_and_a_recall_of_nothing_asks_for_none() {
+        // The band is repainted whole, so a recall that did not ask for a frame
+        // would leave the terminal showing a draft the composer no longer
+        // holds; and a `C-p` at a session with nothing to recall must not
+        // repaint the band on a link that may be a serial line.
+        let mut shell = shell(24, 80);
+        let _first = shell.render.begin().expect("the first frame");
+        shell.route_bytes(&[0x10]);
+        assert!(
+            shell.render.begin().is_none(),
+            "a recall that recalled nothing repainted the whole band"
+        );
+        submitted(&mut shell, "sent");
+        let _submission = shell.render.begin();
+        shell.route_bytes(&[0x10]);
+        assert!(
+            shell.render.begin().is_some(),
+            "a recall asked for no frame, so the band would go on showing the \
+             draft the composer no longer holds"
+        );
+    }
+
+    #[test]
+    fn a_submitted_command_is_walked_back_to_like_any_other_line() {
+        // A command is a line the user typed, and the commonest reason to
+        // reach for the recall is to run one again. It is recorded before the
+        // draft is consumed, which is the only moment its text still exists.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/version\r");
+        let _echo = shell.document();
+        shell.route_bytes(&[0x10]);
+        // Asked through the caret rather than through a band row: the recalled
+        // draft is a slash word, so the completion menu opens over the rows
+        // above the rule -- and the caret staying in the composer is the same
+        // claim the menu's own cases make.
+        assert_eq!(shell.marked(), "> /version");
+    }
+
+    #[test]
+    fn a_line_the_runtime_refused_is_still_walked_back_to() {
+        // The refusal leaves the draft in the composer and says so on the hint
+        // row, so the line was submitted -- and a history that recorded only
+        // what the runtime accepted would forget exactly the line the user is
+        // most likely to want back.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+        shell.route_bytes(b"third\r");
+        assert_eq!(
+            shell.shell.notice,
+            Some(QUEUE_REJECTED),
+            "the third line was not refused, so this case proves nothing"
+        );
+        assert_eq!(
+            shell.band_rows()[1],
+            "> third",
+            "a refused submission threw the draft away"
+        );
+        // Cleared first, or the draft the refusal left standing would satisfy
+        // this case without a single line having been recorded.
+        shell.route_bytes(b"\x15");
+        assert_eq!(shell.band_rows()[1], "> ");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> third");
+    }
+
+    #[test]
+    fn a_blank_line_is_never_walked_back_to() {
+        // Return on whitespace consumes the line and writes nothing, so there
+        // is nothing to come back to -- and an entry for it would put a press
+        // of `C-p` between the user and the line they really sent.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "real");
+        submitted(&mut shell, "   ");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> real");
+    }
+
+    #[test]
+    fn the_up_arrow_moves_the_caret_until_the_first_row_and_only_then_walks_back() {
+        // The edge rule. An arrow inside a multi-row draft is the movement it
+        // is in every editor; it becomes the recall exactly where it would
+        // otherwise do nothing at all.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"top\x0abottom");
+        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        assert_eq!(
+            shell.marked(),
+            "  bottom",
+            "the caret did not start on the draft's last row"
+        );
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.marked(),
+            "> top",
+            "the arrow did not move the caret up a row of the draft"
+        );
+        assert_eq!(
+            &shell.band_rows()[1..3],
+            &["> top", "  bottom"],
+            "an arrow inside the draft walked the history instead of the rows"
+        );
+
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "the arrow at the first row did not reach the history"
+        );
+    }
+
+    #[test]
+    fn the_down_arrow_moves_the_caret_until_the_last_row_and_only_then_walks_forward() {
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"half typed");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "the arrow at a one-row draft's only row did not reach the history"
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> half typed",
+            "the arrow at the last row did not bring the draft back"
+        );
+
+        // And inside a taller draft it is a caret move at every row but the
+        // last, and a walk with nothing in it at the last.
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"top\x0abottom");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            shell.marked(),
+            "  bottom",
+            "the arrow did not move back down"
+        );
+        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(
+            &shell.band_rows()[1..3],
+            &["> top", "  bottom"],
+            "a Down at the last row of a draft nobody had recalled into changed it"
+        );
+    }
+
+    #[test]
+    fn ctrl_p_walks_back_from_a_row_the_arrow_would_only_move_in() {
+        // The difference between the two keys, and the reason there are two:
+        // the caret is on the last of two rows, so `Up` there is a movement --
+        // and `C-p` is the recall wherever the caret is.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "sent");
+        shell.route_bytes(b"top\x0abottom");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> sent",
+            "C-p from the last row of a two-row draft only moved the caret"
+        );
+    }
+
+    #[test]
+    fn typing_after_a_recall_starts_the_next_walk_at_the_newest_line() {
+        // An edit means the line on the screen is the user's own now, so the
+        // walk that produced it is over -- and the edited line is what the next
+        // walk comes back to.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"!");
+        assert_eq!(shell.band_rows()[1], "> first!");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "the walk carried on from the line the edit had left behind"
+        );
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first!",
+            "the edited line was not what the walk came back to"
+        );
+    }
+
+    #[test]
+    fn a_deletion_after_a_recall_leaves_the_walk_too() {
+        // The other half of "an edit leaves the walk": a backspace changes the
+        // text as surely as a keystroke does, and a rule that only watched for
+        // typing would leave the session walking a list its composer had
+        // stopped agreeing with.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+        shell.route_bytes(&[0x7f]);
+        assert_eq!(shell.band_rows()[1], "> firs");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a deletion left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_caret_move_after_a_recall_keeps_the_walk_open() {
+        // The mirror of the two cases above, and the one an implementation that
+        // simply left the walk on every keystroke would fail: moving the caret
+        // through a recalled line is how a user reads it before deciding to
+        // step further back.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> second");
+        shell.route_bytes(b"\x1b[D");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> first",
+            "a caret move ended the walk, so the recall began again at the newest line"
+        );
+    }
+
+    #[test]
+    fn a_double_escape_after_a_recall_leaves_the_walk_too() {
+        // The gesture that throws the whole draft away is a change to the
+        // composer's text like any other, so the walk it was made during is
+        // over. A rule that watched only for keystrokes that *add* text would
+        // leave the session walking from a position its empty composer had
+        // stopped agreeing with.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(
+            shell.editor.is_empty(),
+            "the second Escape did not clear the recalled line"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "the cleared composer went on walking from where the recall had reached"
+        );
+    }
+
+    #[test]
+    fn an_inline_paste_after_a_recall_leaves_the_walk_too() {
+        // A paste small enough to land as text is an edit, and the path it
+        // takes into the composer is not the one a keystroke takes.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(b" and more");
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(shell.band_rows()[1], "> first and more");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a pasted edit left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_forward_delete_after_a_recall_leaves_the_walk_too() {
+        // Ctrl-D with text under the caret is the forward delete rather than
+        // the end of the session, and it reaches the editor by a path of its
+        // own -- so it owes the same thing every other edit owes.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        // Home first, which is a caret move and must leave the walk open --
+        // otherwise this case would be about the move rather than the delete.
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(&[0x04]);
+        assert_eq!(shell.band_rows()[1], "> irst");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a forward delete left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn a_collapsed_paste_after_a_recall_leaves_the_walk_too() {
+        // The other paste path: past `COLLAPSE_ABOVE` codepoints the composer
+        // is given a summary instead of the text, and that is still an edit to
+        // the draft.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first");
+        submitted(&mut shell, "second");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> first");
+
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes("y".repeat(1200).as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(shell.band_rows()[1], "> first[Pasted text #1, 1 lines]");
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> second",
+            "a collapsed paste left the walk where it was"
+        );
+    }
+
+    #[test]
+    fn an_arrow_at_the_edge_with_nothing_to_recall_still_asks_for_its_frame() {
+        // What the arrow key did before it could reach the history, and must
+        // go on doing: the keystroke was applied even though the caret could
+        // not move -- the run of vertical motion recorded the column it is
+        // aiming for -- so the band is still owed the frame that keystroke
+        // asked for.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one row");
+        let _typed = shell.render.begin().expect("the frame the typing owed");
+        shell.route_bytes(b"\x1b[A");
+        assert!(
+            shell.render.begin().is_some(),
+            "an arrow at the edge of a draft with nothing behind it asked for \
+             no frame at all"
+        );
+    }
+
+    #[test]
+    fn a_paste_the_walk_stood_aside_comes_back_as_the_block_with_a_new_number() {
+        // **The narrowing item 15 recorded, closed.** A walk captures the
+        // half-typed draft and hands it back at the near end, and until item 16
+        // what came back was the summary's *words*: the block died with the
+        // draft the recall replaced, so the line the user had been composing
+        // would have been sent as its own description.
+        //
+        // The draft now travels with its blocks, and what comes back is
+        // renumbered like any other recall -- the number a user reads is one
+        // this session has minted once.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "earlier");
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the paste was not collapsed, so this case proves nothing"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> earlier");
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #2, 1 lines]",
+            "the draft the walk began from did not come back, or came back \
+             under a number this session had already used"
+        );
+
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit(block),
+            "the block the walk stood aside was sent as the words it looks like"
+        );
+    }
+
+    #[test]
+    fn a_block_does_not_survive_into_a_line_the_walk_hands_back() {
+        // The sharp half of releasing the blocks on a recall, and the half
+        // `Paste::reconcile` cannot reach: a summary's words are on the screen
+        // where anyone can read and type them, so a **recorded line** can
+        // carry them. Reconciling would find that name in the draft the recall
+        // installed and keep the block alive, and the recalled line would then
+        // be expanded into megabytes nobody pasted into it.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "[Pasted text #1, 1 lines]");
+        let block = "y".repeat(1200);
+        shell.route_bytes(b"\x1b[200~");
+        shell.route_bytes(block.as_bytes());
+        shell.route_bytes(b"\x1b[201~");
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the paste was not collapsed, so this case proves nothing"
+        );
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> [Pasted text #1, 1 lines]",
+            "the recalled line is not the one whose words match the summary"
+        );
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("[Pasted text #1, 1 lines]".to_string()),
+            "a block survived the recall and expanded into the line the walk handed back"
+        );
+    }
+
+    #[test]
+    fn a_recalled_line_is_sent_as_itself() {
+        // The end of the gesture, and the claim the band rows above cannot
+        // make: what the runtime is given is the recalled line, and submitting
+        // it records it once rather than twice.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "ask me again");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x0d]);
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("ask me again".to_string())
+        );
+        let _echo = shell.document();
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.band_rows()[1], "> ask me again");
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.band_rows()[1],
+            "> ask me again",
+            "the same line sent twice running became two entries"
         );
     }
 }

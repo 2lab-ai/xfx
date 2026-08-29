@@ -1,8 +1,12 @@
 # xfx — TUI port
 
-Status: **specification, nothing implemented.** v0.1.0 ships a line-oriented shell that never enters
-raw mode (`UPSTREAM.md` deviation #6, `docs/parity.md` "full-screen TUI — deferred"). This document
-is the target for the next epic and does not describe the binary.
+Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 and the explicitly
+deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
+enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
+`interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
+which is the one to read against the code; what this document keeps is the upstream evidence and the
+reasoning behind each decision, which a ledger row cannot carry. Where the two disagree the code is
+right and both files are bugs.
 
 Evidence base: [`research/tui-core.md`](research/tui-core.md) and
 [`research/input-footer.md`](research/input-footer.md), both read against a local clone of upstream
@@ -602,7 +606,9 @@ Both research notes converge on the same shape: the leap is *owning a bottom ban
 buffer and repainting it inside a synchronized-output frame*; cell diffing, fixed-point layout and
 commit self-check are hardening on top of that.
 
-**Phase 1 — it is a TUI at all.**
+**Phase 1 — it is a TUI at all. Shipped.** Every item below is in the binary; its acceptance is the
+matrix in `tests/tui.rs` and scenarios 1-12 of [`06-qa-harness.md`](06-qa-harness.md), driven on a
+real terminal by `scripts/smoke-tui.sh`.
 
 1. Raw mode + the interactive mode sequence + exact shutdown/signal restore, with restore strings
    ported as constants (`app_lifecycle.zig:36-44`) and the signal contract in §"Signals". Its
@@ -630,12 +636,16 @@ commit self-check are hardening on top of that.
     expands verbatim on submit (`paste_framing.zig:112-135`, `pasted_blocks.zig:7,53-63`). See the
     decision below for why this is Phase 1 and what is deliberately *not* in it.
 
-**Phase 2 — release quality.**
+**Phase 2 — release quality. Shipped**, with one named residue in item 17. Items 11-17 are in the
+binary and scenarios 13-21 drive them against a release binary on a real terminal.
 
 11. Shadow grid + `diffBand` cell diff + no-op skip, replacing Phase 1's full-band repaint.
 12. Resize: SIGWINCH atomic flag + debounce + full repaint (the cursor-probe fingerprint pairing can
     wait).
-13. Slash registry + router + the inline picker with dismissal memory; `/model` still takes a plain id.
+13. Slash registry + router + the inline picker with dismissal memory. `/model` takes a plain id and
+    also browses: a bare one reports the model and the provider at once and the catalog arrives from
+    the runtime thread as its own bounded event, because the load is the one network call `/model`
+    makes and the thread holding the terminal may not wait on a daemon.
 14. Alt-screen file-diff approval and the frame-composed inline restore
     (`app_lifecycle.zig:774-781`, `terminal.zig:22-27`) — the inline panel itself landed in Phase 1.
 15. Prompt history (text-only snapshots, draft captured on entry — `composer_history.zig:445-540`),
@@ -643,9 +653,22 @@ commit self-check are hardening on top of that.
 16. The **rest** of paste: placeholder atomicity for cursor motion and delete, entity span shifting,
     the paste-id renumbering on history recall, and the undo boundary a paste sets. Phase 1 framed
     the paste and collapsed it; this makes it a first-class entity.
-17. OSC 2 title, kitty keyboard with the tmux branch.
+17. OSC 2 title, kitty keyboard with the tmux branch. The title is **borrowed** rather than taken --
+    the mode set pushes the terminal's own onto its stack and every restore path pops it back -- and
+    the model label is stripped of controls before it goes in, so a configured name cannot close the
+    sequence. The kitty push is written on the way in and popped on the way out, and it is **omitted
+    entirely under tmux**, where sending it breaks key input; both halves have pty receipts. What is
+    *not* here is the **full CSI-u matrix**, which stays deferred with the rest of the breadth below.
+    What the binary has is one push flag (`CSI > 1 u`) and its pop (`CSI < u`), and a decoder that
+    names the xterm shapes -- the tilde keys and the cursor keys with xterm's single modifier -- and
+    answers every `CSI ... u` with a keystroke that binds nothing (`src/tui/input.rs`'s `csi`).
+    Owner: the input layer. It is promoted when a binding needs a key those shapes cannot express,
+    which is upstream's own reason for the matrix, or when a receipt from a terminal that speaks the
+    protocol shows a key this session already claims to support arriving in the `u` form. Either way
+    the falsification is one pty case: drive the affected keys and read what the decoder made of
+    them, rather than reasoning about what a terminal would send.
 
-**Phase 3 — depth.**
+**Phase 3 — depth. Not implemented**; every item below is a target and none of it is advertised.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
 19. Question panel with ordinal answers; the freeform "Other" slot after that.

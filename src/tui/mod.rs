@@ -170,7 +170,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // around it -- `shutdown` has already run either way.
     #[cfg(feature = "fault-injection")]
     if fault::injected(fault::Fault::AfterRaw) {
-        term::shutdown(band.painted_top())?;
+        term::shutdown(band.painted_top(), band.on_alternate())?;
         return Err(io::Error::other("the poll set could not be created"));
     }
     // The matrix row for a panic while the terminal is raw. It unwinds past
@@ -185,7 +185,14 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // no `?`, no early return. Everything that can fail happens inside `hold`,
     // which reports its failure rather than escaping with it.
     let held = hold(config, tmux, &wakeup, blocked, &mut band);
-    let restored = term::shutdown(band.painted_top());
+    // The plane the terminal is really on, asked of the band rather than of the
+    // session: `event_loop::shut_down` gives an approval screen back in one
+    // frame on every way out of the loop, so this is `false` on every ordinary
+    // exit -- and it is the backstop for one that never reached the loop at
+    // all. Conditional, because `RESTORE` deliberately carries no `1049l`: an
+    // exit that reset a buffer it never took would swap in, on a terminal that
+    // models one, a screen its user was not looking at.
+    let restored = term::shutdown(band.painted_top(), band.on_alternate());
     // The terminal is back, so the signals go back too -- before `wakeup` is
     // dropped, because the handlers were handed its write end and outlive it.
     signals::release();
@@ -239,8 +246,7 @@ fn hold(
     // failure in this function is: `hold` reports, and `session` restores.
     // Nothing has been spawned yet when it fires.
     let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
-    let (mut worker, mut events) =
-        worker::spawn(config.clone(), config.model.clone(), cancel.clone())?;
+    let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone())?;
 
     // The block lifts inside `install`, so anything held across the transition
     // is delivered there. A held `SIGTSTP` is the case that has to be answered
@@ -333,6 +339,14 @@ fn hold(
         depth: theme::depth_from_env(colorterm.as_deref(), term_program.as_deref()),
     };
 
+    // The window title, from the model this session was configured with. It
+    // goes out with the first frame rather than from here: a title written
+    // outside a frame is a second writer on a terminal this module owns
+    // exclusively, and the band is the writer. The push that makes the user's
+    // own title borrowable rather than taken is in the mode set
+    // (`term::PUSH_TITLE`), which `announce` has already written above.
+    band.set_title(frame::title(&config.model));
+
     let mut shell = shell::Shell::new(config, geometry, palette, worker.handle());
     event_loop::run(
         &mut shell,
@@ -377,9 +391,13 @@ const UNKNOWN_CURSOR_ROW: u16 = 1;
 /// is -- and computes the scrollback push and the band's geometry from both. A
 /// `SIGWINCH` invalidates both: the terminal reflows, the cursor moves, and a
 /// push aimed at the bottom row of the screen that *was* scrolls the wrong
-/// amount of the screen that *is*. Nothing else re-runs the push -- this phase
-/// does not re-layout on resize at all, and the event loop takes the flag and
-/// drops it -- so the whole of that race has to be closed here.
+/// amount of the screen that *is*. **Nothing else re-runs the push**, and that
+/// is still true now that resize is implemented: the event loop debounces a
+/// later `SIGWINCH` and re-solves the band from it (Phase 2 item 12,
+/// `event_loop::resolve_resize`), but re-solving a band is not the same act as
+/// pushing the shell's output above it -- a push is a scroll, it cannot be
+/// taken back, and only a launch has anything to push. So the launch race is
+/// the launch's to close, here, and the whole of it.
 ///
 /// Closing it means the validation has to cover the **push**, not just the
 /// measurement, and it has to cover *every* push including the last:
@@ -397,12 +415,15 @@ const UNKNOWN_CURSOR_ROW: u16 = 1;
 ///   treated as being on the bottom row, so the whole screen goes into
 ///   scrollback -- and is still post-checked like every other one. A final push
 ///   that returned unchecked would hand back a geometry the flag had already
-///   invalidated, and the event loop would then take that flag and drop it: the
-///   resize would be neither compensated for nor visible to anything else.
+///   invalidated, and the push it was computed from would be the one thing
+///   nothing downstream can repair: the loop would re-solve the band on the
+///   next tick, correctly, on top of rows the launch had already scrolled by
+///   the wrong amount.
 ///
 /// Every turn reads the flag with `take_winch`, so a resize this function
-/// compensates for is **consumed** here and cannot be seen again and dropped as
-/// if nothing had been done about it.
+/// compensates for is **consumed** here rather than left for the loop to
+/// answer a second time -- which would cost a whole repaint for a screen that
+/// has not changed since the geometry above was solved from it.
 ///
 /// **When even the last attempt is invalidated, the launch claims nothing.** It
 /// takes one fresh measurement for the geometry, consumes the flag with it, and
@@ -514,25 +535,32 @@ fn fail(message: &str) -> ExitCode {
 
 mod activity;
 mod approval;
+mod approval_screen;
 mod bridge;
 mod editor;
+mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
 mod frame;
 mod gesture;
+mod grid;
 mod hint;
+mod history;
 mod input;
 mod layout;
 mod pacer;
 mod panic;
 mod paste;
+mod picker;
 mod probe;
 mod render_request;
+mod router;
 mod shell;
 mod signals;
 mod term;
 mod theme;
+mod transaction;
 mod transcript;
 mod worker;
 mod wrap;

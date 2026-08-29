@@ -66,7 +66,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
-use crate::permission::{ApprovalAnswer, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -136,10 +136,86 @@ pub(crate) enum UiEvent {
     Notice(String),
     /// A question only the person at the terminal can answer (Task 17).
     Approval(ApprovalRequest),
+    /// A provider switch committed and the configuration was re-read.
+    ///
+    /// Sent **after** the reload, never after the write: what it carries is what
+    /// the configuration now says, not what the writer intended. The two differ
+    /// exactly when a layer above the profile outranks it, which is the case an
+    /// operator most needs told about and the one an event built from the
+    /// report would get wrong.
+    ProviderSelected {
+        provider: crate::provider::ProviderId,
+        model: String,
+        /// Whether the **new** provider has nothing to authenticate with.
+        ///
+        /// Carried rather than recomputed by the UI, because the question is
+        /// `crate::provider::resolve_credential_for`'s and it needs the whole
+        /// reloaded configuration to answer -- which lives on the runtime
+        /// thread. Without it the hint row's leading segment would keep
+        /// answering for the provider the session *used* to have: a machine
+        /// with no Gateway key that has just switched to a keyless local daemon
+        /// would go on being told to run `xfx setup`.
+        missing_credential: bool,
+    },
+    /// What `/model <id>` came back as, from the selector that owns the rule.
+    ///
+    /// Sent **after** the decision, and it carries the model in force
+    /// afterwards -- the new one when the id was applied, the standing one when
+    /// it was refused -- for the reason [`Self::ProviderSelected`] carries the
+    /// reloaded configuration's: the UI cannot know whether an id will be
+    /// taken, because the **catalog** decides and the catalog is on the runtime
+    /// thread. A band that adopted the id it submitted would put a model the
+    /// provider does not publish on its hint row and report it to the next bare
+    /// `/model`, while the turn after it was held in another one.
+    ///
+    /// Structured rather than a sentence: which model is in force is a fact the
+    /// hint row reads, and a UI given only prose would have to parse it back
+    /// out. The wording is the surface's ([`super::shell`]), exactly as the
+    /// line shell's is its own (`crate::interactive`'s `apply_model`).
+    ModelAnswered { model: String, outcome: ModelAnswer },
+    /// The provider's model catalog, bounded to what the UI will render.
+    ///
+    /// One event per load. The load happens on the runtime thread because it
+    /// opens a socket, and the UI thread must never be the thread that waits.
+    CatalogLoaded {
+        provider: crate::provider::ProviderId,
+        entries: Vec<crate::provider::model::CatalogEntry>,
+    },
+    /// What a **completed** turn spent.
+    ///
+    /// Both halves optional because a provider really may publish neither
+    /// (`gateway::protocol::Usage::input_tokens` is an `Option`), and an absent
+    /// number must stay absent: a meter that showed nought per cent for a turn
+    /// nobody measured would be reporting a measurement that was never taken.
+    Usage {
+        input: Option<u64>,
+        output: Option<u64>,
+    },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
+}
+
+/// What the selector made of one `/model <id>`.
+///
+/// The three answers [`crate::provider::model::ModelOutcome`] gives a caller
+/// that asked it to *select* something, carried across the channel without the
+/// fields the UI has no use for: `Reported` belongs to a bare `/model`, which
+/// this front end answers on its own thread and follows with a catalog load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ModelAnswer {
+    /// Applied, and recorded where a resumed session will read it.
+    ///
+    /// `unverified` is the reason the catalog could not confirm the id -- a
+    /// provider that advertises none, or a load that failed -- and `None` when
+    /// it did. It is not a refusal: a daemon that is down must not stop an
+    /// operator changing a preference.
+    Applied { unverified: Option<String> },
+    /// Already the model in force. Nothing was written down.
+    Unchanged,
+    /// Refused, in xfx's own words, with nothing changed and nothing recorded.
+    Refused { reason: String },
 }
 
 impl UiEvent {
@@ -181,15 +257,80 @@ impl UiEvent {
                 detail: inert_owned(detail),
             },
             Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // The provider is an enum this crate wrote; the model id is a
+            // string that came out of a settings file or a daemon's catalog,
+            // and is therefore exactly as foreign as a delta.
+            Self::ProviderSelected {
+                provider,
+                model,
+                missing_credential,
+            } => Self::ProviderSelected {
+                provider,
+                model: inert_owned(model),
+                missing_credential,
+            },
+            // The model id came off a settings file, a daemon's catalog or the
+            // composer, and the reason quotes the id it is about -- so both are
+            // as foreign as a delta, and neither is exempt for having been
+            // decided by xfx's own selector.
+            Self::ModelAnswered { model, outcome } => Self::ModelAnswered {
+                model: inert_owned(model),
+                outcome: match outcome {
+                    ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
+                        unverified: unverified.map(inert_owned),
+                    },
+                    ModelAnswer::Unchanged => ModelAnswer::Unchanged,
+                    ModelAnswer::Refused { reason } => ModelAnswer::Refused {
+                        reason: inert_owned(reason),
+                    },
+                },
+            },
+            // **Every string of every row.** A catalog is a document a daemon
+            // on a port serves, so its ids, its display names and its effort
+            // labels are all text the terminal would obey if it were let
+            // through -- and they are about to be painted, one per row.
+            Self::CatalogLoaded { provider, entries } => Self::CatalogLoaded {
+                provider,
+                entries: entries
+                    .into_iter()
+                    .map(|entry| crate::provider::model::CatalogEntry {
+                        id: inert_owned(entry.id),
+                        aliases: entry.aliases.into_iter().map(inert_owned).collect(),
+                        name: entry.name.map(inert_owned),
+                        efforts: entry.efforts.into_iter().map(inert_owned).collect(),
+                        max_context: entry.max_context,
+                    })
+                    .collect(),
+            },
+            // Two numbers. There is nothing here a terminal can be made to obey.
+            Self::Usage { input, output } => Self::Usage { input, output },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
             // whole product for an escape sequence to be sitting.
+            //
+            // **Both sides of the diff too**, and they are the largest quotation
+            // of a file this product carries: 64 KiB each. The permission
+            // boundary escapes them where the change is known
+            // (`crate::permission::bounded_diff_side`) and this seam escapes
+            // them again where they enter the UI, because the property this
+            // channel promises is about every event it carries rather than about
+            // the producers that happened to build them correctly.
+            //
+            // What survives both passes is the **line structure**: `inert`
+            // exempts `\n` and `\r` deliberately, and a diff's breaks are the
+            // change's own lines, which the review screen turns into rows. A
+            // seam that flattened them here would take the shape out of the one
+            // surface built to show it.
             Self::Approval(request) => Self::Approval(ApprovalRequest {
                 tool: request.tool,
                 target: inert_owned(request.target),
                 summary: inert_owned(request.summary),
                 always_scope: inert_owned(request.always_scope),
+                diff: request.diff.map(|diff| ApprovalDiff {
+                    before: inert_owned(diff.before),
+                    after: inert_owned(diff.after),
+                }),
             }),
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
@@ -243,6 +384,20 @@ pub(crate) enum TurnWork {
     Submit(String),
     /// Change the model, with the shell's own `/model` meaning.
     Model(String),
+    /// Switch to this provider: prepare, commit, reload, swap.
+    ///
+    /// A piece of *work* for the same reason `Model` and `New` are, and more
+    /// so: it performs network I/O, it writes a file, and it replaces the
+    /// configuration, the bundle and the conversation together. None of that may
+    /// happen under a running turn, and none of it may happen on the thread
+    /// holding the terminal.
+    Setup(crate::provider::ProviderId),
+    /// Load the configured provider's model catalog.
+    ///
+    /// Work rather than a control message because it opens a socket. The UI
+    /// thread sits in `pselect(2)` holding the terminal and may not wait for a
+    /// daemon that is not answering.
+    Catalog,
     /// Drop the conversation, with the shell's own `/new` meaning: the next
     /// prompt opens a fresh session.
     ///
@@ -1191,6 +1346,15 @@ mod tests {
                 target: "\x1b[2Jsrc/main.rs".into(),
                 summary: "write \x1b[2Jsomething".into(),
                 always_scope: "\x1b[2Jsrc".into(),
+                // Both sides of the diff, because they are the largest quotation
+                // of a file this product ever carries and the policy has to hold
+                // for a payload built by a caller that did not escape it -- the
+                // permission boundary's own bounding is the first seam, and this
+                // is the second.
+                diff: Some(ApprovalDiff {
+                    before: "\x1b[2Jold".into(),
+                    after: "\x1b]0;new\x07".into(),
+                }),
             }),
         ] {
             send_ui(&tx, &cancel, event).await.expect("room");
@@ -1224,6 +1388,10 @@ mod tests {
                 target: " [2Jsrc/main.rs".into(),
                 summary: "write  [2Jsomething".into(),
                 always_scope: " [2Jsrc".into(),
+                diff: Some(ApprovalDiff {
+                    before: " [2Jold".into(),
+                    after: " ]0;new ".into(),
+                }),
             })),
             "an approval quotes a file, which is where an escape would be"
         );
@@ -1283,5 +1451,151 @@ mod tests {
             "the text itself did not land: {}",
             String::from_utf8_lossy(&out)
         );
+    }
+    /// A catalog row carrying an escape sequence in every string it has.
+    fn hostile_entry() -> crate::provider::model::CatalogEntry {
+        crate::provider::model::CatalogEntry {
+            id: "id\u{1b}[2J".to_string(),
+            aliases: vec!["alias\u{1b}]0;pwned\u{7}".to_string()],
+            name: Some("name\u{1b}[H".to_string()),
+            efforts: vec!["high\u{1b}[3J".to_string()],
+            max_context: Some(200_000),
+        }
+    }
+
+    #[test]
+    fn catalog_rows_are_made_inert_in_every_string_they_carry() {
+        // A catalog is a document a daemon on a port serves. Its ids, its
+        // display names and its effort labels are all about to become rows on a
+        // terminal, so all of them are exactly as foreign as a delta -- and the
+        // policy is applied at the channel rather than at the painter, so a
+        // later reader of this event inherits it.
+        let event = UiEvent::CatalogLoaded {
+            provider: crate::provider::ProviderId::Llmux,
+            entries: vec![hostile_entry()],
+        }
+        .made_inert();
+        let UiEvent::CatalogLoaded { entries, .. } = event else {
+            panic!("the variant changed");
+        };
+        let entry = &entries[0];
+        for text in std::iter::once(&entry.id)
+            .chain(entry.aliases.iter())
+            .chain(entry.name.iter())
+            .chain(entry.efforts.iter())
+        {
+            assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
+            assert!(
+                !text.chars().any(char::is_control),
+                "{text:?} still carries a control character"
+            );
+        }
+        assert_eq!(entry.max_context, Some(200_000), "a number is not text");
+    }
+
+    #[test]
+    fn a_selected_providers_model_is_made_inert_and_its_two_facts_are_not_text() {
+        let event = UiEvent::ProviderSelected {
+            provider: crate::provider::ProviderId::Llmux,
+            model: "model\u{1b}[2J".to_string(),
+            missing_credential: true,
+        }
+        .made_inert();
+        let UiEvent::ProviderSelected {
+            model,
+            missing_credential,
+            provider,
+        } = event
+        else {
+            panic!("the variant changed");
+        };
+        assert!(!model.contains('\u{1b}'), "{model:?}");
+        assert!(missing_credential, "the fact survived the sanitizing");
+        assert_eq!(provider, crate::provider::ProviderId::Llmux);
+    }
+
+    #[test]
+    fn every_string_a_model_answer_carries_is_made_inert() {
+        // A model id comes off a settings file, a daemon's catalog or the
+        // composer, and both of the sentences beside it quote it back -- so an
+        // answer that let one through would paint an escape sequence onto a
+        // document row, having been built by xfx's own selector rather than by
+        // a model, which is exactly the producer a reader stops suspecting.
+        let hostile = "model\u{1b}[2J".to_string();
+        let UiEvent::ModelAnswered { model, outcome } = (UiEvent::ModelAnswered {
+            model: hostile.clone(),
+            outcome: ModelAnswer::Applied {
+                unverified: Some(hostile.clone()),
+            },
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        assert!(!model.contains('\u{1b}'), "{model:?}");
+        let ModelAnswer::Applied { unverified } = outcome else {
+            panic!("the answer changed");
+        };
+        let unverified = unverified.expect("the caveat survived");
+        assert!(!unverified.contains('\u{1b}'), "{unverified:?}");
+
+        // And the refusal, which is the arm that quotes the id back by name.
+        let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
+            model: "plain".to_string(),
+            outcome: ModelAnswer::Refused {
+                reason: hostile.clone(),
+            },
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        let ModelAnswer::Refused { reason } = outcome else {
+            panic!("the answer changed");
+        };
+        assert!(!reason.contains('\u{1b}'), "{reason:?}");
+
+        // The answer with nothing to say is carried through unchanged.
+        let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
+            model: "plain".to_string(),
+            outcome: ModelAnswer::Unchanged,
+        })
+        .made_inert() else {
+            panic!("the variant changed");
+        };
+        assert_eq!(outcome, ModelAnswer::Unchanged);
+    }
+
+    #[test]
+    fn a_model_answer_is_not_a_terminal_event() {
+        // `/model` is not a turn and owes no conclusion; a drain that left on
+        // one would end while the worker was still publishing.
+        assert!(!UiEvent::ModelAnswered {
+            model: "m-1".to_string(),
+            outcome: ModelAnswer::Unchanged,
+        }
+        .is_terminal());
+    }
+
+    #[test]
+    fn neither_new_work_item_nor_usage_is_a_terminal_event() {
+        // The drain leaves on exactly the two events a turn cannot continue
+        // past. A catalog or a usage number that answered `true` would end the
+        // drain while the worker still owed its conclusion.
+        assert!(!UiEvent::Usage {
+            input: Some(1),
+            output: Some(2)
+        }
+        .is_terminal());
+        assert!(!UiEvent::CatalogLoaded {
+            provider: crate::provider::ProviderId::Gateway,
+            entries: Vec::new()
+        }
+        .is_terminal());
+        assert!(!UiEvent::ProviderSelected {
+            provider: crate::provider::ProviderId::Gateway,
+            model: "m".to_string(),
+            missing_credential: false
+        }
+        .is_terminal());
+        assert!(UiEvent::TurnEnded { failure: None }.is_terminal());
     }
 }

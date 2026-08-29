@@ -327,6 +327,29 @@ pub enum ModelRequest<'a> {
 /// ceiling; a caller that hits it says how many were left out.
 pub const MAX_RENDERED_MODELS: usize = 100;
 
+/// What a provider that advertises no catalog is reported as, on **both**
+/// surfaces.
+///
+/// One string rather than two, because the two front ends must not disagree
+/// about a fact neither of them discovered: "there is nothing to browse" is a
+/// property of the provider (`catalog_for` answers `None` for the Gateway,
+/// which publishes no catalog endpoint this port has evidence for), and it is
+/// emphatically **not** a failure. Reported as one it would make every Gateway
+/// user's first `/model` read as a broken session.
+pub const NO_CATALOG_NOTICE: &str = "[shell] catalog=unavailable (this provider advertises none)";
+
+/// What a surface says about a selection nothing could confirm.
+///
+/// Beside [`NO_CATALOG_NOTICE`] and for the same reason: it is a sentence about
+/// a fact **the selector** discovered ([`ModelOutcome::Selected`]'s
+/// `unverified`), so the two front ends may render it in their own place -- the
+/// line shell on stderr, the band as a document row -- but not in their own
+/// words. It is a caveat and never a refusal: the model was applied, and what
+/// could not be done was check it against a catalog that is not there.
+pub fn unverified_notice(reason: &str) -> String {
+    format!("xfx: {reason}, so this model was not checked against the provider's catalog")
+}
+
 /// Selects, changes, and renders model choices from a catalog when one exists.
 ///
 /// The selector for the configured provider and its active model. Does no I/O
@@ -476,8 +499,16 @@ impl ModelSelector {
         }
     }
 
+    /// The catalog this selector decides against, named rather than fetched.
+    ///
+    /// `pub(crate)` because the **membership refusal** is a rule two front ends
+    /// depend on, and the one that reaches it through a worker thread
+    /// (`crate::tui::worker`) has to be able to hold a loaded catalog without
+    /// opening a socket. Still `#[cfg(test)]`: no shipped binary can reach it,
+    /// so a catalog is still only ever loaded from the provider that published
+    /// it.
     #[cfg(test)]
-    fn set_catalog_for_test(&mut self, state: CatalogState) {
+    pub(crate) fn set_catalog_for_test(&mut self, state: CatalogState) {
         self.catalog_state = state;
     }
 }
@@ -891,5 +922,24 @@ mod tests {
         selector.ensure_catalog().await;
         let count_after_second = catalog.count();
         assert_eq!(count_after_second, count_after_first);
+    }
+    /// The third state of the same contract the two cases above pin
+    /// (`ensure_catalog_fetches_exactly_once_on_success` and
+    /// `ensure_catalog_does_not_retry_after_failure`): a provider that has no
+    /// catalog at all is never asked in the first place.
+    #[tokio::test]
+    async fn a_provider_with_no_catalog_opens_no_socket_at_all() {
+        // `Unavailable` is a fact about the provider rather than a failure to
+        // load: the Gateway publishes no catalog endpoint this port has evidence
+        // for, and xfx does not invent a URL to ask.
+        let mut selector = ModelSelector::for_test(
+            ProviderId::Gateway,
+            "zai/glm-5.2",
+            SettingSource::CompiledDefault,
+        );
+        assert!(matches!(
+            selector.ensure_catalog().await,
+            CatalogState::Unavailable
+        ));
     }
 }

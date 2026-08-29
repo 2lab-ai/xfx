@@ -21,6 +21,8 @@ use serde_json::Value;
 use support::fake_gateway::FakeGateway;
 use support::pty::{modes, open_slave, Pty, Session, TerminalState, Wait, IDLE_POLL, WAIT};
 use support::sandbox::Sandbox;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 /// A bare `xfx` that opts into the TUI.
 fn tui(sandbox: &Sandbox) -> Command {
@@ -111,6 +113,211 @@ const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
 /// match where a hint row ended and the frame closed.
 const HINT_END: &str = "\u{1b}[0m\u{1b}[23;3H";
 
+/// A terminal, to the extent this suite has to model one.
+///
+/// **Why a model and not a byte string.** A frame is now a *difference* from
+/// what the terminal already holds (`src/tui/grid.rs`), so a needle spelling a
+/// whole row is a claim about a paint that only happens when the shadow is
+/// blank: a keystroke moves one cell, and the row it moved it on was never on
+/// the wire in one piece. What a row *says* is the property every case here
+/// means, and it is also the property the optimization is required to preserve
+/// -- the final grid must be the one the Phase-1 full-repaint painter would
+/// have left -- so the stream is folded back into rows and the rows are what is
+/// asserted on.
+///
+/// Exactly the sequences xfx declares it emits, and no more; `scripts/smoke-tui.sh`
+/// carries the strict version of this oracle, which *fails* on anything else.
+/// Here an unmodelled sequence is skipped, because this suite's cases are about
+/// rows rather than about the vocabulary.
+struct Screen {
+    cols: usize,
+    lines: Vec<Vec<String>>,
+    row: usize,
+    col: usize,
+}
+
+impl Screen {
+    /// The screen `text` leaves on a `rows` x `cols` terminal.
+    fn of(rows: usize, cols: usize, text: &str) -> Self {
+        let mut screen = Screen {
+            cols,
+            lines: vec![vec![" ".to_string(); cols]; rows],
+            row: 0,
+            col: 0,
+        };
+        let mut rest = text;
+        while !rest.is_empty() {
+            if let Some(tail) = rest.strip_prefix('\n') {
+                screen.linefeed();
+                rest = tail;
+                continue;
+            }
+            if let Some(tail) = rest.strip_prefix('\r') {
+                screen.col = 0;
+                rest = tail;
+                continue;
+            }
+            if rest.starts_with('\u{1b}') {
+                let len = escape_len(rest);
+                screen.escape(&rest[..len]);
+                rest = &rest[len..];
+                continue;
+            }
+            let cluster = rest.graphemes(true).next().expect("a non-empty rest");
+            rest = &rest[cluster.len()..];
+            if cluster.chars().all(char::is_control) {
+                continue;
+            }
+            screen.put(cluster);
+        }
+        screen
+    }
+
+    /// The screen as the last **complete** frame left it, and `None` before
+    /// one.
+    ///
+    /// **The band's rows may only be read here**, and that is a correctness
+    /// rule rather than tidiness. Two things happen to a band between frames,
+    /// and both make the bottom of the screen say something that is not the
+    /// band's claim:
+    ///
+    /// * a document append scrolls the screen with a real linefeed
+    ///   (`CUP(rows,1)` + `LF`, `src/tui/frame.rs`'s `scroll_one`), so the
+    ///   band's rows move **up** and the row it was on goes blank until the
+    ///   next frame puts it back;
+    /// * a frame is a difference, so a paint in flight has written some of its
+    ///   rows and not others.
+    ///
+    /// Asking [`Screen::of`] at an arbitrary byte offset answers "what is on
+    /// the bottom row of the terminal right now", which during either window is
+    /// mid-transaction. Asking it here answers "what did the band last say",
+    /// which is the question every case below is really asking.
+    ///
+    /// `None` rather than a blank screen before the first frame, for the reason
+    /// [`last_frame`] returns `None`: a predicate looking for the *absence* of a
+    /// word would be satisfied by a screen nothing had painted yet.
+    fn painted(text: &str, rows: usize, cols: usize) -> Option<Self> {
+        let ends = text.rfind(FRAME_END)? + FRAME_END.len();
+        Some(Self::of(rows, cols, &text[..ends]))
+    }
+
+    /// The one-based row `needle` is on, if any row carries it.
+    fn find(&self, needle: &str) -> Option<usize> {
+        (1..=self.lines.len()).find(|row| self.row_text(*row).contains(needle))
+    }
+
+    /// The one-based row the band's rule is on, if the band has painted one.
+    fn divider(&self) -> Option<usize> {
+        (1..=self.lines.len()).find(|row| self.row_text(*row).starts_with('\u{2500}'))
+    }
+
+    /// What row `line` -- one-based, as the terminal counts -- says.
+    fn row_text(&self, line: usize) -> String {
+        self.lines
+            .get(line - 1)
+            .map(|cells| cells.concat().trim_end().to_string())
+            .unwrap_or_default()
+    }
+
+    fn put(&mut self, cluster: &str) {
+        let width = cluster.width();
+        if width == 0 {
+            // A combining mark belongs to the cell before it.
+            if self.col > 0 {
+                if let Some(cell) = self.lines[self.row].get_mut(self.col - 1) {
+                    cell.push_str(cluster);
+                }
+            }
+            return;
+        }
+        if self.col + width > self.cols {
+            // Autowrap is off (`?7l`), so a terminal overwrites the last cell.
+            self.col = self.cols.saturating_sub(width);
+        }
+        self.lines[self.row][self.col] = cluster.to_string();
+        for offset in 1..width {
+            self.lines[self.row][self.col + offset] = String::new();
+        }
+        self.col += width;
+    }
+
+    fn linefeed(&mut self) {
+        if self.row + 1 < self.lines.len() {
+            self.row += 1;
+            return;
+        }
+        self.lines.remove(0);
+        self.lines.push(vec![" ".to_string(); self.cols]);
+    }
+
+    fn erase_to_end_of_row(&mut self) {
+        for cell in &mut self.lines[self.row][self.col..] {
+            *cell = " ".to_string();
+        }
+    }
+
+    fn escape(&mut self, sequence: &str) {
+        let Some(body) = sequence.strip_prefix("\u{1b}[") else {
+            // An `OSC`, or a two-byte escape. Neither moves a cell.
+            return;
+        };
+        let Some(final_byte) = body.chars().last() else {
+            return;
+        };
+        let params = &body[..body.len() - final_byte.len_utf8()];
+        if params.starts_with(['?', '>', '<', '=']) {
+            // A private mode or a keyboard-protocol request: no cell moves.
+            return;
+        }
+        match final_byte {
+            'H' => {
+                let (row, column) = params.split_once(';').unwrap_or((params, ""));
+                self.row = (row.parse().unwrap_or(1).max(1) - 1).min(self.lines.len() - 1);
+                self.col = (column.parse().unwrap_or(1).max(1) - 1).min(self.cols - 1);
+            }
+            'J' => {
+                if params.is_empty() || params == "0" {
+                    self.erase_to_end_of_row();
+                    for line in self.row + 1..self.lines.len() {
+                        self.lines[line] = vec![" ".to_string(); self.cols];
+                    }
+                } else if params == "2" {
+                    self.lines = vec![vec![" ".to_string(); self.cols]; self.lines.len()];
+                }
+            }
+            'K' if params.is_empty() || params == "0" => self.erase_to_end_of_row(),
+            // `SGR`, `CSI 6 n`, `XTWINOPS`: none of them move a cell.
+            _ => {}
+        }
+    }
+}
+
+/// How many bytes the escape sequence at the head of `text` takes.
+fn escape_len(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    if bytes.get(1) == Some(&b'[') {
+        let mut end = 2;
+        while end < bytes.len() && !(0x40..=0x7e).contains(&bytes[end]) {
+            end += 1;
+        }
+        return (end + 1).min(bytes.len());
+    }
+    if bytes.get(1) == Some(&b']') {
+        let mut end = 2;
+        while end < bytes.len() {
+            if bytes[end] == 0x07 {
+                return end + 1;
+            }
+            if bytes[end] == 0x1b && bytes.get(end + 1) == Some(&b'\\') {
+                return end + 2;
+            }
+            end += 1;
+        }
+        return bytes.len();
+    }
+    2.min(bytes.len())
+}
+
 /// The last **complete** frame in `text`, if there is one.
 ///
 /// The needles here are frame-local on purpose -- everything the session ever
@@ -130,16 +337,16 @@ fn last_frame(text: &str) -> Option<&str> {
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
 /// an integration test, and a test that read the constant it is checking would
 /// pass for any sequence the module happened to declare.
-const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l";
+const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
 
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
-const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l";
+const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
 
 /// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`).
-const RESTORE: &str = "\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str = "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`).
@@ -147,14 +354,24 @@ const RESTORE_TMUX: &str = "\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
 const ABNORMAL_RESTORE: &str =
-    "\u{1b}[?1049l\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+    "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
 /// A route that is not the TUI's must emit none of them: an invocation that
 /// merely *looked* like the classic path while having already stamped the
 /// terminal would be the regression these negatives exist to catch.
-const TUI_BYTES: [&str; 4] = ["\u{1b}[>4;2m", "\u{1b}[>1u", "\u{1b}[?2004h", "\u{1b}[?7l"];
+const TUI_BYTES: [&str; 6] = [
+    "\u{1b}[>4;2m",
+    "\u{1b}[>1u",
+    "\u{1b}[?2004h",
+    "\u{1b}[?7l",
+    // The title stack push, and the window title itself: the line-oriented
+    // shell borrows no title and sets none, so a route that is not the TUI's
+    // must leave the terminal's own title alone.
+    "\u{1b}[22;2t",
+    "\u{1b}]2;",
+];
 
 /// Requires that no byte of the TUI's mode set reached this terminal.
 fn assert_no_mode_bytes(text: &str) {
@@ -246,6 +463,70 @@ fn wait_until_raw(pty: &Pty) -> TerminalState {
         );
         std::thread::sleep(IDLE_POLL);
     }
+}
+
+#[test]
+fn a_document_append_moves_the_band_off_its_rows_until_the_next_frame() {
+    // The regression this file was rewritten for, in the smallest sequence that
+    // produces it -- and the reason every band-row predicate here goes through
+    // `Screen::painted` rather than `Screen::of`.
+    //
+    // A document append is a real linefeed on the bottom row
+    // (`src/tui/frame.rs`'s `scroll_one`: `CUP(rows,1)` then `LF`), so the
+    // **whole screen** moves up, band included, and nothing puts it back until
+    // the next frame. Between the two, the bottom row is blank and the hint row
+    // is one row higher than it belongs. A predicate that read row 24 in that
+    // window asked "what is on the bottom row right now" and got an answer that
+    // is true of the terminal and false of the band -- which let a wait for
+    // "the hint row stopped saying `queued`" through while the band was still
+    // saying it, and the prompt behind that wait was refused and never sent.
+    //
+    // Both halves are asserted, because the model must be *right* about the
+    // terminal and the helper must be right about the band: an emulator that
+    // did not move the row would be the easy way to make this pass and would be
+    // lying about a linefeed.
+    const HINT: &str = "queued 1 · ask · glm-5.2";
+    let frame = format!(
+        "{FRAME_BEGIN}\u{1b}[22;1H--\u{1b}[23;1H> \u{1b}[24;1H{HINT}\u{1b}[23;3H{FRAME_END}"
+    );
+    // The append, byte for byte as the band writes one: the scroll, then the
+    // document row placed on the row the scroll freed.
+    let append = "\u{1b}[24;1H\r\n\u{1b}[21;1H[tool] edit_file refused\u{1b}[K";
+
+    let painted = Screen::painted(&frame, 24, 80).expect("a complete frame");
+    assert_eq!(
+        painted.row_text(24),
+        HINT,
+        "the band's own frame did not put the hint row on the bottom row"
+    );
+
+    let wire = format!("{frame}{append}");
+    let live = Screen::of(24, 80, &wire);
+    assert_eq!(
+        live.row_text(24),
+        "",
+        "the append's linefeed did not scroll the bottom row away -- this \
+         emulator is not modelling a linefeed at the bottom margin"
+    );
+    assert_eq!(
+        live.row_text(23),
+        HINT,
+        "the hint row did not move up with the scroll, so the model disagrees \
+         with what a terminal does to a band when a row enters scrollback"
+    );
+
+    // And the helper still answers for the band: what it last painted, on the
+    // row it painted it on.
+    let settled = Screen::painted(&wire, 24, 80).expect("a complete frame");
+    assert_eq!(
+        settled.row_text(24),
+        HINT,
+        "a band-row question answered from a screen that is mid-append"
+    );
+    assert!(
+        Screen::painted("nothing has been painted yet", 24, 80).is_none(),
+        "a screen nothing had painted answered a question about the band"
+    );
 }
 
 #[test]
@@ -701,6 +982,72 @@ fn sigtstp_really_stops_the_process_with_the_terminal_given_back() {
     );
 }
 
+/// The window title the launch asks for, up to the model label.
+///
+/// Response-only, like [`READY`]: no test types these bytes, so counting them
+/// counts what xfx wrote. Spelled out rather than imported for the reason
+/// [`MODE_SET`] is.
+const TITLE: &str = "\u{1b}]2;xfx \u{b7} ";
+
+/// `XTWINOPS 22 ; 2` and `23 ; 2`: the push of the terminal's own window title
+/// onto its stack, and the pop that gives it back.
+const PUSH_TITLE: &str = "\u{1b}[22;2t";
+const POP_TITLE: &str = "\u{1b}[23;2t";
+
+#[test]
+fn a_resumed_session_says_its_title_again_and_leaves_the_stack_balanced() {
+    // The title is **borrowed**, and a stop gives it back. The restore written
+    // by the stop handler pops the title stack, so the window is the shell's
+    // again; the resume pushes a fresh entry and the band owes a fresh `OSC 2`.
+    // A band that went on remembering it had already told *this terminal* its
+    // title would send no second one, and the window would carry the shell's
+    // title for the rest of the session -- with the session none the wiser,
+    // because nothing on the screen says what the title bar reads.
+    //
+    // Both halves are asserted and both are needed. Re-asserting the title
+    // without a balanced stack would leak an entry per stop; balancing the
+    // stack without re-asserting the title is the defect itself.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let session = started(&sandbox, &pty);
+    session.wait_for(TITLE);
+
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the child to stop", |state| matches!(
+            state,
+            Wait::Stopped(_)
+        )),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+
+    session.signal(Signal::CONT);
+    session.wait_for_count(READY, 2);
+    // The frame the resume owes, and the title it owes with it.
+    session.wait_for_count(FRAME_END, 2);
+    session.wait_for_count(TITLE, 2);
+
+    session.signal(Signal::TSTP);
+    assert_eq!(
+        session.wait_state("the second stop", |state| matches!(state, Wait::Stopped(_))),
+        Wait::Stopped(Signal::STOP.as_raw())
+    );
+    session.wait_for_count(POP_TITLE, 2);
+
+    // One push per time the terminal was taken, one pop per time it was given
+    // back, and never more: an entry left on the stack is the user's own title
+    // lost a level deeper on every stop.
+    let text = session.text();
+    let pushes = text.matches(PUSH_TITLE).count();
+    let pops = text.matches(POP_TITLE).count();
+    assert_eq!(
+        (pushes, pops),
+        (2, 2),
+        "stop -> resume -> stop pushed {pushes} and popped {pops}: {text:?}"
+    );
+}
+
 #[test]
 fn a_stop_before_the_first_frame_paints_only_after_the_terminal_is_taken_back() {
     // The ordering the loop's two reconciles exist for. Every other resume case
@@ -1054,9 +1401,20 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
     let begins = text.find(FRAME_BEGIN).expect("a synchronized frame");
     let ends = text[begins..].find(FRAME_END).expect("a closed frame") + begins;
     let frame = &text[begins..ends];
+    // The first frame of a session is the whole band: the shadow the diff works
+    // from is blank, so every row is placed from its first column and nothing
+    // that was on those rows can survive it. Phase 1 wrote an `ED` here and
+    // this asserted on it; the diff writes the cells instead, so what is
+    // asserted on is the widest of them -- a divider that spans the screen.
     assert!(
-        frame.contains(&format!("{BAND_TOP}\u{1b}[J")),
-        "the frame did not clear the band before painting it: {frame:?}"
+        frame.contains(&"\u{2500}".repeat(80)),
+        "the frame did not paint the divider across the screen: {frame:?}"
+    );
+    // And the window title, inside the same synchronized frame as everything
+    // else: it is frame metadata rather than a second writer's business.
+    assert!(
+        frame.contains("\u{1b}]2;xfx \u{b7} "),
+        "the frame did not set the window title: {frame:?}"
     );
     for (row, what) in [
         ("\u{1b}[22;1H", "the divider"),
@@ -1172,32 +1530,42 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(READY);
 
-    // The composer row, and the hint row's own placement right after it: the
-    // pair is what makes this the whole row rather than a prefix of a longer
-    // one.
+    // The composer's whole row, read off the screen rather than off the wire: a
+    // frame is a difference from what the terminal already holds, so a
+    // keystroke writes the cell it changed and the row it changed is never on
+    // the wire in one piece. What the row *says* is the property either way.
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
     session.type_bytes("hello \u{d55c}\u{ae00}".as_bytes());
-    session.wait_for("> hello \u{d55c}\u{ae00}\u{1b}[24;1H");
-    // Backspace removes the whole grapheme, not a byte of it.
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> hello \u{d55c}\u{ae00}"
+    });
+    // Backspace removes the whole grapheme, not a byte of it -- and the cell
+    // its second column occupied is given back, which is the half of this an
+    // erase-free diff would get wrong.
     session.type_bytes(&[0x7f]);
-    session.wait_for("> hello \u{d55c}\u{1b}[24;1H");
+    session.wait_until("the backspace to take the whole grapheme", |text| {
+        composer(text) == "> hello \u{d55c}"
+    });
 
     // C-a: the caret goes home, which is the composer's first column -- two
-    // cells of prompt marker in, on the composer's own row. Taken as a whole
-    // frame rather than as one byte string: the hint row now sits between the
-    // composer row and the caret, and it carries a colour whose spelling
-    // depends on what the machine running this suite claims.
+    // cells of prompt marker in, on the composer's own row. Taken inside one
+    // complete frame, so the caret is asserted where the frame left it rather
+    // than mid-paint.
     session.type_bytes(&[0x01]);
     session.wait_until(
         "the caret to go home in the frame that painted the row",
         |text| {
-            last_frame(text).is_some_and(|frame| {
-                frame.contains("> hello \u{d55c}\u{1b}[24;1H") && frame.ends_with("\u{1b}[23;3H")
-            })
+            composer(text) == "> hello \u{d55c}"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;3H"))
         },
     );
     // C-d with text under the caret: a forward delete, and the session stays.
     session.type_bytes(&[0x04]);
-    session.wait_for("> ello \u{d55c}\u{1b}[24;1H");
+    session.wait_until("the forward delete to take the character", |text| {
+        composer(text) == "> ello \u{d55c}"
+    });
     assert!(matches!(session.state(), Wait::Running));
 
     // C-e to the end, C-u to kill the line back to its start, and C-d on the
@@ -1221,10 +1589,16 @@ fn the_composer_stops_growing_at_half_the_content_area() {
         session.type_bytes(b"0123456789012345678");
         session.type_bytes(&[0x0a]); // C-j: a newline in the composer
     }
-    // The band at its cap: the divider on row 6, and the erase that begins
-    // every frame from there. Sixteen rows of draft are in the composer and it
-    // is showing five of them.
-    session.wait_for("\u{1b}[6;1H\u{1b}[J");
+    // The band at its cap: the divider on row 6, and the rows above it left to
+    // the terminal's own document. Sixteen rows of draft are in the composer
+    // and it is showing five of them.
+    session.wait_until(
+        "the band to reach its cap with the divider on row 6",
+        |text| {
+            Screen::painted(text, 12, 20)
+                .is_some_and(|screen| screen.row_text(6) == "\u{2500}".repeat(20))
+        },
+    );
     session.wait_for("\u{1b}[12;1H"); // the hint row is still the last row
     let text = session.text();
     for row in 1..=5 {
@@ -1340,6 +1714,190 @@ fn a_very_large_paste_collapses_on_screen_and_expands_on_submit() {
     assert_eq!(sent, block, "the block was not sent as it was pasted");
 
     session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
+    // Item 16 on a real terminal, and the two halves that only a terminal can
+    // show together: a **key** treats the summary as one thing, and a **recall**
+    // brings the block back under a number this session has not used.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-ATOMIC"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALLED",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+    let paste = |session: &mut Session, block: &str| {
+        session.type_bytes(b"\x1b[200~");
+        session.type_bytes(block.as_bytes());
+        session.type_bytes(b"\x1b[201~");
+    };
+
+    // One backspace at the summary's right edge removes the **whole** block:
+    // Phase 1 took one character off its name and left the rest on the screen.
+    let first = "y".repeat(1100);
+    paste(&mut session, &first);
+    session.wait_until("the paste to be summarized", |text| {
+        composer(text) == "> [Pasted text #1, 1 lines]"
+    });
+    session.type_bytes(&[0x7f]);
+    session.wait_until("the whole block to go with one backspace", |text| {
+        composer(text) == ">"
+    });
+
+    // A number is never reused, so the next paste is #2 -- and the caret steps
+    // over it as one unit, so the keystroke after a single `Left` lands in
+    // front of the whole summary rather than inside its name.
+    let second = "z".repeat(1100);
+    paste(&mut session, &second);
+    session.wait_until("the second paste to be summarized", |text| {
+        composer(text) == "> [Pasted text #2, 1 lines]"
+    });
+    session.type_bytes(b"\x1b[D");
+    session.type_bytes(b"see ");
+    session.wait_until("the caret to have stepped over the whole unit", |text| {
+        composer(text) == "> see [Pasted text #2, 1 lines]"
+    });
+
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-ATOMIC");
+    let sent = user_messages(&gateway.requests()[0].json()).join("\n");
+    assert_eq!(
+        sent,
+        format!("see {second}"),
+        "the block beside the keystroke was not the thing that was sent"
+    );
+    assert!(
+        !sent.contains(&first),
+        "the block a backspace removed was sent anyway"
+    );
+
+    // And the recall: the line comes back with its block, under the next
+    // number rather than the one it was submitted with.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("the submitted line to come back renumbered", |text| {
+        composer(text) == "> see [Pasted text #3, 1 lines]"
+    });
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALLED");
+    let recalled = user_messages(&gateway.requests()[1].json()).join("\n");
+    assert!(
+        recalled.ends_with(&second),
+        "the recalled summary was sent as the words it looks like"
+    );
+    assert!(
+        !recalled.contains("Pasted text"),
+        "a summary reached the model: {:.60}",
+        recalled
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
+    // Item 15 on a real terminal. Four claims, and the first two are the ones a
+    // history without a captured draft would pass: the arrow at the edge of the
+    // draft walks back, `C-p`/`C-n` walk it from anywhere, the half-typed line
+    // the walk began from is what it comes back to, and an edit to a recalled
+    // line ends that walk -- so the next step back starts at the newest entry
+    // again and comes back to the *edited* text.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALL-ONE",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-RECALL-TWO",
+        ])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    // The composer's whole row, read off the screen for the reason the typing
+    // case reads it that way: a frame is a difference, so the row it changed
+    // was never on the wire in one piece.
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    session.type_bytes(b"alpha prompt");
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALL-ONE");
+    session.type_bytes(b"bravo prompt");
+    session.type_bytes(&[0x0d]);
+    session.wait_for("MARKER-RECALL-TWO");
+
+    session.type_bytes(b"half typed");
+    session.wait_until(
+        "the composer to hold the line that was never sent",
+        |text| composer(text) == "> half typed",
+    );
+
+    // Up, from the only row a one-row draft has.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("the newest submitted line to come back", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    // C-p, which is the recall wherever the caret is.
+    session.type_bytes(&[0x10]);
+    session.wait_until("the line before it to come back", |text| {
+        composer(text) == "> alpha prompt"
+    });
+    // C-n, back towards the near end.
+    session.type_bytes(&[0x0e]);
+    session.wait_until("the walk to come forward again", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    // Down at the last row, which is where the draft is waiting.
+    session.type_bytes(b"\x1b[B");
+    session.wait_until("the draft the walk began from to come back", |text| {
+        composer(text) == "> half typed"
+    });
+
+    // An edit ends the walk: the next step back is the newest line again, and
+    // what it comes back to is the text the edit left behind.
+    session.type_bytes(b"\x1b[A");
+    session.wait_until("a second walk to reach the newest line", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    session.type_bytes(b"!");
+    session.wait_until("the recalled line to take the keystroke", |text| {
+        composer(text) == "> bravo prompt!"
+    });
+    session.type_bytes(&[0x10]);
+    session.wait_until("the walk to start from the newest line again", |text| {
+        composer(text) == "> bravo prompt"
+    });
+    session.type_bytes(&[0x0e]);
+    session.wait_until("the edited line to be what the walk came back to", |text| {
+        composer(text) == "> bravo prompt!"
+    });
+
+    // Nothing above sent anything: two turns ran, and every recall since was a
+    // composer that changed without a request behind it.
+    assert_eq!(
+        gateway.request_count(),
+        2,
+        "a recall submitted the line it recalled"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
@@ -1495,8 +2053,12 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     // in the document; this one is satisfied only by the band.
     session.wait_for("\u{1b}[21;1H\u{2022} Thinking");
     // And the clock really advances while the model is quiet, which is the
-    // whole of what the row is for.
-    session.wait_for("2s");
+    // whole of what the row is for. Read off the **row** rather than off the
+    // wire: a frame is a difference, so a second that ticked over writes the
+    // one digit that changed and the wire never carries `2s` in one piece.
+    session.wait_until("the activity row's clock to reach two seconds", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(21).contains("2s"))
+    });
 
     session.type_bytes(&[0x03, 0x03]);
     assert_eq!(session.wait_exit().code(), Some(130));
@@ -2012,10 +2574,12 @@ fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
     session.wait_for("esc again to clear");
 
     session.type_bytes(&[0x1b]);
-    // The composer's row, empty, immediately followed by the `CUP` for the row
-    // below it: the marker with nothing after it is what an empty composer
-    // paints and a composer holding a draft cannot.
-    session.wait_for("\u{1b}[23;1H> \u{1b}[24;1H");
+    // The composer's row, with the marker and nothing after it: that is what an
+    // empty composer says and what a composer holding a draft cannot. Read off
+    // the row, because clearing a draft writes an erase rather than a repaint.
+    session.wait_until("the composer to be emptied", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(23) == ">")
+    });
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -2023,8 +2587,8 @@ fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
 
 #[test]
 fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
-    // plan:109 -- the TUI answers exactly the six `interactive::SLASH_COMMANDS`
-    // and nothing else. The gateway is scripted with a reply nobody should ever
+    // plan:109 -- the TUI answers exactly `interactive::SLASH_COMMANDS` and
+    // nothing else. The gateway is scripted with a reply nobody should ever
     // see: a command that reached the provider would both show that marker and
     // leave a request behind.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
@@ -2038,15 +2602,23 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
-    // types: `/help`'s summary line, `/version`'s channel, the model report,
-    // `/new`'s sentence, `/clear`'s promise, and a name that is not one of the
-    // six.
+    // types: `/help`'s closing line, `/version`'s channel, the model report,
+    // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
+    // name the registry does not carry.
     session.type_bytes(b"/help\r");
-    session.wait_for("list these commands");
+    // The **closing** line of the help page rather than a summary out of the
+    // middle of it: the completion menu shows the same summaries while the name
+    // is being typed, so a needle taken from one of those would be satisfied by
+    // the menu and would stop saying that `/help` was answered at all.
+    session.wait_for("Anything else is a prompt.");
     session.type_bytes(b"/version\r");
     session.wait_for("xfx 0.");
     session.type_bytes(b"/model\r");
     session.wait_for("[shell] model=");
+    // Bare, so it refuses without switching anything -- which still proves the
+    // name is answered by the session, and still costs the provider nothing.
+    session.type_bytes(b"/setup\r");
+    session.wait_for("/setup takes a provider to set up");
     session.type_bytes(b"/new\r");
     session.wait_for("starts a fresh conversation");
     session.type_bytes(b"/notacommand\r");
@@ -2054,9 +2626,9 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.type_bytes(b"/clear\r");
     session.wait_for("the conversation is kept");
 
-    // The sixth, and the reason it leaves this test rather than a Ctrl-D: all
-    // six names are then literally pinned against the zero-request assertion
-    // below rather than five of them.
+    // The last one, and the reason it leaves this test rather than a Ctrl-D:
+    // every canonical name is then literally pinned against the zero-request
+    // assertion below rather than all-but-one of them.
     session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(
@@ -2068,6 +2640,90 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     assert!(
         !text.contains("MARKER-A-COMMAND-WAS-ASKED"),
         "the provider answered something, so a command became a prompt: {text:?}"
+    );
+}
+
+#[test]
+fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
+    // plan:224 -- the menu is a view of the composer, not a second focus. Three
+    // claims, and the last two are what make it a menu rather than a panel: it
+    // is **above** the divider in the rows a question would take, the caret
+    // stays in the text being typed, and Return runs the line rather than
+    // taking the marked row.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-THE-MENU-ASKED-A-MODEL"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    // The summary of the command the draft names, which is a needle no test
+    // types and only the menu can put on the screen.
+    let offer = "show the model";
+    session.type_bytes(b"/mod");
+    let opened = session.wait_until("the menu to offer the command the draft names", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.find(offer).is_some())
+    });
+    let screen = Screen::painted(&opened, 24, 80).expect("a painted frame");
+    let rule = screen.divider().expect("the band has a divider");
+    let offered = screen.find(offer).expect("the menu is on the screen");
+    assert!(
+        offered < rule,
+        "the menu is at row {offered} and the divider at {rule}: it is not above it"
+    );
+    assert!(
+        screen.row_text(offered).contains("/model"),
+        "the menu offers a summary without the name it belongs to: {:?}",
+        screen.row_text(offered)
+    );
+    assert_eq!(
+        screen.row_text(rule + 1),
+        "> /mod",
+        "the composer is not directly under the rule, still holding the draft"
+    );
+    // The caret, which is where the frame left the terminal's cursor: in the
+    // composer, past the draft, and not on the marked row of the menu.
+    assert_eq!(
+        (screen.row + 1, screen.col),
+        (rule + 1, "> /mod".len()),
+        "the menu took the caret off the text being typed"
+    );
+
+    // Tab completes it, with the room its argument needs, and the menu goes.
+    session.type_bytes(b"\t");
+    let completed = session.wait_until("the completed name in the composer", |text| {
+        Screen::painted(text, 24, 80).is_some_and(|screen| {
+            screen
+                .divider()
+                .is_some_and(|rule| screen.row_text(rule + 1) == "> /model")
+        })
+    });
+    let screen = Screen::painted(&completed, 24, 80).expect("a painted frame");
+    assert!(
+        screen.find(offer).is_none(),
+        "the menu outlived the completion it wrote: {:?}",
+        screen.row_text(screen.find(offer).unwrap_or(1))
+    );
+
+    // And the completed command runs on the next Return -- one command, one
+    // Return, because the menu gets out of Enter's way rather than taking it.
+    session.type_bytes(b"\r");
+    session.wait_for("[shell] model=");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a completed command was sent to the provider as a prompt"
+    );
+    let text = session.settled_text();
+    assert!(
+        !text.contains("MARKER-THE-MENU-ASKED-A-MODEL"),
+        "the provider answered something, so a completion became a prompt: {text:?}"
     );
 }
 
@@ -2441,8 +3097,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // than assumed, because the prompt below needs the room -- a submission
     // made while the session still holds two is refused on the hint row and
     // never sent, which is how this case flaked before the wait was here.
+    //
+    // **Read off the hint row, not off a frame's bytes.** A frame is a
+    // difference from what the terminal already holds (`src/tui/grid.rs`), so a
+    // frame that does not mention `queued` is the overwhelmingly common case:
+    // the activity marker blinking writes one cell and says nothing about the
+    // hint row, which has not changed and is therefore not written. Asking a
+    // single frame for the *absence* of a word reads "this frame did not
+    // repaint the hint row" as "the hint row no longer says it", and lets this
+    // wait through while the place is still held -- which is exactly the
+    // refusal it exists to avoid.
     session.wait_until("the runtime to give the queued place back", |text| {
-        last_frame(text).is_some_and(|frame| !frame.contains("queued"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.row_text(24).contains("queued"))
     });
 
     // A prompt typed *after* the interrupt is a new intention and still runs.
@@ -2488,6 +3154,445 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     assert!(
         !text.contains("the edit is done"),
         "the interrupted turn ran to completion: {text:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the other plane
+// ---------------------------------------------------------------------------
+
+/// `CSI ? 1049 h` / `l`, spelled out for the reason every needle here is.
+///
+/// Response-only, like `READY`: no test types these, so waiting for one cannot
+/// be satisfied by the pty echoing the suite's own keystrokes.
+const ENTERS_ALTERNATE: &str = "\u{1b}[?1049h";
+const LEAVES_ALTERNATE: &str = "\u{1b}[?1049l";
+
+/// How many lines of the file the scripted edit replaces.
+///
+/// Sixty short lines rather than one long one, and the shape matters: `read_file`
+/// clips a line past `ToolLimits::max_read_line_len` and a clipped read is not a
+/// complete view, so `edit_file` refuses to replace a file this session has only
+/// partly read (`src/tools/mutate.rs`'s `read_proof_missing`). Twenty lines is
+/// comfortably past the 160 bytes the band's own summary quotes
+/// (`src/permission/authority.rs`), so the question is one the band cannot show.
+const LARGE_EDIT_LINES: usize = 20;
+
+/// What the file holds before the scripted edit, and after it.
+fn large_edit_sides() -> (String, String) {
+    let before: Vec<String> = (0..LARGE_EDIT_LINES)
+        .map(|line| format!("alpha line {line}"))
+        .collect();
+    let after: Vec<String> = (0..LARGE_EDIT_LINES)
+        .map(|line| format!("beta line {line}"))
+        .collect();
+    (before.join("\n"), after.join("\n"))
+}
+
+/// A workspace holding one file whose whole body the model is scripted to
+/// replace, and the file's path.
+fn with_a_large_file(sandbox: &Sandbox) -> (std::path::PathBuf, String, String) {
+    let (before, after) = large_edit_sides();
+    let path = sandbox.workspace.join("notes.txt");
+    std::fs::write(&path, format!("{before}\n")).expect("write the fixture");
+    (path, before, after)
+}
+
+/// Read the file, replace the whole of it, then say `marker`.
+fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-1",
+                "edit_file",
+                serde_json::json!({
+                    "path": "notes.txt",
+                    "old_string": before,
+                    "new_string": after,
+                }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(support::fake_gateway::content_only(&["the edit is done"])),
+    ]
+}
+
+/// A session parked on a question about a change too big for the band.
+///
+/// Returns the pty and the session, both alive, with the alternate screen
+/// already taken and the question painted on it.
+fn asked_on_the_alternate_screen(sandbox: &Sandbox, pty: &Pty) -> (FakeGateway, Session) {
+    let (_path, before, after) = with_a_large_file(sandbox);
+    let gateway = FakeGateway::start(large_edit_then_finish(&before, &after));
+    pty.resize(24, 80);
+    let mut command = tui_with(sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(ENTERS_ALTERNATE);
+    session.wait_for(PERMISSION_TITLE);
+    (gateway, session)
+}
+
+#[test]
+fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band_comes_back() {
+    // The whole excursion, on a real terminal: the plane is taken, the question
+    // and the change are painted on it, the answer gives the plane back, and
+    // the band the session had before is the band it has after -- at the same
+    // coordinates, with the document above it untouched.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    let text = session.text();
+    let entered = text.find(ENTERS_ALTERNATE).expect("the plane was taken");
+    let asked = text.find(PERMISSION_TITLE).expect("the question");
+    assert!(
+        entered < asked,
+        "the question was painted before the plane was taken: {text:?}"
+    );
+    assert_eq!(
+        text.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was taken more than once: {text:?}"
+    );
+    assert!(
+        !text.contains(LEAVES_ALTERNATE),
+        "the plane was given back before it was answered: {text:?}"
+    );
+    // The change itself is on that screen -- **both** halves of it -- which is
+    // the whole reason it exists: the band's own summary quotes 160 bytes.
+    //
+    // **Line for line**, and that is why the tail of the change is not on the
+    // first screenful: the review keeps the file's own line breaks and gives
+    // each one a row (`permission::bounded_diff_side`), so twenty lines are
+    // twenty rows rather than one wrapped run. What the first screen owes is
+    // the head of the change under its heading; the rest is reached by walking,
+    // which is asserted below and is why the walk exists at all.
+    for needle in ["before", "alpha line 0", "alpha line 10"] {
+        assert!(
+            text.contains(needle),
+            "{needle:?} was not shown on the screen that exists to show it: {text:?}"
+        );
+    }
+    assert!(
+        !text.contains("alpha line 0\\nalpha line 1"),
+        "the file's line breaks were flattened into one run: {text:?}"
+    );
+    // `C-n` walks the change, and the tail of the first side and the head of
+    // the second are down there.
+    session.type_bytes(&[0x0e; 12]);
+    session.wait_for("alpha line 19");
+    session.wait_for("after");
+    session.wait_for("beta line 0");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().0),
+        "the edit ran before it was approved"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for(LEAVES_ALTERNATE);
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "`1` did not let the edit through"
+    );
+
+    // The band is back, whole, at the foot of the screen.
+    session.wait_until(
+        "the band to be painted on the primary plane again",
+        |text| Screen::painted(text, 24, 80).is_some_and(|screen| screen.divider() == Some(22)),
+    );
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        settled.matches(LEAVES_ALTERNATE).count(),
+        "the alternate screen was entered and left a different number of times"
+    );
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the excursion happened more than once: {settled:?}"
+    );
+    // A normal exit that has already given the plane back writes no second
+    // leave: `term::RESTORE` carries none, deliberately.
+    let last_leave = settled.rfind(LEAVES_ALTERNATE).expect("the leave");
+    let restore = settled.rfind(RESTORE).expect("the restore");
+    assert!(
+        last_leave < restore,
+        "the exit left the alternate screen after restoring the terminal: {settled:?}"
+    );
+    drop(gateway);
+}
+
+#[test]
+fn sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
+    // A supervisor's signal at the worst moment there is. The handler writes
+    // the abnormal restore -- which leads with `1049l` for exactly this case --
+    // and re-raises, so the user is left on their own buffer with a cooked
+    // terminal rather than on an approval screen nobody will ever answer.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Sized before the reading is taken, because the size is one of the fields
+    // compared: the session is about to be given a 24x80 terminal, and a
+    // reading taken of an unsized pty would differ from the one it gives back
+    // for a reason that has nothing to do with the restore.
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    session.signal(Signal::TERM);
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::TERM.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+
+    // Reaped before the stream is settled: with no writer left, what is in the
+    // pty is all there will ever be, which is what makes the counts below
+    // claims about the whole session rather than about a snapshot of it.
+    session.wait_exit();
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was taken more than once: {settled:?}"
+    );
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the death left the alternate screen {} times, not once",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn sighup_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
+    // Each signal separately: a hangup is not a termination, and a handler
+    // installed for one and not the other is a terminal left on a plane its
+    // owner cannot see.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    // Sized before the reading is taken, because the size is one of the fields
+    // compared: the session is about to be given a 24x80 terminal, and a
+    // reading taken of an unsized pty would differ from the one it gives back
+    // for a reason that has nothing to do with the restore.
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+
+    session.signal(Signal::HUP);
+    assert_eq!(
+        session.wait_state("the child to die", |state| !matches!(state, Wait::Running)),
+        Wait::Signalled(Signal::HUP.as_raw())
+    );
+    session.wait_for(ABNORMAL_RESTORE);
+    assert_eq!(before, modes(&pty));
+
+    session.wait_exit();
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the death left the alternate screen {} times, not once",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_stop_and_resume_at_a_question_puts_the_review_back_on_a_plane_of_its_own() {
+    // The one path on which the terminal changes plane without a frame saying
+    // so, driven at a real process. `SIGTSTP` runs the stop handler, which
+    // writes the abnormal restore -- `1049l` first -- and stops with the user's
+    // own buffer back; `SIGCONT` re-announces the mode set, which carries no
+    // `1049h`. So the session comes back owing a question on a plane the
+    // terminal is no longer showing, and it has to take that plane again before
+    // it paints the review anywhere.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+    let before_stop = session.text();
+    assert_eq!(
+        before_stop.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was not taken once before the stop: {before_stop:?}"
+    );
+
+    session.signal(Signal::TSTP);
+    session.wait_state("the child to really stop", |state| {
+        matches!(state, Wait::Stopped(_))
+    });
+    // The handler gave the plane back on its way down: that is what makes the
+    // retake below necessary rather than decorative.
+    assert_eq!(
+        session.text().matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the stop handler did not give the plane back: {:?}",
+        session.text()
+    );
+
+    session.signal(Signal::CONT);
+    // Response-only, and the claim: a second enter, which only the resume can
+    // have produced.
+    session.wait_for_count(ENTERS_ALTERNATE, 2);
+    session.wait_until(
+        "the question to be painted back onto its own plane",
+        |text| {
+            text.rmatch_indices(ENTERS_ALTERNATE)
+                .next()
+                .is_some_and(|(at, _)| text[at..].contains(PERMISSION_TITLE))
+        },
+    );
+
+    // And it is still answerable: the review came back as a review, not as a
+    // screen nobody can act on.
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "the question that survived a stop did not let the edit through"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        settled.matches(LEAVES_ALTERNATE).count(),
+        "the plane was entered and left a different number of times across the stop: {settled:?}"
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_stop_no_handler_answered_leaves_the_review_on_the_plane_it_is_already_on() {
+    // `SIGSTOP` is uncatchable, so it stops the process without running
+    // `signals`'s `stop_for_job_control` -- nothing writes the abnormal restore
+    // and nothing writes its leading `1049l`. The terminal is therefore still on
+    // the approval plane when `SIGCONT` arrives, and `SIGCONT`'s handler sets
+    // the same resume flag a handled `SIGTSTP` does.
+    //
+    // Re-entering raw mode and re-announcing the mode set on that flag is
+    // harmless: both are idempotent. Taking the plane again is not. A session
+    // that did it would save the normal buffer a second time -- over the save
+    // holding the user's real screen -- and would leave two enters against one
+    // leave, so the exit gives back a buffer that is not the one it took.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let path = sandbox.workspace.join("notes.txt");
+    let (gateway, mut session) = asked_on_the_alternate_screen(&sandbox, &pty);
+    assert_eq!(
+        session.text().matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was not taken once before the stop"
+    );
+
+    session.signal(Signal::STOP);
+    session.wait_state("the child to really stop", |state| {
+        matches!(state, Wait::Stopped(_))
+    });
+    // The discriminating fact: no handler ran, so nothing gave the plane back.
+    assert!(
+        !session.text().contains(LEAVES_ALTERNATE),
+        "an uncatchable stop somehow wrote a restore: {:?}",
+        session.text()
+    );
+
+    session.signal(Signal::CONT);
+    // Driven to a state only the resume can produce -- the mode set is
+    // re-announced on every resume, handled or not -- so the absence asserted
+    // below is measured after the session has really been through it rather
+    // than before it got there.
+    session.wait_for_count(READY, 2);
+
+    assert_eq!(
+        session.text().matches(ENTERS_ALTERNATE).count(),
+        1,
+        "a plane nothing gave back was taken a second time: {:?}",
+        session.text()
+    );
+
+    // And the question is still there and still answerable, on the plane it
+    // never left.
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read back"),
+        format!("{}\n", large_edit_sides().1),
+        "the question that survived an uncatchable stop did not let the edit through"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(
+        settled.matches(ENTERS_ALTERNATE).count(),
+        1,
+        "the plane was entered more than once across the stop: {settled:?}"
+    );
+    assert_eq!(
+        settled.matches(LEAVES_ALTERNATE).count(),
+        1,
+        "the plane was left {} times, so the pair does not balance",
+        settled.matches(LEAVES_ALTERNATE).count()
+    );
+    drop(gateway);
+}
+
+#[test]
+fn a_small_change_is_still_asked_in_the_band_and_takes_no_plane() {
+    // The bound on all of the above. The common case must not have acquired a
+    // full-screen detour: a question the band can show whole is asked with the
+    // document still visible above it, and nothing asks for `1049`.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert!(
+        !settled.contains(ENTERS_ALTERNATE),
+        "a question the band can hold took a screen of its own: {settled:?}"
+    );
+    assert!(
+        !settled.contains(LEAVES_ALTERNATE),
+        "a session that took no plane reset one anyway: {settled:?}"
     );
 }
 
@@ -2717,6 +3822,86 @@ mod faults {
         );
     }
 
+    /// What the injected panic says, so the ordering assertion below names the
+    /// panic it is about rather than any text containing "panicked".
+    const ALTERNATE_PANIC: &str = "the approval screen panicked";
+
+    #[test]
+    fn a_panic_while_the_other_plane_is_owned_gives_back_the_plane_and_the_terminal() {
+        // The row 7B could only prove at the seam. `abnormal_restore` is
+        // unconditional and shared by the panic hook and both signal handlers,
+        // and the two **signals** are driven at a real process on the alternate
+        // screen -- but no fault panicked *after* a question had taken the
+        // plane, so the panic arm of that shared restore was never run against a
+        // terminal that really was on the other buffer. This is that arm: the
+        // fault is injected inside `event_loop::paint_alternate`, after the
+        // entering frame has been written, flushed and recorded, and before any
+        // byte that could answer the question is read.
+        //
+        // What must hold is both halves of one restore. The plane goes back --
+        // otherwise the user is left looking at a review screen belonging to a
+        // process that no longer exists, with their own shell buffer saved
+        // behind it -- and the line discipline goes back with it, which only
+        // `tcsetattr` can do and which the `termios` comparison is the whole
+        // proof of.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        // Sized before the reading, like the signal cases: the size is one of
+        // the fields compared.
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let (_path, before_text, after_text) = with_a_large_file(&sandbox);
+        let gateway = FakeGateway::start(large_edit_then_finish(&before_text, &after_text));
+        let mut command = tui_with(&sandbox, &gateway);
+        command.env("XFX_PERMISSION_MODE", "ask");
+        command.env("XFX_TUI_FAULT", "alternate-panic");
+        let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+        session.wait_for(READY);
+        session.type_bytes(b"edit the notes\r");
+        // Response-only, and it is the premise of everything below: the plane
+        // was really taken before the panic that has to give it back.
+        session.wait_for(ENTERS_ALTERNATE);
+
+        let status = session.wait_exit();
+        assert!(!status.success(), "a panic exited zero");
+
+        // Settled rather than snapshotted: the ordering below is about the last
+        // bytes the process writes.
+        let text = session.settled_text();
+        assert_eq!(
+            text.matches(ENTERS_ALTERNATE).count(),
+            1,
+            "the plane was taken more than once: {text:?}"
+        );
+        assert_eq!(
+            text.matches(LEAVES_ALTERNATE).count(),
+            1,
+            "the panic left the alternate screen {} times, not once: {text:?}",
+            text.matches(LEAVES_ALTERNATE).count()
+        );
+        let entered = text.find(ENTERS_ALTERNATE).expect("the plane was taken");
+        let left = text
+            .find(LEAVES_ALTERNATE)
+            .expect("the panic never gave the plane back");
+        assert!(
+            entered < left,
+            "the plane was given back before it was taken: {text:?}"
+        );
+        assert!(
+            text.contains(ABNORMAL_RESTORE),
+            "the hook wrote something other than the whole abnormal restore: {text:?}"
+        );
+        let message = text
+            .find(ALTERNATE_PANIC)
+            .expect("the panic message never reached the terminal");
+        assert!(
+            left < message,
+            "the report was printed onto the plane it was about to leave: {text:?}"
+        );
+        assert_eq!(before, modes(&pty), "only tcsetattr can produce this");
+        drop(gateway);
+    }
+
     #[test]
     fn a_failure_after_raw_mode_still_gives_the_terminal_back() {
         let sandbox = Sandbox::new();
@@ -2761,4 +3946,885 @@ mod faults {
         }
         assert_eq!(before, modes(&pty));
     }
+}
+
+// ---------------------------------------------------------------------------
+// the screen changing size under a running session
+// ---------------------------------------------------------------------------
+//
+// Item 12. Everything below is one claim: **the band and the unfinished line
+// reflow, and the terminal's own document is left alone.** A resize is the one
+// event on this surface where the terminal has already re-laid-out the rows
+// above the divider by rules xfx does not model, so a session that repainted
+// them would be overwriting a document it cannot describe -- and a session that
+// left its band where it was would be painting a divider across a width the
+// screen gave up.
+
+/// The rule a divider is, at `cols` cells wide.
+fn rule(cols: usize) -> String {
+    "\u{2500}".repeat(cols)
+}
+
+/// Changes the terminal's size and tells the child about it, **by name**.
+///
+/// The signal is delivered explicitly rather than left to the kernel.
+/// `TIOCSWINSZ` raises `SIGWINCH` on the terminal's *foreground process group*,
+/// and every session in this suite is spawned without taking the terminal
+/// (`Session::spawn_without_taking_the_terminal`) precisely so that the
+/// developer's own shell keeps it -- so nothing would be signalled at all, and
+/// a case that relied on the ioctl alone would be asserting that xfx redraws on
+/// a signal it never received.
+fn resize(pty: &Pty, session: &Session, rows: u16, cols: u16) {
+    pty.resize(rows, cols);
+    session.signal(Signal::WINCH);
+}
+
+/// Waits until the session has stopped writing, and returns how much it has
+/// written.
+///
+/// Item 11's no-op skip is what makes this terminate: a settled session with
+/// nothing to say writes zero bytes. It is the instrument for every claim of
+/// the form "and then nothing happened", which is only a fact once the wire has
+/// been still to begin with.
+fn wait_until_quiet(session: &Session) -> usize {
+    let deadline = Instant::now() + WAIT;
+    let mut settled = session.text().len();
+    let mut since = Instant::now();
+    while since.elapsed() < WAIT / 40 {
+        std::thread::sleep(IDLE_POLL);
+        let now = session.text().len();
+        if now != settled {
+            settled = now;
+            since = Instant::now();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the session never stopped writing, so nothing can be measured"
+        );
+    }
+    settled
+}
+
+/// Waits long enough that a marked resize has certainly been resolved.
+///
+/// `render_request::RESIZE_DEBOUNCE` is 50 ms and the loop's own tick is 8 ms,
+/// so a winch is answered well inside this. It exists for the cases whose claim
+/// is that **nothing** happened: absence is only a fact once the thing that
+/// would have happened has had its chance, and a case that asserted straight
+/// after the signal would be reading the band from before the reading under
+/// test.
+fn settle_after_a_winch(session: &Session) {
+    let deadline = Instant::now() + WAIT / 40;
+    while Instant::now() < deadline {
+        std::thread::sleep(IDLE_POLL);
+    }
+    let _ = session.text();
+}
+
+/// Waits until the last complete frame, read on a `rows` x `cols` screen,
+/// satisfies `ready`, and hands that screen back.
+///
+/// **The whole capture is fed at the new size on purpose.** Every byte the band
+/// writes is an absolute `CUP`, and the frame after a resize opens with the
+/// Phase-1 erase from the band's top row -- so the rows this reads are the ones
+/// the resize really painted, whatever width the bytes before it were painted
+/// at. What it does not model is the terminal's *own* reflow of the document
+/// above the divider, which is exactly the thing xfx does not repaint either.
+fn band_on(
+    session: &Session,
+    rows: usize,
+    cols: usize,
+    what: &str,
+    ready: impl Fn(&Screen) -> bool,
+) -> Screen {
+    let text = session.wait_until(what, |text| {
+        Screen::painted(text, rows, cols).is_some_and(|screen| ready(&screen))
+    });
+    Screen::painted(&text, rows, cols).expect("a complete frame")
+}
+
+#[test]
+fn a_resize_moves_the_band_to_the_foot_of_the_new_screen() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    // Where the launch put it: the rule on row 22, the composer on 23, the hint
+    // row on 24, and the rule as wide as the screen.
+    let before = Screen::painted(&session.text(), 24, 80).expect("a first frame");
+    assert_eq!(before.row_text(22), rule(80));
+    assert_eq!(before.row_text(23), ">");
+    assert!(
+        before.row_text(24).contains(HINT_WITHOUT_A_CREDENTIAL),
+        "the launch band is not where this case starts from: {:?}",
+        before.row_text(24)
+    );
+
+    resize(&pty, &session, 30, 100);
+
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert_eq!(after.row_text(29), ">", "the composer did not move");
+    assert!(
+        after.row_text(30).contains(HINT_WITHOUT_A_CREDENTIAL),
+        "the hint row is not on the last row of the new screen: {:?}",
+        after.row_text(30)
+    );
+    // **No stale rows.** The rows the band owned on the old screen are the
+    // document's now, and nothing in this phase ever repaints a document row --
+    // so a band that simply drew itself lower would leave a second divider and
+    // a second hint row on the screen for the rest of the session, and after
+    // the exit.
+    for row in 22..=24 {
+        assert_eq!(
+            after.row_text(row),
+            "",
+            "row {row} still holds the band the resize left behind"
+        );
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn every_width_puts_the_rule_across_the_whole_screen_and_the_hint_on_its_last_row() {
+    // Several widths in a row, including back to the one it started at: a band
+    // solved once and then merely moved would pass the first of these and fail
+    // the second, and a shell that remembered only its geometry would report
+    // the return to 24x80 as no news.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    for (rows, cols) in [(30u16, 100u16), (12, 40), (40, 132), (24, 80)] {
+        resize(&pty, &session, rows, cols);
+        let screen = band_on(
+            &session,
+            usize::from(rows),
+            usize::from(cols),
+            &format!("the band on a {rows}x{cols} screen"),
+            |screen| {
+                screen.row_text(usize::from(rows) - 2) == rule(usize::from(cols))
+                    && screen
+                        .row_text(usize::from(rows))
+                        .contains(HINT_WITHOUT_A_CREDENTIAL)
+            },
+        );
+        assert_eq!(
+            screen.row_text(usize::from(rows) - 1),
+            ">",
+            "the composer is not between the rule and the hint row on {rows}x{cols}"
+        );
+    }
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back() {
+    // The composer's height is a function of the **width** it is wrapped to, so
+    // a band re-solved without re-measuring the draft would put the divider
+    // where the old wrap said it went -- and the caret with it.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 40);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    // Fifty cells of draft in a composer that has thirty-eight: two rows here,
+    // one row on a screen twice as wide.
+    let draft = "x".repeat(50);
+    session.type_bytes(draft.as_bytes());
+    let narrow = band_on(&session, 24, 40, "a draft on two composer rows", |screen| {
+        screen.row_text(21) == rule(40)
+    });
+    assert_eq!(narrow.row_text(22), format!("> {}", "x".repeat(38)));
+    // Indented under the prompt, which is why the second row is twelve cells
+    // rather than the ten a naive `cols - PROMPT` would leave.
+    assert_eq!(narrow.row_text(23), format!("  {}", "x".repeat(12)));
+
+    resize(&pty, &session, 24, 100);
+
+    let wide = band_on(
+        &session,
+        24,
+        100,
+        "the draft back on one composer row",
+        |screen| screen.row_text(22) == rule(100),
+    );
+    assert_eq!(
+        wide.row_text(23),
+        format!("> {draft}"),
+        "the draft was not re-wrapped to the screen it is now on"
+    );
+    assert_eq!(
+        wide.row_text(21),
+        "",
+        "the row the composer gave back still holds the band it left behind"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_resize_mid_answer_keeps_what_the_document_already_holds() {
+    // The half a resize may **not** touch. Everything above the divider was
+    // written into the terminal's own document once and is in its native
+    // scrollback now; a session that repainted it would be overwriting rows the
+    // terminal re-wrapped by rules xfx does not model, and one that dropped it
+    // would lose the answer the user was reading.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-BEFORE-THE-RESIZE"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-BEFORE-THE-RESIZE");
+
+    resize(&pty, &session, 30, 100);
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains("MARKER-BEFORE-THE-RESIZE")),
+        "the answer the user was reading is gone from the document"
+    );
+    assert_eq!(
+        session.text().matches("MARKER-BEFORE-THE-RESIZE").count(),
+        1,
+        "the resize wrote the answer into the document a second time"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_resize_while_a_question_is_up_keeps_the_question_and_the_decision_still_lands() {
+    // A resize is not an answer. The panel is the only thing on this surface
+    // holding a turn open, so a re-solve that dropped it would leave the
+    // runtime parked on a channel nobody will ever write to -- and one that
+    // refused it would be a decision the user never made, taken because a
+    // window was dragged.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_for(ALWAYS_WORDING);
+
+    resize(&pty, &session, 30, 100);
+
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the question on the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains(PERMISSION_TITLE)),
+        "the question is no longer on the screen the user is answering it on"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the resize answered the question on the user's behalf"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n",
+        "the decision no longer reaches the runtime after a resize"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_burst_of_winches_costs_one_frame() {
+    // What a person dragging a window edge really produces. A repaint per
+    // signal would make the cost of a resize a function of how slowly the mouse
+    // moved -- and every one of them is a **whole** band, because a terminal
+    // that changed size re-wrapped its own document.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    // Settled: an idle session with a first frame on the screen writes nothing
+    // more (item 11's no-op skip), so what is counted below is this case's.
+    let settled = session.text().matches(FRAME_END).count();
+
+    pty.resize(30, 100);
+    for _ in 0..8 {
+        session.signal(Signal::WINCH);
+    }
+
+    band_on(
+        &session,
+        30,
+        100,
+        "the band at the foot of the taller screen",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    // And it stays at one: the burst is resolved once, and the resolves the
+    // rest of it would have asked for find a screen that is already the size it
+    // says.
+    let deadline = Instant::now() + WAIT / 4;
+    while Instant::now() < deadline {
+        std::thread::sleep(IDLE_POLL);
+    }
+    let frames = session.text().matches(FRAME_END).count() - settled;
+    assert_eq!(
+        frames, 1,
+        "eight winches for one gesture cost {frames} whole-band repaints"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is() {
+    // A pty whose size was never set answers `0x0` **successfully**, and a band
+    // solved against zero rows would be placed off the screen. At launch that
+    // reading is a refusal and the band is solved from 24x80; once a session is
+    // running it is the opposite -- there is already a band on a screen of a
+    // known size, and answering a measurement that said nothing with the
+    // startup fallback would move the band for no information at all.
+    //
+    // **Driven from 30x100 rather than from 24x80, which is half of what makes
+    // it a test.** On a 24x80 screen the fallback and the refusal are the same
+    // two numbers, so the case would pass for a session that had gone and
+    // re-solved itself against a screen the terminal never described.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 100);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+    let before = Screen::painted(&session.text(), 30, 100).expect("a first frame");
+    assert_eq!(before.row_text(28), rule(100));
+
+    resize(&pty, &session, 0, 0);
+    // **And the debounce is waited out before anything is typed**, which is the
+    // other half. A keystroke sent straight after the winch is painted by a
+    // frame the resize has not resolved yet, so an assertion made on it would
+    // be reading the band from *before* the reading under test -- and would
+    // pass for a session that moved its band a moment later.
+    settle_after_a_winch(&session);
+    session.type_bytes(b"z");
+
+    // Waited for on the keystroke landing **anywhere**, so a band that moved to
+    // the startup fallback fails on the row it is on rather than by timing out.
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the composer to take the keystroke after the winch",
+        |screen| (1..=30).any(|row| screen.row_text(row) == "> z"),
+    );
+    let composer = (1..=30)
+        .find(|row| after.row_text(*row) == "> z")
+        .expect("the keystroke is on some row");
+    assert_eq!(
+        composer, 29,
+        "the band was re-solved from the 24x80 startup fallback for a screen \
+         the terminal refused to describe"
+    );
+    assert_eq!(
+        after.row_text(28),
+        rule(100),
+        "the band moved for a measurement that said nothing"
+    );
+    assert!(after.row_text(30).contains(HINT_WITHOUT_A_CREDENTIAL));
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_screen_too_small_for_the_band_keeps_the_question_and_asks_it_again_after_it_grows() {
+    // `.prd`'s ruling for item 12, end to end: a too-small screen **keeps** the
+    // approval request and renders it after the screen grows again. Two things
+    // would each break it, and they break it in opposite directions -- refusing
+    // the question here is a decision the user never made, taken because a
+    // window was dragged; and painting the band anyway addresses rows the
+    // terminal has given up, which it answers by clamping every `CUP` onto its
+    // bottom row. The second is the one that cannot be taken back: a document
+    // append is a scroll, and what leaves the top of the screen is in the
+    // terminal's native scrollback for good.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_for(ALWAYS_WORDING);
+    let quiet = wait_until_quiet(&session);
+
+    // Five rows: one short of the smallest screen a band fits on.
+    resize(&pty, &session, 5, 80);
+    settle_after_a_winch(&session);
+    let after_shrinking = wait_until_quiet(&session);
+    assert_eq!(
+        after_shrinking,
+        quiet,
+        "the session wrote {} byte(s) onto a screen no band fits on: {:?}",
+        after_shrinking - quiet,
+        &session.text()[quiet..]
+    );
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "alpha\n",
+        "the question was answered because the window got smaller"
+    );
+
+    // And it grows again -- to a different screen from the one it left, so what
+    // comes back is a re-solve rather than the frame that was owed.
+    resize(&pty, &session, 30, 100);
+    let after = band_on(
+        &session,
+        30,
+        100,
+        "the question asked again on a screen that can hold it",
+        |screen| screen.row_text(28) == rule(100),
+    );
+    assert!(
+        (1..=27).any(|row| after.row_text(row).contains(PERMISSION_TITLE)),
+        "the question was not asked again after the screen grew back"
+    );
+
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    assert_eq!(
+        std::fs::read_to_string(&notes).expect("read back"),
+        "beta\n",
+        "the decision no longer reaches the runtime"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really_has() {
+    // The exit's own measurement, and which reader it is taken through. Nothing
+    // is written while a `SIGWINCH` is outstanding, so a shutdown inside the
+    // debounce answers the signal itself rather than coming down on an answer
+    // the user was reading. What it must **not** do is answer it through the
+    // launch's reader: this pty reports `0x0`, which the launch reader turns
+    // into 24x80 -- so a band re-solved through it would leave the session's
+    // last frame, and the tail with it, at the coordinates of a screen that
+    // exists nowhere.
+    //
+    // Ctrl-D is written immediately after the signal, so in practice this lands
+    // inside the 50 ms debounce -- which is where the exit's own forced resolve
+    // is the thing that measures, and therefore where the exit's choice of
+    // reader is observable. On a machine slow enough for the debounce to
+    // resolve first, the reading is taken by the loop's `resolve_resize`
+    // instead and this case is then covering that path rather than this one.
+    // Either way it is a real reading of a `0x0` pty, and either way a band
+    // re-solved through the launch fallback shows up on the wrong rows.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
+            "a",
+            &long_answer("MARKER-DRAG-BEGAN", "MARKER-DRAG-ENDED"),
+        )]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 100);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream\r");
+    session.wait_for("MARKER-DRAG-BEGAN");
+    let wire = session.text().len();
+
+    // The window changes to a size the terminal will not describe, and the user
+    // leaves before the debounce comes round.
+    resize(&pty, &session, 0, 0);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    assert!(
+        text.contains("MARKER-DRAG-ENDED"),
+        "the exit came down on the rest of the answer: {text:?}"
+    );
+    // The band's hint row is the last row of a thirty-row screen. A session
+    // that re-solved itself from the 24x80 launch fallback paints its last
+    // frame on rows 22 to 24 and never touches row 30 again.
+    let after = &text[wire..];
+    assert!(
+        after.contains("\u{1b}[30;1H"),
+        "the exit re-solved the band from the 24x80 startup fallback for a \
+         screen the terminal refused to describe: {after:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// provider switching, the catalog browser and the context meter
+// ---------------------------------------------------------------------------
+
+/// A TUI with a scripted Gateway **and** a scripted llmux both running, the
+/// Gateway selected.
+fn tui_with_both(
+    sandbox: &Sandbox,
+    gateway: &FakeGateway,
+    daemon: &support::fake_llmux::FakeLlmux,
+) -> Command {
+    let mut command = sandbox.command_with_both(gateway, daemon);
+    command.env("XFX_TUI", "1");
+    command.env_remove("TMUX");
+    command
+}
+
+#[test]
+fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
+    // Scenario 18. Two fixtures are up and only one may be asked. With a single
+    // fixture running, "the prompt went to the other provider" and "the prompt
+    // went nowhere" are the same observation -- so the claim is made with both
+    // listening and a marker that can only have come from one of them.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-THE-GATEWAY-ANSWERED"]),
+    )]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-THE-DAEMON-ANSWERED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(
+        &pty,
+        tui_with_both(&sandbox, &gateway, &daemon),
+    );
+    session.wait_for(READY);
+
+    // Before: the profile says gateway, and that is what the band says too.
+    assert_eq!(
+        sandbox.settings().expect("a seeded profile")["provider"],
+        "gateway"
+    );
+
+    session.type_bytes(b"/setup llmux\r");
+    // The line the switch is *finished* on: it is sent after the file was
+    // written and the configuration re-read from it, so waiting for it is
+    // waiting for the reload rather than for the write.
+    session.wait_for("provider=llmux");
+
+    // The file, read rather than believed. A band that said `provider=llmux`
+    // over a profile that still said gateway would be the exact failure the
+    // reload exists to prevent.
+    let settings = sandbox.settings().expect("a profile after the switch");
+    assert_eq!(settings["provider"], "llmux");
+    assert_eq!(
+        settings["llmux_url"],
+        daemon.url(),
+        "the switch recorded a url other than the daemon it probed"
+    );
+    assert_eq!(
+        settings["models"]["gateway"], "zai/glm-5.2",
+        "switching away from a provider lost the model chosen for it"
+    );
+
+    session.type_bytes(b"say the marker\r");
+    session.wait_for("MARKER-THE-DAEMON-ANSWERED");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The whole of scenario 18: exactly one data-plane request, and it reached
+    // the daemon that was switched to.
+    let asked = daemon.only_message_request();
+    // Read out of the daemon's own wire shape rather than the Gateway's: the
+    // switch changed which protocol the turn speaks, which is half of what
+    // "the provider changed" means. `user_messages` reads the Gateway's
+    // `prompt` array and there is deliberately none here.
+    let body: Value = serde_json::from_str(&asked.body).expect("a json body");
+    let sent = serde_json::to_string(&body["messages"]).expect("the messages array");
+    assert!(
+        sent.contains("say the marker"),
+        "the daemon was asked something else: {sent}"
+    );
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "the provider that was switched away from was still asked"
+    );
+    let text = session.settled_text();
+    assert!(
+        !text.contains("MARKER-THE-GATEWAY-ANSWERED"),
+        "the old provider answered after the switch: {text:?}"
+    );
+}
+
+#[test]
+fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_write() {
+    // Scenario 19. Four claims: the rows carry the two columns a daemon
+    // publishes, a selection is written where a restart will read it, the
+    // restart really continues in it, and the report names the layer that
+    // outranks the file it just wrote.
+    use support::fake_llmux::CatalogModel;
+    let catalog = support::fake_llmux::described_catalog(&[
+        CatalogModel {
+            id: "claude-fable-5[1m]",
+            aliases: &["fable"],
+            efforts: &["low", "high"],
+            max_context: Some(1_000_000),
+        },
+        // The other shape a real daemon sends: no window, no efforts. It is what
+        // makes the `unknown` and `none` columns reachable at all.
+        CatalogModel {
+            id: "plain-model",
+            aliases: &[],
+            efforts: &[],
+            max_context: None,
+        },
+    ]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["answered by the daemon"]),
+    )])
+    .with_catalog(catalog);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+
+    // A bare `/model` browses. The report is painted first and without waiting
+    // for the daemon; the rows arrive from the runtime thread afterwards.
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] catalog=");
+    session.wait_for("fable context=1000000 efforts=low,high");
+    // Both shapes, so the columns are proven to render a fact and its absence
+    // rather than only the happy one.
+    session.wait_for("plain-model context=unknown efforts=none");
+
+    // Select one of them, and leave.
+    session.type_bytes(b"/model plain-model\r");
+    session.wait_for("[shell] model=plain-model");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // A `/model` selection is a session preference rather than a profile write:
+    // the profile still names what `setup` put there, which is the honest
+    // division and the reason the next assertion uses `/setup` for persistence.
+    assert_eq!(
+        sandbox.settings().expect("a profile")["models"]["llmux"],
+        "m-1"
+    );
+
+    // The restart, with a layer above the profile in force. `XFX_MODEL`
+    // outranks the file, so the report has to *say so* -- a setup that wrote a
+    // model the environment overrides and reported success would be a receipt
+    // for a change with no effect.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut restarted = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env("XFX_MODEL", "fable");
+        command.env_remove("TMUX");
+        command
+    });
+    restarted.wait_for(READY);
+    restarted.type_bytes(b"/setup llmux\r");
+    // The caveat lands **before** the selection it is about, so it is read as a
+    // qualification of this switch rather than as news about the next thing.
+    restarted.wait_for("XFX_MODEL");
+    restarted.wait_for("outranks the profile");
+    restarted.wait_for("provider=llmux");
+    restarted.type_bytes(&[0x04]);
+    assert_eq!(restarted.wait_exit().code(), Some(0));
+
+    // And the write really happened underneath the override.
+    assert_eq!(sandbox.settings().expect("a profile")["provider"], "llmux");
+}
+
+#[test]
+fn a_model_the_daemons_catalog_does_not_publish_is_refused_and_the_next_turn_keeps_the_old_one() {
+    // Scenario 19's other half, and the one a screen alone cannot settle: the
+    // **wire** says which model the session is really in. A front end that
+    // accepted an id the daemon does not publish would put it on the hint row,
+    // report it to the next bare `/model`, write it into the session log, and
+    // send it as the `model` field of the next request -- where it comes back
+    // as a provider error about a model nobody has.
+    use support::fake_llmux::CatalogModel;
+    let catalog = support::fake_llmux::described_catalog(&[CatalogModel {
+        id: "m-1",
+        aliases: &["fable"],
+        efforts: &[],
+        max_context: None,
+    }]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-A-CATALOG-REFUSAL-ANSWERED"]),
+    )])
+    .with_catalog(catalog);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+
+    // The catalog has to be **loaded** for the membership rule to have anything
+    // to decide against, and a bare `/model` is what loads it -- the same order
+    // the line shell's `/model` uses.
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] catalog=");
+    session.wait_for("fable context=unknown efforts=none");
+
+    session.type_bytes(b"/model not-in-the-catalog\r");
+    session.wait_for("does not publish not-in-the-catalog in its catalog");
+
+    // Asked again, because a refusal is a claim about **what the session is in**
+    // and the report is the only place this surface says it: a band that had
+    // taken the id would answer the second browse with it.
+    session.type_bytes(b"/model\r");
+    // And the next turn is held in the model that was in force all along.
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-CATALOG-REFUSAL-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let request = daemon.only_message_request().json();
+    assert_eq!(
+        request["model"], "m-1",
+        "the refused id was sent as the model of the next turn: {request}"
+    );
+
+    let text = session.settled_text();
+    // Counted rather than searched for: the first browse said it too, so a
+    // report that came back with the refused id would still leave one of these
+    // in the stream.
+    assert_eq!(
+        text.matches("model=m-1 provider=").count(),
+        2,
+        "a browse after the refusal did not report the model in force: {text:?}"
+    );
+    assert!(
+        !text.contains("not-in-the-catalog provider="),
+        "the band reported a model the daemon does not publish: {text:?}"
+    );
+    assert!(
+        !text.contains("[shell] model=not-in-the-catalog"),
+        "the band reported a model the daemon does not publish: {text:?}"
+    );
+    // **A refusal is not a caveat.** An id the catalog does not publish is
+    // refused; the "accepted but not checked" sentence belongs to a catalog
+    // that could not be read, and a session that said it here would have
+    // applied the id and merely apologized for it.
+    assert!(
+        !text.contains("not checked against the provider's catalog"),
+        "a refused id was reported as an unverified selection: {text:?}"
+    );
+}
+
+#[test]
+fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
+    // The default machine: the Gateway, which publishes no catalog endpoint
+    // this port has evidence for. `/model` there has nothing to browse, and
+    // that is a fact about the provider rather than something that went wrong
+    // -- so the band must say it in the line shell's own words and **must not**
+    // dress it as a failed turn. Reported as one, every Gateway user's first
+    // `/model` reads as a broken session.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-A-MODEL-BROWSE-ASKED"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/model\r");
+    session.wait_for("[shell] model=");
+    // Byte for byte what `xfx`'s line shell prints for the same fact, from the
+    // one declaration both surfaces read.
+    session.wait_for("[shell] catalog=unavailable (this provider advertises none)");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let text = session.settled_text();
+    // **The line stands on its own.** `xfx: ` is how this surface prefixes a
+    // turn that went wrong, so the test is not "the words appear somewhere" --
+    // a failure carrying the same words would satisfy that and is exactly the
+    // regression being guarded. Every line that mentions the catalog must be
+    // free of that prefix.
+    let mentions: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("catalog=") || line.contains("catalog"))
+        .collect();
+    assert!(
+        !mentions.is_empty(),
+        "the browse said nothing about the catalog at all: {text:?}"
+    );
+    for line in &mentions {
+        assert!(
+            !line.contains("xfx:"),
+            "a provider with no catalog was reported as a turn failure: {line:?}"
+        );
+    }
+    assert!(
+        !text.contains("advertises no model catalog"),
+        "the failure-shaped wording reached the screen: {text:?}"
+    );
+    // And browsing a catalog that does not exist costs no request at all.
+    assert_eq!(
+        gateway.request_count(),
+        0,
+        "a bare /model reached the provider"
+    );
 }

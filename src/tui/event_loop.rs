@@ -70,7 +70,7 @@ use tokio::sync::mpsc::Receiver;
 use super::bridge::{self, UiEvent};
 use super::frame::Band;
 use super::render_request::Reason;
-use super::shell::Shell;
+use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
 use super::worker::{self, Worker};
 
@@ -203,8 +203,11 @@ pub(crate) fn run(
         &mut io::stdout().lock(),
         &mut failures,
         outcome.is_ok(),
-        |shell| collect_facts(shell, launch),
-        |taken| worker.shutdown(events, Instant::now() + worker::DRAIN_DEADLINE, taken),
+        Shutdown {
+            reconcile: |shell, band| collect_facts(shell, band, launch, Instant::now()),
+            drain: |taken| worker.shutdown(events, Instant::now() + worker::DRAIN_DEADLINE, taken),
+            size: super::term::reported_window_size,
+        },
     );
 
     let code = outcome?;
@@ -260,7 +263,7 @@ fn session(
         // terminal back cooked, and reading a cooked terminal reads lines the
         // line discipline assembled rather than the keystrokes this session is
         // decoding.
-        let reconciled = collect_facts(shell, launch)?;
+        let reconciled = collect_facts(shell, band, launch, Instant::now())?;
         read_burst(shell, &stdin, &mut buffer, launch, reconciled)?;
         // What the bytes could not settle by themselves. A lone `ESC` is both a
         // key and the first byte of every sequence, so it is the Escape key only
@@ -282,7 +285,7 @@ fn session(
         // too, so a stop could have landed inside one of them. The first token
         // was spent on the read, so this reconcile is not optional -- it is the
         // only way to have one.
-        let reconciled = collect_facts(shell, launch)?;
+        let reconciled = collect_facts(shell, band, launch, Instant::now())?;
         commit_frame(
             shell,
             band,
@@ -346,6 +349,29 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
     }
 }
 
+/// The three things an exit borrows from its caller.
+///
+/// One parameter rather than three because they are one role -- what the caller
+/// can still do while the session comes down -- and because each of them is a
+/// thing `run` alone can supply: a reconcile that takes the terminal back, a
+/// drain that reaches the worker thread, and a reader of the process's own
+/// window size. Named fields rather than a row of positional closures, so a
+/// call site says which is which.
+struct Shutdown<R, D, S>
+where
+    R: FnMut(&mut Shell, &mut Band) -> io::Result<Reconciled>,
+    D: FnOnce(&mut dyn FnMut(UiEvent)),
+    S: FnOnce() -> (u16, u16),
+{
+    /// Takes the terminal back before anything is read or painted.
+    reconcile: R,
+    /// What the runtime still has to say.
+    drain: D,
+    /// The screen's size, for the winch an exit may still owe an answer to
+    /// ([`resolve_resize_on_exit`]).
+    size: S,
+}
+
 /// The whole of an exit: what the runtime still has to say, and what the pacer
 /// is still holding.
 ///
@@ -362,22 +388,50 @@ fn take_ui_events(shell: &mut Shell, events: &mut Receiver<UiEvent>) {
 /// get wrong.
 ///
 /// Returns the screen error that ended it, if a screen did.
-fn shut_down(
+fn shut_down<R, D, S>(
     shell: &mut Shell,
     band: &mut Band,
     out: &mut impl Write,
     failures: &mut FrameFailures,
     painting: bool,
-    mut reconcile: impl FnMut(&mut Shell) -> io::Result<Reconciled>,
-    drain: impl FnOnce(&mut dyn FnMut(UiEvent)),
-) -> Option<io::Error> {
+    caller: Shutdown<R, D, S>,
+) -> Option<io::Error>
+where
+    R: FnMut(&mut Shell, &mut Band) -> io::Result<Reconciled>,
+    D: FnOnce(&mut dyn FnMut(UiEvent)),
+    S: FnOnce() -> (u16, u16),
+{
+    let Shutdown {
+        mut reconcile,
+        drain,
+        size,
+    } = caller;
+    // Before anything is written, and once: a winch nobody has resolved yet
+    // would otherwise hold every write below -- the drain's frames and the
+    // pacer's tail alike -- until a deadline this session will not live to see.
+    let mut broken: Option<io::Error> = None;
+    if painting {
+        resolve_resize_on_exit(shell, band, size);
+        // And then the plane, before a single byte of the drain is written. A
+        // session can end with a question still up -- a `Fatal` from the
+        // runtime, a second Ctrl-C, a supervisor's signal answered by the drain
+        // -- and everything below belongs on the plane the user's shell is on.
+        // Nobody is left to answer the question, so the plane is given back
+        // rather than waited on; the tool call it belonged to is refused by the
+        // prompter's own shutdown path (`super::approval::TuiPrompter`).
+        if band.on_alternate() {
+            shell.release_screen();
+            if let Err(err) = paint_alternate(shell, band, out, failures, Instant::now()) {
+                broken = Some(err);
+            }
+        }
+    }
     // A screen that already refused the session's last frame is not a screen to
     // keep painting into; the events are still applied, because one of them may
     // be the `Fatal` that explains everything.
-    let mut broken: Option<io::Error> = None;
     drain(&mut |event| {
         let reconciled = if painting && broken.is_none() {
-            match reconcile(shell) {
+            match reconcile(shell, band) {
                 Ok(token) => Some(token),
                 Err(err) => {
                     broken = Some(err);
@@ -404,7 +458,7 @@ fn shut_down(
     // at all. Phase 1 never repaints a document row, so this is the last moment
     // those bytes can reach the terminal.
     if painting && broken.is_none() && shell.paced_backlog() > 0 {
-        match reconcile(shell) {
+        match reconcile(shell, band) {
             Ok(token) => {
                 if let Err(err) = flushed(shell, band, out, failures, Instant::now(), token) {
                     broken = Some(err);
@@ -525,7 +579,16 @@ fn read_burst(
 /// Three facts in this phase. The drain comes first because it is what makes
 /// the next wait a wait: the flags below are the *meaning* of a poke, and the
 /// byte is only its knock.
-fn collect_facts(shell: &mut Shell, launch: &Launch<'_>) -> io::Result<Reconciled> {
+///
+/// `now` is a parameter for the reason [`commit_frame`]'s is: the resize
+/// deadline below is a monotonic time, and a debounce measured on the process's
+/// own clock could only be tested by sleeping through it.
+fn collect_facts(
+    shell: &mut Shell,
+    band: &mut Band,
+    launch: &Launch<'_>,
+    now: Instant,
+) -> io::Result<Reconciled> {
     launch.wakeup.drain();
 
     if signals::take_resumed() {
@@ -535,18 +598,125 @@ fn collect_facts(shell: &mut Shell, launch: &Launch<'_>) -> io::Result<Reconcile
         // paints anything, and the band it drew is gone from a screen somebody
         // else has been writing to.
         super::resume(launch.tmux)?;
+        // The handler that stopped this process wrote the abnormal restore, and
+        // that sequence leads with `1049l` whichever plane was on the screen
+        // (`super::term::abnormal_restore`); the mode set `resume` has just
+        // re-announced carries no `1049h`. So a session that was reviewing a
+        // change on the approval plane is on the normal buffer now, and the
+        // band's own record is the only thing that still says otherwise. Told
+        // here, the frame below takes the plane again from scratch; untold, it
+        // would repaint the approval screen onto the buffer the user was given
+        // back -- or, if nothing on it had changed, paint nothing at all and
+        // leave the session with neither a band nor a question on the screen.
+        adopt_resume(band, signals::take_plane_restored());
         shell.render.request(Reason::ExternalDamage);
     }
 
+    // Taken rather than left set, so that the *launch* measurement -- which
+    // acts on the same flag -- cannot be answered by a resize this loop already
+    // saw. The band is not re-solved here: a drag is a burst of these, and what
+    // it starts is a deadline ([`super::render_request::RESIZE_DEBOUNCE`]).
     if signals::take_winch() {
-        // Phase 2 item 12 re-solves the layout here and repaints. This phase
-        // takes the flag and acts on nothing -- `docs/parity.md` says so -- and
-        // takes it rather than leaving it set so that the *launch* measurement,
-        // which does act on it, cannot be answered by a resize this loop
-        // already saw.
+        shell.render.mark_resize(now);
     }
+    resolve_resize(shell, band, now, super::term::reported_window_size);
 
     Ok(Reconciled)
+}
+
+/// What a resume owes the band, given whether a handler really gave the plane
+/// back.
+///
+/// **The provenance is the whole of this function.** `SIGCONT`'s handler sets
+/// the resume flag for *any* continue (`super::signals`'s `flag_resumed`, and
+/// its own `Held::stopped_before_the_session_began` says so): the `SIGTSTP`
+/// this session handles, an uncatchable `SIGSTOP` that ran no handler at all,
+/// and an operator's bare `kill -CONT` on a process that was never stopped.
+/// Only the first of those wrote the abnormal restore, and only the abnormal
+/// restore writes the `1049l` that gives the alternate screen back.
+///
+/// Re-entering raw mode and re-announcing the mode set on any of the three is
+/// harmless, because both are idempotent. Taking the plane again is not:
+/// `1049h` saves the normal buffer a second time -- over the save that is
+/// holding the user's real screen -- and leaves the session two enters against
+/// one leave, so the exit gives back a buffer that is not the one it took.
+///
+/// `plane_restored` is a parameter rather than a call to
+/// `signals::take_plane_restored` for the reason every reading in this module is
+/// one: "a continue nothing restored takes no plane back" is a claim about a
+/// signal that cannot honestly be delivered inside a unit test.
+fn adopt_resume(band: &mut Band, plane_restored: bool) {
+    if plane_restored {
+        band.plane_given_back();
+    }
+}
+
+/// Re-solves the band from the terminal's size, once the debounce is out.
+///
+/// `size` is a parameter rather than [`super::term::reported_window_size`] for
+/// the reason every screen in this module is one: "a burst of winches costs one
+/// resolve" is a claim about how often a question is asked, and a function that
+/// asked the process's own terminal could only be tested by resizing the
+/// developer's window.
+///
+/// **It is the *reported* size and never `term::window_size`.** That one
+/// answers a terminal that will not say its size with the 24x80 a launch has to
+/// start from, and a running session handed that number moves its band to rows
+/// 22-24 of a screen that is nothing of the kind. Here a reading that says
+/// nothing arrives as `(0, 0)` and `Shell::resize` refuses it.
+///
+/// The band's shadow is forgotten **here** rather than left to
+/// `Reason::ExternalDamage`, because the two facts are not the same size: the
+/// shadow has to be re-sized to the screen that now exists, and the geometry
+/// the shell just adopted is the only thing that knows what that is. What is
+/// asked for is one [`Reason::Resize`]; the whole repaint is the band's
+/// `damaged` flag, which survives until a frame really lands.
+fn resolve_resize(
+    shell: &mut Shell,
+    band: &mut Band,
+    now: Instant,
+    size: impl FnOnce() -> (u16, u16),
+) {
+    if !shell.render.take_resize(now) {
+        return;
+    }
+    adopt_resize(shell, band, size);
+}
+
+/// The same, at the exit, **without waiting for the deadline**.
+///
+/// The one moment the debounce cannot be allowed to run: nothing is written
+/// while a winch is outstanding ([`Shell::blind`]), the resolve is up to
+/// [`super::render_request::RESIZE_DEBOUNCE`] away, and a user who drags a
+/// window and then presses Ctrl-D lands inside that window. The exit is the
+/// last moment the answer they were reading can reach the terminal at all --
+/// this phase never repaints a document row -- so the signal is answered now.
+///
+/// It is not the debounce being broken. The debounce is there so that a drag
+/// costs one re-solve rather than one per signal, and there is no drag left to
+/// protect: one measurement, and then the session is over. An exit with nothing
+/// outstanding measures nothing, so an ordinary shutdown is unchanged.
+///
+/// A screen that turns out to hold no band is still silent afterwards, and that
+/// is the same trade the running session makes for the harder reason: an append
+/// is a scroll, and what it pushes into native scrollback at coordinates that
+/// mean nothing can never be taken back.
+fn resolve_resize_on_exit(shell: &mut Shell, band: &mut Band, size: impl FnOnce() -> (u16, u16)) {
+    if !shell.render.force_resize() {
+        return;
+    }
+    adopt_resize(shell, band, size);
+}
+
+/// Measures the screen and re-solves the band from it.
+fn adopt_resize(shell: &mut Shell, band: &mut Band, size: impl FnOnce() -> (u16, u16)) {
+    let (rows, cols) = size();
+    if let Resize::Repaint(geometry) = shell.resize(rows, cols) {
+        // A terminal that changed size re-wrapped its own document by rules xfx
+        // does not model, so every cell the shadow describes is a claim about a
+        // screen that no longer exists.
+        band.invalidate(geometry.rows, geometry.cols);
+    }
 }
 
 /// Writes the document appends this turn owes, and then paints the frame it
@@ -582,6 +752,76 @@ fn commit_frame(
     // a second attempt would be aimed at a screen the session can no longer
     // describe. It counts against the same budget, which is what ends a session
     // on a screen that is really gone.
+    // Whose screen it is, before anything is written onto it. A question the
+    // band cannot show is reviewed on the terminal's other buffer, and both the
+    // frames that live there and the one write that gives the plane back are
+    // this function's -- nothing below may run while the terminal is on it.
+    //
+    // **Except what the primary plane already owed, which is paid before the
+    // plane changes hands.** One tick takes a *batch* of events
+    // ([`take_ui_events`]) and composes one frame afterwards, so the row a tool
+    // call put in the document and the question that follows it are both
+    // applied before anything is written -- and a frame routed straight to the
+    // other buffer leaves that row owed ([`paint_alternate`]), which on this
+    // surface means never: it lands only when the plane comes back, minutes
+    // later, under an answer to a question whose tool call left no trace.
+    // Splitting the two events across ticks hides it, which is what local
+    // scheduling and one CI runner did while two faster ones did not.
+    //
+    // It is a **barrier rather than a delay**: what is owed is written and then
+    // the plane is taken, in this same tick, so a question still costs an extra
+    // write only when there was really something owed.
+    //
+    // **And what is owed is the whole primary plane, not only its rows.** An
+    // append is a scroll: it moves the band up out from under the coordinates
+    // the last frame put it at, and `1049h` saves the buffer it leaves --
+    // document rows, and a hole where the band was. That is the screen the user
+    // is handed back when the question is answered, and it is what run
+    // 33260998206 (exact head 3c89ea2) showed on both arm64 runners: the saved
+    // primary buffer held the prompt and three tool rows with nothing below
+    // them. So the rows are paid, and then the band frame they moved.
+    let taking_the_plane =
+        !band.on_alternate() && shell.screen_owner() == super::shell::ScreenOwner::Approval;
+    if band.on_alternate() || taking_the_plane {
+        // Not on a screen no band fits on: there, `blind` says the row numbers
+        // are claims about a screen that may not exist, and an append is a
+        // scroll that cannot be taken back. Those rows keep waiting for a
+        // screen, exactly as they do without a question.
+        //
+        // And not when the plane owes nothing: a question that arrives on a
+        // screen whose band is exactly where the last frame put it is still
+        // entered in **one write**, which is what keeps the transition from
+        // flickering. [`Band::owes_primary_frame`] is the second half of the
+        // question because a refused band frame leaves the rows landed and the
+        // band moved, and `owes_document` alone would call that tick square.
+        if taking_the_plane
+            && !shell.blind()
+            && (shell.owes_document() || band.owes_primary_frame())
+        {
+            // **The whole of what the primary plane is owed, in the order the
+            // primary tick pays it**: the rows first, then the band the rows
+            // scrolled out from under. Paying only the document leaves the
+            // band where it no longer is, and `1049h` saves *that* -- a buffer
+            // carrying the document and a hole where the band was, which is the
+            // screen the user is handed back when the question is answered.
+            //
+            // The same two functions the ordinary tick below calls, not a
+            // painter of this branch's own: a second one would be the copy that
+            // forgot the invalidate, or the cursor, or the budget.
+            if !commit_document(shell, band, out, failures, now)? {
+                // The write was refused and counted. The rows stay owed and so
+                // does the plane: the next tick offers both again, in order.
+                return Ok(());
+            }
+            if !commit_band(shell, band, out, failures, now)? {
+                // The rows landed and the band did not. The plane stays where
+                // it is for the same reason: what `1049h` would save is a
+                // screen this session cannot describe.
+                return Ok(());
+            }
+        }
+        return paint_alternate(shell, band, out, failures, now);
+    }
     if shell.take_clearing() {
         if let Err(err) = out
             .write_all(super::shell::CLEAR_SCREEN.as_bytes())
@@ -592,6 +832,121 @@ fn commit_frame(
                 None => Ok(()),
             };
         }
+    }
+    // **And nothing at all on a screen no band fits on.** Every write below
+    // addresses a row by number, out of a geometry that still describes the
+    // screen the band was last solved for; the terminal has since reported one
+    // it does not fit on, and a terminal answers a `CUP` past its last row by
+    // clamping it -- silently. The frame would land on the bottom row on top of
+    // itself, and the append is worse, because an append is a **scroll** and
+    // what leaves the top of the screen is in the terminal's native scrollback
+    // for good: there is no later frame that can take it back.
+    //
+    // Nothing is taken and nothing is begun, so nothing is dropped either. The
+    // rows the document is owed stay owed and the reasons stay pending, and
+    // both are answered by the frame `Shell::resize` asks for when the screen
+    // can hold a band again -- which is also the only thing that clears this
+    // ([`Shell::blind`]). The `/clear` above is deliberately not held: it
+    // carries no coordinates, so it means the same thing on any screen, and the
+    // shell has already forgotten the rows it erases.
+    if shell.blind() {
+        return Ok(());
+    }
+    // Before every write below, and before the appends themselves: a band that
+    // has grown has taken rows the **document** is holding, and the frame under
+    // it opens with `CUP(band_top,1)` + `ED`. Carried up first, those rows leave
+    // the top of the screen into the terminal's own scrollback, where they are
+    // still the user's; left where they are, they are erased by the very next
+    // frame -- and this phase never repaints a document row, so they are gone.
+    //
+    // It has to be here rather than inside either writer, because either can be
+    // the one that runs first: a turn that starts with nothing to append still
+    // grows the band, and an append that follows one would otherwise place its
+    // own row on top of the row the growth had not yet moved.
+    //
+    // A refused carry is owed again -- nothing is recorded until it lands
+    // (`Band::carry_document`) -- and it counts against the same budget every
+    // other refused write does.
+    if !commit_document(shell, band, out, failures, now)? {
+        return Ok(());
+    }
+    commit_band(shell, band, out, failures, now)?;
+    Ok(())
+}
+
+/// The band's own frame on the **primary** plane: the rows the session wants
+/// under the document, and nothing else.
+///
+/// `Ok(true)` when the screen has what the band owes it -- including when
+/// nothing asked for a frame, which is a screen that already had one --  and
+/// `Ok(false)` when the write was refused and counted.
+///
+/// A function of its own for the reason [`commit_document`] is one: **two**
+/// callers need it and a second copy would drift. The ordinary primary tick
+/// ends here, and the barrier that hands the terminal to a question runs it
+/// first -- because an append is a scroll, and a plane taken straight after one
+/// saves a buffer with the document on it and a hole where the band was.
+fn commit_band(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<bool> {
+    let Some(attempt) = shell.render.begin() else {
+        return Ok(true);
+    };
+    if attempt.damaged() {
+        // Something that is not this band wrote on the screen -- a resume that
+        // handed the terminal to the shell and took it back, a `/clear` that
+        // erased it, a Ctrl-L asking for exactly this. The shadow is a claim
+        // about what is on those rows and that claim is now false about all of
+        // them, so the frame below is a whole one rather than a difference from
+        // a screen that no longer exists.
+        band.invalidate(shell.geometry.rows, shell.geometry.cols);
+    }
+    match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
+        // A frame that wrote nothing is a frame the screen already had, so the
+        // budget is whole for the same reason a delivered one leaves it whole.
+        Ok(_) => {
+            failures.succeeded();
+            Ok(true)
+        }
+        Err(err) => {
+            shell.render.restore(attempt);
+            match failures.failed(err, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(false),
+            }
+        }
+    }
+}
+
+/// What the **document** is owed: the rows a growing band pushed up, and the
+/// appends the session has not written yet.
+///
+/// `Ok(true)` when everything owed has landed, `Ok(false)` when a write was
+/// refused and counted against the frame budget -- which ends the caller's tick
+/// rather than this function, because what may be attempted after a refused
+/// write is the caller's question and not this one's.
+///
+/// A function of its own because there are **two** callers and they must not
+/// drift: the ordinary primary frame below, and the barrier above that pays the
+/// document before the plane changes hands. Written twice, the second copy
+/// would be the one that forgot the carry, or the order, or that a refused
+/// append is not owed again.
+fn commit_document(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<bool> {
+    if let Err(err) = band.carry_document(out, &shell.geometry) {
+        return match failures.failed(err, now) {
+            Some(fatal) => Err(fatal),
+            None => Ok(false),
+        };
     }
     // Before the frame, and before the `begin` below, for two reasons. An
     // append scrolls the screen, so a band painted first ends up a row above
@@ -623,26 +978,136 @@ fn commit_frame(
             shell.restore_pending(untried);
             return match failures.failed(err, now) {
                 Some(fatal) => Err(fatal),
-                None => Ok(()),
+                None => Ok(false),
             };
         }
         index += 1;
     }
-    let Some(attempt) = shell.render.begin() else {
-        return Ok(());
-    };
-    match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
-        Ok(()) => {
-            failures.succeeded();
-            Ok(())
-        }
-        Err(err) => {
-            shell.render.restore(attempt);
-            match failures.failed(err, now) {
-                Some(fatal) => Err(fatal),
-                None => Ok(()),
+    // **A scroll is a reason for a frame.** The rows that just landed moved the
+    // band's own out from under the coordinates the last frame put them at, so
+    // the band is a row above where it belongs until one repaints it. Nothing
+    // else raises this: the appends came from events that asked for a frame in
+    // every case seen so far, which is exactly the kind of "in every case seen
+    // so far" that fails on one runner and not the others.
+    if band.owes_primary_frame() {
+        shell.render.request(Reason::Transcript);
+    }
+    Ok(true)
+}
+
+/// Everything that happens while the question owns the terminal's other buffer,
+/// and the one write that gives it back.
+///
+/// **Three transitions and no fourth**, decided by comparing what the terminal
+/// is really showing ([`Band::on_alternate`], a record of delivered bytes) with
+/// whose screen the session wants it to be (`Shell::screen_owner`, a record of
+/// intent). Reading only the second would enter a plane twice if a question
+/// arrived on two consecutive ticks, and leave one that was never entered.
+///
+/// Nothing the *primary* plane owes is written here -- not a `/clear`, not a
+/// document append, not a band frame. An append is a scroll, and what leaves the
+/// top of the alternate buffer is gone for good: the terminal hands that buffer
+/// back on the way out. So those stay owed, exactly as they do on a screen no
+/// band fits on ([`commit_frame`]), and they land the moment the plane comes
+/// back.
+fn paint_alternate(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Write,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<()> {
+    use super::shell::ScreenOwner;
+
+    match (band.on_alternate(), shell.screen_owner()) {
+        // The question was answered -- or the session is coming down with one
+        // still up. **One write**, and the ownership moves only after it: the
+        // leave, the hidden cursor and the whole band repainted are one vector
+        // precisely so that no terminal can present the gap between them.
+        (true, ScreenOwner::Primary) => {
+            let cursor = shell.cursor();
+            let frame = band.restore_primary(&shell.band_rows(), &shell.geometry, cursor);
+            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+                Ok(()) => {
+                    band.frame_landed(&frame, &shell.geometry, cursor);
+                    debug_assert!(!band.on_alternate());
+                    // The band on the primary plane is now exactly what this
+                    // frame painted, so whatever asked for a frame has had one.
+                    let _ = shell.render.begin();
+                    failures.succeeded();
+                    Ok(())
+                }
+                Err(err) => match failures.failed(err, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(()),
+                },
             }
         }
+        // A change the band cannot show: take the plane and paint the whole
+        // surface onto it in the same frame.
+        (false, ScreenOwner::Approval) => {
+            let frame =
+                band.enter_alternate(&shell.screen_rows(), &shell.geometry, shell.screen_cursor());
+            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+                Ok(()) => {
+                    band.frame_landed(&frame, &shell.geometry, shell.screen_cursor());
+                    let _ = shell.render.begin();
+                    failures.succeeded();
+                    // The matrix row for a panic while the **other** plane is
+                    // owned, and it is taken exactly here for two reasons. The
+                    // entering frame has been written, flushed and recorded, so
+                    // the terminal really is on the buffer the hook has to give
+                    // back -- injected a statement earlier it would prove
+                    // nothing the `ui-frame` row does not. And it is before the
+                    // loop reads another byte, so no answer can race it: the
+                    // question is up and unanswerable, which is the state a
+                    // panic here leaves a user in.
+                    #[cfg(feature = "fault-injection")]
+                    if super::fault::injected(super::fault::Fault::AlternatePanic) {
+                        panic!("the approval screen panicked");
+                    }
+                    Ok(())
+                }
+                Err(err) => match failures.failed(err, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(()),
+                },
+            }
+        }
+        // Already there: a marker that moved, or a screen that changed size.
+        (true, ScreenOwner::Approval) => {
+            let Some(attempt) = shell.render.begin() else {
+                return Ok(());
+            };
+            let frame = band.repaint_alternate(
+                &shell.screen_rows(),
+                &shell.geometry,
+                shell.screen_cursor(),
+            );
+            // The screen already holds this, which is the commonest frame while
+            // a person is reading a change: the band's animation asks for one
+            // twice a second and nothing on this plane has moved.
+            if frame.bytes().is_empty() {
+                failures.succeeded();
+                return Ok(());
+            }
+            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+                Ok(()) => {
+                    band.frame_landed(&frame, &shell.geometry, shell.screen_cursor());
+                    failures.succeeded();
+                    Ok(())
+                }
+                Err(err) => {
+                    shell.render.restore(attempt);
+                    match failures.failed(err, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    }
+                }
+            }
+        }
+        // Not this function's turn; `commit_frame` guards against reaching here.
+        (false, ScreenOwner::Primary) => Ok(()),
     }
 }
 
@@ -700,6 +1165,14 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+
+    use tokio::sync::mpsc;
+
+    // The debounce the loop's own cases advance a clock past. Imported rather
+    // than pinned because these cases are not the ones that claim what it is --
+    // `render_request::tests::the_resize_debounce_is_fifty_milliseconds` is --
+    // and a second literal here would have to be kept correct beside it.
+    use super::super::render_request::RESIZE_DEBOUNCE;
 
     use crate::config::{Environment, RuntimeConfig};
 
@@ -795,6 +1268,14 @@ mod tests {
     }
 
     /// A screen that takes everything and remembers it.
+    /// What an empty composer's first row begins with.
+    ///
+    /// Pinned as a literal rather than imported from `super::super::shell`, for
+    /// the reason every needle in this crate's tests is: a test that read the
+    /// constant it is checking would pass for whatever that module happened to
+    /// declare.
+    const COMPOSER_MARKER: &str = "> ";
+
     fn screen() -> FlakyScreen {
         FlakyScreen {
             refusals: 0,
@@ -985,6 +1466,152 @@ mod tests {
     }
 
     #[test]
+    fn a_tick_that_changed_nothing_leaves_the_wire_alone() {
+        // Item 11's no-op skip, at the seam that decides it. Every reason the
+        // loop can raise ends up here, and several of them are raised by things
+        // that changed no cell -- an animation phase turning over, a keystroke
+        // the decoder absorbed, a runtime event that produced no text. A frame
+        // for one of those is a whole-band repaint on a link that may be a
+        // serial line.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            !out.written.is_empty(),
+            "the session painted nothing at all, so this case proves nothing"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::Animation);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the idle tick");
+        assert!(
+            out.written.is_empty(),
+            "a tick that changed nothing repainted the band: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+    }
+
+    #[test]
+    fn a_screen_somebody_else_wrote_on_is_repainted_whole() {
+        // `Reason::ExternalDamage` is the one reason a painter cannot answer by
+        // painting a difference: the shadow is a claim about what is on those
+        // rows, and a resume that handed the terminal to the shell, a `/clear`
+        // that erased it, or a Ctrl-L each mean that claim is false about all
+        // of them. Asked with nothing else changed, so a frame that came back
+        // came back for this reason and no other.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            String::from_utf8_lossy(&out.written).contains(COMPOSER_MARKER),
+            "the session painted no composer, so this case proves nothing"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::ExternalDamage);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame after the damage");
+        let text = String::from_utf8_lossy(&out.written);
+        assert!(
+            text.contains(COMPOSER_MARKER),
+            "a damaged screen was diffed against a shadow that describes it no \
+             longer, so the band was never put back: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_clear_makes_the_next_frame_a_whole_one() {
+        // `/clear` erases the screen behind the diff's back: the shadow still
+        // holds the band it last painted, so a frame that trusted it would find
+        // nothing changed and leave the user looking at an empty terminal for
+        // the rest of the session.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        let painted = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            painted.contains(COMPOSER_MARKER),
+            "the first frame painted no composer, so this case proves nothing: {painted:?}"
+        );
+
+        // Through the command the user really types, because the clear is the
+        // shell's decision and a test that set the flag itself would prove
+        // nothing about the path that sets it.
+        shell.route_bytes(b"/clear\r");
+
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame after the clear");
+        let text = String::from_utf8_lossy(&out.written);
+        assert!(
+            text.contains(super::super::shell::CLEAR_SCREEN),
+            "the clear never reached the screen: {text:?}"
+        );
+        assert!(
+            text.contains(COMPOSER_MARKER),
+            "the band was not repainted onto the screen the clear emptied: {text:?}"
+        );
+    }
+
+    #[test]
     fn an_event_the_drain_takes_reaches_the_screen_and_not_only_the_shell() {
         // The shutdown contract's second half. Draining alone is enough to
         // *exit*: it frees the producer's permits, which is what lets a parked
@@ -1063,9 +1690,12 @@ mod tests {
             &mut out,
             &mut failures,
             true,
-            |_| Ok(Reconciled),
-            |_taken| {
-                // The runtime had already said everything and gone quiet.
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {
+                    // The runtime had already said everything and gone quiet.
+                },
+                size: || panic!("an exit with no winch outstanding measured the screen"),
             },
         );
 
@@ -1093,11 +1723,14 @@ mod tests {
             &mut out,
             &mut failures,
             true,
-            |_| Ok(Reconciled),
-            |taken| {
-                taken(UiEvent::TurnEnded {
-                    failure: Some("WHY-THE-TURN-ENDED".to_string()),
-                });
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |taken| {
+                    taken(UiEvent::TurnEnded {
+                        failure: Some("WHY-THE-TURN-ENDED".to_string()),
+                    });
+                },
+                size: || panic!("an exit with no winch outstanding measured the screen"),
             },
         );
 
@@ -1131,8 +1764,11 @@ mod tests {
             &mut out,
             &mut failures,
             false,
-            |_| panic!("a screen the session gave up on was reconciled"),
-            |taken| taken(UiEvent::Fatal("A-TURN-CAME-APART".to_string())),
+            Shutdown {
+                reconcile: |_, _| panic!("a screen the session gave up on was reconciled"),
+                drain: |taken| taken(UiEvent::Fatal("A-TURN-CAME-APART".to_string())),
+                size: || panic!("a screen the session gave up on was measured"),
+            },
         );
 
         assert!(broken.is_none());
@@ -1295,33 +1931,52 @@ mod tests {
         // a frame built from a bare `write` instead would land here truncated,
         // and a policy that counted the interruption would be counting a frame
         // that was really on the screen.
+        //
+        // Judged against the *same* frame on a screen that was not interrupted,
+        // rather than against a rebuilt one: a frame is a difference from what
+        // the terminal already holds, so rebuilding it after the fact would
+        // rebuild it against a shadow the frame has already advanced and
+        // compare two things that were never the same claim.
+        let mut twin = shell();
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
-        let mut screen = FlakyScreen {
+        let mut interrupted = FlakyScreen {
             refusals: 1,
             kind: io::ErrorKind::Interrupted,
             written: Vec::new(),
         };
-
         commit_frame(
             &mut shell,
             &mut band,
-            &mut screen,
+            &mut interrupted,
             &mut failures,
             Instant::now(),
             Reconciled,
         )
         .expect("an interrupted write is retried by the write itself");
+
+        let mut undisturbed = screen();
+        commit_frame(
+            &mut twin,
+            &mut Band::new(),
+            &mut undisturbed,
+            &mut FrameFailures::default(),
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the same frame, uninterrupted");
+
+        assert!(
+            !undisturbed.written.is_empty(),
+            "neither screen was painted, so this case proves nothing"
+        );
         assert_eq!(
-            String::from_utf8_lossy(&screen.written),
-            String::from_utf8_lossy(&band.render(
-                &shell.band_rows(),
-                &shell.geometry,
-                shell.cursor()
-            )),
+            String::from_utf8_lossy(&interrupted.written),
+            String::from_utf8_lossy(&undisturbed.written),
             "the interrupted frame reached the screen short"
         );
+        assert_eq!(interrupted.refusals, 0, "the refusal was never spent");
         assert!(
             failures.began.is_none(),
             "a frame that really landed started a failure budget"
@@ -1564,5 +2219,1906 @@ mod tests {
         assert!(failures
             .failed(refused(io::ErrorKind::BrokenPipe), at(start, 1_300))
             .is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // the screen changing size under the loop
+    // -----------------------------------------------------------------------
+
+    /// Erase from the cursor to the end of the screen: the one sequence that
+    /// tells a whole frame from a difference.
+    ///
+    /// Pinned as a literal rather than imported from `super::super::frame`, for
+    /// the reason every needle in this crate's tests is.
+    const ERASE_BELOW: &str = "\u{1b}[J";
+
+    /// A window size a test hands the loop, and a count of how often it was
+    /// asked for one.
+    ///
+    /// A closure rather than `term::reported_window_size`, for the reason every screen
+    /// in this module is a parameter: "the loop reads the terminal's size once
+    /// per burst of winches" is a claim about how often a question is asked,
+    /// and a function that asked the process's own terminal could only be
+    /// tested by resizing the developer's window.
+    fn sized(size: (u16, u16), asked: &std::cell::Cell<usize>) -> impl FnOnce() -> (u16, u16) + '_ {
+        move || {
+            asked.set(asked.get() + 1);
+            size
+        }
+    }
+
+    #[test]
+    fn a_burst_of_winches_costs_one_resolve() {
+        // A person dragging a window edge produces a `SIGWINCH` per row it
+        // passes through, and each one would otherwise cost a `TIOCGWINSZ`, a
+        // re-solve, a re-wrap of the tail and a whole-screen repaint. The
+        // debounce is a **deadline**, never a sleep: the UI thread is the only
+        // reader of the terminal, and a thread asleep in the resize path is a
+        // session that has stopped reading its keyboard.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        for at in [0, 10, 20, 30] {
+            shell.render.mark_resize(start + Duration::from_millis(at));
+        }
+        resolve_resize(&mut shell, &mut band, start, sized((30, 100), &asked));
+        assert_eq!(
+            asked.get(),
+            0,
+            "the loop read the terminal before it was due"
+        );
+
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((30, 100), &asked),
+        );
+        assert_eq!(asked.get(), 1, "the burst was not resolved");
+        assert_eq!(shell.geometry.rows, 30);
+
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + Duration::from_secs(60),
+            sized((30, 100), &asked),
+        );
+        assert_eq!(asked.get(), 1, "the burst was resolved twice");
+    }
+
+    #[test]
+    fn zero_by_zero_after_launch_is_no_new_information() {
+        // A screen the terminal will not describe is not a screen of 24x80.
+        // At launch that fallback is the only number there is; here there is a
+        // band on a screen whose size is known, and replacing it would move the
+        // band for a measurement that said nothing.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        let before = shell.geometry;
+        // The first frame every session owes, so what is left pending below is
+        // whatever this case put there.
+        let _ = shell.render.begin();
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((0, 0), &asked),
+        );
+        assert_eq!(asked.get(), 1);
+        assert_eq!(shell.geometry, before, "the band was solved from nothing");
+        assert!(
+            shell.render.begin().is_none(),
+            "a measurement that said nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn resize_invalidates_the_shadow_for_one_full_repaint() {
+        // The Task 1 seam, and the reason a resize may not be a difference: the
+        // shadow is a claim about what is on the terminal's rows, and a
+        // terminal that changed size re-wrapped its own document by rules xfx
+        // does not model. The frame after one is therefore the whole band --
+        // opened with the erase the Phase-1 painter wrote on every frame -- and
+        // exactly one of them.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((30, 100), &asked),
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the frame after the resize");
+
+        let text = String::from_utf8(out.written.clone()).expect("utf-8");
+        assert!(
+            text.contains(ERASE_BELOW),
+            "the frame after a resize was a difference from a screen that no \
+             longer exists: {text:?}"
+        );
+        assert!(
+            text.contains(&"\u{2500}".repeat(100)),
+            "the divider was not repainted across the wider screen: {text:?}"
+        );
+
+        // And exactly one of them: the damage is answered by the frame that
+        // paid for it, so the tick after it is silent again.
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the tick after the repaint");
+        assert!(
+            out.written.is_empty(),
+            "the resize left the band repainting whole for ever: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+    }
+
+    #[test]
+    fn a_screen_that_shrank_leaves_the_exit_a_row_it_can_clear_from() {
+        // `Band::painted_top` is what `term::shutdown` clears from, and after a
+        // resize it is a row number in the screen that was. A session that
+        // shrank and then left before its next frame landed would hand the exit
+        // a row below the terminal's last one.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert_eq!(band.painted_top(), Some(22));
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((10, 40), &asked),
+        );
+        assert!(
+            band.painted_top().is_some_and(|top| top <= 10),
+            "the exit would clear from row {:?} of a ten-row screen",
+            band.painted_top()
+        );
+    }
+
+    #[test]
+    fn a_winch_that_changed_nothing_costs_no_frame() {
+        // A terminal that reports its size for a font change, and the second
+        // winch of a burst whose first one already resolved. A repaint for
+        // either would make an idle session's cost a function of how often its
+        // terminal talks about itself.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        let _ = shell.render.begin();
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 80), &asked),
+        );
+        assert_eq!(asked.get(), 1, "the terminal was never asked");
+        assert!(
+            shell.render.begin().is_none(),
+            "a resize to the size the screen already is asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_screen_no_band_fits_on_is_not_written_on_at_all() {
+        // The window `Resize::TooSmall` opens. The geometry still describes the
+        // screen the band was last solved for and the screen is smaller than
+        // that, so every row the band would paint is addressed at a coordinate
+        // the terminal no longer has -- and a terminal answers a `CUP` past its
+        // last row by **clamping** it, silently, so the whole band lands on the
+        // bottom row on top of itself. Nothing else asks for that frame; a
+        // keystroke does.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(!out.written.is_empty(), "the band never painted at all");
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((4, 80), &asked),
+        );
+        assert_eq!(shell.geometry.rows, 24, "the band was solved for 4 rows");
+
+        // A keystroke, which is what really asks for a frame in this window.
+        out.written.clear();
+        shell.route_bytes(b"z");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the tick on a screen too small for the band");
+        assert!(
+            out.written.is_empty(),
+            "the band painted rows 22-24 onto a four-row screen: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+
+        // And it is **owed**, not lost: the screen grows back and the frame the
+        // keystroke asked for is painted, with the keystroke in it.
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 80), &asked),
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the frame after the screen grew back");
+        let text = String::from_utf8(out.written.clone()).expect("utf-8");
+        assert!(
+            text.contains("> z"),
+            "the frame the keystroke asked for never arrived: {text:?}"
+        );
+    }
+
+    #[test]
+    fn what_the_document_is_owed_waits_for_a_screen_to_be_written_on() {
+        // The half that cannot be taken back. A document append is a **scroll**
+        // followed by the rows it made room for, and a row that leaves the top
+        // of the screen is in the terminal's native scrollback for good -- so an
+        // append placed at coordinates the screen does not have does not merely
+        // look wrong, it puts the wrong thing somewhere nothing can ever
+        // rewrite. Held instead, exactly as a refused one is.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((4, 80), &asked),
+        );
+
+        out.written.clear();
+        shell.write_transcript("ANSWER-WITH-NO-SCREEN-TO-PUT-IT-ON");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the tick on a screen too small for the band");
+        assert!(
+            out.written.is_empty(),
+            "an append was scrolled into a terminal it does not fit: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 80), &asked),
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the frame after the screen grew back");
+        let text = String::from_utf8(out.written.clone()).expect("utf-8");
+        assert!(
+            text.contains("ANSWER-WITH-NO-SCREEN-TO-PUT-IT-ON"),
+            "the answer was dropped rather than held: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_screen_that_holds_the_band_is_never_blind() {
+        // The bound on the rule above, and the reason it is derived rather than
+        // flagged: a session whose screen holds its band must not be able to
+        // reach the state that paints nothing. Every reading that is not
+        // `TooSmall` leaves the geometry describing the screen.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        assert!(!shell.blind(), "a fresh session cannot be painted on");
+
+        for size in [(30, 100), (24, 80), (6, 20), (40, 132)] {
+            shell.render.mark_resize(start);
+            resolve_resize(
+                &mut shell,
+                &mut band,
+                start + RESIZE_DEBOUNCE,
+                sized(size, &asked),
+            );
+            assert!(
+                !shell.blind(),
+                "{size:?} holds a band and was treated as a screen that does not"
+            );
+        }
+    }
+
+    #[test]
+    fn a_winch_nobody_has_resolved_yet_holds_the_screen_too() {
+        // The window the debounce itself opens, and it is the same defect one
+        // tick earlier. A `SIGWINCH` means the terminal has **already** changed
+        // size; the band is not re-solved for `RESIZE_DEBOUNCE` afterwards, so
+        // for that whole interval every row number the band would write is a
+        // coordinate out of the screen that *was*. A frame there lands clamped
+        // onto the bottom row, and an append there scrolls -- into native
+        // scrollback, where nothing can take it back.
+        //
+        // Withholding is not the same as acting on the signal at once, which is
+        // the thing the debounce exists to prevent: nothing is measured, nothing
+        // is re-solved, and the frame is simply owed until the deadline comes
+        // round.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        shell.render.mark_resize(start);
+        out.written.clear();
+        shell.route_bytes(b"z");
+        shell.write_transcript("ANSWER-MID-DRAG");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start + Duration::from_millis(8),
+            Reconciled,
+        )
+        .expect("a tick inside the debounce");
+        assert!(
+            out.written.is_empty(),
+            "the band wrote to a screen whose size it has been told is stale: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+        assert_eq!(asked.get(), 0, "this case never measured anything");
+
+        // And nothing is lost by the wait: the resolve comes round and both the
+        // keystroke and the answer are still owed.
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((30, 100), &asked),
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start + RESIZE_DEBOUNCE,
+            Reconciled,
+        )
+        .expect("the frame the resize asked for");
+        let text = String::from_utf8(out.written.clone()).expect("utf-8");
+        assert!(
+            text.contains("ANSWER-MID-DRAG"),
+            "the answer released mid-drag was dropped: {text:?}"
+        );
+        assert!(
+            text.contains("> z"),
+            "the keystroke typed mid-drag was dropped: {text:?}"
+        );
+    }
+
+    #[test]
+    fn an_exit_with_a_winch_still_pending_measures_once_and_writes_the_tail() {
+        // The hole the withheld-write rule opens at the one moment it cannot be
+        // made up later. Nothing is written while a `SIGWINCH` is outstanding,
+        // because until the band is re-solved every row number is a coordinate
+        // out of the screen that was -- and the resolve is deliberately
+        // `RESIZE_DEBOUNCE` away. A user who drags a window and then presses
+        // Ctrl-D lands inside that window, and the exit is the **last** moment
+        // the answer they were reading can reach the terminal at all: Phase 1
+        // never repaints a document row.
+        //
+        // So an exit answers an outstanding winch *now*, deadline or not. That
+        // is not the debounce being broken: the debounce exists to stop a drag
+        // costing a re-solve per signal, and there is no drag left to protect
+        // -- there is one measurement and then the session is over.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        shell.apply(UiEvent::Delta("TAIL-BEHIND-A-PENDING-WINCH".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(shell.paced_backlog() > 0, "the stream was empty");
+
+        // The winch, and no tick between it and the exit.
+        shell.render.mark_resize(Instant::now());
+        assert!(shell.blind(), "this case does not start where it means to");
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((30, 100), &asked),
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        assert_eq!(asked.get(), 1, "the exit never measured the screen");
+        let written = String::from_utf8_lossy(&out.written).to_string();
+        assert!(
+            written.contains("TAIL-BEHIND-A-PENDING-WINCH"),
+            "the band came down on an answer the runtime had already handed over: {written:?}"
+        );
+        // And at the coordinates the screen really has: the hint row of a
+        // thirty-row screen is row 30, not row 24.
+        assert!(
+            written.contains("\u{1b}[30;1H"),
+            "the tail was written at the coordinates of the screen that was: {written:?}"
+        );
+        assert!(
+            !shell.blind(),
+            "the exit left the session still refusing to write"
+        );
+    }
+
+    #[test]
+    fn an_exit_onto_a_screen_no_band_fits_on_writes_nothing_at_all() {
+        // The exception the rule above must keep. A window dragged below the
+        // smallest screen a band fits on is not a coordinate problem the exit
+        // can measure its way out of: there is nowhere to put the answer. The
+        // forced measurement happens, finds a screen that cannot hold a band,
+        // and the session comes down silent -- which is the same trade the
+        // running session makes, and for the harder reason: an append is a
+        // scroll, and what it pushes into native scrollback at coordinates that
+        // mean nothing can never be taken back.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        shell.apply(UiEvent::Delta("TAIL-WITH-NOWHERE-TO-GO".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.render.mark_resize(Instant::now());
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((4, 80), &asked),
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        assert_eq!(asked.get(), 1, "the exit never measured the screen");
+        assert!(
+            out.written.is_empty(),
+            "the exit scrolled an answer into a terminal it does not fit: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+        assert!(shell.blind(), "a screen no band fits on was written on");
+    }
+
+    #[test]
+    fn an_exit_with_no_winch_pending_measures_nothing() {
+        // The bound on the forced resolve: it answers an **outstanding** signal
+        // and does not invent one. An exit that measured unconditionally would
+        // re-solve the band from a fresh reading on every shutdown, which is a
+        // whole repaint on the way out for a screen nothing said had changed.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        shell.apply(UiEvent::Delta("ORDINARY-TAIL".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: sized((30, 100), &asked),
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        assert_eq!(
+            asked.get(),
+            0,
+            "an exit measured a screen nobody said had changed"
+        );
+        assert!(
+            String::from_utf8_lossy(&out.written).contains("ORDINARY-TAIL"),
+            "the ordinary exit stopped writing what the pacer held"
+        );
+    }
+
+    #[test]
+    fn a_turn_that_starts_does_not_erase_the_row_the_document_was_just_given() {
+        // The controller found this as a scenario-13 flake: two builds, the same
+        // facts, and a document that differed by the prompt echo. The race is
+        // between two things the loop does not order:
+        //
+        //   * a submitted line is echoed into the document **immediately**
+        //     (`Shell::say` -> `Mark::Line`), and an append places the document's
+        //     newest row at `band_top - 1`;
+        //   * the turn it started is announced by the **runtime** a moment later
+        //     (`UiEvent::TurnStarted`), and the activity row that appears grows
+        //     the band by one -- so `band_top` becomes the row that echo is on.
+        //
+        // Every frame opens with `CUP(band_top,1)` + `ED`, so whichever run lost
+        // that race had the row the user submitted erased: off the screen, and
+        // never in scrollback, because this phase never repaints a document row.
+        // The band has to carry the document up out of its way first, and the
+        // carry has to be on the wire **before** the frame that takes the row.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        let idle_top = shell.geometry.band_top();
+
+        // The echo, written the instant the line is submitted and while no turn
+        // is running: it lands on the bottom row of the document.
+        shell.route_bytes(b"say hello\r");
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that appends the echo");
+        let echoed = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            echoed.contains(&format!("\u{1b}[{};1Hsay hello", idle_top - 1)),
+            "the echo was not appended to the bottom document row: {echoed:?}"
+        );
+
+        // And now the runtime says the turn started, so the band grows onto it.
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(now);
+        let running_top = shell.geometry.band_top();
+        assert_eq!(
+            running_top + 1,
+            idle_top,
+            "the turn's row did not grow the band, so this case proves nothing"
+        );
+
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame the turn's row asked for");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+
+        let scrolled = written
+            .find(&format!("\u{1b}[{};1H\n", shell.geometry.rows))
+            .unwrap_or_else(|| {
+                panic!("the band took a document row and carried nothing up: {written:?}")
+            });
+        // Whatever the frame writes on the band's new top -- the activity row
+        // itself on a diffed frame, an `ED` on a whole one -- has to come after
+        // the carry. Either way that row was the document's a moment ago.
+        let taken = written
+            .find(&format!("\u{1b}[{running_top};1H"))
+            .unwrap_or_else(|| panic!("the frame never painted the band's new top: {written:?}"));
+        assert!(
+            scrolled < taken,
+            "the document was carried up after the band had already taken its row: {written:?}"
+        );
+        assert!(
+            !written.contains("say hello"),
+            "the carry repainted a document row, which this phase never does: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_band_that_did_not_grow_scrolls_the_document_for_nothing() {
+        // The bound, and it is the expensive direction to get wrong: a scroll
+        // cannot be taken back -- what leaves the top of the screen is in the
+        // terminal's own scrollback for good -- so a carry on a band that took
+        // no row would walk the user's document up one row per frame.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"say hello\r");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that appends the echo");
+
+        out.written.clear();
+        shell.render.request(Reason::ExternalDamage);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("a frame on a band that did not grow");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains(&format!("\u{1b}[{};1H\n", shell.geometry.rows)),
+            "a band that took no row scrolled the document anyway: {written:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the other plane, and the one write that gives it back
+    // -----------------------------------------------------------------------
+
+    use super::super::shell::ScreenOwner;
+
+    /// `CSI ? 1049 h` / `l`, spelled here rather than imported.
+    /// What the band's hint row says about the model, and therefore the
+    /// cheapest proof that the **band** is on the screen rather than only the
+    /// document. The same needle `scripts/smoke-tui.sh` reads the saved primary
+    /// buffer for.
+    const HINT_MODEL: &str = "glm-5.2";
+
+    const ENTERS_ALTERNATE: &str = "\u{1b}[?1049h";
+    const LEAVES_ALTERNATE: &str = "\u{1b}[?1049l";
+
+    /// A screen that counts the calls, not the bytes.
+    ///
+    /// The one-write invariant is about **write calls**: a sampled snapshot of a
+    /// pty that happened to look atomic satisfies nothing, because a terminal
+    /// presents whatever it has whenever it is scheduled to. So the seam counts
+    /// `write_all`, which is what the loop is required to call exactly once for
+    /// the restore, and the default implementation -- which loops on `write` --
+    /// is overridden so that one call is one count however the vector is
+    /// delivered.
+    #[derive(Default)]
+    struct CountingScreen {
+        calls: usize,
+        written: Vec<u8>,
+    }
+
+    impl Write for CountingScreen {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.calls += 1;
+            self.written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.calls += 1;
+            self.written.extend_from_slice(bytes);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A question about a change no band summary could show.
+    fn a_change_too_big_for_the_band() -> UiEvent {
+        UiEvent::Approval(crate::permission::ApprovalRequest {
+            tool: "edit_file",
+            target: "notes.txt".to_string(),
+            summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
+            always_scope: "allow every future edit_file to `notes.txt`".to_string(),
+            diff: Some(crate::permission::ApprovalDiff {
+                before: "a".repeat(4_000),
+                after: "b".repeat(4_000),
+            }),
+        })
+    }
+
+    /// A session whose first frame is on the screen and whose second is the
+    /// approval plane.
+    fn on_the_alternate_plane(
+        shell: &mut Fixture,
+        band: &mut Band,
+        out: &mut CountingScreen,
+        failures: &mut FrameFailures,
+    ) {
+        commit_frame(shell, band, out, failures, Instant::now(), Reconciled)
+            .expect("the first frame");
+        shell.apply(a_change_too_big_for_the_band());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question did not take the plane, so this case proves nothing"
+        );
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(shell, band, out, failures, Instant::now(), Reconciled)
+            .expect("the frame that takes the plane");
+    }
+
+    #[test]
+    fn a_document_row_owed_when_the_plane_changes_hands_is_written_before_it_does() {
+        // **One tick takes a batch of events, and a batch can cross a plane.**
+        // `take_ui_events` drains up to `bridge::UI_EVENTS` of them and the tick
+        // composes exactly one frame afterwards, so a tool result and the
+        // question that follows it are both applied before anything is
+        // written -- and that one frame, seeing the question already owns the
+        // screen, is routed to the other buffer. What the primary plane owes
+        // stays owed (`paint_alternate`), so the tool's own row never reaches
+        // the document at all: the user is asked about a change whose tool call
+        // left no trace, and the row lands minutes later when the plane comes
+        // back.
+        //
+        // Slow scheduling splits the two events across two ticks and hides it,
+        // which is exactly what happened: this passed locally and on one CI
+        // runner and failed on the two faster ones (run 33256925472, exact head
+        // f45d005 -- Linux and arm64 macOS waited out scenario 20's
+        // `[tool] read_file ok` while the alternate screen was already up).
+        //
+        // Driven through the real drain with both events already in the
+        // channel, so the batch is a fact rather than a race: no sleep, no
+        // scheduler, nothing this test has to hope for.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::ToolResult {
+                call_id: "call-0".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                detail: String::new(),
+            })
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+        out.calls = 0;
+
+        // The tick's own order (`run`): the batch, then the settle, then the
+        // one frame.
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the batch did not reach the question, so this case proves nothing"
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame");
+
+        // **Three things in one order**, because paying the document is only
+        // the first half of what the primary plane is owed. An append is a
+        // *scroll*: it moves the band's own rows up and leaves the band where
+        // it no longer is, so a tick that appended and then took the plane
+        // hands the terminal a buffer to save that carries the document and a
+        // hole where the band was. That is what `1049h` freezes, and what the
+        // user is given back when the question is answered.
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("[tool] read_file ok")
+            .unwrap_or_else(|| panic!("the tool's row never reached the document: {written:?}"));
+        let band_row = written
+            .find(HINT_MODEL)
+            .unwrap_or_else(|| panic!("the band was never repainted: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            row < band_row,
+            "the band was painted before the append scrolled it: {written:?}"
+        );
+        assert!(
+            band_row < took,
+            "the plane changed hands over a band the scroll had moved: {written:?}"
+        );
+        assert!(band.on_alternate(), "the loop forgot which plane it is on");
+        assert!(
+            shell.take_pending().is_empty(),
+            "the document is still owed rows the plane was taken over"
+        );
+        assert!(
+            shell.render.begin().is_none(),
+            "the primary plane is still owed a frame the alternate cannot paint"
+        );
+    }
+
+    #[test]
+    fn the_barrier_is_about_an_owed_row_rather_than_about_the_event_that_made_it() {
+        // The fix is a property of the **plane transition**, not of `read_file`
+        // and not of a tool call: anything that puts a row in the document in
+        // the same batch as the question has the same claim on the primary
+        // buffer. A guard written around the event that happened to expose it
+        // would leave every other producer -- a notice, a turn's failure line,
+        // the sentence a refusal writes -- with the defect intact.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: something worth saying".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("something worth saying")
+            .unwrap_or_else(|| panic!("the notice never reached the document: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            row < took,
+            "the plane changed hands with a row owed: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_refused_row_keeps_the_plane_as_well_as_the_row() {
+        // The barrier's own failure path. A write that was refused leaves the
+        // document owed, and taking the plane anyway would put the question on
+        // the other buffer with the row still waiting -- the very state the
+        // barrier exists to prevent, reached through the door it added. So the
+        // tick ends: the rows stay owed, the plane stays where it is, and the
+        // next tick offers both again in this order.
+        // **Two** rows, because the two halves of the refusal rule are
+        // different: the one the terminal was offered may have moved the screen
+        // already and is not offered again (`commit_document`), and the one
+        // behind it moved nothing and is still owed.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: a row that will not land".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(UiEvent::Notice("xfx: the row behind it".to_string()))
+            .expect("the channel has room");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut CountingScreen::default(),
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        // A screen that refuses **the append and nothing else**, which is the
+        // only writer that can tell the two behaviours apart: one that refused
+        // everything would leave the plane untaken whatever the loop decided,
+        // because the bytes that take it would be refused too.
+        let mut out = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a refused write is counted, not fatal on its own");
+
+        assert!(
+            !band.on_alternate(),
+            "the plane was taken over a row the terminal refused"
+        );
+        assert!(
+            !String::from_utf8_lossy(&out.written).contains(ENTERS_ALTERNATE),
+            "the plane was offered the terminal over a row that did not land"
+        );
+        assert!(
+            shell.owes_document(),
+            "the rows behind the refused one were dropped instead of staying owed"
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question was forgotten with the frame"
+        );
+        // And the next tick, onto a screen that works, pays the document and
+        // then takes the plane -- in that order, which is the whole rule.
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame after the refusal");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("the row behind it")
+            .unwrap_or_else(|| panic!("the surviving row never landed: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(row < took, "the retry took the plane first: {written:?}");
+    }
+
+    #[test]
+    fn the_scroll_the_barrier_makes_is_itself_a_reason_for_the_frame_it_pays() {
+        // The barrier pays the band by asking [`RenderRequest::begin`] for an
+        // attempt, and a tick whose reasons were already taken has none to
+        // give. Every event in this suite happens to raise one, which is
+        // exactly the kind of coincidence that holds on three runners and not
+        // on the fourth -- so the **scroll** raises its own: the append moved
+        // the band, and that is a reason for a frame whatever else is pending.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: a row that scrolls".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut CountingScreen::default(),
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        // Taken and **dropped**, which is the one thing production may never do
+        // with an attempt: it is how this case says "a frame has already
+        // accounted for everything these events asked for", leaving the tick
+        // below with a document to pay and nothing else claiming a frame.
+        let _taken_and_dropped = shell.render.begin();
+
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that takes the plane");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let row = written
+            .find("a row that scrolls")
+            .unwrap_or_else(|| panic!("the row was never written: {written:?}"));
+        let band_row = written.find(HINT_MODEL).unwrap_or_else(|| {
+            panic!("the scroll asked for no frame, so the band stayed moved: {written:?}")
+        });
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            row < band_row,
+            "the band was painted before the scroll: {written:?}"
+        );
+        assert!(
+            band_row < took,
+            "the plane changed hands over a band the scroll had moved: {written:?}"
+        );
+    }
+
+    /// A screen that refuses the one write carrying `needle`, and works either
+    /// side of it.
+    ///
+    /// The band's frame is the only write in a barrier tick that carries the
+    /// band's own text: the document's rows are the notice, and the plane's are
+    /// the mode sequence. So this refuses **the primary frame and nothing
+    /// else** -- the one writer that can tell "the rows landed and the band did
+    /// not" apart from "nothing landed".
+    struct DeafToTheBand {
+        needle: &'static str,
+        refused: bool,
+        written: Vec<u8>,
+    }
+
+    impl Write for DeafToTheBand {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if !self.refused && String::from_utf8_lossy(bytes).contains(self.needle) {
+                self.refused = true;
+                return Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"));
+            }
+            self.written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_refused_band_keeps_the_plane_too() {
+        // The second half of the barrier's failure path, and the reason the
+        // barrier pays the band at all. The rows landed, so the screen has
+        // scrolled and the band is a row above where it belongs; the repaint
+        // that would fix it was refused. Taking the plane now would save
+        // exactly the buffer this round is about -- document rows, and a hole
+        // where the band was -- so the tick ends instead, and the next one
+        // repaints before it offers the terminal to the question.
+        let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
+        events
+            .try_send(UiEvent::Notice("xfx: a row that lands".to_string()))
+            .expect("the channel is empty");
+        events
+            .try_send(a_change_too_big_for_the_band())
+            .expect("the channel has room");
+
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut CountingScreen::default(),
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        take_ui_events(&mut shell, &mut receiver);
+        shell.settle_band(Instant::now());
+        let mut out = DeafToTheBand {
+            needle: HINT_MODEL,
+            refused: false,
+            written: Vec::new(),
+        };
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a refused write is counted, not fatal on its own");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            written.contains("a row that lands"),
+            "the row the barrier pays first never landed: {written:?}"
+        );
+        assert!(
+            !band.on_alternate(),
+            "the plane was taken over a band the screen refused"
+        );
+        assert!(
+            !written.contains(ENTERS_ALTERNATE),
+            "the plane was offered the terminal over a band that did not land: {written:?}"
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question was forgotten with the frame"
+        );
+        // Taken and put back, which is what `restore` is for: there is no way
+        // to ask without taking, and a test that took the frame the retry below
+        // is about would be testing its own bookkeeping.
+        let owed = shell.render.begin();
+        assert!(
+            owed.is_some(),
+            "the refused frame was counted as delivered instead of owed again"
+        );
+        if let Some(attempt) = owed {
+            shell.render.restore(attempt);
+        }
+
+        // And the next tick, onto a screen that works, repaints the band and
+        // then takes the plane -- in that order, which is the whole rule.
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame after the refusal");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let band_row = written
+            .find(HINT_MODEL)
+            .unwrap_or_else(|| panic!("the band was never repainted: {written:?}"));
+        let took = written
+            .find(ENTERS_ALTERNATE)
+            .unwrap_or_else(|| panic!("the plane was never taken: {written:?}"));
+        assert!(
+            band_row < took,
+            "the retry took the plane first: {written:?}"
+        );
+    }
+
+    #[test]
+    fn the_barrier_writes_nothing_on_a_screen_no_band_fits_on() {
+        // The one place the barrier may not pay what is owed. `blind` means the
+        // row numbers are claims about a screen that may not exist, and an
+        // append is a **scroll**: what leaves the top of the screen is in the
+        // terminal's own scrollback for good, so a row placed by a coordinate
+        // the terminal no longer has cannot be taken back by any later frame.
+        // Those rows keep waiting for a screen, exactly as they do when no
+        // question is pending.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((4, 80), &asked),
+        );
+        assert!(
+            shell.blind(),
+            "the fixture is not on a screen it must not write"
+        );
+
+        shell.apply(UiEvent::Notice("xfx: a row with nowhere to go".to_string()));
+        shell.apply(a_change_too_big_for_the_band());
+        assert!(
+            shell.owes_document(),
+            "the fixture owes no row, so this proves nothing"
+        );
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the frame");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains("a row with nowhere to go"),
+            "a document row was scrolled onto a screen the band does not fit on: {written:?}"
+        );
+        assert!(
+            shell.owes_document(),
+            "the row was taken and dropped instead of staying owed"
+        );
+    }
+
+    #[test]
+    fn a_question_the_band_cannot_show_takes_the_plane_in_one_frame() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(out.calls, 1, "the enter was not one write: {written:?}");
+        assert!(
+            written.starts_with(ENTERS_ALTERNATE),
+            "the plane was painted before it was taken: {written:?}"
+        );
+        assert!(
+            written.contains("Permission needed"),
+            "the plane was taken and the question was not painted on it: {written:?}"
+        );
+        assert!(band.on_alternate(), "the loop forgot which plane it is on");
+    }
+
+    #[test]
+    fn a_tick_on_the_other_plane_that_changed_nothing_writes_nothing_at_all() {
+        // Scenario 14's claim, on the plane it does not cover. The band asks for
+        // a frame twice a second while a turn is running, and a question is up
+        // for as long as a person takes to read a change -- so a loop that wrote
+        // whatever the band handed it would put a whole unchanged screen on the
+        // wire, twice a second, for minutes.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        shell.render.request(Reason::Animation);
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a tick on the other plane");
+        assert_eq!(
+            out.calls,
+            0,
+            "a screen the terminal already holds was written again: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+
+        // And a marker that moved is still a frame, so the skip is a skip
+        // rather than a surface that stopped painting.
+        shell.route_bytes(&[0x1b, b'[', b'B']);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame the moved marker asked for");
+        assert_eq!(out.calls, 1, "the marker moved and nothing was written");
+    }
+
+    #[test]
+    fn a_resume_takes_the_approval_plane_again_before_it_paints_anything_on_it() {
+        // The one path on which the terminal changes plane without a frame
+        // saying so. A `SIGTSTP` at a question runs `signals`'s
+        // `stop_for_job_control`, which writes the abnormal restore --
+        // `1049l` first (`term::abnormal_restore`) -- and stops the process on
+        // the user's own screen. The resume re-announces the mode set
+        // (`super::resume`), and that carries **no** `1049h`.
+        //
+        // So on the first tick after a resume the session still owns the
+        // question and the terminal is on the normal buffer. A loop that read
+        // only its own record would take the `(true, Approval)` arm and either
+        // write nothing at all -- the screen "already holds this" -- leaving the
+        // user staring at a shell with no band and no question, or erase and
+        // repaint the whole approval screen **onto the user's own buffer**.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        // What `collect_facts` does on the tick a resume is noticed, minus the
+        // real `termios` and the real standard output: the handler gave the
+        // plane back, and the screen is the shell's to describe now.
+        band.plane_given_back();
+        shell.render.request(Reason::ExternalDamage);
+
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame the resume asked for");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            written.starts_with(ENTERS_ALTERNATE),
+            "the plane was not taken again before anything was painted: {written:?}"
+        );
+        assert!(
+            written.contains("Permission needed"),
+            "the question was not painted back onto the plane: {written:?}"
+        );
+        // And the erase that opens an alternate paint is inside the plane it
+        // belongs to, never on the buffer the user was just given back.
+        let took = written.find(ENTERS_ALTERNATE).expect("the enter");
+        let erased = written.find("\u{1b}[2J").expect("the erase");
+        assert!(
+            took < erased,
+            "the whole screen was erased on the user's own buffer: {written:?}"
+        );
+        assert!(
+            band.on_alternate(),
+            "the loop did not record the retaken plane"
+        );
+    }
+
+    #[test]
+    fn a_continue_no_handler_answered_takes_no_plane_back() {
+        // `SIGCONT`'s handler sets the resume flag for **any** continue: a
+        // `SIGSTOP`, which is uncatchable and runs no handler at all, and an
+        // operator's bare `kill -CONT` on a process that was never stopped, as
+        // well as the `SIGTSTP` this session handles (`signals.rs`'s own
+        // `Held::stopped_before_the_session_began` says so). On those two the
+        // terminal is exactly where it was -- still on the approval plane,
+        // because no `1049l` was ever written.
+        //
+        // Re-entering raw mode and re-announcing the mode set for one of them
+        // costs a mode set and is idempotent. Taking the plane again is not:
+        // `1049h` saves the normal buffer over the save holding the user's real
+        // screen, and leaves the session two enters to one leave.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        // A continue that no handler answered: the resume flag is set and the
+        // plane was never given back.
+        adopt_resume(&mut band, false);
+        shell.render.request(Reason::ExternalDamage);
+        assert!(
+            band.on_alternate(),
+            "a continue nothing restored took the plane away from the band"
+        );
+
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame after a continue");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains(ENTERS_ALTERNATE),
+            "a plane that was never given back was taken a second time: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_continue_a_handler_did_answer_takes_the_plane_back() {
+        // The other half, so the gate is a gate rather than an off switch: the
+        // `SIGTSTP` this session handles really does write `1049l` on its way
+        // down (`signals.rs`'s `stop_for_job_control`), so the plane really is
+        // the terminal's again and has to be taken back.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        adopt_resume(&mut band, true);
+        shell.render.request(Reason::ExternalDamage);
+        assert!(
+            !band.on_alternate(),
+            "the band was not told the handler gave the plane back"
+        );
+
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame the resume asked for");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            written.starts_with(ENTERS_ALTERNATE),
+            "the plane a handler gave back was not taken again: {written:?}"
+        );
+    }
+
+    #[test]
+    fn the_event_loop_issues_exactly_one_write_all_for_the_restore_frame() {
+        // The invariant this seam exists for. Two writes is two presentations
+        // on a terminal that does not implement synchronized output: the plane
+        // given back, and then -- a scheduler quantum later -- the band.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        shell.route_bytes(b"3");
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Primary,
+            "the answer did not give the plane back"
+        );
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that gives the plane back");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(
+            out.calls, 1,
+            "the restore was written in {} calls: {written:?}",
+            out.calls
+        );
+        assert!(
+            written.starts_with(LEAVES_ALTERNATE),
+            "the restore did not lead with the leave: {written:?}"
+        );
+        assert!(
+            written.contains(COMPOSER_MARKER),
+            "the restore gave the plane back and painted no band: {written:?}"
+        );
+        assert!(
+            !band.on_alternate(),
+            "the loop still believes it is on the plane it gave back"
+        );
+    }
+
+    #[test]
+    fn restoration_never_shows_an_intermediate_blank_grid() {
+        // Every snapshot a terminal can take between the leave and the repaint
+        // is one this loop never produces: the two are one `write_all`, so
+        // there is no moment at which the plane has been given back and the
+        // band has not been painted. Asserted as the byte fact that makes it
+        // true -- one call, and the band inside it, after the leave.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        shell.route_bytes(b"1");
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that gives the plane back");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(out.calls, 1);
+        let leaves = written.find(LEAVES_ALTERNATE).expect("the leave");
+        let band_at = written.find(COMPOSER_MARKER).expect("the band");
+        assert!(
+            leaves < band_at,
+            "the band was painted on the plane being left: {written:?}"
+        );
+    }
+
+    #[test]
+    fn normal_exit_while_alternate_is_owned_restores_the_primary() {
+        // A session can end with a question still up -- a `Fatal` from the
+        // runtime, a supervisor's `SIGTERM` answered by the drain -- and the
+        // exit is then the only thing left that can give the plane back. It
+        // happens before the drain writes anything, because everything the
+        // drain paints belongs on the primary plane.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        out.written.clear();
+        out.calls = 0;
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |taken| {
+                    taken(UiEvent::TurnEnded {
+                        failure: Some("WHY-THE-TURN-ENDED".to_string()),
+                    });
+                },
+                size: || panic!("an exit with no winch outstanding measured the screen"),
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        let leaves = written.find(LEAVES_ALTERNATE).expect("the leave");
+        let drained_at = written
+            .find("WHY-THE-TURN-ENDED")
+            .expect("the drain's own row");
+        assert!(
+            leaves < drained_at,
+            "the exit painted the drain's rows on the plane it had not given back: {written:?}"
+        );
+        assert_eq!(
+            written.matches(LEAVES_ALTERNATE).count(),
+            1,
+            "the exit left the alternate screen more than once: {written:?}"
+        );
+        assert!(
+            !band.on_alternate(),
+            "the exit left the session on the other plane"
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Primary,
+            "the exit gave the screen back and did not say so"
+        );
+    }
+
+    #[test]
+    fn an_exit_that_never_took_the_other_plane_writes_no_leave_at_all() {
+        // The bound on the rule above. A `1049l` written by every exit would
+        // reset an alternate screen the session never entered, which on a
+        // terminal that models one swaps in a buffer the user was not looking
+        // at -- and that is what `term::RESTORE` deliberately omits.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        shell.apply(UiEvent::Delta("ORDINARY-TAIL".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |_taken| {},
+                size: || panic!("an exit with no winch outstanding measured the screen"),
+            },
+        );
+
+        assert!(broken.is_none(), "the screen refused: {broken:?}");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains(LEAVES_ALTERNATE),
+            "the exit reset an alternate screen it never entered: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_resize_while_the_other_plane_is_owned_repaints_it_at_the_size_it_now_has() {
+        // The alternate screen is the whole terminal, so a screen that changed
+        // size is a screen every row of it is now at the wrong coordinates on.
+        // And the return recomputes the primary: the band is solved from the
+        // geometry the resize adopted, not from the one the question arrived
+        // under.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let now = Instant::now();
+        shell.render.mark_resize(now);
+        let asked = std::cell::Cell::new(0usize);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            now + RESIZE_DEBOUNCE + Duration::from_millis(1),
+            sized((30, 100), &asked),
+        );
+        assert_eq!(asked.get(), 1, "the resize was never measured");
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the repaint on the other plane");
+
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains(ENTERS_ALTERNATE),
+            "a repaint took a plane it was already on: {written:?}"
+        );
+        assert!(
+            written.contains("\u{1b}[30;1H"),
+            "the alternate screen was not repainted to the screen's last row: {written:?}"
+        );
+
+        shell.route_bytes(b"3");
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that gives the plane back");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            written.contains("\u{1b}[30;1H"),
+            "the band came back at the coordinates of the screen that was: {written:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_the_primary_plane_owes_is_written_onto_the_other_one() {
+        // A document append is a **scroll** of whatever plane it lands on, and
+        // what leaves the top of the alternate screen is gone: the terminal
+        // gives that buffer back on the way out. So the rows the document is
+        // owed stay owed, exactly as they do on a screen no band fits on.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        shell.apply(UiEvent::Delta("ANSWER-TEXT-WHILE-DECIDING".to_string()));
+        shell.flush_paced();
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a frame on the other plane");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            !written.contains("ANSWER-TEXT-WHILE-DECIDING"),
+            "the document was appended to the plane it does not live on: {written:?}"
+        );
+
+        // And it is owed rather than dropped: the answer arrives on the primary
+        // plane the moment the question gives it back.
+        shell.route_bytes(b"3");
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame that gives the plane back");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the frame after it");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert!(
+            written.contains("ANSWER-TEXT-WHILE-DECIDING"),
+            "the document rows a question held back were dropped: {written:?}"
+        );
     }
 }
