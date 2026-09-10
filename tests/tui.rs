@@ -1576,6 +1576,129 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
 }
 
 #[test]
+fn edit_history_undo_and_yank_on_a_real_terminal() {
+    // Ladder item 18 driven through a real terminal rather than through the
+    // shell's own funnel: the keys are the bytes a terminal really sends
+    // (`C-w` `0x17`, `C-y` `0x19`, `C-_` `0x1f`), and the judge is the grid
+    // emulator rather than the wire, because a frame is a difference and the
+    // row it changed is never on the wire in one piece.
+    //
+    // **Redo is driven here too**, in both of its pinned spellings. It has no
+    // control byte -- `shortcuts.zig`'s table has no arm for one -- so what a
+    // session receives for Super+Shift+Z is a CSI sequence, and a sequence is
+    // bytes: writing `ESC[122;10u` and `ESC[27;10;122~` into this pty is
+    // exactly what a terminal that speaks either protocol would write
+    // (`runtime.zig:3018,3025`). What that does **not** prove is that a
+    // particular terminal emits them for that chord, which is a claim about
+    // terminals rather than about xfx and is not made here.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+
+    // C-w: the word goes, and it goes into the kill slot. `row_text` trims the
+    // blanks at the end of a row, so the draft's own trailing space is not part
+    // of what the grid reports.
+    session.type_bytes(&[0x17]);
+    session.wait_until("the word delete to take the last word", |text| {
+        composer(text) == "> one"
+    });
+
+    // C-y: it comes back at the caret, and the frame that painted it leaves the
+    // caret at the end of what was yanked -- column 3 for the marker plus seven
+    // characters of draft.
+    session.type_bytes(&[0x19]);
+    session.wait_until("the yank to put the killed word back", |text| {
+        composer(text) == "> one two"
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;10H"))
+    });
+
+    // C-_: the undo takes back the **yank**, not the kill. The caret goes back
+    // with the text -- column 7 is the marker plus `one `, which is where the
+    // yank started.
+    session.type_bytes(&[0x1f]);
+    session.wait_until("the undo to take back the yank", |text| {
+        composer(text) == "> one"
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;7H"))
+    });
+
+    // Each redo encoding is proved on its own round trip: redo, assert the text
+    // **and** the caret, then undo again so that the next spelling starts from
+    // the same state rather than riding on the first one's work.
+    for spelling in [&b"\x1b[122;10u"[..], &b"\x1b[27;10;122~"[..]] {
+        session.type_bytes(spelling);
+        session.wait_until("the redo to put the yank back", |text| {
+            composer(text) == "> one two"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;10H"))
+        });
+        session.type_bytes(&[0x1f]);
+        session.wait_until("the undo after the redo to take it back again", |text| {
+            composer(text) == "> one"
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[23;7H"))
+        });
+    }
+
+    // A near miss under the same final byte is **not** a redo, and this is
+    // where that discriminates: redo still has the yank in it, so a decoder
+    // that accepted either of these would put `two` back and the wait below
+    // would never see `one !`. `122;1` has no super bit; `122;010` is a
+    // spelling no terminal emits.
+    session.type_bytes(b"\x1b[122;1u");
+    session.type_bytes(b"\x1b[122;010u");
+
+    // A recorded edit clears redo, so the same bytes mean nothing afterwards.
+    // Proved with a keystroke behind them rather than by waiting for a screen
+    // that did not change: `!` reaches the composer, and the draft it reaches
+    // is the one the redo did not touch.
+    session.type_bytes(b"!");
+    session.wait_until("the typed character to reach the composer", |text| {
+        composer(text) == "> one !"
+    });
+    session.type_bytes(b"\x1b[122;10u");
+    session.type_bytes(b"\x1b[27;10;122~");
+    session.type_bytes(b"?");
+    session.wait_until(
+        "the keystroke after the two redo spellings to reach the composer",
+        |text| composer(text) == "> one !?",
+    );
+
+    // And the undo stack below the cleared redo is still a stack: back over the
+    // two typed characters, then over the kill.
+    session.type_bytes(&[0x1f, 0x1f, 0x1f]);
+    session.wait_until("the undo walk to reach the kill", |text| {
+        composer(text) == "> one two"
+    });
+
+    // A submit is a boundary: the draft is gone and an undo after it restores
+    // nothing and does not bring the session down.
+    session.type_bytes(&[0x0d]);
+    session.wait_until("the submit to empty the composer", |text| {
+        composer(text) == ">"
+    });
+    session.type_bytes(&[0x1f]);
+    session.type_bytes(b"\x1b[122;10u");
+    session.type_bytes(b"\x1b[27;10;122~");
+    session.type_bytes(b"z");
+    session.wait_until(
+        "the composer to hold only what was typed after it",
+        |text| composer(text) == "> z",
+    );
+    assert!(matches!(session.state(), Wait::Running));
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn the_composer_stops_growing_at_half_the_content_area() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();

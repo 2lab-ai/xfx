@@ -154,6 +154,19 @@ pub(crate) enum Action {
     /// The line after it, and the draft the walk began from once there are no
     /// more. `C-n`, and `Down` at the last row.
     HistoryNext,
+    /// Take the last edit back. `C-_` (`0x1f`), and Super+Z on a terminal that
+    /// speaks either of the two CSI-u families (`shortcuts.zig:23-24`,
+    /// `escape_parser.zig:122-123`).
+    Undo,
+    /// Put it back again.
+    ///
+    /// **No control byte**, and none may be invented: `shortcuts.zig`'s control
+    /// table has no redo arm, so the only spellings are the two Super+Shift+Z
+    /// sequences (`runtime.zig:3018,3025`). `C-z` (`0x1a`) is not this key --
+    /// upstream binds nothing to it and neither does this decoder.
+    Redo,
+    /// Insert what was last killed. `C-y` (`0x19`, `shortcuts.zig:84-85`).
+    Yank,
     Escape,
     Cancel,
     Eof,
@@ -659,6 +672,8 @@ fn control(byte: u8) -> Action {
         0x10 => Action::HistoryPrevious,
         0x15 => Action::KillToStart,
         0x17 => Action::DeleteWordLeft,
+        0x19 => Action::Yank,
+        0x1f => Action::Undo,
         _ => Action::Ignore,
     }
 }
@@ -690,7 +705,10 @@ fn csi(params: &[u8], final_byte: u8) -> Action {
             b"4" => Action::End,
             b"200" => Action::PasteStart,
             b"201" => Action::PasteEnd,
-            _ => Action::Ignore,
+            // The second of the two pinned Super+Z spellings, which is a
+            // **params shape** under a final byte that already carries five
+            // literal ones (`runtime.zig:3025`'s `[27;10;122~`).
+            _ => tilde_chord(params),
         },
         // The cursor keys, bare or with one modifier.
         b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => {
@@ -712,8 +730,77 @@ fn csi(params: &[u8], final_byte: u8) -> Action {
                 _ => Action::End,
             }
         }
+        // `CSI <code> ; <modifier> u`, the first pinned spelling
+        // (`runtime.zig:3018`'s `[122;10u`). A new final byte for this decoder,
+        // and the only one this slice adds: the two families below are the
+        // promoted CSI-u surface, not a claim to the whole matrix.
+        b'u' => {
+            let mut fields = params.split(|byte| *byte == b';');
+            let (Some(code), Some(modifier), None) = (fields.next(), fields.next(), fields.next())
+            else {
+                return Action::Ignore;
+            };
+            chord(code, modifier)
+        }
         _ => Action::Ignore,
     }
+}
+
+/// `CSI 27 ; <modifier> ; <code> ~`, the other spelling of the same key.
+fn tilde_chord(params: &[u8]) -> Action {
+    let mut fields = params.split(|byte| *byte == b';');
+    let (Some(b"27"), Some(modifier), Some(code), None) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return Action::Ignore;
+    };
+    chord(code, modifier)
+}
+
+/// What a `z` with modifiers means (`escape_parser.zig:122-123`).
+///
+/// Super is the bit that makes it an editing key at all
+/// (`escape_parser.zig:42`'s `super_modifier = 0x08`); shift beside it makes it
+/// the redo. Everything else -- another keycode, no super bit, a modifier
+/// spelled in a way no terminal emits -- is [`Action::Ignore`], because an input
+/// this session cannot name is not one it should guess at.
+fn chord(code: &[u8], modifier: &[u8]) -> Action {
+    let Some(mask) = chord_modifier(modifier) else {
+        return Action::Ignore;
+    };
+    if mask & 0x08 == 0 {
+        return Action::Ignore;
+    }
+    // `z` and `Z`: upstream matches the keycode, and a shifted chord reports the
+    // capital on some terminals.
+    if !matches!(code, b"122" | b"90") {
+        return Action::Ignore;
+    }
+    if mask & 0x01 == 0 {
+        Action::Undo
+    } else {
+        Action::Redo
+    }
+}
+
+/// The mask a chord's modifier parameter carries: xterm's `1 + mask`, undone.
+///
+/// A sibling of [`modifier`] rather than a loosening of it: that one accepts the
+/// **cursor-key** shape (the empty params, or a literal `1;` prefix), which
+/// `122;10` is not. Both match digits as bytes and bound the length, so
+/// `122;010` stays [`Action::Ignore`] -- a spelling no terminal emits is not a
+/// keystroke this session invents a meaning for.
+fn chord_modifier(digits: &[u8]) -> Option<u8> {
+    if digits.is_empty() || digits.len() > 2 || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let value = digits
+        .iter()
+        .fold(0u8, |value, digit| value * 10 + (digit - b'0'));
+    // `then` rather than `then_some`: the argument of the latter is
+    // evaluated whichever way the condition goes, and `0 - 1` on a `u8` is a
+    // panic rather than a refusal.
+    (1..=16).contains(&value).then(|| value - 1)
 }
 
 /// The modifier a cursor-key sequence carries, or `None` when its parameters
@@ -764,6 +851,113 @@ mod tests {
             decoder.feed(*byte, now, &mut out);
         }
         out
+    }
+
+    #[test]
+    fn the_two_editing_control_bytes_are_bound_and_ctrl_z_is_not() {
+        // `0x1f` undo and `0x19` yank (`shortcuts.zig:23-24,84-85`). Redo has
+        // **no** control byte -- upstream's table has no arm for it -- and
+        // `0x1a` is not undo: inventing either would bind a key on the strength
+        // of what it looks like it should do.
+        assert_eq!(control(0x1f), Action::Undo);
+        assert_eq!(control(0x19), Action::Yank);
+        assert_eq!(control(0x1a), Action::Ignore, "Ctrl-Z is still not undo");
+        for byte in 0x00u8..=0x1f {
+            assert_ne!(
+                control(byte),
+                Action::Redo,
+                "{byte:#04x} was bound to a redo no control byte spells"
+            );
+        }
+        assert_eq!(
+            decode(&[0x1f, 0x19]),
+            vec![Input::Action(Action::Undo), Input::Action(Action::Yank),]
+        );
+    }
+
+    #[test]
+    fn super_shift_z_is_redo_in_both_pinned_encodings() {
+        // The two families ruling (1) pins, and only those
+        // (`runtime.zig:3018,3025`; `escape_parser.zig:42,122-123`). The
+        // modifier parameter is xterm's `1 + mask`, so `10` is super | shift and
+        // `9` is super alone.
+        assert_eq!(csi(b"122;10", b'u'), Action::Redo);
+        assert_eq!(csi(b"27;10;122", b'~'), Action::Redo);
+        assert_eq!(csi(b"122;9", b'u'), Action::Undo, "super without shift");
+        assert_eq!(csi(b"27;9;122", b'~'), Action::Undo);
+        assert_eq!(
+            csi(b"90;10", b'u'),
+            Action::Redo,
+            "escape_parser.zig:122 accepts Z"
+        );
+        assert_eq!(csi(b"90;9", b'u'), Action::Undo);
+    }
+
+    #[test]
+    fn everything_else_under_the_two_families_is_ignored() {
+        // The refusals matter as much as the two acceptances: a decoder that
+        // took a spelling no terminal emits would be a decoder that guessed.
+        assert_eq!(
+            csi(b"122;1", b'u'),
+            Action::Ignore,
+            "no super bit is not a redo"
+        );
+        assert_eq!(csi(b"122;5", b'u'), Action::Ignore, "ctrl is not super");
+        assert_eq!(
+            csi(b"122;010", b'u'),
+            Action::Ignore,
+            "spellings no terminal emits"
+        );
+        assert_eq!(csi(b"0122;10", b'u'), Action::Ignore);
+        assert_eq!(
+            csi(b"122;17", b'u'),
+            Action::Ignore,
+            "past the modifier range"
+        );
+        assert_eq!(
+            csi(b"122;0", b'u'),
+            Action::Ignore,
+            "a modifier is 1 + a mask"
+        );
+        assert_eq!(csi(b"121;10", b'u'), Action::Ignore, "y is not z");
+        assert_eq!(csi(b"122", b'u'), Action::Ignore, "no modifier at all");
+        assert_eq!(csi(b"122;10;3", b'u'), Action::Ignore, "a third parameter");
+        assert_eq!(csi(b"", b'u'), Action::Ignore);
+        assert_eq!(csi(b"27;10;121", b'~'), Action::Ignore, "y is not z");
+        assert_eq!(csi(b"28;10;122", b'~'), Action::Ignore, "27 is the family");
+        assert_eq!(csi(b"27;10", b'~'), Action::Ignore, "no keycode");
+        assert_eq!(
+            csi(b"27;10;122;1", b'~'),
+            Action::Ignore,
+            "a fourth parameter"
+        );
+        // And the five literal tilde spellings still decode, because the new
+        // arm is under the same final byte.
+        assert_eq!(csi(b"1", b'~'), Action::Home);
+        assert_eq!(csi(b"3", b'~'), Action::Delete);
+        assert_eq!(csi(b"4", b'~'), Action::End);
+        assert_eq!(csi(b"200", b'~'), Action::PasteStart);
+        assert_eq!(csi(b"201", b'~'), Action::PasteEnd);
+    }
+
+    #[test]
+    fn a_redo_sequence_split_across_reads_decodes_once() {
+        // `feed` takes one byte at a time, which is the shape a terminal really
+        // delivers a chord in: a decoder that resolved on a read boundary would
+        // read one keystroke as two.
+        for sequence in [&b"\x1b[122;10u"[..], &b"\x1b[27;10;122~"[..]] {
+            let mut decoder = Decoder::new();
+            let now = Instant::now();
+            let mut out = Vec::new();
+            for byte in sequence {
+                decoder.feed(*byte, now, &mut out);
+            }
+            assert_eq!(
+                out,
+                vec![Input::Action(Action::Redo)],
+                "{sequence:?} did not decode to one redo"
+            );
+        }
     }
 
     #[test]
@@ -1133,6 +1327,8 @@ mod tests {
             (0x10, Action::HistoryPrevious),
             (0x15, Action::KillToStart),
             (0x17, Action::DeleteWordLeft),
+            (0x19, Action::Yank),
+            (0x1f, Action::Undo),
             (0x7f, Action::Backspace),
         ];
         for byte in (0x00u8..=0x1f).chain(std::iter::once(0x7f)) {

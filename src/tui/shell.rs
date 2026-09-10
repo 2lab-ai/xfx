@@ -77,6 +77,7 @@ use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::approval_screen::ApprovalScreen;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -90,7 +91,6 @@ use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigge
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::Palette;
-use super::transaction::{EditTransaction, LastTransaction};
 use super::transcript::{Append, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
@@ -198,6 +198,13 @@ const PASTE_UNNUMBERED: &str = "this session has no paste numbers left; nothing 
 /// nothing now and the line would be sent as the words it looks like. Said,
 /// rather than left for the user to discover in what the model answers.
 const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are words now";
+
+/// The same exhaustion seen from a yank.
+///
+/// Its own sentence rather than [`RECALL_UNNUMBERED`]'s, because a user who
+/// pressed `C-y` did not recall anything and a row that said so would be
+/// describing a keystroke they did not make.
+const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are words now";
 
 /// What `/clear` leaves behind after it has erased the screen.
 ///
@@ -328,14 +335,15 @@ pub(crate) struct Shell {
     /// for it ([`super::paste`]). The blocks themselves live in the composer,
     /// as spans of the draft (`super::entity`).
     paste: Paste,
-    /// What the last edit did, in the terms an undo would need.
+    /// What the composer's edits were, and what was last killed out of it.
     ///
-    /// Overwritten by every edit ([`Self::edited`]) and read by nothing on a
-    /// Phase-2 path: it is the seam item 18 builds its stack on, and what it is
-    /// here to fix now is the boundary only this moment knows -- one framed
-    /// paste is one transaction, whatever it weighed
-    /// ([`super::transaction`]).
-    transaction: LastTransaction,
+    /// **`edit_history`, never `history`.** [`Self::history`] below is the
+    /// prompt recall -- the lines this session has submitted -- and it has no
+    /// undo. This is the composer's own history: bounded deltas
+    /// ([`super::edit_history`]), fed by [`Self::edited`], walked by
+    /// [`Action::Undo`] and [`Action::Redo`], and emptied at every whole-draft
+    /// boundary ([`Self::take_draft`]).
+    edit_history: EditHistory,
     /// The lines this session has submitted, and where a walk back through
     /// them has got to.
     ///
@@ -580,7 +588,7 @@ impl Shell {
             context_used: None,
             editor: Editor::new(),
             paste: Paste::default(),
-            transaction: LastTransaction::new(),
+            edit_history: EditHistory::new(),
             history: History::new(),
             decoder: Decoder::new(),
             // Wrapped to the screen the band was solved for: the document rows
@@ -1303,7 +1311,15 @@ impl Shell {
         // re-opened on its own completion would be one the user cannot leave by
         // taking something from it.
         self.dismissed.dismiss(Trigger::Slash);
-        self.amended();
+        // **`None`, and that is the whole contract.** The draft this replaced
+        // was the query, and it died at [`Self::take_draft`] above along with
+        // every delta that named its offsets. Recording the insert alone would
+        // give an undo that deletes the command name and leaves the composer
+        // empty -- silently discarding the query the user typed -- so a
+        // completion is a boundary and undo does not step back across it. An
+        // xfx decision, not an upstream ruling: `input_completion_runtime.zig`'s
+        // `historyBoundary` call sits on prompt recall.
+        self.amended(None);
     }
 
     /// Closes the menu, and remembers that it was closed.
@@ -1833,8 +1849,8 @@ impl Shell {
         ) {
             return;
         }
-        if self.editor.insert(typed) {
-            self.amended();
+        if let Some(delta) = self.editor.insert(typed) {
+            self.amended(Some(delta));
         }
     }
 
@@ -1870,8 +1886,8 @@ impl Shell {
                 if text.is_empty() {
                     return;
                 }
-                if self.editor.insert(&text) {
-                    self.amended();
+                if let Some(delta) = self.editor.insert(&text) {
+                    self.amended(Some(delta));
                 }
             }
             // The screen gets the summary and the text goes behind it as an
@@ -1884,12 +1900,6 @@ impl Shell {
                 text,
                 lines,
             } => {
-                // Kept for the transaction below, before the edit that makes it
-                // stale. Two copies of a draft that can be 8 MiB, held until
-                // the next keystroke overwrites them, which is the price of an
-                // undo that can put an insertion back
-                // ([`super::transaction`]).
-                let before = self.editor.text().to_string();
                 // No arm for a composer that refuses the summary, and that is
                 // arithmetic rather than optimism: a block is only collapsed
                 // past `COLLAPSE_ABOVE` codepoints, the budget admitted the
@@ -1897,22 +1907,18 @@ impl Shell {
                 // number -- so the room left over is never smaller than a name
                 // ([`super::paste`]'s
                 // `a_collapsed_paste_the_budget_admits_always_fits_the_composer`).
-                let Some(entity) = self
+                let Some(delta) = self
                     .editor
                     .insert_entity(&summary, EntityKind::Paste { id, text, lines })
                 else {
                     return;
                 };
-                self.amended();
-                // **After the edit**, because `amended` runs through
-                // [`Self::edited`], which records `Other` for every change to
-                // the composer. One paste is one boundary however many bytes
-                // and however many reads of the terminal it arrived in.
-                self.transaction.record(EditTransaction::InsertPaste {
-                    before,
-                    after: self.editor.text().to_string(),
-                    entity,
-                });
+                // **One delta for the whole paste**, recorded at the moment the
+                // frame closed -- the only moment that knows the boundary. Its
+                // weight carries the payload, so a paste the history cannot hold
+                // is a boundary rather than an entry that lies
+                // ([`super::edit_history`]).
+                self.amended(Some(delta));
             }
         }
     }
@@ -1933,7 +1939,8 @@ impl Shell {
             | Action::End
             | Action::WordLeft
             | Action::WordRight => {
-                self.editor.apply(action, self.text_cols());
+                let recorded = self.editor.apply(action, self.text_cols());
+                debug_assert!(recorded.is_none(), "a caret move produced a delta");
                 self.moved();
             }
             // The composer's own, and **edits**: the text is the user's now
@@ -1944,8 +1951,8 @@ impl Shell {
             | Action::DeleteWordLeft
             | Action::KillToEnd
             | Action::KillToStart => {
-                self.editor.apply(action, self.text_cols());
-                self.amended();
+                let delta = self.editor.apply(action, self.text_cols());
+                self.amended(delta);
             }
             // The two keys that are the composer's until the caret has nowhere
             // left to go, and the history's exactly there.
@@ -1959,7 +1966,8 @@ impl Shell {
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
-                self.editor.apply(action, cols);
+                let recorded = self.editor.apply(action, cols);
+                debug_assert!(recorded.is_none(), "a vertical move produced a delta");
                 if self.editor.point(cols).0 != from {
                     self.moved();
                     return;
@@ -1976,9 +1984,9 @@ impl Shell {
                     // for even though the caret could not move, and that is the
                     // state the frame after it is drawn from. Repaint only --
                     // [`Self::moved`] rather than [`Self::edited`] -- because
-                    // nothing about the text changed, so the undo boundary the
-                    // last edit left is still the truth about the last edit
-                    // ([`super::transaction`]).
+                    // nothing about the text changed, so the history is still
+                    // the truth about the last edit
+                    // ([`super::edit_history`]).
                     self.moved();
                 }
             }
@@ -2010,8 +2018,8 @@ impl Shell {
                 if self.editor.is_empty() {
                     self.leave();
                 } else {
-                    self.editor.apply(Action::Delete, self.text_cols());
-                    self.amended();
+                    let delta = self.editor.apply(Action::Delete, self.text_cols());
+                    self.amended(delta);
                 }
             }
             // The whole band is repainted every frame, so a redraw is a frame.
@@ -2040,8 +2048,98 @@ impl Shell {
             Action::HistoryNext => {
                 self.recall(HistoryStep::Next);
             }
+            // **The composer's own history**, and neither of them is an
+            // `amended`: an undo is not the user replacing a recalled line, it
+            // is the user taking their own last edit back, and recording one
+            // would clear the redo stack it is walking.
+            //
+            // The two fields are split at the call site rather than moved
+            // through the history, which is two disjoint field borrows and what
+            // keeps the transfer atomic: a caller that popped an entry and
+            // forgot to stash it would silently destroy the redo path, so there
+            // is no public pop ([`super::edit_history::EditHistory::undo`]).
+            Action::Undo | Action::Redo => {
+                let Shell {
+                    edit_history,
+                    editor,
+                    ..
+                } = self;
+                let moved = match action {
+                    Action::Undo => edit_history.undo(|delta| editor.revert(delta)),
+                    _ => edit_history.redo(|delta| editor.replay(delta)),
+                };
+                if moved {
+                    self.moved();
+                }
+            }
+            // A yank **is** an edit: it puts text in the composer, so it ends
+            // the recall walk like every other one and is itself undoable.
+            Action::Yank => {
+                let delta = self.yank_killed();
+                if delta.is_some() {
+                    self.amended(delta);
+                }
+            }
             Action::Tab | Action::Ignore => {}
         }
+    }
+
+    /// Puts the kill slot's text at the caret, under numbers of its own.
+    ///
+    /// **Fresh ids, and the summaries rewritten to say them.** A yank does not
+    /// move a block, it makes another one: the original may still be in the
+    /// draft, and `entity.rs:212-216` refuses two live blocks under one number
+    /// -- so the payload is shared (`Arc`) and the name is not. The delta is
+    /// [`super::edit_history::DeltaKind::Ordinary`] rather than `Kill`, so that
+    /// recording it does not overwrite the slot it has just read.
+    fn yank_killed(&mut self) -> Option<Delta> {
+        let (killed, spans) = self.edit_history.killed()?;
+        let mut text = killed.to_string();
+        let mut entities = Entities::new();
+        for span in spans {
+            entities.register(span.clone());
+        }
+        let wanted = entities.len();
+        // **Minted against a copy of the counter, and committed only if the
+        // edit happens.** `renumber_recalled` writes the numbers it spends
+        // straight back into whatever it is handed, and nothing in this session
+        // ever rewinds that: a number spent is spent for good, deliberately, so
+        // that two live blocks can never answer to one name
+        // (`super::entity::Entities::register`'s assertion). Handed the
+        // session's own counter, a yank the budget then refuses would burn a
+        // name for an edit that did not happen -- press `C-y` at a full
+        // composer often enough and the ids run out for pastes nobody made.
+        let mut next = *self.paste.ids();
+        entities.renumber_recalled(&mut text, &mut next);
+        // The same question a typed character asks, and for the same reason: a
+        // yank brings its payload back too, so the draft plus what its blocks
+        // stand for has to stay inside one budget (`super::paste::fits`).
+        if !paste::fits(
+            self.editor.text().len(),
+            self.editor.retained(),
+            text.len().saturating_add(entities.retained()),
+        ) {
+            // Refused silently, like every other keystroke the budget refuses
+            // (`Self::type_character`): the slot keeps what it holds, the draft
+            // is exactly the text it was, and `next` is dropped with the
+            // numbers it was going to spend still unspent.
+            return None;
+        }
+        let delta = self.editor.insert_with_entities(&text, entities.spans())?;
+        // The edit landed, so the names it put on the screen are this session's
+        // now. Committed **after** it and not before, because the composer has
+        // a refusal of its own (`super::editor::Editor::insert`) and a name on
+        // no summary is the same leak by another door.
+        *self.paste.ids() = next;
+        if entities.len() < wanted {
+            // The end of the id space, seen from the yank: those summaries are
+            // words now, and a line that would be sent as its own description is
+            // one the user has to be told about. Said after the insert for the
+            // reason above -- and reachable only through it, since the budget
+            // question above is the stricter of the two.
+            self.notice = Some(YANK_UNNUMBERED);
+        }
+        Some(delta)
     }
 
     /// One Ctrl-C.
@@ -2112,6 +2210,18 @@ impl Shell {
     /// paste for the rest of the session, and a span into a buffer that has
     /// been emptied names bytes that are not there.
     fn take_draft(&mut self) -> String {
+        // **Every stacked delta named the draft that is about to be gone.** Its
+        // offsets are absolute into that text, so an undo after this would
+        // `replace_range` past the end of an empty `String` -- a panic -- or
+        // write a dead draft's bytes into an unrelated one. Cleared here, at the
+        // single funnel, so every caller present and future inherits it and no
+        // list of them has to be maintained ([`super::edit_history`]).
+        //
+        // The kill slot is deliberately **not** cleared: it is separate state
+        // upstream too, and only a new session empties it
+        // (`kill_ring.zig:71-84`). What was killed out of a submitted draft is
+        // still yankable into the next one.
+        self.edit_history.boundary();
         // The blocks go with the text, because they are runs of it: the
         // composer's own `take` clears them (`super::editor::Editor::take`), so
         // there is no second call site that has to remember to.
@@ -2128,7 +2238,7 @@ impl Shell {
             return;
         }
         self.take_draft();
-        self.amended();
+        self.amended(None);
     }
 
     /// What one submitted line is, and what happens to it.
@@ -2186,7 +2296,7 @@ impl Shell {
             // nothing is sent or written.
             Submitted::Blank => {
                 self.take_draft();
-                self.edited();
+                self.edited(None);
             }
             Submitted::Command { .. } => {
                 self.echo(&text);
@@ -2205,7 +2315,7 @@ impl Shell {
                 // onto the end of it.
                 let refusal = interactive::unknown_command_message(token);
                 self.take_draft();
-                self.edited();
+                self.edited(None);
                 self.echo(&text);
                 self.write_document_line(&refusal);
             }
@@ -2261,7 +2371,7 @@ impl Shell {
                 // the runtime is *running*, so it waits for the runtime to say
                 // that this one is (`UiEvent::TurnStarted`).
                 self.take_draft();
-                self.edited();
+                self.edited(None);
                 self.echo(text);
                 self.gestures.submitted();
             }
@@ -2311,7 +2421,7 @@ impl Shell {
     /// answer it.
     fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
-        self.edited();
+        self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
     }
@@ -2551,15 +2661,23 @@ impl Shell {
         // (`super::editor::Editor::set_text`), and the ones now in the composer
         // are the recalled entry's, under numbers this session has just minted.
         //
+        // **A completed recall is a boundary, not a delta**
+        // (`input_completion_runtime.zig:339-356`: `.moved =>
+        // historyBoundary`, `.unchanged => {}`). The whole draft was replaced,
+        // so every delta on the stack names offsets into a text that is gone.
+        // `set_text` is the one whole-draft disposal that does not go through
+        // [`Self::take_draft`], which is why the boundary is named here.
+        self.edit_history.boundary();
         // Not `amended`: an edit ends the walk, and this *is* the walk.
-        self.edited();
+        self.edited(None);
         true
     }
 
     /// What a change to the composer's **text** owes, over what a caret move
     /// owes.
     ///
-    /// The extra obligation is one thing and it is the walk: the line on the
+    /// The extra obligation over [`Self::edited`] is one thing and it is the
+    /// walk: the line on the
     /// screen is the user's own now rather than the one the history handed
     /// back, so the next step back begins at the newest entry again and comes
     /// back to *this* text. Split from [`Self::edited`] rather than folded into
@@ -2567,27 +2685,28 @@ impl Shell {
     /// prompt is how a user reads it before deciding to step further back, and
     /// a rule that ended the walk on every keystroke would make that
     /// impossible.
-    fn amended(&mut self) {
+    fn amended(&mut self, delta: Option<Delta>) {
         self.history.leave();
-        self.edited();
+        self.edited(delta);
     }
 
     /// What a change to the composer's **text** owes, over what a caret move
-    /// owes: the undo boundary.
+    /// owes: the history entry.
     ///
     /// **Every text change passes through here and no caret move does**, which
-    /// is the whole of the split. What an item-18 stack needs to know is what
-    /// the last change to the text was; a field written by the repaint path
-    /// would say "an ordinary edit" after a `Left`, and an undo built on it
-    /// would take a megabyte back a grapheme at a time. The paste path records
-    /// its own boundary *after* calling through here ([`Self::pasted`]), so one
-    /// framed paste is one transaction and the keystroke after it is another.
+    /// is the whole of the split. A funnel written by the repaint path would
+    /// record an entry after a `Left`, and an undo built on it would take a
+    /// megabyte back a grapheme at a time.
     ///
-    /// Nothing else is owed. While a block was a name this also had to re-read
-    /// the draft once per block to see which of them the edit had damaged; a
-    /// block is a span now and the edit already moved it (`super::entity`).
-    fn edited(&mut self) {
-        self.transaction.record(EditTransaction::Other);
+    /// `None` is a text change with **nothing to record**, and there are two
+    /// kinds: a whole-draft disposal, whose boundary was already taken at
+    /// [`Self::take_draft`] or at the recall, and a mutation the composer
+    /// refused or found nothing to do -- neither of which may clear the redo
+    /// stack ([`super::edit_history`]).
+    fn edited(&mut self, delta: Option<Delta>) {
+        if let Some(delta) = delta {
+            self.edit_history.record(delta);
+        }
         self.moved();
     }
 
@@ -2750,6 +2869,19 @@ impl Shell {
         self.render.request(Reason::Resize);
         Resize::Repaint(geometry)
     }
+
+    /// How deep the composer's undo and redo stacks are.
+    ///
+    /// Named for [`Self::edit_history`] rather than for "history", because the
+    /// other field of that name is the prompt recall and a helper called
+    /// `depths` would be read as its walk.
+    #[cfg(test)]
+    fn edit_depths(&self) -> (usize, usize) {
+        (
+            self.edit_history.undo_depth(),
+            self.edit_history.redo_depth(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2763,6 +2895,7 @@ mod tests {
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
 
     use super::super::bridge::TurnControl;
+    use super::super::edit_history::DeltaKind;
     use super::super::gesture::EXIT_WINDOW;
     use super::super::pacer::{MAX_CPS, MIN_CPS};
 
@@ -3587,7 +3720,10 @@ mod tests {
         // re-wraps on every edit, so half a megabyte of keystrokes would be
         // quadratic here. This is the same call `type_character` makes.
         let typed = "x".repeat(500_000);
-        assert!(shell.editor.insert(&typed), "the draft could not be set up");
+        assert!(
+            shell.editor.insert(&typed).is_some(),
+            "the draft could not be set up"
+        );
 
         let block = "y".repeat(8_000_000);
         shell.route_bytes(b"\x1b[200~");
@@ -3632,7 +3768,7 @@ mod tests {
         // Enough that the draft and the block it hides are together past the
         // budget, put in whole for the reason above.
         assert!(
-            shell.editor.insert(&"x".repeat(400_000)),
+            shell.editor.insert(&"x".repeat(400_000)).is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3694,7 +3830,8 @@ mod tests {
         assert!(
             shell
                 .editor
-                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary))
+                .is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3724,7 +3861,8 @@ mod tests {
         assert!(
             shell
                 .editor
-                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary)),
+                .insert(&"x".repeat(MAX_PASTE_BYTES - block.len() - summary))
+                .is_some(),
             "the draft could not be set up"
         );
         let full = shell.editor.text().len();
@@ -3963,14 +4101,13 @@ mod tests {
 
     #[test]
     fn one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in() {
-        // **The boundary an undo will take**, fixed at the only moment that
-        // knows it. A paste is one gesture and a great many bytes, and the
-        // bytes arrive in as many reads as the terminal feels like: a boundary
+        // **The boundary an undo takes**, fixed at the only moment that knows
+        // it. A paste is one gesture and a great many bytes, and the bytes
+        // arrive in as many reads as the terminal feels like: a boundary
         // inferred later from the buffer would be a boundary per read, or per
         // grapheme, and an undo built on it would take a megabyte back a
-        // character at a time. There is no `C-z` on this surface -- item 18
-        // brings the stack -- so this case is the seam's only reader, which is
-        // what `.prd/06-qa-harness.md`'s scenario 21 points at.
+        // character at a time. Migrated off the one-entry seam onto the delta
+        // the history really holds, which is now the thing `C-_` walks.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x1b[200~");
         let chunk = vec![b'y'; 64];
@@ -3979,57 +4116,67 @@ mod tests {
         }
         shell.route_bytes(b"\x1b[201~");
 
-        let Some(EditTransaction::InsertPaste {
-            before,
-            after,
-            entity,
-        }) = shell.transaction.last()
-        else {
-            panic!(
-                "a framed paste did not record one insert transaction: {:?}",
-                shell.transaction.last()
-            );
-        };
-        assert_eq!(before, "", "the draft before the paste was not recorded");
-        assert_eq!(after, "[Pasted text #1, 1 lines]");
-        assert_eq!(entity.range(), 0..after.len());
+        assert_eq!(
+            shell.edit_depths(),
+            (1, 0),
+            "a framed paste did not record exactly one entry"
+        );
+        let delta = shell.edit_history.last().expect("the paste's delta");
+        assert_eq!(delta.kind(), DeltaKind::Paste);
+        assert_eq!(delta.at(), 0, "the draft before the paste was not empty");
+        assert_eq!(delta.removed(), "", "a paste removed nothing");
+        assert_eq!(delta.inserted(), "[Pasted text #1, 1 lines]");
+        let entity = &delta.inserted_entities()[0];
+        assert_eq!(entity.range(), 0..delta.inserted().len());
         assert_eq!(
             entity.text().len(),
             40 * 64,
-            "the transaction's entity does not carry the whole paste"
+            "the delta's entity does not carry the whole paste"
         );
 
-        // And the next edit overwrites it, because what an undo needs to know
-        // is what the *last* change was.
+        // And the next edit is its **own** entry rather than an extension of
+        // this one: one paste is one thing to undo, and the keystroke after it
+        // is another.
         shell.route_bytes(b"!");
+        assert_eq!(shell.edit_depths(), (2, 0));
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Ordinary),
+            "a keystroke after a paste was folded into the paste's transaction"
+        );
+
+        // The whole point of the boundary, driven: one `C-_` takes the
+        // keystroke, the second takes the paste **whole**.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
         assert!(
-            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-            "a keystroke after a paste left the paste boundary standing: {:?}",
-            shell.transaction.last()
+            shell.editor.entities().is_empty(),
+            "the block outlived the summary it stands for"
         );
     }
 
     #[test]
     fn a_caret_move_leaves_the_paste_boundary_standing_and_an_edit_takes_it_down() {
-        // **A move is not an edit.** The boundary an undo would take is a fact
-        // about the last change to the *text*; a keystroke that only moved the
-        // caret has not changed the text, so a stack built on this seam would
-        // find "the last edit was an ordinary one" after a `Left` and take the
-        // paste back a grapheme at a time -- which is the whole thing the
-        // boundary exists to prevent.
+        // **A move is not an edit.** A keystroke that only moved the caret has
+        // not changed the text, so it records nothing: a history that grew an
+        // entry per `Left` would take the paste back a grapheme at a time --
+        // which is the whole thing the boundary exists to prevent -- and reading
+        // a pasted line before deciding to undo it would be what made the undo
+        // impossible.
         let mut shell = shell(24, 80);
         // Two rows, so that `Up` and `Down` have somewhere to go inside the
         // draft: typed **before** the paste, because typing is an edit and the
-        // boundary this case is about is the paste's.
+        // entry this case is about is the paste's.
         shell.route_bytes(&[b'x'; 100]);
         let _block = collapsed(&mut shell, 1);
-        assert!(
-            matches!(
-                shell.transaction.last(),
-                Some(EditTransaction::InsertPaste { .. })
-            ),
-            "the paste did not record a boundary, so this case proves nothing"
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Paste),
+            "the paste did not record an entry, so this case proves nothing"
         );
+        let depths = shell.edit_depths();
 
         // Every key the composer binds that moves the caret and nothing else.
         // `Up`/`Down` are here twice over: once inside a two-row draft, where
@@ -4050,30 +4197,31 @@ mod tests {
             ("Down at the last row", &b"\x1b[B\x1b[B\x1b[B"[..]),
         ] {
             shell.route_bytes(keys);
-            assert!(
-                matches!(
-                    shell.transaction.last(),
-                    Some(EditTransaction::InsertPaste { .. })
-                ),
-                "{name} moved the caret and took the paste boundary down with it: {:?}",
-                shell.transaction.last()
+            assert_eq!(
+                shell.edit_history.last().map(Delta::kind),
+                Some(DeltaKind::Paste),
+                "{name} recorded a history entry for a caret that only moved"
+            );
+            assert_eq!(
+                shell.edit_depths(),
+                depths,
+                "{name} changed the depth of a history nothing was edited into"
             );
         }
 
-        // And an edit -- any edit -- does take it down, because after one the
-        // last change to the text is not the paste.
+        // And an edit -- any edit -- is its own entry on top of it.
         shell.route_bytes(b"!");
-        assert!(
-            matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-            "a keystroke after a paste left the paste boundary standing: {:?}",
-            shell.transaction.last()
+        assert_eq!(
+            shell.edit_history.last().map(Delta::kind),
+            Some(DeltaKind::Ordinary),
+            "a keystroke after a paste recorded nothing of its own"
         );
     }
 
     #[test]
     fn every_kind_of_edit_takes_the_paste_boundary_down() {
-        // The other half, once per family, because "an edit overwrites it" is a
-        // claim about the funnel every text change goes through rather than
+        // The other half, once per family, because "an edit is its own entry" is
+        // a claim about the funnel every text change goes through rather than
         // about the one keystroke that is easiest to test.
         let edits: [(&str, &[u8]); 5] = [
             ("a typed character", b"!"),
@@ -4085,20 +4233,430 @@ mod tests {
         for (name, keys) in edits {
             let mut shell = shell(24, 80);
             let _block = collapsed(&mut shell, 1);
-            assert!(
-                matches!(
-                    shell.transaction.last(),
-                    Some(EditTransaction::InsertPaste { .. })
-                ),
-                "{name}: the paste did not record a boundary"
+            assert_eq!(
+                shell.edit_history.last().map(Delta::kind),
+                Some(DeltaKind::Paste),
+                "{name}: the paste did not record an entry"
             );
             shell.route_bytes(keys);
+            assert_eq!(
+                shell.edit_depths(),
+                (2, 0),
+                "{name} was folded into the paste's transaction"
+            );
             assert!(
-                matches!(shell.transaction.last(), Some(EditTransaction::Other)),
-                "{name} left the paste boundary standing: {:?}",
-                shell.transaction.last()
+                !matches!(
+                    shell.edit_history.last().map(Delta::kind),
+                    Some(DeltaKind::Paste)
+                ),
+                "{name} left the paste as the newest entry"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // the composer's own history
+    // -----------------------------------------------------------------------
+    //
+    // Driven through the real recording funnel -- `route_bytes` into
+    // `Shell::act` -- rather than against a detached `EditHistory`, because
+    // every claim here is about *which* keystrokes reach it and with what.
+
+    #[test]
+    fn an_undo_after_a_submit_restores_nothing_and_does_not_panic() {
+        // Every stacked delta holds absolute offsets into a draft the submit
+        // threw away, so an undo that survived one would `replace_range` past
+        // the end of an empty `String`. The boundary is at `take_draft`, which
+        // is the funnel every whole-draft disposal goes through.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        assert_eq!(shell.edit_depths(), (5, 0));
+        shell.route_bytes(&[0x0d]);
+        let _taken = shell.sent.try_recv();
+
+        assert_eq!(shell.edit_depths(), (0, 0), "the submit was not a boundary");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "", "a discarded draft is not undoable");
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn clear_composer_is_the_same_boundary_as_a_submit() {
+        // The same rule through the other door: an idle Ctrl-C throws the draft
+        // away, and it inherits the boundary from `take_draft` rather than
+        // taking one of its own.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello");
+        shell.route_bytes(&[0x03]);
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(shell.edit_depths(), (0, 0));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn a_slash_completion_is_a_boundary_and_never_a_half_undo() {
+        // The whole draft was the query (`picker::Trigger::of`), so the insert
+        // is the second half of a **replacement**. Recording only the insert
+        // would give an undo that deletes the command name and leaves the
+        // composer empty -- silently discarding what the user typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/hel");
+        shell.complete("help");
+        assert_eq!(shell.editor.text(), picker::completed("help"));
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 0),
+            "the completion recorded a delta"
+        );
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(
+            shell.editor.text(),
+            picker::completed("help"),
+            "undo deleted the command name and lost the query"
+        );
+        assert_eq!(shell.edit_depths(), (0, 0));
+    }
+
+    #[test]
+    fn a_recall_is_a_boundary_and_the_walk_survives_three_of_them() {
+        // Two rules in one drive, because they are the same call site
+        // (`Shell::recall`). A completed recall replaced the whole draft, so
+        // every stacked delta names a text that is gone
+        // (`input_completion_runtime.zig:339-356`) -- **and** the recall goes
+        // through `edited`, not `amended`, so the walk it is a step of stays
+        // open. A route through `amended` would call `history.leave()` and the
+        // second `C-p` would hand back the newest line again forever.
+        //
+        // The third line is a **command**, which is a submitted line like any
+        // other but is answered on this thread rather than by the runtime: the
+        // runtime holds two pieces of work at a time (`super::worker`'s
+        // `WORK_LIMIT`) and a third prompt would be refused, which would leave
+        // its draft in the composer and make this a case about `Rejected::Busy`.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "first line");
+        submitted(&mut shell, "second line");
+        submitted(&mut shell, "/help");
+        shell.route_bytes(b"half typed");
+        assert_eq!(shell.edit_depths(), (10, 0));
+
+        shell.route_bytes(&[0x10]);
+        assert_eq!(shell.editor.text(), "/help");
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 0),
+            "the recall left deltas naming a draft that is gone"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.editor.text(),
+            "second line",
+            "the second step back handed the newest line over again: the \
+             recall ended its own walk"
+        );
+        shell.route_bytes(&[0x10]);
+        assert_eq!(
+            shell.editor.text(),
+            "first line",
+            "the third step back did not reach the oldest line"
+        );
+
+        // And an undo does not step back across any of it.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "first line");
+        assert_eq!(shell.edit_depths(), (0, 0));
+
+        // The walk still comes home to the draft it stood aside, which is the
+        // other half of "the navigation is still live".
+        shell.route_bytes(&[0x0e]);
+        shell.route_bytes(&[0x0e]);
+        shell.route_bytes(&[0x0e]);
+        assert_eq!(shell.editor.text(), "half typed");
+    }
+
+    #[test]
+    fn a_yank_is_itself_undoable_and_leaves_the_kill_slot_loaded() {
+        // `C-y` is an edit like any other: it goes on the stack, so the undo
+        // after it takes the **yank** back rather than the kill. And the delta
+        // it records is `Ordinary`, so recording it does not overwrite the slot
+        // it has just read -- the same text can be yanked again.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w: kill "two"
+        assert_eq!(shell.editor.text(), "one ");
+
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(shell.editor.text(), "one two");
+        shell.route_bytes(&[0x1f]); // C-_
+        assert_eq!(
+            shell.editor.text(),
+            "one ",
+            "the undo took back the kill instead of the yank"
+        );
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "one two",
+            "an ordinary yank delta cleared the slot it read"
+        );
+    }
+
+    #[test]
+    fn backspace_and_delete_leave_the_kill_slot_alone() {
+        // The other half of the kill/ordinary split, driven: only `C-k`, `C-u`
+        // and `C-w` load the slot, so a backspace after a kill does not make
+        // `C-y` yank one character.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w: the slot holds "two"
+        shell.route_bytes(b"xy");
+        shell.route_bytes(&[0x7f]); // Backspace
+        shell.route_bytes(&[0x01]); // C-a
+        shell.route_bytes(&[0x1b, 0x5b, 0x33, 0x7e]); // Delete
+        assert_eq!(shell.editor.text(), "ne x");
+        shell.route_bytes(&[0x05]); // C-e
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "ne xtwo",
+            "a backspace or a forward delete reloaded the kill ring"
+        );
+    }
+
+    #[test]
+    fn a_kill_and_its_undo_are_two_different_things_from_a_yank() {
+        // An undo of the kill puts the text back where it was; a yank puts it
+        // where the caret is. The two are driven against each other so that a
+        // yank implemented as "undo the last kill" would fail.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"one two");
+        shell.route_bytes(&[0x17]); // C-w
+        shell.route_bytes(&[0x01]); // C-a: the caret is at the front now
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(
+            shell.editor.text(),
+            "twoone ",
+            "the yank put the text back where it was killed from"
+        );
+        shell.route_bytes(&[0x1f]); // undo the yank
+        assert_eq!(shell.editor.text(), "one ");
+        shell.route_bytes(&[0x1f]); // undo the kill
+        assert_eq!(
+            shell.editor.text(),
+            "one two",
+            "the kill's own undo did not restore it in place"
+        );
+    }
+
+    #[test]
+    fn a_no_op_keystroke_does_not_clear_redo() {
+        // Upstream's `prepare` has no empty-delta arm and its caller does
+        // nothing on `.unchanged` (`edit_history.zig:85-95`). Here the mutator
+        // answers `None` at `start >= end` (`Editor::delete`), so nothing is
+        // recorded and the redo stack the user is standing on survives.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"a");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.edit_depths(), (0, 1));
+
+        shell.route_bytes(&[0x1b, 0x5b, 0x33, 0x7e]); // Delete, caret at the end
+        assert_eq!(
+            shell.edit_depths(),
+            (0, 1),
+            "a keystroke with nothing to do cleared the redo stack"
+        );
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "a");
+    }
+
+    #[test]
+    fn an_undo_never_records_itself_and_a_redo_puts_the_caret_back() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"abc");
+        shell.route_bytes(&[0x01]); // C-a
+        shell.route_bytes(b"Z");
+        assert_eq!(shell.editor.text(), "Zabc");
+        // Column 3: two cells of prompt marker, then the one byte in front of
+        // the caret.
+        assert_eq!(shell.cursor(), (23, 3));
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "abc");
+        assert_eq!(shell.cursor(), (23, 2), "the caret did not go back with it");
+        assert_eq!(
+            shell.edit_depths(),
+            (3, 1),
+            "the undo recorded itself as an edit"
+        );
+
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "Zabc");
+        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.edit_depths(), (4, 0));
+    }
+
+    #[test]
+    fn a_pastes_payload_is_counted_and_undone_whole() {
+        // The delta carries the `Arc` behind the summary, so the history's byte
+        // budget is measured against what a paste really costs -- and the undo
+        // puts the block back under the number its summary says.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        assert!(
+            shell.edit_history.retained() > block.len(),
+            "the paste's payload was not counted: {} bytes for a {}-byte block",
+            shell.edit_history.retained(),
+            block.len()
+        );
+
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "");
+        assert!(shell.editor.entities().is_empty());
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "[Pasted text #1, 1 lines]");
+        assert_eq!(
+            shell.editor.entities().spans()[0].id(),
+            1,
+            "the redone block came back under a different number"
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the redone block does not stand for the text it did"
+        );
+    }
+
+    #[test]
+    fn a_refused_yank_spends_no_paste_number() {
+        // **The allocation is transactional or it is a leak.** Renumbering a
+        // yank's blocks mints ids out of the session's one counter
+        // (`entity.rs`'s `renumber_recalled`, `*next = id`), and the counter is
+        // never rewound: a number this session has spent is spent for good. So
+        // a yank that is then refused by the budget has burned a number for an
+        // edit that did not happen -- press `C-y` at a full composer often
+        // enough and the session runs out of names for pastes it never made.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        // C-u takes the line and the block on it, so the slot holds a summary
+        // *and* the payload behind it -- which is what makes a yank a
+        // renumbering rather than an insertion of plain text.
+        shell.route_bytes(&[0x15]);
+        assert_eq!(shell.editor.text(), "");
+        let spent = *shell.paste.ids();
+        assert_eq!(spent, 1, "the paste this case killed was #1");
+
+        // A draft with no room for what the slot holds: the summary's own
+        // bytes plus the payload behind it, against the one budget the two
+        // share (`super::paste::fits`). Put in whole rather than a keystroke at
+        // a time, like every other case here that needs a full composer.
+        let yanked = "[Pasted text #1, 1 lines]".len() + block.len();
+        assert!(
+            shell
+                .editor
+                .insert(&"x".repeat(MAX_PASTE_BYTES - yanked + 1))
+                .is_some(),
+            "the draft could not be set up"
+        );
+        let draft = shell.editor.text().len();
+        let caret = shell.editor.before_caret().len();
+        let depths = shell.edit_depths();
+
+        for attempt in 1..=3 {
+            shell.route_bytes(&[0x19]);
+            assert_eq!(
+                shell.editor.text().len(),
+                draft,
+                "refusal {attempt} changed the draft"
+            );
+            assert_eq!(
+                shell.editor.before_caret().len(),
+                caret,
+                "refusal {attempt} moved the caret"
+            );
+            assert_eq!(
+                shell.edit_depths(),
+                depths,
+                "refusal {attempt} recorded a history entry"
+            );
+            let (text, spans) = shell
+                .edit_history
+                .killed()
+                .expect("the slot is still loaded");
+            assert_eq!(text, "[Pasted text #1, 1 lines]");
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].id(), 1, "refusal {attempt} renumbered the slot");
+            assert_eq!(
+                spans[0].text().len(),
+                block.len(),
+                "refusal {attempt} damaged the killed payload"
+            );
+            assert_eq!(
+                *shell.paste.ids(),
+                spent,
+                "refusal {attempt} spent a paste number on an edit that did not happen"
+            );
+        }
+
+        // And with room again the yank takes the **next unspent** number -- #2,
+        // not #5 -- carries the payload, and is undoable like any other edit.
+        shell.route_bytes(&[0x03]); // an idle Ctrl-C throws the draft away
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the yank did not take the next unspent number"
+        );
+        assert_eq!(*shell.paste.ids(), 2);
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the yanked summary stands for nothing"
+        );
+        assert_eq!(shell.edit_depths(), (1, 0));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "", "the yank was not undoable");
+        assert!(shell.editor.entities().is_empty());
+        shell.act(Action::Redo, Instant::now());
+        assert_eq!(shell.editor.text(), "[Pasted text #2, 1 lines]");
+        assert_eq!(shell.editor.expanded(), block);
+    }
+
+    #[test]
+    fn a_killed_block_comes_back_under_its_own_number_and_a_yank_mints_a_new_one() {
+        // Two live blocks may not answer to one number (`entity.rs:212-216`),
+        // so a yank cannot re-register the id it read: the summary is rewritten
+        // to say the new one and the payload is shared. An undo of the kill is
+        // the other case -- it reverts to a draft in which the old id was live,
+        // so that one comes back exactly as it was.
+        let mut shell = shell(24, 80);
+        let block = collapsed(&mut shell, 1);
+        shell.route_bytes(&[0x15]); // C-u: kill the line, block and all
+        assert_eq!(shell.editor.text(), "");
+
+        shell.route_bytes(&[0x19]); // C-y
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #2, 1 lines]",
+            "the yanked block kept the number the killed one had"
+        );
+        assert_eq!(
+            shell.editor.expanded(),
+            block,
+            "the payload did not come with it"
+        );
+
+        shell.route_bytes(&[0x1f]); // undo the yank
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x1f]); // undo the kill
+        assert_eq!(
+            shell.editor.text(),
+            "[Pasted text #1, 1 lines]",
+            "the undone kill did not restore the block's own number"
+        );
+        assert_eq!(shell.editor.expanded(), block);
     }
 
     #[test]
@@ -4359,8 +4917,8 @@ mod tests {
         // is quadratic work for a fact about one of them. What is under test is
         // what the band makes of the text, and that is reached the same way.
         let mut shell = shell(24, 80);
-        assert!(shell.editor.insert(&"x\n".repeat(70_000)));
-        shell.edited();
+        assert!(shell.editor.insert(&"x\n".repeat(70_000)).is_some());
+        shell.edited(None);
 
         assert_eq!(shell.geometry.input_rows(), 11, "the cap");
         let rows = shell.band_rows();

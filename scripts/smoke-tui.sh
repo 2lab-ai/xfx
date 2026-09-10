@@ -4980,10 +4980,11 @@ def scenario_21(run):
     * **history** hands the line back with its block under a number this session
       has not used, and what is *sent* is the paste rather than the words.
 
-    The row's fourth clause -- the undo boundary -- is a cargo receipt
-    (`tui::shell::tests::one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in`)
-    rather than a key here, because there is no `C-z` on this surface until item
-    18: driving one would assert against a binding that does not exist.
+    The row's fourth clause -- the undo boundary -- is driven as a key in
+    scenario 22 now that item 18 has one (`C-_`, `0x1f`; `C-z` is still not
+    undo). The cargo receipt that a framed paste is exactly one entry however
+    many reads it arrived in stays where it can count entries:
+    `tui::shell::tests::one_framed_paste_is_one_transaction_however_many_reads_it_arrived_in`.
 
     The two markers are the fixture's own answers and nothing else says them, so
     a prompt echoed into the document can never satisfy a wait for one; the
@@ -5595,6 +5596,213 @@ def scenario_20(run):
     fixture.stop()
 
 
+def scenario_22(run):
+    """Undo, redo in both pinned spellings, the kill ring, and the boundary.
+
+    Ladder item 18 on a real terminal. Six claims that only a terminal can make
+    together, each read off the grid emulator rather than off the wire, because
+    a frame is a difference and the row it changed is never on the wire in one
+    piece:
+
+    * a kill fills the **one** slot and `C-y` puts it back at the caret;
+    * `C-_` undoes the **yank** rather than the kill, and the caret goes back
+      with the text;
+    * **redo** puts it back, once per spelling, each proved on its own round
+      trip -- redo, assert the text *and* the caret, undo again -- so neither
+      encoding rides on the other's work;
+    * a near miss under the same final byte is not a redo, driven while redo
+      still holds something so that accepting one would show;
+    * `C-z` is **not** undo, and a recorded edit **clears** redo: after either,
+      the keystroke behind the bytes proves the draft they did not touch;
+    * a submit is a **boundary**: the draft it took is not undoable, and the
+      undo after it changes nothing and brings nothing down.
+
+    Redo has no control byte -- `shortcuts.zig`'s table has no arm for one -- so
+    what a session receives for Super+Shift+Z is a CSI sequence, and a sequence
+    is bytes: writing `ESC[122;10u` and `ESC[27;10;122~` into this pty is
+    exactly what a terminal speaking either protocol would write
+    (`runtime.zig:3018,3025`). What that does **not** prove is that a given
+    terminal emits them for that chord -- a claim about terminals rather than
+    about xfx, and one this scenario does not make.
+    """
+    marker = run.marker("edit-history")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+    trial = run.trial("edit-history", gateway=fixture).settled()
+
+    trial.send("one two")
+    trial.wait_until(
+        "the composer to hold what was typed",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    trial.grid("typed")
+
+    # `row_text` strips the blanks at the end of a row, so the draft's own
+    # trailing space is not part of what the grid reports.
+    trial.send(b"\x17")  # C-w: the word goes into the kill slot
+    trial.wait_until(
+        "the word delete to take the last word",
+        lambda _t: composer_text(trial.peek()) == "one",
+    )
+    grid = trial.grid("killed")
+    run.require(
+        composer_text(grid) == "one",
+        "C-w took the last word: %r" % composer_text(grid),
+    )
+
+    trial.send(b"\x19")  # C-y: and it comes back
+    trial.wait_until(
+        "the yank to put the killed word back",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    grid = trial.grid("yanked")
+    run.require(
+        composer_text(grid) == "one two",
+        "C-y yanked what C-w killed: %r" % composer_text(grid),
+    )
+
+    # The composer row is the second-to-last, and the caret's column is three
+    # for the two-cell marker plus the bytes in front of it: 7 for `one ` and 10
+    # for `one two`. Read off the emulator's own cursor, which is the same
+    # oracle the rows come from.
+    caret_row = trial.rows - 1
+
+    def caret(grid):
+        return (grid.row + 1, grid.col + 1)
+
+    trial.send(b"\x1f")  # C-_: the undo takes back the yank, not the kill
+    trial.wait_until(
+        "the undo to take back the yank",
+        lambda _t: composer_text(trial.peek()) == "one",
+    )
+    grid = trial.grid("undone-yank")
+    run.require(
+        composer_text(grid) == "one",
+        "C-_ took back the yank rather than the kill: %r" % composer_text(grid),
+    )
+    run.require(
+        caret(grid) == (caret_row, 7),
+        "the caret went back with the undone text: %r" % (caret(grid),),
+    )
+
+    # Each spelling on its own round trip.
+    for label, spelling in (
+        ("csi-u", b"\x1b[122;10u"),  # runtime.zig:3018
+        ("csi-tilde", b"\x1b[27;10;122~"),  # runtime.zig:3025
+    ):
+        trial.send(spelling)
+        trial.wait_until(
+            "the %s redo to put the yank back" % label,
+            lambda _t: composer_text(trial.peek()) == "one two",
+        )
+        grid = trial.grid("redone-" + label)
+        run.require(
+            composer_text(grid) == "one two",
+            "%s redid the yank: %r" % (label, composer_text(grid)),
+        )
+        run.require(
+            caret(grid) == (caret_row, 10),
+            "%s put the caret back where the yank left it: %r" % (label, caret(grid)),
+        )
+        run.require(
+            (trial.session.last_frame() or "").endswith("\x1b[%d;10H" % caret_row),
+            "the frame that painted the %s redo placed the caret itself" % label,
+        )
+        trial.send(b"\x1f")
+        trial.wait_until(
+            "the undo after the %s redo to take it back again" % label,
+            lambda _t: composer_text(trial.peek()) == "one",
+        )
+        grid = trial.grid("undone-after-" + label)
+        run.require(
+            composer_text(grid) == "one" and caret(grid) == (caret_row, 7),
+            "the undo after %s took back exactly that redo: %r %r"
+            % (label, composer_text(grid), caret(grid)),
+        )
+
+    # A near miss under the same final byte is not a redo -- and redo still
+    # holds the yank here, so a decoder that accepted one would show it.
+    trial.send(b"\x1b[122;1u")  # no super bit
+    trial.send(b"\x1b[122;010u")  # a spelling no terminal emits
+
+    # C-z is not undo either. Upstream binds nothing to it and neither does this
+    # decoder. Both claims are proved by the keystroke behind them: `!` reaches
+    # a composer none of those four sequences touched.
+    trial.send(b"\x1a")
+    trial.send("!")
+    trial.wait_until(
+        "the keystroke after the near misses and C-z to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "one !",
+    )
+    grid = trial.grid("ctrl-z-and-near-misses-are-not-undo")
+    run.require(
+        composer_text(grid) == "one !",
+        "a near miss or C-z changed the draft: %r" % composer_text(grid),
+    )
+
+    # And that recorded edit cleared redo, so the two real spellings mean
+    # nothing now -- proved the same way.
+    trial.send(b"\x1b[122;10u")
+    trial.send(b"\x1b[27;10;122~")
+    trial.send("?")
+    trial.wait_until(
+        "the keystroke after the two redo spellings to reach the composer",
+        lambda _t: composer_text(trial.peek()) == "one !?",
+    )
+    grid = trial.grid("redo-cleared-by-an-edit")
+    run.require(
+        composer_text(grid) == "one !?",
+        "a redo survived the edit that cleared it: %r" % composer_text(grid),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # The undo stack below the cleared redo is still a stack: back over the two
+    # typed characters, then over the kill.
+    trial.send(b"\x1f")
+    trial.send(b"\x1f")
+    trial.send(b"\x1f")
+    trial.wait_until(
+        "the undo walk to reach the kill",
+        lambda _t: composer_text(trial.peek()) == "one two",
+    )
+    grid = trial.grid("undone-kill")
+    run.require(
+        composer_text(grid) == "one two",
+        "the undo walk did not reach the kill: %r" % composer_text(grid),
+    )
+
+    # A submit is a boundary: what it took is not undoable.
+    discriminate(run, trial, fixture, marker, label="submitted")
+    trial.wait_until(
+        "the submit to empty the composer",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    trial.send(b"\x1f")
+    trial.send(b"\x1b[122;10u")
+    trial.send(b"\x1b[27;10;122~")
+    trial.send("z")
+    trial.wait_until(
+        "the composer to hold only what was typed after the boundary",
+        lambda _t: composer_text(trial.peek()) == "z",
+    )
+    grid = trial.grid("after-the-boundary")
+    run.require(
+        composer_text(grid) == "z",
+        "an undo after a submit put a discarded draft back: %r" % composer_text(grid),
+    )
+    run.require(
+        trial.session.state()[0] == "running",
+        "an undo with nothing to undo brought the session down",
+    )
+
+    trial.send(b"\x15")
+    trial.send(b"\x04")
+    run.require(
+        trial.session.wait_exit() == ("exited", 0),
+        "Ctrl-D did not leave cleanly after the edit history was driven",
+    )
+    fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -5619,6 +5827,7 @@ SCENARIOS = {
     "19-model-catalog-and-context-meter": scenario_19,
     "20-alternate-screen-approval": scenario_20,
     "21-paste-entities": scenario_21,
+    "22-edit-history": scenario_22,
 }
 
 
@@ -5683,9 +5892,9 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
 # the two lettered rows the drain and the mid-turn approval added, then Phase
-# 2's 13-21. This list and `SCENARIOS` in the python helper are the two
-# registrations, and they are one order -- a name in either that the other does
-# not have is a scenario nothing runs or a runner nothing names.
+# 2's 13-21 and Phase 3's 22. This list and `SCENARIOS` in the python helper are
+# the two registrations, and they are one order -- a name in either that the
+# other does not have is a scenario nothing runs or a runner nothing names.
 scenarios=(
 	1-launch-and-band-ownership
 	2-cursor-probe-and-scrollback-push
@@ -5710,6 +5919,7 @@ scenarios=(
 	19-model-catalog-and-context-meter
 	20-alternate-screen-approval
 	21-paste-entities
+	22-edit-history
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \
