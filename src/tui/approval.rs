@@ -550,7 +550,13 @@ impl ControlChannel {
     /// Nothing put back is read here: the prompter is what puts messages back,
     /// and a prompter that re-read its own would answer the same interrupt
     /// twice and never hand it to the loop that can act on it.
-    async fn answered(&self) -> Option<TurnControl> {
+    ///
+    /// `pub(crate)` because the prompter is no longer the only parked reader:
+    /// `super::question::TuiQuestioner` waits here too, for the same interval
+    /// and under the same rule -- the loop is somewhere down the stack while it
+    /// does. **A caller that polls this to ready has consumed the loop's waker**
+    /// and owes it a [`rearm`](Self::rearm) on every exit.
+    pub(crate) async fn answered(&self) -> Option<TurnControl> {
         std::future::poll_fn(|cx| {
             let polled = self.rx.guarded().poll_recv(cx);
             if polled.is_ready() {
@@ -561,8 +567,8 @@ impl ControlChannel {
         .await
     }
 
-    /// Hands a message the prompter could not act on back to the loop.
-    fn give_back(&self, message: TurnControl) {
+    /// Hands a message a parked reader could not act on back to the loop.
+    pub(crate) fn give_back(&self, message: TurnControl) {
         self.put_back.guarded().push_back(message);
         self.rearm();
     }
@@ -573,7 +579,7 @@ impl ControlChannel {
     /// there or nothing, and registers -- and that is the point: the
     /// registration is the thing, and without it the next control message would
     /// wake a waker the prompter's wait already consumed.
-    fn rearm(&self) {
+    pub(crate) fn rearm(&self) {
         if let Some(waker) = self.loop_waker.guarded().take() {
             waker.wake();
         }
@@ -581,7 +587,7 @@ impl ControlChannel {
 
     /// What is waiting, for a test that asks rather than awaits.
     #[cfg(test)]
-    fn waiting(&self) -> Option<TurnControl> {
+    pub(crate) fn waiting(&self) -> Option<TurnControl> {
         self.put_back
             .guarded()
             .pop_front()
@@ -674,17 +680,52 @@ impl ApprovalPrompter for TuiPrompter {
             Err(Stopped::Cancelled) => return Ok(ApprovalAnswer::Deny),
             Err(Stopped::UiGone) => return Err(nobody_to_ask()),
         }
-        match park_on(self.control.answered()) {
-            Some(TurnControl::Answer(answer)) => Ok(answer),
-            // A Ctrl-C or a shutdown. Both refuse this call, and both go back
-            // on the channel for the loop that can act on them -- see
-            // [`ControlChannel::put_back`].
-            Some(stop) => {
-                self.control.give_back(stop);
-                Ok(ApprovalAnswer::Deny)
+        park_on(async {
+            loop {
+                let message = tokio::select! {
+                    biased;
+                    // The session's root, not a turn's. The UI's control sender
+                    // outlives a cancelled session, so `answered()` alone would
+                    // never return -- the receiver never closes and nobody is
+                    // left to answer. A decision xfx was not given is a refusal,
+                    // which is the same answer this prompter gives when the send
+                    // above is cancelled.
+                    () = token.cancelled() => {
+                        self.control.rearm();
+                        return Ok(ApprovalAnswer::Deny);
+                    }
+                    message = self.control.answered() => message,
+                };
+                match message {
+                    Some(TurnControl::Answer(answer)) => return Ok(answer),
+                    // A keystroke left over from a question batch the model
+                    // asked (`super::question`), which is a **different** panel
+                    // with a different vocabulary: it grants nothing and refuses
+                    // nothing. Consumed so the next batch does not inherit it,
+                    // and then ignored -- reading it as an answer here would
+                    // turn an answer to the model's question into a permission
+                    // decision the user never made. The wait goes on, because
+                    // the approval this call is about is still up.
+                    Some(
+                        TurnControl::QuestionAnswer { .. } | TurnControl::QuestionCancelled { .. },
+                    ) => continue,
+                    // A Ctrl-C or a shutdown. Both refuse this call, and both go
+                    // back on the channel for the loop that can act on them --
+                    // see [`ControlChannel::put_back`]. `give_back` rearms.
+                    Some(stop) => {
+                        self.control.give_back(stop);
+                        return Ok(ApprovalAnswer::Deny);
+                    }
+                    // The UI dropped its sender. `answered` rearmed on the ready
+                    // poll; rearming again is spurious and harmless, and keeps
+                    // "every exit rearms" true without a reader having to check.
+                    None => {
+                        self.control.rearm();
+                        return Err(nobody_to_ask());
+                    }
+                }
             }
-            None => Err(nobody_to_ask()),
-        }
+        })
     }
 }
 
@@ -694,7 +735,7 @@ mod tests {
 
     use crate::permission::ApprovalDiff;
     use std::future::Future;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::task::{Context, Wake};
 
     use tokio::sync::mpsc;
@@ -1189,6 +1230,132 @@ mod tests {
         assert!(
             seen.try_recv().is_err(),
             "a cancelled session painted a panel nobody would answer"
+        );
+    }
+
+    #[test]
+    fn a_question_answered_at_the_wrong_panel_is_consumed_and_the_approval_still_waits() {
+        // The regression the model's own questions introduced. Both of
+        // `TurnControl`'s question arms can be on this channel while an approval
+        // is up -- a keystroke on a batch the turn has already given up on -- and
+        // they are **not** decisions about permission. Reading one as an answer
+        // here would deny a mutation the user never refused, and leaving it on
+        // the channel would hand it to the next batch as though it had been
+        // typed at that one.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        tx.send(TurnControl::QuestionCancelled {
+            id: super::super::question::QuestionId(1),
+        })
+        .expect("the channel is open");
+        tx.send(TurnControl::QuestionAnswer {
+            id: super::super::question::QuestionId(2),
+            answers: vec!["a keystroke at a panel that has gone".to_string()],
+        })
+        .expect("the channel is open");
+        tx.send(TurnControl::Answer(ApprovalAnswer::Always))
+            .expect("the channel is open");
+        let (events, _seen) = mpsc::channel(4);
+        let mut prompter = TuiPrompter::new(
+            events,
+            Arc::clone(&control),
+            Cancellation::new(crate::gateway::CancelToken::new()),
+        );
+
+        assert_eq!(
+            prompter.request(&request("edit_file")).expect("an answer"),
+            ApprovalAnswer::Always,
+            "a stale question answer was read as the user's permission decision"
+        );
+        assert_eq!(
+            control.waiting(),
+            None,
+            "the stale question traffic was left for the next reader to inherit"
+        );
+    }
+
+    #[test]
+    fn an_interrupt_behind_stale_question_traffic_still_reaches_the_loop() {
+        // The other half of the arm above: consuming a question message must not
+        // consume the interrupt queued behind it, and the interrupt is still the
+        // loop's rather than this prompter's.
+        for stop in [TurnControl::Cancel { through: 4 }, TurnControl::Shutdown] {
+            let (tx, rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(rx);
+            tx.send(TurnControl::QuestionAnswer {
+                id: super::super::question::QuestionId(9),
+                answers: vec!["stale".to_string()],
+            })
+            .expect("the channel is open");
+            tx.send(stop.clone()).expect("the channel is open");
+            let (events, _seen) = mpsc::channel(4);
+            let mut prompter = TuiPrompter::new(
+                events,
+                Arc::clone(&control),
+                Cancellation::new(crate::gateway::CancelToken::new()),
+            );
+
+            assert_eq!(
+                prompter.request(&request("edit_file")).expect("an answer"),
+                ApprovalAnswer::Deny
+            );
+            assert_eq!(control.waiting(), Some(stop));
+        }
+    }
+
+    #[test]
+    fn a_session_cancelled_while_the_panel_is_up_refuses_rather_than_waiting_for_ever() {
+        // The sender is deliberately alive, which is the whole hazard: the
+        // session's root can be cancelled while the UI still holds its control
+        // sender, so the receiver never closes and a wait on `answered()` alone
+        // would never return. This test would hang rather than fail without the
+        // `select!` -- so it is run on a thread and given a bound.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let (events, mut seen) = mpsc::channel(4);
+        let cancel = Cancellation::new(crate::gateway::CancelToken::new());
+        let mut prompter = TuiPrompter::new(events, Arc::clone(&control), cancel.clone());
+
+        let finished = Arc::new(AtomicBool::new(false));
+        let answered = std::thread::scope(|scope| {
+            let done = Arc::clone(&finished);
+            let asking = scope.spawn(move || {
+                let answer = prompter.request(&request("edit_file"));
+                done.store(true, Ordering::SeqCst);
+                answer
+            });
+            // Cancelled only **after** the panel is really up, so what is
+            // measured is a wait that ends rather than a send that never began.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                match seen.try_recv() {
+                    Ok(UiEvent::Approval(_)) => break,
+                    Ok(_) => continue,
+                    Err(err) => assert!(
+                        std::time::Instant::now() < deadline,
+                        "the panel never reached the UI: {err:?}"
+                    ),
+                }
+            }
+            assert!(!tx.is_closed(), "the sender is deliberately still alive");
+            cancel.cancel();
+            // The bound. If the cancellation is not an exit from that wait, the
+            // sender is dropped instead -- which *is* one -- so the case fails on
+            // the assertion below rather than hanging the suite for ever.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while std::time::Instant::now() < deadline && !finished.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            if !finished.load(Ordering::SeqCst) {
+                drop(tx);
+            }
+            asking.join().expect("the asking thread")
+        });
+
+        assert_eq!(
+            answered.expect("the wait never ended on the cancellation alone"),
+            ApprovalAnswer::Deny,
+            "a question xfx can no longer get an answer to is a no"
         );
     }
 }

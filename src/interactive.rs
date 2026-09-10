@@ -32,7 +32,7 @@ use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
-use crate::tools::ToolContext;
+use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// Every slash command the shell accepts, in the order `/help` lists them.
@@ -500,6 +500,7 @@ pub(crate) fn open_conversation(
     config: &RuntimeConfig,
     model: &str,
     permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
     let scope = AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
@@ -518,9 +519,12 @@ pub(crate) fn open_conversation(
         .map_err(|err| err.to_string())?;
     let permissions = permissions.with_durable_session(session.id().as_str());
     let recorder = SessionRecorder::new(store.clone(), session);
-    let tools = ToolContext::new(scope)
+    let mut tools = ToolContext::new(scope)
         .with_permissions(permissions)
         .with_cancel(cancel.clone());
+    if let Some(questioner) = questioner {
+        tools = tools.with_questioner(questioner);
+    }
     Ok(Conversation { recorder, tools })
 }
 
@@ -664,6 +668,13 @@ pub async fn run(
                         &config,
                         &model,
                         crate::app::permission_session(mode),
+                        // fx's interactive shell is xfx's TUI, not this line
+                        // shell: this loop reads one line at a time from
+                        // standard input and has nowhere to render a question
+                        // panel, so it never has a requester and
+                        // `ask_user_question` answers with
+                        // `NOT_AVAILABLE_SENTINEL` here.
+                        None,
                         &cancel,
                     ) {
                         Ok(opened) => slot.insert(opened),

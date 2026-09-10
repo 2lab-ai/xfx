@@ -555,6 +555,7 @@ mod panic;
 mod paste;
 mod picker;
 mod probe;
+mod question;
 mod render_request;
 mod router;
 mod shell;

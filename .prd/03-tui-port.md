@@ -1,7 +1,8 @@
 # xfx — TUI port
 
-Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 and the explicitly
-deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
+Status: **Phases 1 and 2 of the MVS ladder below are in the binary, and Phase 3's items 18 and 19
+are implemented locally — in this working tree and its gate, not in a release. The rest of Phase 3
+and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
 which is the one to read against the code; what this document keeps is the upstream evidence and the
@@ -668,10 +669,38 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     the falsification is one pty case: drive the affected keys and read what the decoder made of
     them, rather than reasoning about what a terminal would send.
 
-**Phase 3 — depth. Not implemented**; every item below is a target and none of it is advertised.
+**Phase 3 — depth. Items 18 and 19 are implemented locally; the rest is not**, and every unmarked
+item below is a target that is advertised nowhere.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
-19. Question panel with ordinal answers; the freeform "Other" slot after that.
+    **Implemented locally** (`a03d08f`), with the bounds stated rather than implied: the 100 entries and the
+    1 MiB are one budget for undo and redo **together**, so moving an entry between the stacks
+    changes no total; a single delta heavier than that budget is a **boundary** that clears both
+    stacks rather than an entry, because a history that cannot hold a paste must not offer to undo
+    it; and the kill ring is beside the history with a cap of its own -- one slot, replaced rather
+    than appended to, emptied rather than truncated by a kill that overruns it -- so one large kill
+    cannot evict undo entries that have nothing to do with it (`src/tui/edit_history.rs`). Redo has
+    no control byte upstream, so both pinned CSI spellings are driven as **bytes written into a
+    pty** and each is proved on its own round trip; what that does not prove, and what no receipt
+    here claims, is that a given physical terminal emits those bytes for that chord.
+19. Question panel with ordinal answers; the freeform "Other" slot after that. **Implemented locally**, and
+    narrowed to exactly that: `ask_user_question` is a real registry entry with a permission kind of
+    its own (`PermissionKind::Interaction`) rather than an approval variant, so it mints no
+    authority, and `permission_request_id` is deliberately not advertised -- that route is the
+    readiness work in item 20. The batch is 1-4 questions of 2-6 options, one question on the screen
+    at a time, ordinals **absolute** so the number on a row is the number to type whatever the window
+    is showing, and the freeform slot is appended after the model's own options and identified by
+    **index** rather than by its label, so a model that ships its own `Other` does not open a text
+    editor. Canonical text is terminal-safe *encoded* and then size-checked with a refusal -- never
+    truncated to fit a screen -- and it is the canonical label, not the clipped row, that becomes the
+    answer. Escape and Ctrl-C are different keys and send one message each: Escape declines the batch
+    (`(user cancelled the question)`, byte-exact, and the turn carries on), Ctrl-C stops the turn, so
+    the calls queued behind the question in that completion never run. A screen too small to show two
+    choices is refused with its own sentence rather than painted, and a run with no interactive shell
+    gets the unavailable sentinel before anything is parsed. **Not** in this item: multi-select,
+    amendment drafts, and the approval readiness gate. Receipts:
+    [`06-qa-harness.md`](06-qa-harness.md) rows 23 and 23b on a release binary and a real terminal,
+    plus `src/tools/question.rs`, `src/tui/question.rs` and `tests/tui.rs`.
 20. Approval **readiness** commit gate and amendment drafts — correctness hardening, not feel.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention.

@@ -431,6 +431,11 @@ async fn run_ask(
     for grant in &opened.restored_grants {
         permissions.grant(grant.clone());
     }
+    // No `.with_questioner(..)`: this is a single non-interactive run (a bare
+    // `xfx ask`, not the TUI), so it never has anywhere to show a question,
+    // and this context builds with no requester. `ask_user_question` answers
+    // such a call with `NOT_AVAILABLE_SENTINEL` rather than reaching for a UI
+    // that isn't there.
     let tools = ToolContext::new(scope)
         .with_permissions(permissions)
         .with_cancel(cancel.clone());

@@ -48,6 +48,7 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use crate::gateway::protocol::{
@@ -157,6 +158,32 @@ pub fn retry_delay(attempt: u32, retry_after: Option<Duration>) -> Duration {
         .checked_mul(1u32 << doubling)
         .unwrap_or(MAX_RETRY_DELAY)
         .min(MAX_RETRY_DELAY)
+}
+
+/// Hands control back to whatever is driving this turn, exactly once.
+///
+/// **Not `tokio::task::yield_now`**, and the difference is the point: this turn
+/// is driven from four places -- a current-thread runtime on the TUI's worker
+/// thread, `xfx ask`, the line shell, and unit tests that poll it by hand --
+/// and a yield that reached for a runtime context would be a yield that
+/// depended on which of them was driving. All this needs is one `Pending` with
+/// the waker already woken, which is a fact about futures rather than about
+/// tokio.
+async fn yield_once() {
+    let mut yielded = false;
+    std::future::poll_fn(move |cx| {
+        if yielded {
+            return Poll::Ready(());
+        }
+        yielded = true;
+        // Woken before returning `Pending`, so nothing depends on another task
+        // waking this one: the driver is free to poll whatever else it holds --
+        // the control channel it is racing this turn against -- and then come
+        // straight back.
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    })
+    .await;
 }
 
 /// Waits `delay`, or stops early when the turn is cancelled.
@@ -419,7 +446,8 @@ impl TurnMachine {
                 });
             }
 
-            self.execute_tool_calls(&completion, events, journal)?;
+            self.execute_tool_calls(&completion, events, journal)
+                .await?;
         }
     }
 
@@ -428,7 +456,18 @@ impl TurnMachine {
     /// Checks first, executions second. Both checks cover the whole step before
     /// anything runs, so a step with one bad call does not leave the workspace
     /// half-read and the conversation half-written.
-    fn execute_tool_calls(
+    ///
+    /// **Async for one reason: the step has to be interruptible between its
+    /// calls.** Every executor here is synchronous, and one of them --
+    /// `ask_user_question`, and an `ask`-mode approval inside any of the others
+    /// -- parks this thread for as long as a person takes to answer. The stop
+    /// the person then types arrives while this loop is between two calls, and
+    /// a loop with no await in it gives whoever is driving this turn no moment
+    /// to record it: the flag this function reads is set by that driver
+    /// (`crate::tui::worker`'s `raced_against_control`, `crate::app`'s signal
+    /// handler), so without the yield below the check would read a flag nobody
+    /// has been able to write yet and the rest of the step would run.
+    async fn execute_tool_calls(
         &mut self,
         completion: &Completion,
         events: &mut dyn EventSink,
@@ -476,6 +515,16 @@ impl TurnMachine {
         record_assistant(journal, completion);
 
         for call in &completion.tool_calls {
+            // **Before this call is admitted at all.** The turn was stopped
+            // while an earlier call of this same step was running -- a Ctrl-C
+            // typed at the panel that call was parked in, a shutdown, a signal
+            // -- and the calls behind it are work nobody asked for any more. The
+            // step is abandoned here rather than at the top of `drive`, because
+            // by then the file would already be written.
+            if self.request.cancel.is_cancelled() {
+                return Err(TurnError::Cancelled);
+            }
+
             // Before the call is admitted, not after it runs: a rule about the
             // directory this call is about to touch is worth nothing once the
             // file has already been written.
@@ -528,6 +577,15 @@ impl TurnMachine {
                     detail: result.detail,
                 });
             }
+
+            // **The moment a stop can be recorded.** The call above ran to
+            // completion and its result is already in the conversation and the
+            // journal, so nothing is half-done; what this hands back is the
+            // chance for the driver to see the message the user sent while that
+            // call had this thread -- and, with it, to set the flag the top of
+            // the next iteration reads. One poll, taken once per call, and the
+            // only cost on a turn nobody interrupted.
+            yield_once().await;
         }
         Ok(())
     }

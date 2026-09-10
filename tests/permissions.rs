@@ -2553,7 +2553,7 @@ fn an_approved_command_runs_through_the_platform_shell_with_a_clean_environment(
 // ---------------------------------------------------------------------------
 
 #[test]
-fn the_registry_advertises_the_read_tools_then_the_mutating_tools() {
+fn the_registry_advertises_the_read_tools_then_the_mutating_tools_then_the_interaction_tool() {
     assert_eq!(
         ADVERTISED_TOOLS,
         [
@@ -2565,6 +2565,7 @@ fn the_registry_advertises_the_read_tools_then_the_mutating_tools() {
             "edit_file",
             "create_folder",
             "terminal",
+            "ask_user_question",
         ]
     );
     assert_eq!(Registry::builtin().names(), ADVERTISED_TOOLS);

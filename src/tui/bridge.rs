@@ -136,6 +136,15 @@ pub(crate) enum UiEvent {
     Notice(String),
     /// A question only the person at the terminal can answer (Task 17).
     Approval(ApprovalRequest),
+    /// A batch of multiple-choice questions the **model** asked
+    /// (`crate::tools::question`).
+    ///
+    /// Not an [`Self::Approval`] and not a variant of one: it grants nothing,
+    /// refusing it is not a denial, and what comes back is text rather than an
+    /// answer from a fixed set. The id is what makes a late answer discardable
+    /// -- the request outlives the keystroke that answers it only if the turn is
+    /// still asking.
+    Question(super::question::QuestionRequest),
     /// A provider switch committed and the configuration was re-read.
     ///
     /// Sent **after** the reload, never after the write: what it carries is what
@@ -332,6 +341,32 @@ impl UiEvent {
                     after: inert_owned(diff.after),
                 }),
             }),
+            // **A belt on an encoded payload.** `crate::tools::question`'s
+            // encoder has already turned every sequence a terminal would obey
+            // into a literal escape before the request left the tools layer, so
+            // this arm changes nothing on the path a real question travels. It
+            // is here because `made_inert` is total by design: a variant that
+            // named no text would be an exemption, and the next producer of one
+            // of these requests -- a test, a future non-tool asker -- would
+            // inherit the exemption rather than the policy.
+            Self::Question(request) => Self::Question(super::question::QuestionRequest {
+                id: request.id,
+                entries: request
+                    .entries
+                    .into_iter()
+                    .map(|entry| crate::tools::question::QuestionEntry {
+                        question: inert_owned(entry.question),
+                        options: entry
+                            .options
+                            .into_iter()
+                            .map(|option| crate::tools::question::QuestionOption {
+                                label: inert_owned(option.label),
+                                description: option.description.map(inert_owned),
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            }),
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -349,6 +384,21 @@ impl UiEvent {
 pub(crate) enum TurnControl {
     /// The user answered an approval request.
     Answer(ApprovalAnswer),
+    /// The user answered every question of one batch, in entry order.
+    ///
+    /// Carries the id the batch was asked under, because this channel has no
+    /// other way to tell an answer to *this* question from one the user typed at
+    /// a question the turn has since given up on: the answer is applied only by
+    /// a requester that is still waiting for that id, and discarded otherwise
+    /// (`super::worker`, Task 5's requester).
+    QuestionAnswer {
+        id: super::question::QuestionId,
+        answers: Vec<String>,
+    },
+    /// The user refused a batch. **Not a denial of anything**: the tool mints no
+    /// authority, and what the model reads back is its own cancellation
+    /// sentinel.
+    QuestionCancelled { id: super::question::QuestionId },
     /// Stop this turn, and drop what was queued behind it. The session
     /// continues.
     ///
@@ -1491,6 +1541,76 @@ mod tests {
             );
         }
         assert_eq!(entry.max_context, Some(200_000), "a number is not text");
+    }
+
+    #[test]
+    fn every_string_a_question_batch_carries_is_made_inert() {
+        // The payload really is encoded before it gets here
+        // (`crate::tools::question::terminal_safe`, run inside `parse`), so this
+        // arm is a belt rather than the braces. It is asserted anyway because
+        // `made_inert` is **total**: this type is constructible anywhere in the
+        // crate, and a variant that named no text would exempt every later
+        // producer of one from a policy the channel is supposed to guarantee.
+        // Every string of every option, because a row is what each of them
+        // becomes.
+        let hostile = "a\u{1b}[2Jb".to_string();
+        let event = UiEvent::Question(crate::tui::question::QuestionRequest {
+            id: crate::tui::question::QuestionId(7),
+            entries: vec![crate::tools::question::QuestionEntry {
+                question: hostile.clone(),
+                options: vec![
+                    crate::tools::question::QuestionOption {
+                        label: hostile.clone(),
+                        description: Some("d\u{1b}]0;pwned\u{7}".to_string()),
+                    },
+                    crate::tools::question::QuestionOption {
+                        label: "plain".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        })
+        .made_inert();
+        let UiEvent::Question(request) = event else {
+            panic!("the variant changed");
+        };
+        assert_eq!(
+            request.id,
+            crate::tui::question::QuestionId(7),
+            "the id is a number, not text"
+        );
+        let entry = &request.entries[0];
+        for text in std::iter::once(&entry.question)
+            .chain(entry.options.iter().map(|option| &option.label))
+            .chain(
+                entry
+                    .options
+                    .iter()
+                    .filter_map(|option| option.description.as_ref()),
+            )
+        {
+            assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
+            assert!(
+                !text.chars().any(char::is_control),
+                "{text:?} still carries a control character"
+            );
+        }
+        assert_eq!(
+            entry.options[1].description, None,
+            "a missing half stayed missing"
+        );
+    }
+
+    #[test]
+    fn a_question_batch_is_not_a_terminal_event() {
+        // A question is asked *inside* a turn, and the drain leaves on exactly
+        // the two events a turn cannot continue past. One that ended the drain
+        // would leave while the turn was still waiting to be answered.
+        assert!(!UiEvent::Question(crate::tui::question::QuestionRequest {
+            id: crate::tui::question::QuestionId(1),
+            entries: Vec::new(),
+        })
+        .is_terminal());
     }
 
     #[test]

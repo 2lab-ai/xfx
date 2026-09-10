@@ -7,8 +7,9 @@
 # The second runner beside `scripts/smoke.sh`, which keeps running unchanged:
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
-# one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12 and
-# Phase 2's 13-21, plus the two lettered rows 3b and 10b -- against a
+# one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
+# Phase 2's 13-21 and Phase 3's 22-23, plus the lettered rows 3b, 10b and
+# 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
 # the check total is summed from what the scenarios wrote down, so neither
@@ -1153,6 +1154,95 @@ def large_write_then_finish(marker):
     ]
 
 
+def ask_then_finish(marker):
+    """Ask a two-question batch, then say `marker`.
+
+    Two questions rather than one because the result is an *ordered* document: a
+    one-question batch passes whether or not order is preserved. The first
+    question's first option carries a description and the second's carries none,
+    which is the one part of a choice that is optional.
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "ask_user_question",
+                    {
+                        "questions": [
+                            {
+                                "question": "Which depth?",
+                                "options": [
+                                    {"label": "Thorough", "description": "reads every file"},
+                                    {"label": "Quick"},
+                                ],
+                            },
+                            {
+                                "question": "Anything else?",
+                                "options": [{"label": "No"}, {"label": "Yes"}],
+                            },
+                        ]
+                    },
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
+# What the call **behind** an interrupted question would write, and where.
+#
+# A path that does not exist yet rather than `notes.txt`: a write over a file
+# this turn has not read is refused for a reason of its own
+# (`src/tools/mutate.rs`), and a scenario whose negative check was satisfied by
+# that refusal would report "the interrupt stopped the call" about a call the
+# interrupt never touched.
+QUESTION_FOLLOWER_PATH = "written-by-the-call-behind-the-question.txt"
+QUESTION_FOLLOWER_CONTENT = "the call behind the question ran\n"
+
+
+def ask_then_write(marker):
+    """One completion that asks **and then writes**, and a reply for the turn after it.
+
+    The write is in the *same* completion as the question, and that is the whole
+    point of the fixture: `execute_tool_calls` runs a completion's calls in
+    order, so the file is what says whether the calls queued behind an
+    interrupted question ran. A second completion would prove something weaker
+    -- that no further request was made -- and would leave the file untouched
+    even on a build that ran the rest of the step.
+
+    The reply after it belongs to the **next** prompt: an interrupted turn asks
+    for nothing more, so a session that reached it is a session that took a
+    fresh turn after the interrupt.
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "ask_user_question",
+                    {
+                        "questions": [
+                            {
+                                "question": "Proceed?",
+                                "options": [{"label": "Go ahead"}, {"label": "Hold on"}],
+                            }
+                        ]
+                    },
+                ),
+                tool_call(
+                    "call-1",
+                    "write_file",
+                    {"path": QUESTION_FOLLOWER_PATH, "content": QUESTION_FOLLOWER_CONTENT},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
 class LoopbackHTTPServer(ThreadingHTTPServer):
     """`HTTPServer` without the reverse-DNS lookup it does while binding.
 
@@ -1921,7 +2011,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fixture_server as fixtures  # noqa: E402
 import pty_tui as pty  # noqa: E402
-from vt_grid import Grid  # noqa: E402
+from vt_grid import Grid, cluster_width, clusters  # noqa: E402
 
 # The dark background reply and the cursor report, in the order they were asked
 # for -- which is the order one read serves them in. Answering both keeps every
@@ -5803,6 +5893,353 @@ def scenario_22(run):
     fixture.stop()
 
 
+# ---------------------------------------------------------------------------
+# 23. the question the model asks
+# ---------------------------------------------------------------------------
+
+
+# The cancellation the tool hands the model when a batch is refused, byte for
+# byte (`src/tools/question.rs`'s `CANCEL_SENTINEL`). Spelled out rather than
+# imported, for the reason every needle in this suite is spelled out: a harness
+# that read the constant it is checking would pass for whatever the module
+# happened to declare.
+QUESTION_CANCELLED = "(user cancelled the question)"
+
+# The synthetic freeform choice every question grows, appended after the
+# model's own options and never one of them.
+FREEFORM_SLOT = "Other"
+
+# What a session says when a Ctrl-C stops the turn a question belongs to
+# (`src/app.rs`'s `INTERRUPT_NOTICE`).
+INTERRUPT_NOTICE = "stopping the turn"
+
+# What the panel's own indent costs, which is the column a draft row starts in
+# (`src/tui/question.rs`'s `INDENT`).
+PANEL_INDENT = 2
+
+
+def on_the_grid(trial, needle, what=None):
+    """Waits until `needle` is on the **committed** grid, and returns that grid.
+
+    Not `trial.wait_for`, and the difference is the whole reason this exists:
+    the band paints a cell diff inside a synchronized frame, so a row that is
+    really on the screen reaches the wire as the cells that changed with cursor
+    moves between them, and a title that is on the screen may never appear in
+    the stream as one run of bytes. `peek` feeds the emulator as far as the last
+    **complete** frame, which is the only place a screen is a screen.
+    """
+    trial.wait_until(
+        what or "%r to be on the screen" % needle,
+        lambda _text: trial.peek().find(needle) is not None,
+    )
+    return trial.peek()
+
+
+def cells_wide(text):
+    """How many cells `text` takes, measured the way the band measures it.
+
+    The oracle's own measurement, which is `unicode-width`'s: the caret the
+    panel reports is a column count, so a harness that counted scalars would put
+    the caret of a Korean draft several cells left of where the product
+    correctly placed it, and would report that as a defect.
+    """
+    return sum(cluster_width(cluster) for cluster in clusters(text))
+
+
+def draft_caret(trial):
+    """The freeform draft and the column the caret is in, or `None`.
+
+    The **cursor**, not the marker. A `> ` in front of `3. Other` says the slot
+    is the marked choice, and the panel paints that marker whether or not there
+    is a draft open -- so `caret_on(trial, "3. Other")` is satisfied the instant
+    the slot is marked and says nothing about where a keystroke goes. What says
+    the draft has the keys is where the terminal was told to put its cursor: the
+    row **under** the slot, past the block's indent
+    (`src/tui/question.rs`'s `caret`).
+    """
+    grid = trial.peek()
+    found = grid.find(FREEFORM_SLOT)
+    if found is None:
+        return None
+    row = found[0] + 1
+    if row >= grid.rows or grid.row != row:
+        return None
+    return (grid.row_text(row)[PANEL_INDENT:], grid.col)
+
+
+def tool_result_text(body, call_id):
+    """The text of `call_id`'s tool result in a captured request, or `None`.
+
+    Correlated by **id and role** rather than by searching the body for the
+    tool's name: `ask_user_question` is advertised in the `tools` array of every
+    request this suite captures, so picking a request by that substring picks
+    the first one -- the request that *asked* the question, which carries no
+    answer at all. A tool result is a `tool-result` part on a `tool` message
+    (`src/gateway/protocol.rs`), and nothing else in a request is.
+    """
+    for message in json.loads(body).get("prompt", []):
+        if message.get("role") != "tool":
+            continue
+        for part in message.get("content", []):
+            if part.get("type") == "tool-result" and part.get("toolCallId") == call_id:
+                return part.get("output", {}).get("value")
+    return None
+
+
+def carried_results(fixture, call_id):
+    """Every captured request's result for `call_id`, in the order they were sent.
+
+    A list rather than the last one, because "the model was told exactly this,
+    once" is two claims and a scenario that read only the newest request could
+    not make the second.
+    """
+    results = [tool_result_text(body, call_id) for body in fixture.bodies()]
+    return [result for result in results if result is not None]
+
+
+def scenario_23(run):
+    """A real question tool call, answered by ordinal and by `Other`.
+
+    Ladder item 19 on a real terminal, and the three claims no unit test can
+    make together: the panel is a screen the user can read, the keys do what the
+    screen says they do, and the ordered answer document reaches the **wire** as
+    the next request's tool result.
+    """
+    marker = run.marker("question")
+    fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="question")
+    trial = run.trial("question", gateway=fixture, mode="ask").settled()
+    trial.send("decide for me " + run.nonce + "\r")
+
+    grid = on_the_grid(trial, "Which depth?", "the first question of the batch")
+    trial.grid("panel")
+    for expected, why in [
+        ("1. Thorough", "the first model option is offered by number"),
+        ("2. Quick", "so is the second"),
+        ("3. " + FREEFORM_SLOT, "the synthetic freeform slot is last"),
+        ("reads every file", "the option's description is shown"),
+    ]:
+        run.require(grid.find(expected) is not None, why)
+    title = grid.find("Which depth?")
+    run.require(
+        grid.row_text(title[0]) == "Which depth? (1 of 2)",
+        "the batch says which question this is: %r" % grid.row_text(title[0]),
+    )
+    run.require(grid.find("Anything else?") is None, "one question is visible at a time")
+    run.require(
+        grid.row_text(grid.find("1. Thorough")[0]).startswith("> "),
+        "the caret sits on the choice Enter would take",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    trial.send(b"1")  # a model ordinal submits at once
+    grid = on_the_grid(trial, "Anything else?", "the second question of the batch")
+    trial.grid("second")
+    run.require(
+        grid.find("Which depth?") is None,
+        "the answered question left the screen when the next one arrived",
+    )
+
+    trial.send(b"3")  # `Other` only opens editing
+    trial.wait_until(
+        "the freeform slot to open a draft with the caret in it",
+        lambda _text: draft_caret(trial) == ("", PANEL_INDENT),
+    )
+    freeform = "다시 묻지 마 — später"
+    trial.send(freeform.encode("utf-8"))
+    trial.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
+    )
+    grid = trial.grid("freeform")
+    run.require(
+        draft_caret(trial) == (freeform, PANEL_INDENT + cells_wide(freeform)),
+        "the draft holds the text and the caret is past it: %r" % (draft_caret(trial),),
+    )
+    run.require(
+        grid.row_text(grid.find("3. " + FREEFORM_SLOT)[0]).startswith("> "),
+        "and the slot the draft belongs to is still the marked choice",
+    )
+    trial.send(b"\r")
+
+    grid = on_the_grid(trial, marker, "the turn to carry on past the answered batch")
+    grid = trial.grid("answered")
+    carried = carried_results(fixture, "call-0")
+    run.require(
+        len(carried) == 1,
+        "exactly one request carried a result for the question (%d did)" % len(carried),
+    )
+    run.require(
+        carried
+        and json.loads(carried[0])
+        == [
+            {"question": "Which depth?", "answer": "Thorough"},
+            {"question": "Anything else?", "answer": freeform},
+        ],
+        "the next model request carries both answers, in question order, unclipped: %r" % carried,
+    )
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.text().strip() != "", "the screen is not blank")
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.text().count(marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(marker in body for body in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(
+        grid.find("1. Thorough") is None and grid.find("Which depth?") is None,
+        "the panel came down and is not left standing behind the answer",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
+    fixture.stop()
+
+
+def scenario_23b(run):
+    """Escape declines the batch; Ctrl-C stops the turn the batch belonged to.
+
+    The two keys that take a question down without answering it, and they are
+    **not** the same key: Escape is an answer about this call -- the byte-exact
+    sentinel, and the turn carries on to its own conclusion -- while Ctrl-C is
+    the interrupt it is everywhere else on this surface, and the calls queued
+    behind the question in that same completion are work nobody asked for any
+    more (`src/agent/machine.rs`'s `execute_tool_calls`).
+
+    The interrupt half is driven twice on purpose. Once answered, so the write
+    behind the question is **observed to run**, and once interrupted, so the
+    same write is observed not to: a file that never appears proves nothing
+    about an interrupt unless the run that was not interrupted wrote it.
+    """
+    marker = run.marker("cancelled")
+    fixture = start_fixture(run, fixtures.ask_then_finish(marker), name="cancelled")
+    trial = run.trial("cancelled", gateway=fixture, mode="ask").settled()
+    trial.send("decide for me " + run.nonce + "\r")
+    on_the_grid(trial, "Which depth?", "the question Escape is about to decline")
+    trial.grid("panel")
+
+    trial.send(b"\x1b")
+    grid = on_the_grid(trial, marker, "the turn to carry on past the declined batch")
+    grid = trial.grid("after")
+    carried = carried_results(fixture, "call-0")
+    run.require(
+        carried == [QUESTION_CANCELLED],
+        "the model was told the cancellation, byte for byte and once: %r" % carried,
+    )
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find("Which depth?") is None, "the panel came down on Escape")
+    run.require(grid.find(marker) is not None, "and the turn carried on")
+    run.require(
+        grid.text().count(marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(marker in body for body in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the session left at 0")
+    fixture.stop()
+
+    # The same completion, answered: the call behind the question runs, and the
+    # turn asks for its own conclusion. This is what makes the absence below an
+    # observation about the interrupt rather than about a call that was never
+    # going to happen.
+    answered_marker = run.marker("answered")
+    served = start_fixture(run, fixtures.ask_then_write(answered_marker), name="answered")
+    answered = run.trial("answered", gateway=served).settled()
+    answered.send("go on then " + run.nonce + "\r")
+    on_the_grid(answered, "Proceed?", "the question the answered run takes")
+    answered.send(b"1")
+    on_the_grid(answered, answered_marker, "the answered turn to reach its conclusion")
+    answered.grid("answered")
+    written = os.path.join(answered.workspace, fixtures.QUESTION_FOLLOWER_PATH)
+    run.require(
+        os.path.exists(written) and read(written) == fixtures.QUESTION_FOLLOWER_CONTENT,
+        "the call behind an **answered** question ran and wrote its file",
+    )
+    run.require(
+        carried_results(served, "call-0") == ['[{"question":"Proceed?","answer":"Go ahead"}]'],
+        "and the answer document reached the wire: %r" % carried_results(served, "call-0"),
+    )
+    run.require(
+        served.request_count() == 2,
+        "an answered turn asked for its own conclusion (%d requests)" % served.request_count(),
+    )
+    answered.send(b"\x04")
+    run.require(answered.session.wait_exit() == ("exited", 0), "the answered session left at 0")
+    served.stop()
+
+    # And interrupted at the same question. One key, one message: the requester
+    # answers the tool with the sentinel and hands the interrupt back, and the
+    # step is abandoned **before** the next call of that completion is admitted.
+    stopped_marker = run.marker("after-interrupt")
+    scripted = start_fixture(run, fixtures.ask_then_write(stopped_marker), name="interrupted")
+    stopped = run.trial("interrupted", gateway=scripted).settled()
+    stopped.send("go on then " + run.nonce + "\r")
+    on_the_grid(stopped, "Proceed?", "the question Ctrl-C is about to stop the turn at")
+    stopped.grid("question")
+
+    stopped.send(b"\x03")
+    on_the_grid(stopped, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    grid = stopped.grid("interrupted")
+    run.require(grid.find("Proceed?") is None, "the panel came down on the interrupt")
+    unwritten = os.path.join(stopped.workspace, fixtures.QUESTION_FOLLOWER_PATH)
+    run.require(
+        not os.path.exists(unwritten),
+        "the call queued behind the interrupted question did not run",
+    )
+    run.require(
+        scripted.request_count() == 1,
+        "and the interrupted turn asked for nothing more (%d requests)"
+        % scripted.request_count(),
+    )
+    run.require(
+        stopped.session.state()[0] == "running",
+        "a Ctrl-C at a question is a keystroke: the session is still alive",
+    )
+
+    # The session is still a session: a fresh prompt is answered, which is the
+    # positive half of "the turn stopped" -- a hung requester would fail here
+    # rather than at any absence above.
+    after = run.nonce + "-AFTER"
+    stopped.send("now say it " + after + "\r")
+    grid = on_the_grid(stopped, stopped_marker, "the fresh turn after the interrupt")
+    grid = stopped.grid("after-interrupt")
+    run.require(
+        scripted.request_count() == 2,
+        "exactly one request followed the interrupt, and it was this prompt's (%d)"
+        % scripted.request_count(),
+    )
+    run.require(
+        any(after in body for body in scripted.bodies()),
+        "the prompt typed after the interrupt is in the request xfx sent",
+    )
+    run.require(
+        grid.find(stopped_marker) is not None, "and the fixture's own marker is rendered"
+    )
+    run.require(
+        not os.path.exists(unwritten),
+        "the write behind the interrupted question did not run later either",
+    )
+    run.require(
+        not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown
+    )
+    stopped.send(b"\x04")
+    run.require(stopped.session.wait_exit() == ("exited", 0), "the interrupted session left at 0")
+    scripted.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -5828,6 +6265,8 @@ SCENARIOS = {
     "20-alternate-screen-approval": scenario_20,
     "21-paste-entities": scenario_21,
     "22-edit-history": scenario_22,
+    "23-question-panel": scenario_23,
+    "23b-question-cancelled": scenario_23b,
 }
 
 
@@ -5892,7 +6331,8 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
 # the two lettered rows the drain and the mid-turn approval added, then Phase
-# 2's 13-21 and Phase 3's 22. This list and `SCENARIOS` in the python helper are
+# 2's 13-21 and Phase 3's 22, 23 and the lettered row 23b. This list and
+# `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
 scenarios=(
@@ -5920,6 +6360,8 @@ scenarios=(
 	20-alternate-screen-approval
 	21-paste-entities
 	22-edit-history
+	23-question-panel
+	23b-question-cancelled
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

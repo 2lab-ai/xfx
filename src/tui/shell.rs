@@ -88,6 +88,7 @@ use super::layout::{self, Geometry};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
+use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::Palette;
@@ -162,6 +163,19 @@ pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 /// row, because it is about a turn rather than about a keystroke.
 const PANEL_TOO_SMALL: &str =
     "xfx: this screen is too small to ask for permission, so the change was refused";
+
+/// What the user is told when the screen cannot hold a question the **model**
+/// asked ([`super::question`]).
+///
+/// The same rule as [`PANEL_TOO_SMALL`] -- a decision xfx was never given is not
+/// one it may invent -- and a **different sentence**, because the two refusals
+/// are about different things. `ask_user_question` asks for no permission and
+/// changes nothing: a batch refused for want of rows grants nothing, denies
+/// nothing, and leaves the model to ask in freeform instead. Borrowing the
+/// permission panel's wording would tell the user that a change they never made
+/// was refused, which is the one kind of sentence a refusal must not contain.
+const QUESTION_TOO_SMALL: &str =
+    "xfx: this screen is too small to show the question, so the question was cancelled";
 
 /// What the user is told when the runtime thread is not there to take work.
 ///
@@ -442,6 +456,16 @@ pub(crate) struct Shell {
     /// grid. A single field holding either would have every reader ask which
     /// kind it was.
     alternate: Option<ApprovalScreen>,
+    /// The batch of questions the **model** asked, while the user is answering
+    /// it ([`super::question`]).
+    ///
+    /// Beside [`Self::panel`] rather than inside it, and never both at once
+    /// ([`Self::slot`]'s assertion): a question grants nothing, it is refused
+    /// rather than denied, and its answer is text -- so an `Option<Panel>` that
+    /// could hold either would have every reader ask which kind it was before it
+    /// could say what a keystroke meant. What the two share is the band's
+    /// elastic slot and the focus, and that is stated once, in [`Self::slot`].
+    ask: Option<QuestionPanel>,
     /// Which plane the session is composing frames for.
     ///
     /// Taken when a question arrives that the band's summary cannot show, and
@@ -544,6 +568,10 @@ enum Mark {
 enum Slot<'a> {
     /// A decision the turn is waiting on. It owns the focus.
     Question(&'a Panel),
+    /// A batch of questions the model asked. It owns the focus too, and it is
+    /// **not** the same thing: it grants nothing and its answer is text
+    /// ([`super::question`]).
+    Ask(&'a QuestionPanel),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -609,6 +637,7 @@ impl Shell {
             phase: 0,
             panel: None,
             alternate: None,
+            ask: None,
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
@@ -646,6 +675,9 @@ impl Shell {
             match self.slot() {
                 Some(Slot::Question(panel)) => {
                     rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
+                }
+                Some(Slot::Ask(ask)) => {
+                    rows.extend(ask.rows(self.geometry.cols, self.geometry.rows));
                 }
                 Some(Slot::Menu(picker)) => {
                     rows.extend(picker.rows(self.geometry.cols, self.geometry.rows));
@@ -788,8 +820,24 @@ impl Shell {
     /// and it is stated once rather than twice, so it cannot be answered two
     /// ways.
     fn slot(&self) -> Option<Slot<'_>> {
+        // **A turn asks one thing at a time.** A permission question and a
+        // model's question batch both take the focus and both take the slot, so
+        // two at once would be one of them painted and the other holding a turn
+        // open behind it, unanswerable. It cannot be reached today -- a tool
+        // call is either the question tool or a mutation waiting on an approval,
+        // and both park the runtime thread until they are answered -- so this
+        // states the hazard where the next edit reads it rather than adding a
+        // branch no test can drive honestly, exactly as [`Self::ask`]'s
+        // one-surface assertion does.
+        debug_assert!(
+            !(self.panel.is_some() && self.ask.is_some()),
+            "a permission question and a model's question are both up"
+        );
         if let Some(panel) = self.panel.as_ref() {
             return Some(Slot::Question(panel));
+        }
+        if let Some(ask) = self.ask.as_ref() {
+            return Some(Slot::Ask(ask));
         }
         self.picker.as_ref().map(Slot::Menu)
     }
@@ -815,6 +863,17 @@ impl Shell {
                         .saturating_add(panel.caret_row(self.geometry.rows)),
                     0,
                 );
+            }
+            // A model's question has **two** places the caret can be, and they
+            // are two different claims about the next keystroke: on the marked
+            // choice, where a digit takes one, and inside the freeform draft,
+            // where a digit is a character ([`super::question::QuestionPanel`]).
+            if let Some(ask) = self.ask.as_ref() {
+                let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+                let (row, column) = ask
+                    .caret(cols, rows)
+                    .unwrap_or_else(|| (ask.caret_row(cols, rows), 0));
+                return (self.geometry.panel_first().saturating_add(row), column);
             }
         }
         let (row, column) = self.editor.point(self.text_cols());
@@ -1056,6 +1115,11 @@ impl Shell {
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
             UiEvent::Approval(request) => self.ask(request),
+            // The same three facts for a question the **model** asked: the
+            // panel, the rows it costs the document, and the focus. What it is
+            // not is an approval -- nothing is granted, and refusing it denies
+            // nothing ([`super::question`]).
+            UiEvent::Question(request) => self.ask_question(request),
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
@@ -1219,6 +1283,19 @@ impl Shell {
     /// about which surface is showing it.
     fn asking(&self) -> bool {
         self.panel.is_some() || self.alternate.is_some()
+    }
+
+    /// Whether **anything** in front of the user owns the focus.
+    ///
+    /// One reading for the two kinds of question, because everything that
+    /// consults it is about *the user being asked something* rather than about
+    /// what they are being asked: the keystrokes go there and not to the
+    /// composer, and the turn's clock is stopped because the interval is
+    /// measuring a person. [`Self::asking`] stays the narrower fact -- a
+    /// permission question, on either plane -- because the plane and the
+    /// approval channel are its alone.
+    fn modal(&self) -> bool {
+        self.asking() || self.ask.is_some()
     }
 
     /// The alternate plane's rows, top first: as many as the screen has.
@@ -1459,6 +1536,136 @@ impl Shell {
         // every other timed answer on this surface is settled there: what is
         // painted has to be the same reading that asked for the frame
         // ([`Self::tick_activity`]).
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Puts a batch of the model's questions in front of the user, or cancels
+    /// it on their behalf.
+    ///
+    /// The refusal is the same rule the approval panel's is -- a decision xfx
+    /// was never given is not one it may invent -- said in **its own sentence**
+    /// ([`QUESTION_TOO_SMALL`]) rather than the permission panel's: a batch
+    /// whose choices were below the last row of the screen would leave the turn
+    /// waiting for an answer the user cannot give, and a batch that is cancelled
+    /// grants nothing, denies nothing and changes nothing. The tool turns the
+    /// cancellation into its own sentinel and the model is told to ask in
+    /// freeform instead.
+    fn ask_question(&mut self, request: QuestionRequest) {
+        let panel = QuestionPanel::new(request);
+        if !panel.presents_choices(self.geometry.cols, self.geometry.rows) {
+            // **Before anything is installed**, mirroring [`Self::ask`]: a
+            // question that was never asked has no rows to give back, and a band
+            // solved for a panel nobody can answer is a band the composer has
+            // lost rows to for the rest of the turn.
+            self.say(QUESTION_TOO_SMALL.to_string());
+            self.work
+                .control(TurnControl::QuestionCancelled { id: panel.id() });
+            return;
+        }
+        // The menu and the question share one slot and the question owns the
+        // focus, so the menu goes **before** the question is installed rather
+        // than being left for the geometry to prefer away: a menu still open
+        // behind a question is a menu whose keys the panel is swallowing.
+        self.dismiss_picker();
+        self.ask = Some(panel);
+        // The band just grew by the panel's rows, so the divider, the composer
+        // and the caret are all somewhere else.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// One keystroke, while a batch of the model's questions has the focus.
+    ///
+    /// **Everything the panel does not bind is swallowed**, exactly as at a
+    /// permission question: a `1` is an ordinal rather than a character in a
+    /// composer the caret has left, and a Ctrl-D at one does not end a session
+    /// that is holding a turn open waiting to be answered.
+    ///
+    /// **Escape and Ctrl-C both take the panel down and they mean different
+    /// things, so they send different messages -- one each.**
+    ///
+    /// Escape declines the *question*: `QuestionCancelled` under the batch's own
+    /// id, the model is told so with its own sentinel, and the turn carries on
+    /// with whatever it was doing. Ctrl-C stops the *turn*
+    /// ([`Self::interrupt`]), and sends only that: the requester parked on this
+    /// channel treats an interrupt as its question being over, answers the tool
+    /// with the same sentinel, and hands the interrupt **back** to the loop that
+    /// can stop the turn (`super::question::TuiQuestioner`).
+    ///
+    /// Sending both, as this once did, is what made a Ctrl-C at a question a
+    /// declined question that also stopped a turn *later*: the requester
+    /// answered on the first message and returned while the second was still in
+    /// the channel, so the calls behind the question ran before anything had
+    /// read the interrupt. One key, one message, and the turn's own stop is the
+    /// one the machine's boundary can see (`crate::agent::machine`'s
+    /// `execute_tool_calls`).
+    fn answer(&mut self, event: Input, now: Instant) {
+        let act = match event {
+            Input::Text(character) => question::Act::Text(character),
+            // The whole band is repainted every frame, so a redraw is a frame
+            // here as much as anywhere else.
+            Input::Action(Action::Redraw) => {
+                self.render.request(Reason::ExternalDamage);
+                return;
+            }
+            // Which keys a question binds is the question's own fact
+            // ([`question::Act::of`]), so a key added to one is not a key this
+            // module has to be told about twice.
+            Input::Action(action) => match question::Act::of(action) {
+                Some(act) => act,
+                None => return,
+            },
+            // Content rather than keys, and there is nothing here for it to be
+            // content of: the composer is not what has the focus.
+            Input::PasteByte(_) => return,
+        };
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        let Some(ask) = self.ask.as_mut() else {
+            return;
+        };
+        let id = ask.id();
+        match ask.apply(act, cols, rows) {
+            // A keystroke that changed nothing must not repaint the whole band.
+            question::Answered::Nothing => {}
+            // **Re-solved, not merely repainted.** The panel's height is not
+            // fixed: opening the freeform slot adds its draft row and leaving it
+            // takes the row back, so a keystroke that only asked for a frame
+            // would paint a block one row taller than the band solved for -- and
+            // the caret, which is read out of the geometry, would be reported on
+            // the divider.
+            question::Answered::Redraw => self.settled_question(),
+            question::Answered::Submitted(answers) => {
+                // **The panel goes before anything is sent**, so the band's next
+                // paint has no question in it whatever the runtime does next --
+                // including asking a second batch straight away. The order
+                // [`Self::decide`] uses, for the same reason.
+                self.ask = None;
+                self.work
+                    .control(TurnControl::QuestionAnswer { id, answers });
+                self.settled_question();
+            }
+            question::Answered::Cancelled => {
+                self.ask = None;
+                if matches!(act, question::Act::Cancel) {
+                    // The turn's own stop, and **only** it: the requester reads
+                    // this as its question being over and gives it back for the
+                    // loop to act on. A `QuestionCancelled` in front of it would
+                    // release the turn to run the rest of its step before the
+                    // interrupt had been read by anyone.
+                    self.settled_question();
+                    self.interrupt(now);
+                } else {
+                    self.work.control(TurnControl::QuestionCancelled { id });
+                    self.settled_question();
+                }
+            }
+        }
+    }
+
+    /// What the band owes whenever a question changed shape or left it: the
+    /// rows re-solved, and the frame that moves everything below them.
+    fn settled_question(&mut self) {
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -1753,7 +1960,7 @@ impl Shell {
         // both calls are idempotent (`super::activity`). Either plane: what the
         // interval measures is the person, and a person reading a change on a
         // screen of its own is no less a person than one reading a band.
-        if self.asking() {
+        if self.modal() {
             self.activity.freeze(now);
         } else {
             self.activity.thaw(now);
@@ -1791,11 +1998,22 @@ impl Shell {
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
-            // The panel has the focus while it is up, and this is the whole of
-            // what that means: nothing below runs, so a `1` cannot be typed
-            // into the composer and a Ctrl-D cannot leave a session with a turn
-            // waiting on an answer. On either plane: the focus belongs to the
-            // question, not to the surface it happens to be asked on.
+            // Whatever is in front of the user has the focus while it is up,
+            // and this is the whole of what that means: nothing below runs, so
+            // a `1` cannot be typed into the composer and a Ctrl-D cannot leave
+            // a session with a turn waiting on an answer. On either plane, and
+            // for either kind of question: the focus belongs to what is being
+            // asked, not to the surface it happens to be asked on.
+            //
+            // The model's own question batch is read first only because it has
+            // to be read somewhere -- the two can never both be up
+            // ([`Self::slot`]) -- and the keys mean different things at each, so
+            // the two branches stay separate rather than sharing one
+            // translation.
+            if self.ask.is_some() {
+                self.answer(event, now);
+                continue;
+            }
             if self.asking() {
                 self.decide(event, now);
                 continue;
@@ -2775,6 +2993,7 @@ impl Shell {
         // shows fewer matches.
         let panel = match self.slot() {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
+            Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(cols, rows),
             None => 0,
         };
@@ -2898,6 +3117,8 @@ mod tests {
     use super::super::edit_history::DeltaKind;
     use super::super::gesture::EXIT_WINDOW;
     use super::super::pacer::{MAX_CPS, MIN_CPS};
+    use super::super::question::QuestionId;
+    use crate::tools::question::{QuestionEntry, QuestionOption};
 
     /// The loop's own tick, in milliseconds (`super::super::event_loop::TICK`),
     /// which is how often a real session gives the pacer its clock.
@@ -6061,6 +6282,403 @@ mod tests {
         assert!(
             shell.sent.try_recv().is_err(),
             "the answer was sent as work rather than as control"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the model's own questions (`ask_user_question`)
+    // -----------------------------------------------------------------------
+
+    /// One choice, in the shape `crate::tools::question::parse` produces: the
+    /// text is already terminal-safe encoded, and no freeform slot is in it --
+    /// the panel appends that itself.
+    fn choice(label: &str, description: Option<&str>) -> QuestionOption {
+        QuestionOption {
+            label: label.to_string(),
+            description: description.map(str::to_string),
+        }
+    }
+
+    /// A batch of two questions, named so the answers are predictable.
+    fn a_batch() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(1),
+            entries: vec![
+                QuestionEntry {
+                    question: "Which depth?".to_string(),
+                    options: vec![
+                        choice("Thorough", Some("reads every file")),
+                        choice("Quick", None),
+                    ],
+                },
+                QuestionEntry {
+                    question: "Ship it?".to_string(),
+                    options: vec![choice("Yes", None), choice("No", None)],
+                },
+            ],
+        }
+    }
+
+    /// One question with the six choices the tool admits at most, which is seven
+    /// rows once the freeform slot is appended -- more than a short screen has.
+    fn six_option_batch() -> QuestionRequest {
+        QuestionRequest {
+            id: QuestionId(2),
+            entries: vec![QuestionEntry {
+                question: "Which file?".to_string(),
+                options: (1..=6)
+                    .map(|index| choice(&format!("file{index}.rs"), None))
+                    .collect(),
+            }],
+        }
+    }
+
+    /// A shell with a turn running and a question batch in front of the user.
+    ///
+    /// The document is deliberately **not** drained here: a batch the screen
+    /// cannot show says so in the document, and a fixture that swallowed the
+    /// pending rows would leave that case asserting against an empty vector.
+    fn asking_question(fixture: &mut Fixture, request: QuestionRequest) -> Instant {
+        let started = turn_running(fixture, b"ask me\r");
+        fixture.apply(UiEvent::Question(request));
+        fixture.settle_band(started);
+        started
+    }
+
+    #[test]
+    fn a_question_takes_the_band_and_the_focus() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("1. Thorough")));
+        fixture.route_bytes(b"1");
+        assert!(
+            fixture.editor.is_empty(),
+            "a digit answered rather than typing"
+        );
+    }
+
+    #[test]
+    fn the_answers_reach_the_runtime_in_order_under_the_request_id() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"2");
+        match fixture.control.try_recv().expect("an answer was sent") {
+            TurnControl::QuestionAnswer { id, answers } => {
+                assert_eq!(id, QuestionId(1));
+                assert_eq!(answers, vec!["Thorough".to_string(), "No".to_string()]);
+            }
+            other => panic!("got {other:?}"),
+        }
+        assert!(
+            fixture
+                .band_rows()
+                .iter()
+                .all(|row| !row.contains("1. Thorough")),
+            "the panel came down before the answer went out"
+        );
+    }
+
+    #[test]
+    fn a_partly_answered_batch_says_nothing_to_the_runtime_yet() {
+        // One tool call, one answer document. A message per question would make
+        // the requester's first read an answer to a batch that is still being
+        // filled in -- and the model would be handed one answer for two
+        // questions (`crate::tools::question::encode_answers` refuses that pair).
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "the first answer went out on its own"
+        );
+        assert!(
+            fixture.band_rows().iter().any(|row| row.contains("2 of 2")),
+            "the batch did not move to its second question: {:?}",
+            fixture.band_rows()
+        );
+    }
+
+    #[test]
+    fn escape_at_a_question_cancels_the_batch_and_arms_nothing_else() {
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        // A lone `ESC` is the Escape key only once it has gone quiet, which is
+        // the decoder's own timeout and the settle is what resolves it
+        // (`escape_at_a_question_refuses_it_rather_than_arming_the_clear`).
+        fixture.route_bytes(&[0x1b]);
+        fixture.settle_input(Instant::now() + Duration::from_millis(100));
+        assert!(matches!(
+            fixture.control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { id: QuestionId(1) })
+        ));
+        assert!(
+            fixture.control.try_recv().is_err(),
+            "Escape is not also a clear"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else() {
+        // **One message, and it is the turn's.** Ctrl-C means "stop the work"
+        // here as everywhere else on this surface; the requester parked on this
+        // channel reads the interrupt as its question being over, answers the
+        // tool with the cancellation sentinel and hands the interrupt back to
+        // the loop (`super::question::TuiQuestioner`).
+        //
+        // A `QuestionCancelled` in front of it is what this used to send, and it
+        // is a real regression rather than a redundancy: the requester answers
+        // on the first message it recognises and returns, so the calls behind
+        // the question ran -- files written, another model request spent -- while
+        // the interrupt was still sitting in the channel unread
+        // (`super::worker`'s
+        // `a_ctrl_c_at_a_question_stops_the_turn_before_any_later_call_or_request`).
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        let accepted = fixture.work.accepted();
+
+        fixture.route_bytes(&[0x03]);
+
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "the turn was left running after the user asked everything to stop"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "a second message: the batch was answered or refused as well as interrupted"
+        );
+        assert!(
+            !fixture.band_rows().join("\n").contains("Which depth?"),
+            "the question stayed up"
+        );
+    }
+
+    #[test]
+    fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half() {
+        let mut fixture = shell(6, 20);
+        asking_question(&mut fixture, a_batch());
+        assert!(matches!(
+            fixture.control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { .. })
+        ));
+        // `released`, not `document`: the notice is behind the pacer, which is
+        // how the existing too-small assertions read it (`shell.rs:5816`,
+        // `:6004`). Concatenated rather than compared row by row, because a
+        // twenty-column screen is exactly the one that wraps this sentence --
+        // and what the case is about is that the refusal was said, not where the
+        // wrap fell.
+        //
+        // **Its own sentence, not the approval panel's.** A question asks for no
+        // permission and refuses no change, so [`PANEL_TOO_SMALL`]'s wording
+        // would tell the user two things that did not happen -- and it is the
+        // wording rather than the row that a reader has to be able to trust.
+        assert_eq!(fixture.released().concat(), QUESTION_TOO_SMALL);
+        assert_ne!(
+            QUESTION_TOO_SMALL, PANEL_TOO_SMALL,
+            "the question borrowed the permission panel's refusal again"
+        );
+        assert_eq!(
+            fixture.geometry.panel, 0,
+            "the band kept rows for a question it refused"
+        );
+    }
+
+    #[test]
+    fn a_resize_that_shrinks_under_a_standing_question_keeps_the_selection_visible() {
+        let mut fixture = shell(24, 80);
+        let started = asking_question(&mut fixture, six_option_batch());
+        for _ in 0..6 {
+            fixture.route_bytes(b"\x1b[B");
+        }
+        assert!(matches!(fixture.resize(12, 60), Resize::Repaint(_)));
+        fixture.settle_band(started);
+        assert!(
+            fixture
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("7. Other")),
+            "the marked choice survived the shrink: {:?}",
+            fixture.band_rows()
+        );
+        assert!(
+            fixture.control.try_recv().is_err(),
+            "a resize is not an answer"
+        );
+    }
+
+    #[test]
+    fn a_question_dismisses_the_menu_and_leaves_the_approval_panel_alone() {
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        // A menu really open, so the dismissal is a fact rather than a vacuous
+        // `None`: the two share the band's slot and only one of them has the
+        // focus, so a menu left behind a question is one whose keys the question
+        // is swallowing.
+        fixture.route_bytes(b"/mo");
+        assert!(fixture.picker.is_some(), "the menu never opened");
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started);
+
+        assert!(fixture.picker.is_none() && fixture.panel.is_none());
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("Which depth?")));
+    }
+
+    #[test]
+    fn a_question_leaves_the_draft_and_the_caret_exactly_where_they_were() {
+        // The composer is not what has the focus, and it is not what is being
+        // answered: every keystroke of the batch -- ordinals, freeform text, the
+        // Backspace inside it -- goes to the question, and the draft the user
+        // was writing is still theirs when the band comes back.
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        fixture.route_bytes(b"half a thought");
+        fixture.route_bytes(&[0x1b, 0x5b, 0x44]); // Left, so the caret is not at the end
+        let caret = fixture.cursor();
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started);
+        // A digit, then the freeform slot, then text and an editing key inside
+        // it: everything that could reach a composer if the focus leaked.
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"3");
+        fixture.route_bytes("typed".as_bytes());
+        fixture.route_bytes(&[0x7f]); // Backspace
+        assert_eq!(
+            fixture.editor.text(),
+            "half a thought",
+            "the question typed into the composer"
+        );
+
+        fixture.route_bytes(&[0x0d]); // Enter: the draft answers the second question
+        assert!(matches!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer { .. })
+        ));
+        assert_eq!(
+            fixture.editor.text(),
+            "half a thought",
+            "the draft did not survive the batch"
+        );
+        assert_eq!(
+            fixture.cursor(),
+            caret,
+            "the caret came back somewhere else in the draft"
+        );
+    }
+
+    #[test]
+    fn the_freeform_answer_is_the_text_that_was_typed_at_the_question() {
+        // The other half of the same seam: the keystrokes really did build an
+        // answer, so the case above is not passing because they went nowhere.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3"); // the freeform slot of the first question
+        fixture.route_bytes("네—ok".as_bytes());
+        fixture.route_bytes(&[0x0d]); // Enter takes the draft
+        fixture.route_bytes(b"1"); // and an ordinal ends the batch
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["네—ok".to_string(), "Yes".to_string()],
+            })
+        );
+    }
+
+    #[test]
+    fn the_caret_sits_on_the_marked_choice_and_moves_into_the_draft_with_it() {
+        // Where the caret is *is* what the terminal says the focus is, and at a
+        // question it says two different things: on a choice, that a digit takes
+        // one; in the draft, that a digit is a character.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert_eq!(fixture.marked(), "> 1. Thorough - reads every file");
+        fixture.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
+        assert_eq!(fixture.marked(), "> 2. Quick");
+        assert_eq!(fixture.controlled(), None, "moving the marker answered");
+
+        fixture.route_bytes(b"\t"); // Tab is the *batch's* cycle, not the choices'
+        assert!(fixture
+            .band_rows()
+            .iter()
+            .any(|row| row.contains("Ship it?")));
+        assert_eq!(fixture.controlled(), None, "Tab answered");
+
+        fixture.route_bytes(b"\t"); // back to the first question, marker kept
+        fixture.route_bytes(b"3"); // the freeform slot
+        let (row, column) = fixture.cursor();
+        assert_eq!(
+            row,
+            fixture.geometry.divider - 1,
+            "the caret is not on the draft row"
+        );
+        fixture.route_bytes("ab".as_bytes());
+        assert_eq!(
+            fixture.cursor(),
+            (row, column + 2),
+            "the caret did not follow what was typed into the draft"
+        );
+    }
+
+    #[test]
+    fn the_turns_clock_stops_while_a_model_question_is_up_too() {
+        // The frozen clock is about *a person being asked something*, not about
+        // which kind of question it was: a turn that spent four minutes waiting
+        // for someone to choose a depth did not spend four minutes thinking.
+        let mut fixture = shell(24, 80);
+        let started = turn_running(&mut fixture, b"ask me\r");
+        fixture.settle_band(started + Duration::from_secs(2));
+        let before = fixture.activity_row.clone().expect("a running turn");
+        assert!(before.contains("2s"), "{before:?}");
+
+        fixture.apply(UiEvent::Question(a_batch()));
+        fixture.settle_band(started + Duration::from_secs(2));
+        fixture.settle_band(started + Duration::from_secs(30));
+        assert_eq!(
+            fixture.activity_row.as_deref(),
+            Some(before.as_str()),
+            "the clock ran while xfx was waiting for the user"
+        );
+
+        fixture.route_bytes(b"1");
+        fixture.route_bytes(b"1");
+        fixture.settle_band(started + Duration::from_secs(30));
+        fixture.settle_band(started + Duration::from_secs(33));
+        let after = fixture.activity_row.clone().expect("the turn goes on");
+        assert!(
+            after.contains("5s"),
+            "the turn was charged for the time it spent waiting for a person: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_question_the_band_can_show_does_not_touch_the_other_plane() {
+        // The batch is a band occupant and nothing else: it takes no screen, so
+        // nothing has to be given back when it is answered. A question that
+        // moved the owner would leave the session composing frames for a plane
+        // the loop never entered.
+        let mut fixture = shell(24, 80);
+        asking_question(&mut fixture, a_batch());
+        assert_eq!(fixture.screen_owner(), ScreenOwner::Primary);
+        assert!(fixture.screen_rows().is_empty());
+        assert!(
+            fixture.geometry.panel > 0,
+            "the band gave the question no rows"
+        );
+        assert_eq!(
+            fixture.band_rows().len(),
+            usize::from(fixture.geometry.band_rows()),
+            "the band painted a different number of rows than it solved for"
         );
     }
 

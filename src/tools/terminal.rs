@@ -107,12 +107,14 @@ pub const TERMINAL: ToolSpec = ToolSpec::new(
                 kind: PropertyKind::String,
                 description: "The only supported action is exec: run one command and capture its result.",
                 allowed: &[EXEC_ACTION],
+                array: None,
             },
             Property {
                 name: "command",
                 kind: PropertyKind::String,
                 description: "The command to run, as one line.",
                 allowed: &[],
+                array: None,
             },
             Property {
                 name: "cwd",
@@ -120,6 +122,7 @@ pub const TERMINAL: ToolSpec = ToolSpec::new(
                 description:
                     "Directory to run in, inside an authorized root. Defaults to the workspace root.",
                 allowed: &[],
+                array: None,
             },
         ],
         required: &["action", "command"],

@@ -188,6 +188,75 @@ fn the_read_tools_come_first_in_upstream_order_and_the_set_stays_closed() {
     assert_eq!(ADVERTISED_TOOLS, names);
 }
 
+/// Asserts `property` (named `name`, inside `schema`, shown whole on failure)
+/// is either a bounded scalar or a bounded array of closed objects, and
+/// recurses into an array's item properties so nesting is checked all the
+/// way down (`ask_user_question`'s `questions[].options[]` is two levels).
+fn assert_bounded_property(schema: &Value, name: &str, property: &Value) {
+    assert!(
+        property["description"]
+            .as_str()
+            .is_some_and(|d| !d.is_empty()),
+        "`{name}` in {schema} has no description"
+    );
+    match property["type"].as_str() {
+        Some("string" | "integer" | "boolean") => {}
+        Some("array") => assert_bounded_array_of_closed_objects(schema, name, property),
+        other => panic!("`{name}` in {schema} has an unbounded type: {other:?}"),
+    }
+}
+
+/// Asserts `property` is a JSON-Schema array with a finite, positive,
+/// well-ordered size bound (`minItems <= maxItems`, `maxItems > 0`) whose
+/// items are a closed, non-empty object -- then recurses into that object's
+/// own properties with the same rule.
+fn assert_bounded_array_of_closed_objects(schema: &Value, name: &str, property: &Value) {
+    let min_items = property["minItems"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("`{name}` in {schema} has no integer minItems"));
+    let max_items = property["maxItems"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("`{name}` in {schema} has no finite integer maxItems"));
+    assert!(
+        max_items > 0,
+        "`{name}` in {schema} has a non-positive maxItems"
+    );
+    assert!(
+        min_items <= max_items,
+        "`{name}` in {schema} has minItems ({min_items}) > maxItems ({max_items})"
+    );
+
+    let items = &property["items"];
+    assert_eq!(
+        items["type"], "object",
+        "`{name}` in {schema} has array items that are not an object"
+    );
+    // Closed for the same reason the top-level schema is: an item field the
+    // model invents should be reported, not silently accepted.
+    assert_eq!(
+        items["additionalProperties"],
+        json!(false),
+        "`{name}` in {schema} has array items that are not closed"
+    );
+    let item_properties = items["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("`{name}` in {schema} has array items with no properties"));
+    assert!(
+        !item_properties.is_empty(),
+        "`{name}` in {schema} has array items with no properties"
+    );
+    for (item_name, item_property) in item_properties {
+        assert_bounded_property(schema, item_name, item_property);
+    }
+    for required in items["required"].as_array().unwrap_or(&Vec::new()) {
+        let required_name = required.as_str().expect("a required name is a string");
+        assert!(
+            item_properties.contains_key(required_name),
+            "`{required_name}` is required by `{name}`'s items in {schema} but is not a property"
+        );
+    }
+}
+
 #[test]
 fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
     let advertisement = Registry::builtin().advertisement();
@@ -212,19 +281,7 @@ fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
             .unwrap_or_else(|| panic!("{schema} has no properties"));
         assert!(!properties.is_empty(), "{schema}");
         for (name, property) in properties {
-            assert!(
-                matches!(
-                    property["type"].as_str(),
-                    Some("string" | "integer" | "boolean")
-                ),
-                "`{name}` in {schema} has an unbounded type"
-            );
-            assert!(
-                property["description"]
-                    .as_str()
-                    .is_some_and(|d| !d.is_empty()),
-                "`{name}` in {schema} has no description"
-            );
+            assert_bounded_property(schema, name, property);
         }
         for required in input["required"].as_array().unwrap_or(&Vec::new()) {
             let name = required.as_str().expect("a required name is a string");
@@ -234,6 +291,33 @@ fn the_advertisement_carries_one_closed_schema_per_tool_in_registry_order() {
             );
         }
     }
+
+    // Explicit ninth-schema assertion: `ask_user_question`'s bounds and
+    // required labels, not just "some bound exists" (the loop above already
+    // proved that generically).
+    let ask_user_question = advertisement
+        .iter()
+        .find(|schema| schema["name"] == "ask_user_question")
+        .expect("`ask_user_question` is advertised");
+    assert_eq!(
+        ask_user_question["inputSchema"]["required"],
+        json!(["questions"]),
+        "{ask_user_question}"
+    );
+    let questions = &ask_user_question["inputSchema"]["properties"]["questions"];
+    assert_eq!(questions["minItems"], json!(1), "{questions}");
+    assert_eq!(questions["maxItems"], json!(4), "{questions}");
+    let question_item = &questions["items"];
+    assert_eq!(
+        question_item["required"],
+        json!(["question", "options"]),
+        "{question_item}"
+    );
+    let options = &question_item["properties"]["options"];
+    assert_eq!(options["minItems"], json!(2), "{options}");
+    assert_eq!(options["maxItems"], json!(6), "{options}");
+    let option_item = &options["items"];
+    assert_eq!(option_item["required"], json!(["label"]), "{option_item}");
 }
 
 #[test]
@@ -257,7 +341,6 @@ fn the_advertisement_names_no_deferred_tool() {
         "mcp_search_tools",
         "mcp_select_tool",
         "mcp_features",
-        "ask_user_question",
         "vision",
         "read_tool_result",
     ] {

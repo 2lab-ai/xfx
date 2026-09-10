@@ -3180,10 +3180,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // `Deny` and stopped there would leave the interrupted turn running with the
     // queued prompt behind it -- which is what this file pinned before the fix.
     //
-    // The script carries two spare replies so the *broken* build fails on an
-    // assertion rather than on an unscripted 500: with the interrupt eaten, the
-    // queued prompt runs and takes the first of them.
+    // **The interrupted turn spends no further model request**, which is why
+    // the script's own closing reply is dropped here: the refusal reaches the
+    // step's cancellation boundary (`crate::agent::machine`'s
+    // `execute_tool_calls`) and the turn ends there rather than sending the
+    // tool result and asking for one more completion. Left in place, that reply
+    // would be taken by the *next* prompt and this case would be measuring the
+    // script rather than the interrupt.
+    //
+    // The two spare replies stay so that a build which ran on regardless fails
+    // on an assertion rather than on an unscripted 500.
     let mut script = support::sandbox::edit_then_finish();
+    script.pop().expect("the closing reply");
     for _ in 0..2 {
         script.push(support::fake_gateway::Reply::Sse(
             support::fake_gateway::content_only(&["AFTER-THE-INTERRUPT"]),
@@ -3268,9 +3276,18 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
             .any(|body| body.contains("after the interrupt")),
         "the prompt typed after the interrupt was eaten as well: {asked:?}"
     );
-    // (b) again, from the other side: the interrupted turn never reached its
-    // own conclusion. Settled rather than snapshotted, because this is a claim
-    // about something that must *never* appear.
+    // (b) again, from the other side, and counted rather than described: three
+    // requests reached the provider -- the prompt, its tool continuation, and
+    // the prompt typed after the interrupt. A fourth would be the interrupted
+    // turn carrying on past the refusal to ask for one more completion, which is
+    // the break the step's cancellation boundary exists to close.
+    assert_eq!(
+        asked.len(),
+        3,
+        "the interrupted turn spent a further model request: {asked:?}"
+    );
+    // And it never reached its own conclusion. Settled rather than snapshotted,
+    // because this is a claim about something that must *never* appear.
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
