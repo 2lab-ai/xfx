@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::gateway::CancelToken;
-use crate::permission::{CommandPlan, CommandRoute, PolicyDecision, ProposedAction};
+use crate::permission::{CommandPlan, CommandRoute, Decided, PolicyDecision, ProposedAction};
 
 use super::spec::{
     nonblank, object, optional_string, required_string, InputSchema, PermissionKind, Property,
@@ -186,33 +186,42 @@ fn execute_terminal(input: &ToolInput, context: &ToolContext) -> ToolResult {
     };
 
     // The guard is released by the end of this statement; minting takes the
-    // same lock.
-    let decision = context.permissions().decide(ProposedAction::Command(&plan));
+    // same lock. `feedback` is what the user said while answering, owned by
+    // this call and carried by whichever result it returns -- including the
+    // ones that fail after the decision.
+    let Decided { decision, feedback } = context
+        .permissions()
+        .decide_with_feedback(ProposedAction::Command(&plan));
     let source = match decision {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
             return ToolResult::failure(format!("terminal did not run the command: {reason}"))
+                .with_feedback(feedback)
         }
         PolicyDecision::Prompt => {
             return ToolResult::failure(
                 "terminal did not run the command: the approval was never resolved",
             )
+            .with_feedback(feedback)
         }
     };
 
+    // The plan that was judged, unchanged: a sentence is not an argument.
     let authority = context.permissions().mint_command(plan, source);
     // Spent before it is used, so a failure cannot be retried on the same
     // approval.
     if let Err(err) = context.permissions().consume(&authority) {
-        return ToolResult::revoked(format!("terminal could not use its authority: {err}"));
+        return ToolResult::revoked(format!("terminal could not use its authority: {err}"))
+            .with_feedback(feedback);
     }
     let plan = authority
         .command()
         .expect("a command authority carries a command plan");
 
     match run(plan, context) {
-        Ok(outcome) => outcome.into_result(plan),
-        Err(reason) => ToolResult::failure(format!("terminal could not run the command: {reason}")),
+        Ok(outcome) => outcome.into_result(plan).with_feedback(feedback),
+        Err(reason) => ToolResult::failure(format!("terminal could not run the command: {reason}"))
+            .with_feedback(feedback),
     }
 }
 

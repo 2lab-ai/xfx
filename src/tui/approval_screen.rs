@@ -46,7 +46,8 @@
 
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 
-use super::approval::{self, Action, Composition};
+use super::approval::{self, Action, Composition, Reply};
+use super::approval_amendment::Drafts;
 use super::approval_readiness::Disclosure;
 use super::frame::clip;
 
@@ -66,14 +67,15 @@ const MARKER: &str = "> ";
 /// in order to explain why the change could not be approved.
 const STATUS_ROWS: usize = 2;
 
-/// Which row of the choices block the last control is on.
+/// How many rows of the choices block come before the first answer.
 ///
-/// The block opens with a blank row, so the three answers are rows one, two and
-/// three of it -- and the last of them is the row a readiness disclosure reports
-/// ([`super::approval_readiness::Disclosure::last_control_row`]). Named rather
-/// than written as `3` at each of its three uses, because the three are the same
-/// fact about one layout.
-const CONTROL_ROWS: usize = 3;
+/// One: the blank row the block opens with. What used to be a constant `3` for
+/// "which row the last control is on" is no longer a constant at all -- an
+/// amendment draft is painted under the answer it belongs to, so the rows
+/// between the first answer and the last are a function of what the user has
+/// typed. [`Choices`] reports the indices instead, from the one construction
+/// that placed them.
+const CHOICES_OPEN: usize = 1;
 
 /// How many rows of the summary the screen shows.
 ///
@@ -221,6 +223,13 @@ pub(crate) struct ApprovalScreen {
     /// a screen carrying a notice is a *different* screen, which is exactly what
     /// a readiness receipt should be about.
     status: Option<String>,
+    /// The two amendments this question may carry.
+    ///
+    /// **Both surfaces get drafts**, from the same module and with the same
+    /// keys: which surface a question landed on is a fact about how big the
+    /// change was, and a user should not lose the ability to say something
+    /// because the diff was long ([`super::approval_amendment`]).
+    drafts: Drafts,
 }
 
 /// One composed screen: its rows, and the row the caret belongs on.
@@ -233,6 +242,11 @@ struct Composed {
     rows: Vec<String>,
     /// The caret's row, one-based, as the terminal counts.
     caret: u16,
+    /// The cells to the left of the caret on that row.
+    ///
+    /// Nought on an answer row -- the marker is the answer to "which one" --
+    /// and past the draft's indent while an amendment has the keys.
+    caret_column: u16,
     /// How many rows of the change the viewport is showing.
     viewport: usize,
     /// What this composition really put in front of the user, decided **here**
@@ -251,7 +265,35 @@ impl ApprovalScreen {
             // pressed without reading grants one call rather than the session.
             selected: 0,
             status: None,
+            drafts: Drafts::default(),
         }
+    }
+
+    /// Whether an amendment has the keys.
+    pub(crate) fn drafting(&self) -> bool {
+        self.drafts.editing()
+    }
+
+    /// What the screen owes the user about their last keystroke, taken once.
+    pub(crate) fn take_notice(&mut self) -> Option<&'static str> {
+        self.drafts.take_notice()
+    }
+
+    /// The amendment this answer carries, and the disposal of the other draft.
+    ///
+    /// The band panel's rule on this plane too
+    /// (`super::approval::Panel::take_feedback`): called after the readiness
+    /// gate, so a refused affirmative leaves the drafts as the user typed them.
+    pub(crate) fn take_feedback(
+        &mut self,
+        answer: ApprovalAnswer,
+        amendable: bool,
+    ) -> Option<String> {
+        if !amendable {
+            self.drafts.discard();
+            return None;
+        }
+        self.drafts.submit(answer)
     }
 
     /// Puts a sentence about the last keystroke on this plane's status line.
@@ -268,8 +310,8 @@ impl ApprovalScreen {
     /// Routed through the same function the band's panel answers with
     /// (`super::approval::answered`), so "which key means which answer" is one
     /// fact on both surfaces rather than two that can drift.
-    pub(crate) fn apply(&mut self, action: Action) -> Option<ApprovalAnswer> {
-        approval::answered(action, &mut self.selected)
+    pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Reply {
+        approval::answered(action, &mut self.selected, &mut self.drafts, cols)
     }
 
     /// Moves the viewport `delta` rows, bounded by what there is to show.
@@ -320,7 +362,8 @@ impl ApprovalScreen {
     /// the terminal says the next keystroke goes to, and this screen has the
     /// focus while it is up.
     pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> (u16, u16) {
-        (self.compose(cols, terminal_rows).caret, 0)
+        let composed = self.compose(cols, terminal_rows);
+        (composed.caret, composed.caret_column)
     }
 
     /// Whether this screen can put **all three** answers in front of the user
@@ -396,17 +439,42 @@ impl ApprovalScreen {
     /// and the change gets what is left -- so a screen too short for everything
     /// is a screen with less of the diff on it, never one with the choices
     /// below its last row.
-    fn choices(&self, cols: u16) -> Vec<String> {
+    fn choices(&self, cols: u16) -> Choices {
         let budget = cols.saturating_sub(INDENT_CELLS).max(1);
         let mut rows = vec![String::new()];
+        let blocks = self.drafts.blocks(approval::draft_cols(cols));
+        let mut last_control = CHOICES_OPEN;
+        let mut marked = CHOICES_OPEN;
+        let mut caret = None;
         for (index, label) in approval::labels(self.request.tool).iter().enumerate() {
             let marker = if index == self.selected {
                 MARKER
             } else {
                 INDENT
             };
+            last_control = rows.len();
+            if index == self.selected {
+                marked = rows.len();
+            }
             rows.push(format!("{marker}{label}"));
+            // The amendment under the answer it belongs to, and **after**
+            // `last_control` was taken: a draft is not a control, and counting
+            // it as one would make a readiness receipt claim a row the user
+            // typed was a row xfx disclosed.
+            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
+                continue;
+            };
+            if let Some((within, column)) = block.caret {
+                caret = Some((
+                    rows.len() + within.min(block.rows.len().saturating_sub(1)),
+                    INDENT_CELLS
+                        .saturating_add(column)
+                        .min(cols.saturating_sub(1)),
+                ));
+            }
+            rows.extend(block.rows.iter().map(|row| format!("{INDENT}{row}")));
         }
+        let scope_start = rows.len();
         // **Every row the scope needs.** Each one `crate::permission` builds
         // carries an unconditional suffix -- the resume-id of a saved session,
         // or the note that this turn is not being recorded -- so a real scope is
@@ -417,6 +485,7 @@ impl ApprovalScreen {
                 .into_iter()
                 .map(|row| format!("{INDENT}{row}")),
         );
+        let scope = scope_start..rows.len();
         // Last, so that a screen too short to hold everything loses the notice
         // before it loses the scope, and the scope before it loses an answer.
         if let Some(status) = self.status.as_ref() {
@@ -428,7 +497,13 @@ impl ApprovalScreen {
                     .map(|row| format!("{INDENT}{row}")),
             );
         }
-        rows
+        Choices {
+            rows,
+            last_control,
+            marked,
+            scope,
+            caret,
+        }
     }
 
     /// The change itself, as rows, before any window is taken of it.
@@ -468,17 +543,18 @@ impl ApprovalScreen {
         .len()
     }
 
-    /// How many rows what "always" would buy really wants.
-    fn scope_rows(&self, cols: u16) -> usize {
-        let budget = cols.saturating_sub(INDENT_CELLS).max(1);
-        safe_rows(&format!("2 = {}", self.request.always_scope), budget).len()
-    }
+    // What used to be `scope_rows` is gone with the amendment draft: the scope
+    // no longer sits at a fixed offset inside the choices block, so where it is
+    // and how many rows it takes are reported by the construction that placed
+    // it ([`Choices::scope`]) rather than re-derived by a second measurement
+    // that could disagree.
 
     /// One screen: the heading, as much of the change as fits, and the choices.
     fn compose(&self, cols: u16, terminal_rows: u16) -> Composed {
         let height = usize::from(terminal_rows);
         // The choices first, because they are the part that may not be dropped.
-        let mut choices = self.choices(cols);
+        let placed = self.choices(cols);
+        let mut choices = placed.rows;
         choices.truncate(height);
         let room = height - choices.len();
         let mut heading = self.heading(cols);
@@ -501,7 +577,7 @@ impl ApprovalScreen {
         // **Unclipped, not merely non-empty**: see [`Self::presents_choices`],
         // which asks the weaker question because it is answering a different
         // one.
-        let mut controls_whole = choices.len() > CONTROL_ROWS;
+        let mut controls_whole = choices.len() > placed.last_control;
         for (index, label) in approval::labels(self.request.tool).iter().enumerate() {
             let marker = if index == self.selected {
                 MARKER
@@ -513,11 +589,10 @@ impl ApprovalScreen {
         }
         // The always-scope: [`Self::choices`] emits every row of it, so the only
         // way to lose one is `choices.truncate` above -- a screen with no room.
-        // The rows sit directly after the three answers.
-        let scope_wanted = self.scope_rows(cols);
-        let scope_end = CONTROL_ROWS + 1 + scope_wanted;
-        let scope_whole = choices.len() >= scope_end
-            && choices[CONTROL_ROWS + 1..scope_end]
+        // **Where** it sits is the block's own report rather than a constant,
+        // because a draft under an answer moves it down.
+        let scope_whole = choices.len() >= placed.scope.end
+            && choices[placed.scope.clone()]
                 .iter()
                 .all(|row| uncut(row, cols));
 
@@ -535,12 +610,14 @@ impl ApprovalScreen {
                 .map(|row| format!("{INDENT}{row}")),
         );
         rows.resize(height - choices.len(), String::new());
-        // The first choice sits one row below the blank row the block opens
-        // with, and the caret is one-based.
-        let caret = u16::try_from(rows.len() + 2 + self.selected).unwrap_or(terminal_rows);
-        // The plane owns every row of the screen, so a row of the composition
-        // **is** a terminal row -- one-based, which is the only correction.
-        let last_control = rows.len() + CONTROL_ROWS;
+        // Inside the draft while one has the keys, on the marked answer
+        // otherwise -- and both are indices the block itself reported, so the
+        // caret and the paint are one reading of one layout. One-based, which
+        // is the only correction: the plane owns every row of the screen, so a
+        // row of the composition **is** a terminal row.
+        let (caret_row, caret_column) = placed.caret.unwrap_or((placed.marked, 0));
+        let caret = u16::try_from(rows.len() + caret_row + 1).unwrap_or(terminal_rows);
+        let last_control = rows.len() + placed.last_control;
         rows.extend(choices);
         let disclosure = Disclosure {
             last_control_row: u16::try_from(last_control + 1).unwrap_or(u16::MAX),
@@ -552,10 +629,31 @@ impl ApprovalScreen {
         Composed {
             rows: rows.iter().map(|row| clip(row, cols).to_string()).collect(),
             caret: caret.min(terminal_rows).max(1),
+            caret_column,
             viewport,
             disclosure,
         }
     }
+}
+
+/// The block of answers, and where the things a reader needs are inside it.
+///
+/// Indices rather than constants, because the drafts move them: an amendment is
+/// painted under the answer it belongs to, so "which row is the last control"
+/// and "which rows are the scope" stopped being arithmetic on `3` the moment a
+/// draft could sit between them. Reported by the **one** construction that
+/// placed the rows, for the reason `Composed` reports its own disclosure.
+struct Choices {
+    rows: Vec<String>,
+    /// The index of the last answer row -- never a draft row.
+    last_control: usize,
+    /// The index of the marked answer.
+    marked: usize,
+    /// The rows the always-scope occupies.
+    scope: std::ops::Range<usize>,
+    /// Where the caret goes while a draft has the keys: a row of
+    /// [`Self::rows`], and the cells to its left on that row.
+    caret: Option<(usize, u16)>,
 }
 
 #[cfg(test)]
@@ -654,10 +752,19 @@ mod tests {
             screen.rows(80, 24)[usize::from(row) - 1].clone()
         };
         assert_eq!(marked(&screen), "> 1. Yes");
-        assert_eq!(screen.apply(Action::Down), None);
+        assert_eq!(answered(screen.apply(Action::Down, 80)), None);
         assert!(marked(&screen).starts_with("> 2. Yes, and"));
-        assert_eq!(screen.apply(Action::Up), None);
+        assert_eq!(answered(screen.apply(Action::Up, 80)), None);
         assert_eq!(marked(&screen), "> 1. Yes");
+    }
+
+    /// The answer a key produced, for a case that is about the decision rather
+    /// than about the frame it owes (`super::super::approval::Reply`).
+    fn answered(reply: Reply) -> Option<ApprovalAnswer> {
+        match reply {
+            Reply::Answer { answer, .. } => Some(answer),
+            _ => None,
+        }
     }
 
     #[test]
@@ -673,9 +780,13 @@ mod tests {
             (Action::Cancel, ApprovalAnswer::Deny),
             (Action::Submit, ApprovalAnswer::Once),
         ] {
-            assert_eq!(screen().apply(action), Some(answer), "{action:?}");
+            assert_eq!(
+                answered(screen().apply(action, 80)),
+                Some(answer),
+                "{action:?}"
+            );
         }
-        assert_eq!(screen().apply(Action::Text('9')), None);
+        assert_eq!(answered(screen().apply(Action::Text('9'), 80)), None);
     }
 
     #[test]

@@ -535,6 +535,7 @@ fn fail(message: &str) -> ExitCode {
 
 mod activity;
 mod approval;
+mod approval_amendment;
 mod approval_readiness;
 mod approval_screen;
 mod bridge;

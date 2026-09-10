@@ -256,6 +256,25 @@ const CLEARED_NOTICE: &str = "xfx: cleared the screen; the conversation is kept"
 /// (`interactive.rs:461-463`).
 const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a fresh conversation";
 
+/// What labels the sentence a user attached to a permission decision.
+///
+/// **Its own label, beside `[tool]` and `[shell]` rather than one of them**,
+/// because it is a different kind of claim: those two rows are xfx reporting
+/// what it did, and this row is the user's own words being read back to them
+/// after they were delivered to the model. A sentence painted as `[tool] …`
+/// would read as the tool's account of what it did.
+pub(crate) const AMENDMENT_PREFIX: &str = "[you]";
+
+/// How much of an amendment the document row carries.
+///
+/// Longer than [`TOOL_DETAIL_BYTES`], because this one is a sentence a person
+/// wrote on purpose and the point of the row is that they can check it against
+/// what they meant; still bounded, because the draft behind it holds up to four
+/// kibibytes ([`super::approval_amendment::MAX_FEEDBACK_BYTES`]) and a
+/// transcript row is not where the whole of one belongs. The model gets the
+/// text whole either way -- this is a display of it, not the record.
+const AMENDMENT_BYTES: usize = 240;
+
 /// Erases the screen, its scrollback, and puts the cursor home.
 ///
 /// The same three sequences `/clear` writes on the line-oriented path
@@ -897,12 +916,13 @@ impl Shell {
         // menu exists.
         if self.geometry.panel > 0 {
             if let Some(panel) = self.panel.as_ref() {
-                return (
-                    self.geometry
-                        .panel_first()
-                        .saturating_add(panel.caret_row(self.geometry.cols, self.geometry.rows)),
-                    0,
-                );
+                // **Two places the caret can be**, exactly as a model's
+                // question has: on the marked choice, where a digit takes one,
+                // and inside an amendment draft, where a digit is a character
+                // ([`super::approval_amendment`]). One call answers both, from
+                // the one walk that placed the rows.
+                let (row, column) = panel.caret(self.geometry.cols, self.geometry.rows);
+                return (self.geometry.panel_first().saturating_add(row), column);
             }
             // A model's question has **two** places the caret can be, and they
             // are two different claims about the next keystroke: on the marked
@@ -1067,6 +1087,29 @@ impl Shell {
                 // turn, and a tool call is part of one.
                 self.activity.set(Work::Thinking);
                 self.say(line);
+            }
+            // What the user said about a decision, once the runtime has
+            // really delivered it (`crate::agent::machine`'s
+            // `flush_amendments`). A row rather than a hint, because it is part
+            // of the conversation rather than a fact about this keystroke --
+            // and it goes through [`Self::say`] like every other thing this
+            // session writes, so it takes its place in the stream behind
+            // whatever the pacer is still holding rather than overtaking the
+            // answer it belongs after.
+            //
+            // **Flattened here, and by the same function the tool detail two
+            // arms up uses.** `super::bridge::send_ui` already made every
+            // sequence the terminal would obey a space, but it deliberately
+            // keeps `\n`: a streamed answer's line breaks are rows the
+            // transcript exists to make. An amendment is not a stream, it is
+            // one sentence about one decision, and a draft can hold newlines
+            // (`C-j` at the panel, or a pasted paragraph) -- so the row it
+            // becomes is made one row here rather than left to the sender.
+            UiEvent::ToolFeedback { text, .. } => {
+                self.say(format!(
+                    "{AMENDMENT_PREFIX} {}",
+                    safe_one_line(&text, AMENDMENT_BYTES)
+                ));
             }
             UiEvent::Notice(text) => self.say(text),
             // The switch is **done** by the time this arrives: the file is
@@ -1269,6 +1312,9 @@ impl Shell {
             self.work.control(TurnControl::Answer {
                 id,
                 answer: ApprovalAnswer::Deny,
+                // Nobody was asked, so nobody said anything: the panel this
+                // refusal stands in for was never painted and has no draft.
+                feedback: None,
             });
             return;
         };
@@ -1463,6 +1509,46 @@ impl Shell {
             .ready(id, self.geometry.cols, self.geometry.rows)
     }
 
+    /// Whether an amendment draft has the keys, on whichever surface is up.
+    ///
+    /// One reading for both, because everything that consults it is about
+    /// *where the next character goes* rather than about which plane the
+    /// question happened to land on ([`super::approval_amendment`]).
+    fn drafting(&self) -> bool {
+        self.panel.as_ref().is_some_and(Panel::drafting)
+            || self
+                .alternate
+                .as_ref()
+                .is_some_and(ApprovalScreen::drafting)
+    }
+
+    /// Says whatever the standing question owes the user, on the plane they can
+    /// see.
+    ///
+    /// The same rule the readiness refusal follows and for the same reason:
+    /// while the review plane is up it owns every row of the terminal, so a
+    /// sentence written into the document is a sentence behind a screen nobody
+    /// can look past. The band's own hint row is where it goes otherwise --
+    /// which is where every other refused keystroke on this surface is
+    /// reported ([`Self::notice`]).
+    fn notice_at_the_question(&mut self) {
+        let notice = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.take_notice(),
+            (_, Some(screen)) => screen.take_notice(),
+            (None, None) => None,
+        };
+        let Some(notice) = notice else {
+            return;
+        };
+        match self.alternate.as_mut() {
+            Some(screen) => screen.set_status(notice.to_string()),
+            None => {
+                self.notice = Some(notice);
+                self.render.request(Reason::Footer);
+            }
+        }
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -1614,10 +1700,35 @@ impl Shell {
                 return;
             }
         }
+        // Whether an amendment has the keys, taken before anything is
+        // translated: it is what turns a `1` from an answer into a character
+        // and an editing key from nothing into an edit
+        // ([`super::approval_amendment`]).
+        let drafting = self.drafting();
         let action = match event {
             Input::Text(character) => approval::Action::Text(character),
             Input::Action(Action::Up) => approval::Action::Up,
             Input::Action(Action::Down) => approval::Action::Down,
+            // **`C-p` and `C-n` are the arrows here**, collapsed at the
+            // translation rather than given to the panel as two more keys
+            // (`input_approval_runtime.zig:127-141` maps `cursor_up` and
+            // `history_up` to one action).
+            //
+            // **A documented difference from that pin, on one surface.**
+            // Reached only with no review plane up: on the plane these two
+            // keys walk the change itself, and they are the only keys that do
+            // -- a bounded diff is up to 128 KiB
+            // (`crate::permission::ApprovalDiff`) and a screen is a few dozen
+            // rows, so a review surface with no way past its first screenful
+            // would be showing the head of a change and calling it the change.
+            // The arrows are unaffected on both surfaces: they move the choice
+            // and end editing everywhere, which is the property the pin exists
+            // for and which
+            // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
+            // asserts in all four spellings. Upstream has no second surface to
+            // scroll, so this is a retention rather than a divergence.
+            Input::Action(Action::HistoryPrevious) => approval::Action::Up,
+            Input::Action(Action::HistoryNext) => approval::Action::Down,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
             Input::Action(Action::Escape) => approval::Action::Escape,
@@ -1628,21 +1739,62 @@ impl Shell {
                 self.render.request(Reason::ExternalDamage);
                 return;
             }
+            // The draft's own keys, and **only while a draft has them**: with
+            // no amendment open these stay what they have always been at a
+            // question, which is swallowed. `Up` and `Down` are deliberately
+            // not in the subset ([`approval::edits`]) -- they move the choice
+            // and end editing, and routing them into the editor would take away
+            // the only way out of a draft.
+            Input::Action(editing) if drafting && approval::edits(editing) => {
+                approval::Action::Edit(editing)
+            }
+            // Content, to the **draft's** assembler and never the composer's:
+            // a modal surface that leaked paste bytes into the composer would
+            // leave text behind the panel that the user never sees and cannot
+            // delete. With no draft open they fall through to the swallow
+            // below, exactly as they did before amendments existed.
+            Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
             Input::Action(_) | Input::PasteByte(_) => return,
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
         // (`super::approval::answered`), so which plane a change happened to be
         // large enough for cannot change what a key means.
+        let cols = self.geometry.cols;
         let answered = match (self.panel.as_mut(), self.alternate.as_mut()) {
-            (Some(panel), _) => panel.apply(action),
-            (_, Some(screen)) => screen.apply(action),
+            (Some(panel), _) => panel.apply(action, cols),
+            (_, Some(screen)) => screen.apply(action, cols),
             (None, None) => return,
         };
-        let Some(answer) = answered else {
-            // The marker moved, which is a frame and nothing else.
-            self.render.request(Reason::Modal);
-            return;
+        // Said on whichever plane the user can see, and taken so it is said
+        // once ([`Self::notice_at_the_question`]).
+        self.notice_at_the_question();
+        let (answer, amendable) = match answered {
+            // The keystroke meant nothing here. No frame is owed for it: a
+            // repaint of an unchanged band is bytes that say nothing.
+            approval::Reply::Ignored => return,
+            approval::Reply::Moved => {
+                // The marker or a draft moved, which is a frame and nothing
+                // else: the panel is the same height, so the band's geometry
+                // and the receipt about it both still hold.
+                self.render.request(Reason::Modal);
+                return;
+            }
+            approval::Reply::Reshaped => {
+                // A draft opened, closed or grew, so the panel has a different
+                // number of rows: the band has to be re-solved, and the screen
+                // a receipt was about is no longer the screen the user is
+                // looking at. `invalidate` rather than `intend(None)` because it
+                // is the direct name for the effect -- both revoke the seen
+                // disclosure as well as the receipt
+                // ([`super::approval_readiness::Readiness::invalidate`]) -- and
+                // the next genuinely disclosed frame re-earns it.
+                self.invalidate_approval();
+                self.refit();
+                self.render.request(Reason::Modal);
+                return;
+            }
+            approval::Reply::Answer { answer, amendable } => (answer, amendable),
         };
         // **The gate, and only on the two answers that grant.** A `Deny`, an
         // Escape and a Ctrl-C stay answerable at every moment, ready or not:
@@ -1678,6 +1830,18 @@ impl Shell {
             self.render.request(Reason::Modal);
             return;
         }
+        // **Past the gate, and only past it.** The amendment is taken here
+        // rather than where the answer was produced, because a refused
+        // affirmative leaves the question standing -- and a draft consumed on
+        // the way to a refusal would be a sentence the user typed, cannot see
+        // any more, and never sent. Escape and the interrupt take nothing and
+        // drop both: `amendable` is what says which of the two refusals this is
+        // ([`approval::Reply`]).
+        let feedback = match (self.panel.as_mut(), self.alternate.as_mut()) {
+            (Some(panel), _) => panel.take_feedback(answer, amendable),
+            (_, Some(screen)) => screen.take_feedback(answer, amendable),
+            (None, None) => None,
+        };
         // The panel goes **before** anything is sent, so the band's next paint
         // is a band with no question in it whatever the runtime does next --
         // including asking a second question straight away. The screen goes back
@@ -1708,12 +1872,20 @@ impl Shell {
             // as well would be the *only* thing the runtime heard -- and the
             // turn this question belongs to, and whatever was queued behind it,
             // would go on running after the user asked everything to stop.
+            // **One message still**, and it carries no sentence: the drafts
+            // were dropped above, so an interrupt at a filled draft says
+            // nothing on either channel.
             approval::Action::Cancel => self.interrupt(now),
             // Esc and the rest are an answer about *this call* and nothing
-            // more: the turn goes on, and is told no.
+            // more: the turn goes on, and is told no -- with whatever the user
+            // said about it, which is context and never authority.
             _ => {
                 if let Some(id) = asked {
-                    self.work.control(TurnControl::Answer { id, answer });
+                    self.work.control(TurnControl::Answer {
+                        id,
+                        answer,
+                        feedback,
+                    });
                 }
             }
         }
@@ -5894,7 +6066,7 @@ mod tests {
             session
         };
         let mut session = session.with_prompter(Box::new(Recording(std::sync::Arc::clone(&asked))));
-        session.decide(ProposedAction::Mutation(&plan));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
         let mut asked = asked.lock().expect("lock");
         asked.remove(0)
     }
@@ -5943,7 +6115,8 @@ mod tests {
                     shell.controlled(),
                     Some(TurnControl::Answer {
                         id: ApprovalId(1),
-                        answer
+                        answer,
+                        feedback: None,
                     }),
                     "durable={durable}: a disclosed, committed and reconciled frame was refused"
                 );
@@ -6002,7 +6175,8 @@ mod tests {
             trapped,
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
             }),
             "a question that cannot be granted must still be refusable"
         );
@@ -6024,7 +6198,8 @@ mod tests {
             wide.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             }),
             "a screen with room for the whole request still refused it"
         );
@@ -6057,7 +6232,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             })
         );
     }
@@ -6084,7 +6260,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             })
         );
     }
@@ -6102,7 +6279,8 @@ mod tests {
                 shell.controlled(),
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
-                    answer: ApprovalAnswer::Deny
+                    answer: ApprovalAnswer::Deny,
+                    feedback: None,
                 }),
                 "{key:?} was gated"
             );
@@ -6140,7 +6318,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
             }),
             "a question that cannot be granted must still be refusable"
         );
@@ -6251,7 +6430,8 @@ mod tests {
                 shell.controlled(),
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
-                    answer
+                    answer,
+                    feedback: None,
                 }),
                 "typing {} did not answer the question",
                 typed as char
@@ -6273,8 +6453,21 @@ mod tests {
         let mut shell = shell(24, 80);
         asking(&mut shell);
 
-        shell.route_bytes(b"\t"); // the second choice
-        assert_eq!(shell.controlled(), None, "Tab answered instead of moving");
+        // **Down rather than Tab, and that is a changed coordinate rather than
+        // a loosened claim.** Tab stopped being a second spelling of Down when
+        // the amendment draft arrived: on a draft-eligible choice it opens that
+        // choice's draft (`super::super::approval_amendment`), and only on
+        // `Always` does it still cycle. Both halves of the new Tab are asserted
+        // at the same strength in
+        // `tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one`;
+        // what this case is about is that **Enter takes what the marker is on**,
+        // and the arrows are what move it.
+        shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, to the second choice
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an arrow answered instead of moving"
+        );
         shell.route_bytes(&[0x1b, 0x5b, 0x41]); // Up, back to the first
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down, forward again
         shell.route_bytes(&[0x0d]);
@@ -6283,7 +6476,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Always
+                answer: ApprovalAnswer::Always,
+                feedback: None,
             }),
             "Enter did not take the marked choice"
         );
@@ -6307,7 +6501,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
             })
         );
         assert!(!shell.hint().contains(ESCAPE_ARMED), "the clear was armed");
@@ -6381,7 +6576,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
             })
         );
         assert_eq!(shell.controlled(), None, "Esc cancelled the turn as well");
@@ -6480,7 +6676,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             })
         );
         assert_eq!(
@@ -6533,7 +6730,8 @@ mod tests {
                 shell.controlled(),
                 Some(TurnControl::Answer {
                     id: ApprovalId(1),
-                    answer
+                    answer,
+                    feedback: None,
                 }),
                 "{typed:?} did not answer a question the approval plane owns"
             );
@@ -6708,7 +6906,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             })
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
@@ -6791,7 +6990,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
             })
         );
         assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
@@ -6853,7 +7053,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             }),
             "the answer went nowhere"
         );
@@ -8267,7 +8468,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             }),
             "the keystroke that answers the question stopped reaching the runtime"
         );
@@ -8309,7 +8511,8 @@ mod tests {
             shell.controlled(),
             Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             }),
             "the decision no longer reaches the runtime"
         );
@@ -9644,5 +9847,489 @@ mod tests {
             "> ask me again",
             "the same line sent twice running became two entries"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the amendment draft, at the shell
+    // -----------------------------------------------------------------------
+
+    /// Types `text` at whatever has the focus, one decoded character at a time.
+    fn type_at_the_question(shell: &mut Fixture, text: &str) {
+        for character in text.chars() {
+            shell.decide(Input::Text(character), Instant::now());
+        }
+    }
+
+    /// A shell with a question up, a committed frame behind it, and the deny
+    /// draft open with `text` in it.
+    ///
+    /// Two Downs rather than a digit, because a digit answers: the marker walks
+    /// to `3. No` and Tab opens that side's amendment.
+    fn a_filled_deny_draft(shell: &mut Fixture, text: &str) {
+        asking(shell);
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(shell, text);
+    }
+
+    /// The rows of the band with the palette taken off, joined.
+    fn band(shell: &Fixture) -> String {
+        unwrapped(&shell.shell.band_rows())
+    }
+
+    #[test]
+    fn up_and_down_move_the_choice_whether_or_not_a_draft_is_open() {
+        // Four cases, because `input_approval_runtime.zig:127-141` maps
+        // `cursor_up`/`history_up` to one action and `cursor_down`/`history_down`
+        // to another **regardless of whether an amendment is open**. The shell
+        // collapses each pair at the translation rather than giving the panel
+        // four keys to keep in step -- and neither spelling may ever reach the
+        // editor, because they are the only way out of a draft.
+        for open in [false, true] {
+            for (up, down) in [
+                (Action::Up, Action::Down),
+                (Action::HistoryPrevious, Action::HistoryNext),
+            ] {
+                let mut shell = shell(24, 80);
+                asking(&mut shell);
+                if open {
+                    shell.decide(Input::Action(Action::Tab), Instant::now());
+                    type_at_the_question(&mut shell, "y");
+                }
+                shell.decide(Input::Action(down), Instant::now());
+                assert!(
+                    shell.marked().contains("2. Yes, and"),
+                    "open={open} {down:?}: the marker did not move: {:?}",
+                    shell.marked()
+                );
+                shell.decide(Input::Action(up), Instant::now());
+                assert!(
+                    shell.marked().contains("1. Yes"),
+                    "open={open} {up:?}: the marker did not come back: {:?}",
+                    shell.marked()
+                );
+                // And nothing of either key reached the draft: what was typed
+                // is still exactly what was typed.
+                if open {
+                    assert!(
+                        band(&shell).contains(" y "),
+                        "an arrow was routed into the editor: {:?}",
+                        band(&shell)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opening_a_draft_revokes_a_committed_readiness_receipt() {
+        // The screen that was proven is no longer the screen the user is
+        // looking at: the panel just grew a row. `invalidate` clears the
+        // previously-seen disclosure as well as the receipt
+        // (`super::super::approval_readiness::Readiness::invalidate`), and the
+        // next genuinely disclosed frame re-earns it -- which is the intended
+        // cost rather than a gap.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        assert!(
+            shell.approval_ready(ApprovalId(1)),
+            "the fixture never earned a receipt, so this case proves nothing"
+        );
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        assert!(
+            !shell.approval_ready(ApprovalId(1)),
+            "a draft opened on top of a proven screen and the receipt survived"
+        );
+
+        // The affirmative is refused until it is re-earned, and **the draft is
+        // untouched by the refusal**: the question is still up and the sentence
+        // is still the user's.
+        type_at_the_question(&mut shell, "only the one file");
+        // Enter rather than `1`: with a draft open a digit is a character
+        // (`digits_typed_into_a_draft_are_characters_and_digits_outside_one_are_answers`),
+        // and Submit is the affirmative that is still an affirmative there.
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "an affirmative was taken on a screen no frame had disclosed"
+        );
+        assert!(
+            band(&shell).contains("only the one file"),
+            "the refused keystroke took the draft with it: {:?}",
+            band(&shell)
+        );
+
+        // Re-earned, and now the same key answers -- carrying the sentence.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("only the one file".to_string()),
+            }),
+            "the re-earned frame did not let the amended answer through"
+        );
+    }
+
+    #[test]
+    fn escape_at_a_filled_deny_draft_refuses_without_the_sentence_but_enter_sends_it() {
+        // The pair, on the wire, in one case so it cannot drift. Same draft
+        // text, two exits.
+        let mut escaped = shell(24, 80);
+        a_filled_deny_draft(&mut escaped, "never touch the fixtures");
+        escaped.decide(Input::Action(Action::Escape), Instant::now());
+        assert_eq!(
+            escaped.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            }),
+            "a user who bailed out of the panel was made to say the sentence in it"
+        );
+
+        let mut submitted = shell(24, 80);
+        a_filled_deny_draft(&mut submitted, "never touch the fixtures");
+        submitted.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            submitted.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: Some("never touch the fixtures".to_string()),
+            }),
+            "a chosen refusal did not carry its reason"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_a_draft_stops_the_turn_and_sends_no_feedback() {
+        // One message, both meanings, and the sentence in neither. The prompter
+        // turns the cancellation into the refusal on the far side
+        // (`super::super::approval::TuiPrompter`), so an `Answer` sent here as
+        // well would be the only thing the runtime heard -- and the turn would
+        // go on running after the user asked everything to stop.
+        let mut shell = shell(24, 80);
+        a_filled_deny_draft(&mut shell, "stop, this is wrong");
+        shell.decide(Input::Action(Action::Cancel), Instant::now());
+
+        let mut said = Vec::new();
+        while let Some(control) = shell.controlled() {
+            said.push(control);
+        }
+        assert!(
+            said.iter()
+                .all(|control| !matches!(control, TurnControl::Answer { .. })),
+            "the interrupt sent a second message the prompter would read as an answer: {said:?}"
+        );
+        assert!(
+            said.iter()
+                .any(|control| matches!(control, TurnControl::Cancel { .. })),
+            "the interrupt did not stop the turn the question belonged to: {said:?}"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_draft_does_not_reach_the_next_request() {
+        // The leak test. Both drafts are dropped with the question, so the
+        // second question is asked at a panel with nothing in it -- and an
+        // answer to it carries nothing.
+        let mut shell = shell(24, 80);
+        a_filled_deny_draft(&mut shell, "stop, this is wrong");
+        shell.decide(Input::Action(Action::Cancel), Instant::now());
+        while shell.controlled().is_some() {}
+
+        let started = turn_running(&mut shell, b"edit the notes again\r");
+        shell.apply(UiEvent::Approval(super::super::approval::ApprovalAsked {
+            id: ApprovalId(2),
+            request: asked(),
+        }));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        assert!(
+            !band(&shell).contains("stop, this is wrong"),
+            "the cancelled draft is still painted at the next question: {:?}",
+            band(&shell)
+        );
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(2),
+                answer: ApprovalAnswer::Once,
+                feedback: None,
+            }),
+            "one question's sentence was handed to the next one"
+        );
+    }
+
+    #[test]
+    fn no_panel_key_reaches_the_composer_and_no_composer_edit_reaches_a_closed_panel() {
+        // Both directions. A modal surface that leaked paste bytes into the
+        // composer would leave text behind the panel that the user never sees
+        // and cannot delete; a composer whose keys reached a closed panel would
+        // be answering a question nobody is being asked.
+        let mut shell = shell(24, 80);
+        // The composer is filled **after** the turn is submitted and before the
+        // question arrives: `asking` submits whatever the composer holds, so a
+        // draft typed in front of it would be the prompt rather than the text
+        // this case is about.
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"a draft the composer already had");
+        let before = shell.shell.editor.text().to_string();
+        assert!(!before.is_empty(), "the composer fixture is empty");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for byte in b"pasted at the panel" {
+            shell.decide(Input::PasteByte(*byte), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        type_at_the_question(&mut shell, " and typed");
+
+        assert_eq!(
+            shell.shell.editor.text(),
+            before,
+            "a keystroke at the panel reached the composer"
+        );
+        assert!(
+            band(&shell).contains("pasted at the panel and typed"),
+            "the paste did not reach the draft it was typed at: {:?}",
+            band(&shell)
+        );
+
+        // The other direction: with the question answered, the panel is gone
+        // and the same keys are the composer's again.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        let _ = shell.controlled();
+        shell.consume(vec![Input::Text('!')], Instant::now());
+        assert_eq!(
+            shell.shell.editor.text(),
+            format!("{before}!"),
+            "a composer keystroke was swallowed by a question that has gone"
+        );
+    }
+
+    #[test]
+    fn an_oversized_paste_at_a_draft_is_refused_atomically_and_the_hint_row_says_so() {
+        // Refused **whole**: the alternative -- the first 4096 bytes of
+        // somebody's file, silently -- is a draft the user did not type. The
+        // sentence goes on the band's own hint row, which is where every other
+        // refused keystroke on this surface is reported.
+        let mut shell = shell(24, 80);
+        asking(&mut shell);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "keep this");
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for _ in 0..=super::super::approval_amendment::MAX_FEEDBACK_BYTES {
+            shell.decide(Input::PasteByte(b'x'), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+
+        assert!(
+            shell
+                .hint()
+                .contains(super::super::approval_amendment::PASTE_REFUSED),
+            "the refusal was silent: {:?}",
+            shell.hint()
+        );
+        assert!(
+            band(&shell).contains("keep this"),
+            "the draft was truncated rather than left alone: {:?}",
+            band(&shell)
+        );
+        assert!(
+            !band(&shell).contains("xxxxxxxxxx"),
+            "part of the refused paste reached the draft: {:?}",
+            band(&shell)
+        );
+
+        // And a paste the budget admits still works, so a refusal is about one
+        // paste rather than about the rest of the question.
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for byte in b" and this" {
+            shell.decide(Input::PasteByte(*byte), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        assert!(
+            band(&shell).contains("keep this and this"),
+            "a refusal poisoned the next paste: {:?}",
+            band(&shell)
+        );
+    }
+
+    #[test]
+    fn a_draft_on_the_review_plane_says_its_refusal_on_the_plane_the_user_can_see() {
+        // While the review plane is up it owns every row of the terminal, so a
+        // notice written into the document is a notice behind a screen nobody
+        // can look past -- the same rule the readiness refusal follows.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "the plane is not painting the draft it is taking keys for: {painted:?}"
+        );
+
+        shell.decide(Input::Action(Action::PasteStart), Instant::now());
+        for _ in 0..=super::super::approval_amendment::MAX_FEEDBACK_BYTES {
+            shell.decide(Input::PasteByte(b'x'), Instant::now());
+        }
+        shell.decide(Input::Action(Action::PasteEnd), Instant::now());
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains(super::super::approval_amendment::PASTE_REFUSED),
+            "the refusal was written behind the plane: {painted:?}"
+        );
+
+        // And the plane's own answer carries the plane's own draft.
+        delivered(&mut shell);
+        shell.decide(Input::Action(Action::Submit), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("rename the flag first".to_string()),
+            }),
+            "a question that landed on the review plane could not be amended"
+        );
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+    }
+
+    #[test]
+    fn a_submitted_amendment_reaches_the_document_as_the_users_own_row() {
+        // **Where the user reads back what they said.** The row is written when
+        // the runtime says the sentence was delivered -- the same flush that
+        // journals it and puts it in the prompt -- and not when the key was
+        // pressed, so the transcript can never show a sentence the model was
+        // not told. It goes through `say` like every other thing this session
+        // writes, so it takes its place in the stream behind whatever the pacer
+        // is still holding.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"draft the plan\r");
+        shell.apply(UiEvent::ToolResult {
+            call_id: "c1".to_string(),
+            tool: "write_file".to_string(),
+            ok: true,
+            detail: "wrote plan.md".to_string(),
+        });
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "keep the header comment".to_string(),
+        });
+        shell.settle_band(started);
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains("keep the header comment"),
+            "the user's own sentence never reached the document: {said:?}"
+        );
+        // Labelled as theirs rather than as the tool's report of what it did:
+        // the two are different claims and the row that carries one must not
+        // read as the other.
+        assert!(
+            said.contains(&format!("{AMENDMENT_PREFIX} keep the header comment")),
+            "the sentence is not labelled as the user's: {said:?}"
+        );
+        assert!(
+            !said.contains("[tool] write_file ok keep the header"),
+            "the sentence was folded into the tool's own row: {said:?}"
+        );
+    }
+
+    #[test]
+    fn an_amendment_takes_one_document_row() {
+        // The band places rows by number, so a sentence spread over two would
+        // be a row the layout does not know about. What keeps it to one is
+        // `super::super::bridge`'s `made_inert`, which turns every control the
+        // channel carries into a space -- asserted there, where that function
+        // is; asserted here is that this end really writes one row.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"draft the plan\r");
+        // A draft really can hold newlines -- `C-j` at the panel, or a pasted
+        // paragraph -- and `super::super::bridge`'s `made_inert` deliberately
+        // keeps them, because a streamed answer's breaks are rows the
+        // transcript exists to make. So the sentence arrives with one in it,
+        // and what is asserted is that this end makes it a row.
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "first\nsecond\nthird".to_string(),
+        });
+        shell.settle_band(started);
+        let rows = shell.released();
+        let carrying: Vec<&String> = rows.iter().filter(|row| row.contains("first")).collect();
+        assert_eq!(carrying.len(), 1, "{rows:?}");
+        assert!(
+            carrying[0].contains("third"),
+            "the sentence was split across rows: {rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains('\n')),
+            "a document row carries a break the band did not place: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn the_arrows_leave_a_draft_on_the_review_plane_even_though_c_p_scrolls_it() {
+        // The documented difference, pinned from both sides. On the review
+        // plane `C-p`/`C-n` walk the change rather than the choices -- the only
+        // keys that can, since a bounded diff is 128 KiB and a screen is a few
+        // dozen rows -- so the property the upstream pin is really about has to
+        // be carried by the arrows there: **they move the choice and end
+        // editing**, whether or not an amendment is open, so a user is never
+        // inside a draft with no way out but a refusal.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        assert!(shell.drafting(), "the plane did not open a draft");
+
+        // `C-p` scrolls the change and leaves the draft open: it is not a
+        // choice key here.
+        shell.decide(Input::Action(Action::HistoryPrevious), Instant::now());
+        shell.decide(Input::Action(Action::HistoryNext), Instant::now());
+        assert!(
+            shell.drafting(),
+            "the plane's scroll keys ended the editing and took the only walk of the change with it"
+        );
+
+        // The arrows do end it, and keep the text.
+        shell.decide(Input::Action(Action::Down), Instant::now());
+        assert!(
+            !shell.drafting(),
+            "an arrow did not end the editing on the plane"
+        );
+        let painted = unwrapped(&shell.screen_rows());
+        assert!(
+            painted.contains("rename the flag first"),
+            "leaving the draft threw its text away: {painted:?}"
+        );
+        shell.decide(Input::Action(Action::Up), Instant::now());
+        assert!(!shell.drafting(), "an arrow re-opened a draft");
     }
 }

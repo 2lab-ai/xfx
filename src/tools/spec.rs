@@ -203,6 +203,13 @@ pub struct ToolResult {
     /// is not an argument the model can fix, and letting it retry would let
     /// whoever won the race keep racing.
     pub fatal: bool,
+    /// What the user said when they answered the approval this call needed.
+    ///
+    /// Delivered as a **separate user message after this result**, never merged
+    /// into [`Self::output`]: merging would let a user's sentence be read as the
+    /// tool's own report of what it did. It is context, not authority -- the
+    /// call that ran is the one that was judged, whatever this says.
+    pub feedback: Option<String>,
 }
 
 impl ToolResult {
@@ -214,6 +221,7 @@ impl ToolResult {
             output: output.into(),
             detail: summarize(&detail.into()),
             fatal: false,
+            feedback: None,
         }
     }
 
@@ -227,6 +235,7 @@ impl ToolResult {
             output,
             detail,
             fatal: false,
+            feedback: None,
         }
     }
 
@@ -237,6 +246,15 @@ impl ToolResult {
             fatal: true,
             ..Self::failure(output)
         }
+    }
+
+    /// Attaches what the user said. Blank is absent.
+    ///
+    /// A draft of spaces is not a sentence, and an empty user message on the
+    /// wire is worse than none: it would spend a turn saying nothing.
+    pub fn with_feedback(mut self, feedback: Option<String>) -> Self {
+        self.feedback = feedback.filter(|text| !text.trim().is_empty());
+        self
     }
 }
 

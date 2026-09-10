@@ -493,6 +493,7 @@ fn every_turn_event_kind_the_binary_can_emit_is_documented() {
         "assistant_delta",
         "tool_start",
         "tool_result",
+        "tool_feedback",
         "final",
         "error",
     ] {

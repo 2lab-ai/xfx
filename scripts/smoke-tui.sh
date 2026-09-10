@@ -8,7 +8,7 @@
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
 # one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
-# Phase 2's 13-21 and Phase 3's 22-23, plus the lettered rows 3b, 10b and
+# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 10b and
 # 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
@@ -1198,6 +1198,41 @@ def ask_then_finish(marker):
 # (`src/tools/mutate.rs`), and a scenario whose negative check was satisfied by
 # that refusal would report "the interrupt stopped the call" about a call the
 # interrupt never touched.
+# What the scripted amendable write puts down, and where.
+#
+# A path that does **not** exist before the turn, which is what makes the denied
+# trial's assertion an observation rather than a tautology: an absent file after
+# a refusal means the call did not run, and it can only mean that if the file
+# was never there.
+AMENDMENT_PATH = "plan.md"
+AMENDMENT_CONTENT = "the arguments the model asked for, unchanged\n"
+
+
+def amendable_write_then_finish(marker):
+    """Write a new file, then say `marker`.
+
+    A **whole-file write to a fresh path**, so the two trials of scenario 25 are
+    two different observations of the same call: allowed, the file holds
+    `AMENDMENT_CONTENT` byte for byte -- an amendment is context and never an
+    argument, so what runs is what the model asked for; refused, the path does
+    not exist at all. No read ahead of it, because a file that is not there has
+    no preimage for the write to have to match (`src/tools/mutate.rs`).
+    """
+    return [
+        {
+            "events": [
+                tool_call(
+                    "call-0",
+                    "write_file",
+                    {"path": AMENDMENT_PATH, "content": AMENDMENT_CONTENT},
+                ),
+                finish("tool-calls"),
+            ]
+        },
+        content_only(marker),
+    ]
+
+
 QUESTION_FOLLOWER_PATH = "written-by-the-call-behind-the-question.txt"
 QUESTION_FOLLOWER_CONTENT = "the call behind the question ran\n"
 
@@ -3904,6 +3939,14 @@ def scenario_13(run):
                 "%s: the composer to read %r" % (label, composer),
                 lambda _text, wanted=composer: composer_text(trial.peek()) == wanted,
             )
+        # **The two runs are compared in the same turn state, or they are not
+        # comparing painters.** See [`settled_band`]: the marker
+        # `discriminate` waited for arrives while the turn is still running, and
+        # an active band holds the document's last line as its activity row --
+        # so a snapshot taken before the release and one taken after it disagree
+        # about that row whichever painter wrote them. Nothing is filtered and
+        # no equality is loosened; only the moment of the snapshot is pinned.
+        settled_band(run, trial, label)
         grid = trial.grid("%s-final" % label)
         run.require(
             not grid.unknown,
@@ -3975,6 +4018,78 @@ def scenario_13(run):
     run.require(
         reference.row_text(reference.rows - 1).strip() != "",
         "the reference screen has no band on it, so the comparison is vacuous",
+    )
+
+
+# What an activity row looks like, in **either** blinking face.
+#
+# `src/tui/activity.rs`: a lit `•` or a blank cell in the same column, a
+# space, the label (`Thinking`, or a tool's name), two spaces, the elapsed time
+# (`12s`, or `1m03s` past a minute), and optionally two more spaces and a token
+# count. Both faces are matched on purpose -- the marker is dark for half of
+# every second (`activity.rs`'s `BLINK`), so a barrier that knew only the lit
+# `•` would call a running turn idle twice a second, which is the one way a
+# wait like this can pass for the wrong reason.
+#
+# The elapsed-time tail is what tells this row from a document row that happens
+# to begin with two spaces: an answer's line does not end in `  0s`.
+ACTIVITY_ROW = re.compile(r"^[• ] \S.*?  \d+(?:m\d{2})?s(?:  \d+ tokens)?$")
+
+
+def band_is_idle(grid):
+    """Whether the band on `grid` has given its activity row back.
+
+    Three answers rather than two. `True` is an idle band, `False` is a turn
+    still running, and **`None` is a screen with no divider on it** -- which is
+    not an idle screen, it is a screen this oracle cannot read: a torn frame, a
+    session that has not painted yet, or one whose band has gone. A barrier that
+    folded `None` into `True` would be satisfied by exactly those.
+
+    The row consulted is the one directly above the divider, because that is
+    where an active band's extra row is: the band is anchored to the bottom of
+    the screen and grows **upward** (`src/tui/shell.rs`'s `band_rows`), so a
+    running turn costs the document its last line rather than moving the
+    divider.
+    """
+    rule = "─" * grid.cols
+    for row in range(grid.rows - 1, -1, -1):
+        if grid.row_text(row) == rule:
+            if row == 0:
+                return None
+            return ACTIVITY_ROW.match(grid.row_text(row - 1).rstrip()) is None
+    return None
+
+
+def settled_band(run, trial, what):
+    """Waits until the band has given its activity row back, and says so.
+
+    **Why the comparison needs it.** `discriminate` waits for the fixture's
+    marker, and the marker arrives while the turn is still running: the answer
+    is streamed, and the turn ends some time afterwards. For that interval the
+    band keeps its activity row -- and, per [`band_is_idle`], the row it keeps
+    is the document's last line. So a grid taken on one side of the release and
+    a grid taken on the other disagree about that row: the released one holds
+    the tail of the answer there and the running one holds `• Thinking  0s`.
+    Scenario 13 was comparing two painters across that difference, which is a
+    property of the scheduler and not of either painter.
+
+    **The absence is not filtered out and the equality is not loosened**, which
+    would each hide a real defect: a build that stranded its activity row, or
+    one that wrote a different document, would still pass. What changes is only
+    *when* the snapshot is taken -- both grids are now taken in the same turn
+    state, which is what the comparison always meant.
+
+    Bounded, and a real stranded row **fails** here rather than being ignored:
+    `Trial.wait_until` raises after its deadline, and the scenario runner
+    records that as the failure it is.
+    """
+    trial.wait_until(
+        "%s: the band to give its activity row back" % what,
+        lambda _text: band_is_idle(trial.peek()) is True,
+    )
+    run.require(
+        band_is_idle(trial.peek()) is True,
+        "%s: the snapshot was taken while a turn still owned a row of the document" % what,
     )
 
 
@@ -5954,6 +6069,13 @@ INTERRUPT_NOTICE = "stopping the turn"
 # (`src/tui/question.rs`'s `INDENT`).
 PANEL_INDENT = 2
 
+# What labels the sentence a user attached to a decision, in the transcript.
+#
+# Spelled out rather than imported, for the reason `ALWAYS_WORDING` is: a needle
+# that read the constant it is checking would pass for whatever `src/tui/shell.rs`
+# happened to declare.
+AMENDMENT_PREFIX = "[you]"
+
 
 def on_the_grid(trial, needle, what=None):
     """Waits until `needle` is on the **committed** grid, and returns that grid.
@@ -6021,6 +6143,80 @@ def tool_result_text(body, call_id):
             if part.get("type") == "tool-result" and part.get("toolCallId") == call_id:
                 return part.get("output", {}).get("value")
     return None
+
+
+def message_parts(body):
+    """Every part of a captured request, in order, as `(role, kind, value)`.
+
+    Order is the claim scenario 25 is about: upstream delivers an amendment as a
+    user message **after** the tool result it is about
+    (`orchestrator.zig:6598-6618`), because the wire merges consecutive user
+    messages and hoists `tool_result` blocks to the front of the merged one -- so
+    a sentence interleaved between two results would arrive above the result it
+    answered.
+    """
+    out = []
+    for message in json.loads(body).get("prompt", []):
+        role = message.get("role")
+        for part in message.get("content", []):
+            if part.get("type") == "tool-result":
+                out.append((role, "tool-result", part.get("toolCallId")))
+            elif part.get("type") == "text":
+                out.append((role, "text", part.get("text")))
+    return out
+
+
+def amendment_after_result(body, call_id, phrase):
+    """Whether `phrase` is a user message of `body`, exactly once, after `call_id`'s result.
+
+    Both halves matter and neither is enough: a phrase that never arrived is a
+    sentence the model was not told, and a phrase ahead of the result is a
+    sentence about a call the model has not been shown yet.
+    """
+    parts = message_parts(body)
+    results = [
+        index
+        for index, (_role, kind, value) in enumerate(parts)
+        if kind == "tool-result" and value == call_id
+    ]
+    said = [
+        index
+        for index, (role, kind, value) in enumerate(parts)
+        if role == "user" and kind == "text" and value == phrase
+    ]
+    return bool(results) and len(said) == 1 and max(results) < said[0]
+
+
+def amended_request(fixture, call_id):
+    """The first captured request that carries a result for `call_id`, or `None`.
+
+    The **next** request after the answered call, which is the one an amendment
+    travels in. Picked by correlation rather than by position, because a session
+    that asked for one more turn than expected would otherwise be read as one
+    that lost the sentence.
+    """
+    for body in fixture.bodies():
+        if tool_result_text(body, call_id) is not None:
+            return body
+    return None
+
+
+def approval_draft_caret(trial, choice):
+    """The amendment draft under `choice`, and the column the caret is in.
+
+    The **cursor**, not the marker. A `> ` in front of `1. Yes` says the choice
+    is marked and says nothing about where a keystroke goes; what says the draft
+    has the keys is where the terminal was told to put its cursor -- the row
+    under the answer, past the panel's indent (`src/tui/approval.rs`'s `caret`).
+    """
+    grid = trial.peek()
+    found = grid.find(choice)
+    if found is None:
+        return None
+    row = found[0] + 1
+    if row >= grid.rows or grid.row != row:
+        return None
+    return (grid.row_text(row)[PANEL_INDENT:].rstrip(), grid.col)
 
 
 def carried_results(fixture, call_id):
@@ -6364,6 +6560,265 @@ def scenario_24(run):
     second.stop()
 
 
+# ---------------------------------------------------------------------------
+# 25. an amended approval
+# ---------------------------------------------------------------------------
+
+
+def scenario_25(run):
+    """A decision the user amended, and where the sentence goes.
+
+    The three claims no unit test can make together: the draft is a surface the
+    user can read and type into on a real terminal, the decision it is attached
+    to is unchanged by it, and the sentence reaches the **wire** as a user
+    message behind the tool result it is about.
+
+    Two trials, because an amendment means a different thing on each side of the
+    decision and both have to be observed: allowed, the original arguments run;
+    refused, nothing runs. The two phrases are distinct and appear nowhere else
+    in the harness, so a grep across the evidence directory tells "the sentence
+    reached the wire" from "the sentence was echoed on the screen".
+    """
+    marker = run.marker("amendment")
+    allow_phrase = "keep the header comment when you rewrite it"
+    deny_phrase = "that path belongs to the deploy job"
+
+    def asked(label, fixture_name):
+        fixture = start_fixture(
+            run, fixtures.amendable_write_then_finish(marker), name=fixture_name
+        )
+        trial = run.trial(label, gateway=fixture, mode="ask").settled()
+        trial.send("draft the plan " + run.nonce + "\r")
+        on_the_grid(trial, PERMISSION_TITLE, "the approval frame to be committed")
+        return fixture, trial
+
+    def written(trial):
+        return os.path.join(trial.workspace, fixtures.AMENDMENT_PATH)
+
+    # -- trial A: allowed, with an amendment ------------------------------
+    fixture, allowed = asked("allowed-with-amendment", "amend-allow")
+    run.require(
+        not os.path.exists(written(allowed)),
+        "the write ran before it was approved, so nothing below is about an approval",
+    )
+    allowed.send(b"\t")
+    allowed.wait_until(
+        "the allow draft to open with the caret in it",
+        lambda _text: approval_draft_caret(allowed, "1. Yes") == ("", PANEL_INDENT),
+    )
+    allowed.send(allow_phrase.encode("utf-8"))
+    allowed.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: approval_draft_caret(allowed, "1. Yes")
+        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+    )
+    grid = allowed.grid("draft")
+    run.require(
+        approval_draft_caret(allowed, "1. Yes")
+        == (allow_phrase, PANEL_INDENT + cells_wide(allow_phrase)),
+        "the draft holds the text and the caret is past it: %r"
+        % (approval_draft_caret(allowed, "1. Yes"),),
+    )
+    run.require(
+        grid.row_text(grid.find("1. Yes")[0]).startswith("> "),
+        "the answer the draft belongs to is still the marked choice",
+    )
+    run.require(
+        grid.find("3. No") is not None and grid.find(ALWAYS_WORDING) is not None,
+        "the draft cut an answer off the panel",
+    )
+    run.require(
+        grid.find("for the rest of this session") is not None,
+        "the draft cut what `always` would buy",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    during = allowed.modes()
+    run.require(during.is_raw(), "the terminal is raw while a draft has the keys")
+
+    allowed.send(b"\r")
+    on_the_grid(allowed, marker, "the turn to carry on past the amended approval")
+    # **The transcript, not the draft.** The draft row came down with the panel;
+    # what has to survive is the sentence the model was really told, written when
+    # the runtime says it was delivered (`src/agent/machine.rs`'s
+    # `flush_amendments`) rather than when the key was pressed.
+    on_the_grid(
+        allowed,
+        allow_phrase,
+        "the accepted sentence to be read back in the transcript",
+    )
+    grid = allowed.grid("answered")
+    run.require(
+        grid.find(allow_phrase) is not None,
+        "the user's own sentence is not in the transcript after the panel came down",
+    )
+    run.require(
+        grid.find(AMENDMENT_PREFIX) is not None,
+        "the sentence is not labelled as the user's own",
+    )
+    run.require(
+        grid.find(PERMISSION_TITLE) is None,
+        "the sentence is still only on the draft, behind a panel that is still up",
+    )
+
+    run.require(
+        os.path.exists(written(allowed))
+        and read(written(allowed)) == fixtures.AMENDMENT_CONTENT,
+        "the amended allow did not run the model's own arguments, byte for byte: %r"
+        % (read(written(allowed)) if os.path.exists(written(allowed)) else None,),
+    )
+    body = amended_request(fixture, "call-0")
+    run.require(body is not None, "no request carried a result for the amended call")
+    run.require(
+        body is not None and amendment_after_result(body, "call-0", allow_phrase),
+        "the sentence did not reach the wire once, behind the result it was about: %r"
+        % (message_parts(body) if body else None,),
+    )
+    run.require(
+        body is not None and allow_phrase not in (tool_result_text(body, "call-0") or ""),
+        "the user's sentence was merged into the tool's own report of what it did",
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.find(PERMISSION_TITLE) is None,
+        "the panel is still standing behind the answer",
+    )
+    allowed.send(b"\x04")
+    run.require(allowed.session.wait_exit() == ("exited", 0), "the amended session left at 0")
+    run.require(
+        allowed.modes() == allowed.before,
+        "and the terminal came back byte for byte after a session that drafted",
+    )
+    fixture.stop()
+
+    # -- trial B: refused, with an amendment ------------------------------
+    refused_fixture, refused = asked("denied-with-amendment", "amend-deny")
+    refused.send(b"\x1b[B\x1b[B")
+    refused.wait_until(
+        "the marker to reach the refusal", lambda _t: caret_on(refused, "3. No")
+    )
+    refused.send(b"\t")
+    refused.wait_until(
+        "the deny draft to open with the caret in it",
+        lambda _text: approval_draft_caret(refused, "3. No") == ("", PANEL_INDENT),
+    )
+    refused.send(deny_phrase.encode("utf-8"))
+    refused.wait_until(
+        "the deny draft to hold what was typed",
+        lambda _text: approval_draft_caret(refused, "3. No")
+        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+    )
+    grid = refused.grid("deny-draft")
+    run.require(
+        approval_draft_caret(refused, "3. No")
+        == (deny_phrase, PANEL_INDENT + cells_wide(deny_phrase)),
+        "the deny draft holds the text and the caret is past it: %r"
+        % (approval_draft_caret(refused, "3. No"),),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    run.require(refused.modes().is_raw(), "the terminal is raw while the deny draft has the keys")
+
+    refused.send(b"\r")
+    on_the_grid(refused, marker, "the turn to carry on past the amended refusal")
+    on_the_grid(
+        refused,
+        deny_phrase,
+        "the refusal's sentence to be read back in the transcript",
+    )
+    grid = refused.grid("refused")
+    run.require(
+        grid.find(deny_phrase) is not None,
+        "a refusal's own sentence is not in the transcript after the panel came down",
+    )
+    run.require(
+        not os.path.exists(written(refused)),
+        "a refusal with a sentence beside it wrote the file anyway",
+    )
+    body = amended_request(refused_fixture, "call-0")
+    run.require(body is not None, "no request carried a result for the refused call")
+    run.require(
+        body is not None and amendment_after_result(body, "call-0", deny_phrase),
+        "the refusal's sentence did not reach the wire once, behind its result: %r"
+        % (message_parts(body) if body else None,),
+    )
+    run.require(
+        body is not None and "not permitted" in (tool_result_text(body, "call-0") or ""),
+        "the model was not told the call was refused: %r"
+        % (tool_result_text(body, "call-0") if body else None),
+    )
+    run.require(
+        body is not None and deny_phrase not in (tool_result_text(body, "call-0") or ""),
+        "the user's sentence was merged into the refusal the tool reported",
+    )
+    run.require(
+        allow_phrase not in json.dumps(refused_fixture.bodies()),
+        "the allowed trial's sentence reached the refused trial's wire",
+    )
+    run.require(grid.find(marker) is not None, "the fixture's own marker is rendered")
+    refused.send(b"\x04")
+    run.require(refused.session.wait_exit() == ("exited", 0), "the refusing session left at 0")
+    run.require(
+        refused.modes() == refused.before,
+        "and the terminal came back byte for byte after a refusal that drafted",
+    )
+    refused_fixture.stop()
+
+    # -- Ctrl-C at a filled draft says nothing on the next turn -----------
+    cancelled_fixture, cancelled = asked("cancelled-draft", "amend-cancel")
+    cancelled.send(b"\t")
+    cancelled.wait_until(
+        "the draft to open",
+        lambda _text: approval_draft_caret(cancelled, "1. Yes") == ("", PANEL_INDENT),
+    )
+    cancelled.send("never sent".encode("utf-8"))
+    cancelled.wait_until(
+        "the draft to hold what was typed",
+        lambda _text: approval_draft_caret(cancelled, "1. Yes") is not None
+        and approval_draft_caret(cancelled, "1. Yes")[0] == "never sent",
+    )
+    cancelled.grid("filled")
+    cancelled.send(b"\x03")
+    on_the_grid(cancelled, INTERRUPT_NOTICE, "the interrupt to be answered on the screen")
+    run.require(
+        not os.path.exists(written(cancelled)),
+        "the interrupted call wrote its file anyway",
+    )
+
+    after = run.nonce + "-AFTER"
+    cancelled.send("say it again " + after + "\r")
+    on_the_grid(cancelled, marker, "the fresh turn after the interrupt")
+    grid = cancelled.grid("after-interrupt")
+    run.require(
+        not any("never sent" in captured for captured in cancelled_fixture.bodies()),
+        "a draft the user interrupted out of reached the wire on the next turn",
+    )
+    # **The display half of the same drop.** Showing it would tell the user
+    # something was said that never was. The draft *was* on the screen before
+    # the interrupt (`grid-01-filled`), which is what makes this absence an
+    # observation rather than a phrase that was never rendered at all.
+    run.require(
+        grid.find("never sent") is None,
+        "the transcript claims a sentence was delivered that the interrupt dropped",
+    )
+    run.require(
+        grid.find(AMENDMENT_PREFIX) is None,
+        "an interrupted amendment was labelled as delivered: %r" % grid.text(),
+    )
+    run.require(
+        any(after in captured for captured in cancelled_fixture.bodies()),
+        "the prompt typed after the interrupt is in the request xfx sent",
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+    cancelled.send(b"\x04")
+    run.require(
+        cancelled.session.wait_exit() == ("exited", 0), "the interrupted session left at 0"
+    )
+    cancelled_fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -6392,6 +6847,7 @@ SCENARIOS = {
     "23-question-panel": scenario_23,
     "23b-question-cancelled": scenario_23b,
     "24-approval-readiness": scenario_24,
+    "25-amended-approval": scenario_25,
 }
 
 
@@ -6456,7 +6912,7 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
 # the two lettered rows the drain and the mid-turn approval added, then Phase
-# 2's 13-21 and Phase 3's 22, 23 and the lettered row 23b. This list and
+# 2's 13-21 and Phase 3's 22, 23, the lettered row 23b, 24 and 25. This list and
 # `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
@@ -6488,6 +6944,7 @@ scenarios=(
 	23-question-panel
 	23b-question-cancelled
 	24-approval-readiness
+	25-amended-approval
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

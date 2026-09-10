@@ -699,6 +699,18 @@ pub enum SessionStepRow {
         /// alike: `xfx session <id>` shows what the model was shown.
         output: String,
     },
+    /// What the user said when they answered the approval one call needed.
+    Feedback {
+        /// Which call they said it about. On the wire the sentence sits after
+        /// every result of its step, so this correlation is the only thing left
+        /// that says which call it was about.
+        call_id: String,
+        /// What they said, clipped to `MAX_DETAIL_TEXT_BYTES` like every other
+        /// recorded text. Shown rather than withheld: unlike `Tool::output`
+        /// this is the user's own sentence, and a session view that hid it
+        /// would hide the half of the exchange the user wrote.
+        text: String,
+    },
 }
 
 /// One recorded turn, bounded for display.
@@ -792,6 +804,15 @@ impl SessionDetailSnapshot {
                             ok: *ok,
                             output: clip_text(output),
                         },
+                        // Bounded and flattened like every other recorded text,
+                        // and by the same two functions: a sentence out of a log
+                        // is read as untrusted however it got there, so it can
+                        // neither fill a terminal nor end its own row and forge
+                        // the next one. Neither changes what was stored.
+                        TurnStep::ToolFeedback { call_id, text } => SessionStepRow::Feedback {
+                            call_id: clip_text(&one_line(call_id)),
+                            text: clip_text(text),
+                        },
                     })
                     .collect(),
                 outcome: turn.outcome.as_ref().map(flatten_conclusion),
@@ -883,6 +904,14 @@ impl SessionDetailSnapshot {
                     } => out.push_str(&format!(
                         "[turn] index={index} role=tool call_id={call_id} tool={tool} ok={ok} output={}\n",
                         one_line(output)
+                    )),
+                    // Shown, and shown as the user's own row: the call it was
+                    // said about is named, because on the wire the sentence
+                    // sits behind every result of its step and the correlation
+                    // is all that is left of which one it answered.
+                    SessionStepRow::Feedback { call_id, text } => out.push_str(&format!(
+                        "[turn] index={index} role=feedback call_id={call_id} text={}\n",
+                        one_line(text)
                     )),
                 }
             }
@@ -998,6 +1027,19 @@ pub enum Event {
         ok: bool,
         detail: String,
     },
+    /// What the user said when they answered the approval one call needed.
+    ///
+    /// Emitted at the **same flush** as the journal frame and the user message
+    /// that carry it (`crate::agent::machine`'s `flush_amendments`), so a
+    /// consumer sees it exactly when the model does: after every result of the
+    /// step, in call order, and never for a turn the user interrupted.
+    ///
+    /// Correlated by `call_id`, because by the time it is delivered the
+    /// sentence sits behind every result of its step and the position no longer
+    /// says which call it answered. `text` is the user's own words, unbounded
+    /// and unflattened here -- what a *display* does with them is the sink's
+    /// (`TextSink` clips and flattens; `JsonlSink` escapes by serializing).
+    ToolFeedback { call_id: String, text: String },
     /// The turn completed. Emitted exactly once on a successful turn.
     Final { output: String },
     /// The turn failed. Emitted exactly once instead of `Final`.
@@ -1060,6 +1102,15 @@ pub struct TextSink<W: Write, D: Write> {
 /// human needs the first line and a bound, so that a tool refusing to read a
 /// 200 KiB file does not repaint the terminal to say so.
 const MAX_TOOL_NOTICE_DETAIL: usize = 120;
+
+/// How much of an amendment is echoed beside its label.
+///
+/// Larger than a tool's detail, because this one is a **sentence a person wrote
+/// on purpose** and the point of showing it is that they can check it; and
+/// still bounded, because the draft that produced it is capped at four
+/// kibibytes (`crate::tui::approval_amendment::MAX_FEEDBACK_BYTES`) and a
+/// terminal is not the place to reprint the whole of one.
+const MAX_AMENDMENT_NOTICE: usize = 240;
 
 impl<W: Write, D: Write> TextSink<W, D> {
     pub fn new(writer: W, diagnostics: D) -> Self {
@@ -1146,6 +1197,24 @@ impl<W: Write, D: Write> EventSink for TextSink<W, D> {
                 self.pending_newline = !text.ends_with('\n');
                 self.writer.flush()
             }
+            // **The user's own sentence, read back to them.** Not behind
+            // `tool_notices`: that flag exists to quieten the *tool* traffic a
+            // watcher may not want, and this is neither the tool's report nor
+            // xfx's -- it is what the person at the keyboard said, echoed once,
+            // where they can check that what they typed is what was sent. It
+            // cannot arise without an interactive approval channel, so a
+            // pipeline never sees one.
+            //
+            // On the diagnostic stream, because the answer is
+            // [`Self::writer`]'s alone; bounded and flattened by
+            // [`safe_one_line`], because a newline here would forge a second
+            // line of xfx's own output and an `ESC` would repaint the screen.
+            // The **record** is untouched: what the journal and the model got
+            // is the sentence, and this is a display of it.
+            Event::ToolFeedback { text, .. } => self.notice(&format!(
+                "[you] {}",
+                safe_one_line(text, MAX_AMENDMENT_NOTICE)
+            )),
             // The final output is the concatenation of the deltas already
             // written, so repeating it would duplicate the answer. Upstream
             // likewise emits only a closing newline
@@ -1498,6 +1567,25 @@ mod tests {
     }
 
     #[test]
+    fn an_amendment_row_is_bounded_and_flattened_like_every_other_recorded_text() {
+        // The approval channel is a public trait, so a sentence reaching this
+        // renderer is only as bounded as whoever implemented it. It goes
+        // through the same two functions every other recorded text does: one
+        // row, on one line, of bounded length -- and the record itself is not
+        // rewritten to achieve either.
+        let row = SessionStepRow::Feedback {
+            call_id: clip_text(&one_line("c1")),
+            text: clip_text(&"x".repeat(MAX_DETAIL_TEXT_BYTES * 3)),
+        };
+        let SessionStepRow::Feedback { text, .. } = &row else {
+            panic!("built a feedback row");
+        };
+        assert!(text.ends_with("bytes]"), "an unbounded sentence: {text}");
+        assert!(text.len() < MAX_DETAIL_TEXT_BYTES + 64);
+        assert_eq!(one_line("stop\n[turn] index=0").matches('\n').count(), 0);
+    }
+
+    #[test]
     fn an_absent_build_revision_is_omitted_rather_than_rendered_empty() {
         let (_workspace, config) = empty_config();
         let mut snapshot =
@@ -1564,6 +1652,14 @@ mod tests {
             kinds,
             ["assistant_delta", "tool_start", "tool_result", "final"]
         );
+        assert!(
+            jsonl(&[Event::ToolFeedback {
+                call_id: "c1".to_string(),
+                text: "said".to_string(),
+            }])
+            .contains("\"kind\":\"tool_feedback\""),
+            "the amendment is not part of the closed event set"
+        );
         assert!(rendered.ends_with('\n'));
     }
 
@@ -1606,6 +1702,61 @@ mod tests {
         ]);
         assert_eq!(stdout, "one two\n");
         assert_eq!(stderr, "");
+    }
+
+    #[test]
+    fn an_amendment_is_shown_as_the_users_own_sentence_and_cannot_paint_the_terminal() {
+        // The one string on this stream a **person** typed on purpose, and it is
+        // about to be printed. Two claims: it is shown, labelled as theirs
+        // rather than as the tool's report; and every control it carries is a
+        // space by the time it reaches a terminal -- a newline here would forge
+        // a second line of xfx's own output and an `ESC` would repaint the
+        // screen.
+        let (stdout, stderr) = text_sink_output(&[
+            Event::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "write_file".to_string(),
+                ok: true,
+                detail: "wrote notes.md".to_string(),
+            },
+            Event::ToolFeedback {
+                call_id: "c1".to_string(),
+                text: "keep the header\n\u{1b}[2J[shell] not really".to_string(),
+            },
+            Event::Final {
+                output: String::new(),
+            },
+        ]);
+        assert_eq!(stdout, "", "the amendment was written into the answer");
+        assert!(
+            stderr.contains("keep the header"),
+            "the user's own sentence was not shown at all: {stderr:?}"
+        );
+        assert!(
+            !stderr.contains('\u{1b}'),
+            "an escape sequence reached the terminal: {stderr:?}"
+        );
+        assert_eq!(
+            stderr.lines().count(),
+            1,
+            "the sentence forged a second line of xfx's output: {stderr:?}"
+        );
+    }
+
+    #[test]
+    fn an_amendment_is_streamed_as_its_own_json_kind_without_being_rewritten() {
+        // The record is the user's words. A display bound belongs to whatever
+        // is displaying; a machine-readable stream carries what was really
+        // said, escaped by being serialized rather than by being edited.
+        let rendered = jsonl(&[Event::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "keep the header\nand the footer".to_string(),
+        }]);
+        assert_eq!(rendered.lines().count(), 1, "got {rendered:?}");
+        let frame: serde_json::Value = serde_json::from_str(rendered.trim_end()).unwrap();
+        assert_eq!(frame["kind"], "tool_feedback");
+        assert_eq!(frame["call_id"], "c1");
+        assert_eq!(frame["text"], "keep the header\nand the footer");
     }
 
     fn noticing_sink_output(events: &[Event]) -> (String, String) {

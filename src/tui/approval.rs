@@ -59,9 +59,10 @@ use std::task::{Poll, Waker};
 
 use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 
+use super::approval_amendment::{Block, Drafts};
 use super::approval_readiness::{ApprovalId, Disclosure};
 use super::bridge::{park_on, send_ui, Cancellation, Stopped, TurnControl, UiEvent};
-use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse};
 
 // ---------------------------------------------------------------------------
 // what the panel says
@@ -124,6 +125,39 @@ const CHOICES: [ApprovalAnswer; 3] = [
     ApprovalAnswer::Deny,
 ];
 
+/// How many answers the panel offers.
+///
+/// Exported so that [`super::approval_amendment`] can walk the same three
+/// without a second array: which choices exist is one fact.
+pub(crate) const CHOICE_COUNT: usize = CHOICES.len();
+
+/// Which answer a choice index stands for, or nothing when there is no such
+/// choice.
+///
+/// Total rather than indexed, because the callers are a keystroke away from a
+/// UI thread holding a raw terminal and an out-of-range index is a bug to
+/// report rather than a panic to take the session down with.
+pub(crate) fn choice(index: usize) -> Option<ApprovalAnswer> {
+    CHOICES.get(index).copied()
+}
+
+/// The columns a draft's text has, which is the panel's inner width.
+///
+/// One function, called by all three of the draft's consumers -- the
+/// [`super::editor::Editor`] that applies a key at a width, the rows the panel
+/// paints, and the caret the shell places -- because a caret computed at one
+/// width and a wrap computed at another is a caret standing on the wrong cell.
+/// The value is [`fitted`]'s own wrap budget, which is what makes the draft as
+/// wide as every other indented row of the panel.
+pub(crate) const fn draft_cols(cols: u16) -> u16 {
+    let inner = cols.saturating_sub(INDENT_CELLS);
+    if inner == 0 {
+        1
+    } else {
+        inner
+    }
+}
+
 /// What one keystroke means to a panel that has the focus.
 ///
 /// The panel's own vocabulary rather than [`super::input::Action`], and the
@@ -146,6 +180,50 @@ pub(crate) enum Action {
     Escape,
     /// Refuse. Ctrl-C is a byte here like everywhere else on this surface.
     Cancel,
+    /// An editing key, meaningful only while a draft is open.
+    ///
+    /// The shell translates only the subset a draft really answers, and only
+    /// while one has the keys ([`super::shell::Shell::decide`]): `Up` and
+    /// `Down` are deliberately **not** in it, because they move the choice and
+    /// end editing, and routing them into the editor would take away the user's
+    /// only way out of a draft.
+    Edit(super::input::Action),
+    /// One raw byte of a bracketed paste, while a draft is open.
+    ///
+    /// Separate because the composer's byte route feeds `super::paste::Paste`
+    /// and would collapse a large paste into an entity summary; a draft takes
+    /// its bytes here ([`super::approval_amendment::Drafts::paste_byte`]).
+    PasteByte(u8),
+}
+
+/// What one keystroke did to whichever surface has the focus.
+///
+/// Four outcomes rather than `Option<ApprovalAnswer>`, because the draft made
+/// "nothing was answered" three different facts and the shell owes a different
+/// thing to each: a frame, a frame **and** a revoked readiness receipt, or
+/// nothing at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Reply {
+    /// The keystroke meant nothing here and was swallowed.
+    Ignored,
+    /// Something moved and the surface owes a frame, at the same row count.
+    Moved,
+    /// The composed row count changed with it, so the screen a readiness
+    /// receipt was about is no longer the screen the user is looking at
+    /// ([`super::approval_readiness::Readiness::invalidate`]).
+    Reshaped,
+    /// The user answered.
+    Answer {
+        answer: ApprovalAnswer,
+        /// Whether this key carries the draft belonging to its answer.
+        ///
+        /// `false` for Escape and for the interrupt, and the difference is
+        /// deliberate: those are the fail-safe exits -- a decision xfx was not
+        /// given -- so they refuse with nothing said even when the deny draft
+        /// holds text. Submitting `3. No` is a *chosen* refusal and does send
+        /// it.
+        amendable: bool,
+    },
 }
 
 /// Where a question is put in front of the user.
@@ -225,12 +303,29 @@ pub(crate) struct Fitted {
     pub complete: bool,
 }
 
-/// The question, and which answer is marked.
-#[derive(Debug, Clone)]
+/// The question, which answer is marked, and what the user is saying about it.
+///
+/// A manual `Debug`, because [`Drafts`] holds editors and the band's slot is a
+/// `Debug` enum (`super::shell::Slot`); `Clone` is gone with the same edit and
+/// nothing wanted it -- the panel is built once per question and dies with the
+/// answer.
 pub(crate) struct Panel {
     request: ApprovalRequest,
     /// An index into [`CHOICES`].
     selected: usize,
+    /// The two amendments this question may carry
+    /// ([`super::approval_amendment`]).
+    drafts: Drafts,
+}
+
+impl std::fmt::Debug for Panel {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        out.debug_struct("Panel")
+            .field("request", &self.request)
+            .field("selected", &self.selected)
+            .field("drafts", &self.drafts)
+            .finish()
+    }
 }
 
 /// How many rows each elastic part of the panel gets on a screen of a given
@@ -250,6 +345,12 @@ struct Shape {
     spaced: bool,
     /// How many rows the "always" disclosure may take.
     scope: u16,
+    /// How many rows the drafts may take **between them**.
+    ///
+    /// Last in the allotment and only ever what is left over, which is the
+    /// whole of "a long draft in an 80x24 window truncates the draft's own
+    /// display, never the target, the controls, or the scope".
+    draft: u16,
 }
 
 /// How many rows `text` really needs at `budget` cells, never fewer than one.
@@ -286,7 +387,16 @@ impl Shape {
     /// disclosure `false` and the question refusable rather than grantable. The
     /// alternative, a panel of a hundred rows on a screen of twenty-four, would
     /// be a height every reader of it has to re-clamp.
-    fn for_request(request: &ApprovalRequest, cols: u16, terminal_rows: u16) -> Self {
+    /// **The drafts are paid for last, out of what is left.** They are the one
+    /// block on this panel that is not the question, so a screen too short for
+    /// everything shows less of the amendment -- never less of the subject, the
+    /// controls or the scope, all three of which a readiness receipt is about.
+    fn for_request(
+        request: &ApprovalRequest,
+        wanted_draft: u16,
+        cols: u16,
+        terminal_rows: u16,
+    ) -> Self {
         let budget = cols.saturating_sub(INDENT_CELLS).max(1);
         let air = terminal_rows >= SPACIOUS_AT;
         // A title, the three answers, and one row each for the two elastic
@@ -294,15 +404,17 @@ impl Shape {
         let fixed = 1 + 2 * u16::from(air) + CHOICES.len() as u16;
         let scope = demanded(&format!("2 = {}", request.always_scope), budget)
             .min(terminal_rows.saturating_sub(fixed + 1).max(1));
+        // The summary is where the band names the target (`crate::permission`'s
+        // `ApprovalRequest`), so a summary cut here is a target the user was
+        // never shown.
+        let summary = demanded(&request.summary, budget)
+            .min(terminal_rows.saturating_sub(fixed + scope).max(1));
         Self {
             breathing: air,
-            // The summary is where the band names the target
-            // (`crate::permission`'s `ApprovalRequest`), so a summary cut here
-            // is a target the user was never shown.
-            summary: demanded(&request.summary, budget)
-                .min(terminal_rows.saturating_sub(fixed + scope).max(1)),
+            summary,
             spaced: air,
             scope,
+            draft: wanted_draft.min(terminal_rows.saturating_sub(fixed + scope + summary)),
         }
     }
 
@@ -320,7 +432,36 @@ impl Panel {
             // answer: an Enter pressed without reading grants one call rather
             // than the rest of the session.
             selected: 0,
+            drafts: Drafts::default(),
         }
+    }
+
+    /// Whether an amendment has the keys.
+    pub(crate) fn drafting(&self) -> bool {
+        self.drafts.editing()
+    }
+
+    /// What the panel owes the user about their last keystroke, taken once.
+    pub(crate) fn take_notice(&mut self) -> Option<&'static str> {
+        self.drafts.take_notice()
+    }
+
+    /// The amendment this answer carries, and the disposal of the other draft.
+    ///
+    /// Called **after** the readiness gate, and that ordering is the whole
+    /// point: a refused affirmative must leave the drafts exactly as the user
+    /// typed them, because the question is still up and the sentence is still
+    /// theirs.
+    pub(crate) fn take_feedback(
+        &mut self,
+        answer: ApprovalAnswer,
+        amendable: bool,
+    ) -> Option<String> {
+        if !amendable {
+            self.drafts.discard();
+            return None;
+        }
+        self.drafts.submit(answer)
     }
 
     /// The panel's rows, top first, exactly as many as [`Self::height`] says.
@@ -352,7 +493,18 @@ impl Panel {
         band_top: u16,
         offset: u16,
     ) -> Composition {
-        let shape = Shape::for_request(&self.request, cols, terminal_rows);
+        // The drafts are measured **once**, at the width they will be painted
+        // at ([`draft_cols`]), and the same blocks are what the rows below take
+        // and what the caret is placed from: a second measurement is a second
+        // chance for the caret to stand on a cell the paint never wrote.
+        let blocks = self.drafts.blocks(draft_cols(cols));
+        let shape = Shape::for_request(
+            &self.request,
+            wanted_draft_rows(&blocks),
+            cols,
+            terminal_rows,
+        );
+        let mut budget = usize::from(shape.draft);
         let mut rows = Vec::new();
         rows.push(TITLE.to_string());
         if shape.breathing {
@@ -385,6 +537,19 @@ impl Panel {
             controls_whole &= super::frame::clip(&row, cols) == row;
             last_control = rows.len();
             rows.push(row);
+            // The amendment sits under the answer it belongs to, so that which
+            // sentence goes with which decision is a fact of the layout rather
+            // than something the user has to remember. Pushed **after**
+            // `last_control` is taken, so the last control row stays the last
+            // *control* row: a draft is not one.
+            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
+                continue;
+            };
+            let painted = block.rows.len().min(budget);
+            for row in &block.rows[..painted] {
+                rows.push(format!("{INDENT}{row}"));
+            }
+            budget -= painted;
         }
         // And exactly what "always" would buy, which is the half of the
         // question a three-line menu is most likely to drop. Labelled with the
@@ -452,11 +617,75 @@ impl Panel {
     /// answers both ([`Shape::for_request`]), which is what
     /// `super::question::QuestionPanel::caret_row` already does with the same
     /// two arguments.
+    ///
+    /// `#[cfg(test)]`: production places the caret with [`Self::caret`], which
+    /// answers both of the places it can be, and a second reader of the same
+    /// layout is the drift this module keeps saying it will not have.
+    #[cfg(test)]
     pub(crate) fn caret_row(&self, cols: u16, terminal_rows: u16) -> u16 {
-        let selected = u16::try_from(self.selected).unwrap_or(0);
-        Shape::for_request(&self.request, cols, terminal_rows)
-            .first_choice()
-            .saturating_add(selected)
+        self.placed(cols, terminal_rows).0
+    }
+
+    /// Where the caret really goes: a row of the panel, and the cells to the
+    /// left of it on that row.
+    ///
+    /// The marked choice while no amendment is open, and **inside the draft**
+    /// while one is: the caret is what the terminal says the next keystroke
+    /// goes to, and a caret left on the choice row while a draft has the keys
+    /// would be a lie about which of the two a character lands in. The column
+    /// is nought on a choice row for the same reason it always was -- the
+    /// marker is the answer to "which one", and a column inside it would only
+    /// be a second one.
+    pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> (u16, u16) {
+        self.placed(cols, terminal_rows).1
+    }
+
+    /// Where the marked choice is, and where the caret is, from **one** walk of
+    /// the allotment [`Self::compose`] paints from.
+    ///
+    /// One walk rather than two readings, for the reason `rows` and `height`
+    /// are one construction: the caret and the paint are two claims about the
+    /// same layout, and the draft rows between the choices make them disagree
+    /// the moment they are derived separately.
+    fn placed(&self, cols: u16, terminal_rows: u16) -> (u16, (u16, u16)) {
+        let blocks = self.drafts.blocks(draft_cols(cols));
+        let shape = Shape::for_request(
+            &self.request,
+            wanted_draft_rows(&blocks),
+            cols,
+            terminal_rows,
+        );
+        let mut budget = usize::from(shape.draft);
+        let mut row = shape.first_choice();
+        let mut marked = row;
+        let mut caret = (row, 0u16);
+        for index in 0..CHOICES.len() {
+            if index == self.selected {
+                marked = row;
+                caret = (row, 0);
+            }
+            row = row.saturating_add(1);
+            let Some(block) = blocks.iter().find(|block| block.choice == index) else {
+                continue;
+            };
+            let painted = block.rows.len().min(budget);
+            if let Some((within, column)) = block.caret {
+                if painted > 0 {
+                    caret = (
+                        row.saturating_add(u16::try_from(within.min(painted - 1)).unwrap_or(0)),
+                        // On the screen, always: a column past the last one is
+                        // a cursor the terminal clamps silently onto a row it
+                        // was not placed on.
+                        INDENT_CELLS
+                            .saturating_add(column)
+                            .min(cols.saturating_sub(1)),
+                    );
+                }
+            }
+            row = row.saturating_add(u16::try_from(painted).unwrap_or(0));
+            budget -= painted;
+        }
+        (marked, caret)
     }
 
     /// The second choice's wording, which says which of the two "always" it is.
@@ -477,10 +706,20 @@ impl Panel {
         }
     }
 
-    /// What one keystroke does. `Some` is an answer; `None` moved the marker.
-    pub(crate) fn apply(&mut self, action: Action) -> Option<ApprovalAnswer> {
-        answered(action, &mut self.selected)
+    /// What one keystroke does, on a panel `cols` cells wide.
+    ///
+    /// **Takes `cols`** because a draft is text at a width: the keystroke that
+    /// inserts a character is the one that decides whether the draft now needs
+    /// another row, and the answer is the panel's inner width
+    /// ([`draft_cols`]) rather than the screen's.
+    pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Reply {
+        answered(action, &mut self.selected, &mut self.drafts, cols)
     }
+}
+
+/// How many rows a set of draft blocks wants between them.
+fn wanted_draft_rows(blocks: &[Block]) -> u16 {
+    u16::try_from(blocks.iter().map(|block| block.rows.len()).sum::<usize>()).unwrap_or(u16::MAX)
 }
 
 /// What one keystroke means to whichever surface has the focus.
@@ -495,27 +734,151 @@ impl Panel {
 /// The digits answer **without** moving the marker, and that is deliberate
 /// rather than incidental: a `3` is a refusal, not a refusal plus a marker left
 /// on the refusal for whatever key comes next.
-pub(crate) fn answered(action: Action, selected: &mut usize) -> Option<ApprovalAnswer> {
+pub(crate) fn answered(
+    action: Action,
+    selected: &mut usize,
+    drafts: &mut Drafts,
+    cols: u16,
+) -> Reply {
+    // Measured **before** and after, at the width the rows are painted at, so
+    // "the panel got taller" is read off the composition rather than guessed
+    // at from which key it was: a character that pushed a draft onto a second
+    // row costs the band a row exactly as opening the draft did.
+    let before = drawn_rows(drafts, cols);
+    let reply = keyed(action, selected, drafts, cols);
+    match reply {
+        Reply::Moved if drawn_rows(drafts, cols) != before => Reply::Reshaped,
+        other => other,
+    }
+}
+
+/// How many rows the drafts are asking for right now.
+fn drawn_rows(drafts: &Drafts, cols: u16) -> usize {
+    drafts
+        .blocks(draft_cols(cols))
+        .iter()
+        .map(|block| block.rows.len())
+        .sum()
+}
+
+/// What one keystroke means, before the reshape is measured.
+fn keyed(action: Action, selected: &mut usize, drafts: &mut Drafts, cols: u16) -> Reply {
+    let answer = |answer| Reply::Answer {
+        answer,
+        amendable: true,
+    };
     match action {
-        Action::Text('1') => Some(ApprovalAnswer::Once),
-        Action::Text('2') => Some(ApprovalAnswer::Always),
-        Action::Text('3') => Some(ApprovalAnswer::Deny),
+        // The digits, and they answer **without** moving the marker: a `3` is a
+        // refusal, not a refusal plus a marker left on it for whatever key comes
+        // next. While a draft has the keys they are characters instead, which is
+        // the numeric-draft ruling (`approval_decision.zig::apply`): a user
+        // typing "3 files is too many" is typing, not answering.
+        Action::Text(digit @ ('1' | '2' | '3')) if !drafts.editing() => {
+            let index = usize::from(digit as u8 - b'1');
+            answer(CHOICES[index])
+        }
         // Every other character. A surface that has the focus swallows them
         // rather than letting them fall into a composer the user cannot see the
-        // caret in.
-        Action::Text(_) => None,
+        // caret in -- unless a draft is open, which is what a draft *is*.
+        Action::Text(character) => {
+            if !drafts.editing() {
+                return Reply::Ignored;
+            }
+            drafts.typed(character);
+            Reply::Moved
+        }
+        // **Arrow navigation is what ends editing** (`approval_decision.zig:214-225`:
+        // `moveChoice` updates `selected` and then calls `clearActive`), and it
+        // keeps both buffers: a user stepping from the allow side to the deny
+        // side to say why has not thrown away what they typed at either.
         Action::Up => {
+            drafts.leave();
             *selected = (*selected + CHOICES.len() - 1) % CHOICES.len();
-            None
+            Reply::Moved
         }
-        Action::Down | Action::Tab => {
+        Action::Down => {
+            drafts.leave();
             *selected = (*selected + 1) % CHOICES.len();
-            None
+            Reply::Moved
         }
-        Action::Submit => Some(CHOICES[*selected]),
-        // A decision xfx was never given is a refusal.
-        Action::Escape | Action::Cancel => Some(ApprovalAnswer::Deny),
+        // Tab **enters** a draft; it never leaves one. A second meaning for the
+        // key that opened the editor would be the only way out being the key
+        // that got in, which is a surface the user has to guess at.
+        Action::Tab if drafts.editing() => Reply::Ignored,
+        Action::Tab => {
+            if drafts.enter(*selected).is_none() {
+                // Not draft-eligible -- choice 1, `Always` -- so Tab is the
+                // cycle it has always been.
+                *selected = (*selected + 1) % CHOICES.len();
+            }
+            Reply::Moved
+        }
+        Action::Submit => answer(CHOICES[*selected]),
+        // A decision xfx was never given is a refusal, and it is a **different**
+        // refusal from `3`: Escape is the fail-safe exit, so it sends nothing
+        // the user typed. Ctrl-C is the same, and the shell turns it into the
+        // interrupt as well.
+        Action::Escape | Action::Cancel => Reply::Answer {
+            answer: ApprovalAnswer::Deny,
+            amendable: false,
+        },
+        // The editing subset, which the shell translates only while a draft has
+        // the keys ([`super::shell::Shell::decide`]).
+        Action::Edit(editing) => {
+            if !drafts.editing() {
+                return Reply::Ignored;
+            }
+            drafts.edit(editing, draft_cols(cols));
+            Reply::Moved
+        }
+        Action::PasteByte(byte) => {
+            if !drafts.editing() {
+                return Reply::Ignored;
+            }
+            drafts.paste_byte(byte);
+            // Nothing is painted per byte: a frame per byte of a paste is a
+            // session that stops answering the keyboard, and the text does not
+            // reach the draft until `PasteEnd` decides whether it may.
+            Reply::Ignored
+        }
     }
+}
+
+/// Whether a decoded action is one a draft answers.
+///
+/// The whitelist, **named exhaustively** rather than written as "everything
+/// that is not a choice key": an action added to `super::input::Action` later
+/// has to be routed on purpose, and the two that must never be here are `Up`
+/// and `Down` -- they move the choice and end editing, so an editor that
+/// swallowed them would leave a user inside a draft with no way out but a
+/// refusal.
+///
+/// `Submit`, `Escape`, `Cancel` and `Tab` are absent for the opposite reason:
+/// they are the panel's own keys and mean the same thing whether or not a draft
+/// is open, so a draft that took them would change what answering a question
+/// means. `InsertNewline`, `Eof`, `HistoryPrevious`, `HistoryNext`, `Redraw`
+/// and `Ignore` are the session's or the panel's and are not a draft's at all.
+pub(crate) fn edits(action: super::input::Action) -> bool {
+    use super::input::Action as Key;
+    matches!(
+        action,
+        Key::Left
+            | Key::Right
+            | Key::Home
+            | Key::End
+            | Key::WordLeft
+            | Key::WordRight
+            | Key::Backspace
+            | Key::Delete
+            | Key::DeleteWordLeft
+            | Key::KillToEnd
+            | Key::KillToStart
+            | Key::Undo
+            | Key::Redo
+            | Key::Yank
+            | Key::PasteStart
+            | Key::PasteEnd
+    )
 }
 
 /// What the three choices are called, for a question about `tool`.
@@ -780,7 +1143,17 @@ fn nobody_to_ask() -> io::Error {
 }
 
 impl ApprovalPrompter for TuiPrompter {
+    /// The answer alone, for a caller that has nothing to do with a sentence.
+    ///
+    /// **A projection of [`Self::respond`] rather than a second body**: two
+    /// implementations of the same wait would be two chances to disagree about
+    /// which ids are stale and which messages are put back, and only one of
+    /// them would be the one production takes.
     fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer> {
+        self.respond(request).map(|response| response.answer)
+    }
+
+    fn respond(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalResponse> {
         // A question that cannot be given an identity is not asked: an id
         // handed out twice is a stale keystroke that matches.
         let id = self.mint().ok_or_else(nobody_to_ask)?;
@@ -799,8 +1172,9 @@ impl ApprovalPrompter for TuiPrompter {
         )) {
             Ok(()) => {}
             // The session is going down. A question nobody will see is not one
-            // to wait for an answer to, and the answer xfx does not have is no.
-            Err(Stopped::Cancelled) => return Ok(ApprovalAnswer::Deny),
+            // to wait for an answer to, and the answer xfx does not have is no
+            // -- said with nothing beside it, because nobody was asked.
+            Err(Stopped::Cancelled) => return Ok(ApprovalResponse::plain(ApprovalAnswer::Deny)),
             Err(Stopped::UiGone) => return Err(nobody_to_ask()),
         }
         park_on(async {
@@ -815,7 +1189,7 @@ impl ApprovalPrompter for TuiPrompter {
                     // above is cancelled.
                     () = token.cancelled() => {
                         self.control.rearm();
-                        return Ok(ApprovalAnswer::Deny);
+                        return Ok(ApprovalResponse::plain(ApprovalAnswer::Deny));
                     }
                     message = self.control.answered() => message,
                 };
@@ -823,7 +1197,8 @@ impl ApprovalPrompter for TuiPrompter {
                     Some(TurnControl::Answer {
                         id: answered,
                         answer,
-                    }) if answered == id => return Ok(answer),
+                        feedback,
+                    }) if answered == id => return Ok(ApprovalResponse { answer, feedback }),
                     // An answer to a question that has gone. It grants nothing
                     // and refuses nothing, and it is **consumed** rather than
                     // put back: handed to the loop it would be handed on to the
@@ -832,7 +1207,10 @@ impl ApprovalPrompter for TuiPrompter {
                     // session. This arm sits above the `stop` catch-all below
                     // for exactly that reason -- underneath it, a stale answer
                     // would fall into `stop`, be pushed back onto the channel,
-                    // and refuse the live question.
+                    // and refuse the live question. **Its feedback goes with
+                    // it**: a sentence typed at a question that has gone is not
+                    // context about this one, and inheriting it would put words
+                    // in the user's mouth about a call they never saw.
                     Some(TurnControl::Answer { .. }) => continue,
                     // A keystroke left over from a question batch the model
                     // asked (`super::question`), which is a **different** panel
@@ -850,7 +1228,7 @@ impl ApprovalPrompter for TuiPrompter {
                     // see [`ControlChannel::put_back`]. `give_back` rearms.
                     Some(stop) => {
                         self.control.give_back(stop);
-                        return Ok(ApprovalAnswer::Deny);
+                        return Ok(ApprovalResponse::plain(ApprovalAnswer::Deny));
                     }
                     // The UI dropped its sender. `answered` rearmed on the ready
                     // poll; rearming again is spurious and harmless, and keeps
@@ -936,7 +1314,7 @@ mod tests {
             session
         };
         let mut session = session.with_prompter(Box::new(Recording(Arc::clone(&asked))));
-        session.decide(ProposedAction::Mutation(&plan));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
         let mut asked = asked.guarded();
         assert_eq!(asked.len(), 1, "the session asked something else");
         asked.remove(0)
@@ -1134,43 +1512,94 @@ mod tests {
         }
     }
 
+    /// The answer a key produced, for a test that is about the decision rather
+    /// than about the frame it owes.
+    ///
+    /// Kept as a helper rather than spelling [`Reply`] out at every assertion,
+    /// so the cases below read as they did before the amendment draft gave
+    /// "nothing was answered" three separate meanings.
+    fn answer(reply: Reply) -> Option<ApprovalAnswer> {
+        match reply {
+            Reply::Answer { answer, .. } => Some(answer),
+            _ => None,
+        }
+    }
+
     #[test]
     fn every_key_the_panel_answers_to_produces_the_documented_outcome() {
         // ui/input/runtime.zig:65-77
         let mut panel = Panel::new(request("edit_file"));
-        assert_eq!(panel.apply(Action::Text('1')), Some(ApprovalAnswer::Once));
-        assert_eq!(panel.apply(Action::Text('2')), Some(ApprovalAnswer::Always));
-        assert_eq!(panel.apply(Action::Text('3')), Some(ApprovalAnswer::Deny));
-        assert_eq!(panel.apply(Action::Escape), Some(ApprovalAnswer::Deny));
-        assert_eq!(panel.apply(Action::Cancel), Some(ApprovalAnswer::Deny));
-        assert_eq!(panel.apply(Action::Down), None, "moving is not answering");
-        assert_eq!(panel.apply(Action::Submit), Some(ApprovalAnswer::Always));
-        panel.apply(Action::Tab);
-        assert_eq!(panel.apply(Action::Submit), Some(ApprovalAnswer::Deny));
+        assert_eq!(
+            answer(panel.apply(Action::Text('1'), 80)),
+            Some(ApprovalAnswer::Once)
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Text('2'), 80)),
+            Some(ApprovalAnswer::Always)
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Text('3'), 80)),
+            Some(ApprovalAnswer::Deny)
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Escape, 80)),
+            Some(ApprovalAnswer::Deny)
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Cancel, 80)),
+            Some(ApprovalAnswer::Deny)
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Down, 80)),
+            None,
+            "moving is not answering"
+        );
+        assert_eq!(
+            answer(panel.apply(Action::Submit, 80)),
+            Some(ApprovalAnswer::Always)
+        );
+        // Tab from `Always`, which is the one choice with no draft, so it is
+        // still the cycle it has always been. Tab from an *eligible* choice
+        // opens that choice's amendment instead, which is
+        // `tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one`.
+        panel.apply(Action::Tab, 80);
+        assert_eq!(
+            answer(panel.apply(Action::Submit, 80)),
+            Some(ApprovalAnswer::Deny)
+        );
     }
 
     #[test]
-    fn the_arrows_and_tab_walk_the_same_three_choices_and_wrap() {
-        // Without the wrap, an Up at the top and a Tab at the bottom would each
+    fn the_arrows_walk_the_same_three_choices_and_wrap() {
+        // Without the wrap, an Up at the top and a Down at the bottom would each
         // be a keystroke that does nothing, on a panel whose whole job is to be
         // answerable without reading a manual.
+        //
+        // **The Tab half of this case moved and did not loosen.** Tab used to be
+        // a second spelling of Down, and it is not one any more: on a
+        // draft-eligible choice it enters that choice's amendment
+        // (`approval_decision.zig::apply`), and only on `Always` -- the answer
+        // that can carry none -- does it still cycle. Both halves of that are
+        // asserted, at the same strength, by
+        // `tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one`;
+        // what is left here is the arrows, which are unchanged.
         let mut panel = Panel::new(request("edit_file"));
-        assert_eq!(panel.apply(Action::Up), None);
+        assert_eq!(answer(panel.apply(Action::Up, 80)), None);
         assert_eq!(
-            panel.apply(Action::Submit),
+            answer(panel.apply(Action::Submit, 80)),
             Some(ApprovalAnswer::Deny),
             "Up from the first choice did not wrap to the last"
         );
-        assert_eq!(panel.apply(Action::Tab), None);
+        assert_eq!(answer(panel.apply(Action::Down, 80)), None);
         assert_eq!(
-            panel.apply(Action::Submit),
+            answer(panel.apply(Action::Submit, 80)),
             Some(ApprovalAnswer::Once),
-            "Tab from the last choice did not wrap to the first"
+            "Down from the last choice did not wrap to the first"
         );
-        assert_eq!(panel.apply(Action::Down), None);
-        assert_eq!(panel.apply(Action::Up), None);
+        assert_eq!(answer(panel.apply(Action::Down, 80)), None);
+        assert_eq!(answer(panel.apply(Action::Up, 80)), None);
         assert_eq!(
-            panel.apply(Action::Submit),
+            answer(panel.apply(Action::Submit, 80)),
             Some(ApprovalAnswer::Once),
             "a step each way did not come back"
         );
@@ -1200,7 +1629,7 @@ mod tests {
                 rows[marked[0]].contains(&format!("{}.", expected + 1)),
                 "{rows:?}"
             );
-            panel.apply(Action::Down);
+            panel.apply(Action::Down, 80);
         }
     }
 
@@ -1426,6 +1855,7 @@ mod tests {
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
             answer: ApprovalAnswer::Once,
+            feedback: None,
         })
         .expect("the channel is open");
         assert_eq!(
@@ -1438,7 +1868,8 @@ mod tests {
             asking.as_mut().poll(&mut Context::from_waker(&park)),
             Poll::Ready(Some(TurnControl::Answer {
                 id: ApprovalId(1),
-                answer: ApprovalAnswer::Once
+                answer: ApprovalAnswer::Once,
+                feedback: None,
             }))
         );
         assert_eq!(
@@ -1478,6 +1909,7 @@ mod tests {
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
             answer: ApprovalAnswer::Always,
+            feedback: None,
         })
         .expect("the channel is open");
         let (events, _seen) = mpsc::channel(4);
@@ -1500,6 +1932,7 @@ mod tests {
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
             answer: ApprovalAnswer::Once,
+            feedback: None,
         })
         .expect("the channel is open");
         let mut prompter = TuiPrompter::new(
@@ -1532,6 +1965,7 @@ mod tests {
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
             answer: ApprovalAnswer::Once,
+            feedback: None,
         })
         .expect("the channel is open");
         let mut prompter = TuiPrompter::new(
@@ -1670,6 +2104,7 @@ mod tests {
         tx.send(TurnControl::Answer {
             id: ApprovalId(1),
             answer: ApprovalAnswer::Always,
+            feedback: None,
         })
         .expect("the channel is open");
         let (events, _seen) = mpsc::channel(4);
@@ -1734,6 +2169,7 @@ mod tests {
             .send(TurnControl::Answer {
                 id: ApprovalId(1),
                 answer: ApprovalAnswer::Once,
+                feedback: None,
             })
             .expect("the channel is open");
         prompter.request(&request("edit_file")).expect("answered");
@@ -1741,6 +2177,7 @@ mod tests {
             .send(TurnControl::Answer {
                 id: ApprovalId(2),
                 answer: ApprovalAnswer::Once,
+                feedback: None,
             })
             .expect("the channel is open");
         clone.request(&request("edit_file")).expect("answered");
@@ -1763,12 +2200,14 @@ mod tests {
             .send(TurnControl::Answer {
                 id: ApprovalId(9_999),
                 answer: ApprovalAnswer::Always,
+                feedback: None,
             })
             .expect("the channel is open");
         answers
             .send(TurnControl::Answer {
                 id: ApprovalId(1),
                 answer: ApprovalAnswer::Deny,
+                feedback: None,
             })
             .expect("the channel is open");
         assert_eq!(
@@ -1835,6 +2274,342 @@ mod tests {
             answered.expect("the wait never ended on the cancellation alone"),
             ApprovalAnswer::Deny,
             "a question xfx can no longer get an answer to is a no"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the amendment draft
+    // -----------------------------------------------------------------------
+
+    /// The choice a keystroke left marked, read through the answer Enter would
+    /// take.
+    ///
+    /// Asked of `Submit` rather than of the private index, because what a test
+    /// about navigation is really claiming is what Enter would now do.
+    fn marked(panel: &mut Panel) -> ApprovalAnswer {
+        match panel.apply(Action::Submit, 80) {
+            Reply::Answer { answer, .. } => answer,
+            other => panic!("Submit did not answer: {other:?}"),
+        }
+    }
+
+    /// Types `text` into whatever draft has the keys.
+    fn type_into(panel: &mut Panel, text: &str) {
+        for character in text.chars() {
+            panel.apply(Action::Text(character), 80);
+        }
+    }
+
+    #[test]
+    fn tab_enters_the_draft_of_an_eligible_choice_and_cycles_past_an_ineligible_one() {
+        // Two halves of one key (`approval_decision.zig::apply`). On choice 0
+        // and choice 2 Tab opens that side's amendment; on choice 1 -- `Always`,
+        // which buys the rest of the session and whose scope is keyed by tool
+        // and target -- there is no draft to open, so Tab is the cycle it has
+        // always been.
+        let mut panel = Panel::new(request("edit_file"));
+        assert!(!panel.drafting());
+        assert_eq!(
+            panel.apply(Action::Tab, 80),
+            Reply::Reshaped,
+            "opening a draft did not change the panel's row count"
+        );
+        assert!(panel.drafting(), "Tab on `1. Yes` did not open its draft");
+        // And it never leaves one: Tab enters a draft, it does not exit it.
+        assert_eq!(panel.apply(Action::Tab, 80), Reply::Ignored);
+        assert!(panel.drafting());
+
+        // Choice 1 is the ineligible one. Down ends editing and marks `Always`;
+        // Tab there cycles to `Deny`, and a second Tab opens *that* draft.
+        panel.apply(Action::Down, 80);
+        assert!(!panel.drafting(), "an arrow did not end the editing");
+        assert_eq!(
+            panel.apply(Action::Tab, 80),
+            Reply::Moved,
+            "Tab past the ineligible choice reshaped a panel it only walked"
+        );
+        assert!(!panel.drafting(), "`Always` acquired a draft");
+        assert_eq!(panel.apply(Action::Tab, 80), Reply::Reshaped);
+        assert!(panel.drafting(), "Tab on `3. No` did not open its draft");
+    }
+
+    #[test]
+    fn moving_the_choice_leaves_editing_and_keeps_both_drafts() {
+        // `approval_decision.zig:285-302`, transcribed: tab, type `y`,
+        // `move_choice.previous` to choice 2, tab, type `n` -- and the two
+        // drafts survive separately. `moveChoice` updates `selected` and then
+        // calls `amendment.clearActive()` (`:214-225`), so moving the choice is
+        // what ends editing.
+        let mut panel = Panel::new(request("edit_file"));
+        panel.apply(Action::Tab, 80);
+        type_into(&mut panel, "y");
+        assert_eq!(panel.apply(Action::Up, 80), Reply::Moved);
+        assert!(!panel.drafting(), "the Up did not end the editing");
+        panel.apply(Action::Tab, 80);
+        type_into(&mut panel, "n");
+
+        let painted = panel.rows(80, 24).join("\n");
+        assert!(
+            painted.contains("\n  y") && painted.contains("\n  n"),
+            "the two drafts do not both survive on the panel: {painted:?}"
+        );
+
+        // And only the submitted side travels: the refusal carries `n`, and the
+        // reason typed at the allow side is discarded rather than sent.
+        let answer = marked(&mut panel);
+        assert_eq!(answer, ApprovalAnswer::Deny);
+        assert_eq!(
+            panel.take_feedback(answer, true),
+            Some("n".to_string()),
+            "the wrong draft travelled, or none did"
+        );
+    }
+
+    #[test]
+    fn digits_typed_into_a_draft_are_characters_and_digits_outside_one_are_answers() {
+        // Both directions, in one pair, because they are one ruling: a `3` is a
+        // shorthand for the third answer until a draft has the keys, and a
+        // character the moment one does. Without the second half a user typing
+        // "3 files is too many" would refuse the call on the first keystroke.
+        let mut outside = Panel::new(request("edit_file"));
+        assert_eq!(
+            outside.apply(Action::Text('3'), 80),
+            Reply::Answer {
+                answer: ApprovalAnswer::Deny,
+                amendable: true
+            },
+            "a digit outside a draft stopped being an answer"
+        );
+
+        let mut inside = Panel::new(request("edit_file"));
+        inside.apply(Action::Tab, 80);
+        type_into(&mut inside, "3 files is too many");
+        assert!(
+            inside.drafting(),
+            "a digit answered the question from a draft"
+        );
+        let answer = marked(&mut inside);
+        assert_eq!(answer, ApprovalAnswer::Once);
+        assert_eq!(
+            inside.take_feedback(answer, true),
+            Some("3 files is too many".to_string()),
+            "the digits were not draft characters"
+        );
+    }
+
+    #[test]
+    fn escape_and_the_interrupt_refuse_without_the_sentence_and_enter_sends_it() {
+        // **The M6 pair, in one case so it cannot drift.** Same draft text, two
+        // exits. Escape is the fail-safe -- a decision xfx was not given -- so a
+        // user bailing out of a panel did not choose to say the sentence that
+        // happens to be in the deny draft. Submitting `3. No` with Enter is a
+        // *chosen* refusal and does send it.
+        let filled = |panel: &mut Panel| {
+            panel.apply(Action::Down, 80);
+            panel.apply(Action::Down, 80);
+            panel.apply(Action::Tab, 80);
+            type_into(panel, "this would delete the fixtures");
+        };
+
+        for bail in [Action::Escape, Action::Cancel] {
+            let mut panel = Panel::new(request("edit_file"));
+            filled(&mut panel);
+            let Reply::Answer { answer, amendable } = panel.apply(bail, 80) else {
+                panic!("{bail:?} did not answer");
+            };
+            assert_eq!(answer, ApprovalAnswer::Deny);
+            assert!(!amendable, "{bail:?} offered to carry the draft");
+            assert_eq!(
+                panel.take_feedback(answer, amendable),
+                None,
+                "{bail:?} sent a sentence the user bailed out of"
+            );
+        }
+
+        let mut panel = Panel::new(request("edit_file"));
+        filled(&mut panel);
+        let Reply::Answer { answer, amendable } = panel.apply(Action::Submit, 80) else {
+            panic!("Enter did not answer");
+        };
+        assert_eq!(answer, ApprovalAnswer::Deny);
+        assert!(amendable);
+        assert_eq!(
+            panel.take_feedback(answer, amendable),
+            Some("this would delete the fixtures".to_string()),
+            "a chosen refusal did not carry its reason"
+        );
+    }
+
+    #[test]
+    fn a_draft_never_shortens_the_target_the_controls_or_the_scope() {
+        // The drafts are paid for **last**, out of what is left: they are the
+        // one block on this panel that is not the question, and all three of the
+        // things a readiness receipt is about sit above them.
+        for durable in [true, false] {
+            let mut panel = Panel::new(as_the_session_builds_it(durable));
+            panel.apply(Action::Tab, 80);
+            type_into(&mut panel, &"reason ".repeat(60));
+            let composed = panel.compose(80, 24, 1, 0);
+            assert!(
+                composed.disclosure.subject_whole,
+                "durable={durable}: a draft cut the target: {:?}",
+                composed.rows
+            );
+            assert!(
+                composed.disclosure.controls_whole,
+                "durable={durable}: a draft cut an answer: {:?}",
+                composed.rows
+            );
+            assert!(
+                composed.disclosure.scope_whole,
+                "durable={durable}: a draft cut what `always` would buy: {:?}",
+                composed.rows
+            );
+            assert!(
+                composed.rows.len() <= 24,
+                "durable={durable}: a draft grew the panel past the screen: {}",
+                composed.rows.len()
+            );
+            assert!(
+                Intent::capture(ApprovalId(1), Surface::Inline, 80, 24, composed.disclosure)
+                    .is_some(),
+                "durable={durable}: an ordinary screen could not disclose an amended request"
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_wraps_and_places_its_caret_at_the_panel_inner_width() {
+        // One width, three consumers ([`draft_cols`]): the editor that applies a
+        // key, the rows the panel paints, and the caret the shell places. A
+        // caret computed at one width and a wrap computed at another is a caret
+        // standing on the wrong cell.
+        for cols in [80u16, 40] {
+            assert_eq!(
+                draft_cols(cols),
+                cols.saturating_sub(INDENT_CELLS).max(1),
+                "the draft is not as wide as every other indented row"
+            );
+        }
+
+        let mut panel = Panel::new(request("edit_file"));
+        panel.apply(Action::Tab, 80);
+        // Wide scalars and an emoji, so a harness counting scalars rather than
+        // cells would put the caret in the wrong column.
+        type_into(&mut panel, &"가나다라마바사아자차카타파하".repeat(5));
+
+        for cols in [80u16, 40, 80] {
+            let rows = panel.rows(cols, 24);
+            let (row, column) = panel.caret(cols, 24);
+            let painted = rows
+                .get(usize::from(row))
+                .unwrap_or_else(|| panic!("{cols}: the caret is not on a row of the panel"));
+            assert!(
+                painted.starts_with(INDENT),
+                "{cols}: the caret is not on a draft row: {painted:?}"
+            );
+            // The caret sits past the indent and past the text on its row, and
+            // never off the screen.
+            assert_eq!(
+                column,
+                INDENT_CELLS
+                    .saturating_add(super::super::wrap::width(
+                        painted.strip_prefix(INDENT).expect("an indented row")
+                    ))
+                    .min(cols.saturating_sub(1)),
+                "{cols}: the caret is not at the end of the row it is on: {painted:?}"
+            );
+            for row in &rows {
+                assert!(
+                    super::super::wrap::width(row) <= cols,
+                    "{cols}: a draft row outgrew the screen: {row:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_stale_approval_id_is_consumed_with_its_feedback() {
+        // A keystroke left over at a question that has gone grants nothing and
+        // **says** nothing: inheriting its sentence would put words in the
+        // user's mouth about a call they never saw.
+        let (mut prompter, mut events, control, answers) = a_prompter();
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(9_999),
+                answer: ApprovalAnswer::Always,
+                feedback: Some("retired question's sentence".to_string()),
+            })
+            .expect("the channel is open");
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
+            .expect("the channel is open");
+
+        let response = prompter.respond(&request("edit_file")).expect("answered");
+        assert_eq!(response.answer, ApprovalAnswer::Deny);
+        assert_eq!(
+            response.feedback, None,
+            "the live question inherited a retired question's sentence"
+        );
+        assert!(
+            control.waiting().is_none(),
+            "the stale answer was consumed, not put back"
+        );
+        let _ = asked_id(&mut events);
+    }
+
+    #[test]
+    fn the_answer_the_user_gave_travels_with_whatever_they_said_about_it() {
+        // `request` is a projection of `respond` rather than a second body, so
+        // the two cannot disagree about which ids are stale; and every early-out
+        // reports `feedback: None`, because nobody was asked or nobody answered.
+        let (mut prompter, mut events, _control, answers) = a_prompter();
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+                feedback: Some("only this once, and log it".to_string()),
+            })
+            .expect("the channel is open");
+        assert_eq!(
+            prompter.respond(&request("edit_file")).expect("answered"),
+            ApprovalResponse {
+                answer: ApprovalAnswer::Once,
+                feedback: Some("only this once, and log it".to_string()),
+            }
+        );
+        let _ = asked_id(&mut events);
+
+        // The interrupt: a refusal, and nothing said.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        tx.send(TurnControl::Cancel { through: 3 })
+            .expect("the channel is open");
+        let (sender, _seen) = mpsc::channel(4);
+        let mut prompter = TuiPrompter::new(
+            sender,
+            Arc::clone(&control),
+            Cancellation::new(crate::gateway::CancelToken::new()),
+        );
+        assert_eq!(
+            prompter.respond(&request("edit_file")).expect("an answer"),
+            ApprovalResponse::plain(ApprovalAnswer::Deny)
+        );
+        assert_eq!(control.waiting(), Some(TurnControl::Cancel { through: 3 }));
+
+        // A session shutting down, which never reaches a panel at all.
+        let (sender, _seen) = mpsc::channel(4);
+        let (_tx, rx) = mpsc::unbounded_channel();
+        let cancel = Cancellation::new(crate::gateway::CancelToken::new());
+        cancel.cancel();
+        let mut prompter = TuiPrompter::new(sender, ControlChannel::new(rx), cancel);
+        assert_eq!(
+            prompter.respond(&request("edit_file")).expect("an answer"),
+            ApprovalResponse::plain(ApprovalAnswer::Deny)
         );
     }
 }

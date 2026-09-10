@@ -525,7 +525,7 @@ The alternative was considered and rejected:
 What "ships the panel in Phase 1" is allowed to mean, so the scope stays honest: the **inline**
 3-choice panel only (1–3 / ↑↓ / Tab / Enter / Esc / Ctrl-C) with the three "always" wordings, painted
 in the footer band. The alt-screen file-diff review, the amendment draft, and the readiness commit
-gate stay in Phases 2–3 — upstream itself decides inline-vs-screen by diff size (`needsScreen`
+gate stay in Phases 2–3 (all three have since landed there — items 19, 20 and 20b) — upstream itself decides inline-vs-screen by diff size (`needsScreen`
 `approval_screen.zig:208`), so an inline-only Phase 1 is a narrower version of an existing branch, not
 a new behavior.
 
@@ -712,7 +712,23 @@ item below is a target that is advertised nowhere.
     document inline, on the review plane's own status line when that plane owns the terminal.
     Receipts: [`06-qa-harness.md`](06-qa-harness.md) row 24 on a release binary and a real terminal,
     plus `src/tui/approval_readiness.rs` and the `commit_band` cases in `src/tui/event_loop.rs`.
-    **Amendment drafts remain** — correctness hardening, not feel.
+20b. Approval **amendment drafts** — **implemented**: a decision may carry the user's own sentence,
+    and the sentence is **context and never authority**. Tab on `1. Yes` or `3. No` opens that
+    answer's draft (`2` — the answer that buys the rest of the session — has none, because its scope
+    is keyed by tool and target and cannot carry a condition); the two drafts are independent, each
+    with its own undo history, kill slot and bounded 4 KiB paste assembler that mints no entity; the
+    arrows and `C-p`/`C-n` end editing and move the choice while keeping both buffers; digits are
+    characters inside a draft and answers outside one; Enter sends **only** the draft belonging to
+    the answer it takes, and Escape and Ctrl-C send none at all. An allow with an amendment runs the
+    model's **original** arguments and a denial with one still writes nothing; the sentence reaches
+    the model as a user message **after** every tool result of its step. Opening, closing or growing
+    a draft revokes the readiness receipt, which the next disclosed frame re-earns, and a draft is
+    paid for out of what is left after the target, the controls and the scope. The sentence is
+    **read back in the transcript** on a `[you]` row, written at the flush that journals and sends
+    it rather than at the keystroke, so an interrupted draft is visible while it is typed and
+    afterwards appears in no transcript, no journal and no request. Receipts:
+    [`06-qa-harness.md`](06-qa-harness.md) row 25 on a release binary and a real terminal, plus
+    `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention.
 22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then

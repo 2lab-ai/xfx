@@ -2237,6 +2237,7 @@ mod tests {
             .send(TurnControl::Answer {
                 id: super::super::approval_readiness::ApprovalId(1),
                 answer: crate::permission::ApprovalAnswer::Deny,
+                feedback: None,
             })
             .expect("alive");
         // The body outlives the stray and then finishes by itself, which is what
@@ -2660,6 +2661,7 @@ mod tests {
             .send(TurnControl::Answer {
                 id: super::super::approval_readiness::ApprovalId(1),
                 answer: ApprovalAnswer::Always,
+                feedback: None,
             })
             .expect("the channel is open");
         let prompter = TuiPrompter::new(
@@ -2715,7 +2717,9 @@ mod tests {
         // write, and the ledger's lock is not reentrant.
         let decision = {
             let mut permissions = conversation.tools.permissions();
-            permissions.decide(ProposedAction::Mutation(&plan))
+            permissions
+                .decide_with_feedback(ProposedAction::Mutation(&plan))
+                .decision
         };
         assert_eq!(
             decision,
@@ -2756,7 +2760,7 @@ mod tests {
         let conversation = state.conversation.as_mut().expect("open");
         {
             let mut permissions = conversation.tools.permissions();
-            permissions.decide(ProposedAction::Mutation(&plan));
+            permissions.decide_with_feedback(ProposedAction::Mutation(&plan));
         }
 
         record_grants(conversation);

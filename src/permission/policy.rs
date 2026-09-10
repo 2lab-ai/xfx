@@ -7,7 +7,7 @@
 //!   action*. It reads no file, runs no process, and asks no human. It can
 //!   therefore be tested exhaustively, and it cannot change the thing it is
 //!   judging.
-//! - [`PermissionSession::decide`] adds the only side effect a decision is
+//! - [`PermissionSession::decide_with_feedback`] adds the only side effect a decision is
 //!   allowed to have: asking the user, and remembering an answer of "always".
 //!
 //! Everything else follows from that split. `ask` with no approval channel is
@@ -306,7 +306,7 @@ pub enum PolicyDecision {
         source: AllowSource,
     },
     /// A human has to answer. Only [`PermissionSession::evaluate`] returns this;
-    /// [`PermissionSession::decide`] always resolves it.
+    /// [`PermissionSession::decide_with_feedback`] always resolves it.
     Prompt,
     Deny {
         cause: DenyCause,
@@ -351,9 +351,44 @@ pub enum ApprovalAnswer {
     Deny,
 }
 
+/// What the user answered, and anything they said about it.
+///
+/// The two travel together and mean different things. The answer is authority.
+/// The feedback is *context*, delivered to the model after the result, and it
+/// changes neither the arguments that ran nor the authority that let them
+/// (`vercel-labs/fx@580a0c5d src/core/permissions/tool_admission.zig:2039-2050`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalResponse {
+    pub answer: ApprovalAnswer,
+    /// Nonempty when the user amended the decision. Never `Some("")`: a blank
+    /// draft is an absent one, decided at the surface that owns the draft.
+    pub feedback: Option<String>,
+}
+
+impl ApprovalResponse {
+    /// An answer with nothing said about it.
+    pub fn plain(answer: ApprovalAnswer) -> Self {
+        Self {
+            answer,
+            feedback: None,
+        }
+    }
+}
+
+/// A resolved decision and whatever the user said while resolving it.
+///
+/// Returned by value, per call. There is deliberately no field anywhere that
+/// holds feedback between calls: a session-scoped slot would survive an early
+/// return and be read by the next tool as though it had been typed at that one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Decided {
+    pub decision: PolicyDecision,
+    pub feedback: Option<String>,
+}
+
 /// Something that can put a question to a human and get an answer back.
 ///
-/// A missing prompter is not "allow by default": [`PermissionSession::decide`]
+/// A missing prompter is not "allow by default": [`PermissionSession::decide_with_feedback`]
 /// treats it as [`DenyCause::NoApprovalChannel`]. That is the whole reason this
 /// is an `Option` rather than a trait object with a permissive default.
 ///
@@ -362,6 +397,17 @@ pub enum ApprovalAnswer {
 /// not move between threads would make the whole context single-threaded.
 pub trait ApprovalPrompter: Send {
     fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer>;
+
+    /// The same question, on a channel that can also carry a sentence.
+    ///
+    /// Defaulted rather than required: a prompter that cannot offer a draft --
+    /// [`TtyPrompter`]'s `y/a/n` line, every test fixture -- is *correct* when
+    /// it reports none. There is no recursion hazard: this default calls
+    /// `request`, which every implementor has to write, so the call terminates
+    /// in that implementor's own body.
+    fn respond(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalResponse> {
+        Ok(ApprovalResponse::plain(self.request(request)?))
+    }
 }
 
 /// The real approval channel: a question on stderr, an answer from the terminal.
@@ -586,15 +632,23 @@ impl PermissionSession {
     ///
     /// Never returns [`PolicyDecision::Prompt`]: by the time this returns, the
     /// question has either been answered or established to be unanswerable.
-    pub fn decide(&mut self, action: ProposedAction<'_>) -> PolicyDecision {
+    ///
+    /// Named for what it carries rather than `decide`, because a caller that
+    /// kept the shorter name would silently drop the user's sentence. Every
+    /// path that never asked anybody -- a rule, a grant, `auto`, `yolo` -- has
+    /// no sentence to carry and says so with `feedback: None`.
+    pub fn decide_with_feedback(&mut self, action: ProposedAction<'_>) -> Decided {
         match self.evaluate(action) {
             PolicyDecision::Prompt => self.ask(action),
-            decided => decided,
+            decision => Decided {
+                decision,
+                feedback: None,
+            },
         }
     }
 
     /// Puts the question to the user, or reports that there is nobody to ask.
-    fn ask(&mut self, action: ProposedAction<'_>) -> PolicyDecision {
+    fn ask(&mut self, action: ProposedAction<'_>) -> Decided {
         let tool = action.tool();
         let target = action.target();
         // Built before the prompter is borrowed: the question depends on the
@@ -607,30 +661,49 @@ impl PermissionSession {
             diff: action.diff(),
         };
         let Some(prompter) = self.prompter.as_mut() else {
-            return PolicyDecision::Deny {
-                cause: DenyCause::NoApprovalChannel,
-                reason: format!(
-                    "`ask` mode needs an interactive approval for `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or use --auto for bounded workspace changes"
-                ),
+            // Nobody was asked, so nobody said anything.
+            return Decided {
+                decision: PolicyDecision::Deny {
+                    cause: DenyCause::NoApprovalChannel,
+                    reason: format!(
+                        "`ask` mode needs an interactive approval for `{tool}` on `{target}`, and this run has no approval channel; rerun in a terminal, or use --auto for bounded workspace changes"
+                    ),
+                },
+                feedback: None,
             };
         };
-        match prompter.request(&request) {
-            Ok(ApprovalAnswer::Once) => PolicyDecision::Allow {
-                source: AllowSource::InteractiveOnce,
-            },
-            Ok(ApprovalAnswer::Always) => {
-                self.grant(Grant::new(tool, target));
-                PolicyDecision::Allow {
-                    source: AllowSource::InteractiveAlways,
-                }
+        match prompter.respond(&request) {
+            Ok(ApprovalResponse { answer, feedback }) => {
+                let decision = match answer {
+                    ApprovalAnswer::Once => PolicyDecision::Allow {
+                        source: AllowSource::InteractiveOnce,
+                    },
+                    ApprovalAnswer::Always => {
+                        // Unchanged, and deliberately: the grant is keyed by
+                        // tool and target. Feedback is not part of that key and
+                        // cannot be -- it is context, not authority.
+                        self.grant(Grant::new(tool, target));
+                        PolicyDecision::Allow {
+                            source: AllowSource::InteractiveAlways,
+                        }
+                    }
+                    ApprovalAnswer::Deny => PolicyDecision::Deny {
+                        cause: DenyCause::UserDenied,
+                        reason: format!("you declined `{tool}` for `{target}`"),
+                    },
+                };
+                // Carried beside the decision, never folded into it: the
+                // answer is authority and this is context, and the two are
+                // read by different things.
+                Decided { decision, feedback }
             }
-            Ok(ApprovalAnswer::Deny) => PolicyDecision::Deny {
-                cause: DenyCause::UserDenied,
-                reason: format!("you declined `{tool}` for `{target}`"),
-            },
-            Err(err) => PolicyDecision::Deny {
-                cause: DenyCause::ApprovalChannelFailed,
-                reason: format!("the approval channel failed: {err}"),
+            // A channel that failed did not deliver a sentence.
+            Err(err) => Decided {
+                decision: PolicyDecision::Deny {
+                    cause: DenyCause::ApprovalChannelFailed,
+                    reason: format!("the approval channel failed: {err}"),
+                },
+                feedback: None,
             },
         }
     }
@@ -859,7 +932,7 @@ mod tests {
                 asked: std::sync::Arc::clone(&asked),
             }));
 
-        session.decide(ProposedAction::Mutation(&plan));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
 
         let asked = asked.lock().expect("lock");
         assert_eq!(asked.len(), 1);
@@ -882,7 +955,7 @@ mod tests {
             },
         ));
 
-        session.decide(ProposedAction::Mutation(&plan));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
 
         let asked = asked.lock().expect("lock");
         assert!(
@@ -937,7 +1010,7 @@ mod tests {
             },
         ));
 
-        session.decide(ProposedAction::Mutation(&plan));
+        session.decide_with_feedback(ProposedAction::Mutation(&plan));
 
         let carried = asked.lock().expect("lock")[0]
             .diff
@@ -950,7 +1023,7 @@ mod tests {
         // after at all: what a command would do is the command, and the summary
         // already quotes that whole.
         let bare = write_plan(TargetScope::PrimaryWorkspace);
-        session.decide(ProposedAction::Mutation(&bare));
+        session.decide_with_feedback(ProposedAction::Mutation(&bare));
         assert!(
             asked.lock().expect("lock")[1].diff.is_none(),
             "a question invented a diff its plan never carried"
@@ -961,7 +1034,7 @@ mod tests {
         let command =
             CommandPlan::prepare("pwd", &scope, None, &crate::tools::ToolLimits::default())
                 .expect("a plannable command");
-        session.decide(ProposedAction::Command(&command));
+        session.decide_with_feedback(ProposedAction::Command(&command));
         assert!(
             asked.lock().expect("lock")[2].diff.is_none(),
             "a command was given a before and an after it does not have"
@@ -975,10 +1048,13 @@ mod tests {
         assert!(!session.has_prompter());
         let plan = write_plan(TargetScope::PrimaryWorkspace);
         assert!(matches!(
-            session.decide(ProposedAction::Mutation(&plan)),
-            PolicyDecision::Deny {
-                cause: DenyCause::NoApprovalChannel,
-                ..
+            session.decide_with_feedback(ProposedAction::Mutation(&plan)),
+            Decided {
+                decision: PolicyDecision::Deny {
+                    cause: DenyCause::NoApprovalChannel,
+                    ..
+                },
+                feedback: None,
             }
         ));
     }

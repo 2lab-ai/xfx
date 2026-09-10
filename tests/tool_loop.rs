@@ -20,19 +20,28 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use xfx::agent::{run_turn, TurnError, TurnRequest};
+use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
+use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
-    Completion, CompletionRequest, FinishReason, ToolCall, ToolChoice, Usage,
+    Completion, CompletionRequest, ContentPart, FinishReason, Message, Role, ToolCall, ToolChoice,
+    Usage,
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
+use xfx::llmux;
 use xfx::output::{Event, RecordingSink};
+use xfx::permission::{
+    ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse, PermissionSession,
+};
 use xfx::provider::Wire;
+use xfx::session::store::DurableState;
+use xfx::session::{NewSession, SessionEvent, SessionId, SessionStore};
 use xfx::tools::{Registry, ToolContext, ToolLimits, ToolResult, ADVERTISED_TOOLS};
-use xfx::workspace::{AccessScope, PathError};
+use xfx::workspace::{AccessScope, PathError, ProjectContext};
 
 use support::fake_gateway::{
     content_only, finish, sse_body, text_delta, tool_call, FakeGateway, Reply,
@@ -1387,6 +1396,7 @@ fn kinds(sink: &RecordingSink) -> Vec<&'static str> {
             Event::AssistantDelta { .. } => "assistant_delta",
             Event::ToolStart { .. } => "tool_start",
             Event::ToolResult { .. } => "tool_result",
+            Event::ToolFeedback { .. } => "tool_feedback",
             Event::Final { .. } => "final",
             Event::Error { .. } => "error",
         })
@@ -1627,6 +1637,1170 @@ async fn a_loop_that_never_stops_calling_tools_ends_at_the_step_limit() {
     assert!(matches!(err, TurnError::StepLimit { limit: 2 }), "{err}");
     assert_eq!(provider.requests().len(), 2, "the bound is on model steps");
     assert_eq!(kinds(&sink).last(), Some(&"error"));
+}
+
+// ---------------------------------------------------------------------------
+// the amended approval, on the wire and in the journal
+// ---------------------------------------------------------------------------
+//
+// A user who answers an approval may say something while answering. That
+// sentence is *context*: it reaches the model as a user message after the
+// result of the call it was about, it never edits the arguments that ran, and
+// it never widens the authority the answer bought
+// (`vercel-labs/fx@580a0c5d src/core/agent/runtime/orchestrator.zig:6598-6618`,
+// `:7431-7458`).
+//
+// Where it goes is the load-bearing choice: `src/llmux/protocol.rs:24-32`
+// merges consecutive user messages and hoists `tool_result` blocks to the front
+// of the merged one, so a sentence interleaved between two results of a batch
+// would arrive above the result it was about. Every sentence of a step
+// therefore lands after every result of that step, and the `call_id` in the
+// journal keeps the correlation the position no longer can.
+
+/// One scripted approval: the answer, and the sentence typed beside it.
+struct Amendment {
+    answer: ApprovalAnswer,
+    feedback: Option<&'static str>,
+    /// Stops the turn as this answer is given -- the Ctrl-C a user types while
+    /// the call that asked still holds the thread.
+    then_cancel: bool,
+}
+
+impl Amendment {
+    /// Allowed once, with something said about it.
+    fn amended(feedback: &'static str) -> Self {
+        Self {
+            answer: ApprovalAnswer::Once,
+            feedback: Some(feedback),
+            then_cancel: false,
+        }
+    }
+
+    /// Allowed once, with nothing said.
+    fn plain() -> Self {
+        Self {
+            answer: ApprovalAnswer::Once,
+            feedback: None,
+            then_cancel: false,
+        }
+    }
+
+    /// Allowed for the rest of the session, with something said about it.
+    fn always(feedback: &'static str) -> Self {
+        Self {
+            answer: ApprovalAnswer::Always,
+            feedback: Some(feedback),
+            then_cancel: false,
+        }
+    }
+
+    fn cancelling(mut self) -> Self {
+        self.then_cancel = true;
+        self
+    }
+}
+
+/// The approval channel a scripted turn answers on.
+///
+/// One entry per question, in order. A script that runs out panics rather than
+/// inventing an answer: a batch that asked more times than the test said it
+/// would is the test being wrong about the turn, not a default to guess at.
+#[derive(Clone)]
+struct ScriptedAmender {
+    script: Arc<Mutex<VecDeque<Amendment>>>,
+    /// The turn's own token, so a scripted answer can also be the moment the
+    /// user stopped the turn.
+    cancel: CancelToken,
+}
+
+impl ScriptedAmender {
+    fn new(script: Vec<Amendment>, cancel: CancelToken) -> Self {
+        Self {
+            script: Arc::new(Mutex::new(script.into())),
+            cancel,
+        }
+    }
+
+    fn next(&mut self) -> Amendment {
+        let step = self
+            .script
+            .lock()
+            .expect("the script lock")
+            .pop_front()
+            .expect("the approval channel was asked more times than the script allows");
+        if step.then_cancel {
+            self.cancel.cancel();
+        }
+        step
+    }
+
+    fn unasked(&self) -> usize {
+        self.script.lock().expect("the script lock").len()
+    }
+}
+
+impl ApprovalPrompter for ScriptedAmender {
+    fn request(&mut self, _request: &ApprovalRequest) -> std::io::Result<ApprovalAnswer> {
+        Ok(self.next().answer)
+    }
+
+    fn respond(&mut self, _request: &ApprovalRequest) -> std::io::Result<ApprovalResponse> {
+        let step = self.next();
+        Ok(ApprovalResponse {
+            answer: step.answer,
+            feedback: step.feedback.map(str::to_string),
+        })
+    }
+}
+
+/// Every event a turn recorded, in order.
+#[derive(Default)]
+struct RecordingJournal {
+    events: Vec<SessionEvent>,
+}
+
+impl RecordingJournal {
+    fn kinds(&self) -> Vec<&'static str> {
+        self.events.iter().map(SessionEvent::kind).collect()
+    }
+
+    /// Every amendment recorded, as `(call_id, text)` in journal order.
+    fn feedback(&self) -> Vec<(String, String)> {
+        self.events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::ToolFeedback { call_id, text } => {
+                    Some((call_id.clone(), text.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+impl TurnJournal for RecordingJournal {
+    fn record(&mut self, event: SessionEvent) {
+        self.events.push(event);
+    }
+}
+
+/// A context in `ask` mode whose approvals are answered by `prompter`.
+fn asking_context(tree: &Tree, limits: ToolLimits, prompter: ScriptedAmender) -> ToolContext {
+    ToolContext::with_limits(
+        AccessScope::primary_only(tree.root()).expect("a usable primary root"),
+        limits,
+    )
+    .with_permissions(PermissionSession::new(PermissionMode::Ask).with_prompter(Box::new(prompter)))
+}
+
+/// A turn that carries `tools` and can be stopped through `cancel`.
+fn asking_turn(prompt: &str, tools: ToolContext, cancel: CancelToken) -> TurnRequest {
+    TurnRequest {
+        model: "vendor/model".to_string(),
+        prompt: prompt.to_string(),
+        history: Vec::new(),
+        max_steps: 4,
+        max_attempts: 1,
+        cancel,
+        tools,
+    }
+}
+
+fn write_call(id: &str, path: &str, content: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        name: "write_file".to_string(),
+        input: json!({ "path": path, "content": content }),
+    }
+}
+
+fn read_call(id: &str, path: &str) -> ToolCall {
+    ToolCall {
+        id: id.to_string(),
+        name: "read_file".to_string(),
+        input: json!({ "path": path }),
+    }
+}
+
+/// The tool result carried by a `tool` message, or a panic naming what it was.
+fn tool_output(message: &Message) -> &str {
+    match message.content.first() {
+        Some(ContentPart::ToolResult { output, .. }) => output.as_str(),
+        other => panic!("expected a tool result, got {other:?}"),
+    }
+}
+
+fn roles(messages: &[Message]) -> Vec<Role> {
+    messages.iter().map(|message| message.role).collect()
+}
+
+/// The state a resumed session rebuilds from `events`, through the real store.
+fn replayed(events: &[SessionEvent], workspace: &Path) -> DurableState {
+    let profile = TempDir::new().expect("a profile root");
+    let store = SessionStore::open(&profile.path().join(".xfx")).expect("open the store");
+    let mut session = store
+        .create(
+            SessionId::parse("amended-turn").expect("a safe session id"),
+            NewSession {
+                origin_workspace_root: workspace.to_path_buf(),
+                workspace_root: workspace.to_path_buf(),
+                model: "vendor/model".to_string(),
+                permission_mode: PermissionMode::Ask,
+            },
+        )
+        .expect("create the session");
+    for event in events {
+        store.append(&mut session, event.clone()).expect("append");
+    }
+    store.publish(&mut session).expect("publish");
+    session.state().clone()
+}
+
+/// Runs one three-call step whose first and third calls were amended, and
+/// returns what the provider saw and what the journal recorded.
+///
+/// Shared by the ordering, the encoding, and the replay case so all three are
+/// arguing about one turn rather than three lookalikes.
+async fn amended_batch(tree: &Tree) -> (Vec<CompletionRequest>, Vec<SessionEvent>) {
+    tree.write("notes.md", "the note\n");
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![
+            Amendment::amended("prefer bullet points"),
+            Amendment::amended("and keep the heading"),
+        ],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            write_call("c1", "draft-a.md", "alpha\n"),
+            read_call("c2", "notes.md"),
+            write_call("c3", "draft-b.md", "beta\n"),
+        ]),
+        final_step("drafted"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        asking_turn(
+            "draft two files",
+            asking_context(tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    (provider.requests(), journal.events)
+}
+
+#[tokio::test]
+async fn feedback_reaches_the_prompt_after_the_result_it_was_about() {
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment::amended("use tabs, not spaces")],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("written"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    run_turn_saved(
+        asking_turn(
+            "write the note",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    let prompt = &provider.requests()[1].messages;
+    assert_eq!(
+        roles(prompt),
+        [Role::User, Role::Assistant, Role::Tool, Role::User],
+        "the sentence follows the result it was about"
+    );
+    assert_eq!(prompt[3].text(), "use tabs, not spaces");
+
+    // The arguments that ran are the arguments that were judged.
+    assert_eq!(
+        fs::read_to_string(tree.root().join("notes.md")).expect("the written file"),
+        "alpha\n"
+    );
+
+    // And the sentence is a message of its own: nothing merged it into the
+    // tool's own report of what it did.
+    assert!(
+        !tool_output(&prompt[2]).contains("use tabs"),
+        "the sentence was folded into the tool output: {}",
+        tool_output(&prompt[2])
+    );
+
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_feedback",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded"
+        ]
+    );
+    assert_eq!(
+        journal.feedback(),
+        [("c1".to_string(), "use tabs, not spaces".to_string())]
+    );
+}
+
+#[tokio::test]
+async fn a_multi_call_batch_puts_every_result_before_every_sentence() {
+    let tree = Tree::new();
+    let (requests, events) = amended_batch(&tree).await;
+
+    let prompt = &requests[1].messages;
+    assert_eq!(
+        roles(prompt),
+        [
+            Role::User,
+            Role::Assistant,
+            Role::Tool,
+            Role::Tool,
+            Role::Tool,
+            Role::User,
+            Role::User
+        ],
+        "every result of the step precedes every sentence of it"
+    );
+    // In call order, and only for the calls that were amended: `read_file`
+    // never reached an approval, so it has nothing to carry.
+    assert_eq!(prompt[5].text(), "prefer bullet points");
+    assert_eq!(prompt[6].text(), "and keep the heading");
+
+    let journal = RecordingJournal { events };
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_result",
+            "tool_result",
+            "tool_feedback",
+            "tool_feedback",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded"
+        ]
+    );
+    assert_eq!(
+        journal.feedback(),
+        [
+            ("c1".to_string(), "prefer bullet points".to_string()),
+            ("c3".to_string(), "and keep the heading".to_string())
+        ]
+    );
+}
+
+#[tokio::test]
+async fn an_amended_batch_renders_to_a_valid_request_on_both_wires() {
+    let tree = Tree::new();
+    let (requests, _) = amended_batch(&tree).await;
+    let request = &requests[1];
+
+    // The Gateway wire validates inside `body`, which is the only place that
+    // produces bytes: no orphan result, no repeated call id.
+    let gateway = request.body().expect("a valid Gateway request");
+    assert!(gateway.contains("prefer bullet points"), "{gateway}");
+
+    // The Anthropic wire merges the run of user messages -- the three results
+    // and both sentences -- into one, with the results leading it.
+    let body: Value =
+        serde_json::from_str(&llmux::protocol::body(request).expect("a valid llmux request"))
+            .expect("llmux bodies are JSON");
+    let messages = body["messages"].as_array().expect("messages");
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| message["role"].as_str().expect("a role"))
+            .collect::<Vec<_>>(),
+        ["user", "assistant", "user"],
+        "{body}"
+    );
+    let merged = messages[2]["content"].as_array().expect("content blocks");
+    let kinds: Vec<&str> = merged
+        .iter()
+        .map(|block| block["type"].as_str().expect("a block type"))
+        .collect();
+    assert_eq!(
+        kinds,
+        ["tool_result", "tool_result", "tool_result", "text", "text"],
+        "the results lead the merged message: {body}"
+    );
+    assert_eq!(merged[3]["text"], "prefer bullet points");
+    assert_eq!(merged[4]["text"], "and keep the heading");
+}
+
+#[tokio::test]
+async fn a_resumed_session_replays_the_same_order_with_no_orphan_calls() {
+    let tree = Tree::new();
+    let (requests, events) = amended_batch(&tree).await;
+
+    let state = replayed(&events, tree.root());
+    let replay = state.history_messages(Wire::VercelGateway);
+
+    // Message for message, the prompt the turn actually sent -- results then
+    // sentences, in call order, with no orphan call and no orphan sentence.
+    let live = &requests[1].messages;
+    assert_eq!(
+        &replay.messages[..live.len()],
+        live.as_slice(),
+        "a resumed prompt is not the prompt the turn actually sent"
+    );
+    // Plus the answering step, which arrived after that request was built.
+    assert_eq!(replay.messages.len(), live.len() + 1);
+    assert_eq!(replay.messages[live.len()].text(), "drafted");
+    assert!(replay.notices.is_empty(), "{:?}", replay.notices);
+}
+
+#[tokio::test]
+async fn a_fatal_turn_journals_every_sentence_even_when_the_stream_refuses_the_first() {
+    // **The journal is not the display's to lose.** This turn is already ending
+    // for a reason of its own -- an authority stopped describing the filesystem
+    // -- and the journal is the only copy a resumed session can read. A stream
+    // that has gone must therefore cost the *echo* and nothing else: every call
+    // that ran and was answered keeps its sentence.
+    //
+    // The refusal is on the **first** amendment, which is the case that
+    // separates the two policies: stopping at it would drop `c3`'s sentence as
+    // well, and `c3` is the call whose own authority was revoked -- the one a
+    // reader of the log is most likely to be looking for.
+    let tree = Tree::new();
+    let mut sink = RefusingSink::refusing_feedback_from(0);
+    let (err, journal, provider) = a_fatal_amended_turn(&tree, &mut sink).await;
+
+    assert!(
+        matches!(err, TurnError::ToolAuthorityRevoked { .. }),
+        "the revocation stopped being the fact the turn ends with: {err}"
+    );
+    assert_eq!(
+        journal.feedback(),
+        [
+            ("c1".to_string(), "draft it as markdown".to_string()),
+            ("c3".to_string(), "keep the heading".to_string())
+        ],
+        "a broken display cost the journal the sentences it is the only copy of"
+    );
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_result",
+            "tool_result",
+            "tool_feedback",
+            "tool_feedback",
+            "turn_concluded"
+        ],
+        "the order changed when the stream broke"
+    );
+    assert_eq!(
+        sink.shown(),
+        Vec::<(String, String)>::new(),
+        "the stream that refused was written to anyway"
+    );
+    // Sent: nothing, exactly as when the stream was there. A fatal turn asks
+    // for no second request, so no sentence travels whatever the reader saw.
+    assert_eq!(provider.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn a_stream_that_breaks_part_way_through_a_fatal_flush_still_journals_all_of_it_once() {
+    // The other half of the same ruling, and the one that catches a fix that
+    // merely moved the `?`: the stream takes the first sentence and refuses the
+    // second. Both are journaled, each exactly once and in call order, and the
+    // one that was shown is not shown twice.
+    let tree = Tree::new();
+    let mut sink = RefusingSink::refusing_feedback_from(1);
+    let (err, journal, _provider) = a_fatal_amended_turn(&tree, &mut sink).await;
+
+    assert!(
+        matches!(err, TurnError::ToolAuthorityRevoked { .. }),
+        "{err}"
+    );
+    assert_eq!(
+        journal.feedback(),
+        [
+            ("c1".to_string(), "draft it as markdown".to_string()),
+            ("c3".to_string(), "keep the heading".to_string())
+        ],
+        "the sentence after the break was dropped from the journal"
+    );
+    assert_eq!(
+        journal
+            .kinds()
+            .iter()
+            .filter(|kind| **kind == "tool_feedback")
+            .count(),
+        2,
+        "a sentence was journaled twice: {:?}",
+        journal.kinds()
+    );
+    assert_eq!(
+        sink.shown(),
+        [("c1".to_string(), "draft it as markdown".to_string())],
+        "the reader saw something other than exactly the sentences that reached it"
+    );
+}
+
+/// One turn whose **third** call loses its authority while two earlier calls
+/// were amended, driven against `sink`.
+///
+/// The fixture the fatal cases share, so they argue about one turn rather than
+/// three lookalikes: `c1` is amended and completes, `c2` reads, `c3` is amended
+/// and then finds the file changed under its authority, and `c4` is never
+/// admitted. What differs between the cases is only the stream.
+async fn a_fatal_amended_turn(
+    tree: &Tree,
+    sink: &mut dyn xfx::output::EventSink,
+) -> (TurnError, RecordingJournal, ScriptedProvider) {
+    tree.write("notes.md", "original 0\n");
+    // Every visit rewrites the file with different bytes, so the authority
+    // minted for the edit no longer describes the filesystem when it is spent.
+    let root = tree.root().to_path_buf();
+    let visits = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+    let interlude = {
+        let visits = Arc::clone(&visits);
+        Arc::new(move || {
+            let visit = visits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            fs::write(root.join("notes.md"), format!("original {visit}\n"))
+                .expect("swap the preimage");
+        })
+    };
+
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![
+            Amendment::amended("draft it as markdown"),
+            Amendment::amended("keep the heading"),
+        ],
+        cancel.clone(),
+    );
+    let context =
+        asking_context(tree, ToolLimits::default(), prompter).with_race_interlude(interlude);
+    let provider = ScriptedProvider::new(vec![calls_step(vec![
+        write_call("c1", "draft.md", "alpha\n"),
+        read_call("c2", "notes.md"),
+        ToolCall {
+            id: "c3".to_string(),
+            name: "edit_file".to_string(),
+            input: json!({ "path": "notes.md", "old_string": "original", "new_string": "edited" }),
+        },
+        read_call("c4", "draft.md"),
+    ])]);
+    let mut journal = RecordingJournal::default();
+
+    let err = run_turn_saved(
+        asking_turn("edit the note", context, cancel),
+        ProjectContext::none(),
+        &provider,
+        sink,
+        &mut journal,
+    )
+    .await
+    .expect_err("a lost authority ends the turn");
+    (err, journal, provider)
+}
+
+#[tokio::test]
+async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
+    let tree = Tree::new();
+    let mut sink = RefusingSink::accepting();
+    let (err, journal, provider) = a_fatal_amended_turn(&tree, &mut sink).await;
+    assert!(
+        matches!(err, TurnError::ToolAuthorityRevoked { .. }),
+        "{err}"
+    );
+    assert_eq!(
+        sink.shown(),
+        [
+            ("c1".to_string(), "draft it as markdown".to_string()),
+            ("c3".to_string(), "keep the heading".to_string())
+        ],
+        "a reader who was there did not see both sentences"
+    );
+
+    // Journaled: every completed call's sentence, the fatal call's own
+    // included, and each of them after every result of the step.
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_result",
+            "tool_result",
+            "tool_feedback",
+            "tool_feedback",
+            "turn_concluded"
+        ]
+    );
+    assert_eq!(
+        journal.feedback(),
+        [
+            ("c1".to_string(), "draft it as markdown".to_string()),
+            ("c3".to_string(), "keep the heading".to_string())
+        ]
+    );
+
+    // Sent: nothing. The turn ended, so there is no second request for the
+    // sentences to travel in.
+    assert_eq!(provider.requests().len(), 1);
+
+    // Replayed: nothing either. The group is incomplete -- `c4` never ran --
+    // so it never flushes, and the sentences go with it rather than arriving
+    // as loose user messages beside an orphan result.
+    let state = replayed(&journal.events, tree.root());
+    let replay = state.history_messages(Wire::VercelGateway);
+    assert_eq!(
+        replay.messages,
+        vec![Message::user("edit the note")],
+        "an incomplete group replayed anyway"
+    );
+}
+
+#[tokio::test]
+async fn an_output_limit_does_not_clip_a_sentence_into_the_result() {
+    let sentence = "please rerun it with --quiet, the log is enormous and I only care about the last line of it";
+    let limits = ToolLimits {
+        max_command_output_bytes: 64,
+        ..ToolLimits::default()
+    };
+
+    // The same command, once amended and once not: whatever the cap does to
+    // the output, it does the same either way.
+    let mut outputs = Vec::new();
+    let mut amended_prompt = Vec::new();
+    for feedback in [Some(sentence), None] {
+        let tree = Tree::new();
+        tree.write("big.txt", &"x".repeat(4096));
+        let cancel = CancelToken::new();
+        let answer = match feedback {
+            Some(text) => Amendment::amended(text),
+            None => Amendment::plain(),
+        };
+        let prompter = ScriptedAmender::new(vec![answer], cancel.clone());
+        let provider = ScriptedProvider::new(vec![
+            calls_step(vec![ToolCall {
+                id: "c1".to_string(),
+                name: "terminal".to_string(),
+                input: json!({ "action": "exec", "command": "cat big.txt" }),
+            }]),
+            final_step("read it"),
+        ]);
+        let mut sink = RecordingSink::new();
+        run_turn(
+            asking_turn(
+                "show me the file",
+                asking_context(&tree, limits, prompter),
+                cancel,
+            ),
+            &provider,
+            &mut sink,
+        )
+        .await
+        .expect("the turn completes");
+
+        let prompt = provider.requests()[1].messages.clone();
+        outputs.push(tool_output(&prompt[2]).to_string());
+        if feedback.is_some() {
+            amended_prompt = prompt;
+        }
+    }
+
+    assert!(
+        outputs[0].contains("truncated"),
+        "the fixture did not reach the cap: {}",
+        outputs[0]
+    );
+    assert_eq!(
+        outputs[0], outputs[1],
+        "the presence of a sentence changed the tool's own output"
+    );
+
+    // The sentence is a message of its own, whole: it is not tool output, so
+    // the tool output limit is not its limit.
+    assert_eq!(roles(&amended_prompt).last(), Some(&Role::User));
+    let carried = amended_prompt.last().expect("a sentence").text();
+    assert_eq!(carried, sentence);
+    assert!(
+        !carried.contains("truncated") && !carried.contains("clipped"),
+        "a truncation marker landed inside the sentence: {carried}"
+    );
+}
+
+#[tokio::test]
+async fn a_cancelled_final_call_neither_journals_nor_sends_its_sentence() {
+    // Cancellation is *observed* at the yield after a call and *acted on* at
+    // the top of the next iteration -- and after the last call there is no next
+    // iteration. Without a guard on the normal flush, this turn journals and
+    // sends a sentence from a turn the user had already stopped.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment::amended("actually, never mind").cancelling()],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![calls_step(vec![write_call(
+        "c1", "notes.md", "alpha\n",
+    )])]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    let err = run_turn_saved(
+        asking_turn(
+            "write the note",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect_err("a cancelled turn does not complete");
+    assert!(matches!(err, TurnError::Cancelled), "{err}");
+
+    assert_eq!(
+        journal.feedback(),
+        Vec::<(String, String)>::new(),
+        "a stopped turn recorded a sentence it was told to drop"
+    );
+    assert!(
+        !journal.kinds().contains(&"tool_feedback"),
+        "{:?}",
+        journal.kinds()
+    );
+    assert_eq!(provider.requests().len(), 1, "a stopped turn asked again");
+}
+
+/// Every streamed amendment, as `(call_id, text)` in emission order.
+fn streamed_feedback(sink: &RecordingSink) -> Vec<(String, String)> {
+    sink.events()
+        .iter()
+        .filter_map(|event| match event {
+            Event::ToolFeedback { call_id, text } => Some((call_id.clone(), text.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A sink that refuses amendments from the `n`th onwards, and records the rest.
+///
+/// Written here rather than in the product for the reason every other fixture
+/// in this file is: what it proves is how a **turn** behaves when the thing
+/// watching it goes away, and a stream that cannot be broken on purpose cannot
+/// prove it. The index matters because a stream that breaks part-way through a
+/// batch is the case where "journal everything" and "stop at the first refusal"
+/// give different journals.
+struct RefusingSink {
+    recorded: RecordingSink,
+    /// The first amendment this stream refuses, if it refuses one.
+    refuse_from: Option<usize>,
+    seen: usize,
+}
+
+impl RefusingSink {
+    fn refusing_feedback_from(index: usize) -> Self {
+        Self {
+            recorded: RecordingSink::new(),
+            refuse_from: Some(index),
+            seen: 0,
+        }
+    }
+
+    fn accepting() -> Self {
+        Self {
+            recorded: RecordingSink::new(),
+            refuse_from: None,
+            seen: 0,
+        }
+    }
+
+    /// How many amendments really reached the reader.
+    fn shown(&self) -> Vec<(String, String)> {
+        streamed_feedback(&self.recorded)
+    }
+}
+
+impl xfx::output::EventSink for RefusingSink {
+    fn emit(&mut self, event: &Event) -> std::io::Result<()> {
+        if matches!(event, Event::ToolFeedback { .. }) {
+            let index = self.seen;
+            self.seen += 1;
+            if self.refuse_from.is_some_and(|from| index >= from) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "the terminal session is gone",
+                ));
+            }
+        }
+        self.recorded.emit(event)
+    }
+}
+
+#[tokio::test]
+async fn an_amendment_is_streamed_at_the_flush_that_journals_and_sends_it() {
+    // **The display is not a fourth copy of the decision, it is the same
+    // flush.** A sentence the user typed is shown to them exactly when the
+    // model is told it -- after every result of the step, in call order -- so
+    // there is no state in which the transcript says something the wire does
+    // not, or the other way round.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment::amended("use tabs, not spaces")],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("written"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    run_turn_saved(
+        asking_turn(
+            "write the note",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    // Behind the result it is about and ahead of the turn's conclusion, which
+    // is the same place it takes on the wire and in the journal.
+    assert_eq!(
+        kinds(&sink),
+        [
+            "tool_start",
+            "tool_result",
+            "tool_feedback",
+            "assistant_delta",
+            "final"
+        ],
+        "the amendment was not streamed where the model was told it"
+    );
+    assert_eq!(
+        streamed_feedback(&sink),
+        [("c1".to_string(), "use tabs, not spaces".to_string())],
+        "the streamed sentence is not the one the user typed"
+    );
+    // Exactly once, and the same sentence the journal and the prompt carry.
+    assert_eq!(streamed_feedback(&sink), journal.feedback());
+}
+
+#[tokio::test]
+async fn a_multi_call_batch_streams_every_sentence_after_every_result() {
+    let tree = Tree::new();
+    tree.write("notes.md", "the note\n");
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![
+            Amendment::amended("prefer bullet points"),
+            Amendment::amended("and keep the heading"),
+        ],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            write_call("c1", "draft-a.md", "alpha\n"),
+            read_call("c2", "notes.md"),
+            write_call("c3", "draft-b.md", "beta\n"),
+        ]),
+        final_step("drafted"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        asking_turn(
+            "draft two files",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    assert_eq!(
+        kinds(&sink),
+        [
+            "tool_start",
+            "tool_result",
+            "tool_start",
+            "tool_result",
+            "tool_start",
+            "tool_result",
+            "tool_feedback",
+            "tool_feedback",
+            "assistant_delta",
+            "final"
+        ],
+        "a sentence was streamed between two results of one step"
+    );
+    assert_eq!(
+        streamed_feedback(&sink),
+        [
+            ("c1".to_string(), "prefer bullet points".to_string()),
+            ("c3".to_string(), "and keep the heading".to_string())
+        ]
+    );
+    assert_eq!(streamed_feedback(&sink), journal.feedback());
+}
+
+#[tokio::test]
+async fn an_interrupted_amendment_is_never_streamed() {
+    // The display half of the drop contract. A sentence the user typed and then
+    // interrupted out of reaches the model, the journal and the **transcript**
+    // in exactly the same way: not at all. A transcript that showed it would be
+    // telling the user something was said that never was.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment::amended("never sent").cancelling()],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("written"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    let err = run_turn_saved(
+        asking_turn(
+            "write the note",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect_err("a cancelled turn does not complete");
+    assert!(matches!(err, TurnError::Cancelled), "{err}");
+
+    assert!(
+        !kinds(&sink).contains(&"tool_feedback"),
+        "a sentence the user interrupted out of was shown to them anyway: {:?}",
+        kinds(&sink)
+    );
+    assert_eq!(streamed_feedback(&sink), Vec::<(String, String)>::new());
+    assert_eq!(journal.feedback(), Vec::<(String, String)>::new());
+    assert!(
+        !format!("{:?}", provider.requests()).contains("never sent"),
+        "the interrupted sentence reached the wire"
+    );
+}
+
+#[tokio::test]
+async fn a_sink_that_refuses_an_amendment_ends_the_turn_rather_than_swallowing_it() {
+    // **The display error is not swallowed.** The emit comes first and the
+    // journal second -- the order every other event on this path uses
+    // (`machine.rs`'s `ToolResult` site) -- so a stream that has gone ends the
+    // turn with the sink's own error, and the sentence is left out of the
+    // journal and out of the prompt rather than recorded as delivered to a
+    // reader who never saw it.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment::amended("use tabs, not spaces")],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("written"),
+    ]);
+    let mut sink = RefusingSink::refusing_feedback_from(0);
+    let mut journal = RecordingJournal::default();
+
+    let err = run_turn_saved(
+        asking_turn(
+            "write the note",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect_err("a turn whose stream refused an event does not complete");
+    assert!(
+        matches!(&err, TurnError::Sink(inner) if inner.kind() == std::io::ErrorKind::BrokenPipe),
+        "the display failure was not reported as the turn's own: {err}"
+    );
+    assert_eq!(
+        journal.feedback(),
+        Vec::<(String, String)>::new(),
+        "the journal recorded a sentence the reader was never shown"
+    );
+    assert_eq!(
+        provider.requests().len(),
+        1,
+        "a turn whose stream broke asked for another completion"
+    );
+
+    // The call itself still ran and was still journaled: an amendment is
+    // context, and a broken stream is not a reason to un-write a file.
+    assert_eq!(
+        fs::read_to_string(tree.root().join("notes.md")).expect("the written file"),
+        "alpha\n"
+    );
+    assert!(
+        journal.kinds().contains(&"tool_result"),
+        "{:?}",
+        journal.kinds()
+    );
+}
+
+#[tokio::test]
+async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![
+            Amendment::amended("prefer bullet points"),
+            Amendment::amended("and keep the heading").cancelling(),
+            Amendment::amended("never asked"),
+        ],
+        cancel.clone(),
+    );
+    let asked = prompter.clone();
+    let provider = ScriptedProvider::new(vec![calls_step(vec![
+        write_call("c1", "draft-a.md", "alpha\n"),
+        write_call("c2", "draft-b.md", "beta\n"),
+        write_call("c3", "draft-c.md", "gamma\n"),
+    ])]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    let err = run_turn_saved(
+        asking_turn(
+            "draft three files",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect_err("a cancelled turn does not complete");
+    assert!(matches!(err, TurnError::Cancelled), "{err}");
+
+    // The third call was abandoned before it was admitted, so its approval was
+    // never put to anybody.
+    assert_eq!(asked.unasked(), 1);
+    assert!(
+        !tree.root().join("draft-c.md").exists(),
+        "a stopped turn ran the call behind the stop"
+    );
+
+    assert_eq!(
+        journal.feedback(),
+        Vec::<(String, String)>::new(),
+        "a stopped turn recorded sentences it was told to drop"
+    );
+    assert_eq!(provider.requests().len(), 1, "a stopped turn asked again");
+
+    // And a resume replays neither: nothing was recorded to replay.
+    let state = replayed(&journal.events, tree.root());
+    let replay = state.history_messages(Wire::VercelGateway);
+    assert_eq!(replay.messages, vec![Message::user("draft three files")]);
+}
+
+#[tokio::test]
+async fn a_call_the_previous_answer_already_granted_carries_no_second_sentence() {
+    // "Always" buys a grant keyed by tool and target, and nothing else. The
+    // next call on that target is allowed without asking, so nobody says
+    // anything about it -- which is also the proof that no slot anywhere is
+    // holding the last sentence for whoever asks next.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(vec![Amendment::always("keep it short")], cancel.clone());
+    let asked = prompter.clone();
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            write_call("c1", "notes.md", "alpha\n"),
+            write_call("c2", "notes.md", "alpha\nbeta\n"),
+        ]),
+        final_step("written twice"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+
+    run_turn_saved(
+        asking_turn(
+            "write it twice",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    assert_eq!(asked.unasked(), 0, "the script was not exhausted");
+    assert_eq!(
+        journal.feedback(),
+        [("c1".to_string(), "keep it short".to_string())],
+        "a sentence outlived the call it was typed at"
+    );
+    let prompt = &provider.requests()[1].messages;
+    assert_eq!(
+        roles(prompt),
+        [
+            Role::User,
+            Role::Assistant,
+            Role::Tool,
+            Role::Tool,
+            Role::User
+        ]
+    );
+    assert_eq!(prompt[4].text(), "keep it short");
 }
 
 // ---------------------------------------------------------------------------

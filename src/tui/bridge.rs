@@ -134,6 +134,15 @@ pub(crate) enum UiEvent {
     },
     /// Something the session wants said that is not part of an answer.
     Notice(String),
+    /// What the user said when they answered an approval, on its way to the
+    /// document.
+    ///
+    /// **Not an echo of the keystroke.** It is produced where the journal frame
+    /// and the user message are (`crate::agent::machine`'s `flush_amendments`),
+    /// so what the transcript shows is what the model was really told: a
+    /// sentence the user typed and then interrupted out of reaches neither, and
+    /// a sentence that reached one reached all three.
+    ToolFeedback { call_id: String, text: String },
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -273,6 +282,15 @@ impl UiEvent {
                 detail: inert_owned(detail),
             },
             Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // **The most foreign text on this channel.** It is typed at a
+            // terminal by a person, so it is the one string here that a user
+            // can put an `ESC` into on purpose -- and it is about to be painted
+            // into the document. The `call_id` is the registry's and is not
+            // exempt for it.
+            Self::ToolFeedback { call_id, text } => Self::ToolFeedback {
+                call_id: inert_owned(call_id),
+                text: inert_owned(text),
+            },
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
             // and is therefore exactly as foreign as a delta.
@@ -404,6 +422,15 @@ pub(crate) enum TurnControl {
     Answer {
         id: super::approval_readiness::ApprovalId,
         answer: ApprovalAnswer,
+        /// The amendment typed at the draft for `answer`, if there was one.
+        ///
+        /// The other side's draft is discarded at submit and never travels, and
+        /// neither does the one belonging to a refusal the user bailed out of
+        /// with Escape ([`super::approval_amendment::Drafts::submit`]). It is
+        /// **context, not authority**: nothing downstream reads it to widen,
+        /// narrow or re-key a grant, and the call that runs is the call that
+        /// was judged (`crate::permission::ApprovalResponse`).
+        feedback: Option<String>,
     },
     /// The user answered every question of one batch, in entry order.
     ///
@@ -826,6 +853,13 @@ fn translate(event: &Event) -> Option<UiEvent> {
             tool: tool.clone(),
             ok: *ok,
             detail: detail.clone(),
+        }),
+        // Carried through, unlike `Final` and `Error`: nothing else on this
+        // channel says it, and the worker's `TurnEnded` is about the turn
+        // rather than about what the user said inside it.
+        Event::ToolFeedback { call_id, text } => Some(UiEvent::ToolFeedback {
+            call_id: call_id.clone(),
+            text: text.clone(),
         }),
         Event::Final { .. } | Event::Error { .. } => None,
     }
@@ -1748,5 +1782,48 @@ mod tests {
         }
         .is_terminal());
         assert!(UiEvent::TurnEnded { failure: None }.is_terminal());
+    }
+
+    #[test]
+    fn an_amendment_reaches_the_band_as_the_users_sentence_and_reaches_it_inert() {
+        // The one string on this channel a **person** typed on purpose, and the
+        // band is about to paint it into the document. `made_inert` is
+        // exhaustive precisely so that a variant carrying text cannot be added
+        // without answering this.
+        let translated = translate(&Event::ToolFeedback {
+            call_id: "c1".to_string(),
+            text: "keep the header".to_string(),
+        });
+        assert_eq!(
+            translated,
+            Some(UiEvent::ToolFeedback {
+                call_id: "c1".to_string(),
+                text: "keep the header".to_string(),
+            }),
+            "the amendment never reached the UI at all"
+        );
+
+        let UiEvent::ToolFeedback { call_id, text } = UiEvent::ToolFeedback {
+            call_id: "c\u{1b}[2J1".to_string(),
+            text: "keep\nthe\u{1b}[2Jheader".to_string(),
+        }
+        .made_inert() else {
+            panic!("made_inert changed the variant");
+        };
+        assert!(
+            !text.contains('\u{1b}'),
+            "a sentence typed at a terminal reached the band able to paint it: {text:?}"
+        );
+        assert!(!call_id.contains('\u{1b}'), "{call_id:?}");
+        // The newline survives here **on purpose**, and this is the case that
+        // says so rather than leaving it to be discovered: [`obeyed`] exempts
+        // `\n` because a streamed answer's line breaks are the rows the
+        // transcript exists to make. An amendment is one row, and it is
+        // `super::shell` that makes it one -- with the same `safe_one_line` it
+        // already flattens a tool's detail with.
+        assert!(
+            text.contains('\n'),
+            "the channel started flattening text the transcript needs whole: {text:?}"
+        );
     }
 }

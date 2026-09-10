@@ -1597,6 +1597,7 @@ mod tests {
                 .send(TurnControl::Answer {
                     id: super::super::approval_readiness::ApprovalId(1),
                     answer: ApprovalAnswer::Deny,
+                    feedback: None,
                 })
                 .unwrap();
             control_tx
