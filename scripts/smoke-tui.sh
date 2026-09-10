@@ -2024,6 +2024,12 @@ PERMISSION_TITLE = "Permission needed"
 # The second choice's wording for anything that is not a shell command.
 ALWAYS_WORDING = "don't ask again for this request"
 
+# What the shell says to an affirmative given before the question's frame has
+# been committed and reconciled (`shell::APPROVAL_NOT_READY`). A literal here,
+# beside the other product wordings this script pins, and byte-identical to the
+# Rust constant.
+APPROVAL_NOT_READY = "the question is not on the screen yet"
+
 # The bytes that take the terminal's second buffer and give it back. Spelled out
 # here rather than imported, for the reason every needle in this suite is.
 # Response-only: no scenario types them.
@@ -5310,11 +5316,25 @@ def scenario_20(run):
     # one a row (`permission::bounded_diff_side`), so twenty lines are twenty
     # rows rather than one wrapped run -- which is why the tail of the change is
     # not on the first screenful, and why the walk below exists.
-    for needle in ("before", "alpha line 0", "alpha line 10"):
-        run.require(
-            grid.find(needle) is not None,
-            "%r is not on the screen that exists to show the change" % needle,
-        )
+    #
+    # **A changed coordinate, replaced by the property it stood for.** It was
+    # `alpha line 10`. The review plane shows the whole target and the whole
+    # always-scope now, so the viewport gave rows to the disclosure -- and how
+    # many depends on how long the workspace path is, which is where the
+    # evidence directory happens to live. A literal depth would be a check on
+    # this runner's `TMPDIR`. What the screen owes is the head of the change,
+    # line for line and in order; the tail is the walk's, below.
+    run.require(
+        grid.find("before") is not None,
+        "'before' is not on the screen that exists to show the change",
+    )
+    shown = 0
+    while grid.find("alpha line %d" % shown) is not None:
+        shown += 1
+    run.require(
+        shown >= 4,
+        "the first screenful showed %d lines of the change, which is not a viewport" % shown,
+    )
     run.require(
         grid.find("alpha line 0\\nalpha line 1") is None,
         "the file's line breaks were flattened into one run: %r" % grid.text(),
@@ -5444,11 +5464,18 @@ def scenario_20(run):
     # this session is replacing -- which is the *edit's* result, so a screen
     # showing the edit again fails here -- and the "after" is the text the write
     # would put down.
-    for needle in ("before", "beta line 0", "beta line 10"):
-        run.require(
-            grid.find(needle) is not None,
-            "%r is not on the screen that exists to show the write" % needle,
-        )
+    # Measured rather than pinned, for the reason the edit's screen is.
+    run.require(
+        grid.find("before") is not None,
+        "'before' is not on the screen that exists to show the write",
+    )
+    written_shown = 0
+    while grid.find("beta line %d" % written_shown) is not None:
+        written_shown += 1
+    run.require(
+        written_shown >= 4,
+        "the write's first screenful showed %d lines, which is not a viewport" % written_shown,
+    )
     for choice in ("1. Yes", "3. No (esc)"):
         run.require(grid.find(choice) is not None, "the write's screen dropped %r" % choice)
     trial.send(b"\x0e" * 60)
@@ -5617,8 +5644,18 @@ def scenario_20(run):
     trial.wait_until(
         "the control payload's question to be painted on the plane it took",
         lambda _t: trial.peek().plane == "alternate"
-        and trial.peek().find(PERMISSION_TITLE) is not None
-        and trial.peek().find("\\u{001B}") is not None,
+        and trial.peek().find(PERMISSION_TITLE) is not None,
+    )
+    # **A changed coordinate.** The named bytes are the *after* side, and the
+    # viewport gives rows to the whole target and the whole always-scope now, so
+    # the first screenful ends on the `after` heading rather than under it. They
+    # are reached by the walk -- the same walk the two changes above use for
+    # their tails -- and three steps keeps the heading in the window with the
+    # rows below it, which is what `rows_below` reads.
+    trial.send(b"\x0e" * 3)
+    trial.wait_until(
+        "the named control bytes to be walked into the viewport",
+        lambda _t: trial.peek().find("\\u{001B}") is not None,
     )
     grid = trial.grid("a-change-made-of-bytes-the-terminal-would-obey")
 
@@ -6240,6 +6277,93 @@ def scenario_23b(run):
     scripted.stop()
 
 
+def scenario_24(run):
+    """A committed frame is what makes an affirmative answerable, and a resize
+    takes that back until the next one lands.
+
+    Synchronized on the **committed** grid throughout (`on_the_grid`), which is
+    what makes this deterministic without a sleep: it feeds the emulator only as
+    far as the last complete frame, so an assertion after it is an assertion
+    about a screen the terminal really showed.
+
+    **What this does not prove.** The pre-commit case -- a key pressed strictly
+    between the request arriving and its first frame being written -- has no
+    seam here: `on_the_grid` can only wait for something already on the screen,
+    and the tool call is produced asynchronously, so a byte sent with the prompt
+    can reach the composer before the request does and pass this for the wrong
+    reason. That boundary is proven by the deterministic `commit_band` cases in
+    `cargo test --lib tui::event_loop`, where a refused write is the cause and
+    the receipt is read directly. Recorded as a limitation rather than papered
+    over with timing.
+    """
+    marker = run.marker("readiness")
+    fixture = start_fixture(run, fixtures.edit_then_finish(marker), name="readiness")
+    trial = run.trial("readiness", gateway=fixture, mode="ask", notes=True).settled()
+    trial.send("edit the notes " + run.nonce + "\r")
+
+    # Positive control: the question is on the screen, whole, and `1` is taken.
+    grid = on_the_grid(trial, PERMISSION_TITLE, "the approval frame to be committed")
+    run.require(grid.find(ALWAYS_WORDING) is not None, "the always-scope is disclosed whole")
+    run.require(grid.find("3. No") is not None, "the refusal is on the screen")
+    # The **tail** of the scope, which is the half a fixed two-row allotment cut
+    # and the reason no ordinary screen could disclose an ordinary request.
+    run.require(
+        grid.find("of this saved session") is not None
+        or grid.find("the approval ends with this command") is not None,
+        "what `always` would buy was cut off, so nothing on this screen may be granted",
+    )
+    trial.grid("disclosed")
+    trial.send(b"1")
+    on_the_grid(trial, marker, "the turn to carry on past the granted call")
+    run.require(
+        carried_results(fixture, "call-0") != [],
+        "the answered call produced no tool result, so the positive control proves nothing",
+    )
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the readiness session left at 0")
+    fixture.stop()
+
+    # A resize revokes the receipt: the same key is refused until a frame for
+    # the new screen has landed.
+    second = start_fixture(run, fixtures.edit_then_finish(marker), name="resized")
+    resized = run.trial("resized", gateway=second, mode="ask", notes=True).settled()
+    resized.send("edit the notes " + run.nonce + "\r")
+    on_the_grid(resized, PERMISSION_TITLE, "the approval frame before the resize")
+    resized.resize(30, 100)
+    resized.send(b"1")
+    on_the_grid(resized, APPROVAL_NOT_READY, "the refusal of an answer to a moved screen")
+    run.require(
+        read(resized.notes) == "alpha\n",
+        "the refused answer let the edit through anyway",
+    )
+    # **The question is still standing**, and this is a wait rather than a check
+    # on the grid the notice arrived with: the notice is a document write, a
+    # document write is a scroll, and the band is repainted by the frame after
+    # it -- so there is one committed frame, between the two, that carries the
+    # sentence and not yet the panel. That is the band's ordinary behaviour for
+    # any line written while a panel is up rather than anything this gate does,
+    # and asserting on the earlier of the two frames would be asserting that it
+    # never happens.
+    grid = on_the_grid(
+        resized, PERMISSION_TITLE, "the question to be standing again after the refusal"
+    )
+    run.require(
+        grid.find("3. No") is not None,
+        "the refused answer left a question with no visible way to refuse it",
+    )
+    resized.grid("revoked")
+    on_the_grid(resized, ALWAYS_WORDING, "the repaint on the new screen")
+    resized.send(b"1")
+    on_the_grid(resized, marker, "the turn to carry on once the frame had landed")
+    run.require(
+        read(resized.notes) == "beta\n",
+        "the answer after the repaint did not let the edit through",
+    )
+    resized.send(b"\x04")
+    run.require(resized.session.wait_exit() == ("exited", 0), "the resized session left at 0")
+    second.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -6267,6 +6391,7 @@ SCENARIOS = {
     "22-edit-history": scenario_22,
     "23-question-panel": scenario_23,
     "23b-question-cancelled": scenario_23b,
+    "24-approval-readiness": scenario_24,
 }
 
 
@@ -6362,6 +6487,7 @@ scenarios=(
 	22-edit-history
 	23-question-panel
 	23b-question-cancelled
+	24-approval-readiness
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

@@ -67,8 +67,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc::Receiver;
 
+use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
-use super::frame::Band;
+use super::frame::{Band, Commit};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -620,6 +621,12 @@ fn collect_facts(
         shell.render.mark_resize(now);
     }
     resolve_resize(shell, band, now, super::term::reported_window_size);
+    // **The post-write check**, and this is the point it belongs at: the winch
+    // taken a few lines above is the one that landed *inside* the last tick's
+    // write, so a frame proven here is a frame no signal has invalidated since.
+    // Before the drain it would promote a composition the terminal has already
+    // reflowed away from.
+    shell.reconcile_approval();
 
     Ok(Reconciled)
 }
@@ -904,15 +911,33 @@ fn commit_band(
         // them, so the frame below is a whole one rather than a difference from
         // a screen that no longer exists.
         band.invalidate(shell.geometry.rows, shell.geometry.cols);
+        // And a readiness receipt is the same kind of claim about the same
+        // rows.
+        shell.invalidate_approval();
     }
-    match band.commit(out, &shell.band_rows(), &shell.geometry, shell.cursor()) {
+    // Bound **once**, and before the intent: the rows are what is about to be
+    // written, and a second `band_rows()` call after the composition would be a
+    // second reading of a shell the first one may have changed.
+    let rows = shell.band_rows();
+    let cursor = shell.cursor();
+    shell.intend_approval();
+    match band.commit(out, &rows, &shell.geometry, cursor) {
         // A frame that wrote nothing is a frame the screen already had, so the
-        // budget is whole for the same reason a delivered one leaves it whole.
-        Ok(_) => {
+        // budget is whole for the same reason a delivered one leaves it whole
+        // -- and the two are told apart here, because a zero-byte repaint may
+        // keep a receipt and may never mint one
+        // ([`super::approval_readiness::Readiness::landed`]).
+        Ok(landed) => {
+            shell.approval_landed(match landed {
+                Commit::Painted => Outcome::Painted,
+                Commit::NoChange => Outcome::Unchanged,
+            });
             failures.succeeded();
             Ok(true)
         }
         Err(err) => {
+            // A refused write may have left half a frame on the screen.
+            shell.approval_write_failed();
             shell.render.restore(attempt);
             match failures.failed(err, now) {
                 Some(fatal) => Err(fatal),
@@ -1046,11 +1071,14 @@ fn paint_alternate(
         // A change the band cannot show: take the plane and paint the whole
         // surface onto it in the same frame.
         (false, ScreenOwner::Approval) => {
-            let frame =
-                band.enter_alternate(&shell.screen_rows(), &shell.geometry, shell.screen_cursor());
+            let rows = shell.screen_rows();
+            let cursor = shell.screen_cursor();
+            shell.intend_approval();
+            let frame = band.enter_alternate(&rows, &shell.geometry, cursor);
             match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
                 Ok(()) => {
-                    band.frame_landed(&frame, &shell.geometry, shell.screen_cursor());
+                    band.frame_landed(&frame, &shell.geometry, cursor);
+                    shell.approval_landed(Outcome::Painted);
                     let _ = shell.render.begin();
                     failures.succeeded();
                     // The matrix row for a panic while the **other** plane is
@@ -1068,10 +1096,13 @@ fn paint_alternate(
                     }
                     Ok(())
                 }
-                Err(err) => match failures.failed(err, now) {
-                    Some(fatal) => Err(fatal),
-                    None => Ok(()),
-                },
+                Err(err) => {
+                    shell.approval_write_failed();
+                    match failures.failed(err, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    }
+                }
             }
         }
         // Already there: a marker that moved, or a screen that changed size.
@@ -1079,25 +1110,29 @@ fn paint_alternate(
             let Some(attempt) = shell.render.begin() else {
                 return Ok(());
             };
-            let frame = band.repaint_alternate(
-                &shell.screen_rows(),
-                &shell.geometry,
-                shell.screen_cursor(),
-            );
+            let rows = shell.screen_rows();
+            let cursor = shell.screen_cursor();
+            shell.intend_approval();
+            let frame = band.repaint_alternate(&rows, &shell.geometry, cursor);
             // The screen already holds this, which is the commonest frame while
             // a person is reading a change: the band's animation asks for one
-            // twice a second and nothing on this plane has moved.
+            // twice a second and nothing on this plane has moved. It keeps a
+            // receipt of this very composition and mints none, which is what
+            // stops an unwritten repaint granting a question nobody has seen.
             if frame.bytes().is_empty() {
+                shell.approval_landed(Outcome::Unchanged);
                 failures.succeeded();
                 return Ok(());
             }
             match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
                 Ok(()) => {
-                    band.frame_landed(&frame, &shell.geometry, shell.screen_cursor());
+                    band.frame_landed(&frame, &shell.geometry, cursor);
+                    shell.approval_landed(Outcome::Painted);
                     failures.succeeded();
                     Ok(())
                 }
                 Err(err) => {
+                    shell.approval_write_failed();
                     shell.render.restore(attempt);
                     match failures.failed(err, now) {
                         Some(fatal) => Err(fatal),
@@ -3050,17 +3085,46 @@ mod tests {
         }
     }
 
-    /// A question about a change no band summary could show.
-    fn a_change_too_big_for_the_band() -> UiEvent {
-        UiEvent::Approval(crate::permission::ApprovalRequest {
+    /// A question the band can ask on its own rows: no diff, so
+    /// `ApprovalSurface::for_request` keeps it inline.
+    ///
+    /// This module's own, because the shell's fixtures are private to the
+    /// shell's tests -- and a second copy of a request is a copy of data, not of
+    /// behaviour.
+    fn a_question() -> crate::permission::ApprovalRequest {
+        crate::permission::ApprovalRequest {
             tool: "edit_file",
             target: "notes.txt".to_string(),
             summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
-            always_scope: "allow every future edit_file to `notes.txt`".to_string(),
-            diff: Some(crate::permission::ApprovalDiff {
-                before: "a".repeat(4_000),
-                after: "b".repeat(4_000),
-            }),
+            always_scope:
+                "allow every future edit_file to `notes.txt` for the rest of this session"
+                    .to_string(),
+            diff: None,
+        }
+    }
+
+    /// The envelope that question reaches the shell in.
+    fn asked_inline() -> UiEvent {
+        UiEvent::Approval(crate::tui::approval::ApprovalAsked {
+            id: crate::tui::approval_readiness::ApprovalId(1),
+            request: a_question(),
+        })
+    }
+
+    /// A question about a change no band summary could show.
+    fn a_change_too_big_for_the_band() -> UiEvent {
+        UiEvent::Approval(crate::tui::approval::ApprovalAsked {
+            id: crate::tui::approval_readiness::ApprovalId(1),
+            request: crate::permission::ApprovalRequest {
+                tool: "edit_file",
+                target: "notes.txt".to_string(),
+                summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
+                always_scope: "allow every future edit_file to `notes.txt`".to_string(),
+                diff: Some(crate::permission::ApprovalDiff {
+                    before: "a".repeat(4_000),
+                    after: "b".repeat(4_000),
+                }),
+            },
         })
     }
 
@@ -3084,6 +3148,120 @@ mod tests {
         out.calls = 0;
         commit_frame(shell, band, out, failures, Instant::now(), Reconciled)
             .expect("the frame that takes the plane");
+        // What the next tick does with the frame that just landed
+        // (`collect_facts`). Without it the question is on the plane and has no
+        // receipt, so an affirmative typed by any case below is refused -- which
+        // is correct, and is a different case from the ones here.
+        shell.reconcile_approval();
+    }
+
+    #[test]
+    fn a_refused_frame_grants_no_readiness_and_the_next_one_does() {
+        // **The causal boundary, deterministically.** The screen refuses the
+        // first frame's bytes, so nothing about the question reached it; the
+        // second lands, and only then is there a screen for an affirmative to be
+        // given against. No sleep and no timing: the refusal is the cause and
+        // the receipt is read directly.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::WouldBlock,
+            written: Vec::new(),
+        };
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a refused frame is counted, not fatal");
+        fixture.shell.reconcile_approval();
+        assert!(
+            !fixture
+                .shell
+                .approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "bytes the screen refused granted a receipt"
+        );
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("the second frame lands");
+        fixture.shell.reconcile_approval();
+        assert!(fixture
+            .shell
+            .approval_ready(crate::tui::approval_readiness::ApprovalId(1)));
+        assert!(
+            !screen.written.is_empty(),
+            "nothing was ever written, so this proves nothing"
+        );
+    }
+
+    #[test]
+    fn a_winch_between_the_write_and_the_reconcile_revokes_the_frame() {
+        // The window the post-write check exists for. A `SIGWINCH` that lands
+        // inside the write is drained on the tick *after* it (`collect_facts`),
+        // and `geometry` still reports the old size for the whole debounce -- so
+        // a receipt kept here would match those dimensions and grant against a
+        // screen that has already reflowed.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = FlakyScreen {
+            refusals: 0,
+            kind: io::ErrorKind::WouldBlock,
+            written: Vec::new(),
+        };
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("the frame lands");
+        let winched = Instant::now();
+        fixture.shell.render.mark_resize(winched);
+        fixture.shell.reconcile_approval();
+        assert!(!fixture
+            .shell
+            .approval_ready(crate::tui::approval_readiness::ApprovalId(1)));
+
+        // And it comes back the ordinary way once the resize has settled and a
+        // frame for the screen the user is now looking at has landed. Without
+        // this half, a `reconcile` that revoked for ever would pass.
+        //
+        // Driven through `resolve_resize`, which is what the loop really does
+        // with a settled deadline: re-solve the band, invalidate the shadow,
+        // and let the next frame be a whole one.
+        let settled = winched + RESIZE_DEBOUNCE;
+        resolve_resize(&mut fixture.shell, &mut band, settled, || (30, 100));
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            settled,
+        )
+        .expect("the redraw lands");
+        fixture.shell.reconcile_approval();
+        assert!(
+            fixture
+                .shell
+                .approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "a settled resize never earned a new receipt"
+        );
     }
 
     #[test]

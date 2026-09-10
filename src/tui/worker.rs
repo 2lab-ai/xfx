@@ -883,7 +883,7 @@ async fn turn_loop(
                 // provable rather than argued: no turn is running, so no
                 // requester holds the id this message names.
                 Some(
-                    TurnControl::Answer(_)
+                    TurnControl::Answer { .. }
                     | TurnControl::QuestionAnswer { .. }
                     | TurnControl::QuestionCancelled { .. },
                 ) => Taken::Nothing,
@@ -1367,7 +1367,7 @@ async fn raced_against_control<F: Future>(
                 // loop is not running -- so an answer that arrives here is by
                 // construction stale.
                 Some(
-                    TurnControl::Answer(_)
+                    TurnControl::Answer { .. }
                     | TurnControl::QuestionAnswer { .. }
                     | TurnControl::QuestionCancelled { .. },
                 ) => {}
@@ -2234,7 +2234,10 @@ mod tests {
         let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
         let control = ControlChannel::new(control_rx);
         control_tx
-            .send(TurnControl::Answer(crate::permission::ApprovalAnswer::Deny))
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: crate::permission::ApprovalAnswer::Deny,
+            })
             .expect("alive");
         // The body outlives the stray and then finishes by itself, which is what
         // makes "the stray changed nothing" observable.
@@ -2654,7 +2657,10 @@ mod tests {
         let (events, seen) = mpsc::channel(4);
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         control_tx
-            .send(TurnControl::Answer(ApprovalAnswer::Always))
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: ApprovalAnswer::Always,
+            })
             .expect("the channel is open");
         let prompter = TuiPrompter::new(
             events,

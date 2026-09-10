@@ -3378,7 +3378,17 @@ fn large_edit_then_finish(before: &str, after: &str) -> Vec<support::fake_gatewa
 /// the assertions have to be about the *same* set: a wait that stopped one row
 /// short of what is asserted is a wait that hands a half-painted screen to a
 /// `contains`.
-const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 10"];
+/// **A changed coordinate.** The deepest row was `alpha line 10` while the
+/// review plane cut the subject to two rows and the always-scope to one. It
+/// shows both whole now -- every scope `crate::permission` builds is three
+/// wrapped rows at eighty columns -- so the viewport gave rows to the
+/// disclosure and the first screenful ends earlier. How much earlier depends on
+/// how many rows the workspace path takes, and that is a property of whatever
+/// `TMPDIR` this runs under: the depth is deliberately shallow rather than
+/// exact, so this is a claim about the product and not about the sandbox. The
+/// tail of the change is still asserted; it is reached by the walk below, which
+/// is what the walk is for.
+const PAINTED_QUESTION: [&str; 4] = [PERMISSION_TITLE, "before", "alpha line 0", "alpha line 4"];
 
 /// Whether `text` holds the question, whole, on the other plane.
 ///
@@ -3553,7 +3563,10 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     // needle answered by the scrollback would be answered by a screen the user
     // is not looking at.
     let frame = last_frame(&text).expect("the wait returns on a complete frame");
-    for needle in ["before", "alpha line 0", "alpha line 10"] {
+    // The same three the wait was satisfied by, for the reason `PAINTED_QUESTION`
+    // gives: a wait that stopped short of what is asserted hands a half-painted
+    // screen to a `contains`.
+    for needle in ["before", "alpha line 0", "alpha line 4"] {
         assert!(
             frame.contains(needle),
             "{needle:?} was not shown on the screen that exists to show it: {text:?}"
@@ -3565,7 +3578,13 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     );
     // `C-n` walks the change, and the tail of the first side and the head of
     // the second are down there.
-    session.type_bytes(&[0x0e; 12]);
+    //
+    // **A changed coordinate**, for the reason `PAINTED_QUESTION` gives: the
+    // viewport gave three rows to the whole target and the whole always-scope,
+    // so the same walk covers three fewer rows of the change and needs the
+    // steps back. Sixteen puts the boundary between the two sides inside the
+    // window with a row to spare on either side of it.
+    session.type_bytes(&[0x0e; 16]);
     session.wait_for("alpha line 19");
     session.wait_for("after");
     session.wait_for("beta line 0");

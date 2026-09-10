@@ -484,8 +484,11 @@ routing, approval/question state); the seam is a typed event union** —
   (`:1986-1992`): MCP tool → session; `terminal.exec` → "this exact command"; default → "this
   request". Upstream additionally gates the affirmative behind a **readiness commit record** — the
   committed frame at the same request id and dimensions must have actually shown the identity and all
-  controls (`approval_readiness.zig:15-39,65-75`); that is the anti-blind-approve property, deferred
-  below as hardening.
+  controls (`approval_readiness.zig:15-39,65-75`); that is the anti-blind-approve property, and it is
+  **implemented** in item 20 below. Holding it honestly is what made both surfaces measure their rows
+  from the request rather than from a table: every always-scope `PermissionSession` builds is three
+  wrapped rows at eighty columns, so a fixed allotment cut the sentence and no ordinary screen could
+  have disclosed an ordinary request.
 - **Status/hint row** (`render.zig:391-460`), segments joined by `" · "`, left to right: missing-
   credential call to action, `queued N`, permission mode, **compact model label** (strips `provider/`
   and `claude-` prefixes → `opus 4.7`, `:219-244`), effort label and a fast-mode `⚡︎`, session title,
@@ -701,7 +704,15 @@ item below is a target that is advertised nowhere.
     amendment drafts, and the approval readiness gate. Receipts:
     [`06-qa-harness.md`](06-qa-harness.md) rows 23 and 23b on a release binary and a real terminal,
     plus `src/tools/question.rs`, `src/tui/question.rs` and `tests/tui.rs`.
-20. Approval **readiness** commit gate and amendment drafts — correctness hardening, not feel.
+20. Approval **readiness** commit gate — **implemented**: an affirmative is accepted only after a
+    frame that really disclosed this request's target, its three controls and its always-scope was
+    written, flushed and reconciled on the surface the question is on, and every request carries a
+    TUI-only id a stale keystroke cannot match. `Deny`, Escape and Ctrl-C stay answerable at every
+    moment, and a screen that cannot disclose the request says so where the user is looking — in the
+    document inline, on the review plane's own status line when that plane owns the terminal.
+    Receipts: [`06-qa-harness.md`](06-qa-harness.md) row 24 on a release binary and a real terminal,
+    plus `src/tui/approval_readiness.rs` and the `commit_band` cases in `src/tui/event_loop.rs`.
+    **Amendment drafts remain** — correctness hardening, not feel.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention.
 22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then

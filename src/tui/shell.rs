@@ -75,6 +75,7 @@ use std::time::Instant;
 
 use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
+use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::edit_history::{Delta, EditHistory};
@@ -163,6 +164,27 @@ pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 /// row, because it is about a turn rather than about a keystroke.
 const PANEL_TOO_SMALL: &str =
     "xfx: this screen is too small to ask for permission, so the change was refused";
+
+/// What the user is told when they granted a question the screen has not shown
+/// them yet.
+///
+/// **Said rather than swallowed.** The keystroke is spent and the question stays
+/// up, so the alternative to a sentence is a key that appears to do nothing --
+/// and a user whose `1` does nothing presses it again, harder, which is the one
+/// input pattern this gate must not train.
+pub(crate) const APPROVAL_NOT_READY: &str =
+    "the question is not on the screen yet - press it again once you can read it";
+
+/// What they are told when this screen can never show the whole request, so no
+/// frame on it will ever grant.
+///
+/// A different sentence from [`APPROVAL_NOT_READY`] because it asks for a
+/// different action: waiting fixes the first and only a bigger window fixes the
+/// second. It names the two keys that still work, because a question that cannot
+/// be granted must still be refusable.
+pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
+    "this screen cannot show the whole request, so it cannot be approved here; \
+     make the window larger, or press 3 or esc to refuse";
 
 /// What the user is told when the screen cannot hold a question the **model**
 /// asked ([`super::question`]).
@@ -456,6 +478,22 @@ pub(crate) struct Shell {
     /// grid. A single field holding either would have every reader ask which
     /// kind it was.
     alternate: Option<ApprovalScreen>,
+    /// The id the standing question was asked under, while one is standing.
+    ///
+    /// Beside the two surfaces rather than inside either, because it is the one
+    /// fact that is the *same* on both and the answer has to carry it whichever
+    /// plane the question was shown on. `Some` exactly when [`Self::asking`] is
+    /// true: [`Self::ask`] sets it with the surface, and every way out --
+    /// [`Self::decide`] and [`Self::release_screen`] -- clears it with the
+    /// surface, in the same statement.
+    asked_id: Option<ApprovalId>,
+    /// What makes an affirmative answer to that question answerable.
+    ///
+    /// A module of its own rather than four more fields here
+    /// ([`super::approval_readiness`]): what it holds is a state machine with
+    /// its own contract, and the shell's job is only to tell it what was
+    /// composed, what the terminal did with it, and when the loop came round.
+    readiness: Readiness,
     /// The batch of questions the **model** asked, while the user is answering
     /// it ([`super::question`]).
     ///
@@ -637,6 +675,8 @@ impl Shell {
             phase: 0,
             panel: None,
             alternate: None,
+            asked_id: None,
+            readiness: Readiness::default(),
             ask: None,
             owner: ScreenOwner::Primary,
             picker: None,
@@ -860,7 +900,7 @@ impl Shell {
                 return (
                     self.geometry
                         .panel_first()
-                        .saturating_add(panel.caret_row(self.geometry.rows)),
+                        .saturating_add(panel.caret_row(self.geometry.cols, self.geometry.rows)),
                     0,
                 );
             }
@@ -1114,7 +1154,7 @@ impl Shell {
             // about that -- the panel, the rows it costs the document, the
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
-            UiEvent::Approval(request) => self.ask(request),
+            UiEvent::Approval(asked) => self.ask(asked.id, asked.request),
             // The same three facts for a question the **model** asked: the
             // panel, the rows it costs the document, and the focus. What it is
             // not is an approval -- nothing is granted, and refusing it denies
@@ -1199,7 +1239,7 @@ impl Shell {
     /// ([`ApprovalScreen::presents_choices`]). Asking the band's question about
     /// a question the band was never going to show is how a short window came
     /// to deny a change the plane can display whole.
-    fn ask(&mut self, request: ApprovalRequest) {
+    fn ask(&mut self, id: ApprovalId, request: ApprovalRequest) {
         // Which plane the question belongs on, settled from the change itself
         // before anything is installed ([`approval::ApprovalSurface`]).
         let surface = approval::ApprovalSurface::for_request(&request);
@@ -1222,7 +1262,14 @@ impl Shell {
             // no screen to give back, and a session left owning a plane with
             // nothing on it would compose its next frame for nobody.
             self.say(PANEL_TOO_SMALL.to_string());
-            self.work.control(TurnControl::Answer(ApprovalAnswer::Deny));
+            // Under the id it was asked with, so the prompter parked on that
+            // question takes it: a refusal addressed to nobody would be
+            // consumed and ignored, and the session would wait for ever for an
+            // answer to a question it had already refused on the user's behalf.
+            self.work.control(TurnControl::Answer {
+                id,
+                answer: ApprovalAnswer::Deny,
+            });
             return;
         };
         // The two share one slot and one of them owns the focus, so the menu
@@ -1259,9 +1306,20 @@ impl Shell {
                 self.owner = ScreenOwner::Approval;
             }
         }
+        self.asked_id = Some(id);
         // The band just grew by the panel's rows, so the divider, the composer
         // and the caret are all somewhere else.
         self.refit();
+        // **Composed the moment it is installed, and after the band has been
+        // re-solved.** Before the refit the geometry still has `panel: 0` and
+        // its band top is the divider, so the panel's control rows would be
+        // placed below the last row of the screen and the composition would
+        // report itself undisclosed. And it is here at all so that a keystroke
+        // arriving before the next frame is answered with the right sentence:
+        // otherwise `undisclosed` would still be reporting on the last frame
+        // the band painted -- which had no question in it -- and a user who
+        // typed early would be told to make their window bigger.
+        self.intend_approval();
         self.render.request(Reason::Modal);
     }
 
@@ -1326,7 +1384,83 @@ impl Shell {
     /// releases the plane *with* the answer.
     pub(crate) fn release_screen(&mut self) {
         self.alternate = None;
+        self.asked_id = None;
+        self.invalidate_approval();
         self.owner = ScreenOwner::Primary;
+    }
+
+    // -----------------------------------------------------------------------
+    // what makes an affirmative answerable
+    // -----------------------------------------------------------------------
+
+    /// What the frame about to be written would disclose about the standing
+    /// question.
+    ///
+    /// Composed from the surface that is really installed, at the geometry the
+    /// frame is about to be built from, so the claim and the bytes are one
+    /// reading. With no question up it intends nothing, which clears whatever
+    /// the last composition left pending.
+    pub(crate) fn intend_approval(&mut self) {
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
+        let intent = match (self.asked_id, self.panel.as_ref(), self.alternate.as_ref()) {
+            (Some(id), Some(panel), _) => Intent::capture(
+                id,
+                Surface::Inline,
+                cols,
+                rows,
+                panel
+                    .compose(
+                        cols,
+                        rows,
+                        self.geometry.band_top(),
+                        // The activity row is the only thing `band_rows` puts
+                        // ahead of the panel, so the offset is that one boolean
+                        // and needs no method of its own.
+                        u16::from(self.geometry.activity.is_some()),
+                    )
+                    .disclosure,
+            ),
+            (Some(id), _, Some(screen)) => Intent::capture(
+                id,
+                Surface::Alternate,
+                cols,
+                rows,
+                screen.composition(cols, rows).disclosure,
+            ),
+            _ => None,
+        };
+        self.readiness.intend(intent);
+    }
+
+    /// What the terminal did with those bytes.
+    pub(crate) fn approval_landed(&mut self, outcome: Outcome) {
+        self.readiness.landed(outcome);
+    }
+
+    /// A write the screen refused: it may have left half a frame.
+    pub(crate) fn approval_write_failed(&mut self) {
+        self.readiness.write_failed();
+    }
+
+    /// Everything the screen said is no longer true.
+    pub(crate) fn invalidate_approval(&mut self) {
+        self.readiness.invalidate();
+    }
+
+    /// The post-write check, one tick after the write
+    /// (`super::event_loop`'s `collect_facts`).
+    pub(crate) fn reconcile_approval(&mut self) {
+        self.readiness.reconcile(
+            self.geometry.cols,
+            self.geometry.rows,
+            self.render.resize_pending(),
+        );
+    }
+
+    /// Whether an affirmative answer to `id` may be taken on this screen.
+    pub(crate) fn approval_ready(&self, id: ApprovalId) -> bool {
+        self.readiness
+            .ready(id, self.geometry.cols, self.geometry.rows)
     }
 
     /// Offers one keystroke to the completion menu, and says whether it was
@@ -1510,6 +1644,40 @@ impl Shell {
             self.render.request(Reason::Modal);
             return;
         };
+        // **The gate, and only on the two answers that grant.** A `Deny`, an
+        // Escape and a Ctrl-C stay answerable at every moment, ready or not:
+        // gating them as well would leave a user who cannot read the question
+        // with no way to say no to it either, which turns a safety check into a
+        // session that cannot be got out of. Ctrl-C is already excluded by the
+        // answer it produces -- the prompter turns a cancellation into a
+        // refusal.
+        if matches!(answer, ApprovalAnswer::Once | ApprovalAnswer::Always)
+            && !self.asked_id.is_some_and(|id| self.approval_ready(id))
+        {
+            // **Said, not swallowed**, and which sentence it is matters: waiting
+            // fixes one of these and only a bigger window fixes the other.
+            let notice = if self.readiness.undisclosed() {
+                APPROVAL_NOT_DISCLOSED
+            } else {
+                APPROVAL_NOT_READY
+            };
+            // **To whichever surface the user can actually see.** While the
+            // review plane is up it owns every row of the terminal, and
+            // [`Self::say`] writes into the document -- which is on the primary
+            // buffer, behind it. A refusal written there is a refusal nobody can
+            // read, and a key that appears to do nothing is a key the user
+            // presses again.
+            match self.alternate.as_mut() {
+                Some(screen) => screen.set_status(notice.to_string()),
+                None => self.say(notice.to_string()),
+            }
+            // The question stays up and the keystroke is spent: nothing is
+            // queued for a later grant, because an answer held until a frame
+            // lands would be a grant given by the renderer rather than by the
+            // person at the keyboard.
+            self.render.request(Reason::Modal);
+            return;
+        }
         // The panel goes **before** anything is sent, so the band's next paint
         // is a band with no question in it whatever the runtime does next --
         // including asking a second question straight away. The screen goes back
@@ -1519,6 +1687,20 @@ impl Shell {
         // owner released on the paths somebody remembered.
         self.panel = None;
         self.alternate = None;
+        // The identity the answer is addressed to, taken in the same statement
+        // the surfaces are. `debug_assert`ed rather than defaulted: [`Self::ask`]
+        // installs the two together and every exit clears them together, so a
+        // question being answered without an id is a broken invariant and not a
+        // case with a sensible answer -- and an id invented here would be an id
+        // some other question could be waiting on.
+        let asked = self.asked_id.take();
+        debug_assert!(
+            asked.is_some(),
+            "a question was answered without the id it was asked under"
+        );
+        // The receipt was about a screen with this question on it, and the
+        // question is coming off it.
+        self.invalidate_approval();
         self.owner = ScreenOwner::Primary;
         match action {
             // One message, both meanings. `Deny` is what the prompter answers a
@@ -1529,7 +1711,11 @@ impl Shell {
             approval::Action::Cancel => self.interrupt(now),
             // Esc and the rest are an answer about *this call* and nothing
             // more: the turn goes on, and is told no.
-            _ => self.work.control(TurnControl::Answer(answer)),
+            _ => {
+                if let Some(id) = asked {
+                    self.work.control(TurnControl::Answer { id, answer });
+                }
+            }
         }
         // The band gives the panel's rows back to the document. The clock
         // starts again on the next settle rather than here, for the reason
@@ -5003,7 +5189,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let _started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"\x1b[200~abandoned");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.route_bytes(b" tail\x1b[201~");
         assert!(
             shell.panel.is_some(),
@@ -5586,6 +5772,33 @@ mod tests {
         }
     }
 
+    /// How many rows [`asked`] really needs on an eighty-column screen.
+    ///
+    /// **A changed coordinate, and this is why.** It used to be eight, which
+    /// was the compact entry of a three-row table the panel no longer has: its
+    /// heights are measured from the request now
+    /// (`super::super::approval`'s `Shape::for_request`), because every
+    /// always-scope `crate::permission` builds is three wrapped rows at eighty
+    /// columns and a fixed two cut it. This fixture carries the short
+    /// hand-written scope, so what it demands is a title, one row of summary,
+    /// the three answers and one row of scope. Named once rather than spelled
+    /// at each of its seven uses, so that the next change to the wording moves
+    /// one number.
+    const PANEL_ROWS: u16 = 6;
+
+    /// The envelope a question reaches the shell in.
+    ///
+    /// `ApprovalId(1)` because that is what a session's first question is really
+    /// asked under (`super::super::approval::TuiPrompter`'s counter starts at
+    /// one), and every case here is a first question: an id invented for these
+    /// fixtures would let a shell that answered under the wrong one pass.
+    fn question(request: ApprovalRequest) -> super::super::approval::ApprovalAsked {
+        super::super::approval::ApprovalAsked {
+            id: ApprovalId(1),
+            request,
+        }
+    }
+
     /// The same question about a change too big for the band's own summary.
     fn asked_about_a_large_change() -> ApprovalRequest {
         let mut request = asked();
@@ -5596,13 +5809,341 @@ mod tests {
         request
     }
 
-    /// A shell with a turn running and a question in front of the user.
+    /// Document rows as one sentence, with the wrap taken back out.
+    ///
+    /// A notice is written as a sentence and the document wraps it to the
+    /// screen, so a case that asserted on one row would be asserting on where
+    /// the wrap fell rather than on what was said -- and would then fail on a
+    /// narrower fixture for a reason that has nothing to do with it. Every word
+    /// is still pinned, because both sides are normalised the same way.
+    fn unwrapped(rows: &[String]) -> String {
+        rows.join(" ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The frame that really disclosed the standing question, written and then
+    /// reconciled.
+    ///
+    /// What `super::super::event_loop` does across two ticks -- compose, hand
+    /// the bytes to the terminal, and check after the next drain of the resize
+    /// signal -- said in the three calls that carry it. Spelled out in the
+    /// fixture rather than granted by a switch on `Shell`: a `ready` that
+    /// answered `true` under `cfg(test)` would make every case below a case
+    /// about nothing.
+    fn delivered(shell: &mut Fixture) {
+        shell.intend_approval();
+        shell.approval_landed(Outcome::Painted);
+        shell.reconcile_approval();
+    }
+
+    /// A shell with a turn running and a question in front of the user, on a
+    /// screen that has really shown it.
     fn asking(shell: &mut Fixture) -> Instant {
         let started = turn_running(shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
+        delivered(shell);
         started
+    }
+
+    /// A question **`crate::permission` really built**, recorded or not.
+    ///
+    /// The hand-written [`asked`] carries a short always-scope; every scope a
+    /// session builds carries an unconditional suffix on top of it
+    /// (`crate::permission::policy`'s `always_scope_for`), and the cases below
+    /// are about whether an *ordinary* screen can disclose an *ordinary*
+    /// request. A fixture shorter than the product would answer yes for a panel
+    /// that cuts.
+    fn as_the_session_builds_it(durable: bool) -> ApprovalRequest {
+        use crate::permission::{
+            MutationKind, MutationPlan, PermissionMode, PermissionSession, Preimage,
+            ProposedAction, TargetScope,
+        };
+
+        struct Recording(std::sync::Arc<std::sync::Mutex<Vec<ApprovalRequest>>>);
+
+        impl crate::permission::ApprovalPrompter for Recording {
+            fn request(
+                &mut self,
+                request: &ApprovalRequest,
+            ) -> std::io::Result<crate::permission::ApprovalAnswer> {
+                self.0.lock().expect("lock").push(request.clone());
+                Ok(ApprovalAnswer::Deny)
+            }
+        }
+
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            // The long absolute path a real temporary workspace has.
+            std::path::PathBuf::from(
+                "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
+            ),
+            "notes.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"beta".to_vec(),
+        );
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let session = PermissionSession::new(PermissionMode::Ask);
+        let session = if durable {
+            session.with_durable_session("01K5Z8QF3V6TQ7B2N4H9J0XWRC")
+        } else {
+            session
+        };
+        let mut session = session.with_prompter(Box::new(Recording(std::sync::Arc::clone(&asked))));
+        session.decide(ProposedAction::Mutation(&plan));
+        let mut asked = asked.lock().expect("lock");
+        asked.remove(0)
+    }
+
+    #[test]
+    fn an_ordinary_screen_discloses_an_ordinary_request_and_takes_both_affirmatives() {
+        // **The regression the whole slice turns on.** A session's always-scope
+        // is three wrapped rows at eighty columns in both recording modes, and
+        // the panel used to allot it two: the sentence was cut, no frame could
+        // disclose the request, and every real approval on an ordinary terminal
+        // was ungrantable. Driven with the request the session really builds,
+        // at the size a terminal really opens at, for both affirmatives --
+        // `Always` because it is the one that buys the rest of the session.
+        for durable in [true, false] {
+            for (typed, answer) in [
+                (Input::Text('1'), ApprovalAnswer::Once),
+                (Input::Text('2'), ApprovalAnswer::Always),
+            ] {
+                let mut shell = shell(24, 80);
+                let started = turn_running(&mut shell, b"edit the notes\r");
+                shell.apply(UiEvent::Approval(question(as_the_session_builds_it(
+                    durable,
+                ))));
+                shell.settle_band(started);
+                let _ = shell.document();
+                assert!(
+                    shell.geometry.panel > 0,
+                    "durable={durable}: the question was refused for want of rows"
+                );
+                // The whole sentence is on the band, tail included: what
+                // "always" buys is half the question.
+                let painted = shell.band_rows().join(" ");
+                let tail = if durable {
+                    "of this saved session"
+                } else {
+                    "the approval ends with this command"
+                };
+                assert!(
+                    unwrapped(std::slice::from_ref(&painted)).contains(tail),
+                    "durable={durable}: the always-scope was cut: {painted:?}"
+                );
+
+                delivered(&mut shell);
+                shell.decide(typed, Instant::now());
+                assert_eq!(
+                    shell.controlled(),
+                    Some(TurnControl::Answer {
+                        id: ApprovalId(1),
+                        answer
+                    }),
+                    "durable={durable}: a disclosed, committed and reconciled frame was refused"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_review_plane_that_cannot_disclose_says_so_on_its_own_screen_and_recovers_when_widened() {
+        // The alternate half of the gate, and of the notice. While this plane is
+        // up it owns every row the user can see, so a refusal written into the
+        // document would be a refusal behind the screen.
+        let mut shell = shell(24, 30);
+        let mut request = as_the_session_builds_it(true);
+        request.diff = Some(crate::permission::ApprovalDiff {
+            before: "a".repeat(4_000),
+            after: "b".repeat(4_000),
+        });
+        shell.apply(UiEvent::Approval(question(request)));
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        delivered(&mut shell);
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "a screen that cannot show the request granted it"
+        );
+        assert!(
+            shell.released().is_empty(),
+            "the refusal went to the document, which is behind this plane"
+        );
+        let notice = unwrapped(&shell.screen_rows());
+        // The **leading clause**, not the whole sentence: the status line is
+        // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
+        // enough that two rows do not hold all of it. A notice allowed to grow
+        // to fit would be a notice pushing an answer off the screen to explain
+        // why the answer could not be taken. What has to reach the user is
+        // which of the two refusals this is, and that is its first clause.
+        assert!(
+            notice.contains("this screen cannot show the whole request"),
+            "the plane that owns the screen never said why: {notice:?}"
+        );
+        assert!(
+            notice.contains("3. No (esc)"),
+            "the refusal took an answer off the screen: {notice:?}"
+        );
+
+        // Refusing is still possible at this size, which is what makes the gate
+        // a gate rather than a trap.
+        let mut trapped = shell.controlled();
+        assert!(trapped.is_none());
+        shell.decide(Input::Text('3'), Instant::now());
+        trapped = shell.controlled();
+        assert_eq!(
+            trapped,
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny
+            }),
+            "a question that cannot be granted must still be refusable"
+        );
+
+        // And a wider screen recovers: the same question, disclosed whole, is
+        // answerable once a frame for that screen has landed.
+        drop(shell);
+        let mut wide = self::shell(40, 120);
+        let mut request = as_the_session_builds_it(true);
+        request.diff = Some(crate::permission::ApprovalDiff {
+            before: "a".repeat(4_000),
+            after: "b".repeat(4_000),
+        });
+        wide.apply(UiEvent::Approval(question(request)));
+        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        delivered(&mut wide);
+        wide.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            wide.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            }),
+            "a screen with room for the whole request still refused it"
+        );
+    }
+
+    #[test]
+    fn an_affirmative_before_the_frame_is_refused_and_not_replayed() {
+        // The whole point of the gate: a grant is given against a screen, and
+        // until a frame has really put this question on one there is no screen
+        // for it to be given against.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None, "an unread question was answered");
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains(&unwrapped(&[APPROVAL_NOT_READY.to_string()])),
+            "the refusal was silent: {said:?}"
+        );
+
+        delivered(&mut shell);
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the early key was consumed, not queued for a later grant"
+        );
+
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            })
+        );
+    }
+
+    #[test]
+    fn an_affirmative_on_the_review_plane_waits_for_that_planes_own_frame() {
+        // The same rule on the other surface, and it is not the same frame: the
+        // review plane's composition is a whole screen rather than a band's
+        // worth of rows, so a receipt earned by the band would be a receipt
+        // about something the user is not looking at.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert!(
+            !shell.screen_rows().is_empty(),
+            "the plane has nothing on it, so this case proves nothing"
+        );
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None, "an unread change was approved");
+
+        delivered(&mut shell);
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            })
+        );
+    }
+
+    #[test]
+    fn refusing_is_always_possible_before_any_frame_lands() {
+        // A gate that held the refusals as well would leave a user who cannot
+        // read the question with no way to say no to it either -- which turns a
+        // safety check into a session that cannot be got out of.
+        for key in [Input::Text('3'), Input::Action(Action::Escape)] {
+            let mut shell = shell(24, 80);
+            shell.apply(UiEvent::Approval(question(asked())));
+            shell.decide(key.clone(), Instant::now());
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer: ApprovalAnswer::Deny
+                }),
+                "{key:?} was gated"
+            );
+        }
+        // Ctrl-C needs a turn to be about ([`Shell::interrupt`] reads
+        // `WorkHandle::outstanding`), so this half is driven with one running.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.decide(Input::Action(Action::Cancel), started);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+    }
+
+    #[test]
+    fn a_screen_that_cannot_disclose_the_request_says_so_and_still_refuses() {
+        // Thirty cells cannot show the second choice whole, so no frame on this
+        // screen will ever grant -- and the sentence has to say that rather than
+        // "not yet", because waiting is not what fixes it.
+        let mut shell = shell(24, 30);
+        shell.apply(UiEvent::Approval(question(asked())));
+        delivered(&mut shell);
+        shell.decide(Input::Text('1'), Instant::now());
+        assert_eq!(shell.controlled(), None);
+        let said = unwrapped(&shell.released());
+        assert!(
+            said.contains(&unwrapped(&[APPROVAL_NOT_DISCLOSED.to_string()])),
+            "the refusal did not say why: {said:?}"
+        );
+
+        shell.decide(Input::Text('3'), Instant::now());
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny
+            }),
+            "a question that cannot be granted must still be refusable"
+        );
     }
 
     /// The same, with a second prompt waiting behind the interrupted turn.
@@ -5614,7 +6155,7 @@ mod tests {
         let started = turn_running(shell, b"edit the notes\r");
         shell.route_bytes(b"queued while deciding\r");
         assert_eq!(shell.hint(), queued_hint(1), "the prompt was not taken");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
         started
@@ -5634,16 +6175,19 @@ mod tests {
         };
         assert_eq!(working.panel, 0);
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
         assert_eq!(
-            shell.geometry.panel, 8,
-            "a 24-row screen gets the compact panel"
+            shell.geometry.panel, PANEL_ROWS,
+            "the band did not give the question the rows it measured"
         );
         assert_eq!(shell.geometry.divider, working.divider);
         assert_eq!(shell.geometry.input_first, working.input_first);
         assert_eq!(shell.geometry.hint, working.hint);
-        assert_eq!(shell.geometry.content_bottom, working.content_bottom - 8);
+        assert_eq!(
+            shell.geometry.content_bottom,
+            working.content_bottom - PANEL_ROWS
+        );
 
         let rows = shell.band_rows();
         assert_eq!(
@@ -5674,7 +6218,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"a draft");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         assert_eq!(shell.marked(), "> 1. Yes");
@@ -5699,13 +6243,16 @@ mod tests {
                 asking(&mut shell);
                 shell.geometry
             };
-            assert_eq!(before.panel, 8);
+            assert_eq!(before.panel, PANEL_ROWS);
 
             shell.route_bytes(&[typed]);
 
             assert_eq!(
                 shell.controlled(),
-                Some(TurnControl::Answer(answer)),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer
+                }),
                 "typing {} did not answer the question",
                 typed as char
             );
@@ -5734,7 +6281,10 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Always)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Always
+            }),
             "Enter did not take the marked choice"
         );
     }
@@ -5747,7 +6297,7 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"a draft");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         shell.route_bytes(&[0x1b]);
@@ -5755,7 +6305,10 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny
+            })
         );
         assert!(!shell.hint().contains(ESCAPE_ARMED), "the clear was armed");
         assert_eq!(
@@ -5826,7 +6379,10 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny
+            })
         );
         assert_eq!(shell.controlled(), None, "Esc cancelled the turn as well");
         assert_eq!(
@@ -5874,7 +6430,7 @@ mod tests {
 
         // The question arrives, and the next tick of the loop is what stops the
         // clock -- the same seam every other timed row is settled on.
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started + Duration::from_secs(2));
         shell.settle_band(started + Duration::from_secs(30));
         assert_eq!(
@@ -5882,6 +6438,7 @@ mod tests {
             Some(before.as_str()),
             "the clock ran while xfx was waiting for the user"
         );
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
         shell.settle_band(started + Duration::from_secs(30));
@@ -5909,18 +6466,22 @@ mod tests {
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(
             shell.screen_owner(),
             ScreenOwner::Approval,
             "a change the band cannot show was left for the band to show"
         );
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            })
         );
         assert_eq!(
             shell.screen_owner(),
@@ -5936,11 +6497,11 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
         assert!(shell.band_rows().join("\n").contains("Permission needed"));
     }
 
@@ -5959,17 +6520,21 @@ mod tests {
             let mut shell = shell(24, 80);
             let started = turn_running(&mut shell, b"edit the notes\r");
             shell.route_bytes(b"a draft");
-            shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+            shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
             shell.settle_band(started);
             assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
             assert_eq!(shell.marked(), "> 1. Yes", "the caret left the question");
+            delivered(&mut shell);
 
             shell.route_bytes(typed);
             shell.settle_input(Instant::now() + Duration::from_millis(100));
 
             assert_eq!(
                 shell.controlled(),
-                Some(TurnControl::Answer(answer)),
+                Some(TurnControl::Answer {
+                    id: ApprovalId(1),
+                    answer
+                }),
                 "{typed:?} did not answer a question the approval plane owns"
             );
             assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
@@ -5989,7 +6554,7 @@ mod tests {
         // the session composing frames for a plane with no question on it.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -6016,7 +6581,7 @@ mod tests {
         let mut shell = shell(10, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
 
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
 
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
@@ -6052,7 +6617,7 @@ mod tests {
             for cols in [layout::MIN_COLS, 40, 80, 200] {
                 let mut shell = shell(rows, cols);
                 let started = turn_running(&mut shell, b"edit the notes\r");
-                shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+                shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
                 shell.settle_band(started);
                 assert_eq!(
                     shell.screen_owner(),
@@ -6082,7 +6647,7 @@ mod tests {
         // the rows back rather than keeping a second copy of the question.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -6132,15 +6697,19 @@ mod tests {
         // for on that plane would paint it.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert!(!shell.screen_rows().is_empty(), "nothing was installed");
+        delivered(&mut shell);
 
         shell.route_bytes(b"1");
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            })
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(
@@ -6158,7 +6727,7 @@ mod tests {
         // plane is released without an answer being invented for the runtime.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
@@ -6183,7 +6752,7 @@ mod tests {
         // change and call it the change.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked_about_a_large_change()));
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let first = shell.screen_rows().join("\n");
 
@@ -6215,12 +6784,15 @@ mod tests {
         // happen.
         let mut shell = shell(10, 80);
         turn_running(&mut shell, b"edit the notes\r");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
         assert_eq!(shell.geometry.panel, 0);
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Deny))
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny
+            })
         );
         assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
         assert!(!shell.band_rows().join("\n").contains("Permission needed"));
@@ -6238,9 +6810,12 @@ mod tests {
         assert_eq!(shell.geometry.input_rows(), limit);
         turn_running(&mut shell, &[]);
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
 
-        assert_eq!(shell.geometry.panel, 8, "the question was refused instead");
+        assert_eq!(
+            shell.geometry.panel, PANEL_ROWS,
+            "the question was refused instead"
+        );
         assert!(
             shell.geometry.input_rows() < limit,
             "the composer kept every row and the panel was painted off-screen"
@@ -6276,7 +6851,10 @@ mod tests {
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            }),
             "the answer went nowhere"
         );
         assert!(
@@ -7661,12 +8239,12 @@ mod tests {
         // while the user watches a band with no question in it.
         let mut shell = shell(24, 80);
         asking(&mut shell);
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
 
         assert!(matches!(shell.resize(30, 100), Resize::Repaint(_)));
 
         assert_eq!(
-            shell.geometry.panel, 8,
+            shell.geometry.panel, PANEL_ROWS,
             "the question lost its rows when the screen changed size"
         );
         assert!(
@@ -7679,11 +8257,18 @@ mod tests {
             None,
             "the resize answered the question on the user's behalf"
         );
-        // And the answer still reaches the runtime afterwards.
+        // And the answer still reaches the runtime afterwards -- once a frame
+        // for the screen's **new** size has landed. The resize revoked the
+        // receipt the question earned at 24x80, which is the whole of
+        // `Readiness::reconcile`'s post-write check.
+        delivered(&mut shell);
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            }),
             "the keystroke that answers the question stopped reaching the runtime"
         );
     }
@@ -7714,7 +8299,7 @@ mod tests {
         // left, which is exactly the case a shell that only remembered its
         // geometry would report as "no news".
         assert!(matches!(shell.resize(24, 80), Resize::Repaint(_)));
-        assert_eq!(shell.geometry.panel, 8);
+        assert_eq!(shell.geometry.panel, PANEL_ROWS);
         assert!(
             shell.band_rows().join("\n").contains("Permission needed"),
             "the question was not painted after the screen grew back"
@@ -7722,7 +8307,10 @@ mod tests {
         shell.route_bytes(b"1");
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer(ApprovalAnswer::Once)),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            }),
             "the decision no longer reaches the runtime"
         );
     }
@@ -7989,7 +8577,7 @@ mod tests {
         shell.route_bytes(b"/he");
         assert!(shell.geometry.panel > 0, "there is no menu to displace");
 
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         let _ = shell.document();
 
@@ -8004,7 +8592,7 @@ mod tests {
         );
         assert_eq!(
             shell.geometry.panel,
-            approval::COMPACT_ROWS,
+            Panel::new(asked()).height(shell.geometry.cols, shell.geometry.rows),
             "the slot is the question's height rather than the menu's"
         );
         // The question has the focus, so the caret is on it rather than in the
@@ -8044,7 +8632,7 @@ mod tests {
         both(&shell, "while a turn started");
         shell.route_bytes(b"/he");
         both(&shell, "with a menu open");
-        shell.apply(UiEvent::Approval(asked()));
+        shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
         both(&shell, "when the question arrived");
         // Every keystroke goes to the question while it is up, so nothing can

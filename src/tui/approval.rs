@@ -53,11 +53,13 @@
 
 use std::collections::VecDeque;
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Poll, Waker};
 
 use tokio::sync::mpsc::{Sender, UnboundedReceiver};
 
+use super::approval_readiness::{ApprovalId, Disclosure};
 use super::bridge::{park_on, send_ui, Cancellation, Stopped, TurnControl, UiEvent};
 use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest};
 
@@ -65,31 +67,15 @@ use crate::permission::{ApprovalAnswer, ApprovalPrompter, ApprovalRequest};
 // what the panel says
 // ---------------------------------------------------------------------------
 
-/// How many rows the panel takes on an ordinary screen
-/// (`interaction_state.zig:12-15`).
-pub(crate) const COMPACT_ROWS: u16 = 8;
-
-/// How many it takes on a tall one, where the summary is worth more rows than
-/// the blank space it displaces.
-pub(crate) const SPACIOUS_ROWS: u16 = 11;
-
-/// The screen height at which it stops being compact.
+/// The screen height at which the panel can afford two blank rows.
+///
+/// The one thing about this panel's height that is still a property of the
+/// *screen* rather than of the request. Everything else is measured from the
+/// content ([`Shape::for_request`]): the three fixed heights that used to live
+/// here allotted the always-scope two rows, every scope
+/// `crate::permission::PermissionSession` builds is three at eighty columns,
+/// and a question whose scope is cut is a question no frame can disclose.
 pub(crate) const SPACIOUS_AT: u16 = 34;
-
-/// The shortest screen the compact panel is drawn on.
-///
-/// Below it the panel keeps its three choices and gives up the blank row and
-/// two of the summary's: what a question may never lose is what it is asking
-/// and what the answers are.
-const COMPACT_AT: u16 = 14;
-
-/// How many rows the smallest panel takes: a title, one row of summary, the
-/// three choices, and what "always" would grant.
-///
-/// A screen too short even for this is refused rather than squeezed, and the
-/// refusal is [`super::layout::fits_panel`]'s to make -- it is the only place
-/// that knows what the rest of the band is costing.
-const TIGHT_ROWS: u16 = 6;
 
 /// The band's own name for the tool a shell command runs under
 /// (`crate::permission::ProposedAction::tool`).
@@ -202,6 +188,43 @@ impl ApprovalSurface {
     }
 }
 
+/// One question, under the identity it was asked with.
+///
+/// The envelope the UI is told about a question in. A pair rather than a field
+/// on [`crate::permission::ApprovalRequest`] because the id is a **TUI** fact:
+/// `crate::permission` neither mints one nor reads one, and giving its request
+/// a field only this front end fills would make the policy layer carry a
+/// surface's bookkeeping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ApprovalAsked {
+    pub id: ApprovalId,
+    pub request: ApprovalRequest,
+}
+
+/// One composition of a question, and what it really disclosed.
+///
+/// The rows and the claim about them come out of **one** construction, for the
+/// reason [`Panel::rows`] and [`Panel::height`] do: a disclosure computed by a
+/// second pass over the composed text would be a second reading of the layout,
+/// and two readings are two chances to disagree about whether a control was cut.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Composition {
+    pub rows: Vec<String>,
+    pub disclosure: Disclosure,
+}
+
+/// `text` fitted into its rows, and whether all of it got there.
+///
+/// `complete` is a fact about the **source** and its allotment, not about the
+/// string this returns: the cut is silent -- an ellipsis on the last row that
+/// survived -- so a caller inspecting the output could only guess whether a
+/// summary ending in `\u{2026}` was cut or merely ends that way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Fitted {
+    pub rows: Vec<String>,
+    pub complete: bool,
+}
+
 /// The question, and which answer is marked.
 #[derive(Debug, Clone)]
 pub(crate) struct Panel {
@@ -229,56 +252,58 @@ struct Shape {
     scope: u16,
 }
 
+/// How many rows `text` really needs at `budget` cells, never fewer than one.
+///
+/// The **demand**, measured from the source. A row count chosen without asking
+/// this is a row count that cuts something, and every cut on this surface is
+/// silent ([`fitted`]).
+fn demanded(text: &str, budget: u16) -> u16 {
+    u16::try_from(super::wrap::wrap(text, budget).len().max(1)).unwrap_or(u16::MAX)
+}
+
 impl Shape {
-    /// A tall screen's: the summary gets three rows and the disclosure two,
-    /// with air around the title and above the choices.
-    const SPACIOUS: Self = Self {
-        breathing: true,
-        summary: 3,
-        spaced: true,
-        scope: 2,
-    };
-
-    /// An ordinary screen's: the blank rows go, because rows above the band
-    /// are the user's document and neither disclosure may be paid for out of
-    /// them. The marker is what separates the choices from the text, and it is
-    /// enough.
-    const COMPACT: Self = Self {
-        breathing: false,
-        summary: 2,
-        spaced: false,
-        scope: 2,
-    };
-
-    /// A short screen's: every blank row goes, and the summary keeps one. What
-    /// is being asked and what the answers are is what a question may never
-    /// lose.
-    const TIGHT: Self = Self {
-        breathing: false,
-        summary: 1,
-        spaced: false,
-        scope: 1,
-    };
-
-    /// The shape a screen of `terminal_rows` gets.
-    fn for_screen(terminal_rows: u16) -> Self {
-        if terminal_rows >= SPACIOUS_AT {
-            Self::SPACIOUS
-        } else if terminal_rows >= COMPACT_AT {
-            Self::COMPACT
-        } else {
-            Self::TIGHT
+    /// The shape this question really needs at `cols`, on a screen
+    /// `terminal_rows` tall.
+    ///
+    /// **Measured from the content, not read out of a table.** The three fixed
+    /// shapes this replaced allotted the always-scope two rows on an ordinary
+    /// screen and one on a short one, and every scope
+    /// `crate::permission::PermissionSession` builds is three wrapped rows at
+    /// eighty columns: the suffix `always_scope_for` appends -- the resume-id of
+    /// a saved session, or the note that this turn is not being recorded -- is
+    /// unconditional. A table cannot know that, so the table cut the sentence
+    /// and no ordinary screen could disclose an ordinary request.
+    ///
+    /// **Padding is what is spent first.** A blank row discloses nothing, so
+    /// the two are taken only on a screen tall enough that they cost the
+    /// question nothing ([`SPACIOUS_AT`]); everything else is demand. Whether
+    /// the demand fits the band at all is [`super::layout::fits_panel`]'s
+    /// question, asked of [`Panel::height`], and a question that does not fit
+    /// is refused in the user's sight rather than squeezed.
+    /// **Bounded by the screen.** A demand larger than the terminal is still
+    /// only measured up to it, so the panel never claims more rows than exist
+    /// and [`fitted`]'s ellipsis marks what was lost -- which makes the
+    /// disclosure `false` and the question refusable rather than grantable. The
+    /// alternative, a panel of a hundred rows on a screen of twenty-four, would
+    /// be a height every reader of it has to re-clamp.
+    fn for_request(request: &ApprovalRequest, cols: u16, terminal_rows: u16) -> Self {
+        let budget = cols.saturating_sub(INDENT_CELLS).max(1);
+        let air = terminal_rows >= SPACIOUS_AT;
+        // A title, the three answers, and one row each for the two elastic
+        // parts: the least this panel can be.
+        let fixed = 1 + 2 * u16::from(air) + CHOICES.len() as u16;
+        let scope = demanded(&format!("2 = {}", request.always_scope), budget)
+            .min(terminal_rows.saturating_sub(fixed + 1).max(1));
+        Self {
+            breathing: air,
+            // The summary is where the band names the target
+            // (`crate::permission`'s `ApprovalRequest`), so a summary cut here
+            // is a target the user was never shown.
+            summary: demanded(&request.summary, budget)
+                .min(terminal_rows.saturating_sub(fixed + scope).max(1)),
+            spaced: air,
+            scope,
         }
-    }
-
-    /// How many rows this shape paints: a title, the parts above, the three
-    /// choices, and the disclosure.
-    const fn height(&self) -> u16 {
-        1 + self.breathing as u16
-            + self.summary
-            + self.spaced as u16
-            + CHOICES.len() as u16
-            + self.scope
     }
 
     /// Which row of the panel the first choice is on.
@@ -286,18 +311,6 @@ impl Shape {
         1 + self.breathing as u16 + self.summary + self.spaced as u16
     }
 }
-
-/// The three heights, tied to the three shapes at compile time.
-///
-/// The constants are what `super::layout` and the plan's own acceptance are
-/// written against, and the skeleton in [`Panel::rows`] is what is painted.
-/// Without this the two could drift by one blank row and the only symptom would
-/// be a band that solved for eight rows and painted nine.
-const _: () = {
-    assert!(Shape::SPACIOUS.height() == SPACIOUS_ROWS);
-    assert!(Shape::COMPACT.height() == COMPACT_ROWS);
-    assert!(Shape::TIGHT.height() == TIGHT_ROWS);
-};
 
 impl Panel {
     pub(crate) fn new(request: ApprovalRequest) -> Self {
@@ -316,7 +329,30 @@ impl Panel {
     /// length of this, so the count the band solved its geometry from cannot
     /// drift from the paint and leave a stale row standing in the band.
     pub(crate) fn rows(&self, cols: u16, terminal_rows: u16) -> Vec<String> {
-        let shape = Shape::for_screen(terminal_rows);
+        // The absolute row the disclosure would carry is nothing to a caller
+        // that only wants the text, so this asks for the composition at the top
+        // of a notional screen and takes the half it is about. **One**
+        // construction, which is what keeps the height, the caret and the paint
+        // from drifting apart.
+        self.compose(cols, terminal_rows, 1, 0).rows
+    }
+
+    /// The panel's rows and what they really disclosed, for a panel whose first
+    /// row is at terminal row `band_top + offset`.
+    ///
+    /// The two placing arguments are readiness's alone. `band_rows` puts the
+    /// activity row before the panel when the geometry has one
+    /// ([`super::shell::Shell::band_rows`]), so a panel-local index is not a row
+    /// of anybody's terminal -- and `Intent::capture`'s `last_control_row <=
+    /// rows` guard is about the terminal.
+    pub(crate) fn compose(
+        &self,
+        cols: u16,
+        terminal_rows: u16,
+        band_top: u16,
+        offset: u16,
+    ) -> Composition {
+        let shape = Shape::for_request(&self.request, cols, terminal_rows);
         let mut rows = Vec::new();
         rows.push(TITLE.to_string());
         if shape.breathing {
@@ -325,43 +361,82 @@ impl Panel {
         // What would happen, in the words the line shell's own prompt uses --
         // including the bounded excerpt of the change, which is where the whole
         // risk of an edit lives.
-        rows.extend(fitted(&self.request.summary, cols, shape.summary));
+        let summary = fitted(&self.request.summary, cols, shape.summary);
+        rows.extend(summary.rows);
         if shape.spaced {
             rows.push(String::new());
         }
+        // **Whether the clip changed anything**, not whether something survived
+        // it. `super::approval_screen::ApprovalScreen::presents_choices` asks
+        // the weaker question -- is the row longer than its marker -- and that
+        // is the right question for "may xfx ask here at all"; it is the wrong
+        // one for "may this be granted", because `2. Yes, and don't ask again
+        // for th` passes it while the words that separate one call from the rest
+        // of the session are the ones that got cut.
+        let mut controls_whole = true;
+        let mut last_control = 0usize;
         for (index, choice) in CHOICES.iter().enumerate() {
             let marker = if index == self.selected {
                 MARKER
             } else {
                 INDENT
             };
-            rows.push(format!("{marker}{}", self.label(*choice)));
+            let row = format!("{marker}{}", self.label(*choice));
+            controls_whole &= super::frame::clip(&row, cols) == row;
+            last_control = rows.len();
+            rows.push(row);
         }
         // And exactly what "always" would buy, which is the half of the
         // question a three-line menu is most likely to drop. Labelled with the
         // digit rather than introduced with a sentence: the prose would cost a
         // dozen cells of the one row a compact screen has for it, and what
         // matters on that row is the scope, not the grammar.
-        rows.extend(fitted(
+        let scope = fitted(
             &format!("2 = {}", self.request.always_scope),
             cols,
             shape.scope,
-        ));
-        // Cut to the screen **here**, by the painter's own rule
-        // (`super::frame::clip`), rather than left for the painter: a choice
-        // whose wording outran a narrow terminal would otherwise be measured by
-        // the band at one width and drawn at another.
-        rows.iter()
-            .map(|row| super::frame::clip(row, cols).to_string())
-            .collect()
+        );
+        rows.extend(scope.rows);
+        let disclosure = Disclosure {
+            // The panel's first row is at `band_top + offset`, so a local index
+            // needs no further one-based correction: `band_top` is already a
+            // terminal row as the terminal counts them
+            // ([`super::layout::Geometry::band_top`]).
+            last_control_row: band_top
+                .saturating_add(offset)
+                .saturating_add(u16::try_from(last_control).unwrap_or(u16::MAX)),
+            controls_whole,
+            scope_whole: scope.complete,
+            // The summary carries the target (`crate::permission`'s
+            // `ApprovalRequest`), so a summary that reached its rows whole is a
+            // subject the user really saw.
+            subject_whole: summary.complete,
+            // An inline question is only ever chosen for a change the summary
+            // shows whole ([`ApprovalSurface::for_request`]), so on this surface
+            // the change **is** the subject.
+            change_visible: summary.complete,
+        };
+        Composition {
+            // Cut to the screen **here**, by the painter's own rule
+            // (`super::frame::clip`), rather than left for the painter: a
+            // choice whose wording outran a narrow terminal would otherwise be
+            // measured by the band at one width and drawn at another.
+            rows: rows
+                .iter()
+                .map(|row| super::frame::clip(row, cols).to_string())
+                .collect(),
+            disclosure,
+        }
     }
 
     /// How many rows the band has to give the panel.
+    ///
+    /// **Content-measured**, so it really is a question of the request as well
+    /// as of the screen. What the band does when the answer is more rows than
+    /// it has is [`super::layout::fits_panel`]'s, and the shell refuses in the
+    /// user's sight rather than painting a question with half its disclosure.
     pub(crate) fn height(&self, cols: u16, terminal_rows: u16) -> u16 {
-        // The one narrowing in this module, and it is at the terminal-row
-        // boundary the standing rule names: the shape bounds the count at
-        // [`SPACIOUS_ROWS`], so the clamp is a proof rather than a policy.
-        u16::try_from(self.rows(cols, terminal_rows).len()).unwrap_or(SPACIOUS_ROWS)
+        u16::try_from(self.rows(cols, terminal_rows).len()).unwrap_or(u16::MAX)
     }
 
     /// Which row of the panel the marked choice is on.
@@ -369,9 +444,17 @@ impl Panel {
     /// Where the caret goes while the panel has the focus. A caret left in the
     /// composer would be a lie about which of the two the next keystroke goes
     /// to.
-    pub(crate) fn caret_row(&self, terminal_rows: u16) -> u16 {
+    ///
+    /// **Takes `cols`**, because the rows above the choices are now measured
+    /// from text that wraps at a width: a caret derived from a different
+    /// reading of the layout than the paint would sit on the wrong row the
+    /// moment a summary or a scope needed one row more. The same shape function
+    /// answers both ([`Shape::for_request`]), which is what
+    /// `super::question::QuestionPanel::caret_row` already does with the same
+    /// two arguments.
+    pub(crate) fn caret_row(&self, cols: u16, terminal_rows: u16) -> u16 {
         let selected = u16::try_from(self.selected).unwrap_or(0);
-        Shape::for_screen(terminal_rows)
+        Shape::for_request(&self.request, cols, terminal_rows)
             .first_choice()
             .saturating_add(selected)
     }
@@ -455,10 +538,14 @@ pub(crate) fn labels(tool: &str) -> [&'static str; CHOICES.len()] {
 /// text stays on. Cut with an [`ELLIPSIS`] when it is longer, because a summary
 /// that stopped mid-word without saying so would read as the whole of what xfx
 /// was about to do.
-fn fitted(text: &str, cols: u16, rows: u16) -> Vec<String> {
+///
+/// `complete` says the source reached the screen whole: every wrapped row of it
+/// fitted in the allotment, so nothing was dropped and no ellipsis was added.
+fn fitted(text: &str, cols: u16, rows: u16) -> Fitted {
     let budget = cols.saturating_sub(INDENT_CELLS).max(1);
     let wrapped = super::wrap::wrap(text, budget);
     let allotted = usize::from(rows);
+    let complete = wrapped.len() <= allotted;
     let mut out: Vec<String> = wrapped
         .iter()
         .take(allotted)
@@ -479,7 +566,10 @@ fn fitted(text: &str, cols: u16, rows: u16) -> Vec<String> {
         }
     }
     out.resize(allotted, String::new());
-    out
+    Fitted {
+        rows: out,
+        complete,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +724,14 @@ pub(crate) struct TuiPrompter {
     /// before it was painted. The session's root is the question this send
     /// really wants answered: is there still a UI to ask.
     cancel: Cancellation,
+    /// The next id to mint, shared across clones.
+    ///
+    /// Cloning shares the counter as well as the channel, because it **is**
+    /// identity: two clones minting the same id would make a stale answer
+    /// indistinguishable from a fresh one, which is the one thing the id exists
+    /// to prevent. The same arrangement, for the same reason, as
+    /// [`super::question::TuiQuestioner`]'s.
+    next: Arc<AtomicU64>,
 }
 
 impl TuiPrompter {
@@ -646,7 +744,26 @@ impl TuiPrompter {
             events,
             control,
             cancel,
+            // One rather than nought, so the first question is `ApprovalId(1)`
+            // and an `ApprovalId(0)` in a log is a value nothing minted.
+            next: Arc::new(AtomicU64::new(1)),
         }
+    }
+
+    /// The id this question is asked under, or nothing when one cannot be
+    /// minted.
+    ///
+    /// **Fails closed.** `fetch_add` wraps, and a wrapped counter would hand out
+    /// an id some earlier question was asked under -- at which point a keystroke
+    /// left over from that one is accepted as a permission decision about this
+    /// one. A question that cannot be given an identity is not asked at all.
+    fn mint(&self) -> Option<ApprovalId> {
+        self.next
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                held.checked_add(1)
+            })
+            .ok()
+            .map(ApprovalId)
     }
 }
 
@@ -664,6 +781,9 @@ fn nobody_to_ask() -> io::Error {
 
 impl ApprovalPrompter for TuiPrompter {
     fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer> {
+        // A question that cannot be given an identity is not asked: an id
+        // handed out twice is a stale keystroke that matches.
+        let id = self.mint().ok_or_else(nobody_to_ask)?;
         let token = self.cancel.token();
         // Through `send_ui`, which makes the event inert at the channel: the
         // summary quotes a bounded excerpt of the file a call would change,
@@ -672,7 +792,10 @@ impl ApprovalPrompter for TuiPrompter {
         match park_on(send_ui(
             &self.events,
             &token,
-            UiEvent::Approval(request.clone()),
+            UiEvent::Approval(ApprovalAsked {
+                id,
+                request: request.clone(),
+            }),
         )) {
             Ok(()) => {}
             // The session is going down. A question nobody will see is not one
@@ -697,7 +820,20 @@ impl ApprovalPrompter for TuiPrompter {
                     message = self.control.answered() => message,
                 };
                 match message {
-                    Some(TurnControl::Answer(answer)) => return Ok(answer),
+                    Some(TurnControl::Answer {
+                        id: answered,
+                        answer,
+                    }) if answered == id => return Ok(answer),
+                    // An answer to a question that has gone. It grants nothing
+                    // and refuses nothing, and it is **consumed** rather than
+                    // put back: handed to the loop it would be handed on to the
+                    // next question as though it had been typed at that one,
+                    // and an `Always` inherited that way is the rest of the
+                    // session. This arm sits above the `stop` catch-all below
+                    // for exactly that reason -- underneath it, a stale answer
+                    // would fall into `stop`, be pushed back onto the channel,
+                    // and refuse the live question.
+                    Some(TurnControl::Answer { .. }) => continue,
                     // A keystroke left over from a question batch the model
                     // asked (`super::question`), which is a **different** panel
                     // with a different vocabulary: it grants nothing and refuses
@@ -733,6 +869,7 @@ impl ApprovalPrompter for TuiPrompter {
 mod tests {
     use super::*;
 
+    use super::super::approval_readiness::{Intent, Surface};
     use crate::permission::ApprovalDiff;
     use std::future::Future;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -748,6 +885,137 @@ mod tests {
             always_scope:
                 "allow every future edit_file to `notes.txt` for the rest of this session".into(),
             diff: None,
+        }
+    }
+
+    /// A question **`crate::permission` really built**, for a session that is
+    /// or is not being recorded.
+    ///
+    /// The fixture above is hand-written and short; this one is the sentence a
+    /// user is actually shown, and the difference is the whole of why the
+    /// panel's rows are measured from content. `PermissionSession::ask` appends
+    /// one of two suffixes to every always-scope it builds (`policy.rs`'s
+    /// `always_scope_for`) -- the resume-id of a saved session, or the note that
+    /// this turn is not being recorded -- and neither is optional. A panel
+    /// sized against the short form is a panel that cuts the long one.
+    fn as_the_session_builds_it(durable: bool) -> ApprovalRequest {
+        use crate::permission::{
+            MutationKind, MutationPlan, PermissionMode, PermissionSession, Preimage,
+            ProposedAction, TargetScope,
+        };
+
+        /// Keeps the question it was asked and answers no, so nothing is
+        /// granted by the building of a fixture.
+        struct Recording(Arc<Mutex<Vec<ApprovalRequest>>>);
+
+        impl ApprovalPrompter for Recording {
+            fn request(&mut self, request: &ApprovalRequest) -> io::Result<ApprovalAnswer> {
+                self.0.guarded().push(request.clone());
+                Ok(ApprovalAnswer::Deny)
+            }
+        }
+
+        let plan = MutationPlan::new(
+            MutationKind::Edit,
+            // The long absolute path a real workspace has, which is what the
+            // review plane shows as its subject.
+            std::path::PathBuf::from(
+                "/private/var/folders/f4/mj8750512wdb85799rpkct880000gn/T/.tmpqwGs5r/workspace/notes.txt",
+            ),
+            "notes.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"beta".to_vec(),
+        );
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let session = PermissionSession::new(PermissionMode::Ask);
+        let session = if durable {
+            // The shape of a real saved-session id.
+            session.with_durable_session("01K5Z8QF3V6TQ7B2N4H9J0XWRC")
+        } else {
+            session
+        };
+        let mut session = session.with_prompter(Box::new(Recording(Arc::clone(&asked))));
+        session.decide(ProposedAction::Mutation(&plan));
+        let mut asked = asked.guarded();
+        assert_eq!(asked.len(), 1, "the session asked something else");
+        asked.remove(0)
+    }
+
+    #[test]
+    fn the_scope_a_real_session_asks_about_takes_three_rows_and_is_disclosed_whole() {
+        // **The exact cause of the nine PTY failures and the three smoke
+        // failures**, pinned deterministically. The suffix `always_scope_for`
+        // appends is unconditional, so the sentence is three wrapped rows at an
+        // ordinary 80-column screen in both session modes -- and a panel that
+        // allotted it a fixed two would cut it, at which point no frame on any
+        // 80x24 screen could disclose the request and every real approval would
+        // be ungrantable.
+        for durable in [true, false] {
+            let asked = as_the_session_builds_it(durable);
+            let scope = format!("2 = {}", asked.always_scope);
+            let wanted = super::super::wrap::wrap(&scope, 80 - INDENT_CELLS).len();
+            assert!(
+                wanted >= 3,
+                "durable={durable}: the real scope wants only {wanted} rows, so this case no \
+                 longer reproduces what it was written for: {scope:?}"
+            );
+
+            // And an ordinary screen discloses it whole anyway, because the
+            // panel's rows are measured from the content rather than read out
+            // of a table.
+            let panel = Panel::new(asked);
+            let composed = panel.compose(80, 24, 1, 0);
+            assert!(
+                composed.disclosure.scope_whole,
+                "durable={durable}: the always-scope was cut: {:?}",
+                composed.rows
+            );
+            assert!(
+                composed.disclosure.controls_whole && composed.disclosure.subject_whole,
+                "durable={durable}: {:?}",
+                composed.rows
+            );
+            assert!(
+                Intent::capture(ApprovalId(1), Surface::Inline, 80, 24, composed.disclosure)
+                    .is_some(),
+                "durable={durable}: an ordinary screen could not disclose an ordinary request"
+            );
+        }
+    }
+
+    /// A prompter, the events it sends, the channel it waits on, and the
+    /// sending half of that channel.
+    ///
+    /// The test keeps the sender because [`ControlChannel::new`] takes only the
+    /// receiver and the type has no sender accessor -- and it is not given one:
+    /// a production API existing solely for a test is exactly the wrong
+    /// direction.
+    fn a_prompter() -> (
+        TuiPrompter,
+        mpsc::Receiver<UiEvent>,
+        Arc<ControlChannel>,
+        mpsc::UnboundedSender<TurnControl>,
+    ) {
+        let (events, incoming) = mpsc::channel(8);
+        let (answers, replies) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(replies);
+        let prompter = TuiPrompter::new(
+            events,
+            Arc::clone(&control),
+            Cancellation::new(crate::gateway::CancelToken::new()),
+        );
+        (prompter, incoming, control, answers)
+    }
+
+    /// The id of the next question on the wire.
+    ///
+    /// **Receives** rather than peeks, so two calls read the first and the
+    /// second question instead of the same one twice.
+    fn asked_id(events: &mut mpsc::Receiver<UiEvent>) -> ApprovalId {
+        match events.try_recv().expect("a question was sent") {
+            UiEvent::Approval(asked) => asked.id,
+            other => panic!("not a question: {other:?}"),
         }
     }
 
@@ -841,8 +1109,29 @@ mod tests {
                 "{cols}x{terminal_rows}"
             );
         }
-        assert!(Panel::new(request("terminal")).height(80, 40) >= SPACIOUS_ROWS);
-        assert!(Panel::new(request("terminal")).height(80, 24) <= COMPACT_ROWS);
+        // **Coordinates changed with the dynamic sizing.** These used to be
+        // bounds against three fixed heights; the height is now the request's
+        // own demand, so what is asserted is the demand's two properties. The
+        // taller screen differs from the ordinary one by exactly the two blank
+        // rows it can afford, and nothing else.
+        let panel = Panel::new(request("terminal"));
+        assert_eq!(
+            panel.height(80, 40),
+            panel.height(80, 24) + 2,
+            "the tall screen bought something other than air"
+        );
+        // And no panel ever claims more rows than the screen has, however long
+        // the request is: past that the cut is marked and the question is
+        // refused rather than shown with half its disclosure.
+        let mut vast = request("terminal");
+        vast.summary = "x".repeat(9_000);
+        vast.always_scope = "y".repeat(9_000);
+        for rows in [6u16, 12, 24, 40] {
+            assert!(
+                Panel::new(vast.clone()).height(80, rows) <= rows,
+                "a {rows}-row screen was given a taller panel than it has rows"
+            );
+        }
     }
 
     #[test]
@@ -904,7 +1193,7 @@ mod tests {
             assert_eq!(marked.len(), 1, "{rows:?}");
             assert_eq!(
                 marked[0],
-                usize::from(panel.caret_row(24)),
+                usize::from(panel.caret_row(80, 24)),
                 "the caret is not on the marked row"
             );
             assert!(
@@ -922,13 +1211,25 @@ mod tests {
         let mut asked = request("edit_file");
         asked.summary = "x".repeat(4000);
         let panel = Panel::new(asked);
+        // **Coordinates changed with the dynamic sizing.** A summary is now
+        // given the rows it asks for, so the cut happens where the *screen*
+        // runs out rather than at a fixed two -- the panel takes the whole of a
+        // twenty-four-row terminal and the ellipsis lands on its last summary
+        // row. What is asserted is unchanged: the cut is marked.
         let rows = panel.rows(40, 24);
-        assert_eq!(rows.len(), usize::from(COMPACT_ROWS));
-        let summary: Vec<&String> = rows[1..3].iter().collect();
+        assert_eq!(rows.len(), 24, "the panel did not take the rows it needed");
+        let last_summary = rows
+            .iter()
+            .rposition(|row| row.starts_with(&format!("{INDENT}x")))
+            .expect("the summary is on the panel");
         assert!(
-            summary[1].ends_with(ELLIPSIS),
-            "the cut is silent: {summary:?}"
+            rows[last_summary].ends_with(ELLIPSIS),
+            "the cut is silent: {:?}",
+            &rows[..=last_summary]
         );
+        // And a cut summary is a subject the user was never shown, so no frame
+        // of this panel may be granted.
+        assert!(!panel.compose(40, 24, 1, 0).disclosure.subject_whole);
         for row in &rows {
             assert!(
                 super::super::wrap::width(row) <= 40,
@@ -943,7 +1244,11 @@ mod tests {
         // answers and what is being asked cannot be among them.
         let panel = Panel::new(request("edit_file"));
         let rows = panel.rows(80, 12);
-        assert_eq!(rows.len(), usize::from(TIGHT_ROWS));
+        // Six: a title, the one row this summary needs, the three answers and
+        // the one row this scope needs. Derived rather than looked up -- the
+        // three fixed heights are gone, and six is what this request demands at
+        // this width.
+        assert_eq!(rows.len(), 6, "{rows:?}");
         let joined = rows.join("\n");
         assert!(joined.contains(TITLE), "{joined}");
         assert!(joined.contains(ONCE_CHOICE), "{joined}");
@@ -961,10 +1266,14 @@ mod tests {
         let mut asked = request("edit_file");
         asked.summary = "alpha bravo charlie delta echo foxtrot golf hotel ".repeat(4);
         let panel = Panel::new(asked);
+        // **The claim changed with the dynamic sizing, and it got stronger.**
+        // It used to be that a taller screen showed *more* of the summary,
+        // because an ordinary one was capped at two rows and cut the rest.
+        // There is no cap any more: both screens say the whole summary, and the
+        // only thing the taller one buys is the air. A test still asserting the
+        // old inequality would be asserting that the short screen cuts.
         let compact = panel.rows(60, 24);
         let spacious = panel.rows(60, 40);
-        assert_eq!(compact.len(), usize::from(COMPACT_ROWS));
-        assert_eq!(spacious.len(), usize::from(SPACIOUS_ROWS));
         let told = |rows: &[String]| {
             rows.iter()
                 .filter(|row| {
@@ -972,10 +1281,97 @@ mod tests {
                 })
                 .count()
         };
-        assert!(
-            told(&spacious) > told(&compact),
-            "the taller panel said no more than the short one: {spacious:?}"
+        assert_eq!(
+            told(&spacious),
+            told(&compact),
+            "one of the two screens cut the summary: {spacious:?} {compact:?}"
         );
+        assert!(
+            panel.compose(60, 24, 1, 0).disclosure.subject_whole,
+            "an ordinary screen cut a summary it had room for: {compact:?}"
+        );
+        assert_eq!(
+            spacious.len(),
+            compact.len() + 2,
+            "the taller screen bought something other than its two blank rows"
+        );
+        assert_eq!(
+            spacious.iter().filter(|row| row.is_empty()).count(),
+            2,
+            "{spacious:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // what the composition really disclosed
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_clipped_always_label_is_not_a_disclosed_control() {
+        // The clip has to be a **no-op**, not merely "something survived beside
+        // the marker": `2. Yes, and don't ask again for th` is exactly the
+        // sentence with the difference between one call and the whole session
+        // cut out of it.
+        let panel = Panel::new(request("edit_file"));
+        let wide = panel.compose(80, 24, 1, 0);
+        assert!(wide.disclosure.controls_whole && wide.disclosure.scope_whole);
+        // 30 cells cuts the second label mid-sentence.
+        let narrow = panel.compose(30, 24, 1, 0);
+        assert!(
+            !narrow.disclosure.controls_whole,
+            "a half-shown grant read as disclosed"
+        );
+    }
+
+    #[test]
+    fn an_ellipsised_summary_is_not_a_disclosed_subject() {
+        // The band's summary carries the target (`crate::permission`'s
+        // `ApprovalRequest`), so a summary cut at its allotment is a target the
+        // user was never shown -- which is how a long path chosen to share a
+        // visible prefix with a benign one would be approved.
+        let mut asked = request("edit_file");
+        asked.summary =
+            "write_file wants to replace ".to_string() + &"deep/".repeat(60) + "notes.md";
+        let panel = Panel::new(asked);
+        // **A changed coordinate.** At 80x24 this summary is no longer cut --
+        // the panel asks for the five rows it needs and gets them, which is the
+        // whole point of the dynamic sizing. The cut is real where the screen
+        // genuinely cannot carry it, and *there* is where the disclosure must
+        // still be refused rather than assumed.
+        assert!(
+            panel.compose(80, 24, 1, 0).disclosure.subject_whole,
+            "a screen with room for the target still hid it"
+        );
+        let short = panel.compose(80, 8, 1, 0);
+        assert!(
+            !short.disclosure.subject_whole,
+            "a screen with no room for the target claimed to have shown it: {:?}",
+            short.rows
+        );
+    }
+
+    #[test]
+    fn the_last_control_row_is_the_terminal_row_that_row_is_really_on() {
+        // The band puts its activity row before the panel when the geometry has
+        // one (`super::super::shell::Shell::band_rows`), so a panel-local index
+        // is not a row of anybody's screen -- and the guard the disclosure feeds
+        // (`Intent::capture`) is about the screen.
+        let panel = Panel::new(request("edit_file"));
+        let rows = panel.rows(80, 24);
+        let last_choice = rows
+            .iter()
+            .rposition(|row| row.contains("3. No"))
+            .expect("the refusal is a row of the panel");
+        for (band_top, offset) in [(10u16, 0u16), (10, 1), (1, 0)] {
+            assert_eq!(
+                panel
+                    .compose(80, 24, band_top, offset)
+                    .disclosure
+                    .last_control_row,
+                band_top + offset + u16::try_from(last_choice).expect("a small index"),
+                "{band_top}+{offset}"
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1027,8 +1423,11 @@ mod tests {
             .as_mut()
             .poll(&mut Context::from_waker(&park))
             .is_pending());
-        tx.send(TurnControl::Answer(ApprovalAnswer::Once))
-            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+        })
+        .expect("the channel is open");
         assert_eq!(
             woken.0.load(Ordering::Acquire),
             0,
@@ -1037,7 +1436,10 @@ mod tests {
 
         assert_eq!(
             asking.as_mut().poll(&mut Context::from_waker(&park)),
-            Poll::Ready(Some(TurnControl::Answer(ApprovalAnswer::Once)))
+            Poll::Ready(Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once
+            }))
         );
         assert_eq!(
             woken.0.load(Ordering::Acquire),
@@ -1073,8 +1475,11 @@ mod tests {
     fn an_answer_already_waiting_is_taken_without_parking() {
         let (tx, rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(rx);
-        tx.send(TurnControl::Answer(ApprovalAnswer::Always))
-            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Always,
+        })
+        .expect("the channel is open");
         let (events, _seen) = mpsc::channel(4);
         let mut prompter = TuiPrompter::new(
             events,
@@ -1092,8 +1497,11 @@ mod tests {
         let (events, mut seen) = mpsc::channel(4);
         let (tx, rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(rx);
-        tx.send(TurnControl::Answer(ApprovalAnswer::Once))
-            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+        })
+        .expect("the channel is open");
         let mut prompter = TuiPrompter::new(
             events,
             control,
@@ -1106,7 +1514,10 @@ mod tests {
         );
         assert_eq!(
             seen.try_recv().expect("the UI was asked"),
-            UiEvent::Approval(asked)
+            UiEvent::Approval(ApprovalAsked {
+                id: ApprovalId(1),
+                request: asked
+            })
         );
     }
 
@@ -1118,8 +1529,11 @@ mod tests {
         let (events, mut seen) = mpsc::channel(4);
         let (tx, rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(rx);
-        tx.send(TurnControl::Answer(ApprovalAnswer::Once))
-            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+        })
+        .expect("the channel is open");
         let mut prompter = TuiPrompter::new(
             events,
             control,
@@ -1132,9 +1546,9 @@ mod tests {
             panic!("the UI was told something other than a question");
         };
         assert!(
-            !delivered.summary.contains('\u{1b}'),
+            !delivered.request.summary.contains('\u{1b}'),
             "an escape sequence reached the band: {:?}",
-            delivered.summary
+            delivered.request.summary
         );
     }
 
@@ -1253,8 +1667,11 @@ mod tests {
             answers: vec!["a keystroke at a panel that has gone".to_string()],
         })
         .expect("the channel is open");
-        tx.send(TurnControl::Answer(ApprovalAnswer::Always))
-            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Always,
+        })
+        .expect("the channel is open");
         let (events, _seen) = mpsc::channel(4);
         let mut prompter = TuiPrompter::new(
             events,
@@ -1301,6 +1718,68 @@ mod tests {
             );
             assert_eq!(control.waiting(), Some(stop));
         }
+    }
+
+    #[test]
+    fn two_identical_questions_are_asked_under_different_ids_across_clones() {
+        // The same sentence twice is two questions, and the counter is the
+        // prompter's rather than each clone's: `crate::permission` builds one
+        // prompter per session and clones it, so two clones minting from
+        // separate counters would make the second question's id one the first
+        // had already used.
+        let (mut prompter, mut events, _control, answers) = a_prompter();
+        let mut clone = prompter.clone();
+        // The counter starts at 1, so the two calls take 1 and then 2.
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Once,
+            })
+            .expect("the channel is open");
+        prompter.request(&request("edit_file")).expect("answered");
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(2),
+                answer: ApprovalAnswer::Once,
+            })
+            .expect("the channel is open");
+        clone.request(&request("edit_file")).expect("answered");
+        assert_ne!(
+            asked_id(&mut events),
+            asked_id(&mut events),
+            "the same sentence twice is two questions"
+        );
+    }
+
+    #[test]
+    fn an_answer_carrying_another_requests_id_is_consumed_and_ignored() {
+        // A keystroke left over at a question that has gone grants nothing.
+        // **Consumed rather than put back**, because a stale `Answer` handed to
+        // the loop would be handed on to the next question as though it had
+        // been typed at that one -- and the one being answered here is an
+        // `Always`, which is the whole rest of the session.
+        let (mut prompter, mut events, control, answers) = a_prompter();
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(9_999),
+                answer: ApprovalAnswer::Always,
+            })
+            .expect("the channel is open");
+        answers
+            .send(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+            })
+            .expect("the channel is open");
+        assert_eq!(
+            prompter.request(&request("edit_file")).expect("answered"),
+            ApprovalAnswer::Deny
+        );
+        assert!(
+            control.waiting().is_none(),
+            "the stale answer was consumed, not put back"
+        );
+        let _ = asked_id(&mut events);
     }
 
     #[test]

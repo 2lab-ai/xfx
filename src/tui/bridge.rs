@@ -135,7 +135,14 @@ pub(crate) enum UiEvent {
     /// Something the session wants said that is not part of an answer.
     Notice(String),
     /// A question only the person at the terminal can answer (Task 17).
-    Approval(ApprovalRequest),
+    ///
+    /// Carries the id it was asked under
+    /// ([`super::approval_readiness::ApprovalId`]) for the reason
+    /// [`Self::Question`] carries its batch's: this channel has no other way to
+    /// tell an answer to *this* question from a keystroke left over at one the
+    /// turn has already given up on, and two identical-looking questions really
+    /// are two questions.
+    Approval(super::approval::ApprovalAsked),
     /// A batch of multiple-choice questions the **model** asked
     /// (`crate::tools::question`).
     ///
@@ -331,15 +338,21 @@ impl UiEvent {
             // change's own lines, which the review screen turns into rows. A
             // seam that flattened them here would take the shape out of the one
             // surface built to show it.
-            Self::Approval(request) => Self::Approval(ApprovalRequest {
-                tool: request.tool,
-                target: inert_owned(request.target),
-                summary: inert_owned(request.summary),
-                always_scope: inert_owned(request.always_scope),
-                diff: request.diff.map(|diff| ApprovalDiff {
-                    before: inert_owned(diff.before),
-                    after: inert_owned(diff.after),
-                }),
+            //
+            // The id is a number this crate minted, so there is nothing in it a
+            // terminal can be made to obey.
+            Self::Approval(asked) => Self::Approval(super::approval::ApprovalAsked {
+                id: asked.id,
+                request: ApprovalRequest {
+                    tool: asked.request.tool,
+                    target: inert_owned(asked.request.target),
+                    summary: inert_owned(asked.request.summary),
+                    always_scope: inert_owned(asked.request.always_scope),
+                    diff: asked.request.diff.map(|diff| ApprovalDiff {
+                        before: inert_owned(diff.before),
+                        after: inert_owned(diff.after),
+                    }),
+                },
             }),
             // **A belt on an encoded payload.** `crate::tools::question`'s
             // encoder has already turned every sequence a terminal would obey
@@ -383,7 +396,15 @@ impl UiEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TurnControl {
     /// The user answered an approval request.
-    Answer(ApprovalAnswer),
+    ///
+    /// Carries the id the question was asked under, for the same reason
+    /// [`Self::QuestionAnswer`] does: the prompter takes it only when it is its
+    /// own, and consumes anything else rather than leaving it for the next
+    /// question to inherit as though it had been typed at that one.
+    Answer {
+        id: super::approval_readiness::ApprovalId,
+        answer: ApprovalAnswer,
+    },
     /// The user answered every question of one batch, in entry order.
     ///
     /// Carries the id the batch was asked under, because this channel has no
@@ -1391,20 +1412,23 @@ mod tests {
                 detail: "\x1b[2Jd".into(),
             },
             UiEvent::Notice("\x1b]0;retitled\x07".into()),
-            UiEvent::Approval(ApprovalRequest {
-                tool: "write",
-                target: "\x1b[2Jsrc/main.rs".into(),
-                summary: "write \x1b[2Jsomething".into(),
-                always_scope: "\x1b[2Jsrc".into(),
-                // Both sides of the diff, because they are the largest quotation
-                // of a file this product ever carries and the policy has to hold
-                // for a payload built by a caller that did not escape it -- the
-                // permission boundary's own bounding is the first seam, and this
-                // is the second.
-                diff: Some(ApprovalDiff {
-                    before: "\x1b[2Jold".into(),
-                    after: "\x1b]0;new\x07".into(),
-                }),
+            UiEvent::Approval(super::super::approval::ApprovalAsked {
+                id: super::super::approval_readiness::ApprovalId(4),
+                request: ApprovalRequest {
+                    tool: "write",
+                    target: "\x1b[2Jsrc/main.rs".into(),
+                    summary: "write \x1b[2Jsomething".into(),
+                    always_scope: "\x1b[2Jsrc".into(),
+                    // Both sides of the diff, because they are the largest
+                    // quotation of a file this product ever carries and the
+                    // policy has to hold for a payload built by a caller that
+                    // did not escape it -- the permission boundary's own
+                    // bounding is the first seam, and this is the second.
+                    diff: Some(ApprovalDiff {
+                        before: "\x1b[2Jold".into(),
+                        after: "\x1b]0;new\x07".into(),
+                    }),
+                },
             }),
         ] {
             send_ui(&tx, &cancel, event).await.expect("room");
@@ -1433,15 +1457,22 @@ mod tests {
         );
         assert_eq!(
             next(&mut rx).await,
-            Some(UiEvent::Approval(ApprovalRequest {
-                tool: "write",
-                target: " [2Jsrc/main.rs".into(),
-                summary: "write  [2Jsomething".into(),
-                always_scope: " [2Jsrc".into(),
-                diff: Some(ApprovalDiff {
-                    before: " [2Jold".into(),
-                    after: " ]0;new ".into(),
-                }),
+            Some(UiEvent::Approval(super::super::approval::ApprovalAsked {
+                // The id is a number this crate minted, so it crosses the seam
+                // as it was: there is nothing in it a terminal can be made to
+                // obey, and an id changed in flight would address the answer to
+                // a question nobody asked.
+                id: super::super::approval_readiness::ApprovalId(4),
+                request: ApprovalRequest {
+                    tool: "write",
+                    target: " [2Jsrc/main.rs".into(),
+                    summary: "write  [2Jsomething".into(),
+                    always_scope: " [2Jsrc".into(),
+                    diff: Some(ApprovalDiff {
+                        before: " [2Jold".into(),
+                        after: " ]0;new ".into(),
+                    }),
+                },
             })),
             "an approval quotes a file, which is where an escape would be"
         );

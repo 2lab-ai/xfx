@@ -788,7 +788,7 @@ impl QuestionRequester for TuiQuestioner {
                     Some(
                         TurnControl::QuestionAnswer { .. }
                         | TurnControl::QuestionCancelled { .. }
-                        | TurnControl::Answer(_),
+                        | TurnControl::Answer { .. },
                     ) => continue,
                     // The interrupt and the shutdown belong to the loop that can
                     // act on them (`super::approval::ControlChannel::put_back`);
@@ -1594,7 +1594,10 @@ mod tests {
         let answers = Harness::new(4).request_while(|events_rx, control_tx, _cancel| {
             shown(events_rx);
             control_tx
-                .send(TurnControl::Answer(ApprovalAnswer::Deny))
+                .send(TurnControl::Answer {
+                    id: super::super::approval_readiness::ApprovalId(1),
+                    answer: ApprovalAnswer::Deny,
+                })
                 .unwrap();
             control_tx
                 .send(TurnControl::QuestionAnswer {
