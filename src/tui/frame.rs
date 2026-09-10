@@ -172,6 +172,10 @@ pub(crate) struct Band {
     /// band's animation asks for a frame twice a second the whole time -- so a
     /// repaint that did not check would write a full screen, unchanged, twice a
     /// second, forever, on whatever link the session is on.
+    ///
+    /// Advanced by [`Self::frame_landed`] out of the frame that landed, and by
+    /// nothing else -- for the same reason the shadow is: a surface that was
+    /// only built is on no screen.
     alternate: Option<(Vec<String>, (u16, u16))>,
 }
 
@@ -185,6 +189,12 @@ pub(crate) struct Band {
 pub(crate) struct ScreenFrame {
     owner: super::shell::ScreenOwner,
     bytes: Vec<u8>,
+    /// What the alternate plane is holding **once these bytes land** -- `None`
+    /// for a frame that gives the plane back, and for a repaint the screen
+    /// already holds. Adopted by [`Band::frame_landed`] and by nothing else,
+    /// for the reason the shadow is: it is a claim about bytes that were
+    /// delivered.
+    surface: Option<(Vec<String>, (u16, u16))>,
 }
 
 impl ScreenFrame {
@@ -265,12 +275,13 @@ impl Band {
         let mut bytes = Vec::with_capacity(ENTER_ALTERNATE.len());
         bytes.extend_from_slice(ENTER_ALTERNATE.as_bytes());
         self.paint_alternate(&mut bytes, rows, geometry, cursor);
-        // The buffer the terminal is about to hand out is blank, so what these
-        // bytes put on it is the whole of what is on it.
-        self.alternate = Some((rows.to_vec(), cursor));
         ScreenFrame {
             owner: super::shell::ScreenOwner::Approval,
             bytes,
+            // The buffer the terminal is about to hand out is blank, so what
+            // these bytes put on it is the whole of what is on it -- once they
+            // land, which is what carrying it in the frame says.
+            surface: Some((rows.to_vec(), cursor)),
         }
     }
 
@@ -293,13 +304,18 @@ impl Band {
         cursor: (u16, u16),
     ) -> ScreenFrame {
         let mut bytes = Vec::new();
+        let mut surface = None;
         if self.alternate.as_ref() != Some(&(rows.to_vec(), cursor)) {
             self.paint_alternate(&mut bytes, rows, geometry, cursor);
-            self.alternate = Some((rows.to_vec(), cursor));
+            surface = Some((rows.to_vec(), cursor));
         }
         ScreenFrame {
             owner: super::shell::ScreenOwner::Approval,
             bytes,
+            // Nothing for the frame that wrote nothing: an empty frame that
+            // landed would otherwise re-assert a cache the band may have
+            // dropped in between ([`Self::invalidate`]).
+            surface,
         }
     }
 
@@ -410,6 +426,9 @@ impl Band {
         ScreenFrame {
             owner: super::shell::ScreenOwner::Primary,
             bytes: self.buffer.clone(),
+            // The plane is being given back, so there is no surface on it to
+            // claim: `frame_landed` clears the cache on this branch instead.
+            surface: None,
         }
     }
 
@@ -423,7 +442,8 @@ impl Band {
     /// A restore is additionally a *whole* repaint of the band, so once it has
     /// landed the band knows exactly what is on its own rows again and the next
     /// ordinary frame is a difference from it. The two alternate frames record
-    /// nothing else: nothing they wrote is on the normal buffer.
+    /// the plane they painted ([`ScreenFrame::surface`]) and nothing else:
+    /// nothing they wrote is on the normal buffer.
     pub(crate) fn frame_landed(
         &mut self,
         frame: &ScreenFrame,
@@ -437,6 +457,8 @@ impl Band {
             // screen that no longer exists.
             self.alternate = None;
             self.landed(geometry, cursor);
+        } else if let Some(surface) = &frame.surface {
+            self.alternate = Some(surface.clone());
         }
     }
 
@@ -3304,6 +3326,164 @@ mod tests {
                 .is_empty(),
             "a damaged plane was left believing what it used to hold, so the \
              repaint the damage asked for was skipped"
+        );
+    }
+
+    #[test]
+    fn a_surface_the_band_only_built_is_not_recorded_as_the_screens() {
+        // The cache is a claim about what the *terminal* is holding, so a frame
+        // no writer has seen may not make it. `super::super::event_loop`'s
+        // alternate paths record nothing on `Err`, and a build that recorded
+        // itself would leave the band believing a surface that never left the
+        // process was up -- and the retry the failure asked for skipped.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+
+        let entering = band.enter_alternate(&rows, &geometry, (7, 0));
+        assert!(!entering.bytes().is_empty(), "the enter wrote nothing");
+        // No `frame_landed`: exactly what the loop does on a refused write.
+
+        assert!(
+            !band
+                .repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "the build-time cache made the band believe an undelivered surface \
+             was up"
+        );
+    }
+
+    #[test]
+    fn a_repaint_the_screen_refused_is_written_again_rather_than_skipped() {
+        // The same defect on the repaint, where it costs the frame *and* the
+        // failure budget: the loop turns empty bytes into a succeeded frame, so
+        // a repaint recorded at build time and then refused is skipped on the
+        // next tick and reported as a frame the session never wrote.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+
+        let entering = band.enter_alternate(&rows, &geometry, (7, 0));
+        let mut screen = Counted::default();
+        screen
+            .write_all(entering.bytes())
+            .expect("the enter landed");
+        band.frame_landed(&entering, &geometry, (7, 0));
+
+        let mut moved = rows.clone();
+        moved[0] = "the marker moved".to_string();
+        let refused = band.repaint_alternate(&moved, &geometry, (7, 0));
+        assert!(
+            !refused.bytes().is_empty(),
+            "the moved marker was not a frame"
+        );
+        Refuses
+            .write_all(refused.bytes())
+            .expect_err("the screen took it");
+
+        assert!(
+            !band
+                .repaint_alternate(&moved, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "the refused surface was cached as delivered, so the retry was \
+             skipped and the session reported a frame it never wrote"
+        );
+    }
+
+    #[test]
+    fn a_surface_the_screen_took_is_not_written_a_second_time() {
+        // The other half of the same rule, and the one the 2 Hz animation rests
+        // on: a frame that *did* land is the screen's, and an empty frame that
+        // lands after it re-asserts nothing -- it has no surface of its own to
+        // adopt, so what the band already believes is left alone.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+
+        let entering = band.enter_alternate(&rows, &geometry, (7, 0));
+        let mut screen = Counted::default();
+        screen
+            .write_all(entering.bytes())
+            .expect("the enter landed");
+        band.frame_landed(&entering, &geometry, (7, 0));
+
+        let idle = band.repaint_alternate(&rows, &geometry, (7, 0));
+        assert!(
+            idle.bytes().is_empty(),
+            "an unchanged surface was repainted"
+        );
+
+        band.frame_landed(&idle, &geometry, (7, 0));
+        assert!(
+            band.repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "landing an empty frame disturbed the cache"
+        );
+    }
+
+    #[test]
+    fn a_repaint_the_screen_took_is_not_written_a_second_time_either() {
+        // The skip has to survive a *repaint* landing, not only the enter: the
+        // marker moves several times while a question is up, and each move is a
+        // repaint whose surface becomes what the screen holds. A repaint that
+        // painted and adopted nothing would leave the band comparing against
+        // the enter's surface for ever -- a full screen written twice a second
+        // for as long as the person reads the change, which is the cost
+        // `repaint_alternate` exists to avoid.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+
+        let entering = band.enter_alternate(&rows, &geometry, (7, 0));
+        let mut screen = Counted::default();
+        screen
+            .write_all(entering.bytes())
+            .expect("the enter landed");
+        band.frame_landed(&entering, &geometry, (7, 0));
+
+        let mut moved = rows.clone();
+        moved[3] = "> 2. Yes, and".to_string();
+        let painted = band.repaint_alternate(&moved, &geometry, (7, 0));
+        assert!(!painted.bytes().is_empty(), "the moved row was not a frame");
+        screen
+            .write_all(painted.bytes())
+            .and_then(|()| screen.flush())
+            .expect("the repaint landed");
+        band.frame_landed(&painted, &geometry, (7, 0));
+
+        assert!(
+            band.repaint_alternate(&moved, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "a surface the screen took as a repaint was written again"
+        );
+    }
+
+    #[test]
+    fn an_empty_frame_that_lands_after_damage_does_not_bring_the_cache_back() {
+        // Why an empty repaint carries no surface rather than the rows it was
+        // handed: the band can be damaged between the build and the landing
+        // (`Band::invalidate` -- a resize, a `/clear`), and a no-op that adopted
+        // on the way in would answer "the terminal already holds this" about a
+        // screen the band has just said it cannot describe.
+        let (mut band, geometry) = painted_primary();
+        let rows = screen_rows(geometry.rows);
+        let entering = band.enter_alternate(&rows, &geometry, (7, 0));
+        band.frame_landed(&entering, &geometry, (7, 0));
+
+        let idle = band.repaint_alternate(&rows, &geometry, (7, 0));
+        assert!(
+            idle.bytes().is_empty(),
+            "the screen did not already hold this, so the case below proves nothing"
+        );
+        band.invalidate(geometry.rows, geometry.cols);
+        band.frame_landed(&idle, &geometry, (7, 0));
+
+        assert!(
+            !band
+                .repaint_alternate(&rows, &geometry, (7, 0))
+                .bytes()
+                .is_empty(),
+            "a frame that wrote nothing brought back a cache the damage cleared"
         );
     }
 
