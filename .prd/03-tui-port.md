@@ -839,8 +839,50 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     with nothing injected. That row proves what this product **does about** a prefix; it claims no
     parser recovery and no restored screen, and it is not the scenario that closes this item. The one
     that does is recovery under an injected partial write, which is still specification there.
-22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then
-    transcript).
+    **Diagnostic record, beside both halves above and neither of them:** the one road
+    `event_loop::disposed` (`src/tui/event_loop.rs:1349-1363`) marks -- `Partial` or an exhausted
+    `Rejected`/`ZeroProgress` -- is written, after the restoration attempt in `session`
+    (`src/tui/mod.rs:189-226`; `term::shutdown` can itself return `Err`), to
+    `<profile_dir>/last-tui-error.json`: a fixed four-key, ≤1 KiB record (`schema`, `reason`,
+    `error_kind`, `errno`) that never carries the original error's own text, so a `Partial`
+    wrapping a private `Prefix` (`src/tui/deliver.rs`) cannot leak a prompt or an amendment sentence
+    through it. Separately, `errno` is `null` there because the `io::Error` wrapping that `Prefix`
+    has no raw OS errno of its own (`raw_os_error()` returns `None` on that wrapper) -- not as a
+    privacy choice (`src/tui/diagnostic.rs`). The write is staged (`create_new` + rename) and
+    owner-only through `profile::write_document` (`0600`;
+    `src/provider/profile.rs:150-154,391-421`), replaces a symlink at the destination rather than
+    following it, and is last-writer-wins on one fixed name; the profile directory itself is only
+    existence-checked before that (`create_private_dir`, `src/provider/profile.rs:299-317`), so a
+    race on the directory, unlike the file, is not defended against. No `profile_dir` writes nothing
+    and invents no path; an error nothing here marked is left alone and never overwrites an existing
+    report; a write failure is a best-effort stderr line and never replaces the session's own result.
+    Local, not in published releases: proven by `diagnostic.rs`'s own cases and by native,
+    `fault-injection`-gated PTY tests in `tests/tui.rs`
+    (`a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly`,
+    `a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted`,
+    `a_failure_after_raw_mode_still_gives_the_terminal_back`) plus one unconditional positive control
+    (`an_ordinary_exit_leaves_no_independent_diagnostic_behind`) -- in-crate/native evidence, not a
+    row in [`06-qa-harness.md`](06-qa-harness.md)'s tracked table, so that suite's green is not
+    evidence for this path. **It records which road a session left by; it is not recovery** --
+    parser resync and partial-write recovery remain exactly as open as stated above.
+22. Layout convergence: on a known-undamaged band, a carry restores `document_bottom < band_top` and
+    an append re-anchors it to `band_top - 1` (`src/tui/frame.rs:1278-1403,1594`); a damaged band's
+    carry is a no-op, so this is not a universal postcondition, only the successful-carry path
+    (`src/tui/layout.rs:17-26`).
+    **Locally validated, not published as closed**: [`06-qa-harness.md`](06-qa-harness.md) row 26
+    drives a release binary through three ordered document lines, a paste-grown and undone draft, and
+    a separate turn's real inline approval panel/deny/finish, and proves unique ordered markers survive
+    across combined screen+scrollback plus a timed idle silence at the end (35 checks); row 26b holds
+    an edit turn's reply so a ten-row draft is provably standing before the panel opens over it, then
+    proves the composer really yields rows to that panel and gets them back on deny (27 checks). The
+    exact-same-instant idle replay after every transition -- zero bytes, unchanged geometry -- is a
+    separate, in-crate proof (`src/tui/event_loop.rs`'s
+    `document_and_band_transitions_settle_without_reemitting_document_rows`), not something either PTY
+    row asserts; an independent unit review found no blocker there. Together this is local validation
+    that supported surfaces stabilize consistently -- it is not a claim of exact parity with upstream's
+    position or algorithm, and it does not cover every geometry. The shipped painter's performance is
+    tracked separately as P3-WRAP and is not part of this item's acceptance: the release p95 at
+    300x200 (50.08 ms) still exceeds the 32 ms threshold and stays open.
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.
     **Partial, local, not published**: mode 2031 enable/restore is paired in both tmux and native
     launch, and the launch probe itself sequences OSC 11 → `?996n` → CPR. A SIGCONT arms an

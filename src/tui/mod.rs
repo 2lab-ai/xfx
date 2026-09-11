@@ -201,7 +201,29 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // The first failure wins, and the restore was attempted either way: a
     // screen error that happened while xfx still had the terminal is the one
     // worth reporting, and a terminal left raw is worse than either.
-    held.and_then(|code| restored.map(|()| code))
+    let result = held.and_then(|code| restored.map(|()| code));
+    // P3-DIAGNOSTIC: a restoration attempt was already made, either way, by
+    // the two lines above -- `term::shutdown` itself can return `Err`, so
+    // this is a report written *after that attempt*, not a guarantee the
+    // termios or the parser state actually came back. `diagnostic::report`
+    // is itself a no-op for anything it did not mark, so an ordinary
+    // provider or I/O error is never relabeled and an unmarked failure never
+    // touches -- or overwrites -- an existing report. A report write that
+    // fails must not replace the result this session is about to return
+    // with; the only thing it may add is one fixed line on stderr, written
+    // best-effort so a broken stderr cannot itself panic on the way out --
+    // because "the report itself could not be saved" and "the report was
+    // saved but says the session failed" must never be confused with each
+    // other.
+    if let Err(err) = &result {
+        if diagnostic::report(config, err).is_err() {
+            let _ = writeln!(
+                io::stderr(),
+                "xfx: could not save a diagnostic report for this failure"
+            );
+        }
+    }
+    result
 }
 
 /// Why a screen cannot hold a band, in the words the refusal is reported in.
@@ -584,6 +606,7 @@ mod approval_screen;
 mod bridge;
 mod check;
 mod deliver;
+mod diagnostic;
 mod edit_history;
 mod editor;
 mod entity;

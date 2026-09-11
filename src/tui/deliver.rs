@@ -240,6 +240,13 @@ impl RawWrite for RawTty {
                 super::fault::Prefix::Fails => Err(io::Error::from_raw_os_error(libc::EIO)),
             };
         }
+        // P3-DIAGNOSTIC's matrix row: a screen that refuses every band frame
+        // and takes nothing of any of them, while the mode-set and restore
+        // sequences -- which do not open a frame -- pass through untouched.
+        #[cfg(feature = "fault-injection")]
+        if let Some(err) = super::fault::frame_refusal_answer(bytes) {
+            return Err(err);
+        }
         self.write_now(bytes)
     }
 }

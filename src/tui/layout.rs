@@ -14,16 +14,24 @@
 //! every row number below a unit test rather than a claim about the window the
 //! developer happened to have open.
 //!
-//! **One pass, not a fixed point.** Upstream's fixed point re-solves the
+//! **One pass, closed-form, not upstream's fixed point.** Upstream re-solves the
 //! transcript's occupied extent and release floor until ownership stops moving
 //! (`frame_fixed_point.zig:21-93`); the *requested* footer measurement is taken
 //! once before the loop and is not recomputed from the candidate
 //! (`app_render_runtime.zig:1762-1767,1873`, consumed at `:1833-1878,3352-3453`),
 //! though the allocated footer height remains constrained by `available_rows`
-//! (`frame_layout.zig:413-418`, `surface_frame.zig:780-801`). This phase solves
-//! once against xfx's own bottom-anchored geometry and Band's carry/release --
-//! not upstream's solver -- and Phase 3 item 22's consistency/convergence
-//! outcome remains open.
+//! (`frame_layout.zig:413-418`, `surface_frame.zig:780-801`). Item 22 reaches a
+//! stable placement without that loop: on a known-undamaged band, a successful
+//! carry restores `document_bottom < band_top` (`frame.rs:1278-1403`) and an
+//! append re-anchors it to `band_top - 1` (`frame.rs:1594`); a damaged band's
+//! carry is a no-op, so this is not a universal postcondition. Release
+//! scenarios (`06-qa-harness.md` rows 26/26b) show ordered markers and panel
+//! geometry survive on a real terminal; a separate in-crate test proves the
+//! exact-same-instant idle replay emits nothing and leaves geometry unchanged
+//! after every transition, and an independent unit review found no blocker
+//! there. Together that is local validation that supported surfaces stabilize
+//! consistently, not a claim of upstream's algorithm or position parity, nor
+//! of every geometry.
 
 /// The rows the composer starts with, before anything has been typed into it.
 pub(crate) const INITIAL_INPUT_ROWS: u16 = 1;

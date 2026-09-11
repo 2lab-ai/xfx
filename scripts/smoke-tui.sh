@@ -1427,6 +1427,25 @@ class Fixture:
             handler.wfile.write(payload)
             return
         reply = self.script[index]
+        # A scripted reply may carry a `release_when` `threading.Event`: the
+        # request is already recorded above, and what waits here is only the
+        # *response bytes* -- a scenario can capture "the request landed" and
+        # then act (paste, resize, deny) while the reply is provably still
+        # pending, instead of racing a sleep against the product. Bounded by
+        # the same `HANG_TIMEOUT` the held-stream branch below answers to: an
+        # event a scenario forgot to `.set()` must fail this request loudly,
+        # the same reasoning the unscripted-request branch above already
+        # applies, rather than let the wait expire into an ordinary reply that
+        # would hide a broken barrier behind a passing screen.
+        release_when = reply.get("release_when")
+        if release_when is not None and not release_when.wait(HANG_TIMEOUT):
+            payload = b'{"error":"fixture: release_when not set within HANG_TIMEOUT"}'
+            handler.send_response(500)
+            handler.send_header("content-type", "application/json")
+            handler.send_header("content-length", str(len(payload)))
+            handler.end_headers()
+            handler.wfile.write(payload)
+            return
         if "status" in reply:
             payload = json.dumps(reply.get("body", {})).encode("utf-8")
             handler.send_response(reply["status"])
@@ -1643,6 +1662,44 @@ def anthropic_answer(*texts):
         ("message_stop", {"type": "message_stop"}),
     ])
     return events
+
+
+def _barrier_selfcheck():
+    """`python3 fixture_server.py`, never imported by a scenario.
+
+    Proves `release_when` both halves of its contract against a real loopback
+    request, rather than trusting that the read of `_answer` above is right:
+    an unreleased gate answers **loudly** within its own bounded wait, and a
+    released one answers exactly as if it had never carried one at all.
+    """
+    import urllib.error
+    import urllib.request
+
+    def hit(events, event, timeout):
+        global HANG_TIMEOUT
+        saved, HANG_TIMEOUT = HANG_TIMEOUT, timeout
+        fixture = Fixture([{"events": events, "release_when": event}])
+        try:
+            try:
+                urllib.request.urlopen(fixture.url(), data=b"{}", timeout=5)
+                return 200
+            except urllib.error.HTTPError as error:
+                return error.code
+        finally:
+            fixture.stop()
+            HANG_TIMEOUT = saved
+
+    held = hit([], threading.Event(), 0.2)
+    assert held == 500, "an unreleased barrier answered %r instead of failing" % held
+    released = threading.Event()
+    released.set()
+    freed = hit([finish()], released, HANG_TIMEOUT)
+    assert freed == 200, "a released barrier answered %r instead of the scripted reply" % freed
+    print("fixture_server selfcheck: release_when fails unreleased, answers released -- ok")
+
+
+if __name__ == "__main__":
+    _barrier_selfcheck()
 PYTHON
 
 cat >"$helpers/pty_tui.py" <<'PYTHON'
@@ -2100,6 +2157,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -7027,6 +7085,531 @@ def scenario_25(run):
     cancelled_fixture.stop()
 
 
+# ---------------------------------------------------------------------------
+# 26. layout stabilization
+# ---------------------------------------------------------------------------
+
+
+def draft_rows(grid):
+    """Every row of an open composer draft, top first, gutter stripped.
+
+    Not `composer_text` -- that joins rows with nothing between them, which is
+    right for a draft that never had a line break in it and wrong for one that
+    did: a paste with two embedded newlines is three *rows*, and joining them
+    bare would compare `"FIRSTSECONDTHIRD"` against a draft that was never
+    submitted as one word.
+    """
+    start = composer_first_row(grid)
+    if start is None:
+        return None
+    return [grid.row_text(row)[2:] for row in range(start, grid.rows - 1)]
+
+
+def scenario_26(run):
+    """Document content and order survive the composer's growth and shrink,
+    and the band's steadiness survives an inline panel opening and closing.
+
+    Three claims chained through one continuous session, because a fresh trial
+    per stage would compare a screen against itself rather than against what an
+    earlier stage really left behind:
+
+    * a real answer writes three ordered lines into the terminal's own
+      document, and a paste that grows the draft to three rows -- and an undo
+      that shrinks it back without ever submitting it -- neither loses them nor
+      reorders them. Read off `Grid.document_text()`, scrollback and screen
+      together, because a scroll the growth or the shrink caused is exactly
+      what this scenario is testing and a check that read only the screen would
+      be blind to a line the growth had already carried into scrollback.
+    * a real approval panel -- not a mockup, `edit_then_finish` answered by
+      denying it -- opens and closes within the band's own owned region above
+      the divider (`Geometry::band_top`/`panel_first`, `src/tui/layout.rs:75-82`:
+      the panel's rows are counted down from the divider, between it and the
+      activity row, and `band_top` moves to include them), and the three lines
+      from the stage before are still in the combined document, once each, in
+      order, behind it. **An unchanged divider and composer are not the same
+      claim as an unchanged band** -- the band's own top row is exactly what
+      the panel occupies -- so what is asserted here is the narrower thing:
+      `divider_row`/`composer_first_row`, the two rows this scenario's literal
+      coordinates are about, hold their one-row-baseline position through a
+      panel this size, same as `scenario_24`'s own reading of the identical
+      fixture.
+    * the finish is ordinary: the draft is cleared before `C-D`, the idle
+      screen is watched rather than assumed quiet, and the terminal comes back
+      byte for byte.
+
+    **Coordinates are literal where the contract makes them so, and nowhere
+    else.** The composer's growth is `rows - 2 - <its own row count>`
+    (`1-launch-and-band-ownership`'s three band rows and `15-resize-reflow`'s
+    two-row wrap agree on it), so the one-row baseline -- divider 21, composer
+    22 -- and the three-row paste -- divider 19, composer 20 -- are asserted as
+    those numbers on this scenario's 24-row screen. A panel that fits inline
+    never moves *those two rows* (`panel_first` counts the panel's rows down
+    from the divider, rather than the divider counting up from the panel), so
+    21/22 is asserted through the panel too, not just around it -- but that is
+    narrower than a claim about the band itself, whose own top row the panel
+    does move, the same way the composer's own growth moved it in stage 1.
+    `20-alternate-screen-approval` is the case a panel this size never reaches:
+    a change too large for the band to hold at all leaves the primary plane
+    instead of growing further into it, a different mechanism, out of scope
+    for the `edit_then_finish` fixture used here.
+
+    **What this does not prove**, named rather than left implicit:
+
+    * Whether a keystroke sent in the narrow window between the panel's
+      request going out and its first frame landing reaches the composer or
+      the panel is the same seam `24-approval-readiness` names and does not
+      close: `on_the_grid` can only wait for a frame already committed, so no
+      wait built from it can stand on the far side of that race. That boundary
+      is proven instead, and only, by the deterministic `commit_band` cases in
+      `cargo test --lib tui::event_loop`. Left there rather than claimed here.
+    * Composer-yield-to-panel is not exercised here, and for a different
+      reason than the readiness race above: by the time stage 2's question is
+      sent, stage 1's draft has already been undone back to empty, and nothing
+      is typed again until the question line itself is sent and submitted
+      whole before any wait for the panel begins -- there is no draft standing
+      in the composer for this scenario to observe yielding rows at all. That
+      absence is `26b-composer-yield-to-panel`'s own scope: a draft grown past
+      what a panel this size and this composer can both fit is held pending
+      with `fixture_server.Fixture`'s `release_when` gate, pasted and read off
+      the grid while the request that would open the panel is provably still
+      unanswered, and only then released -- so the panel's growth is read
+      against a composer the harness knows was already tall, not one raced
+      into being tall at the same moment.
+    """
+    doc1 = run.marker("doc-one")
+    doc2 = run.marker("doc-two")
+    doc3 = run.marker("doc-three")
+    edit_marker = run.marker("edit")
+    fixture = start_fixture(
+        run,
+        [fixtures.content_only(doc1 + "\n", doc2 + "\n", doc3 + "\n")]
+        + fixtures.edit_then_finish(edit_marker),
+    )
+    trial = run.trial("layout", gateway=fixture, mode="ask", notes=True).settled()
+    from_a_known_composer(run, trial, "layout")
+
+    def survives(text, markers):
+        """Whether every one of `markers` is in `text` exactly once, in order."""
+        positions = [text.find(marker) for marker in markers]
+        return (
+            all(position >= 0 for position in positions)
+            and positions == sorted(positions)
+            and all(text.count(marker) == 1 for marker in markers)
+        )
+
+    # -- stage 1: three ordered lines, a paste-grown draft, a safe shrink ----
+    trial.send("recite the three lines " + run.nonce + "\r")
+    # Not `on_the_grid` alone: the answer is paced onto the screen, so a frame
+    # that already carries the third line can still be one the band is
+    # mid-repaint on (the activity row not yet folded back in). The marker's
+    # presence is waited for first, as the positive half of the pair; what
+    # actually says the turn has ended is `settled_band`'s `band_is_idle`
+    # check, below -- divider position is not that evidence, and never was:
+    # the divider sits at the one-row baseline whether a turn is running or
+    # not, so it says nothing about settlement on its own.
+    trial.wait_until(
+        "the third document line to be on the committed grid",
+        lambda _t: trial.peek().find(doc3) is not None,
+    )
+    settled_band(run, trial, "initial layout")
+    grid = trial.peek()
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.text().strip() != "", "the screen is not blank")
+    run.require(
+        survives(grid.document_text(), (doc1, doc2, doc3)),
+        "the three lines reached the document once each, in order: %r" % (grid.document_text(),),
+    )
+    trial.grid("three-lines")
+    run.require(
+        divider_row(grid) == 21 and composer_first_row(grid) == 22,
+        "the one-row composer's own rows, before anything grew it: divider %r composer %r"
+        % (divider_row(grid), composer_first_row(grid)),
+    )
+
+    draft_lines = [
+        "FIRST-ROW-" + run.nonce,
+        "SECOND-ROW-" + run.nonce,
+        "THIRD-ROW-" + run.nonce,
+    ]
+    trial.send(b"\x1b[200~")
+    trial.send("\n".join(draft_lines).encode("utf-8"))
+    trial.send(b"\x1b[201~")
+    trial.wait_until(
+        "the pasted draft's three rows in the composer",
+        lambda _t: draft_rows(trial.peek()) == draft_lines,
+    )
+    run.require(fixture.request_count() == 1, "the paste did not submit itself")
+    grown = trial.grid("grown-three-rows")
+    run.require(
+        divider_row(grown) == 19 and composer_first_row(grown) == 20,
+        "the divider and the composer moved up for a three-row draft: divider %r composer %r"
+        % (divider_row(grown), composer_first_row(grown)),
+    )
+    run.require(
+        grown.row == 22 and grown.col == 2 + cells_wide(draft_lines[-1]),
+        "the caret sits past the pasted text on the draft's own last row: (%d, %d)"
+        % (grown.row, grown.col),
+    )
+    run.require(
+        survives(grown.document_text(), (doc1, doc2, doc3)),
+        "the growth did not disturb the earlier document: %r" % (grown.document_text(),),
+    )
+
+    # Not `C-u`: `Action::KillToStart` (`editor.rs:351`) kills to the start of
+    # the *line* the caret sits on -- one of the paste's three, delimited by
+    # the real newlines it carried -- not the whole draft, so it would leave
+    # the first two rows standing. The paste that grew this draft went in
+    # through one `editor.insert()` call (`shell.rs:2597`), which is one
+    # history entry, so `C-_` (`Action::Undo`, `input.rs:702`) reverses the
+    # whole paste in the one step a shrink is supposed to be -- and is what a
+    # person who pasted the wrong thing would actually reach for.
+    trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was
+    trial.wait_until(
+        "the composer to empty without submitting",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    run.require(fixture.request_count() == 1, "clearing the draft did not submit it")
+    shrunk = trial.grid("shrunk-back")
+    run.require(
+        divider_row(shrunk) == 21 and composer_first_row(shrunk) == 22,
+        "the divider and the composer returned to the one-row baseline: divider %r composer %r"
+        % (divider_row(shrunk), composer_first_row(shrunk)),
+    )
+    run.require(
+        not any(line in shrunk.text() for line in draft_lines),
+        "the cleared draft left a row of itself painted",
+    )
+    run.require(
+        survives(shrunk.document_text(), (doc1, doc2, doc3)),
+        "the shrink did not disturb the earlier document: %r" % (shrunk.document_text(),),
+    )
+
+    # -- stage 2: a real approval panel opens within the band's own owned
+    # region above the divider, then closes ----
+    #
+    # The panel's rows belong to the band, not the document (`layout.rs`: "a
+    # block of rows above [the activity row] while a turn is waiting for a
+    # decision", and `Geometry::band_top` is exactly that row while a panel is
+    # up) -- so the band's own top row moves for this stage, the same way the
+    # composer's own growth moved it in stage 1. What does not move is the
+    # divider and the composer: `panel_first` counts the panel's rows down
+    # from the divider rather than the divider counting up from the panel, so
+    # those two rows -- not the band as a whole -- are what a panel this size
+    # leaves exactly where an idle one-row composer left them. The growth this
+    # stage proves is the panel's own -- title, both choices and the tail-cut
+    # disclosure all committed at once -- read against those two fixed rows,
+    # not a claim that nothing above them changed.
+    run.require(read(trial.notes) == "alpha\n", "the notes are unedited before any panel asked")
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    panel = on_the_grid(trial, PERMISSION_TITLE, "the approval panel to be committed")
+    trial.grid("panel-grown")
+    run.require(panel.find("3. No") is not None, "the refusal is on the screen")
+    run.require(
+        panel.find(ALWAYS_WORDING) is not None,
+        "the always-scope is disclosed whole",
+    )
+    run.require(
+        divider_row(panel) == 21 and composer_first_row(panel) == 22,
+        "the divider and composer -- not the band, whose own top row this panel "
+        "occupies -- hold the one-row baseline through a panel this size: "
+        "divider %r composer %r" % (divider_row(panel), composer_first_row(panel)),
+    )
+    run.require(
+        survives(panel.document_text(), (doc1, doc2, doc3)),
+        "the panel's own growth did not disturb the earlier document: %r" % (panel.document_text(),),
+    )
+
+    trial.send(b"3")  # deny
+    grid = on_the_grid(trial, edit_marker, "the turn's own marker past the refused call")
+    closed = trial.grid("panel-closed")
+    run.require(
+        closed.find(PERMISSION_TITLE) is None,
+        "the panel is still standing behind the answer",
+    )
+    run.require(
+        divider_row(closed) == 21 and composer_first_row(closed) == 22,
+        "the divider and composer are still where the panel found them, now that "
+        "the band has given the rows above them back: divider %r composer %r"
+        % (divider_row(closed), composer_first_row(closed)),
+    )
+    run.require(read(trial.notes) == "alpha\n", "the denied edit ran anyway")
+    body = amended_request(fixture, "call-1")
+    refusal = tool_result_text(body, "call-1") if body else None
+    run.require(
+        body is not None and refusal is not None and "not permitted" in refusal,
+        "the model was not told the edit was refused: %r" % refusal,
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent",
+    )
+    run.require(grid.find(edit_marker) is not None, "the fixture's own marker is rendered")
+    run.require(
+        grid.text().count(edit_marker) == 1,
+        "response-only: the marker the fixture minted appears once on the screen",
+    )
+    run.require(
+        not any(edit_marker in captured for captured in fixture.bodies()),
+        "and it was never typed at this session: no request xfx sent carries it",
+    )
+    run.require(
+        survives(grid.document_text(), (doc1, doc2, doc3, edit_marker)),
+        "all four markers survived the whole scenario once each, in order: %r"
+        % (grid.document_text(),),
+    )
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # -- finish: draft cleared, idle watched, terminal restored -------------
+    settled_band(run, trial, "final")
+    trial.send(b"\x15")
+    trial.wait_until(
+        "the composer to be empty before the session is given up",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+
+    # A positive marker before a negative watch, per `14-no-op-frame-skip`'s own
+    # discipline: absence is only evidence once presence has been shown first.
+    deadline = time.time() + pty.WAIT
+    settled_len = len(trial.session.captured)
+    quiet_since = time.time()
+    while time.time() - quiet_since < QUIET_SETTLE:
+        trial.session.pump(0.05)
+        if len(trial.session.captured) != settled_len:
+            settled_len = len(trial.session.captured)
+            quiet_since = time.time()
+        if time.time() > deadline:
+            raise Failure("the session never stopped writing, so the idle screen cannot be measured")
+    before_idle = len(trial.session.captured)
+    idle = trial.grid("final-idle")
+    run.require(idle.find(edit_marker) is not None, "the final marker is still on the idle screen")
+    watch = time.time() + QUIET_WATCH
+    while time.time() < watch:
+        trial.session.pump(0.05)
+    after_idle = len(trial.session.captured)
+    run.require(
+        after_idle == before_idle,
+        "the idle screen wrote %d bytes across %.1fs with nothing to say: %r"
+        % (after_idle - before_idle, QUIET_WATCH, trial.session.text()[before_idle:after_idle]),
+    )
+
+    run.require(trial.modes().is_raw(), "the terminal is raw before the session gives it back")
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the layout session left at 0")
+    run.require(
+        trial.modes() == trial.before,
+        "the terminal came back byte for byte after a session that grew and shrank the band",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 26b. composer yield to an inline panel
+# ---------------------------------------------------------------------------
+
+
+def scenario_26b(run):
+    """A tall draft really yields rows to an inline panel, and gets them back.
+
+    The gap `26`'s own docstring names: its panel opens against a one-row
+    composer, so the divider never has a reason to move and `shell.rs::fit`'s
+    "the composer gives way to the question, one row at a time" never runs.
+    Reaching it needs a draft standing in the composer at the moment the panel
+    would open -- and a wait built only from frames already on the wire
+    (`on_the_grid`) cannot itself prove a paste landed *before* a race with the
+    panel's own arrival, only that both eventually did. So the edit call's
+    reply is held at the source instead: `fixtures.edit_then_finish`'s shape,
+    scripted with a `release_when` gate (`fixture_server.Fixture._answer`)
+    on the edit-call reply, lets the request that would open the panel be
+    captured and confirmed still unanswered, *then* the draft pasted and read
+    off the committed grid, and only then the gate opened -- a real barrier
+    ordering the two rather than a sleep racing them.
+
+    The panel's own height is fixed rather than discovered: a 150-byte
+    replacement sits below `permission::authority`'s `MAX_EXCERPT_BYTES` (160)
+    -- the byte count `ApprovalSurface::for_request` admits before it routes a
+    change to the alternate screen instead (`20-alternate-screen-approval`'s
+    surface, out of scope here), and at 80 columns its quoted before/after
+    wrap to a fixed fourteen-row panel -- measured directly off this fixture's
+    own grid rather than hand-derived from `approval.rs`'s wrapping, the same
+    reason `26` reads its own baseline off `solve_band`'s tested formula rather
+    than re-deriving it. Ten pasted rows against that panel leaves exactly six
+    the composer's own cap (`layout::input_row_limit(24)` = 11) and this
+    panel's rows together can still afford -- both fixed by this trial's own
+    scripted content, not by the environment it runs in.
+
+    **Divider is not `band_top`.** `26` already draws that line for an
+    unmoved composer; the point of *this* trial is the band's own top row
+    moving while the divider -- a pure function of the composer's own row
+    count (`layout.rs`'s `solve_band`) -- does not move for the reason `26`
+    moved it: it is given fewer rows, not zero, so it is a different divider
+    reached by the same formula, not the same divider left standing.
+    """
+    finish_marker = run.marker("finish")
+    before, after = "a" * 150, "b" * 150
+    release = threading.Event()
+    script = [
+        {"events": [fixtures.tool_call("call-0", "read_file", {"path": "notes.txt"}), fixtures.finish("tool-calls")]},
+        {
+            "events": [
+                fixtures.tool_call(
+                    "call-1", "edit_file", {"path": "notes.txt", "old_string": before, "new_string": after}
+                ),
+                fixtures.finish("tool-calls"),
+            ],
+            "release_when": release,
+        },
+        fixtures.content_only(finish_marker),
+    ]
+    fixture = start_fixture(run, script)
+    trial = run.trial("yield", gateway=fixture, mode="ask", notes=True, notes_text=before + "\n").settled()
+    from_a_known_composer(run, trial, "yield")
+
+    trial.send("edit the notes " + run.nonce + "\r")
+    trial.wait_for("[tool] read_file ok")
+    trial.wait_until(
+        "the edit call's own request to be captured and held",
+        lambda _t: fixture.request_count() == 2,
+    )
+
+    draft_lines = ["ROW-%02d-%s" % (line, run.nonce) for line in range(10)]
+    trial.send(b"\x1b[200~")
+    trial.send("\n".join(draft_lines).encode("utf-8"))
+    trial.send(b"\x1b[201~")
+    trial.wait_until(
+        "the ten-row draft to be on the committed grid while the edit reply is held",
+        lambda _t: draft_rows(trial.peek()) == draft_lines,
+    )
+    held = trial.grid("draft-captured-while-held")
+    run.require(fixture.request_count() == 2, "the paste neither submitted nor started a new request")
+    run.require(held.find(PERMISSION_TITLE) is None, "no barrier: the panel painted before its reply was released")
+    run.require(
+        divider_row(held) == 12 and composer_first_row(held) == 13,
+        "the ten-row draft's own rows, before any panel: divider %r composer %r"
+        % (divider_row(held), composer_first_row(held)),
+    )
+    run.require(
+        held.row == 22 and held.col == 2 + cells_wide(draft_lines[-1]),
+        "the caret sits past the pasted text's own last row: (%d, %d)" % (held.row, held.col),
+    )
+
+    release.set()
+    panel = on_the_grid(trial, PERMISSION_TITLE, "the panel to be committed once the held reply is released")
+    trial.grid("panel-open-over-tall-draft")
+    run.require(panel.find("1. Yes") is not None, "the first choice is offered")
+    run.require(panel.find("3. No") is not None, "the refusal is offered")
+    run.require(panel.find(ALWAYS_WORDING) is not None, "the second choice is offered")
+    # The **tail** of the scope, separately from the second choice's own fixed
+    # prefix (`ALWAYS_WORDING`): a screen could disclose "2. Yes, and don't ask
+    # again for this request" and still have cut the clause that says what
+    # "always" buys, the same distinction `24-approval-readiness` draws for the
+    # identical reason.
+    run.require(
+        panel.find("of this saved session") is not None
+        or panel.find("the approval ends with this command") is not None,
+        "the scope's own tail is on the screen, not just the choice's fixed prefix",
+    )
+
+    title_row = panel.find(PERMISSION_TITLE)[0]
+    # The activity row is *found*, not inferred as `title_row - 1`: it is
+    # wherever the row that names the running `edit_file` call actually is,
+    # matched against `ACTIVITY_ROW`'s own shape (blink marker optional, both
+    # faces admitted, exactly as `settled_band` reads it).
+    activity_candidates = [
+        row
+        for row in range(panel.rows)
+        if "edit_file" in panel.row_text(row) and ACTIVITY_ROW.match(panel.row_text(row).rstrip())
+    ]
+    run.require(
+        len(activity_candidates) == 1,
+        "exactly one row looks like the running edit_file call's activity row: %r" % activity_candidates,
+    )
+    activity_row = activity_candidates[0]
+    # This fixture's own row budget, zero-based, top to bottom: one row of
+    # document, one activity row, fourteen panel rows, one divider, six visible
+    # composer rows and one hint row -- 1+1+14+1+6+1 == 24, so the activity row
+    # and the panel's own title land on these two fixed rows, found on the
+    # grid rather than derived from each other.
+    run.require(
+        activity_row == 1 and title_row == 2,
+        "the activity row and the panel's title sit where this fixture's own row "
+        "budget puts them: activity %r title %r" % (activity_row, title_row),
+    )
+
+    divider_open = divider_row(panel)
+    composer_visible_open = panel.rows - 2 - divider_open if divider_open is not None else None
+    run.require(
+        divider_open == 16,
+        "the composer's own formula applied to its new, smaller row count: divider %r" % divider_open,
+    )
+    run.require(
+        divider_open not in (title_row, activity_row),
+        "the divider is not the band's own top row: divider %r title %r activity %r"
+        % (divider_open, title_row, activity_row),
+    )
+    run.require(
+        composer_visible_open == 6,
+        "the composer's visible rows reduced from ten to what this panel leaves it: %r" % composer_visible_open,
+    )
+    tail = draft_lines[-6:]
+    shown = [panel.row_text(row)[2:] for row in range(divider_open + 1, panel.rows - 1)]
+    run.require(
+        shown == tail,
+        "the draft's own tail is what the shrunk window shows, in order and unedited: %r vs %r" % (shown, tail),
+    )
+
+    trial.send(b"3")  # deny
+    grid = on_the_grid(trial, finish_marker, "the turn's own marker past the refused call")
+    # The marker alone is not proof the band has finished settling back down --
+    # it arrives while the turn can still own the document's last row
+    # (`settled_band`'s own reasoning) -- and what is read off `closed` below
+    # is final geometry (divider, composer rows, the whole restored draft), so
+    # the snapshot is taken only once the band has given that row back.
+    settled_band(run, trial, "yield")
+    closed = trial.grid("panel-closed-draft-restored")
+    run.require(closed.find(PERMISSION_TITLE) is None, "the panel is gone")
+    run.require(
+        divider_row(closed) == 12 and composer_first_row(closed) == 13,
+        "the draft's own ten rows are back now that the panel gave them back: divider %r composer %r"
+        % (divider_row(closed), composer_first_row(closed)),
+    )
+    run.require(
+        draft_rows(closed) == draft_lines,
+        "the whole draft survived the yield and the restore, unedited and in order: %r" % (draft_rows(closed),),
+    )
+    run.require(read(trial.notes) == before + "\n", "the denied edit ran anyway")
+    body = amended_request(fixture, "call-1")
+    refusal = tool_result_text(body, "call-1") if body else None
+    run.require(
+        body is not None and refusal is not None and "not permitted" in refusal,
+        "the model was not told the edit was refused: %r" % refusal,
+    )
+    run.require(
+        any(run.nonce in captured for captured in fixture.bodies()),
+        "the nonce this run minted is in a request xfx sent",
+    )
+    run.require(grid.find(finish_marker) is not None, "the fixture's own marker is rendered")
+    run.require(not grid.unknown, "xfx emitted only the sequences it declares: %r" % grid.unknown)
+
+    # -- finish: the draft is undone (never submitted), then C-D ------------
+    trial.send(b"\x1f")  # C-_: undo the paste as the one edit it was
+    trial.wait_until(
+        "the composer to empty without submitting the draft",
+        lambda _t: composer_text(trial.peek()) == "",
+    )
+    run.require(fixture.request_count() == 3, "clearing the draft did not submit it")
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the yield session left at 0")
+    run.require(
+        trial.modes() == trial.before,
+        "the terminal came back byte for byte after a panel that shrank and restored the composer",
+    )
+    fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
@@ -7057,6 +7640,8 @@ SCENARIOS = {
     "23b-question-cancelled": scenario_23b,
     "24-approval-readiness": scenario_24,
     "25-amended-approval": scenario_25,
+    "26-layout-stabilization": scenario_26,
+    "26b-composer-yield-to-panel": scenario_26b,
 }
 
 
@@ -7122,8 +7707,10 @@ export TMUX="/tmp/tmux-hostile/default,1,0"
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
 # the lettered rows the drain, the counted-delivery containment and the
 # mid-turn approval added, then Phase 2's 13-21 and Phase 3's 22, 23, the
-# lettered row 23b, 24 and 25. This list and
-# `SCENARIOS` in the python helper are
+# lettered row 23b, 24 and 25 -- plus 26 and 26b, QA-only additions not in
+# that PRD's own numbered list, for the band's growth-and-shrink layout
+# contract and the composer's own yield to a panel within it. This
+# list and `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
 scenarios=(
@@ -7156,6 +7743,8 @@ scenarios=(
 	23b-question-cancelled
 	24-approval-readiness
 	25-amended-approval
+	26-layout-stabilization
+	26b-composer-yield-to-panel
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

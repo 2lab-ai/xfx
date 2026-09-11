@@ -1348,8 +1348,17 @@ fn paint_alternate(
 /// budget is where the room for that is given ([`super::deliver`]).
 fn disposed(emit: Emit, failures: &mut FrameFailures, now: Instant) -> Option<io::Error> {
     match emit {
-        prefix @ Emit::Partial { .. } => Some(prefix.into_error()),
-        Emit::Rejected(err) | Emit::ZeroProgress(err) => failures.failed(err, now),
+        // P3-DIAGNOSTIC: marked here and nowhere else, because this is the
+        // one place that already knows which road a failure took -- a
+        // wrapper that guessed the reason from the error's own text later
+        // would have to reconstruct exactly this match.
+        prefix @ Emit::Partial { .. } => Some(super::diagnostic::mark(
+            super::diagnostic::Reason::Partial,
+            prefix.into_error(),
+        )),
+        Emit::Rejected(err) | Emit::ZeroProgress(err) => failures
+            .failed(err, now)
+            .map(|err| super::diagnostic::mark(super::diagnostic::Reason::Exhausted, err)),
     }
 }
 
@@ -5817,5 +5826,886 @@ mod tests {
         // to blank are still holding whatever was on them.
         let one_row = "\u{1b}[H\u{1b}[K\u{1b}[3J";
         assert!(check_cleared(one_row.as_bytes(), &geometry).is_err());
+    }
+
+    // --- P3-WRAP: the shipped painter, measured -----------------------------
+    //
+    // `.prd/tui-phase2/loop.md:127` re-defers transcript wrap memoization
+    // until "a benchmark exceeds 8 ms/frame at 80x24 or 32 ms/frame at
+    // 300x200 ... run that benchmark on the shipped painter; below the
+    // threshold the memoization is work with no receipt". The existing
+    // `check::tests::a_preflight_costs_a_small_fraction_of_one_frames_budget`
+    // is not that benchmark: it times `check::preflight` alone, against a
+    // vector it builds by hand from a `Grid`, and never calls
+    // `Shell::write_transcript`, never reaches `Transcript::prepare_push` (the
+    // wrap this row is actually about) and never reaches `commit_band`. What
+    // follows drives `commit_frame` -- the function a real session calls --
+    // with a `Vec`-backed counting [`Sink`] rather than a real descriptor, so
+    // what is measured is this crate's own wrap/append/preflight/diff work and
+    // not a `write(2)`'s latency.
+    //
+    // No line below compares a duration to the threshold. The row says "run
+    // that benchmark", not "gate the build on it": a hard ceiling here would
+    // fail on whatever machine happens to run it slower (`editor::tests`'
+    // `an_edit_and_a_submit_stay_inside_the_ceiling_on_this_machine` takes the
+    // same `#[ignore]` stance, for the same reason), and it would quietly
+    // become the RED half of a memoization fix nobody has decided to build
+    // yet. This is a receipt to read against the PRD row by hand, not a gate.
+    //
+    // It is also not a claim that every input this session can see is bounded
+    // by these numbers: five workloads, two geometries, one text shape apiece.
+    // A different shape (many short finished lines, a deeply wrapped CJK
+    // line, ...) is not measured here and this benchmark says nothing about
+    // it.
+
+    /// A `Vec<u8>` and a call count -- what a fake [`Sink`] needs to be, so
+    /// that what a sample's clock includes is this crate's own work and
+    /// nothing a real descriptor could stall on.
+    struct CountingSink {
+        written: Vec<u8>,
+        calls: usize,
+    }
+
+    impl CountingSink {
+        fn new() -> Self {
+            Self {
+                written: Vec::new(),
+                calls: 0,
+            }
+        }
+
+        /// Back to empty, so a sample's assertions and byte counts are about
+        /// *this* sample's own output and nothing an earlier sample left
+        /// behind. Called outside every sample's clock, never inside it: a
+        /// real `Sink` never accumulates across frames the way an unreset
+        /// fake one would, so leaving this call inside the timed window would
+        /// measure a `Vec`'s amortized growth instead of the painter.
+        fn reset(&mut self) {
+            self.written.clear();
+            self.calls = 0;
+        }
+    }
+
+    impl Sink for CountingSink {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            self.calls += 1;
+            self.written.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    /// Whether `needle` appears anywhere in `haystack`, byte for byte.
+    ///
+    /// The falsification device every sample below is built around: the
+    /// marker is unique to the sample that produced it, so a painter that got
+    /// memoized into producing nothing -- or the wrong thing -- fails this
+    /// rather than only reading fast.
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        !needle.is_empty()
+            && haystack
+                .windows(needle.len())
+                .any(|window| window == needle)
+    }
+
+    /// `frame.rs`'s own `ERASE_LINE` (`frame.rs:61`) is private to that
+    /// module, so this is a test-only copy of the same three bytes -- the
+    /// escape `place()` (`frame.rs:1615-1628`) writes once per document row,
+    /// and `grid.rs`'s band-diff painter (`grid.rs:41`) writes the identical
+    /// bytes for its own reasons, so counting this in a sample's output
+    /// bounds "rows repainted this tick" for the document *and* the band
+    /// together, not the document alone.
+    const ERASE_LINE: &[u8] = b"\x1b[K";
+
+    /// min/median/p95/max of one workload's samples. There is no acceptance
+    /// bound attached to this type on purpose -- see the section comment
+    /// above.
+    #[derive(Debug)]
+    struct Stats {
+        min: Duration,
+        median: Duration,
+        p95: Duration,
+        max: Duration,
+    }
+
+    /// Sorts `samples` and reads the three named percentiles out of them by
+    /// index, in integer arithmetic: nothing here is worth a float.
+    fn stats(mut samples: Vec<Duration>) -> Stats {
+        samples.sort();
+        let last = samples.len() - 1;
+        let at = |permille: usize| samples[last * permille / 1000];
+        Stats {
+            min: samples[0],
+            median: at(500),
+            p95: at(950),
+            max: samples[last],
+        }
+    }
+
+    /// A handful of unmeasured warmup calls, then the samples the report is
+    /// built from -- bounded on both sides, because this is a receipt read
+    /// once by a human and not a suite that pays for a thousand iterations on
+    /// every `cargo test`.
+    const WARMUP: usize = 5;
+    const SAMPLES: usize = 30;
+
+    fn measure(mut sample: impl FnMut(usize) -> Duration) -> Stats {
+        for i in 0..WARMUP {
+            sample(i);
+        }
+        let mut samples = Vec::with_capacity(SAMPLES);
+        for i in 0..SAMPLES {
+            samples.push(sample(WARMUP + i));
+        }
+        stats(samples)
+    }
+
+    /// A shell and band solved for `(rows, cols)`, with the one frame every
+    /// session's first tick owes already landed and cleared from the sink --
+    /// so what a sample measures is the steady-state cost of one more tick,
+    /// the shape every tick after the first really has, not the whole-band
+    /// repaint every session pays exactly once.
+    fn painter_at(rows: u16, cols: u16) -> (Fixture, Band, CountingSink, FrameFailures) {
+        let mut shell = shell();
+        let mut band = Band::new();
+        if (rows, cols) != (shell.geometry.rows, shell.geometry.cols) {
+            adopt_resize(&mut shell, &mut band, || (rows, cols));
+        }
+        let mut out = CountingSink::new();
+        let mut failures = FrameFailures::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the untimed baseline frame");
+        out.reset();
+        (shell, band, out, failures)
+    }
+
+    /// The control: a tick with nothing owed. Reported for scale beside the
+    /// other four -- **not** used, alone or otherwise, to accept or reject the
+    /// painter: an idle tick doing anything close to `commit_band`'s real work
+    /// only proves this fixture is broken.
+    fn run_idle(rows: u16, cols: u16) -> Stats {
+        let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+        measure(|_i| {
+            out.reset();
+            let started = Instant::now();
+            shell.settle_input(started);
+            shell.settle_band(started);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                started,
+                Reconciled,
+            )
+            .expect("an idle tick");
+            let elapsed = started.elapsed();
+            assert!(
+                out.calls == 0 && out.written.is_empty(),
+                "an idle tick wrote {} call(s), {} byte(s) -- this fixture owes \
+                 something it should not: {:?}",
+                out.calls,
+                out.written.len(),
+                String::from_utf8_lossy(&out.written)
+            );
+            elapsed
+        })
+    }
+
+    /// One keystroke into the composer: band assembly with nothing owed on
+    /// the document side. Isolates what `commit_band` alone costs from what
+    /// the transcript's wrap adds on top of it.
+    fn run_band_dirty(rows: u16, cols: u16) -> Stats {
+        let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+        measure(|i| {
+            // Backspace the previous sample's character and type this one, so
+            // the composer's own content stays one character wide for every
+            // sample rather than growing across the run.
+            let ch = (b'a' + (i % 26) as u8) as char;
+            let keys = format!("{}{ch}", '\u{7f}');
+            out.reset();
+            let started = Instant::now();
+            shell.route_bytes(keys.as_bytes());
+            shell.settle_input(started);
+            shell.settle_band(started);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                started,
+                Reconciled,
+            )
+            .expect("a band-dirty tick");
+            let elapsed = started.elapsed();
+            assert!(
+                out.calls > 0 && !out.written.is_empty(),
+                "a band-dirty tick produced no bytes at all"
+            );
+            assert!(
+                contains(&out.written, ch.to_string().as_bytes()),
+                "the keystroke {ch:?} never reached the painted bytes: {:?}",
+                String::from_utf8_lossy(&out.written)
+            );
+            elapsed
+        })
+    }
+
+    /// A normal streamed delta: a few dozen characters, the shape a
+    /// token-by-token provider stream really arrives in, landing on a tail
+    /// nowhere near the retention cap. The line is never ended, so this is
+    /// mid-stream, not a finished paragraph.
+    fn run_finite_chunk(rows: u16, cols: u16) -> Stats {
+        let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+        measure(|i| {
+            let marker = format!("chunk-{i:04}-");
+            let text = format!("{marker}the quick brown fox jumps over the lazy dog ");
+            out.reset();
+            let started = Instant::now();
+            shell.write_transcript(&text);
+            shell.settle_input(started);
+            shell.settle_band(started);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                started,
+                Reconciled,
+            )
+            .expect("a finite-chunk tick");
+            let elapsed = started.elapsed();
+            assert!(
+                out.calls > 0 && !out.written.is_empty(),
+                "a finite-chunk tick produced no bytes at all"
+            );
+            assert!(
+                contains(&out.written, marker.as_bytes()),
+                "the chunk {marker:?} never reached the painted bytes: {:?}",
+                String::from_utf8_lossy(&out.written)
+            );
+            elapsed
+        })
+    }
+
+    /// A finished line: text followed by `end_transcript_line`, the shape a
+    /// completed sentence or paragraph lands in. Two queued operations
+    /// (`Push` then `EndLine`), drained by the one `commit_document` call
+    /// inside the timed `commit_frame`.
+    fn run_completed_line(rows: u16, cols: u16) -> Stats {
+        let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+        measure(|i| {
+            let marker = format!("line-{i:04}-done");
+            let text = format!("{marker} a finished sentence lands as one row. ");
+            out.reset();
+            let started = Instant::now();
+            shell.write_transcript(&text);
+            shell.end_transcript_line();
+            shell.settle_input(started);
+            shell.settle_band(started);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                started,
+                Reconciled,
+            )
+            .expect("a completed-line tick");
+            let elapsed = started.elapsed();
+            assert!(
+                out.calls > 0 && !out.written.is_empty(),
+                "a completed-line tick produced no bytes at all"
+            );
+            assert!(
+                contains(&out.written, marker.as_bytes()),
+                "the completed line {marker:?} never reached the painted bytes: {:?}",
+                String::from_utf8_lossy(&out.written)
+            );
+            elapsed
+        })
+    }
+
+    /// How many rows one seed push holds the streamed line at: safely under
+    /// `transcript.rs:136`'s `MAX_TAIL_ROWS` (256, private to that module and
+    /// pinned here as a literal for the reason every needle in this crate's
+    /// tests is), and safely over either geometry's own document area, so the
+    /// push a sample times always has more rows behind it than the screen can
+    /// show in one frame.
+    const NEAR_CAP_ROWS: usize = 250;
+
+    /// The case the retention cap exists for: an unfinished line whose
+    /// currently re-wrappable portion sits just under
+    /// [`super::super::transcript`]'s `MAX_TAIL_ROWS` (256).
+    ///
+    /// **A single seed push does not keep it there.** Read
+    /// `Transcript::prepare_push` and the `freeze` it calls before trusting
+    /// otherwise: once the pushed line's row count crosses the cap, `freeze`
+    /// does not pin the tail at 256 rows -- it drops every row already
+    /// settled and keeps only the one still-open row (`kept = last.start` in
+    /// `transcript.rs`'s `fn freeze`). A tail seeded past the cap once and
+    /// never refilled collapses, after that one push, to a *one-row* re-wrap
+    /// for every sample that follows -- the cheapest case this module has,
+    /// not the near-cap one the PRD row is about. So every sample below
+    /// re-seeds the line, untimed, back up to [`NEAR_CAP_ROWS`] before its
+    /// own timed push, and then checks -- outside its own clock -- that the
+    /// timed push really did repaint close to a full screen of document rows,
+    /// counted from `\x1b[K` runs in its own (per-sample-cleared) output: a
+    /// tail that had silently collapsed back to a handful of rows would
+    /// repaint far fewer than that and be caught here instead of only
+    /// reading suspiciously fast.
+    fn run_streaming_near_cap(rows: u16, cols: u16) -> Stats {
+        let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+        let filler = "x".repeat(usize::from(cols) * NEAR_CAP_ROWS);
+        // This geometry's real document area, from the two real inputs this
+        // fixture already has -- the row count it was solved for, and
+        // `Shell::band_rows`'s own length -- not a guessed constant. A push
+        // whose tail genuinely has more rows than this repaints the whole of
+        // it every time (`render_append`'s `shown = min(settled, area)`), so
+        // this is also the number a near-cap sample's repaint should
+        // saturate at.
+        let band_rows = shell.band_rows().len();
+        let area = usize::from(rows).saturating_sub(band_rows);
+
+        measure(|i| {
+            // The untimed refill: end whatever the previous sample's small
+            // push left open, then push a fresh near-cap-sized unbroken line,
+            // and land both before the clock starts.
+            shell.end_transcript_line();
+            shell.write_transcript(&filler);
+            let refill_now = Instant::now();
+            shell.settle_input(refill_now);
+            shell.settle_band(refill_now);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                refill_now,
+                Reconciled,
+            )
+            .expect("landing the untimed near-cap refill");
+            out.reset();
+
+            let marker = format!("tail-{i:04}-");
+            // The leading space matters: the filler above has no whitespace
+            // in it at all, so without one the marker would join the
+            // filler's trailing `x`s into a single word (`wrap.rs`: a word
+            // moves whole), and that combined word is long enough to hard-
+            // wrap mid-marker -- splitting it across two escaped rows and
+            // breaking `contains`'s contiguous-byte match on the very first
+            // sample.
+            let text = format!(" {marker}more unbroken text keeps the retained tail near its cap ");
+            let started = Instant::now();
+            shell.write_transcript(&text);
+            shell.settle_input(started);
+            shell.settle_band(started);
+            commit_frame(
+                &mut shell,
+                &mut band,
+                &mut out,
+                &mut failures,
+                started,
+                Reconciled,
+            )
+            .expect("a near-cap streaming tick");
+            let elapsed = started.elapsed();
+            assert!(
+                out.calls > 0 && !out.written.is_empty(),
+                "a near-cap streaming tick produced no bytes at all"
+            );
+            assert!(
+                contains(&out.written, marker.as_bytes()),
+                "the near-cap chunk {marker:?} never reached the painted bytes: {:?}",
+                String::from_utf8_lossy(&out.written)
+            );
+            let erase_line_runs = out
+                .written
+                .windows(ERASE_LINE.len())
+                .filter(|window| *window == ERASE_LINE)
+                .count();
+            // Lower bound only needs the document side: a collapsed tail
+            // repaints far fewer rows than a screen this size can hold.
+            // Upper bound adds the band's own share of the same escape
+            // (`ERASE_LINE`'s doc comment) plus a small, named slack for the
+            // one or two extra rows a push landing exactly at the cap may
+            // add before its own `freeze` would fire.
+            let lower = area.saturating_sub(6);
+            let upper = area + band_rows + 8;
+            assert!(
+                (lower..=upper).contains(&erase_line_runs),
+                "sample {i}: {erase_line_runs} `\\x1b[K` runs is outside \
+                 [{lower}, {upper}] for a {cols}x{rows} screen with a \
+                 {band_rows}-row band ({area}-row document area) -- the \
+                 retained tail may not be near its cap"
+            );
+            elapsed
+        })
+    }
+
+    /// Where the near-cap budget goes, split into the phases production
+    /// data can't otherwise tell apart -- added after an independent
+    /// controller reproduced [`run_streaming_near_cap`]'s 300x200 threshold
+    /// crossing and asked for attribution before any optimization is
+    /// considered. **Diagnostic, not a second acceptance gate**: it does not
+    /// change what the main receipt above accepts, and its numbers are not
+    /// meant to be subtracted against that receipt's own totals as exact
+    /// causality -- this is a separate run with its own call overhead, not a
+    /// decomposition of the same sample.
+    ///
+    /// The same [`NEAR_CAP_ROWS`]-row untimed reseed as
+    /// [`run_streaming_near_cap`], so the push being split up here is the
+    /// same shape that workload times as one number, broken into:
+    ///
+    /// * **enqueue** -- `Shell::write_transcript` queuing the text, plus
+    ///   `settle_input`/`settle_band`, before anything is offered to the
+    ///   terminal.
+    /// * **prepare** -- the gap between calling `Shell::emit_document_front`
+    ///   and this closure's own first instruction running inside it. That gap
+    ///   is `Transcript::prepare_front`/`prepare_push`'s clone-and-re-wrap of
+    ///   the retained tail -- the cost the PRD row is about -- plus
+    ///   `Band::carry_document`, called first for the same reason
+    ///   `commit_document` calls it first: this workload never grows or
+    ///   shrinks the band, so that call costs nothing measurable here and is
+    ///   folded into this bucket rather than broken out on its own.
+    /// * **append** -- `Band::append_document` alone, timed from inside that
+    ///   same closure: `check::preflight` plus the write to the counting
+    ///   [`Sink`].
+    /// * **band** -- `commit_band`, timed separately afterwards: composer,
+    ///   divider and activity-row assembly, which this text never touches.
+    ///
+    /// Built beside `commit_document` rather than by calling it, because
+    /// `commit_document` owns the one closure that tells prepare and append
+    /// apart and there is no hook to time around it from outside. So this
+    /// calls `Shell::emit_document_front` directly, with the same closure
+    /// body `commit_document` uses -- `Ok(()) => Landed::All`, a `Partial`
+    /// error kept as `Landed::Prefix`, anything else `Landed::None` -- which
+    /// keeps the real refusal semantics rather than assuming success.
+    #[test]
+    #[ignore = "P3-WRAP diagnostic: release only, see xfx-painter-cost.log"]
+    fn the_near_cap_tick_breaks_down_into_enqueue_prepare_append_and_band() {
+        for (rows, cols) in [(24u16, 80u16), (200u16, 300u16)] {
+            let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
+            let filler = "x".repeat(usize::from(cols) * NEAR_CAP_ROWS);
+            let mut enqueue = Vec::with_capacity(SAMPLES);
+            let mut prepare = Vec::with_capacity(SAMPLES);
+            let mut append = Vec::with_capacity(SAMPLES);
+            let mut band_only = Vec::with_capacity(SAMPLES);
+
+            for i in 0..WARMUP + SAMPLES {
+                // The untimed reseed: identical in shape to
+                // `run_streaming_near_cap`'s, so this closure's push lands
+                // against the same near-cap tail that workload measures.
+                shell.end_transcript_line();
+                shell.write_transcript(&filler);
+                let refill_now = Instant::now();
+                shell.settle_input(refill_now);
+                shell.settle_band(refill_now);
+                commit_frame(
+                    &mut shell,
+                    &mut band,
+                    &mut out,
+                    &mut failures,
+                    refill_now,
+                    Reconciled,
+                )
+                .expect("landing the untimed near-cap refill");
+                out.reset();
+
+                let marker = format!("tail-{i:04}-");
+                let text =
+                    format!(" {marker}more unbroken text keeps the retained tail near its cap ");
+
+                let enqueue_started = Instant::now();
+                shell.write_transcript(&text);
+                shell.settle_input(enqueue_started);
+                shell.settle_band(enqueue_started);
+                let enqueue_elapsed = enqueue_started.elapsed();
+
+                band.carry_document(&mut out, &shell.geometry)
+                    .expect("no carry is owed: the band never grew or shrank");
+
+                let geometry = shell.geometry;
+                let doc_started = Instant::now();
+                let mut prepare_elapsed = Duration::ZERO;
+                let mut append_elapsed = Duration::ZERO;
+                let landed = shell.emit_document_front(|doc_append| {
+                    prepare_elapsed = doc_started.elapsed();
+                    let append_started = Instant::now();
+                    let result = band.append_document(
+                        &mut out,
+                        doc_append.scroll,
+                        &doc_append.rows,
+                        &geometry,
+                    );
+                    append_elapsed = append_started.elapsed();
+                    match result {
+                        Ok(()) => Landed::All,
+                        Err(emit) => {
+                            if matches!(emit, Emit::Partial { .. }) {
+                                Landed::Prefix(emit)
+                            } else {
+                                Landed::None(emit)
+                            }
+                        }
+                    }
+                });
+                assert!(
+                    matches!(landed, Some(Ok(()))),
+                    "the near-cap push was not landed cleanly: {landed:?}"
+                );
+
+                let band_started = Instant::now();
+                commit_band(&mut shell, &mut band, &mut out, &mut failures, band_started)
+                    .expect("a near-cap band tick");
+                let band_elapsed = band_started.elapsed();
+
+                assert!(
+                    contains(&out.written, marker.as_bytes()),
+                    "the near-cap chunk {marker:?} never reached the painted bytes: {:?}",
+                    String::from_utf8_lossy(&out.written)
+                );
+
+                if i >= WARMUP {
+                    enqueue.push(enqueue_elapsed);
+                    prepare.push(prepare_elapsed);
+                    append.push(append_elapsed);
+                    band_only.push(band_elapsed);
+                }
+            }
+
+            for (label, samples) in [
+                ("enqueue (write_transcript + settle)", enqueue),
+                (
+                    "prepare (Transcript::prepare_push, before the append callback runs)",
+                    prepare,
+                ),
+                (
+                    "append (Band::append_document: preflight + write-to-Vec)",
+                    append,
+                ),
+                ("band (commit_band)", band_only),
+            ] {
+                let breakdown = stats(samples);
+                println!(
+                    "painter-cost-breakdown {cols}x{rows} {label}: {SAMPLES} samples \
+                     min={:?} median={:?} p95={:?} max={:?} -- diagnostic, not summed \
+                     against run_streaming_near_cap's own number (separate run, separate \
+                     call overhead)",
+                    breakdown.min, breakdown.median, breakdown.p95, breakdown.max
+                );
+            }
+        }
+    }
+
+    /// The receipt itself. Ignored by default for the same reason
+    /// `editor::tests`' timing case is: a debug build measures the compiler,
+    /// not the code, and this is read by a human against
+    /// `.prd/tui-phase2/loop.md:127`, not by CI.
+    ///
+    /// Run it with:
+    /// `cargo test --release --lib --exact \
+    ///   tui::event_loop::tests::the_shipped_painter_stays_measured_against_the_re_deferred_wrap_thresholds \
+    ///   -- --ignored --nocapture`
+    #[test]
+    #[ignore = "P3-WRAP timing receipt: release only, see xfx-painter-cost.log"]
+    fn the_shipped_painter_stays_measured_against_the_re_deferred_wrap_thresholds() {
+        /// One workload's label and the function that runs it -- named so
+        /// the array below is a list of these rather than a bare
+        /// `fn(u16, u16) -> Stats` clippy's `type_complexity` lint reads as
+        /// two nested types.
+        type Workload = (&'static str, fn(u16, u16) -> Stats);
+        let workloads: [Workload; 5] = [
+            ("idle (control -- not an acceptance input)", run_idle),
+            (
+                "band-dirty (composer keystroke, no document work)",
+                run_band_dirty,
+            ),
+            (
+                "finite chunk (mid-stream delta, tail well under the cap)",
+                run_finite_chunk,
+            ),
+            (
+                "completed line (a finished paragraph lands as a row)",
+                run_completed_line,
+            ),
+            (
+                "streaming unfinished tail near its 256-row cap, reseeded to 250 rows every sample",
+                run_streaming_near_cap,
+            ),
+        ];
+
+        for (rows, cols, budget_ms) in [(24u16, 80u16, 8u64), (200u16, 300u16, 32u64)] {
+            for (name, run) in workloads {
+                let stats = run(rows, cols);
+                println!(
+                    "painter-cost {cols}x{rows} {name}: {SAMPLES} samples \
+                     min={:?} median={:?} p95={:?} max={:?} (PRD budget {budget_ms} ms/frame, \
+                     .prd/tui-phase2/loop.md:127)",
+                    stats.min, stats.median, stats.p95, stats.max
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // P3-LAYOUT: one settled Shell/Band transition sequence, replayed idle
+    // -----------------------------------------------------------------------
+    //
+    // Bounded acceptance slice (scratchpad `xfx-layout-acceptance.md`): seed
+    // distinct document rows, grow a multirow draft, start a turn, ask a real
+    // inline approval question, deny it, end the turn, then shrink the draft
+    // back down. After each transition lands, `commit_frame` is replayed once
+    // more **at the same instant**, with nothing new queued. This is a
+    // no-op-on-a-settled-state check, nothing more: it says an ordinary
+    // reconciliation of state that has not changed writes zero bytes and
+    // leaves the geometry alone. It is **not** coverage of the `ZeroProgress`
+    // write-refusal/retry path (`FlakyScreen`'s cases, elsewhere in this
+    // module, own that) -- no write is ever refused here, so nothing here
+    // says anything about what happens when one is.
+    //
+    // `frame.rs`'s own `Screen` decoder (`frame.rs`'s test module) parses only
+    // `CUP` column 1 / `EL` / `LF` and no whole-band frame, is private to that
+    // module, and is out of this file's ownership for this slice, so it is
+    // neither extended nor exposed here. What follows checks the wire
+    // directly and only as far as that lets it: each marker is asserted
+    // present, in document order, in the one frame that lands it, and then
+    // **not re-emitted** by any later frame that only changes the band. That
+    // is weaker than preservation -- an `ED`/erase could still remove a row
+    // without ever re-emitting its marker bytes, and this file cannot tell
+    // the two apart from the wire alone. Proving the marker's *final* content
+    // and position (as opposed to "was never written a second time") needs a
+    // real screen/scrollback decode and is this acceptance's tracked next
+    // step (a PTY scenario), not this one. Literal coordinates are checked
+    // only where the shell exposes them directly (`Shell::cursor`,
+    // `Geometry::band_top`/`divider`/`input_rows`), not by decoding painted
+    // cells.
+
+    /// The shell, band and sink one transition sequence plays out on, all at
+    /// one fixed instant -- so no transition below is ever mistaken for
+    /// instability caused by the clock rather than by an event.
+    struct Rig {
+        shell: Fixture,
+        band: Band,
+        out: CountingScreen,
+        failures: FrameFailures,
+        now: Instant,
+    }
+
+    impl std::ops::Deref for Rig {
+        type Target = Fixture;
+        fn deref(&self) -> &Fixture {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Rig {
+        fn deref_mut(&mut self) -> &mut Fixture {
+            &mut self.shell
+        }
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            Self {
+                shell: shell(),
+                band: Band::new(),
+                out: CountingScreen::default(),
+                failures: FrameFailures::default(),
+                now: Instant::now(),
+            }
+        }
+
+        /// Settles the shell and lands one frame, and hands back what it
+        /// wrote -- the shape every transition below lands with.
+        fn land(&mut self) -> String {
+            self.out.written.clear();
+            self.out.calls = 0;
+            self.shell.settle_input(self.now);
+            self.shell.settle_band(self.now);
+            commit_frame(
+                &mut self.shell,
+                &mut self.band,
+                &mut self.out,
+                &mut self.failures,
+                self.now,
+                Reconciled,
+            )
+            .expect("a settled frame lands");
+            String::from_utf8_lossy(&self.out.written).into_owned()
+        }
+
+        /// The no-progress check every transition below runs once landed:
+        /// `commit_frame` again, at the same instant and with nothing new
+        /// queued, must write nothing and leave the geometry unchanged.
+        fn assert_idle(&mut self, label: &str) {
+            let before = self.shell.geometry;
+            self.out.written.clear();
+            self.out.calls = 0;
+            commit_frame(
+                &mut self.shell,
+                &mut self.band,
+                &mut self.out,
+                &mut self.failures,
+                self.now,
+                Reconciled,
+            )
+            .expect("an idle replay at the same instant lands");
+            assert!(
+                self.out.calls == 0 && self.out.written.is_empty(),
+                "{label}: an idle replay wrote {} call(s), {} byte(s): {:?}",
+                self.out.calls,
+                self.out.written.len(),
+                String::from_utf8_lossy(&self.out.written)
+            );
+            assert_eq!(
+                self.shell.geometry, before,
+                "{label}: an idle replay changed the geometry"
+            );
+        }
+    }
+
+    /// None of `markers` appear a second time in `written` -- the check
+    /// every band-only transition below runs against the rows seeded
+    /// earlier. **Proves no re-emission, not preservation**: an `ED` this
+    /// frame issues could still erase a marked row without ever writing the
+    /// marker's bytes again, and this check cannot see that either way. A
+    /// VT/PTY decode of the real screen is what a preservation claim needs.
+    fn assert_document_not_reemitted(label: &str, written: &str, markers: [&str; 3]) {
+        for marker in markers {
+            assert!(
+                !written.contains(marker),
+                "{label}: re-emitted a document row's marker ({marker:?}): {written:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn document_and_band_transitions_settle_without_reemitting_document_rows() {
+        let mut rig = Rig::new();
+        rig.land();
+        rig.assert_idle("the first frame");
+
+        // --- seed distinct document rows ------------------------------------
+        let markers = ["DOC-ROW-ALPHA", "DOC-ROW-BRAVO", "DOC-ROW-CHARLIE"];
+        for marker in markers {
+            rig.write_transcript(&format!("{marker} a committed document row"));
+            rig.end_transcript_line();
+        }
+        let written = rig.land();
+        let positions: Vec<usize> = markers
+            .iter()
+            .map(|marker| {
+                written.find(marker).unwrap_or_else(|| {
+                    panic!("{marker:?} never reached the painted bytes: {written:?}")
+                })
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "the seeded rows did not land in document order: {positions:?} in {written:?}"
+        );
+        rig.assert_idle("the seeded document rows");
+
+        // --- grow a multirow draft -------------------------------------------
+        let draft = "first draft line\nsecond draft line\nthird draft line";
+        rig.route_bytes(draft.as_bytes());
+        let written = rig.land();
+        assert!(!written.is_empty(), "a multirow draft painted nothing");
+        assert_document_not_reemitted("the multirow draft", &written, markers);
+        let (caret_row, _caret_col) = rig.cursor();
+        assert!(
+            caret_row >= rig.geometry.band_top(),
+            "the draft's caret (row {caret_row}) overlaps the document (band starts at row {})",
+            rig.geometry.band_top()
+        );
+        // Two `\n` (`InsertNewline`, `shell.rs:2706`) over three lines: this
+        // is really a *multirow* draft and not just a wide one-row composer.
+        assert_eq!(
+            rig.geometry.input_rows(),
+            3,
+            "the two newlines did not grow the composer to three rows"
+        );
+        rig.assert_idle("the multirow draft");
+
+        // --- TurnStarted: the activity row grows the band ---------------------
+        rig.apply(UiEvent::TurnStarted);
+        let written = rig.land();
+        assert!(!written.is_empty(), "the turn's own row painted nothing");
+        assert_document_not_reemitted("the started turn", &written, markers);
+        rig.assert_idle("the started turn");
+
+        // --- a real inline approval panel --------------------------------------
+        rig.apply(asked_inline());
+        // **Not `ScreenOwner::Approval`.** That owner is only for a question
+        // too big for the band (`Asked::Alternate`, `shell.rs`'s `ask`); an
+        // inline one keeps the primary plane and grows the band around its
+        // own panel instead (`Asked::Inline` sets `owner = Primary`).
+        assert_eq!(
+            rig.screen_owner(),
+            ScreenOwner::Primary,
+            "an inline question is not the one that takes the plane"
+        );
+        assert!(
+            !rig.band.on_alternate(),
+            "a diff-less question took the alternate screen instead of the band's own panel"
+        );
+        assert!(
+            rig.geometry.panel > 0,
+            "asking installed no panel: the geometry never grew to hold one"
+        );
+        let written = rig.land();
+        assert!(!written.is_empty(), "the inline panel painted nothing");
+        assert_document_not_reemitted("the inline approval panel", &written, markers);
+        let (caret_row, _) = rig.cursor();
+        assert!(
+            (rig.geometry.band_top()..=rig.geometry.divider).contains(&caret_row),
+            "the panel's caret (row {caret_row}) is not inside the band ({}..={})",
+            rig.geometry.band_top(),
+            rig.geometry.divider
+        );
+        rig.assert_idle("the inline approval panel");
+
+        // --- deny/close it -------------------------------------------------------
+        // Digit `3` is `CHOICES[2]` (`approval.rs`'s `keyed`) -- `Deny`,
+        // answerable without the readiness gate that guards `Once`/`Always`
+        // (`shell.rs`'s `decide`), so this is deterministic with no need to
+        // first earn or wait out a disclosure receipt.
+        rig.route_bytes(b"3");
+        assert_eq!(
+            rig.geometry.panel, 0,
+            "the panel is closed but the geometry still reserves rows for it"
+        );
+        let written = rig.land();
+        assert!(!written.is_empty(), "closing the panel painted nothing");
+        assert_document_not_reemitted("the denied approval panel", &written, markers);
+        rig.assert_idle("the denied approval panel");
+
+        // --- TurnEnded -------------------------------------------------------
+        rig.apply(UiEvent::TurnEnded { failure: None });
+        let written = rig.land();
+        assert!(!written.is_empty(), "ending the turn painted nothing");
+        assert_document_not_reemitted("the ended turn", &written, markers);
+        rig.assert_idle("the ended turn");
+
+        // --- shrink the draft back down ----------------------------------------
+        for _ in 0..draft.len() {
+            rig.route_bytes(b"\x7f");
+        }
+        let written = rig.land();
+        assert!(!written.is_empty(), "shrinking the draft painted nothing");
+        assert_document_not_reemitted("the shrunk draft", &written, markers);
+        assert_eq!(
+            rig.geometry.input_rows(),
+            1,
+            "backspacing the whole draft did not shrink the composer back to one row"
+        );
+        rig.assert_idle("the shrunk draft");
     }
 }

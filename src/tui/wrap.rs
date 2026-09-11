@@ -100,6 +100,19 @@ pub(crate) struct Row {
 /// this, for [`super::frame::clip`], and for the removal; the allowlist decides
 /// only what is kept.
 pub(crate) fn width(text: &str) -> u16 {
+    // Printable ASCII (space through `~`, empty allowed) is exactly its own
+    // byte length in cells -- no control, no combining mark, no escape
+    // sequence, no multi-byte grapheme can be in it. `grid.rs:210-214` and
+    // `check.rs:1689-1694` already hand this function one grapheme-segmented
+    // cluster at a time, most of which are one printable ASCII byte, so the
+    // general path's grapheme segmentation and per-cluster `unicode_width`
+    // lookup below is repeated work for an answer this loop already knows
+    // before it starts. Anything outside that range -- a single non-ASCII
+    // byte anywhere in `text` -- falls through untouched: this is a faster
+    // route to the same answer, not a second answer.
+    if text.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
+        return u16::try_from(text.len()).unwrap_or(u16::MAX);
+    }
     let cells: usize = painting(text)
         .map(|painted| cluster_cells(painted.cluster))
         .sum();
@@ -596,5 +609,60 @@ mod tests {
             vec!["abcd", "\u{1b}[31mefgh"],
             "a row ended inside an escape sequence"
         );
+    }
+
+    // --- P3-WRAP: `width`'s ASCII fast path, held to the general path's own
+    // answers -------------------------------------------------------------
+    //
+    // `wrap.rs:102-106`'s `width` re-segments into graphemes and re-measures a
+    // cluster at a time for every call, and `grid.rs:210-214` /
+    // `check.rs:1689-1694` already hand it a single already-segmented ASCII
+    // cluster most of the time -- so the printable-ASCII case pays a
+    // segmentation and a `unicode_width` lookup for an answer that is always
+    // its own byte length. Every literal below was read from the *actual*
+    // current behaviour (`cargo test --lib tui::wrap::tests -- --nocapture` on
+    // a throwaway probe, not invented), so a fast path that changes any one of
+    // them is a regression, not an optimization.
+
+    #[test]
+    fn ascii_fast_path_matches_the_general_path_on_printable_bytes() {
+        // Printable ASCII only (0x20..=0x7e): the fast path's whole claim is
+        // that this is always the byte length, empty string included.
+        assert_eq!(width(""), 0);
+        assert_eq!(width("a"), 1);
+        assert_eq!(width(" "), 1);
+        assert_eq!(width("~"), 1);
+        assert_eq!(width("hello, world!"), 13);
+        // The overflow boundary `width` already saturates at: 65535 bytes of
+        // `a` fits `u16` exactly, 65536 does not and saturates to `u16::MAX`.
+        assert_eq!(width(&"a".repeat(65535)), 65535);
+        assert_eq!(width(&"a".repeat(65536)), u16::MAX);
+        assert_eq!(width(&"a".repeat(70000)), u16::MAX);
+    }
+
+    #[test]
+    fn ascii_fast_path_never_claims_a_control_escape_or_unicode_byte() {
+        // Anything outside 0x20..=0x7e must fall through to the general path
+        // untouched -- these are the actual answers that path already gives,
+        // not new behaviour the fast path is allowed to introduce.
+        assert_eq!(width("\u{7f}"), 0, "DEL is a control character");
+        assert_eq!(width("\r"), 0, "a bare CR is a control character here");
+        assert_eq!(width("\r\n"), 0, "CRLF is one line-break cluster");
+        assert_eq!(width("\n"), 0);
+        assert_eq!(width("\t"), TAB_WIDTH);
+        assert_eq!(width("\u{1b}[31m"), 0, "an escape sequence paints nothing");
+        assert_eq!(
+            width("\u{c548}\u{b155}\u{d558}\u{c138}\u{c694}"),
+            10,
+            "five wide Hangul glyphs, two cells each"
+        );
+        let acute = "e\u{301}";
+        assert_eq!(width(acute), 1, "a combining mark composes onto its base");
+        let family = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}";
+        assert_eq!(width(family), 2, "one ZWJ cluster, two cells");
+        // A control byte is not ASCII text even when every other byte around
+        // it is: the whole string must fall through, not just the one byte.
+        assert_eq!(width("a\nb"), 2);
+        assert_eq!(width("ab\u{1b}[3"), 2, "an unfinished escape sequence");
     }
 }

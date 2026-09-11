@@ -176,18 +176,28 @@ order, and a shipped row listed under a phase that has not finished would be a r
 
 | 25 | An amended approval | 2 | **Implemented** as `25-amended-approval`. A decision the user amended, and where the sentence goes -- three claims no unit test can make together. **Trial A, allowed:** Tab opens the draft under `1. Yes`, asserted through the terminal's own cursor on the row beneath the answer rather than through the `> ` marker (the marker is painted whenever the choice is marked and says nothing about where a keystroke goes), the draft takes a phrase whose caret column is checked against `unicode-width`'s measurement, and the panel still shows all three answers and the whole always-scope beside it -- a draft is paid for out of what is left, never out of the disclosure. Enter then answers, and the file on disk holds the model's **own** `content` byte for byte: an amendment is context, never an argument. The wire carries the rest: the first request bearing that call's result also bears the phrase as a `user` message, exactly once, **after** the result (ordered by walking the request's parts, because upstream merges consecutive user messages and hoists results to the front of the merged one), and the phrase is **not** inside the result's own `output` -- a sentence merged into the tool's report would read as the tool's own account of what it did. **Trial B, refused:** the marker walks to `3. No`, Tab opens *that* side's draft, and a second phrase is submitted with Enter; the target does not exist, the result the model is shown says the call was not permitted, and the second phrase follows it under the same ordering. Both submitted phrases are then asserted **on the answered/denied grid**, not only on the draft grid: the sentence is read back in the transcript on a `[you]` row when the runtime reports the delivery, so what the user sees and what the model was told cannot disagree. **Trial C, interrupted:** a filled draft plus Ctrl-C, then a fresh prompt -- and the phrase typed at the interrupted panel appears in no captured request **and on no grid after the panel came down**, though it was on the screen before it (`grid-01-filled`), which is what makes the absence an observation rather than a phrase that was never rendered. That is the leak test at release level, on all three copies. The three phrases are distinct and appear nowhere else in the harness, so a grep across the evidence directory separates "the sentence reached the wire" from "the sentence was echoed on the screen": the two submitted ones are in a request capture *and* on a grid, the interrupted one is only ever on a grid. `termios` is asserted raw while a draft has the keys and byte-identical to `before` after each session exits 0. Evidence: `draft`/`answered`/`deny-draft`/`refused`/`filled`/`after-interrupt` grids plus the three request captures. 33 checks. |
 
+| 26 | Layout convergence: document and draft survive growth/undo, and the band's steadiness survives a panel opening and closing | 2+3 | **Implemented** as `26-layout-stabilization`. Three ordered document lines are answered, then a paste grows the draft to three rows and an undo (`C-_`) shrinks it back to one -- both read off combined screen+scrollback (`Grid.document_text()`), so a line the growth or shrink carried into scrollback is not missed -- before a separate turn opens a real inline approval panel (`edit_file`, denied), whose own growth and close are asserted not to disturb the earlier lines either. All four markers -- the three document lines and the turn's own -- survive once each, in order, across the whole session. The session then clears its draft, and a timed idle watch confirms the screen writes nothing for the settle window before `C-D` and a byte-identical `termios`. 35 checks. |
+| 26b | Layout convergence under a held reply: the composer really yields rows to a panel | 2+3 | **Implemented** as `26b-composer-yield-to-panel`. An `edit_file` call's reply is held behind a `release_when` gate while the request is confirmed captured and still unanswered -- an active turn, not a settled one -- and a ten-row draft is pasted and read off the committed grid during that hold, so the panel's later growth is read against a composer the harness knows was already tall rather than one raced into being tall. Releasing the reply opens the real panel: the composer's visible rows drop from ten to six with the draft's own tail shown unedited, and the activity/title rows are located on the grid rather than assumed from divider position. All three choices and the always-scope tail are asserted; a deny then restores the full ten-row draft unedited, and `termios` is asserted before and after. 27 checks. |
+
 **Phase 3 — depth.** Undo/redo and kill-ring behavior (2, row 22), question panel ordinals and
-freeform (2, rows 23 and 23b), the readiness gate (2, row 24) and an amended approval (2, row 25)
-are implemented and registered above. Still specification: commit self-check **recovery** under an
-injected partial write (1+2) -- the containment half of that row is driven by 3c above, and recovery
-is the half that is not; live theme switch re-tints the transcript (2).
+freeform (2, rows 23 and 23b), the readiness gate (2, row 24), an amended approval (2, row 25) and
+layout convergence (2+3, rows 26 and 26b) are implemented and registered above. Rows 26/26b are a
+release-binary receipt: ordered markers survive across combined screen+scrollback through a real
+panel's growth/close (26), and a held-reply composer really yields rows to that panel and gets them
+back (26b). The exact-same-instant idle-replay proof -- zero bytes, unchanged geometry after every
+transition -- is a separate in-crate test,
+`document_and_band_transitions_settle_without_reemitting_document_rows` in `src/tui/event_loop.rs`,
+not something either PTY row drives, and neither substitutes for the other
+([`03-tui-port.md`](03-tui-port.md) item 22). Still specification: commit self-check **recovery**
+under an injected partial write (1+2) -- the containment half of that row is driven by 3c above, and
+recovery is the half that is not; live theme switch re-tints the transcript (2).
 
 **Theme monitor status, beside the row above.** The mode-2031 monitor half itself (paired
 enable/restore; a SIGCONT arms an outbound `?996n` query delivered on a checked counted paint tick,
 and the `997;n` reply is decoded before focus and consumed on input) is implemented locally and not
 published -- see item 23 in [`03-tui-port.md`](03-tui-port.md) -- and theme-specific native-PTY
 tests exist for it in `cargo test`, but neither is a row in the tracked scenario table above: that
-table (29 scenarios, 649 checks) is a **regression** suite, and its green says nothing about this
+table (31 scenarios, 659 checks + oracle 52 = 711) is a **regression** suite, and its green says nothing about this
 monitor. Scratch QA covering theme is a separate effort from this tracked regression suite and does
 not register or close the theme scenario here.
 
@@ -209,6 +219,16 @@ here can — is that the terminal recovered: an incomplete vector leaves a scree
 nothing re-establishes a frame from a prefix. So what stays planned is the **recovery** scenario, and
 that is what this row waits on: a write the screen takes only part of is now measured and contained
 rather than unreadable, and no scenario above shows a session carrying on from one.
+
+**A diagnostic record exists beside this and does not move that boundary.** After the same
+restoration attempt, a session `event_loop::disposed` ended on either road is written,
+independently of the torn screen, as a fixed four-field `last-tui-error.json`
+(`src/tui/diagnostic.rs`; item 21 in [`03-tui-port.md`](03-tui-port.md)). It is proven by that
+module's own cases and by native, `fault-injection`-gated PTY tests plus one unconditional positive
+control in `tests/tui.rs` -- in-crate/native evidence, not a row in the table above, so this suite's
+31/711 green is not evidence for it, and adding a tracked scenario for it is still open if this row
+is ever revisited. It names which road a session left by; it is **containment's record, not
+containment itself, and not the recovery scenario above**.
 
 ## Acceptance criteria per phase
 

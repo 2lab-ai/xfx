@@ -4243,6 +4243,30 @@ fn a_small_change_is_still_asked_in_the_band_and_takes_no_plane() {
     );
 }
 
+#[test]
+fn an_ordinary_exit_leaves_no_independent_diagnostic_behind() {
+    // P3-DIAGNOSTIC's positive control, unconditional on `fault-injection`: a
+    // report exists only for a session `event_loop::disposed` marked, and a
+    // clean session never reaches `disposed` on a failing road at all. A
+    // stray file here would be indistinguishable from a real session's
+    // report a later, unrelated failure overwrote.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert!(
+        !sandbox
+            .home
+            .join(".xfx")
+            .join("last-tui-error.json")
+            .exists(),
+        "a clean exit left an independent diagnostic report behind"
+    );
+}
+
 /// The last elapsed time the activity row has shown, in seconds.
 fn elapsed_on_activity_row(text: &str) -> Option<u64> {
     let mut latest = None;
@@ -4602,6 +4626,94 @@ mod faults {
             modes(&pty),
             "the terminal was not given back byte for byte"
         );
+
+        // P3-DIAGNOSTIC: the screen this session just tore is gone, so the
+        // reason it left has to reach the operator some other way -- a file
+        // in the profile home, independent of the terminal the failure was
+        // about. Read after the exit above, the same way `text` is: a report
+        // written racing the process's own reap is not a report proven to
+        // exist.
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("a torn frame left no independent report at {report:?}: {err}")
+        });
+        assert!(
+            body.len() <= 1024,
+            "the report exceeded its byte budget: {body:?}"
+        );
+        assert!(
+            body.contains("\"schema\":1"),
+            "the report did not name its schema: {body:?}"
+        );
+        assert!(
+            body.contains("\"reason\":\"partial\""),
+            "a torn frame was not reported as partial: {body:?}"
+        );
+        assert!(
+            body.contains("\"errno\":null"),
+            "a wrapped prefix carries no raw errno of its own; this invented one: {body:?}"
+        );
+        assert!(
+            !body.contains("accepted"),
+            "the independent report leaked the terminal's own human-readable sentence: {body:?}"
+        );
+    }
+
+    #[test]
+    fn a_screen_that_refuses_every_frame_ends_the_session_reported_as_exhausted() {
+        // The other road `disposed` (`event_loop.rs`) can end a session on:
+        // no byte ever reaches the terminal, so there is nothing to protect
+        // and nothing this session could offer that would not just be
+        // refused again -- only `FRAME_BUDGET` (500 ms) deciding it has
+        // waited long enough. The fault answers only a vector that opens a
+        // frame, so the mode-set and the restore below the loop -- neither of
+        // which does -- go out for real: this proves the report is tied to
+        // *what the error was*, not merely to the process's exit code.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "frame-refusal"));
+
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a screen that refused every frame was reported as a clean session"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+        let text = session.settled_text();
+        assert!(
+            text.contains(RESTORE),
+            "a session ended by budget exhaustion did not write the restore: {text:?}"
+        );
+
+        let report = sandbox.home.join(".xfx").join("last-tui-error.json");
+        let body = std::fs::read_to_string(&report).unwrap_or_else(|err| {
+            panic!("an exhausted session left no independent report at {report:?}: {err}")
+        });
+        assert!(
+            body.len() <= 1024,
+            "the report exceeded its byte budget: {body:?}"
+        );
+        assert!(body.contains("\"schema\":1"), "{body:?}");
+        assert!(
+            body.contains("\"reason\":\"exhausted\""),
+            "a screen that refused every frame was not reported as exhausted: {body:?}"
+        );
+        assert!(
+            body.contains(&format!("\"errno\":{}", libc::EIO)),
+            "the original errno did not reach the report: {body:?}"
+        );
+        let expected_kind = format!("{:?}", std::io::Error::from_raw_os_error(libc::EIO).kind());
+        assert!(
+            body.contains(&format!("\"error_kind\":\"{expected_kind}\"")),
+            "the original kind did not reach the report: {body:?}"
+        );
     }
 
     #[test]
@@ -4620,6 +4732,17 @@ mod faults {
             before,
             modes(&pty),
             "a half-initialized TUI left a raw terminal"
+        );
+        // P3-DIAGNOSTIC: `disposed` never sees this failure -- it is held
+        // above `event_loop::run` entirely -- so nothing here may relabel a
+        // startup failure as a screen giving up.
+        assert!(
+            !sandbox
+                .home
+                .join(".xfx")
+                .join("last-tui-error.json")
+                .exists(),
+            "a startup failure after raw mode was reported as though a screen had refused frames"
         );
     }
 

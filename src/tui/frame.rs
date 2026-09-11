@@ -4756,4 +4756,230 @@ mod tests {
         );
         assert_eq!(screen.writes, writes, "the harmed row reached scrollback");
     }
+
+    /// P3-WRAP diagnostic (not a gate): splits the `append` bucket already
+    /// isolated by `event_loop::tests`'s near-cap breakdown (controller:
+    /// 300x200 median 23.09ms) into `append_document`'s own three calls --
+    /// `seed` (`frame.rs:1456`), `render_append` (`frame.rs:1063-1228`:
+    /// clone shadow, place, clip, script) and `check::preflight`
+    /// (`frame.rs:1533-1585`) -- plus the sink write and the drop of what
+    /// they built. Two runs: `whole` calls the real, unmodified
+    /// `append_document`; `substeps` repeats its calls inline with its own
+    /// separately measured `whole` span -- neither assumes the substeps sum
+    /// to either `whole` number.
+    #[test]
+    #[ignore = "P3-WRAP diagnostic: release only, see xfx-append-breakdown.log"]
+    fn append_document_costs_split_into_seed_render_append_preflight_and_sink() {
+        use std::time::{Duration, Instant};
+
+        const WARMUP: usize = 5;
+        const SAMPLES: usize = 20;
+
+        fn report(cols: u16, rows: u16, label: &str, mut samples: Vec<Duration>) {
+            samples.sort();
+            let last = samples.len() - 1;
+            println!(
+                "append-breakdown {cols}x{rows} {label}: {SAMPLES} samples \
+                 min={:?} median={:?} max={:?}",
+                samples[0],
+                samples[last / 2],
+                samples[last]
+            );
+        }
+
+        // Per-tick shape, matched to `event_loop.rs`'s real near-cap
+        // breakdown (`run_streaming_near_cap`, `NEAR_CAP_ROWS = 250`): 249
+        // settled rows at the screen's own width (`cols` ASCII characters,
+        // distinct prefix + `x` padding -- not `numbered_rows`'s 6-7-char
+        // fixture, which measured ~1.46ms at 300x200, nowhere near the
+        // ~23.09ms `append` bucket it was meant to attribute, because it
+        // never made `render_append`'s clone/place/clip or `preflight`'s
+        // comparisons touch anything close to a real row's width) plus one
+        // short fresh row shaped like the real per-tick delta text.
+        let scroll = 1; // one new row a tick: the near-cap steady state.
+
+        for (screen_rows, screen_cols) in [(24u16, 80u16), (200u16, 300u16)] {
+            let geometry = crate::tui::layout::solve(screen_rows, screen_cols, 1).expect("a band");
+            let area = usize::from(geometry.band_top().saturating_sub(1));
+            let cursor = (geometry.hint, 1);
+            let cols = usize::from(screen_cols);
+
+            let settled_rows: Vec<String> = (0..249)
+                .map(|index| {
+                    let prefix = format!("row-{index:04}-");
+                    let pad = cols.saturating_sub(prefix.len());
+                    format!("{prefix}{}", "x".repeat(pad))
+                })
+                .collect();
+            let new_row =
+                " tail-0250-more unbroken text keeps the retained tail near its cap ".to_string();
+            let mut rows = settled_rows;
+            rows.push(new_row.clone());
+            for row in &rows[..rows.len() - 1] {
+                assert_eq!(row.len(), cols, "a settled row was not exactly cols wide");
+            }
+            assert!(
+                new_row.len() < cols,
+                "the fresh row should be short, like the real per-tick delta text"
+            );
+            let total_bytes: usize = rows.iter().map(String::len).sum();
+            println!(
+                "append-breakdown {screen_cols}x{screen_rows} fixture: {} rows, {total_bytes} \
+                 bytes, settled width={cols} x{}, fresh width={}",
+                rows.len(),
+                rows.len() - 1,
+                new_row.len()
+            );
+
+            // Correctness on the bytes each sample actually emitted: the new
+            // row reached the sink, and the scroll/place counts match
+            // `render_append`'s own proven formula for a band already at its
+            // top (`an_append_with_more_rows_than_a_u16_scrolls_and_places_every_one_of_them`).
+            let verify = |chunk: &[u8], i: usize| {
+                assert!(
+                    chunk
+                        .windows(new_row.len())
+                        .any(|w| w == new_row.as_bytes()),
+                    "sample {i}: the new row never reached the emitted bytes"
+                );
+                assert_eq!(
+                    scrolls_and_placements(chunk, &geometry),
+                    (scroll, area + scroll),
+                    "sample {i}: the append touched a different number of rows/scrolls"
+                );
+            };
+            let prime = || {
+                let mut band = Band::new();
+                let mut sink = Counted::default();
+                band.commit(&mut sink, &band_rows(), &geometry, cursor)
+                    .expect("a priming frame sizes the shadow to this screen");
+                // Untimed dense priming: one full near-cap-shaped append
+                // before the timed loop starts, so the shadow every timed
+                // sample clones/diffs already holds a full page of
+                // full-width rows -- not the few short `band_rows()` lines
+                // `commit` alone would leave it holding.
+                let before = sink.written.len();
+                band.append_document(&mut sink, scroll, &rows, &geometry)
+                    .expect("an untimed dense append primes the shadow with near-cap content");
+                let placed = scrolls_and_placements(&sink.written[before..], &geometry);
+                assert_eq!(
+                    placed,
+                    (scroll, area + scroll),
+                    "the untimed priming append did not place a full page of dense rows"
+                );
+                println!(
+                    "append-breakdown {screen_cols}x{screen_rows} priming placed: scrolls={} \
+                     erases={}",
+                    placed.0, placed.1
+                );
+                (band, sink)
+            };
+
+            // -- whole: the real, unmodified `append_document`. --
+            let (mut band, mut sink) = prime();
+            let mut whole = Vec::with_capacity(SAMPLES);
+            for i in 0..WARMUP + SAMPLES {
+                let before = sink.written.len();
+                let started = Instant::now();
+                band.append_document(&mut sink, scroll, &rows, &geometry)
+                    .expect("the near-cap append lands");
+                let elapsed = started.elapsed();
+                verify(&sink.written[before..], i);
+                if i >= WARMUP {
+                    whole.push(elapsed);
+                }
+            }
+            report(
+                screen_cols,
+                screen_rows,
+                "whole (append_document, unmodified)",
+                whole,
+            );
+
+            // -- substeps: the same three calls, timed apart. --
+            let (mut band, mut sink) = prime();
+            let mut by_stage: [Vec<Duration>; 6] = Default::default();
+            for i in 0..WARMUP + SAMPLES {
+                let before = sink.written.len();
+                let whole_started = Instant::now();
+
+                let t = Instant::now();
+                let seed = band
+                    .seed(check::PlaneKind::Primary, &geometry)
+                    .expect("a seed");
+                let seed_elapsed = t.elapsed();
+
+                let t = Instant::now();
+                let (appended, footprint, script) = band.render_append(scroll, &rows, &geometry);
+                let render_elapsed = t.elapsed();
+
+                // Cloned rather than borrowed from `band`: `declared` must
+                // outlive the sink write below, and `band` is mutated
+                // (`delivered`, `caret`) before this iteration's teardown
+                // drops it, so a borrow of `band` here would hold `band`
+                // frozen across that mutation.
+                let shown_title = band.shown_title.clone();
+                let declared = check::Declared::new(
+                    check::Intent::Document {
+                        script: &script,
+                        caret: None,
+                        cursor_visible: None,
+                        title: shown_title.as_deref(),
+                    },
+                    footprint,
+                );
+                let t = Instant::now();
+                check::preflight(&seed, &appended, &declared).expect("the append is accepted");
+                let preflight_elapsed = t.elapsed();
+
+                let t = Instant::now();
+                sink.emit(&appended).expect("the sink takes the append");
+                let sink_elapsed = t.elapsed();
+
+                // The same tail `append_document` runs after a landed emit
+                // (`frame.rs:1587-1598`), untimed here as it is there.
+                std::mem::swap(&mut band.shadow, &mut band.target);
+                band.document_bottom =
+                    Some(geometry.band_top().saturating_sub(1)).filter(|row| *row > 0);
+                band.delivered(&geometry);
+                band.caret = None;
+
+                // What building `appended`/`script`/`seed` costs to free,
+                // reported rather than dropped silently outside any timer.
+                // `declared` first: it borrows `script`.
+                let t = Instant::now();
+                drop(declared);
+                drop((script, seed, appended));
+                let teardown_elapsed = t.elapsed();
+                let whole_elapsed = whole_started.elapsed();
+
+                verify(&sink.written[before..], i);
+                if i >= WARMUP {
+                    for (bucket, elapsed) in by_stage.iter_mut().zip([
+                        seed_elapsed,
+                        render_elapsed,
+                        preflight_elapsed,
+                        sink_elapsed,
+                        teardown_elapsed,
+                        whole_elapsed,
+                    ]) {
+                        bucket.push(elapsed);
+                    }
+                }
+            }
+            for (label, samples) in [
+                "seed (Band::seed)",
+                "render_append (whole call)",
+                "preflight (check::preflight)",
+                "sink (Vec write)",
+                "teardown (drop)",
+                "whole (substeps span)",
+            ]
+            .into_iter()
+            .zip(by_stage)
+            {
+                report(screen_cols, screen_rows, label, samples);
+            }
+        }
+    }
 }

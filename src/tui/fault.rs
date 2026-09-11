@@ -47,6 +47,19 @@ pub(crate) enum Fault {
     /// the prefix is genuinely on the user's terminal -- and the containment
     /// that follows is the product's, not the harness's.
     PartialFrame,
+    /// A screen that refuses every band frame it is shown, from the first one
+    /// on, and takes not one byte of any of them.
+    ///
+    /// The other road out of `disposed` (`super::event_loop`): every other
+    /// injected write failure either takes a prefix ([`Self::PartialFrame`])
+    /// or answers once, but this one answers *every* frame offered -- so the
+    /// only thing that ends the session is the frame budget already sitting
+    /// in `FrameFailures`, exactly as it would for a screen that is merely
+    /// gone. It answers only a vector that opens a frame: the mode-set and
+    /// restore sequences do not, so raw mode is entered and given back for
+    /// real and the matrix's exit assertions are still measuring the
+    /// product's own restore rather than a terminal this fault silenced.
+    RefusesFrames,
     /// **Not a failure**: the Phase-1 whole-band painter, kept as the reference
     /// the cell diff is judged against.
     ///
@@ -76,6 +89,7 @@ impl Fault {
             Self::SlowUi => "slow-ui",
             Self::AlternatePanic => "alternate-panic",
             Self::PartialFrame => "partial-frame",
+            Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
         }
     }
@@ -139,6 +153,33 @@ pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
             Some(Prefix::Fails)
         }
         _ => None,
+    }
+}
+
+/// The escape prefix a band frame opens with (`frame::BEGIN_FRAME`).
+///
+/// A private copy of the same bytes, not an import: this module answers "is
+/// this vector a frame" without owning any of `frame`'s knowledge of what a
+/// frame contains -- the same reason `event_loop`'s own P3-WRAP benchmark
+/// keeps a private copy of `frame::ERASE_LINE` rather than exposing either
+/// constant beyond the module that defines it.
+const FRAME_BEGIN: &[u8] = b"\x1b[?2026h\x1b[?25l";
+
+/// What [`Fault::RefusesFrames`] answers for a write of exactly these bytes:
+/// `Some` only for a vector that opens a frame, so a mode-set or restore
+/// sequence -- neither of which does -- reaches the real descriptor
+/// unchanged.
+///
+/// Unlike [`partial_frame_answer`] this has no state and no budget of its
+/// own to spend: it says the same thing every time it is asked, for as long
+/// as this run was asked for it, and the session's own [`FrameFailures`
+/// budget](super::event_loop) is what turns a run of these into a session
+/// that ends.
+pub(crate) fn frame_refusal_answer(bytes: &[u8]) -> Option<std::io::Error> {
+    if injected(Fault::RefusesFrames) && bytes.starts_with(FRAME_BEGIN) {
+        Some(std::io::Error::from_raw_os_error(libc::EIO))
+    } else {
+        None
     }
 }
 
