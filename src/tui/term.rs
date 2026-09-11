@@ -29,12 +29,22 @@ use rustix::termios::{
 /// The modes the TUI turns on when it takes the terminal.
 ///
 /// modifyOtherKeys, the kitty keyboard push, bracketed paste, autowrap off
-/// (`terminal.zig:4-13`) and `XTWINOPS 22 ; 2` -- the push of the terminal's
-/// own **window title** onto its title stack, so the one the band sets
-/// (`OSC 2`, `super::frame::title`) is borrowed rather than taken. The window
-/// title only, rather than the icon name with it, because that is the only one
-/// xfx sets: a push that claimed more than the pop gives back is a stack entry
-/// left behind on every exit.
+/// (`terminal.zig:4-13`), the theme-change subscription, and
+/// `XTWINOPS 22 ; 2` -- the push of the terminal's own **window title** onto its
+/// title stack, so the one the band sets (`OSC 2`, `super::frame::title`) is
+/// borrowed rather than taken. The window title only, rather than the icon name
+/// with it, because that is the only one xfx sets: a push that claimed more than
+/// the pop gives back is a stack entry left behind on every exit.
+///
+/// `?2031h` is the subscription upstream's live theme monitor runs on
+/// (`theme_monitor.zig`): a terminal that has it reports `CSI ? 997 ; N n` when
+/// its background changes, and [`super::input`] turns that into a repaint. It is
+/// written under tmux as well as outside it, and that is a **request** rather
+/// than a claim about what tmux does with it -- a terminal that does not
+/// implement the mode ignores it, and the kitty push is left out of the tmux set
+/// only because there is evidence it breaks key input there and none of any
+/// breakage here. Every restore below turns it back off: a subscription this
+/// session leaves running writes reports onto whatever runs next.
 ///
 /// The push is the **last** thing in the mode set and the pop is the first
 /// thing in every restore below, so the title a session sets exists only
@@ -43,28 +53,29 @@ use rustix::termios::{
 ///
 /// Mouse reporting is deliberately absent: the wheel stays the terminal's own
 /// scrollback (`terminal.zig:135-142`).
-pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t";
+pub(crate) const MODE_SET: &str = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t";
 
 /// The same, without the kitty keyboard push, which breaks key input under
 /// tmux (`terminal.zig:29-34`).
-pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[22;2t";
+pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t";
 
 /// The normal exit's restore sequence, with **no** `1049l`: the main surface
 /// was never on the alternate screen (`app_lifecycle.zig:39-41`).
-pub(crate) const RESTORE: &str = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE: &str =
+    "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
-pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
 /// not own was on screen (`app_lifecycle.zig:36-38`).
 pub(crate) const ABNORMAL_RESTORE: &str =
-    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h";
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The abnormal restore for tmux.
 pub(crate) const ABNORMAL_RESTORE_TMUX: &str =
-    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?7h\x1b[?25h";
+    "\x1b[?1049l\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The dimensions a terminal that will not answer is treated as having.
 const DEFAULT_ROWS: u16 = 24;
@@ -714,28 +725,98 @@ mod tests {
         // comparing a constant with itself.
         assert_eq!(
             MODE_SET,
-            "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+            "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t"
         );
         assert_eq!(
             MODE_SET_TMUX,
-            "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t"
+            "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t"
         );
         assert_eq!(
             RESTORE,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE,
-            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\
+             \u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE_TMUX,
-            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
+    }
+
+    /// `DECSET`/`DECRST 2031`, spelled here rather than imported for the reason
+    /// [`PUSH_TITLE`] is.
+    const SUBSCRIBE: &str = "\u{1b}[?2031h";
+    const UNSUBSCRIBE: &str = "\u{1b}[?2031l";
+
+    #[test]
+    fn every_session_subscribes_to_theme_changes_once_and_unsubscribes_once() {
+        // Mode 2031 is a *subscription*, which is what makes both halves of
+        // this a bug rather than a preference. A session that never set it
+        // hears nothing when its user switches their system theme and paints
+        // the rest of the session in the wrong greys; a session that left it
+        // set hands the next program a terminal that keeps sending
+        // `CSI ? 997 ; N n` reports nobody asked for -- into a shell, that is
+        // text on the user's prompt.
+        //
+        // **Under tmux too.** The kitty push is left out there because it
+        // breaks key input (`tmux_never_gets_the_kitty_push_or_the_pop`); this
+        // one has no such evidence against it, and a mode a terminal does not
+        // implement is a mode it ignores. Asking and being ignored costs the
+        // eight bytes; not asking costs the feature.
+        for set in [MODE_SET, MODE_SET_TMUX] {
+            assert_eq!(set.matches(SUBSCRIBE).count(), 1, "{set:?}");
+            assert!(
+                !set.contains(UNSUBSCRIBE),
+                "a mode set unsubscribed: {set:?}"
+            );
+        }
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert_eq!(restore.matches(UNSUBSCRIBE).count(), 1, "{restore:?}");
+            assert!(
+                !restore.contains(SUBSCRIBE),
+                "a restore subscribed: {restore:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_subscription_is_taken_and_given_back_inside_the_title_the_session_borrows() {
+        // The two orderings this module already keeps, asserted against the new
+        // mode rather than re-asserted about the old ones: the title push is
+        // the **last** thing a mode set does and the pop is the **first** thing
+        // a restore does, so anything paired has to sit inside that pair. A
+        // `?2031h` written after the push, or a `?2031l` written before the
+        // pop, would be a mode moved while the title stack was in a state this
+        // session is in the middle of changing.
+        for set in [MODE_SET, MODE_SET_TMUX] {
+            assert!(
+                set.find(SUBSCRIBE) < set.find(PUSH_TITLE),
+                "the subscription came after the title push: {set:?}"
+            );
+        }
+        for restore in [
+            RESTORE,
+            RESTORE_TMUX,
+            ABNORMAL_RESTORE,
+            ABNORMAL_RESTORE_TMUX,
+        ] {
+            assert!(
+                restore.find(POP_TITLE) < restore.find(UNSUBSCRIBE),
+                "the unsubscribe came before the title pop: {restore:?}"
+            );
+        }
     }
 
     /// `XTWINOPS 22 ; 2` and `23 ; 2`, spelled here rather than imported for the

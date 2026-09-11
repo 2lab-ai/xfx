@@ -613,6 +613,17 @@ fn collect_facts(
         // leave the session with neither a band nor a question on the screen.
         adopt_resume(band, signals::take_plane_restored());
         shell.render.request(Reason::ExternalDamage);
+        // And the palette, which the damage above does not cover. A stop hands
+        // the terminal back with the theme subscription turned off
+        // (`super::term::abnormal_restore`'s `?2031l`), so for however long the
+        // user's shell had it this session heard nothing -- and the one thing
+        // they may have done in that time is switch their system theme. The
+        // mode set `resume` just re-announced subscribes again, which covers
+        // every change from **now** on; what it cannot do is say what was
+        // missed, so the session asks. Armed rather than written here:
+        // `collect_facts` reconciles state and the paint tick is what writes
+        // (`Shell::resync_theme`).
+        shell.resync_theme();
     }
 
     // Taken rather than left set, so that the *launch* measurement -- which
@@ -751,6 +762,42 @@ fn commit_frame(
     now: Instant,
     _reconciled: Reconciled,
 ) -> io::Result<()> {
+    // **The theme query, above every exit below.** It carries no coordinates
+    // and moves no cell, so it means the same thing on the borrowed buffer and
+    // on a screen no band fits on -- and those are exactly the two states a
+    // session can sit in for minutes at a time. Written after either of the
+    // returns below it would be a resync that lands when the question is
+    // answered or the window is made big enough again, which is the moment it
+    // stops being worth anything.
+    if shell.take_theme_query() {
+        let query = super::theme::MODE_QUERY.as_bytes();
+        if let Err(emit) = check_theme_query(query, band.on_alternate())
+            .map_err(Emit::rejected)
+            .and_then(|()| out.emit(query))
+        {
+            // The same disposal `/clear` gets, for the same reasons.
+            // `Rejected` and `ZeroProgress` moved no byte, so the question is
+            // handed back and offered again next tick under the existing
+            // budget; `Partial` is fatal on the spot and is not re-armed --
+            // there is no next tick for it to survive into.
+            //
+            // **And a query that lands does not mend the budget.** A frame is
+            // what proves the screen is taking bytes; seven bytes with no cells
+            // behind them are not, and calling `succeeded` here would let a
+            // session that has refused every frame for `FRAME_BUDGET` reset the
+            // run each time a resync happened to slip through.
+            let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
+            return match disposed(emit, failures, now) {
+                Some(fatal) => Err(fatal),
+                None => {
+                    if rearm {
+                        shell.restore_theme_query();
+                    }
+                    Ok(())
+                }
+            };
+        }
+    }
     // `/clear`, and before everything: the screen and its scrollback go, and
     // what is written after this write is written onto a blank terminal. The
     // shell has already dropped the appends it owed against the screen that is
@@ -900,6 +947,39 @@ fn commit_frame(
         return Ok(());
     }
     commit_band(shell, band, out, failures, now)?;
+    Ok(())
+}
+
+/// What the theme query says it does: **nothing at all** except ask.
+///
+/// One query, no cell, no caret and no mode. The screen is one cell because a
+/// vector with no footprint needs no more: a query that moved a cell is refused
+/// by the emptiness check whatever size the model is, which is the same
+/// argument [`super::probe`]'s launch queries make.
+///
+/// **The plane is the one the terminal is really on, and this is the one vector
+/// where that cannot be proved by anything being refused.** `Intent::Queries`
+/// licenses no row on *either* buffer and holds the caret to the one the seed
+/// had, so seven bytes that touch neither are accepted against either seed --
+/// the plane is passed because it is the true statement about where these bytes
+/// land, not because a wrong one would be caught here. Stated rather than left
+/// implied, and asserted as independence rather than as a guard
+/// (`a_theme_query_is_accepted_on_either_plane_and_moves_no_cell_on_either`), so
+/// that nobody reads a passing check as proof the plane was considered.
+fn check_theme_query(bytes: &[u8], on_alternate: bool) -> io::Result<()> {
+    let plane = if on_alternate {
+        super::check::PlaneKind::Alternate
+    } else {
+        super::check::PlaneKind::Primary
+    };
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(1, 1, super::check::ModeSet::fresh(), 0, plane),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Queries(&[super::check::QueryId::ThemeMode]),
+            super::check::Footprint::none(plane),
+        ),
+    )?;
     Ok(())
 }
 
@@ -1450,6 +1530,7 @@ mod tests {
                     mode: crate::tui::theme::Mode::Dark,
                     depth: crate::tui::theme::Depth::Ansi256,
                 },
+                false,
                 work,
             ),
             _work,
@@ -2766,6 +2847,299 @@ mod tests {
         assert!(
             !shell.take_clearing(),
             "a partial clear left the intent armed as if nothing had reached the terminal"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the theme query a resume owes
+    // -----------------------------------------------------------------------
+
+    /// `DSR ? 996 n`, spelled here rather than imported for the reason every
+    /// needle in this module's tests is: a test that read the constant it is
+    /// checking would pass for whatever `super::super::theme` declared.
+    const THEME_QUERY: &str = "\u{1b}[?996n";
+
+    #[test]
+    fn a_resume_asks_the_terminal_which_way_round_it_is_now() {
+        // The gap mode 2031 cannot close. A stop hands the terminal back with
+        // the subscription off, so whatever the user did to their theme while
+        // their shell had it was said to nobody; re-announcing on the way back
+        // subscribes to the *next* change and cannot report the one that was
+        // missed. Armed by the resume and written by the tick, once.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        out.written.clear();
+
+        shell.resync_theme();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick that carries the query");
+        let text = String::from_utf8_lossy(&out.written).to_string();
+        assert_eq!(
+            text.matches(THEME_QUERY).count(),
+            1,
+            "the resync did not reach the terminal exactly once: {text:?}"
+        );
+
+        out.written.clear();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick after it");
+        let text = String::from_utf8_lossy(&out.written).to_string();
+        assert!(
+            !text.contains(THEME_QUERY),
+            "one resume put a query on every tick that followed it: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_theme_query_reaches_a_screen_no_band_fits_on() {
+        // The state a resync is worth the most in, and the one every write
+        // below it refuses to make: on a screen the band cannot be painted on,
+        // `commit_frame` returns without addressing a row, because a row number
+        // out of a geometry that no longer describes the screen is a `CUP` the
+        // terminal clamps and an append that cannot be taken back. The query
+        // carries no coordinates at all, so it means the same thing on any
+        // screen -- and a session can sit in this state for as long as somebody
+        // leaves the window small.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        shell.render.mark_resize(Instant::now());
+        assert!(shell.blind(), "this case does not start where it means to");
+
+        shell.resync_theme();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick");
+
+        assert_eq!(
+            String::from_utf8_lossy(&out.written),
+            THEME_QUERY,
+            "a blind tick wrote something other than the query, or nothing at all"
+        );
+    }
+
+    #[test]
+    fn a_theme_query_is_accepted_on_either_plane_and_moves_no_cell_on_either() {
+        // What the declaration can and cannot prove, asserted rather than
+        // implied. These bytes touch no cell on the primary buffer and none on
+        // the borrowed one, so the output check accepts them against a seed
+        // that names either -- which is why `check_theme_query`'s plane is a
+        // true statement about where the bytes land rather than a guard. A
+        // future edit that gave this vector a cell would find exactly one of
+        // these two accepting it.
+        for on_alternate in [false, true] {
+            check_theme_query(THEME_QUERY.as_bytes(), on_alternate)
+                .unwrap_or_else(|err| panic!("on_alternate={on_alternate}: {err}"));
+        }
+        // And the emptiness is what carries it: a vector that placed a cell is
+        // refused on both, so "accepted on either" is a statement about *this*
+        // vector and not about the intent being lax.
+        for on_alternate in [false, true] {
+            let with_a_cell = format!("{THEME_QUERY}\u{1b}[1;1Hx");
+            check_theme_query(with_a_cell.as_bytes(), on_alternate)
+                .expect_err("a query vector that wrote a cell");
+        }
+    }
+
+    #[test]
+    fn a_question_on_the_other_plane_does_not_hold_the_theme_query_back() {
+        // A question the band cannot show can own the terminal for minutes
+        // while somebody reads a change, which is exactly long enough for a
+        // background to move under it. `commit_frame` hands the rest of the
+        // tick to `paint_alternate` and returns, so a query written after that
+        // branch would land when the question was answered -- and the answer is
+        // the moment the resync stops being worth anything.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        assert!(band.on_alternate(), "the plane was never taken");
+        out.written.clear();
+
+        shell.resync_theme();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick while the question is up");
+
+        let text = String::from_utf8_lossy(&out.written).to_string();
+        assert!(
+            text.starts_with(THEME_QUERY),
+            "the query did not go out above the plane's own frame: {text:?}"
+        );
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the query gave the question's plane away"
+        );
+    }
+
+    #[test]
+    fn a_refused_theme_query_is_still_owed_on_the_next_tick() {
+        // `take_theme_query` consumes the flag before the write is attempted,
+        // so a refusal that moved no byte has nowhere to leave the intent but
+        // `restore_theme_query` -- and nothing else ever sets it again for a
+        // resume that has already been adopted. The same disposal `/clear`
+        // gets, and the same reason.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut out = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+
+        shell.resync_theme();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a refused query is not fatal");
+        assert!(
+            out.written.is_empty(),
+            "the refused query reached the terminal"
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the retried query");
+        let text = String::from_utf8_lossy(&out.written).to_string();
+        assert_eq!(
+            text.matches(THEME_QUERY).count(),
+            1,
+            "the query was forgotten, or asked twice: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_partial_theme_query_ends_the_session_and_is_not_rearmed() {
+        // The sibling that does not resume. A terminal that took part of the
+        // vector holds a fragment of an escape sequence, and offering the whole
+        // thing again would put that fragment on the screen twice; `disposed`
+        // ends the session on it, and re-arming would be a flag nobody reads.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = HalfDeaf::taking(3);
+
+        shell.resync_theme();
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a query the terminal took part of ends the session");
+        assert!(err.to_string().contains('3'), "{err}");
+        assert!(
+            !shell.take_theme_query(),
+            "a partial query left the intent armed as if nothing had reached the terminal"
+        );
+    }
+
+    #[test]
+    fn a_theme_query_that_lands_does_not_mend_the_frame_budget() {
+        // The budget is a claim about **frames**: a screen that has refused
+        // every one of them for `FRAME_BUDGET` ends the session rather than
+        // retrying invisibly. Seven bytes with no cells behind them are not
+        // evidence against that, and a `succeeded` here would let a session
+        // whose screen is gone reset the run every time a resync slipped
+        // through -- which is the one failure the budget exists to make
+        // impossible to hide.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let start = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            shell.render.begin().is_none(),
+            "the session still owes a frame, so the tick below would land one \
+             and mend the budget for a reason this case is not about"
+        );
+
+        // A run of refusals begins, and then a query lands in the middle of it.
+        assert!(failures
+            .failed(refused(io::ErrorKind::BrokenPipe), start)
+            .is_none());
+        shell.resync_theme();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            at(start, 100),
+            Reconciled,
+        )
+        .expect("the query");
+
+        // The run is still the one that began at `start`, so the budget is
+        // spent on schedule rather than restarted.
+        assert!(
+            failures
+                .failed(refused(io::ErrorKind::BrokenPipe), at(start, 501))
+                .is_some(),
+            "a query that landed mended a budget the screen had not"
         );
     }
 

@@ -369,6 +369,9 @@ pub(crate) struct ModeSet {
     bracketed_paste: Option<bool>,
     /// `CSI ? 7 h/l`.
     autowrap: Option<bool>,
+    /// `CSI ? 2031 h/l`, the theme-change subscription
+    /// ([`super::term::MODE_SET`]).
+    theme_notifications: Option<bool>,
 }
 
 impl ModeSet {
@@ -387,6 +390,7 @@ impl ModeSet {
             kitty_keyboard: None,
             bracketed_paste: None,
             autowrap: None,
+            theme_notifications: None,
         }
     }
 
@@ -400,6 +404,10 @@ impl ModeSet {
             kitty_keyboard: if tmux { None } else { Some(true) },
             bracketed_paste: Some(true),
             autowrap: Some(false),
+            // Written in both sets: unlike the kitty push there is no evidence
+            // it breaks anything under tmux, and a terminal without the mode
+            // ignores it (`super::term::MODE_SET`).
+            theme_notifications: Some(true),
         }
     }
 
@@ -413,6 +421,11 @@ impl ModeSet {
             kitty_keyboard: if tmux { None } else { Some(false) },
             bracketed_paste: Some(false),
             autowrap: Some(true),
+            // **`Some(false)`, not `None`.** The subscription was made in both
+            // sets, so it is given back in both restores, and a restore that
+            // merely said nothing about it would pass while leaving the user's
+            // next program reading theme reports off its own input.
+            theme_notifications: Some(false),
         }
     }
 }
@@ -422,6 +435,9 @@ impl ModeSet {
 pub(crate) enum QueryId {
     /// `OSC 11 ; ?`, the background colour ([`super::theme::QUERY`]).
     Background,
+    /// `CSI ? 996 n`, which way round the terminal is now
+    /// ([`super::theme::MODE_QUERY`]).
+    ThemeMode,
     /// `CSI 6 n`, the cursor report.
     CursorPosition,
 }
@@ -1840,6 +1856,18 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
             }
         },
         (b'?', set @ (b'h' | b'l')) => private_mode(model, params, set == b'h', at)?,
+        // **A separate arm from the `CSI 6 n` above, deliberately.** The
+        // private marker makes this a different sequence with a different
+        // answer -- `CSI ? 996 n` is answered with a theme report and `CSI 6 n`
+        // with a cursor position -- so widening the plain arm to carry both
+        // would let a vector declare one and write the other. One parameter and
+        // one only: `? 6 n` is the private cursor report, which this crate does
+        // not write, and a grammar that admitted every private `n` would admit
+        // it.
+        (b'?', b'n') => match params {
+            "996" => model.queries.push(QueryId::ThemeMode),
+            _ => return Err(Reject::new("a report this crate does not ask for", at)),
+        },
         (b'>', b'm') => match params {
             "4;2" => model.modes.modify_other_keys = Some(2),
             "4;0" => model.modes.modify_other_keys = Some(0),
@@ -1919,6 +1947,7 @@ fn private_mode(
         "25" => model.cursor_visible = Some(set),
         "2004" => model.modes.bracketed_paste = Some(set),
         "7" => model.modes.autowrap = Some(set),
+        "2031" => model.modes.theme_notifications = Some(set),
         "1049" => {
             if set {
                 model.saved_cursor = match model.caret {
@@ -2369,6 +2398,189 @@ mod tests {
 
         let ordered = b"\x1b]11;?\x1b\\\x1b[6n".to_vec();
         preflight(&model, &ordered, &declared).expect("the order the fence needs");
+    }
+
+    #[test]
+    fn the_theme_mode_query_is_a_query_and_only_inside_one() {
+        // `CSI ? 996 n` is the running session's "which way round are you
+        // now?" (`super::super::theme::MODE_QUERY`). Two things have to be
+        // true of it and neither follows from the other: a vector that says it
+        // asks it is accepted, and a vector that asks it without saying so is
+        // refused -- a query whose answer arrives in the composer is exactly
+        // the failure `queries` exists to catch.
+        let model = TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let asked = b"\x1b[?996n".to_vec();
+        preflight(
+            &model,
+            &asked,
+            &Declared::new(
+                Intent::Queries(&[QueryId::ThemeMode]),
+                Footprint::none(PlaneKind::Primary),
+            ),
+        )
+        .expect("a declared theme-mode query");
+
+        let grid = Grid::blank(24, 80);
+        let smuggled = b"\x1b[?996n\x1b[1;1H".to_vec();
+        let reject = preflight(
+            &seed(&grid, None),
+            &smuggled,
+            &Declared::new(
+                Intent::Primary {
+                    grid: &grid,
+                    caret: Some((1, 1)),
+                    cursor_visible: None,
+                    title: None,
+                },
+                anywhere(24, 0),
+            ),
+        )
+        .expect_err("a query inside a band frame");
+        assert_eq!(reject.shape(), "a query this vector did not declare");
+    }
+
+    #[test]
+    fn a_private_report_this_crate_does_not_ask_for_is_still_outside_the_alphabet() {
+        // The arm that admits `? 996 n` admits **that** report and no other.
+        // `CSI ? 6 n` is the private cursor report -- a real sequence, one byte
+        // from the one above -- and this crate does not write it; a grammar
+        // that let the private marker through on any parameter would accept it
+        // and every other private `n` a future edit mistyped.
+        let model = TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Primary);
+        for spelling in [&b"\x1b[?6n"[..], b"\x1b[?997n", b"\x1b[?996;1n"] {
+            let reject = preflight(
+                &model,
+                spelling,
+                &Declared::new(
+                    Intent::Queries(&[QueryId::ThemeMode]),
+                    Footprint::none(PlaneKind::Primary),
+                ),
+            )
+            .expect_err("a private report this crate does not write");
+            assert_eq!(
+                reject.shape(),
+                "a report this crate does not ask for",
+                "{spelling:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_cursor_report_did_not_become_the_theme_query() {
+        // The other half of the same boundary: the plain `CSI 6 n` arm was not
+        // widened to carry the new one. A vector that asks the cursor where it
+        // is, declared as a theme query, is a mismatch -- and would not be if
+        // one arm answered for both.
+        let model = TerminalModel::seed_modes(24, 80, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let reject = preflight(
+            &model,
+            b"\x1b[6n",
+            &Declared::new(
+                Intent::Queries(&[QueryId::ThemeMode]),
+                Footprint::none(PlaneKind::Primary),
+            ),
+        )
+        .expect_err("a cursor report declared as a theme query");
+        assert_eq!(
+            reject.shape(),
+            "queries in an order the fence does not have"
+        );
+    }
+
+    #[test]
+    fn the_mode_set_declares_its_theme_subscription_and_a_frame_may_not_smuggle_one() {
+        // `?2031h` is a mode like every other one this crate writes, which
+        // means both halves of the rule that covers `?2004` and `?7` cover it:
+        // the vector that announces the session declares it, and a band frame
+        // that carried one would be moving a mode nothing asked to move --
+        // here, subscribing a terminal to reports that reach the composer.
+        //
+        // The bytes are the announce vector spelled out; the expectation is
+        // `ModeSet::announced`, which is written by hand rather than parsed out
+        // of `term::MODE_SET`, so the two sides cannot agree by construction.
+        let model = TerminalModel::seed_modes(1, 1, ModeSet::fresh(), 0, PlaneKind::Primary);
+        let announced = b"\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t".to_vec();
+        preflight(
+            &model,
+            &announced,
+            &Declared::new(
+                Intent::Modes {
+                    modes: ModeSet::announced(false),
+                    title_stack: 1,
+                    plane: PlaneKind::Primary,
+                    cursor_visible: None,
+                },
+                Footprint::none(PlaneKind::Primary),
+            ),
+        )
+        .expect("the announce vector");
+
+        let grid = Grid::blank(24, 80);
+        let smuggled = b"\x1b[?2031h\x1b[1;1H".to_vec();
+        let reject = preflight(
+            &seed(&grid, None),
+            &smuggled,
+            &Declared::new(
+                Intent::Primary {
+                    grid: &grid,
+                    caret: Some((1, 1)),
+                    cursor_visible: None,
+                    title: None,
+                },
+                anywhere(24, 0),
+            ),
+        )
+        .expect_err("a subscription inside a band frame");
+        assert_eq!(
+            reject.shape(),
+            "a terminal mode this vector did not declare"
+        );
+    }
+
+    #[test]
+    fn the_restore_gives_the_theme_subscription_back() {
+        // What the exit's vector says it leaves behind, and the one field of it
+        // this slice adds. A restore that dropped its `?2031l` would leave the
+        // user's next program reading theme reports off its own standard input,
+        // and no cell anywhere would have moved to say so.
+        let model =
+            TerminalModel::seed_modes(1, 1, ModeSet::announced(false), 1, PlaneKind::Primary);
+        let restore =
+            b"\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h".to_vec();
+        preflight(
+            &model,
+            &restore,
+            &Declared::new(
+                Intent::Modes {
+                    modes: ModeSet::restored(false),
+                    title_stack: 0,
+                    plane: PlaneKind::Primary,
+                    cursor_visible: Some(true),
+                },
+                Footprint::none(PlaneKind::Primary),
+            ),
+        )
+        .expect("the restore vector");
+
+        let forgotten = b"\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h".to_vec();
+        let reject = preflight(
+            &model,
+            &forgotten,
+            &Declared::new(
+                Intent::Modes {
+                    modes: ModeSet::restored(false),
+                    title_stack: 0,
+                    plane: PlaneKind::Primary,
+                    cursor_visible: Some(true),
+                },
+                Footprint::none(PlaneKind::Primary),
+            ),
+        )
+        .expect_err("a restore that kept the subscription");
+        assert_eq!(
+            reject.shape(),
+            "a terminal mode this vector did not declare"
+        );
     }
 
     #[test]

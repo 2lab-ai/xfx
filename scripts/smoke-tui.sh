@@ -131,11 +131,12 @@ What is modelled, and nothing else:
 
 * `CUP` (`CSI row ; col H`), `ED` (`CSI 0/2/3 J`), `EL` (`CSI 0 K`)
 * `SGR` (`CSI ... m`), remembered per cell so a colour can be asserted on
-* `DECSET`/`DECRST` for the five private modes xfx sets: `?2026` (synchronized
+* `DECSET`/`DECRST` for the six private modes xfx sets: `?2026` (synchronized
   output), `?25` (cursor visibility), `?7` (autowrap -- xfx turns it **off**,
   which is why the wrap below is not the usual one), `?2004` (bracketed paste),
   `?1049` (**the alternate screen buffer**, with its own cells and its own
-  cursor)
+  cursor), `?2031` (the theme-change subscription -- accepted and nothing
+  else, since a subscribe or unsubscribe moves no cell)
 
 The `?1049` pair is modelled rather than ignored, and that is what makes the
 Phase-2 approval screen assertable at all. A terminal answers `?1049h` by saving
@@ -179,7 +180,12 @@ CSI = re.compile(rb"\x1b\[(?P<private>[<=>?]?)(?P<params>[0-9;]*)(?P<inter>[ -/]
 OSC = re.compile(rb"\x1b\](?P<body>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 
 # The private modes xfx is allowed to set. Anything else is a finding.
-KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049"}
+#
+# `?2031` is the theme-change subscription (`src/tui/term.rs:56,65`): a session
+# turns it on in its mode set and off in every restore, the same enable/disable
+# pair as `?2004` and `?7` above it, so a terminal volunteers a notification
+# rather than being polled for one.
+KNOWN_MODES = {"?2026", "?25", "?7", "?2004", "?1049", "?2031"}
 
 # The `OSC` numbers xfx is allowed to write: the window title
 # (`src/tui/frame.rs`) and the background query it asks the terminal
@@ -193,8 +199,18 @@ KNOWN_WINDOW_OPS = {"22;2", "23;2"}
 
 # The keyboard-protocol sequences of `src/tui/term.rs:32-52`, spelled out:
 # `>4;2m`/`>4;0m` are modifyOtherKeys on and off, `>1u` pushes the kitty
-# keyboard flags and `<u` pops them.
-KNOWN_PRIVATE = {(">", "4;2", "m"), (">", "4;0", "m"), (">", "1", "u"), ("<", "", "u")}
+# keyboard flags and `<u` pops them. `?996n` (`src/tui/theme.rs:104`) is the
+# outright "which way round are you now?" query a launch asks once, paired
+# with the `?2031` subscription above but not itself an enable/disable pair --
+# it carries no parameter, and a report with one (`?996;1n`) is a sequence
+# nobody sends and stays a finding.
+KNOWN_PRIVATE = {
+    (">", "4;2", "m"),
+    (">", "4;0", "m"),
+    (">", "1", "u"),
+    ("<", "", "u"),
+    ("?", "996", "n"),
+}
 
 # How many rows of what left the top of the screen are kept.
 SCROLLBACK_ROWS = 2000
@@ -883,6 +899,43 @@ def a_frame_is_recorded_only_when_it_is_asked_for():
     require(not fed(stream).frames, "frames were recorded by an emulator that was not asked to")
 
 
+def the_theme_subscription_mode_and_query_the_product_emits_are_accepted():
+    """`?2031h`/`?2031l` (`src/tui/term.rs:56,65`) and `?996n` (`src/tui/theme.rs:104`).
+
+    The subscription mode xfx's session sets so a terminal volunteers a
+    background change, and the outright query it asks at launch, both move no
+    cell -- accepting them is a claim about the allowlist, not about the grid,
+    so the screen, the caret and the plane are read off before and after and
+    have to agree. The snapshot is taken against a grid seeded with real
+    content and a caret away from the origin first: a blank default grid is
+    satisfied by an emulator that *erases* on `?2031` exactly as well as by one
+    that does nothing, so the seed (`keep me` written mid-screen, caret parked
+    away from it) is what makes "moves no cell" a claim that can fail. The
+    negative controls sit right next to the accepted three: `?2032` (an
+    undeclared neighboring mode), `?997;1n` (the terminal's *inbound* answer to
+    the subscription, which xfx's own output stream never carries) and
+    `?996;1n` (the query with a parameter nobody sends) all stay findings -- an
+    oracle that accepted any of them would be whitelisting a report or a
+    request the product never makes.
+    """
+    grid = Grid(3, 20)
+    grid.feed(b"\x1b[2;3Hkeep me\x1b[1;2H")
+    before = (grid.text(), (grid.row, grid.col), grid.plane)
+    grid.feed(b"\x1b[?2031h\x1b[?996n\x1b[?2031l")
+    after = (grid.text(), (grid.row, grid.col), grid.plane)
+    require(
+        not grid.unknown,
+        "the product's theme subscription/query was rejected: %r" % (grid.unknown,),
+    )
+    require(
+        before == after,
+        "the accepted theme sequences moved the grid, caret, or plane: %r != %r" % (before, after),
+    )
+    require(fed("\x1b[?2032h").unknown, "an undeclared neighboring mode ?2032 passed the oracle unremarked")
+    require(fed("\x1b[?997;1n").unknown, "an inbound-only ?997;1n report passed the oracle unremarked")
+    require(fed("\x1b[?996;1n").unknown, "a parametrized ?996;1n passed the oracle unremarked")
+
+
 TESTS = (
     a_zwj_family_is_one_cluster_two_cells_wide,
     a_combining_mark_stays_with_the_cell_it_marks,
@@ -900,6 +953,7 @@ TESTS = (
     a_row_that_leaves_the_alternate_plane_reaches_no_scrollback,
     entering_the_alternate_plane_twice_is_a_finding,
     a_frame_is_recorded_only_when_it_is_asked_for,
+    the_theme_subscription_mode_and_query_the_product_emits_are_accepted,
 )
 
 
@@ -1656,8 +1710,14 @@ FRAME_END = "\x1b[?2026l\x1b[?25h"
 # The whole interactive mode sequence and the two restores, in order
 # (`src/tui/term.rs:32-52`). Spelled out rather than imported: a harness that
 # read the constant it is checking would pass for whatever the module declared.
-MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[22;2t"
-RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?7h\x1b[?25h"
+# The title push (`22;2t`) is the last thing in the mode set and its pop
+# (`23;2t`) is the first thing in every restore below -- the only last/first
+# pair here. `?2031h`/`?2031l` (`src/tui/term.rs:56,65`), the theme-change
+# subscription, sits the other way round it: set *before* the push and unset
+# *after* the pop, so the subscription is taken and given back inside the
+# title the session borrows, never outside it.
+MODE_SET = "\x1b[>4;2m\x1b[>1u\x1b[?2004h\x1b[?7l\x1b[?2031h\x1b[22;2t"
+RESTORE = "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h"
 ABNORMAL_RESTORE = "\x1b[?1049l" + RESTORE
 
 # The local and input modes raw mode clears (`shell_runtime.zig:108-138`).

@@ -142,9 +142,12 @@ exact restore path. Everything below is written to make that obligation testable
 
 Start-up detection: `FX_THEME`-equivalent env override → OSC 11 query (200 ms deadline) → `COLORFGBG`
 → default dark; luminance > 32768 means light (`theme_detection.zig:22-62`, `theme_protocol.zig:11-40`).
-Truecolor is gated on `COLORTERM` with Apple Terminal downgraded (`:44-53`). Live re-tinting
-(mode 2031 + DSR `?996n`) additionally rewrites stored SGR in the transcript and patches the pacer's
-pending buffer (`app_render_runtime.zig:343-357`) — deferred, see the ladder.
+Truecolor is gated on `COLORTERM` with Apple Terminal downgraded (`:44-53`). Upstream's live
+re-tinting (mode 2031 + DSR `?996n`) additionally rewrites stored SGR in the transcript and patches
+the pacer's pending buffer (`app_render_runtime.zig:354-367`). Published xfx releases stay
+startup-only; locally and not published, a SIGCONT arms an outbound `?996n` query and the `997;n`
+reply is decoded before focus, but the transcript rewrite and pacer-buffer patch are not
+implemented — see item 23 in the ladder.
 
 ## Runtime topology (authoritative)
 
@@ -839,6 +842,13 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
 22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then
     transcript).
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.
+    **Partial, local, not published**: mode 2031 enable/restore is paired in both tmux and native
+    launch, and the launch probe itself sequences OSC 11 → `?996n` → CPR. A SIGCONT arms an
+    outbound `?996n` query, delivered on a checked counted paint tick even under alt-screen or
+    blind; the `997;1`/`997;2` reply is decoded before focus and consumed on input, with
+    `ZeroProgress`/`Rejected` retained and `Partial` fatal. An explicit `XFX_THEME` lock is still
+    honored (Depth unchanged), and repaint bands follow notifications. Transcript re-tint and the
+    pacer's pending-buffer patch are **not implemented** — that half stays open, required.
 
 **Deferred, explicitly** (upstream has them as defense or breadth, and a port earns them later):
 full-transcript / subagent-manager / terminal-session alt screens and the owner-handoff transitions;

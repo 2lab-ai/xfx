@@ -182,6 +182,15 @@ are implemented and registered above. Still specification: commit self-check **r
 injected partial write (1+2) -- the containment half of that row is driven by 3c above, and recovery
 is the half that is not; live theme switch re-tints the transcript (2).
 
+**Theme monitor status, beside the row above.** The mode-2031 monitor half itself (paired
+enable/restore; a SIGCONT arms an outbound `?996n` query delivered on a checked counted paint tick,
+and the `997;n` reply is decoded before focus and consumed on input) is implemented locally and not
+published -- see item 23 in [`03-tui-port.md`](03-tui-port.md) -- and theme-specific native-PTY
+tests exist for it in `cargo test`, but neither is a row in the tracked scenario table above: that
+table (29 scenarios, 649 checks) is a **regression** suite, and its green says nothing about this
+monitor. Scratch QA covering theme is a separate effort from this tracked regression suite and does
+not register or close the theme scenario here.
+
 **The self-check's first half now exists in the working tree, and it is deliberately not a scenario
 here.** The per-vector output preflight of item 21 in [`03-tui-port.md`](03-tui-port.md) refuses a
 vector *before* it is written, and what proves it is `src/tui/check.rs`'s own cases plus the tamper

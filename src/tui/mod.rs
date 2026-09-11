@@ -282,7 +282,14 @@ fn hold(
     // decided, and a decided session must not spend a deadline -- or put a
     // query on a terminal -- to be told something it will ignore.
     let env_theme = std::env::var(theme::ENV).ok();
-    let ask_background = !theme::decided(env_theme.as_deref());
+    // The same answer twice over, which is why it is read once: a session the
+    // user decided for asks the terminal nothing at launch **and** ignores what
+    // the terminal volunteers afterwards. The second half travels to the shell
+    // as a constructor argument rather than as a variable the shell reads for
+    // itself, so `super::shell` touches no environment and a case about a
+    // locked session sets no global.
+    let theme_locked = theme::decided(env_theme.as_deref());
+    let ask_background = !theme_locked;
     // The longer of the two deadlines when both questions are on the wire,
     // because they are waited for in one read; the cursor's own when the
     // palette is already settled.
@@ -349,7 +356,7 @@ fn hold(
     // (`term::PUSH_TITLE`), which `announce` has already written above.
     band.set_title(frame::title(&config.model));
 
-    let mut shell = shell::Shell::new(config, geometry, palette, worker.handle());
+    let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
     event_loop::run(
         &mut shell,
         band,

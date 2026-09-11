@@ -193,6 +193,18 @@ pub(crate) enum Input {
     Action(Action),
     /// One uninterpreted byte from between the bracketed-paste markers.
     PasteByte(u8),
+    /// The terminal saying which way round its background is now
+    /// ([`super::theme::notification`]).
+    ///
+    /// **Not a key, and that is the whole of why it is a variant rather than an
+    /// [`Action`].** Nobody typed it: it arrives because mode 2031 was set
+    /// ([`super::term::MODE_SET`]) or because the session asked
+    /// ([`super::theme::MODE_QUERY`]), and what it asks for is a repaint rather
+    /// than an edit. Routed as an action it would have to be given a meaning at
+    /// every surface that binds keys -- and swallowed at the two that swallow
+    /// everything they do not bind, which is precisely where a live theme
+    /// change would stop working.
+    Report(super::theme::Mode),
 }
 
 /// The longest a sequence may be before the decoder stops trying to understand
@@ -467,6 +479,20 @@ impl Decoder {
             // the sequence means.
             _ => {
                 self.stage = Stage::Ground;
+                // Before the key table, because this is not a key. A terminal
+                // that was asked to report background changes
+                // ([`super::term::MODE_SET`]) sends `CSI ? 997 ; N n` on its
+                // own, and the parameters are matched exactly
+                // ([`super::theme::notification`]) -- anything else with this
+                // final byte falls through and becomes the
+                // [`Action::Ignore`] every unbound sequence becomes, which is
+                // what keeps the keystroke behind it a keystroke.
+                if byte == b'n' {
+                    if let Some(mode) = super::theme::notification(&self.params) {
+                        out.push(Input::Report(mode));
+                        return;
+                    }
+                }
                 let action = csi(&self.params, byte);
                 if action == Action::PasteStart {
                     self.pasting = true;
@@ -1622,6 +1648,94 @@ mod tests {
         decoder.feed(b'5', start, &mut out);
         decoder.feed(b'C', start, &mut out);
         assert_eq!(out, vec![Input::Action(Action::WordRight)]);
+    }
+
+    #[test]
+    fn a_theme_notification_is_a_report_rather_than_a_key() {
+        // The two spellings upstream's monitor sends (`theme_monitor.zig:288-289`),
+        // and what they have to become here: a `Report`, so that the surfaces
+        // which swallow every key they do not bind cannot swallow this. Both
+        // directions, because one arm mapped to the wrong mode repaints a light
+        // terminal in the dark greys and nothing else in the session notices.
+        assert_eq!(
+            decode(b"\x1b[?997;1n"),
+            vec![Input::Report(super::super::theme::Mode::Dark)]
+        );
+        assert_eq!(
+            decode(b"\x1b[?997;2n"),
+            vec![Input::Report(super::super::theme::Mode::Light)]
+        );
+    }
+
+    #[test]
+    fn a_notification_split_across_two_reads_is_still_one_report() {
+        // A report is eight bytes of terminal output and nothing makes it
+        // arrive in one read: under load the kernel hands over whatever it has.
+        // Split, and with a whole `ESC_TIMEOUT` of quiet in between -- which is
+        // the clock the decoder does resolve things on -- it is still the one
+        // event, and it is still not two keystrokes.
+        let mut decoder = Decoder::new();
+        let start = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[?99" {
+            decoder.feed(*byte, start, &mut out);
+        }
+        assert!(out.is_empty(), "half a report became events: {out:?}");
+        let later = start + Decoder::ESC_TIMEOUT * 4;
+        decoder.flush(later, &mut out);
+        assert!(out.is_empty(), "the clock cut a report in half: {out:?}");
+        for byte in b"7;2n" {
+            decoder.feed(*byte, later, &mut out);
+        }
+        assert_eq!(
+            out,
+            vec![Input::Report(super::super::theme::Mode::Light)],
+            "a report that arrived in two reads was not one report"
+        );
+    }
+
+    #[test]
+    fn the_same_bytes_inside_a_paste_are_content() {
+        // The paste rule is not "every sequence but this one": between the
+        // markers there is nothing to decode, so a file carrying the *text* of
+        // a theme report pastes as those characters rather than repainting the
+        // band. Uninterpreted bytes, exactly as `Ctrl-C` and an arrow key are.
+        let events = decode(b"\x1b[200~\x1b[?997;2n\x1b[201~");
+        let expected: Vec<Input> = std::iter::once(Input::Action(Action::PasteStart))
+            .chain(b"\x1b[?997;2n".iter().map(|byte| Input::PasteByte(*byte)))
+            .chain(std::iter::once(Input::Action(Action::PasteEnd)))
+            .collect();
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn a_report_the_protocol_does_not_spell_that_way_is_ignored_and_costs_no_keystroke() {
+        // Every near miss, and the same two things have to be true of each: it
+        // is not a `Report` -- a band repainted on a sequence no terminal sends
+        // is a band repainted on noise -- and the key behind it still reaches
+        // the composer. The second half is what a decoder that "gave up" by
+        // discarding to the next final byte would fail.
+        for malformed in [
+            // A mode this protocol has no meaning for.
+            &b"\x1b[?997;3n"[..],
+            // The *query*, echoed back rather than answered.
+            b"\x1b[?996;1n",
+            // The report with a parameter nobody sends.
+            b"\x1b[?997;2;0n",
+            // The report without its private marker, which is a different
+            // sequence entirely.
+            b"\x1b[997;2n",
+            // The report with a leading zero, which parses to the same number
+            // and is not the spelling.
+            b"\x1b[?0997;2n",
+        ] {
+            let events = decode(&[malformed, b"k"].concat());
+            assert_eq!(
+                events,
+                vec![Input::Action(Action::Ignore), Input::Text('k')],
+                "{malformed:?}"
+            );
+        }
     }
 
     /// Whatever `bytes` put in the composer.

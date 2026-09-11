@@ -311,9 +311,24 @@ impl CursorProbe {
         // a signal -- and a terminal that saw the cursor report first would
         // answer it first, at which point the reply that arrives with nothing
         // in front of it is the *cursor's* and the fence proves nothing.
-        let mut queries = String::with_capacity(super::theme::QUERY.len() + QUERY.len());
+        let mut queries = String::with_capacity(
+            super::theme::QUERY.len() + super::theme::MODE_QUERY.len() + QUERY.len(),
+        );
         if background {
             queries.push_str(super::theme::QUERY);
+            // **Behind the colour and in front of the fence.** It is the second
+            // half of the same question -- which way round is this terminal --
+            // asked in the spelling a terminal with mode 2031 answers, and it
+            // is asked here rather than from a writer of its own so that it
+            // costs no extra read and no extra deadline. A terminal that has
+            // neither answers neither and the cursor report still ends the
+            // wait; one that has only this one answers it and the launch starts
+            // in the palette a notification would otherwise have to correct.
+            //
+            // Under the same condition as the colour, and for the same reason:
+            // a session whose palette `XFX_THEME` fixed ignores every answer,
+            // so asking is a query written onto a terminal for nothing.
+            queries.push_str(super::theme::MODE_QUERY);
         }
         queries.push_str(QUERY);
         check_ask(queries.as_bytes(), background)?;
@@ -560,9 +575,10 @@ pub(crate) fn push(
 /// the only thing that tells a missing background reply from a late one, and a
 /// check that only asked "did any cell move" would pass it.
 fn check_ask(bytes: &[u8], background: bool) -> io::Result<()> {
-    let mut asked = Vec::with_capacity(2);
+    let mut asked = Vec::with_capacity(3);
     if background {
         asked.push(super::check::QueryId::Background);
+        asked.push(super::check::QueryId::ThemeMode);
     }
     asked.push(super::check::QueryId::CursorPosition);
     super::check::preflight(
@@ -961,7 +977,19 @@ mod tests {
         let mut wire = Counting::default();
         CursorProbe::ask(&mut wire, true).expect("write the queries");
         let bytes = String::from_utf8(wire.bytes).expect("the queries are text");
-        assert_eq!(bytes, format!("{}{QUERY}", super::super::theme::QUERY));
+        // The colour, then which way round, then the fence -- and the fence
+        // last is what makes it one. A launch that asked the terminal for its
+        // mode *behind* the cursor report would have nothing to prove the
+        // answer was not merely late, and would wait the deadline out on every
+        // terminal that has no `?996n`.
+        assert_eq!(
+            bytes,
+            format!(
+                "{}{}{QUERY}",
+                super::super::theme::QUERY,
+                super::super::theme::MODE_QUERY
+            )
+        );
         // **In one write**, so the order the terminal parses them in is this
         // function's to decide and not a buffer's: the fence is an ordering
         // argument, and an argument about order that is issued in two pieces is
@@ -1254,9 +1282,30 @@ mod tests {
         // The fence: a cursor report arriving with no background reply in front
         // of it proves the terminal has no answer only if the two went out in
         // that order.
-        let reversed = format!("{QUERY}{}", super::super::theme::QUERY);
+        let background = super::super::theme::QUERY;
+        let mode = super::super::theme::MODE_QUERY;
+        let reversed = format!("{QUERY}{background}{mode}");
         assert!(check_ask(reversed.as_bytes(), true).is_err());
-        let ordered = format!("{}{QUERY}", super::super::theme::QUERY);
+        // And the two questions in front of the fence keep their own order, so
+        // the reader that consumes them one at a time cannot be handed the
+        // second one's answer for the first.
+        let swapped = format!("{mode}{background}{QUERY}");
+        assert!(check_ask(swapped.as_bytes(), true).is_err());
+        let ordered = format!("{background}{mode}{QUERY}");
         check_ask(ordered.as_bytes(), true).expect("the order the fence needs");
+    }
+
+    #[test]
+    fn a_decided_palette_asks_the_terminal_nothing_it_would_ignore() {
+        // The other half of `ask`'s conditional, and the reason it is a
+        // conditional: a session whose palette `XFX_THEME` already fixed has
+        // nothing for either answer to change, so both questions and the
+        // deadline they cost are skipped. The cursor report is not optional --
+        // the launch needs it to know what to push into scrollback.
+        let mut wire = Counting::default();
+        CursorProbe::ask(&mut wire, false).expect("write the query");
+        let bytes = String::from_utf8(wire.bytes).expect("the query is text");
+        assert_eq!(bytes, QUERY);
+        check_ask(QUERY.as_bytes(), false).expect("the cursor report alone");
     }
 }

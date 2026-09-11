@@ -92,7 +92,7 @@ use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigge
 use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
-use super::theme::Palette;
+use super::theme::{Mode, Palette};
 use super::transcript::{Append, Landed, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
@@ -321,12 +321,34 @@ pub(crate) struct Shell {
     pub(crate) render: RenderRequest,
     /// The colours the band paints its own rows in.
     ///
-    /// Settled once, at launch, from the terminal xfx was started in
-    /// ([`super::theme`]) and never re-asked: following a background that
-    /// changes mid-session is Phase 3. Held here rather than consulted per
-    /// frame for the reason [`Self::model`] is -- one field, not a borrow of
-    /// the launch.
+    /// Started from the terminal xfx was launched in ([`super::theme`]) and
+    /// moved by every theme report the terminal sends afterwards
+    /// ([`Self::retint`]). Held here rather than consulted per frame for the
+    /// reason [`Self::model`] is -- one field, not a borrow of the launch.
     palette: Palette,
+    /// Whether the user fixed the palette themselves, in which case no report
+    /// may move it.
+    ///
+    /// Decided at launch and never again: it is exactly "`XFX_THEME` named one
+    /// of the two modes" (`super::theme::decided`), which is the one source
+    /// that outranks the terminal. Carried in rather than read here, so that
+    /// nothing in this module touches the process environment and a case about
+    /// a locked session is a constructor argument rather than a global.
+    ///
+    /// **`COLORFGBG` is not a lock.** It is a guess a terminal exports once and
+    /// never updates, and it is consulted only when the terminal would not
+    /// answer at all; a session that started from it must still follow the
+    /// terminal when the terminal finally says something.
+    theme_locked: bool,
+    /// Whether the terminal owes an answer to [`super::theme::MODE_QUERY`] that
+    /// nothing has written yet.
+    ///
+    /// Set when something happened that may have changed the background while
+    /// this session was not listening -- a stop and continue, where the user's
+    /// shell had the terminal and the subscription was gone with it -- and
+    /// taken by the loop's paint tick, which is the one place in the session
+    /// that writes to the terminal under a budget.
+    theme_query: bool,
     /// The model a turn will talk to.
     ///
     /// Read from the configuration once, at startup, rather than consulted per
@@ -650,12 +672,19 @@ impl Shell {
         config: &RuntimeConfig,
         geometry: Geometry,
         palette: Palette,
+        theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
         Self {
             geometry,
             screen: (geometry.rows, geometry.cols),
             palette,
+            theme_locked,
+            // Nothing is owed at launch: the probe already asked
+            // ([`super::probe::CursorProbe::ask`]), and asking again from the
+            // first frame would be a second query on a terminal that is still
+            // answering the first.
+            theme_query: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
             // property of having a shell at all.
@@ -1752,6 +1781,9 @@ impl Shell {
             // below, exactly as they did before amendments existed.
             Input::PasteByte(byte) if drafting => approval::Action::PasteByte(byte),
             Input::Action(_) | Input::PasteByte(_) => return,
+            // Answered before the focus is consulted ([`Self::consume`]), for
+            // the reason the same arm in [`Self::answer`] gives.
+            Input::Report(_) => return,
         };
         // Whichever surface is holding the question, and there is never more
         // than one ([`Self::ask`]). Both answer with the same function
@@ -1974,6 +2006,13 @@ impl Shell {
             // Content rather than keys, and there is nothing here for it to be
             // content of: the composer is not what has the focus.
             Input::PasteByte(_) => return,
+            // Not a key at all, and never routed here: [`Self::consume`]
+            // answers a theme report before the focus is consulted, precisely
+            // so that a question having the keyboard cannot swallow one. The
+            // arm exists because the match is exhaustive, and it returns
+            // because a report reaching it would mean the routing above had
+            // been taken apart.
+            Input::Report(_) => return,
         };
         let (cols, rows) = (self.geometry.cols, self.geometry.rows);
         let Some(ask) = self.ask.as_mut() else {
@@ -2347,6 +2386,69 @@ impl Shell {
         self.render.request(Reason::Animation);
     }
 
+    /// What a theme report says, applied to the palette.
+    ///
+    /// Three ways this changes nothing, and each of them is a decision rather
+    /// than an omission:
+    ///
+    /// * **A locked session.** `XFX_THEME` outranks the terminal at launch
+    ///   (`super::theme::detect`), so it outranks it here too -- a user who
+    ///   named a palette is not overruled by the terminal they named it on.
+    /// * **The mode it already has.** A terminal may re-report the same mode,
+    ///   and an answer to [`super::theme::MODE_QUERY`] after a resume usually
+    ///   is one; repainting the band for it would be a frame per report.
+    /// * **The depth.** How exactly a colour may be asked for is a property of
+    ///   the terminal program (`super::theme::depth_from_env`), and a
+    ///   background that changed is not a terminal that changed.
+    ///
+    /// Otherwise the band is owed a frame, and the panel above it is owed one
+    /// too when there is a panel: the palette paints the divider, the hint row
+    /// and a refusal, and a question in the band is painted between them.
+    fn retint(&mut self, mode: Mode) {
+        if self.theme_locked || self.palette.mode == mode {
+            return;
+        }
+        self.palette.mode = mode;
+        self.render.request(Reason::Footer);
+        if self.slot().is_some() || self.owner == ScreenOwner::Approval {
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Asks the terminal which way round it is now, the next time the loop
+    /// writes.
+    ///
+    /// **Not a write of its own**, and that is the whole of why this is a flag.
+    /// The only writer on this terminal is the loop's paint tick, which counts
+    /// its failures against a budget and refuses to address a screen no band
+    /// fits on; a query written from here would be a second writer with neither.
+    ///
+    /// Nothing is armed for a session whose palette is locked: there is no
+    /// answer it would act on, and a query is a sequence written onto a user's
+    /// terminal.
+    pub(crate) fn resync_theme(&mut self) {
+        if self.theme_locked {
+            return;
+        }
+        self.theme_query = true;
+    }
+
+    /// Whether a theme query is owed, taken so it is written once.
+    pub(crate) fn take_theme_query(&mut self) -> bool {
+        std::mem::take(&mut self.theme_query)
+    }
+
+    /// Hands one back after [`Self::take_theme_query`] took it and the write
+    /// never reached the terminal.
+    ///
+    /// The pair [`Self::take_clearing`] and [`Self::restore_clearing`] make,
+    /// for the same reason: a refused write moved no byte, so what it was
+    /// offering is still owed, and nothing else ever sets this flag for a
+    /// resume that has already been adopted.
+    pub(crate) fn restore_theme_query(&mut self) {
+        self.theme_query = true;
+    }
+
     /// Whether the screen owes a `/clear`, taken so it is written once.
     pub(crate) fn take_clearing(&mut self) -> bool {
         std::mem::take(&mut self.clearing)
@@ -2372,6 +2474,18 @@ impl Shell {
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
+            // **Before the focus, and that is the point of putting it here.**
+            // A theme report is not a keystroke: nobody typed it, and every
+            // branch below is written to swallow what it does not bind -- so a
+            // report routed after them would work at an empty composer and
+            // stop working the moment a question was up, which is exactly the
+            // kind of "works when you test it" this ordering exists to avoid.
+            // It reaches no editor, no panel and no draft; what it moves is
+            // which greys the next frame is painted in.
+            if let Input::Report(mode) = event {
+                self.retint(mode);
+                continue;
+            }
             // Whatever is in front of the user has the focus while it is up,
             // and this is the whole of what that means: nothing below runs, so
             // a `1` cannot be typed into the composer and a Ctrl-D cannot leave
@@ -2410,6 +2524,8 @@ impl Shell {
                 // byte either -- a frame per byte of a megabyte paste is a
                 // session that stops answering the keyboard.
                 Input::PasteByte(byte) => self.paste.byte(byte),
+                // Handled at the top of this loop, before the focus.
+                Input::Report(_) => {}
             }
         }
     }
@@ -3728,6 +3844,13 @@ mod tests {
     };
 
     fn shell(rows: u16, cols: u16) -> Fixture {
+        // Unlocked, because the fixture every case here starts from is a
+        // session whose palette the **terminal** decided -- which is also the
+        // only kind a theme report may move.
+        shell_with(rows, cols, PALETTE, false)
+    }
+
+    fn shell_with(rows: u16, cols: u16, palette: Palette, theme_locked: bool) -> Fixture {
         let home = tempfile::tempdir().expect("a home");
         let workspace = tempfile::tempdir().expect("a workspace");
         let (work, sent, control) = WorkHandle::detached();
@@ -3735,7 +3858,8 @@ mod tests {
             shell: Shell::new(
                 &config(home.path(), workspace.path()),
                 crate::tui::layout::solve(rows, cols, 1).expect("a band"),
-                PALETTE,
+                palette,
+                theme_locked,
                 work,
             ),
             sent,
@@ -3869,6 +3993,7 @@ mod tests {
             &config(home.path(), workspace.path()),
             crate::tui::layout::solve(24, 80, 4).expect("a four-row composer"),
             PALETTE,
+            false,
             work,
         );
         let rows = shell.band_rows();
@@ -10442,5 +10567,215 @@ mod tests {
         );
         shell.decide(Input::Action(Action::Up), Instant::now());
         assert!(!shell.drafting(), "an arrow re-opened a draft");
+    }
+    // -----------------------------------------------------------------------
+    // the terminal's own background, while the session runs
+    // -----------------------------------------------------------------------
+
+    /// The other palette, at the depth every fixture here paints in.
+    ///
+    /// Built from `super::super::theme` rather than spelled in greys, because
+    /// the module under test is this one: what a light session paints is
+    /// `theme`'s fact and `theme`'s tests, and what has to be true here is that
+    /// the band's rows come out of *that* palette rather than the one the
+    /// session started in.
+    const LIGHT: Palette = Palette {
+        mode: super::super::theme::Mode::Light,
+        depth: super::super::theme::Depth::Ansi256,
+    };
+
+    /// The bytes a terminal with mode 2031 sends when its background goes
+    /// light, typed onto the session's own input the way the terminal sends
+    /// them -- through `route_bytes`, which is the decoder's only door.
+    const WENT_LIGHT: &[u8] = b"\x1b[?997;2n";
+    const WENT_DARK: &[u8] = b"\x1b[?997;1n";
+
+    #[test]
+    fn a_background_that_changes_repaints_the_band_in_the_other_palette() {
+        // Both directions, because an arm wired to the wrong mode paints a
+        // light terminal in the dark greys and nothing in the session notices:
+        // the rows are still there, still readable to whoever wrote the test,
+        // and invisible on the screen they were painted for.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_LIGHT);
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].starts_with(LIGHT.divider()) && rows[0] != divider(80),
+            "the divider was not repainted in the light palette: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            "the hint row was not repainted in the light palette: {rows:?}"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "the band was left owing no frame, so the new palette would reach \
+             the screen only when something else asked for one"
+        );
+
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_DARK);
+        assert!(
+            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            "the band did not come back to the dark palette"
+        );
+        assert!(shell.render.begin().is_some(), "the way back owed no frame");
+    }
+
+    #[test]
+    fn a_report_that_says_what_the_palette_already_says_costs_no_frame() {
+        // A terminal may re-report the mode it already reported -- and the
+        // answer to the query a resume asks (`Shell::resync_theme`) usually is
+        // exactly that. Repainting for it would be a frame per report, on a
+        // band whose rows would come out byte-identical.
+        let mut shell = shell(24, 80);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_DARK);
+        assert!(
+            shell.render.begin().is_none(),
+            "a report that changed nothing asked for a frame"
+        );
+    }
+
+    #[test]
+    fn a_user_who_named_the_palette_outranks_the_terminal_here_too() {
+        // `XFX_THEME` outranks the terminal's answer at launch
+        // (`theme::detect`), and a session that then followed the terminal's
+        // *notifications* would be honouring the variable for exactly as long
+        // as nobody switched their system theme. The lock is carried in, so
+        // this case sets no environment variable and races nothing.
+        let mut shell = shell_with(24, 80, PALETTE, true);
+        let _ = shell.render.begin();
+        shell.route_bytes(WENT_LIGHT);
+
+        assert!(
+            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            "a locked session followed the terminal: {:?}",
+            shell.band_rows()[0]
+        );
+        assert!(
+            shell.render.begin().is_none(),
+            "a locked session repainted for a report it ignored"
+        );
+    }
+
+    #[test]
+    fn a_background_that_changed_is_not_a_terminal_that_changed() {
+        // The depth is a property of the terminal *program* -- whether it
+        // renders `38;2` or quantizes it (`theme::depth_from_env`) -- and a
+        // background going light is not a new terminal. A retint that rebuilt
+        // the whole palette from a default would silently downgrade a
+        // truecolor session to 256 colours, which is the same five greys and
+        // therefore invisible to every case that only reads the mode.
+        let direct = Palette {
+            mode: super::super::theme::Mode::Dark,
+            depth: super::super::theme::Depth::TrueColor,
+        };
+        let mut shell = shell_with(24, 80, direct, false);
+        shell.route_bytes(WENT_LIGHT);
+
+        let wanted = Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::TrueColor,
+        };
+        assert!(
+            shell.band_rows()[0].starts_with(wanted.divider()),
+            "the flip lost the terminal's colour depth: {:?}",
+            shell.band_rows()[0]
+        );
+    }
+
+    #[test]
+    fn a_question_in_front_of_the_user_neither_swallows_the_report_nor_moves_under_it() {
+        // The ordering `consume` exists to keep. Every surface that takes the
+        // focus swallows what it does not bind, so a report routed after them
+        // would work at an empty composer and stop working the moment a
+        // question was up -- and the question is exactly when a session sits
+        // still long enough for a background to change under it.
+        //
+        // The other half is that the report is not a keystroke *at* the
+        // question: the marked choice and the standing batch are what they were
+        // before it arrived.
+        let mut shell = shell(24, 80);
+        asking_question(&mut shell, a_batch());
+        let before = shell.marked();
+        let _ = shell.render.begin();
+
+        shell.route_bytes(WENT_LIGHT);
+
+        assert_eq!(
+            shell.marked(),
+            before,
+            "the report moved the choice the user was on"
+        );
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "the report answered the question on the user's behalf"
+        );
+        let rows = shell.band_rows();
+        assert!(
+            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            "the question's band was not repainted in the new palette: {rows:?}"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "a question standing over a palette change owed no frame"
+        );
+    }
+
+    #[test]
+    fn a_question_on_the_other_plane_keeps_its_draft_across_a_palette_change() {
+        // The same claim on the surface the band cannot show, where the danger
+        // is bigger: an amendment is text the user typed and has not sent, and
+        // a report routed into `decide` as an unknown key would at best be
+        // swallowed and at worst reach the draft.
+        let mut shell = shell(40, 100);
+        let started = turn_running(&mut shell, b"rewrite the notes\r");
+        shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        shell.settle_band(started);
+        let _ = shell.document();
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        shell.decide(Input::Action(Action::Tab), Instant::now());
+        type_at_the_question(&mut shell, "rename the flag first");
+        let before = shell.marked();
+        let _ = shell.render.begin();
+
+        shell.route_bytes(WENT_LIGHT);
+
+        assert!(shell.drafting(), "the report closed the draft");
+        assert_eq!(shell.marked(), before, "the report moved the draft");
+        assert!(
+            unwrapped(&shell.screen_rows()).contains("rename the flag first"),
+            "the report took the draft's text with it"
+        );
+        assert!(
+            shell.render.begin().is_some(),
+            "the surface the question is on owed no repaint after a palette change"
+        );
+    }
+
+    #[test]
+    fn only_a_session_the_terminal_decides_for_asks_the_terminal_again() {
+        // What a resume arms (`event_loop::collect_facts`), and the one session
+        // it must not arm for. A locked palette has nothing for the answer to
+        // change, and a query is a sequence written onto somebody's terminal.
+        let mut shell = shell(24, 80);
+        shell.resync_theme();
+        assert!(shell.take_theme_query(), "a resume armed no query");
+        assert!(
+            !shell.take_theme_query(),
+            "one resume would have put two queries on the wire"
+        );
+
+        let mut locked = shell_with(24, 80, PALETTE, true);
+        locked.resync_theme();
+        assert!(
+            !locked.take_theme_query(),
+            "a session the user decided for asked the terminal anyway"
+        );
     }
 }

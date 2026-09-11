@@ -337,35 +337,41 @@ fn last_frame(text: &str) -> Option<&str> {
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
 /// an integration test, and a test that read the constant it is checking would
 /// pass for any sequence the module happened to declare.
-const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
+const MODE_SET: &str = "\u{1b}[>4;2m\u{1b}[>1u\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
 /// The same under tmux, with no kitty keyboard push (`terminal.zig:29-34`).
-const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[22;2t";
+const MODE_SET_TMUX: &str = "\u{1b}[>4;2m\u{1b}[?2004h\u{1b}[?7l\u{1b}[?2031h\u{1b}[22;2t";
 
 /// The whole normal-exit restore, in order (`app_lifecycle.zig:39-41`).
-const RESTORE: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE: &str =
+    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The same under tmux, with no kitty pop.
-const RESTORE_TMUX: &str = "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const RESTORE_TMUX: &str =
+    "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// The restore an exit that is **not** the planned one writes, which leads with
 /// `1049l` defensively (`app_lifecycle.zig:36-38`).
 ///
 /// Response-only, like `READY`: no test types these bytes, so waiting for them
 /// cannot be satisfied by the pty echoing the suite's own keystrokes.
-const ABNORMAL_RESTORE: &str =
-    "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?7h\u{1b}[?25h";
+const ABNORMAL_RESTORE: &str = "\u{1b}[?1049l\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\
+                               \u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h";
 
 /// Every byte the TUI writes and the line-oriented shell never does.
 ///
 /// A route that is not the TUI's must emit none of them: an invocation that
 /// merely *looked* like the classic path while having already stamped the
 /// terminal would be the regression these negatives exist to catch.
-const TUI_BYTES: [&str; 6] = [
+const TUI_BYTES: [&str; 7] = [
     "\u{1b}[>4;2m",
     "\u{1b}[>1u",
     "\u{1b}[?2004h",
     "\u{1b}[?7l",
+    // The theme-change subscription: a route that is not the TUI's subscribes
+    // to nothing, and a terminal left reporting background changes to a
+    // line-oriented shell types them onto the user's prompt.
+    "\u{1b}[?2031h",
     // The title stack push, and the window title itself: the line-oriented
     // shell borrows no title and sets none, so a route that is not the TUI's
     // must leave the terminal's own title alone.
@@ -1362,6 +1368,355 @@ fn the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palet
     assert!(
         !dark_band_settled.contains(THEME_PROBE),
         "the query was sent even though XFX_THEME decided it: {dark_band_settled:?}"
+    );
+}
+
+/// P3-THEME (`.prd/tui-phase3/ssot.md:43`) -- the band's palette tracks the
+/// terminal's live background for the whole life of the session, not only
+/// its start: a `CSI ?997;2n` notification -- upstream's spelling for "the
+/// background just went light" (`.prd/research/tui-core.md:47`) -- repaints
+/// the band in the light palette, and does it without disturbing whatever
+/// the composer already holds.
+///
+/// The keystroke typed right behind the notification is not this case's
+/// subject; it is what keeps the RED an assertion on colour rather than a
+/// timeout. The notification and that keystroke are two separate writes and
+/// may land in two separate frames, so what is waited for is a *completed*
+/// frame that carries the keystroke's marker -- a mid-frame snapshot would
+/// race the paint, and the last `FRAME_BEGIN` on the stream is not
+/// necessarily paired with the last `FRAME_END` if a further frame is still
+/// open. What is asserted on is the accumulated output after the dark
+/// start-up frame, because the light paint and the marker are not required
+/// to share one frame with each other.
+#[test]
+fn a_live_theme_notification_repaints_the_band_without_losing_the_draft() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut command = tui(&sandbox);
+    // Unlocked: neither the env override nor `COLORFGBG` decides the startup
+    // palette, so the only source left is the terminal's own answer to the
+    // background query -- the same source a live monitor re-reads.
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+
+    session.wait_for(THEME_PROBE);
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    let dark_text = session.wait_for(FRAME_END);
+    assert!(
+        dark_text.contains("\u{1b}[38;5;240m") && dark_text.contains("\u{1b}[38;5;255m"),
+        "a black answer did not start the band in the dark palette: {dark_text:?}"
+    );
+
+    let marker = "P3THEME-DRAFT-7F2C1D";
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(marker.as_bytes());
+
+    // A *completed* frame carrying the marker, paired begin-to-end in stream
+    // order (`zip`, not the independent last of each list) so an open frame
+    // still being painted cannot be mistaken for one that finished.
+    let after = session.wait_until(
+        &format!("a completed synchronized frame carrying {marker:?}"),
+        |text| {
+            let begins = text.match_indices(FRAME_BEGIN).map(|(i, _)| i);
+            let ends = text.match_indices(FRAME_END).map(|(i, _)| i);
+            begins
+                .zip(ends)
+                .any(|(begin, end)| text[begin..end + FRAME_END.len()].contains(marker))
+        },
+    );
+
+    // Everything after the dark start-up frame: the light paint and the
+    // marker are each other's proof of a live, working notification, not
+    // proof of landing in the same frame as one another.
+    let dark_frame_end = after.find(FRAME_END).expect("the dark start-up frame") + FRAME_END.len();
+    let post_baseline = &after[dark_frame_end..];
+    assert!(
+        post_baseline.contains(marker),
+        "the draft never reached the composer: {post_baseline:?}"
+    );
+    assert!(
+        !post_baseline.contains("\x1b[?997;2n"),
+        "the notification leaked into the visible output instead of being consumed: {post_baseline:?}"
+    );
+    assert!(
+        post_baseline.contains("\u{1b}[38;5;250m") && post_baseline.contains("\u{1b}[38;5;235m"),
+        "the light notification did not repaint the band in the light palette: {post_baseline:?}"
+    );
+
+    // `C-u` before `C-d`: the composer holds the draft this case typed into
+    // it, and `C-d` on a non-empty draft is not the tested exit gesture
+    // (`tests/tui.rs:1191,1654,1777,2103,4607,4803` all clear the line
+    // first). The kill takes the line the caret is on.
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+/// The mode query a session asks outright (`DSR ? 996 n`).
+///
+/// Response-only in the same sense as [`THEME_PROBE`]: xfx writes it and this
+/// suite never types it.
+const MODE_PROBE: &str = "\u{1b}[?996n";
+
+/// An unlocked session started on a terminal that answered *black*.
+///
+/// The three ways a palette can be decided reduced to one: no `XFX_THEME`, no
+/// `COLORFGBG`, a pinned depth, and the terminal's own answer. What comes back
+/// is the session, the text of its start-up frame, and the attributes that
+/// frame used -- which is the only comparison this suite can make about colour
+/// (see [`sgr_runs`]).
+fn started_dark(pty: &Pty, sandbox: &Sandbox) -> (Session, String, Vec<String>) {
+    let mut command = tui(sandbox);
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(THEME_PROBE);
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    let text = session.wait_for(FRAME_END);
+    let runs = sgr_runs(&text);
+    assert!(
+        !runs.is_empty(),
+        "the start-up frame painted no colour at all, so nothing below can \
+         fail for the reason it claims: {text:?}"
+    );
+    (session, text, runs)
+}
+
+/// Everything the session wrote after its dark start-up frame.
+///
+/// Anchored on the **first** frame end rather than on a byte offset taken from
+/// an earlier snapshot: the capture grows while the child runs, and a length
+/// carried across reads is an index into a string that has since changed.
+fn after_the_first_frame(text: &str) -> &str {
+    let end = text.find(FRAME_END).expect("the start-up frame") + FRAME_END.len();
+    &text[end..]
+}
+
+#[test]
+fn a_theme_notification_repaints_the_band_with_no_keystroke_behind_it() {
+    // The live half of P3-THEME with nothing else in it. The case above types a
+    // marker behind the notification, which is what keeps *its* failure an
+    // assertion rather than a timeout -- and leaves open the reading that the
+    // repaint was the keystroke's. Here nothing is typed at all: the only thing
+    // that reaches the session is eight bytes the terminal volunteered, and the
+    // band has to come back in attributes it was not using before.
+    //
+    // What is compared is the *set of attributes*, not the greys themselves:
+    // what the two palettes are belongs to `src/tui/theme.rs`, which an
+    // integration test cannot see, and a needle spelling a grey would pass for
+    // whatever that module happened to declare.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let (mut session, _dark_text, dark_runs) = started_dark(&pty, &sandbox);
+
+    session.type_bytes(b"\x1b[?997;2n");
+    let after = session.wait_until(
+        "a frame painted in an attribute the dark start-up frame never used",
+        |text| {
+            sgr_runs(after_the_first_frame(text))
+                .iter()
+                .any(|run| !dark_runs.contains(run))
+        },
+    );
+    let light_runs: Vec<String> = sgr_runs(after_the_first_frame(&after))
+        .into_iter()
+        .filter(|run| !dark_runs.contains(run))
+        .collect();
+    assert!(
+        !light_runs.is_empty(),
+        "the wait was satisfied by something other than a new attribute"
+    );
+
+    // And back, because a session that could only ever go one way is not
+    // following the terminal -- it is reacting once. The tail is read from the
+    // frame that *ends* the stream so far, so what is asserted is the band as
+    // it stands rather than every attribute the session has ever written.
+    session.type_bytes(b"\x1b[?997;1n");
+    let back = session.wait_until("the band back in the dark attributes", |text| {
+        last_frame(text).is_some_and(|frame| {
+            let runs = sgr_runs(frame);
+            !runs.is_empty()
+                && runs.iter().all(|run| dark_runs.contains(run))
+                && light_runs.iter().all(|light| !runs.contains(light))
+        })
+    });
+    assert!(
+        !back.contains("\u{1b}[?997;"),
+        "a notification reached the screen instead of being consumed: {back:?}"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
+fn a_palette_the_user_named_is_not_overruled_by_the_terminal() {
+    // `XFX_THEME` outranks the terminal's answer at launch
+    // (`the_terminal_is_asked_for_its_background_and_a_light_answer_changes_the_palette`),
+    // and a session that then followed the terminal's *notifications* would be
+    // honouring the variable for exactly as long as nobody switched their
+    // system theme.
+    //
+    // The keystroke behind the notification is what makes the failure an
+    // assertion rather than a timeout: something has to reach the screen for
+    // "and it was not a repaint" to be checkable at all.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui(&sandbox);
+    command.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    let dark_runs = sgr_runs(&session.wait_for(FRAME_END));
+    assert!(
+        !dark_runs.is_empty(),
+        "the start-up frame painted no colour"
+    );
+
+    let marker = "P3THEME-LOCKED-4B19E0";
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(marker.as_bytes());
+    let after = session.wait_until(
+        &format!("a completed synchronized frame carrying {marker:?}"),
+        |text| {
+            let begins = text.match_indices(FRAME_BEGIN).map(|(index, _)| index);
+            let ends = text.match_indices(FRAME_END).map(|(index, _)| index);
+            begins
+                .zip(ends)
+                .any(|(begin, end)| text[begin..end + FRAME_END.len()].contains(marker))
+        },
+    );
+
+    let tail = after_the_first_frame(&after);
+    assert!(
+        sgr_runs(tail).iter().all(|run| dark_runs.contains(run)),
+        "a locked session repainted in attributes its own palette does not \
+         have: {tail:?}"
+    );
+    // And the report was still *consumed*: a locked palette is a reason to
+    // ignore what a notification says, not a reason to type it into the draft.
+    assert!(
+        !tail.contains("997"),
+        "the notification reached the composer: {tail:?}"
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_launch_asks_for_the_background_then_the_mode_and_the_cursor_report_fences_both() {
+    // One read answers every question a launch asks, and that only works if the
+    // cursor report is written **last**: a terminal answers in the order it
+    // parsed, so a reply arriving with the cursor report already past it is a
+    // reply that is not coming. A mode query written behind the fence would
+    // cost the whole deadline on every terminal that has no `?996n`.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui(&sandbox);
+    command.env_remove("XFX_THEME");
+    command.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+
+    let asked = session.wait_for(PROBE);
+    let background = asked.find(THEME_PROBE).expect("the background query");
+    let mode = asked.find(MODE_PROBE).expect("the theme-mode query");
+    let cursor = asked.find(PROBE).expect("the cursor report");
+    assert!(
+        background < mode && mode < cursor,
+        "the launch asked its questions in an order the fence does not have: \
+         {asked:?}"
+    );
+
+    session.type_bytes(b"\x1b]11;rgb:0000/0000/0000\x1b\\");
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // The other half of the same conditional: a session whose palette the user
+    // decided asks neither question. Read after the child was reaped, because
+    // this is a claim about bytes that were never written.
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut decided = tui(&sandbox);
+    decided.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut decided);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, decided);
+    session.wait_for(PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    session.wait_for(FRAME_END);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert!(
+        !settled.contains(MODE_PROBE),
+        "a decided session asked the terminal which way round it is: {settled:?}"
+    );
+}
+
+#[test]
+fn a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_paints_in() {
+    // The mode query is written during the launch probe, so its answer arrives
+    // in the same read as the cursor report -- through a machine that is
+    // looking for a `CSI r ; c R` and knows nothing about theme reports. Those
+    // bytes are handed back rather than eaten (`src/tui/probe.rs`), and the
+    // session's own decoder is what turns them into a palette. A probe that
+    // swallowed them would start every terminal that has `?996n` and no
+    // `OSC 11` in the wrong greys.
+    //
+    // Both terminals answer the background query with nothing at all, so the
+    // *only* difference between them is the notification.
+    let sandbox = Sandbox::new();
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut told = tui(&sandbox);
+    told.env_remove("XFX_THEME");
+    told.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut told);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, told);
+    session.wait_for(MODE_PROBE);
+    session.type_bytes(b"\x1b[?997;2n");
+    session.type_bytes(b"\x1b[2;1R");
+    let answered = sgr_runs(&session.wait_for(FRAME_END));
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut silent = tui(&sandbox);
+    silent.env_remove("XFX_THEME");
+    silent.env_remove("COLORFGBG");
+    depth_of_the_test_machine(&mut silent);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, silent);
+    session.wait_for(MODE_PROBE);
+    session.type_bytes(b"\x1b[2;1R");
+    let unanswered = sgr_runs(&session.wait_for(FRAME_END));
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert!(
+        !unanswered.is_empty(),
+        "the start-up frame painted no colour at all"
+    );
+    assert_ne!(
+        answered, unanswered,
+        "a notification the probe read during the launch changed nothing"
     );
 }
 

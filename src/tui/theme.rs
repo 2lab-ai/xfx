@@ -23,10 +23,14 @@
 //! launch's cursor report ([`super::probe`]) rather than opening a second one:
 //! see [`QUERY`] for why that is exact rather than merely cheaper.
 //!
-//! What this module is **not** is upstream's live theme monitor. Following a
-//! background that changes while xfx runs needs mode 2031 and a `DSR ?996n`
-//! (`theme_monitor.zig`), and that is Phase 3; a session here paints in the
-//! palette it started in until it ends.
+//! The palette a session **starts** in is decided that way, and it does not
+//! stay decided: a terminal whose user switches their system theme mid-session
+//! says so, and this module carries that half of the protocol too -- mode 2031
+//! asks to be told ([`super::term::MODE_SET`]), [`MODE_QUERY`] asks outright,
+//! and [`notification`] reads the answer either arrives as. What is *not* here
+//! is upstream's live RGB monitor (`theme_monitor.zig`): a notification carries
+//! a [`Mode`] and nothing else, so a session following one is following which
+//! way round the terminal is rather than re-reading its background colour.
 
 use std::time::Duration;
 
@@ -83,6 +87,43 @@ pub(crate) const REPLY_PREFIX: &str = "\u{1b}]11;";
 /// Whether a complete `OSC` string is an answer to [`QUERY`].
 pub(crate) fn is_background_reply(text: &str) -> bool {
     text.starts_with(REPLY_PREFIX)
+}
+
+/// The question a running session asks: *which way round are you now?*
+///
+/// `DSR ? 996 n`, upstream's `theme_monitor.zig:288-289` pair with mode 2031:
+/// the mode asks the terminal to volunteer a [`notification`] when its
+/// background changes, and this asks for one outright. A session needs both
+/// because the mode only covers changes that happen while somebody is listening
+/// -- a process that was stopped, handed the terminal back, and resumed was not.
+///
+/// **Not written at launch by anything but [`super::probe`]**, and not written
+/// at all by a session whose palette [`ENV`] already decided: a terminal that
+/// does not implement 2031 answers neither this nor [`QUERY`], and a decided
+/// session has nothing for either answer to change.
+pub(crate) const MODE_QUERY: &str = "\u{1b}[?996n";
+
+/// What a `CSI ? 997 ; N n` says the terminal's background just became
+/// (`theme_monitor.zig:288-289`).
+///
+/// `params` is the sequence's parameter bytes **with its private-marker
+/// prefix**, exactly as the decoder framed them, and the match is on those
+/// bytes rather than on numbers they parse to. That is the same strictness
+/// [`super::input`] gives the paste markers and for the same reason: `?0997;1`
+/// and `?997;1;0` parse to the same pair and are not sequences any terminal
+/// sends, so reading them as a theme change would be inventing a report out of
+/// a stream that carried none. `None` is every one of those, and the caller
+/// answers it the way it answers any sequence it has no binding for.
+///
+/// Two values and no third: `1` is dark and `2` is light. A `?997;3` is a
+/// terminal saying something this protocol has no meaning for, and guessing at
+/// it would repaint the band on a report nobody made.
+pub(crate) fn notification(params: &[u8]) -> Option<Mode> {
+    match params {
+        b"?997;1" => Some(Mode::Dark),
+        b"?997;2" => Some(Mode::Light),
+        _ => None,
+    }
 }
 
 /// How long the terminal has to answer before the launch stops waiting
