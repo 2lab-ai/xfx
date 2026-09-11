@@ -143,7 +143,8 @@ Each scenario names its oracle level. Phases match [`03-tui-port.md`](03-tui-por
 | 2 | Cursor probe and scrollback push | 1+2 | CSI `6n` issued; pre-existing shell lines are still readable above the band after the first frame |
 | 3 | Restore matrix | 3 | Every row of [`03-tui-port.md`](03-tui-port.md) §"Acceptance — terminal state, positively proven": normal, panic, SIGTERM/SIGHUP (assert `WIFSIGNALED`), TSTP/CONT (assert `WIFSTOPPED` while stopped), partial init, and no-SIGINT-handler. `termios` equality is asserted in every one, because only `tcsetattr` from the saved struct can produce it |
 | 3b | Shutdown drain, no deadlock | 1+2 | Quit **while a fixture is mid-stream with the UI artificially slowed**, so the `UiEvent` channel is full and the async producer is pending in `send().await` on it: the process must still exit within the deadline, the terminal must be restored, and the session log's manifest must be published and self-consistent. This is the regression test for the drain protocol. Its second half drives a **genuinely full** non-blocking screen rather than an injected failure, and what it verifies is exactly two things: the starvation ends the session **bounded** -- exit 1, inside the deadline -- and the `termios` comes back. **It does not verify which road the session left by, and must not be read as doing so.** Whether a full screen refuses a whole vector or takes a prefix of one is the kernel buffer's business and varies by platform and by run, and the failure the session reports carries no route tag: `FrameFailures::failed` hands back the first error of the run and nothing about how many there were (`src/tui/event_loop.rs`), so neither the presence nor the absence of any particular wording in this row's capture is proof of a budget expiry. The two roads are proven where they can be proven deterministically instead: the budget's own semantics by `FrameFailures`' unit cases, and the partial road on a release binary by row 3c below. One Darwin trace of this row happened to show a prefix of 1,024 bytes; that is an observation of that run's kernel buffer, not a cross-platform capacity and not a claim this row asserts |
-| 3c | A terminal that takes part of a frame | 1+2 | **Implemented** as `3c-partial-frame-containment`. The one failure a refusing screen cannot stand in for: every other restoration row fails a write that delivered **nothing**, so the terminal is where it was and the vector may be offered again, while here the terminal has really taken part of a synchronized frame. A `fault-injection` build's sink takes half of the first band frame onto the real pseudoterminal and then fails; the release build has neither the fault nor a way to ask for it. **The discriminator is split, and deliberately.** This session dies on the first band frame -- before a prompt can be typed and before a turn exists -- so the three-part nonce discriminator is driven in full against a **positive control**: the same fixture, geometry and profile with nothing injected, which renders this scenario's own marker and proves the setup really works. The torn session is then discriminated **against that control**: what the terminal took is asserted to be a real, incomplete **prefix of the very frame the control's launch paints**, the count the product reports is compared against the harness's own count of the bytes on the wire, exactly one frame is on the wire (the torn one was never offered again) and no frame was ever completed. The exit is then asserted whole: the process leaves with its own error, the restore goes out, the cleanup below it is still written -- the skip belongs to an exit whose *first* segment is taken in part, which a prior torn frame is not -- and `termios` is byte-identical. **The boundary this row does not cross**: `termios` equality is a `tcsetattr` fact and the restore is a byte fact, and neither says what a terminal made of an incomplete vector. This row proves **containment** -- the session terminates, nothing is re-offered, the line discipline comes back -- and claims **no parser recovery** and no restored screen. Nothing here passes by absence |
+| 3c | A terminal that takes part of a frame | 1+2 | **Implemented** as `3c-partial-frame-containment`. The one failure a refusing screen cannot stand in for: every other restoration row fails a write that delivered **nothing**, so the terminal is where it was and the vector may be offered again, while here the terminal has really taken part of a synchronized frame. A `fault-injection` build's sink takes half of the first band frame onto the real pseudoterminal and then fails; the release build has neither the fault nor a way to ask for it. **The discriminator is split, and deliberately.** This session dies on the first band frame -- before a prompt can be typed and before a turn exists -- so the three-part nonce discriminator is driven in full against a **positive control**: the same fixture, geometry and profile with nothing injected, which renders this scenario's own marker and proves the setup really works. The torn session is then discriminated **against that control**: what the terminal took is asserted to be a real, incomplete **prefix of the very frame the control's launch paints**, the count the product reports is compared against the harness's own count of the bytes on the wire, exactly one frame is on the wire (the torn one was never offered again) and no frame was ever completed. **A cleanup-refusal fixture now makes this row's own cleanup segment fail too**, so the session ends fatally instead of restoring: the process leaves with its own error, but the restore this row used to assert going out cleanly, and the byte-identical `termios` that followed it, belong to the recovery path now tracked separately in row 3d below, not to 3c's exit. **The boundary this row does not cross**: what a terminal made of the incomplete prefix is still not something a fatal exit can show either way. This row proves **containment of the injected prefix itself** -- the torn frame is real, exact and never re-offered -- and, with its own cleanup now refused, claims nothing about restoration, parser recovery, or a restored screen. Nothing here passes by absence |
+| 3d | Partial-frame-once: the primary band's recovery, raw bytes and post-cleanup state | 1+2 | **Implemented** as `3d-partial-frame-once`, tracking the primary-band recovery path 3c's cleanup-refusal fixture no longer exercises. Against the same torn-prefix setup, this row asserts the recovery's exact bytes and their order in the same call as the partial: `CAN`+`BEL`, the OSC 8 close, the SGR reset, sync mode off, autowrap off, cursor shown, then a full rebuild of the owned band -- one attempt, and a failure of that cleanup or redraw is itself fatal. It then asserts the session state **after** that cleanup completes: raw prefix bytes, control sequences, exact cleanup order, and post-cleanup Grid, input, request, response, exit and `termios`. **What this row does not prove**: its Grid is sampled only after cleanup finishes, so it shows what the rebuild painted, not that the terminal's own parser actually resynced from the partial write -- that stays open here exactly as it stays open for every other `Partial` (document, carry, clear, query, alternate screen), all of which remain fatal with no replay, unchanged by this row. 30 checks |
 | 4 | Raw mode positively entered | 3 | `ECHO`/`ICANON`/`IEXTEN`/`ISIG` clear, `VMIN=1`, `VTIME=0`, mouse tracking absent |
 | 5 | Editor basics | 2 | Type, arrows, Home/End, word moves, Backspace/Delete; the composer grid matches the typed text; grapheme motion moves a ZWJ family as one unit |
 | 6 | Soft wrap and growth cap | 2 | A long paragraph wraps word-aware with hanging spaces; the composer stops growing at `content_bottom/2 + 1` |
@@ -188,18 +189,25 @@ back (26b). The exact-same-instant idle-replay proof -- zero bytes, unchanged ge
 transition -- is a separate in-crate test,
 `document_and_band_transitions_settle_without_reemitting_document_rows` in `src/tui/event_loop.rs`,
 not something either PTY row drives, and neither substitutes for the other
-([`03-tui-port.md`](03-tui-port.md) item 22). Still specification: commit self-check **recovery**
-under an injected partial write (1+2) -- the containment half of that row is driven by 3c above, and
-recovery is the half that is not; live theme switch re-tints the transcript (2).
+([`03-tui-port.md`](03-tui-port.md) item 22). Commit self-check **recovery** under an injected
+partial write (1+2) is no longer wholly planned: the containment half of that row is driven by 3c
+above, and 3d now drives recovery too, but only for the primary band's `Partial` -- local, uncommitted,
+and unaccepted pending independent confirmation (see 3d and the paragraphs below). Every other
+`Partial` -- document, carry, clear, query, alternate screen -- stays exactly as planned and fatal;
+live theme switch re-tints the transcript (2).
 
 **Theme monitor status, beside the row above.** The mode-2031 monitor half itself (paired
 enable/restore; a SIGCONT arms an outbound `?996n` query delivered on a checked counted paint tick,
 and the `997;n` reply is decoded before focus and consumed on input) is implemented locally and not
-published -- see item 23 in [`03-tui-port.md`](03-tui-port.md) -- and theme-specific native-PTY
-tests exist for it in `cargo test`, but neither is a row in the tracked scenario table above: that
-table (31 scenarios, 659 checks + oracle 52 = 711) is a **regression** suite, and its green says nothing about this
-monitor. Scratch QA covering theme is a separate effort from this tracked regression suite and does
-not register or close the theme scenario here.
+published -- see item 23 in [`03-tui-port.md`](03-tui-port.md). Theme QA is now tracked, in part,
+outside this regression table: 27/51 checks cover the report-only visible-band completed body/notice
+roundtrip, Plain-rendered echo rows, and the draft/caret/history invariants -- full detail is
+asserted only dark-to-light, with the light-to-dark return asserting text/caret/history/colors --
+plus the locked-report-and-z fence and a pending-stream tail completing in the new color. Two limits
+stay qualified rather than closed: offscreen native scrollback is not repainted, and the
+pending-buffer's internal location is proven only by unit test, not against a real screen. None of
+this is a row in the tracked scenario table above: that table (33 scenarios, oracle 797/0) is this
+suite's own regression green and says nothing about the theme monitor.
 
 **The self-check's first half now exists in the working tree, and it is deliberately not a scenario
 here.** The per-vector output preflight of item 21 in [`03-tui-port.md`](03-tui-port.md) refuses a
@@ -211,14 +219,20 @@ why the claim cannot be restated as a scenario here. The scenarios above must no
 **positive** regression: the screens a correct emitter leaves, on a real terminal. A mutation test
 beside them mutates the **emitter**, which is a different question from what the terminal did with
 the bytes — so neither of the two is an injected partial write, and neither closes this row.
-**An injected partial write is now driven, and it closes the containment half of the row rather than
-the row.** Scenario 3c above puts a real prefix of a real frame on a real terminal and asserts what
-this product does about it: the session ends, the vector is never offered again, the exit writes its
-own segments and the line discipline comes back. What it does not assert — because no measurement
-here can — is that the terminal recovered: an incomplete vector leaves a screen nobody declared, and
-nothing re-establishes a frame from a prefix. So what stays planned is the **recovery** scenario, and
-that is what this row waits on: a write the screen takes only part of is now measured and contained
-rather than unreadable, and no scenario above shows a session carrying on from one.
+**An injected partial write is now driven, and between 3c and 3d it closes the containment half of
+the row and drives recovery for the primary band, but still not the row.** Scenario 3c above puts a
+real prefix of a real frame on a real terminal and asserts what this product does about the prefix
+itself: the vector is never offered again and no frame was ever completed. With its cleanup segment
+now refused by fixture, 3c's own exit is fatal and asserts nothing further. Scenario 3d then drives
+the primary band's recovery -- the exact `CAN`+`BEL`, OSC 8 close, SGR reset, sync/autowrap off,
+cursor shown and owned-band rebuild, in the same call as the partial -- and asserts the session state
+after that cleanup: Grid, input, request, response, exit and `termios`. What neither row asserts —
+because no measurement here can — is that the terminal's own parser recovered: 3d's Grid is sampled
+only after cleanup, so it shows what the rebuild painted, not a resync proven from the terminal's
+side. So what stays planned, in full, is recovery for every `Partial` outside the primary band:
+document, carry, clear, query and alternate-screen writes are exactly as unreadable and un-replayed
+as before, and the primary-band recovery 3d now measures is itself local, uncommitted and unaccepted
+pending independent confirmation on a real terminal (item 21 in [`03-tui-port.md`](03-tui-port.md)).
 
 **A diagnostic record exists beside this and does not move that boundary.** After the same
 restoration attempt, a session `event_loop::disposed` ended on either road is written,
@@ -226,9 +240,9 @@ independently of the torn screen, as a fixed four-field `last-tui-error.json`
 (`src/tui/diagnostic.rs`; item 21 in [`03-tui-port.md`](03-tui-port.md)). It is proven by that
 module's own cases and by native, `fault-injection`-gated PTY tests plus one unconditional positive
 control in `tests/tui.rs` -- in-crate/native evidence, not a row in the table above, so this suite's
-31/711 green is not evidence for it, and adding a tracked scenario for it is still open if this row
-is ever revisited. It names which road a session left by; it is **containment's record, not
-containment itself, and not the recovery scenario above**.
+33-scenario/797-check green is not evidence for it, and adding a tracked scenario for it is still open
+if this row is ever revisited. It names which road a session left by; it is **containment's record,
+not containment itself, and not the recovery 3d now tracks**.
 
 ## Acceptance criteria per phase
 

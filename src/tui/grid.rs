@@ -36,6 +36,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
+use super::theme::Palette;
 
 /// Erase from the cursor to the end of the row it is on.
 const ERASE_LINE: &str = "\u{1b}[K";
@@ -284,6 +285,57 @@ impl Grid {
             return false;
         };
         self.cells[span] == scratch.cells[scratch_span]
+    }
+
+    /// Repaints the document's own cells on rows `1..=last` in `palette`, and
+    /// says how many of them moved.
+    ///
+    /// **A candidate, and never the shadow.** The caller builds this out of a
+    /// copy of what the terminal is holding and adopts it only if the bytes
+    /// land ([`super::frame::Band`]), which is the same discipline every other
+    /// target grid is under.
+    ///
+    /// Three things make it narrow enough to be safe on rows nobody repaints:
+    ///
+    /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
+    ///   is asked of the cell rather than of the row it came from, and
+    ///   [`Palette::document_retint`] answers `None` for every one it did not
+    ///   paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
+    ///   echo and whatever the terminal was holding before xfx ran are all
+    ///   left exactly as they are. Nothing here can *create* a cell, which is
+    ///   what stops a repaint reconstructing history.
+    /// * **Only the foreground slot.** [`SgrState::observe`] replaces the one
+    ///   slot the sequence names and leaves the rest of them, in the order
+    ///   they were opened, so a bold or underlined answer row stays bold and
+    ///   underlined.
+    /// * **Nothing else about the cell.** The grapheme, its width and the
+    ///   continuation behind it are untouched, so the count this returns is a
+    ///   count of colours and the row is the same shape it was.
+    ///
+    /// A cell whose attribute slot cannot be read is skipped rather than
+    /// guessed at: it is one the checker would refuse the whole vector for
+    /// (`super::check::CellState::of`), and one this crate did not write.
+    pub(crate) fn retint_document(&mut self, last: u16, palette: &Palette) -> usize {
+        let mut moved = 0usize;
+        for line in 1..=last {
+            let Some(span) = self.span(line) else {
+                continue;
+            };
+            for cell in &mut self.cells[span] {
+                let Cell::Lead { sgr, .. } = cell else {
+                    continue;
+                };
+                let Ok(colour) = sgr.color() else {
+                    continue;
+                };
+                let Some(wanted) = palette.document_retint(colour) else {
+                    continue;
+                };
+                sgr.observe(wanted);
+                moved += 1;
+            }
+        }
+        moved
     }
 
     /// The band's own rows, and the erase in front of them.
@@ -695,6 +747,146 @@ mod tests {
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(1, "the document", &geometry);
         expected.place_row(geometry.divider, "--", &geometry);
+        assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    // -- Grid::retint_document (P3-THEME, the document's visible cells) --
+
+    /// The two palettes a retint case moves between, at the depth every case
+    /// here paints in.
+    fn dark() -> Palette {
+        Palette {
+            mode: crate::tui::theme::Mode::Dark,
+            depth: crate::tui::theme::Depth::Ansi256,
+        }
+    }
+
+    fn light() -> Palette {
+        Palette {
+            mode: crate::tui::theme::Mode::Light,
+            depth: crate::tui::theme::Depth::Ansi256,
+        }
+    }
+
+    /// The document's two owned greys, dark and light, spelled out.
+    const BODY_DARK: &str = "\u{1b}[38;5;255m";
+    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+
+    #[test]
+    fn a_retinted_row_is_the_row_a_fresh_paint_in_the_new_palette_would_leave() {
+        // Both roles, and the whole claim in one comparison: what the cells
+        // hold afterwards is what placing the same text in the other palette
+        // would have put there -- so the text, its columns and everything but
+        // the foreground are untouched.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
+        grid.place_row(4, &format!("{NOTICE_DARK}[tool] ran{RESET}"), &geometry);
+        assert_eq!(
+            grid.retint_document(10, &light()),
+            "an answer[tool] ran".len()
+        );
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("{BODY_LIGHT}an answer{RESET}"), &geometry);
+        expected.place_row(4, &format!("{NOTICE_LIGHT}[tool] ran{RESET}"), &geometry);
+        assert_eq!(
+            diffed(&grid, &expected),
+            "",
+            "the retinted rows are not the rows the other palette would paint"
+        );
+    }
+
+    #[test]
+    fn a_retint_reaches_no_row_past_the_one_it_was_given() {
+        // The band's own rows are the frame's to paint, and this emitter may
+        // not write at or below its top row: a row past `last` keeps its
+        // colour whatever it is painted in.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{BODY_DARK}above{RESET}"), &geometry);
+        grid.place_row(5, &format!("{BODY_DARK}below{RESET}"), &geometry);
+        assert_eq!(grid.retint_document(4, &light()), "above".len());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("{BODY_LIGHT}above{RESET}"), &geometry);
+        expected.place_row(5, &format!("{BODY_DARK}below{RESET}"), &geometry);
+        assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    #[test]
+    fn the_same_palette_twice_moves_no_cell_at_all() {
+        // What a session reported dark, then light, then dark again before any
+        // of it reached the terminal must cost: nothing. The mapping is onto
+        // the mode in force rather than from the last one, so the second
+        // report finds every cell already where it belongs.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{BODY_DARK}an answer{RESET}"), &geometry);
+        let untouched = grid.clone();
+        assert_eq!(grid.retint_document(10, &dark()), 0);
+        assert_eq!(diffed(&untouched, &grid), "", "a no-op retint wrote cells");
+    }
+
+    #[test]
+    fn a_colour_this_crate_did_not_paint_survives_a_retint() {
+        // The row the user typed carries no colour at all, and a row the
+        // terminal was already holding carries somebody else's: both are left
+        // exactly as they are, and neither is counted.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, "hello", &geometry);
+        grid.place_row(4, "\u{1b}[38;5;31mnot ours\u{1b}[0m", &geometry);
+        // The band's divider grey, which this emitter may not touch either.
+        grid.place_row(5, "\u{1b}[38;5;240mrule\u{1b}[0m", &geometry);
+        let untouched = grid.clone();
+
+        assert_eq!(grid.retint_document(10, &light()), 0);
+        assert_eq!(
+            diffed(&untouched, &grid),
+            "",
+            "a retint rewrote a colour this crate did not paint"
+        );
+    }
+
+    #[test]
+    fn a_retint_keeps_the_other_attributes_a_cell_was_painted_under() {
+        // `SgrState` replays a whole state, so a retint that rebuilt the slot
+        // list would drop whatever else the row had open -- and the answer
+        // would come back in the new grey with its emphasis gone.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("\u{1b}[1m{BODY_DARK}bold{RESET}"), &geometry);
+        assert_eq!(grid.retint_document(10, &light()), "bold".len());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("\u{1b}[1m{BODY_LIGHT}bold{RESET}"), &geometry);
+        assert_eq!(
+            diffed(&grid, &expected),
+            "",
+            "the retint took the row's other attributes with it"
+        );
+    }
+
+    #[test]
+    fn a_retint_moves_no_grapheme_and_no_column() {
+        // Wide clusters, a combining mark and the continuation behind a family
+        // in one row: the retint is a colour and nothing else, so every column
+        // is still the column it was.
+        let geometry = geometry();
+        let text = format!("{FAMILY}\u{d55c}e\u{301}x");
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{BODY_DARK}{text}{RESET}"), &geometry);
+        assert_eq!(
+            grid.retint_document(10, &light()),
+            4,
+            "a continuation cell was counted as a cell of its own"
+        );
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("{BODY_LIGHT}{text}{RESET}"), &geometry);
         assert_eq!(diffed(&grid, &expected), "");
     }
 

@@ -8,8 +8,8 @@
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
 # one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
-# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 10b and
-# 23b -- against a
+# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 3d, 10b
+# and 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
 # the check total is summed from what the scenarios wrote down, so neither
@@ -3075,8 +3075,12 @@ def scenario_3c(run):
     The one failure a refusing screen cannot stand in for. Every other row of
     the restoration matrix fails a write that delivered **nothing**, so the
     terminal is exactly where it was and the vector may be offered again; here
-    the terminal really has taken part of a synchronized frame, and the session
-    has nothing it can honestly write to fix that.
+    the terminal really has taken part of a synchronized frame. This build's
+    one answer to that -- a fixed cleanup vector, then a rebuild
+    (`Band::recover_primary`) -- is attempted, and `partial-frame` refuses
+    that cleanup vector too, which is what makes the tear fatal here rather
+    than recovered. `3d-primary-band-recovery` drives the row where the same
+    cleanup vector is answered for real.
 
     **What this row cannot use, and what it uses instead.** The three-part
     discriminator wants a nonce in a prompt, in the captured request and on the
@@ -3182,6 +3186,216 @@ def scenario_3c(run):
     run.require(
         torn.modes() == torn.before,
         "partial frame: termios byte-identical -- the line discipline, which is all this measures",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
+# 3d. the primary-band recovery this build actually answers
+# ---------------------------------------------------------------------------
+
+# The fixed vector `Band::recover_primary` emits and `check::RECOVERY_CLEANUP`
+# licenses (`src/tui/check.rs:1084`), spelled out rather than imported for the
+# same reason every other needle in this suite is.
+RECOVERY_CLEANUP_BYTES = b"\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h"
+
+
+def recovered_peek(trial, after, record_frames=False):
+    """`Trial.peek`, sliced to start at `after` (a recovery cleanup's end).
+
+    The oracle's allowlist knows neither a bare `CAN` nor `OSC 8` -- the bytes
+    `RECOVERY_CLEANUP` is built from -- and cannot model a parser mid tear
+    either way, so nothing in this scenario ever feeds it the raw capture
+    from byte zero. `Trial.peek`'s own last-complete-frame guard is kept on
+    the slice: everything from `after` on is either the rebuild this row
+    asserts on or an ordinary later frame, and both are real, complete,
+    synchronized ones.
+    """
+    captured = bytes(trial.session.captured)[after:]
+    begins = captured.rfind(FRAME_BEGIN_BYTES)
+    if begins >= 0 and captured.find(FRAME_END_BYTES, begins) < 0:
+        captured = captured[:begins]
+    return Grid(trial.rows, trial.cols, record_frames=record_frames).feed(captured)
+
+
+def recovered_grid(trial, after, label):
+    grid = recovered_peek(trial, after)
+    trial.snapshots += 1
+    path = os.path.join(trial.dir, "grid-%02d-post-cleanup-%s.txt" % (trial.snapshots, label))
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("# post-cleanup reconstruction; not proof of parser resync\n")
+        handle.write(grid.snapshot())
+    return grid
+
+
+def recovered_discriminate(run, trial, fixture, marker, after, label, prompt=None):
+    """`discriminate`, minus the read through `trial.grid`.
+
+    That helper decodes this trial's whole capture from byte zero, so on this
+    trial it would fail `grid.unknown` on the tear's own undeclared bytes
+    rather than on anything this row is actually testing. Every other part of
+    the three-part check -- nonce in the request, marker on the screen, the
+    screen not blank -- is unchanged.
+    """
+    trial.send((prompt or ("say " + run.nonce)) + "\r")
+    trial.wait_for(marker)
+    sent = fixture.bodies()
+    run.require(
+        any(run.nonce in body for body in sent),
+        "recovery: the nonce this run minted is in the request xfx sent (%d request(s) captured)"
+        % len(sent),
+    )
+    grid = recovered_grid(trial, after, label)
+    run.require(grid.text().strip() != "", "recovery: the screen is not blank")
+    run.require(
+        grid.find(marker) is not None,
+        "recovery: the fixture's own marker %r is rendered on the screen" % marker,
+    )
+    run.require(
+        not grid.unknown,
+        "recovery: the reconstructed post-cleanup screen emits only declared sequences: %r"
+        % grid.unknown,
+    )
+    return grid
+
+
+def scenario_3d(run):
+    """The one row `3c` cannot drive: a torn primary-band frame this build
+    actually recovers from, in the same call, on a real terminal.
+
+    `fault="partial-frame-once"` tears the same first frame `3c` does, but
+    answers the recovery attempt's own fixed cleanup vector for real instead
+    of refusing it too -- so this row watches the rest of
+    `Band::recover_primary` actually happen: the cleanup lands, the band is
+    rebuilt from an erased shadow, and the session keeps running rather than
+    dying.
+
+    The oracle cannot be trusted with the torn prefix or the cleanup vector's
+    own bytes (`recovered_peek` above), so every grid this row reads is
+    sliced to start after the cleanup vector. That is a real screen a real
+    terminal shows, but it is **post-cleanup reconstruction**: it says the
+    rebuild reached the terminal correctly, not that a terminal's own parser
+    resynchronized on the torn prefix -- that claim needs an independent
+    terminal experiment, same as `Band::recover_primary`'s own doc comment
+    says, and is not made here.
+    """
+    marker = run.marker("recovered")
+    # Two scripted replies: the control's own turn and the recovered trial's
+    # turn, each a real round trip against this scenario's own fixture.
+    fixture = start_fixture(run, [fixtures.content_only(marker), fixtures.content_only(marker)])
+
+    # -- the control: this scenario's own text, rendered for real ---------
+    control = run.trial("normal-control", gateway=fixture).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    launch_frame = first_frame(bytes(control.session.captured))
+    run.require(
+        launch_frame is not None and len(launch_frame) > len(FRAME_BEGIN_BYTES),
+        "control: the launch painted a complete first frame to compare against",
+    )
+    discriminate(run, control, fixture, marker)
+    control.send("/quit\r")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: /quit leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+
+    # -- the same launch, onto a terminal that tears once and is recovered -
+    trial = run.trial(
+        "torn-then-recovered", faulty=True, fault="partial-frame-once", gateway=fixture
+    ).settled()
+    run.require(trial.modes().is_raw(), "recovery: raw mode really was entered")
+    captured = bytes(trial.session.captured)
+
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    run.require(begins >= 0, "recovery: a band frame really reached the terminal")
+    cleanup_at = captured.find(RECOVERY_CLEANUP_BYTES, begins if begins >= 0 else 0)
+    run.require(cleanup_at > begins >= 0, "recovery: the fixed cleanup vector followed the tear")
+    prefix = captured[begins:cleanup_at] if cleanup_at > begins >= 0 else b""
+    run.require(
+        0 < len(prefix) < len(launch_frame or b""),
+        "recovery: the terminal first took a real, incomplete part of a frame (%d of %d bytes)"
+        % (len(prefix), len(launch_frame or b"")),
+    )
+    run.require(
+        bool(launch_frame) and launch_frame.startswith(prefix),
+        "recovery: those bytes are a prefix of the frame this launch paints",
+    )
+    run.require(
+        FRAME_END_BYTES not in prefix, "recovery: the torn write never completed its own frame"
+    )
+
+    # Two `FRAME_BEGIN`s (the tear, then the rebuild) and one `FRAME_END`
+    # (only the rebuild reaches it) -- pairing the *first* begin with the
+    # only end on the wire, as `first_frame` does, would silently splice the
+    # tear, the cleanup vector and the rebuild into one "frame" no terminal
+    # ever showed. Every check below is bounded by `cleanup_at`/`cleanup_end`
+    # instead, on purpose.
+    run.require(
+        captured.count(FRAME_BEGIN_BYTES) == 2,
+        "recovery: exactly the frame this build tore and the one it rebuilt (%d)"
+        % captured.count(FRAME_BEGIN_BYTES),
+    )
+    run.require(
+        captured.count(FRAME_END_BYTES) == 1,
+        "recovery: exactly one frame on this wire ever completed (%d)"
+        % captured.count(FRAME_END_BYTES),
+    )
+    cleanup_end = cleanup_at + len(RECOVERY_CLEANUP_BYTES)
+    rebuild_region = captured[cleanup_end:]
+    rebuild_begins = rebuild_region.find(FRAME_BEGIN_BYTES)
+    run.require(rebuild_begins >= 0, "recovery: a fresh frame opened behind the cleanup vector")
+    rebuild_ends = rebuild_region.find(
+        FRAME_END_BYTES, rebuild_begins if rebuild_begins >= 0 else 0
+    )
+    run.require(
+        rebuild_ends > rebuild_begins >= 0,
+        "recovery: the rebuild is a whole frame, opened and closed after the cleanup",
+    )
+
+    # -- the rebuilt screen: divider, composer, hint row, caret -----------
+    trial.wait_until(
+        "the composer to hold an empty draft after the rebuild",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == "",
+    )
+    grid = recovered_grid(trial, cleanup_end, "rebuilt")
+    run.require(composer_text(grid) == "", "recovery: the rebuilt composer is empty")
+    run.require(divider_row(grid) is not None, "recovery: the rebuilt screen has a divider")
+    run.require(
+        grid.row_text(grid.rows - 1).strip() == HINT_AUTO,
+        "recovery: the rebuilt hint row says what a turn would run with: %r"
+        % grid.row_text(grid.rows - 1).strip(),
+    )
+    composer_row = composer_first_row(grid)
+    run.require(
+        composer_row is not None and grid.row == composer_row and grid.col == 2,
+        "recovery: the caret sits at the rebuilt, empty composer's own start (row %r, col %d)"
+        % (grid.row, grid.col),
+    )
+    run.require(
+        not grid.unknown,
+        "recovery: the rebuilt screen emits only declared sequences: %r" % grid.unknown,
+    )
+
+    # -- typed nonce visible, C-u empties it, the real prompt is submitted -
+    trial.send(run.nonce)
+    trial.wait_until(
+        "the typed nonce in the rebuilt composer",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == run.nonce,
+    )
+    typed = recovered_grid(trial, cleanup_end, "typed-nonce")
+    run.require(
+        composer_text(typed) == run.nonce,
+        "recovery: the typed nonce is in the composer: %r" % composer_text(typed),
+    )
+    trial.send(b"\x15")  # C-u
+    trial.wait_until(
+        "the composer to empty after C-u",
+        lambda _t: composer_text(recovered_peek(trial, cleanup_end)) == "",
+    )
+    recovered_discriminate(run, trial, fixture, marker, cleanup_end, "post-recovery")
+
+    trial.send(b"\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "recovery: Ctrl-D leaves with 0")
+    run.require(
+        trial.modes() == trial.before, "recovery: termios byte-identical after a recovered tear"
     )
     fixture.stop()
 
@@ -7677,12 +7891,480 @@ def scenario_26b(run):
     fixture.stop()
 
 
+# ---------------------------------------------------------------------------
+# 27. live theme retint
+# ---------------------------------------------------------------------------
+
+# The four greys the document's own two roles are painted in, spelled out here
+# rather than read off anything the product shares with this file. They are
+# `src/tui/theme.rs`'s `DARK`/`LIGHT` tables at the roles `BODY` (index 4) and
+# `NOTICE` (index 2), in the `Ansi256` spelling every trial below runs at --
+# there is no `COLORTERM` in a trial's environment, so `theme::depth_from_env`
+# answers `Ansi256` and the sequences are the indexed ones.
+#
+# A literal, because the question this scenario asks is *which* grey a cell
+# ended up in. A harness that built the expectation from a palette helper would
+# agree with whatever the module happened to declare, and one that searched the
+# captured bytes for an SGR would be satisfied by the same sequence opened for
+# some other row: the reading below is the attribute of one **named cell**.
+RETINT_DARK_BODY = "\x1b[38;5;255m"
+RETINT_DARK_NOTICE = "\x1b[38;5;250m"
+RETINT_LIGHT_BODY = "\x1b[38;5;235m"
+RETINT_LIGHT_NOTICE = "\x1b[38;5;241m"
+
+# What a terminal that took the `?2031` subscription volunteers when its
+# background changes (`src/tui/theme.rs:108-126`). Nobody typed it, so every
+# assertion about a draft below is also an assertion that it stayed out of the
+# composer.
+WENT_LIGHT = b"\x1b[?997;2n"
+WENT_DARK = b"\x1b[?997;1n"
+
+# The command whose answer is used as this scenario's `Role::Notice` row
+# (`src/tui/shell.rs`'s `version`, `Shell::say`).
+#
+# Chosen for what it does **not** do. `/model` answers with a second, later line
+# once the catalog comes back and `/new` submits work whose end the band shows,
+# so both leave the document still moving after the line under test has landed
+# -- and a row that is about to be scrolled is not a row a colour can be
+# compared on. `/version` is one local sentence, said and finished: no request,
+# no worker, no activity row painting over the bottom of the document.
+NOTICE_COMMAND = "/version"
+
+# What its answer starts with (`src/interactive.rs`'s `version_line`). A prefix,
+# because the version and the channel are the build's and not this file's.
+NOTICE_PREFIX = "xfx "
+
+
+def cell_attribute(grid, needle):
+    """The attribute of the **first cell** of `needle`, or `None` if it is gone.
+
+    The whole colour question of this scenario, asked of one cell. `find`
+    answers a cell index, so this is the attribute the terminal is really
+    holding for the first grapheme of a marker -- not a substring of the row and
+    not a sequence seen somewhere in the stream.
+    """
+    found = grid.find(needle)
+    if found is None:
+        return None
+    row, column = found
+    return grid.attrs[row][column]
+
+
+def own_line_row(grid, text):
+    """The row whose **whole** text is `text`, or `None`.
+
+    An equality rather than a search, because the row this is used for is the
+    echo of a submitted `/model` and the screen also carries a notice with the
+    word `model` in it. A reader that matched a substring could read the colour
+    of xfx's line and report it as the user's.
+    """
+    for row in range(grid.rows):
+        if grid.row_text(row) == text:
+            return row
+    return None
+
+
+def notice_row(grid):
+    """The row xfx answered [`NOTICE_COMMAND`] on, or `None`.
+
+    Read as "the row under the echo" rather than by searching for its text: the
+    band's own hint row also carries the word this line starts with, and a
+    top-down search for a prefix would compare the colour of the band with the
+    colour a document row is owed.
+    """
+    echo = own_line_row(grid, NOTICE_COMMAND)
+    if echo is None or echo + 1 >= grid.rows:
+        return None
+    return echo + 1
+
+
+def rows_above_the_rule(grid):
+    """The rows above the band's rule: the terminal's own document, as text.
+
+    Named for where it reads rather than for what is there, because
+    `document_rows` above is a different question (`17-history`'s "which rows
+    carry this needle") and two helpers with one name is a scenario quietly
+    calling the other one.
+    """
+    rule = divider_row(grid)
+    last = grid.rows if rule is None else rule
+    return [grid.row_text(row) for row in range(last)]
+
+
+def attrs_above_the_rule(grid):
+    """The same rows' attribute runs, in order."""
+    rule = divider_row(grid)
+    last = grid.rows if rule is None else rule
+    return [grid.attrs_of_row(row) for row in range(last)]
+
+
+def left_behind(grid, palette):
+    """Every document row still carrying one of `palette`'s greys, with the row.
+
+    The "and nothing was missed" half of a retint: the marker readings below say
+    the named cells moved, and this says no row of the document was left in the
+    palette the session has left.
+    """
+    return [
+        (row, attrs)
+        for row, attrs in enumerate(attrs_above_the_rule(grid))
+        if any(attr in palette for attr in attrs)
+    ]
+
+
+def a_document_with_both_owned_roles(run, trial, fixture, body_text, label):
+    """Drives `trial` to a screen holding an answer, a notice and the user's echo.
+
+    The three things a report has different duties towards, put on the screen in
+    an order chosen so they survive: the turn first, because a turn's activity
+    row takes its place from the bottom of the document and paints over it, and
+    [`NOTICE_COMMAND`] after it, because that one starts no turn at all.
+
+    The wait is on the answer's **own row** rather than on the echo of the
+    command, so what the caller is handed back is a document that has stopped
+    moving.
+    """
+    trial.send("say " + run.nonce + "\r")
+    trial.wait_for(body_text)
+    run.require(
+        any(run.nonce in body for body in fixture.bodies()),
+        "%s: the nonce this run minted is in the request xfx sent" % label,
+    )
+    asked = fixture.request_count()
+    trial.send(NOTICE_COMMAND + "\r")
+    trial.wait_until(
+        "%s: xfx's own line about the session" % label,
+        lambda _t: said_row(trial.peek()) is not None,
+    )
+    run.require(
+        fixture.request_count() == asked,
+        "%s: the notice was answered locally (%d new request(s))"
+        % (label, fixture.request_count() - asked),
+    )
+    return trial
+
+
+def said_row(grid):
+    """The notice row once it is really there, or `None` while it is not."""
+    row = notice_row(grid)
+    if row is None or not grid.row_text(row).startswith(NOTICE_PREFIX):
+        return None
+    return row
+
+
+def notice_attribute(grid):
+    """The attribute of the notice row's first cell, or `None` without one."""
+    row = said_row(grid)
+    return None if row is None else grid.attrs[row][0]
+
+
+def scenario_27(run):
+    """A background report recolours what is on the screen, and changes nothing else."""
+    first, second = run.marker("first"), run.marker("second")
+
+    # --- a session that was told the terminal is dark -----------------------
+    #
+    # Through the launch's own `OSC 11` conversation rather than `XFX_THEME`,
+    # because a fixed palette is a session that takes no reports at all -- which
+    # is the control at the bottom of this scenario and not its subject. Dark is
+    # also what the detection falls back to, so this start is **not** read here
+    # as proof that the reply was adopted: `12-theme-detection` owns that claim
+    # by painting a light answer and a dark one differently.
+    fixture = start_fixture(run, [fixtures.content_only(first + "\n" + second)])
+    trial = run.trial("visible", gateway=fixture, answer_probes=False)
+    trial.wait_for(pty.THEME_PROBE)
+    run.require(pty.THEME_PROBE in trial.text(), "the launch asked the terminal its background")
+    trial.send(PROBE_ANSWERS)
+    trial.settled()
+    # The subscription, positively: the report typed below is a sequence a
+    # terminal sends **because it was asked to**, and a session that never asked
+    # would be being fed something no real terminal would volunteer.
+    run.require(
+        "\x1b[?2031h" in trial.text(),
+        "the launch subscribed to background changes before any report was sent",
+    )
+    from_a_known_composer(run, trial, "visible")
+    a_document_with_both_owned_roles(run, trial, fixture, second, "visible")
+
+    # A draft, so the claim below is about a composer with something in it. A
+    # report that reached the input decoder as text would land here.
+    draft = run.marker("draft")
+    trial.send(draft)
+    trial.wait_until(
+        "the draft in the composer",
+        lambda _t: composer_text(trial.peek()) == draft,
+    )
+
+    before = trial.grid("dark-before-the-report")
+    echo = own_line_row(before, NOTICE_COMMAND)
+    run.require(echo is not None, "the user's own submitted line is on the screen")
+    run.require(
+        cell_attribute(before, first) == RETINT_DARK_BODY
+        and cell_attribute(before, second) == RETINT_DARK_BODY,
+        "the answer's rows are in the dark body grey (%r / %r)"
+        % (cell_attribute(before, first), cell_attribute(before, second)),
+    )
+    run.require(
+        notice_attribute(before) == RETINT_DARK_NOTICE,
+        "xfx's own line is in the dark notice grey (%r)" % notice_attribute(before),
+    )
+    run.require(
+        echo is None or before.attrs_of_row(echo) == [],
+        "the user's own line carries none of xfx's attributes (%r)"
+        % (None if echo is None else before.attrs_of_row(echo)),
+    )
+    asked = fixture.request_count()
+
+    # --- the terminal says it went light ------------------------------------
+    trial.send(WENT_LIGHT)
+    trial.wait_until(
+        "the rows already on the screen to be recoloured",
+        lambda _t: cell_attribute(trial.peek(), first) == RETINT_LIGHT_BODY
+        and notice_attribute(trial.peek()) == RETINT_LIGHT_NOTICE,
+    )
+    after = trial.grid("light-after-the-report")
+    run.require(
+        cell_attribute(after, first) == RETINT_LIGHT_BODY
+        and cell_attribute(after, second) == RETINT_LIGHT_BODY,
+        "both answer rows moved to the light body grey (%r / %r)"
+        % (cell_attribute(after, first), cell_attribute(after, second)),
+    )
+    run.require(
+        notice_attribute(after) == RETINT_LIGHT_NOTICE,
+        "xfx's own line moved to the light notice grey (%r)" % notice_attribute(after),
+    )
+    run.require(
+        echo is None or after.attrs_of_row(echo) == [],
+        "the user's own line was not repainted (%r)"
+        % (None if echo is None else after.attrs_of_row(echo)),
+    )
+    run.require(
+        left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
+        "no document row was left in the palette the session has left: %r"
+        % left_behind(after, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+    )
+    # A recolour and **only** a recolour. Text, row positions, the caret, what
+    # has left the top of the screen, the plane, the draft and the provider are
+    # each a way for this vector to have been more than it claims.
+    run.require(
+        rows_above_the_rule(after) == rows_above_the_rule(before),
+        "not one character of the document moved",
+    )
+    run.require(after.text() == before.text(), "and no row of the screen changed its text")
+    run.require(
+        after.find(first) == before.find(first) and after.find(second) == before.find(second),
+        "the answer is on the rows and columns it was on (%r/%r vs %r/%r)"
+        % (after.find(first), after.find(second), before.find(first), before.find(second)),
+    )
+    run.require(
+        (after.row, after.col) == (before.row, before.col),
+        "the caret came back where the last frame left it (%r vs %r)"
+        % ((after.row, after.col), (before.row, before.col)),
+    )
+    run.require(
+        after.scrollback == before.scrollback,
+        "nothing was pushed into the terminal's own scrollback (%d vs %d rows)"
+        % (len(after.scrollback), len(before.scrollback)),
+    )
+    run.require(
+        (after.plane, after.entered_alternate) == (before.plane, before.entered_alternate),
+        "the recolour stayed on the normal buffer (%r)" % (after.plane,),
+    )
+    run.require(composer_text(after) == draft, "the draft survived: %r" % composer_text(after))
+    run.require(
+        fixture.request_count() == asked,
+        "a report asked the provider for nothing (%d new request(s))"
+        % (fixture.request_count() - asked),
+    )
+    run.require(not after.unknown, "xfx emitted only the sequences it declares: %r" % after.unknown)
+
+    # --- and back ------------------------------------------------------------
+    trial.send(WENT_DARK)
+    trial.wait_until(
+        "the rows to be recoloured back",
+        lambda _t: cell_attribute(trial.peek(), first) == RETINT_DARK_BODY
+        and notice_attribute(trial.peek()) == RETINT_DARK_NOTICE,
+    )
+    back = trial.grid("dark-again")
+    run.require(
+        cell_attribute(back, second) == RETINT_DARK_BODY,
+        "the second answer row came back too (%r)" % cell_attribute(back, second),
+    )
+    run.require(
+        left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)) == [],
+        "and nothing was left in the light palette: %r"
+        % left_behind(back, (RETINT_LIGHT_BODY, RETINT_LIGHT_NOTICE)),
+    )
+    run.require(back.text() == before.text(), "the screen is the one it started as, in text")
+    run.require(
+        (back.row, back.col) == (before.row, before.col),
+        "with the caret where it started (%r vs %r)"
+        % ((back.row, back.col), (before.row, before.col)),
+    )
+    run.require(back.scrollback == before.scrollback, "and nothing in scrollback either")
+    run.require(not back.unknown, "xfx emitted only the sequences it declares: %r" % back.unknown)
+
+    trial.send(b"\x15\x04")
+    run.require(trial.session.wait_exit() == ("exited", 0), "the retinted session left at 0")
+    run.require(
+        pty.RESTORE in trial.session.settled_text(),
+        "and gave the subscription back with the rest of the terminal",
+    )
+    fixture.stop()
+
+    # --- the control: a session told what the palette is ---------------------
+    #
+    # **A control and not a mutation proof.** What it establishes is that the
+    # same bytes, on a session whose palette was decided by `XFX_THEME`, move
+    # nothing -- so the trial above measured a report rather than any keystroke
+    # that happens to arrive. It cannot stand in for a build without the
+    # recolour: this binary has it, and a palette that is locked never reaches
+    # the code the trial above exercises.
+    locked_marker = run.marker("locked")
+    locked_fixture = start_fixture(run, [fixtures.content_only(locked_marker)], name="locked")
+    locked = run.trial(
+        "locked",
+        gateway=locked_fixture,
+        env_extra={"XFX_THEME": "dark"},
+        answer_probes=False,
+    )
+    locked.wait_for(pty.PROBE)
+    locked.send("\x1b[2;1R")
+    locked.settled()
+    run.require(
+        pty.THEME_PROBE not in locked.text(),
+        "XFX_THEME decided the palette, so no background query was sent",
+    )
+    from_a_known_composer(run, locked, "locked")
+    a_document_with_both_owned_roles(run, locked, locked_fixture, locked_marker, "locked")
+    held = locked.grid("locked-before-the-report")
+    run.require(
+        cell_attribute(held, locked_marker) == RETINT_DARK_BODY,
+        "the locked session's answer is in the dark body grey (%r)"
+        % cell_attribute(held, locked_marker),
+    )
+    run.require(
+        notice_attribute(held) == RETINT_DARK_NOTICE,
+        "and its notice in the dark notice grey (%r)" % notice_attribute(held),
+    )
+    band_before = (held.attrs_of_row(held.rows - 1), held.attrs_of_row(held.rows - 3))
+
+    # The report and a keystroke in **one** write, which is what makes "nothing
+    # changed" a bounded claim rather than a sleep: the decoder consumes one
+    # read in order, so a composer holding the `z` is a session that has already
+    # been past the report.
+    locked.send(WENT_LIGHT + b"z")
+    locked.wait_until(
+        "the keystroke behind the report to reach the composer",
+        lambda _t: composer_text(locked.peek()) == "z",
+    )
+    unmoved = locked.grid("locked-after-the-report")
+    run.require(
+        cell_attribute(unmoved, locked_marker) == RETINT_DARK_BODY
+        and notice_attribute(unmoved) == RETINT_DARK_NOTICE,
+        "a locked palette took no report (%r / %r)"
+        % (cell_attribute(unmoved, locked_marker), notice_attribute(unmoved)),
+    )
+    run.require(
+        rows_above_the_rule(unmoved) == rows_above_the_rule(held)
+        and attrs_above_the_rule(unmoved) == attrs_above_the_rule(held),
+        "and the document is the same rows in the same colours",
+    )
+    run.require(
+        (unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3))
+        == band_before,
+        "the band kept its own colours too (%r vs %r)"
+        % ((unmoved.attrs_of_row(unmoved.rows - 1), unmoved.attrs_of_row(unmoved.rows - 3)),
+           band_before),
+    )
+    run.require(
+        not unmoved.unknown, "xfx emitted only the sequences it declares: %r" % unmoved.unknown
+    )
+    locked.send(b"\x15\x04")
+    run.require(locked.session.wait_exit() == ("exited", 0), "the locked session left at 0")
+    locked_fixture.stop()
+
+    # --- a report while the rest of the answer is still inside xfx -----------
+    #
+    # Head and tail are in **one** `text-delta`, which is what makes the pending
+    # text a fact rather than a name: the fixture writes that event in a single
+    # chunk and only then holds the stream open, so a screen showing the head
+    # is a session that has already parsed the whole event -- and the tail it is
+    # not showing is held by the product, not by the producer. Which of the
+    # product's own buffers holds it is not readable from a screen; the pacer's
+    # timing has its own proof in `src/tui/pacer.rs`'s unit tests, and
+    # `8-streaming-render` makes the same release claim about the same shape.
+    head, tail = run.marker("head"), run.marker("tail")
+    paced = "%s %s %s" % (head, "xx " * 100, tail)
+    pending_fixture = start_fixture(
+        run, [fixtures.hang(fixtures.text_delta("a", paced))], name="pending"
+    )
+    pending = run.trial("pending-stream", gateway=pending_fixture, answer_probes=False)
+    pending.wait_for(pty.THEME_PROBE)
+    pending.send(PROBE_ANSWERS)
+    pending.settled()
+    from_a_known_composer(run, pending, "pending-stream")
+    pending.send("stream " + run.nonce + "\r")
+    pending.wait_for(head)
+    run.require(
+        tail not in pending.text(),
+        "the head of the delta was on the screen and its tail had not been written at all",
+    )
+    holding = pending.grid("stream-dark-head")
+    run.require(
+        cell_attribute(holding, head) == RETINT_DARK_BODY,
+        "what is already released is in the dark body grey (%r)" % cell_attribute(holding, head),
+    )
+
+    pending.send(WENT_LIGHT)
+    pending.wait_until(
+        "the released head to be recoloured mid-stream",
+        lambda _t: cell_attribute(pending.peek(), head) == RETINT_LIGHT_BODY,
+    )
+    pending.wait_for(tail)
+    final = pending.grid("stream-final")
+    run.require(
+        cell_attribute(final, head) == RETINT_LIGHT_BODY,
+        "text painted before the report is in the palette now in force (%r)"
+        % cell_attribute(final, head),
+    )
+    run.require(
+        cell_attribute(final, tail) == RETINT_LIGHT_BODY,
+        "and the text released after it is painted in the same one (%r)"
+        % cell_attribute(final, tail),
+    )
+    run.require(
+        left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)) == [],
+        "no visible document row is left in the old palette: %r"
+        % left_behind(final, (RETINT_DARK_BODY, RETINT_DARK_NOTICE)),
+    )
+    run.require(
+        final.text().count(tail) == 1,
+        "the fixture's own end marker is on the screen exactly once (%d)"
+        % final.text().count(tail),
+    )
+    run.require(
+        any(run.nonce in body for body in pending_fixture.bodies()),
+        "the nonce this run minted is in the request xfx sent (%d request(s))"
+        % pending_fixture.request_count(),
+    )
+    run.require(not final.unknown, "xfx emitted only the sequences it declares: %r" % final.unknown)
+    pending.send(b"\x03")
+    pending.wait_for("stopping the turn")
+    pending.send(b"\x03")
+    run.require(
+        pending.session.wait_exit() == ("exited", 130), "the streaming session left with 130"
+    )
+    pending_fixture.stop()
+
+
 SCENARIOS = {
     "1-launch-and-band-ownership": scenario_1,
     "2-cursor-probe-and-scrollback-push": scenario_2,
     "3-restore-matrix": scenario_3,
     "3b-shutdown-drain": scenario_3b,
     "3c-partial-frame-containment": scenario_3c,
+    "3d-primary-band-recovery": scenario_3d,
     "4-raw-mode-positively-entered": scenario_4,
     "5-editor-basics": scenario_5,
     "6-soft-wrap-and-growth-cap": scenario_6,
@@ -7709,6 +8391,7 @@ SCENARIOS = {
     "25-amended-approval": scenario_25,
     "26-layout-stabilization": scenario_26,
     "26b-composer-yield-to-panel": scenario_26b,
+    "27-live-theme-retint": scenario_27,
 }
 
 
@@ -7772,11 +8455,13 @@ export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
-# the lettered rows the drain, the counted-delivery containment and the
-# mid-turn approval added, then Phase 2's 13-21 and Phase 3's 22, 23, the
-# lettered row 23b, 24 and 25 -- plus 26 and 26b, QA-only additions not in
+# the lettered rows the drain, the counted-delivery containment, the recovery
+# that containment's own cleanup vector answers, and the mid-turn approval
+# added, then Phase 2's 13-21 and Phase 3's 22, 23, the
+# lettered row 23b, 24 and 25 -- plus 26, 26b and 27, QA-only additions not in
 # that PRD's own numbered list, for the band's growth-and-shrink layout
-# contract and the composer's own yield to a panel within it. This
+# contract, the composer's own yield to a panel within it, and the recolour a
+# terminal's own background report owes the rows already on the screen. This
 # list and `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
@@ -7786,6 +8471,7 @@ scenarios=(
 	3-restore-matrix
 	3b-shutdown-drain
 	3c-partial-frame-containment
+	3d-primary-band-recovery
 	4-raw-mode-positively-entered
 	5-editor-basics
 	6-soft-wrap-and-growth-cap
@@ -7812,6 +8498,7 @@ scenarios=(
 	25-amended-approval
 	26-layout-stabilization
 	26b-composer-yield-to-panel
+	27-live-theme-retint
 )
 
 printf 'xfx smoke-tui\n  binary:   %s\n  faulty:   %s\n  evidence: %s\n\n' \

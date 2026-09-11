@@ -4742,6 +4742,14 @@ mod faults {
         // measured, and neither says what a parser holding half a frame did
         // with the bytes that followed. That is why the diagnostic below is
         // asserted to name an accepted count rather than a restoration.
+        //
+        // `partial-frame` also refuses the one cleanup vector a synchronous
+        // recovery attempt tries next, so this fixture stays a fatal one even
+        // though the build now knows how to recover a torn primary-band
+        // frame in general (`faults::a_torn_first_frame_recovered_once_...`,
+        // below, drives that with `partial-frame-once` instead). Recovery is
+        // never available *here* on purpose: the row this test is for is
+        // still "no vector this session could write is known to fix that".
         let sandbox = Sandbox::new();
         let pty = Pty::open();
         pty.resize(24, 80);
@@ -4805,6 +4813,62 @@ mod faults {
         assert!(
             !body.contains("accepted"),
             "the independent report leaked the terminal's own human-readable sentence: {body:?}"
+        );
+    }
+
+    #[test]
+    fn a_torn_first_frame_recovered_once_still_lets_the_session_run_and_exit_clean() {
+        // The paired row to the containment test above: the identical torn
+        // prefix, but this time a synchronous recovery attempt's own cleanup
+        // vector and rebuild both reach the real descriptor, so the session
+        // that caught the tear keeps running rather than ending on it.
+        //
+        // What is asserted is this session's own observable behaviour after
+        // the tear: a whole band back on the screen, ordinary input still
+        // taken, a clean exit, and the terminal given back exactly. What is
+        // deliberately **not** claimed is that any particular terminal's own
+        // parser recovered from the torn prefix -- the accepted-byte counting
+        // is real, but a substring match against this suite's own captured
+        // text is evidence about the bytes this session wrote, not about a
+        // parser this suite does not run.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session = Session::spawn_without_taking_the_terminal(
+            &pty,
+            faulty(&sandbox, "partial-frame-once"),
+        );
+
+        // The torn frame, the fixed cleanup that follows it, and the whole
+        // rebuilt frame behind that: two `FRAME_BEGIN`s on the wire where the
+        // fatal fixture has exactly one.
+        session.wait_for_count(FRAME_BEGIN, 2);
+        let recovered = session.wait_for(FRAME_END);
+        assert!(
+            recovered.contains(HINT),
+            "the recovered band did not carry a hint row: {recovered:?}"
+        );
+
+        // Ordinary input still works after the recovery: a keystroke is
+        // echoed into the composer the rebuilt frame left. Only the changed
+        // cell, not the whole row, since the frame right after a landed
+        // recovery diffs against a shadow the rebuild already matches.
+        session.type_bytes(b"hi");
+        session.wait_for("hi");
+
+        // Ctrl-U kills the line, Ctrl-D ends the session -- the same two keys
+        // every other live-session row in this suite exercises.
+        session.type_bytes(&[0x15, 0x04]);
+        assert_eq!(
+            session.wait_exit().code(),
+            Some(0),
+            "a session that recovered a torn frame did not exit clean"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
         );
     }
 

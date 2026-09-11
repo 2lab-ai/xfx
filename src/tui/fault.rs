@@ -47,6 +47,17 @@ pub(crate) enum Fault {
     /// the prefix is genuinely on the user's terminal -- and the containment
     /// that follows is the product's, not the harness's.
     PartialFrame,
+    /// The same torn prefix as [`Self::PartialFrame`], but a synchronous
+    /// recovery attempt's cleanup vector and rebuild are both answered for
+    /// real afterwards, so a session that catches the tear can be watched
+    /// recovering end to end on a real descriptor.
+    ///
+    /// A row of its own rather than a flag on [`Self::PartialFrame`] because
+    /// the two must measure opposite things: that one keeps containing a
+    /// tear no recovery in this build gets past (its own cleanup vector is
+    /// refused too), this one is the one tear recovery is actually asked to
+    /// survive.
+    PartialFrameOnce,
     /// A screen that refuses every band frame it is shown, from the first one
     /// on, and takes not one byte of any of them.
     ///
@@ -89,6 +100,7 @@ impl Fault {
             Self::SlowUi => "slow-ui",
             Self::AlternatePanic => "alternate-panic",
             Self::PartialFrame => "partial-frame",
+            Self::PartialFrameOnce => "partial-frame-once",
             Self::RefusesFrames => "frame-refusal",
             Self::FullPaintReference => "full-paint-reference",
         }
@@ -100,14 +112,26 @@ pub(crate) fn injected(point: Fault) -> bool {
     std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
 }
 
-/// How far [`Fault::PartialFrame`] has got: `0` before anything armed it, `1`
-/// with the prefix owed, `2` with the failure owed, `3` once it is spent.
+/// How far the armed fault has got: `0` before anything armed it, `1` with
+/// the prefix owed, `2` with the original failure owed, `3` with a recovery
+/// cleanup vector owed a refusal too ([`Fault::PartialFrame`] only -- see
+/// [`PARTIAL_FRAME_ONCE`]), `4` once it is spent for good.
 ///
-/// A count rather than a flag because the fault is **two** answers to two
-/// syscalls, in order, and exactly once in the life of a process: after that
-/// the descriptor is the terminal's own again, which is what lets the exit
-/// below it restore for real and be measured.
+/// A count rather than a flag because the fault is a fixed *sequence* of
+/// answers, in order, and exactly once in the life of a process: after the
+/// last one the descriptor is the terminal's own again, which is what lets
+/// the exit below it restore for real and be measured.
 static PARTIAL_FRAME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Which of [`Fault::PartialFrame`] / [`Fault::PartialFrameOnce`] armed
+/// [`PARTIAL_FRAME`]: `0` unset, `1` the containing fault, `2` the recovering
+/// one.
+///
+/// A separate cell rather than folding the choice into [`PARTIAL_FRAME`]'s
+/// own numbering because the two faults share every state up to and
+/// including the original failure -- only what happens to the *next* write,
+/// the recovery attempt's own cleanup vector, differs.
+static PARTIAL_FRAME_ONCE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// What the injected terminal does to the next `write`.
 pub(crate) enum Prefix {
@@ -118,26 +142,33 @@ pub(crate) enum Prefix {
     Fails,
 }
 
-/// Arms the prefix fault, if this run asked for it and has not had it yet.
+/// Arms the prefix fault, if this run asked for either variant of it and has
+/// not had it yet.
 ///
 /// Called where the *first band frame* is about to be built, so the vector it
 /// lands on is a frame rather than the mode set: a session that lost the mode
 /// set would be a startup failure, which is a row the matrix already has.
 pub(crate) fn arm_partial_frame() {
-    if !injected(Fault::PartialFrame) {
+    use std::sync::atomic::Ordering;
+
+    let once = if injected(Fault::PartialFrame) {
+        1
+    } else if injected(Fault::PartialFrameOnce) {
+        2
+    } else {
         return;
+    };
+    if PARTIAL_FRAME
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        PARTIAL_FRAME_ONCE.store(once, Ordering::Release);
     }
-    let _ = PARTIAL_FRAME.compare_exchange(
-        0,
-        1,
-        std::sync::atomic::Ordering::AcqRel,
-        std::sync::atomic::Ordering::Acquire,
-    );
 }
 
 /// What an armed prefix fault answers for a write of `len` bytes.
 ///
-/// `None` once, and for ever after, the two answers are spent.
+/// `None` once, and for ever after, the sequence is spent.
 pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
     use std::sync::atomic::Ordering;
 
@@ -149,7 +180,22 @@ pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
             Some(Prefix::Takes((len / 2).max(1).min(len)))
         }
         2 => {
-            PARTIAL_FRAME.store(3, Ordering::Release);
+            // The original tear. `PartialFrame` still owes a refusal to the
+            // very next vector -- the recovery attempt's own fixed cleanup
+            // write -- so that a session running under it never observes a
+            // successful recovery. `PartialFrameOnce` is spent here instead:
+            // the cleanup and the rebuild behind it both reach the real
+            // descriptor.
+            let next = if PARTIAL_FRAME_ONCE.load(Ordering::Acquire) == 1 {
+                3
+            } else {
+                4
+            };
+            PARTIAL_FRAME.store(next, Ordering::Release);
+            Some(Prefix::Fails)
+        }
+        3 => {
+            PARTIAL_FRAME.store(4, Ordering::Release);
             Some(Prefix::Fails)
         }
         _ => None,

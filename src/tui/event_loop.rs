@@ -70,7 +70,7 @@ use tokio::sync::mpsc::Receiver;
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
 use super::deliver::{Emit, RawTty, Sink};
-use super::frame::{Band, Commit};
+use super::frame::{Band, Commit, Retint};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
@@ -611,8 +611,7 @@ fn collect_facts(
         // would repaint the approval screen onto the buffer the user was given
         // back -- or, if nothing on it had changed, paint nothing at all and
         // leave the session with neither a band nor a question on the screen.
-        adopt_resume(band, signals::take_plane_restored());
-        shell.render.request(Reason::ExternalDamage);
+        adopt_resume(shell, band, signals::take_plane_restored());
         // And the palette, which the damage above does not cover. A stop hands
         // the terminal back with the theme subscription turned off
         // (`super::term::abnormal_restore`'s `?2031l`), so for however long the
@@ -665,10 +664,23 @@ fn collect_facts(
 /// `signals::take_plane_restored` for the reason every reading in this module is
 /// one: "a continue nothing restored takes no plane back" is a claim about a
 /// signal that cannot honestly be delivered inside a unit test.
-fn adopt_resume(band: &mut Band, plane_restored: bool) {
+///
+/// **The shell's half is here too, rather than beside the call**, because it is
+/// the same event: somebody else has had the terminal, so every row on it --
+/// the band's and the document's alike -- is a claim this session can no longer
+/// make. Written as one seam so a test can reach the whole of what a resume
+/// does to this side without a signal, and so the damage cannot be raised by a
+/// road that misses what it means to the rest of the session.
+fn adopt_resume(shell: &mut Shell, band: &mut Band, plane_restored: bool) {
     if plane_restored {
         band.plane_given_back();
     }
+    // Through the shell's own door rather than by asking for the reason
+    // directly: a resume is not only a frame the band owes, it is the moment
+    // this session stops being able to say what is on **any** row -- the
+    // document's included -- and `external_damage` is where both halves of that
+    // are recorded together.
+    shell.external_damage();
 }
 
 /// Re-solves the band from the terminal's size, once the debounce is out.
@@ -736,6 +748,7 @@ fn adopt_resize(shell: &mut Shell, band: &mut Band, size: impl FnOnce() -> (u16,
         // does not model, so every cell the shadow describes is a claim about a
         // screen that no longer exists.
         band.invalidate(geometry.rows, geometry.cols);
+        shell.damage_told();
     }
 }
 
@@ -1044,6 +1057,18 @@ fn commit_band(
         // And a readiness receipt is the same kind of claim about the same
         // rows.
         shell.invalidate_approval();
+        // The band has been told, so its own `damaged` is the fact from here
+        // on and the shell's record of an untold one is spent
+        // ([`super::shell::Shell::damage_told`]).
+        shell.damage_told();
+    } else if failures.pending_recovery {
+        // A tick right behind a recovered tear, on a shadow that is already
+        // correct: nothing about the rows is unknown the way damage leaves
+        // them, so `invalidate` would only discard what recovery just
+        // rebuilt. `force_redraw` asks for less -- a real write next, not a
+        // trusted `Commit::NoChange` -- which is exactly the one thing this
+        // tick still owes.
+        band.force_redraw(&shell.geometry);
     }
     // Bound **once**, and before the intent: the rows are what is about to be
     // written, and a second `band_rows()` call after the composition would be a
@@ -1062,16 +1087,74 @@ fn commit_band(
                 Commit::Painted => Outcome::Painted,
                 Commit::NoChange => Outcome::Unchanged,
             });
-            failures.succeeded();
+            // Only a frame that actually went out re-verifies the screen.
+            // `Commit::NoChange` wrote nothing -- on an ordinary tick that is
+            // fine, the screen already held this, but on the tick
+            // `pending_recovery` forced (`force_redraw` above) it would mean
+            // reading a diff against an already-correct shadow as if it were
+            // proof the terminal is still there, which is exactly the bug a
+            // recovered tear's budget must not have. That is scoped to a
+            // recovery actually pending: an ordinary `NoChange` tick, with no
+            // recovery owed, still resets the budget exactly as it did
+            // before that gate existed -- `landed == Commit::Painted` alone
+            // would swallow that reset too.
+            if landed == Commit::Painted || !failures.pending_recovery {
+                failures.succeeded();
+            }
             Ok(true)
         }
         Err(emit) => {
             // A refused write may have left half a frame on the screen.
             shell.approval_write_failed();
             shell.render.restore(attempt);
-            match disposed(emit, failures, now) {
-                Some(fatal) => Err(fatal),
-                None => Ok(false),
+            if !matches!(emit, Emit::Partial { .. }) {
+                return match disposed(emit, failures, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(false),
+                };
+            }
+            // A torn primary-band frame: the one failure this build knows how
+            // to fix -- a fixed cleanup vector, then the same frame rebuilt
+            // from an erased shadow, in this same call
+            // (`Band::recover_primary`). Spent on the ORIGINAL failure exactly
+            // as a refused write is (`failures.failed`, never `succeeded`), so
+            // a screen that keeps tearing frames still runs the budget out
+            // even though each individual tear is recovered. The original's
+            // own text is kept before it moves, so a recovery failure below
+            // can still say what the *first* tear was, not only the second.
+            let original = emit.into_error();
+            let original_text = original.to_string();
+            if let Some(fatal) = failures.failed(original, now) {
+                return Err(super::diagnostic::mark(
+                    super::diagnostic::Reason::Exhausted,
+                    fatal,
+                ));
+            }
+            match band.recover_primary(out, &rows, &shell.geometry, cursor) {
+                // Recovered: the screen holds a whole, correct band again,
+                // but this tick still reports `false` -- no
+                // `approval_landed`, no `succeeded` -- so readiness and the
+                // budget are restored only by a later frame this loop
+                // verifies on its own account. `pending_recovery` is what
+                // that later frame reads (this function's own top, on the
+                // next call) to make sure it really is one.
+                Ok(_) => {
+                    failures.pending_recovery = true;
+                    Ok(false)
+                }
+                // No second attempt. Whatever failed the cleanup or the
+                // rebuild is fatal on the spot, marked the same way the
+                // original tear would have been -- and still names the
+                // original tear, since that is the failure this session
+                // actually could not get past.
+                Err(recovery) => Err(super::diagnostic::mark(
+                    super::diagnostic::Reason::Partial,
+                    io::Error::other(format!(
+                        "a torn primary-band frame ({original_text}) could not be \
+                         recovered: {recovery}",
+                        recovery = recovery.into_error(),
+                    )),
+                )),
             }
         }
     }
@@ -1097,6 +1180,40 @@ fn commit_document(
     failures: &mut FrameFailures,
     now: Instant,
 ) -> io::Result<bool> {
+    // **The recolour a theme report owes the rows already on the screen, and
+    // it goes first.** It writes no scroll, so it cannot move anything the two
+    // writers below are about to address -- and ahead of them a row that is
+    // carried off the top of the screen leaves in the palette the user has
+    // now rather than the one they had.
+    //
+    // Only from here, which is the ordinary primary tick and the barrier that
+    // pays the primary plane before a question takes the other one: on the
+    // alternate plane this is never called at all, so the debt waits, and on a
+    // screen no band fits on `commit_frame` returns above it for the reason
+    // every other coordinate does.
+    //
+    // Nothing is taken, so nothing is re-armed: the debt is cleared only by a
+    // call that settled it, and a refused one leaves it owed under the same
+    // budget as every other refused write. It is not a frame and does not count
+    // as one -- `failures.succeeded` stays where the frames are.
+    if shell.owes_retint() {
+        match band.retint_document(out, &shell.palette(), &shell.geometry) {
+            // Settled: the cells were repainted, or the screen already held
+            // them, or this session owns no document row on it.
+            Ok(Retint::Settled(_)) => shell.retint_paid(),
+            // Deferred, and the tick **goes on**. The band cannot describe the
+            // screen yet, so the debt stands -- and the frame below is exactly
+            // what makes the next tick able to answer it, so returning early
+            // here would starve the repair that settles this.
+            Ok(Retint::Deferred) => {}
+            Err(emit) => {
+                return match disposed(emit, failures, now) {
+                    Some(fatal) => Err(fatal),
+                    None => Ok(false),
+                }
+            }
+        }
+    }
     if let Err(emit) = band.carry_document(out, &shell.geometry) {
         return match disposed(emit, failures, now) {
             Some(fatal) => Err(fatal),
@@ -1299,7 +1416,14 @@ fn paint_alternate(
             // stops an unwritten repaint granting a question nobody has seen.
             if frame.bytes().is_empty() {
                 shell.approval_landed(Outcome::Unchanged);
-                failures.succeeded();
+                // Unlike the primary plane's `force_redraw`, nothing on this
+                // arm ever forces a real write while a primary recovery is
+                // pending, so this empty repaint is not known to prove
+                // anything about it -- and must not clear it out from under
+                // a still-unverified recovery on the other plane.
+                if !failures.pending_recovery {
+                    failures.succeeded();
+                }
                 return Ok(());
             }
             match out.emit(frame.bytes()) {
@@ -1372,6 +1496,21 @@ struct FrameFailures {
     /// later `EBADF` on a descriptor the first `EIO` already lost says less
     /// about what went wrong.
     first: Option<io::Error>,
+    /// A tear [`Band::recover_primary`] fixed in the same call, still owed a
+    /// tick that proves it on its own account.
+    ///
+    /// Set the moment recovery lands, in [`commit_band`]'s own `Err(emit)`
+    /// arm. Read at that same function's top, on every later call, to force
+    /// the next commit to be a real write ([`Band::force_redraw`]) rather
+    /// than trust a diff against a shadow recovery already rebuilt. Cleared
+    /// only by [`FrameFailures::succeeded`], the one function that ever
+    /// clears it: while this is set, a zero-byte repaint on either plane
+    /// (primary [`Commit::NoChange`] or alternate already-there) cannot
+    /// clear it -- neither one is the independently painted frame that
+    /// actually re-verifies the screen. A successful, independently painted
+    /// primary frame or a successful nonempty alternate write both call
+    /// `succeeded` unconditionally and do clear it.
+    pending_recovery: bool,
 }
 
 impl FrameFailures {
@@ -1380,6 +1519,7 @@ impl FrameFailures {
     fn succeeded(&mut self) {
         self.began = None;
         self.first = None;
+        self.pending_recovery = false;
     }
 
     /// Records a failed frame. `Some` is the error the session must leave with.
@@ -1792,6 +1932,74 @@ mod tests {
     }
 
     #[test]
+    fn an_ordinary_no_change_tick_still_clears_a_budget_no_recovery_owns() {
+        // `xfx-recovery-budget-narrowing.md`'s own scope: gating
+        // `commit_band`'s `failures.succeeded()` on `landed ==
+        // Commit::Painted` alone (the prior round's recovery fix) also
+        // swallowed the reset on an ordinary, non-recovery `NoChange` tick --
+        // which at base `e94b933` reset unconditionally on any `Ok(landed)`.
+        // This is a genuine production path, not a seam: a plain counted
+        // failure (`disposed`, no tear, no `pending_recovery`) followed by an
+        // unrelated redundant tick must still clear the budget.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the first frame");
+        assert!(
+            !out.written.is_empty(),
+            "the session painted nothing at all, so this case proves nothing"
+        );
+
+        assert!(
+            failures
+                .failed(refused(io::ErrorKind::WouldBlock), now)
+                .is_none(),
+            "a single counted failure ended the session on its own"
+        );
+        assert!(
+            !failures.pending_recovery,
+            "a plain counted failure must never set recovery pending"
+        );
+
+        out.written.clear();
+        shell.render.request(Reason::Animation);
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the idle tick");
+        assert!(
+            out.written.is_empty(),
+            "the idle tick repainted the band: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+
+        assert!(
+            failures.began.is_none(),
+            "an ordinary NoChange tick with no recovery pending did not reset the budget's clock"
+        );
+        assert!(
+            failures.first.is_none(),
+            "an ordinary NoChange tick with no recovery pending kept the counted failure"
+        );
+    }
+
+    #[test]
     fn a_screen_somebody_else_wrote_on_is_repainted_whole() {
         // `Reason::ExternalDamage` is the one reason a painter cannot answer by
         // painting a difference: the shadow is a claim about what is on those
@@ -2183,18 +2391,73 @@ mod tests {
         }
     }
 
+    /// A screen that takes `prefix` bytes of the first vector it is offered
+    /// and then refuses everything for good, including a later synchronous
+    /// recovery attempt's own fixed cleanup vector.
+    ///
+    /// [`HalfDeaf`] heals after its one failure, which is what
+    /// [`Band::recover_primary`]'s cleanup vector finds and lands on. This one
+    /// never does, so it stands in for the tear P3-COMMIT's containment is
+    /// actually about: one no fixed reset this build knows can undo.
+    struct IrrecoverablyTorn {
+        prefix: usize,
+        written: Vec<u8>,
+        /// Every vector [`Sink::emit`] was asked to send, whole, in the order
+        /// it was offered -- distinct from `written`, which is only the bytes
+        /// this screen actually *took*. A cleanup vector refused outright is
+        /// one entry here and none of it in `written`; recording only
+        /// `written` cannot tell that apart from a cleanup that was never
+        /// offered at all.
+        offered: Vec<Vec<u8>>,
+    }
+
+    impl IrrecoverablyTorn {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                written: Vec::new(),
+                offered: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for IrrecoverablyTorn {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.prefix > 0 {
+                let taken = self.prefix.min(bytes.len());
+                self.prefix -= taken;
+                self.written.extend_from_slice(&bytes[..taken]);
+                return Ok(taken);
+            }
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the screen stopped taking bytes for good",
+            ))
+        }
+    }
+
+    impl Sink for IrrecoverablyTorn {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            self.offered.push(bytes.to_vec());
+            emit_counted(self, bytes)
+        }
+    }
+
     #[test]
     fn a_frame_the_screen_took_only_part_of_ends_the_session_rather_than_being_offered_again() {
         // **The containment this unit exists for.** A refused frame is a frame
         // the terminal never saw, and the budget may offer it again. A frame
-        // the terminal took a *prefix* of is a terminal holding half a vector:
-        // there is no vector this session can write that is known to fix it,
+        // the terminal took a *prefix* of is a terminal holding half a vector,
+        // and P3-COMMIT gives this build exactly one fixed thing to try on
+        // that: `Band::recover_primary`. `IrrecoverablyTorn` refuses that
+        // attempt too, so this stays the case recovery cannot be assumed to
+        // fix -- there is no vector this session can write that is *known* to,
         // and re-offering the whole one would send the prefix twice. So the
         // tick does not end -- the session does.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
-        let mut screen = HalfDeaf::taking(12);
+        let mut screen = IrrecoverablyTorn::taking(12);
 
         let err = commit_frame(
             &mut shell,
@@ -2204,7 +2467,9 @@ mod tests {
             Instant::now(),
             Reconciled,
         )
-        .expect_err("a frame the screen took part of was handed back to the budget");
+        .expect_err(
+            "a frame the screen took part of, with no recovery available, ends the session",
+        );
 
         assert_eq!(
             screen.written.len(),
@@ -3149,6 +3414,504 @@ mod tests {
                 .failed(refused(io::ErrorKind::BrokenPipe), at(start, 501))
                 .is_some(),
             "a query that landed mended a budget the screen had not"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // the document rows a theme report finds already on the screen
+    // -----------------------------------------------------------------------
+    //
+    // The greys and the report are spelled out rather than imported, for the
+    // reason every needle in this module's tests is: an expectation built from
+    // the accessor under test passes for whatever that accessor says.
+
+    /// What a terminal with mode 2031 sends when its background goes light,
+    /// and back.
+    const WENT_LIGHT: &[u8] = b"\x1b[?997;2n";
+    const WENT_DARK: &[u8] = b"\x1b[?997;1n";
+
+    /// The answer text's own grey, dark (`theme::DARK`'s `255`) and light
+    /// (`theme::LIGHT`'s `235`).
+    const BODY_DARK: &str = "\u{1b}[38;5;255m";
+    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    /// What xfx's own lines are painted in, in both modes.
+    const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+
+    /// One tick of the loop's writer, onto a screen that takes everything.
+    fn tick(
+        shell: &mut Fixture,
+        band: &mut Band,
+        out: &mut FlakyScreen,
+        failures: &mut FrameFailures,
+        now: Instant,
+    ) -> String {
+        out.written.clear();
+        commit_frame(shell, band, out, failures, now, Reconciled).expect("a tick");
+        String::from_utf8(out.written.clone()).expect("a frame is text and escapes")
+    }
+
+    /// A session whose document holds the echo of a prompt, one finished
+    /// answer row and one of xfx's own lines -- every byte of it delivered.
+    ///
+    /// The band is painted **first**, because that is the frame that sizes the
+    /// band's shadow: rows appended before a session has drawn anything land on
+    /// the screen without the band ever recording them, which is a session with
+    /// no document it can describe rather than the one these cases are about.
+    fn a_document_on_the_screen(
+        shell: &mut Fixture,
+        band: &mut Band,
+        out: &mut FlakyScreen,
+        failures: &mut FrameFailures,
+        now: Instant,
+    ) {
+        tick(shell, band, out, failures, now);
+        shell.route_bytes(b"hello\r");
+        shell.apply(UiEvent::Delta("a streamed answer\n".to_string()));
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.flush_paced();
+        let landed = tick(shell, band, out, failures, now);
+        for wanted in [
+            format!("{BODY_DARK}a streamed answer"),
+            format!("{NOTICE_DARK}[tool] read_file ok"),
+        ] {
+            assert!(
+                landed.contains(&wanted),
+                "the document this case is about never reached the screen: {landed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_theme_report_recolours_the_document_rows_that_are_still_on_the_screen() {
+        // The whole of what U-B is for. A background that went light leaves
+        // every answer row already on the screen painted in the dark palette's
+        // near-white -- on white -- and this phase repaints no document row, so
+        // without this they stay that way for as long as the session lasts.
+        //
+        // What may move is the colour around a row and nothing inside one: the
+        // text, its place and the user's own echo are what they were.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        assert!(
+            written.contains(&format!("{BODY_LIGHT}a streamed answer")),
+            "the answer on the screen was not repainted for the terminal the \
+             user has now: {written:?}"
+        );
+        assert!(
+            written.contains(&format!("{NOTICE_LIGHT}[tool] read_file ok")),
+            "xfx's own line kept the palette the session started in: {written:?}"
+        );
+        assert!(
+            !written.contains('\n'),
+            "the recolour scrolled the screen, which puts a row into native \
+             scrollback that nothing can take back: {written:?}"
+        );
+        assert!(
+            !written.contains("hello"),
+            "the recolour rewrote the user's own echo, which this surface \
+             never painted a colour onto: {written:?}"
+        );
+        assert!(
+            !written.contains("\u{1b}[2J")
+                && !written.contains("\u{1b}[3J")
+                && !written.contains("\u{1b}[?1049"),
+            "the recolour erased a screen or moved a plane: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_report_that_flipped_and_flipped_back_before_it_was_paid_costs_nothing() {
+        // The debt carries no palette of its own -- it is "the document, in
+        // whatever palette is in force when it is paid" -- so a terminal that
+        // reported light and dark again inside one tick is a terminal whose
+        // document is already right. A debt that remembered an old-to-new pair
+        // would repaint every cell twice and end on the wrong grey.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        shell.route_bytes(WENT_DARK);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        assert!(
+            !written.contains("an answer") && !written.contains("[tool] ran"),
+            "a report that changed nothing in the end still rewrote the \
+             document: {written:?}"
+        );
+        assert!(
+            !shell.owes_retint(),
+            "the recolour was left owed after the tick that settled it"
+        );
+    }
+
+    #[test]
+    fn a_recolour_the_screen_refused_is_offered_again_on_the_next_tick() {
+        // Nothing takes the debt, so nothing has to re-arm it: a refused
+        // vector moved no byte, and the next tick offers exactly the same one
+        // -- under the same frame budget every other refused write spends.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        out.refusals = 1;
+        let refused = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            refused.is_empty(),
+            "the refused tick wrote something: {refused:?}"
+        );
+        assert!(
+            shell.owes_retint(),
+            "a refused recolour was recorded as if it had landed"
+        );
+
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            written.contains(&format!("{BODY_LIGHT}a streamed answer")),
+            "the recolour the screen refused was never offered again: {written:?}"
+        );
+        assert!(!shell.owes_retint());
+
+        // And a report that arrives while one is still owed **moves** what is
+        // owed rather than queueing behind it: the debt is the document in the
+        // palette that is in force, so a retry writes where the terminal is
+        // now rather than where it was when the refusal happened.
+        shell.route_bytes(WENT_DARK);
+        out.refusals = 1;
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(WENT_LIGHT);
+        let converged = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !converged.contains(&format!("{BODY_DARK}a streamed answer")),
+            "the retry wrote the palette of the report that was refused rather \
+             than the one the terminal has now: {converged:?}"
+        );
+    }
+
+    #[test]
+    fn a_recolour_the_terminal_took_part_of_ends_the_session_rather_than_being_replayed() {
+        // The road every document vector is on. A terminal that took a prefix
+        // and stopped holds a fragment of an escape sequence, and the whole
+        // vector is the only thing this session could offer again -- which
+        // would put that fragment on the screen twice. There is no recovery
+        // and no replay for one of these: `disposed` ends the session on the
+        // spot, whatever the budget says.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        let mut torn = HalfDeaf::taking(3);
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect_err("a recolour the terminal took part of ends the session");
+        assert!(err.to_string().contains('3'), "{err}");
+        // The vector the terminal tore is **this** one: a tick that had
+        // recoloured nothing would have settled the debt on its way past.
+        assert!(
+            shell.owes_retint(),
+            "the torn vector was not the recolour, so this case proves nothing"
+        );
+    }
+
+    #[test]
+    fn a_report_while_a_question_owns_the_other_plane_waits_for_the_plane_to_come_back() {
+        // A document row cannot be written on the buffer a question borrowed:
+        // the terminal hands that buffer back on the way out, so those bytes
+        // would be lost, and the rows they were meant for are still in the dark
+        // palette when the user comes back to them. The debt waits instead.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.apply(a_change_too_big_for_the_band());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question did not take the plane, so this case proves nothing"
+        );
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.reconcile_approval();
+
+        shell.route_bytes(WENT_LIGHT);
+        let borrowed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !borrowed.contains("an answer"),
+            "the document was repainted onto the buffer the question borrowed: \
+             {borrowed:?}"
+        );
+        assert!(
+            shell.owes_retint(),
+            "the recolour was dropped while the question was up"
+        );
+
+        // Answered: the plane comes back under a whole repaint of the band,
+        // and the tick after it pays what the primary plane still owes.
+        shell.route_bytes(b"3");
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            back.contains(&format!("{BODY_LIGHT}a streamed answer")),
+            "the recolour never landed after the plane came back: {back:?}"
+        );
+    }
+
+    #[test]
+    fn a_clear_and_a_report_in_one_tick_never_bring_the_erased_document_back() {
+        // The ordering that makes this a real hazard: `/clear` erases the
+        // screen *before* the document writer runs, and the band is told what
+        // that means only when the frame is built, after it. A recolour paid in
+        // between would repaint the erased answer back onto a screen the user
+        // emptied -- and it must not matter which of the two the batch carried
+        // first.
+        for report_first in [true, false] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+            if report_first {
+                shell.route_bytes(WENT_LIGHT);
+                shell.route_bytes(b"/clear\r");
+            } else {
+                shell.route_bytes(b"/clear\r");
+                shell.route_bytes(WENT_LIGHT);
+            }
+            for tick_number in 0..2 {
+                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(
+                    !written.contains("an answer") && !written.contains("[tool] ran"),
+                    "tick {tick_number} with the report {} the clear brought \
+                     erased history back: {written:?}",
+                    if report_first { "before" } else { "after" }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_resize_and_a_report_in_one_tick_never_repaint_the_screen_that_was() {
+        // The same hazard on the other road. A terminal that changed size
+        // re-wrapped its own document by rules this crate does not model, so
+        // every cell the shadow describes is a claim about a screen that is
+        // gone -- and a recolour is a claim made out of exactly those cells.
+        for report_first in [true, false] {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            let mut out = screen();
+            let now = Instant::now();
+            a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+            if report_first {
+                shell.route_bytes(WENT_LIGHT);
+                adopt_resize(&mut shell, &mut band, || (30, 100));
+            } else {
+                adopt_resize(&mut shell, &mut band, || (30, 100));
+                shell.route_bytes(WENT_LIGHT);
+            }
+            for tick_number in 0..2 {
+                let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+                assert!(
+                    !written.contains("an answer") && !written.contains("[tool] ran"),
+                    "tick {tick_number} with the report {} the resize repainted \
+                     a screen that no longer exists: {written:?}",
+                    if report_first { "before" } else { "after" }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_recolour_armed_before_a_resume_never_repaints_the_screen_somebody_else_had() {
+        // A stop hands the terminal to the user's shell and a continue takes it
+        // back, so every row on it -- the document's included -- is a claim
+        // this session can no longer make. A recolour still owed from before
+        // that is owed against a screen somebody else has been writing on, and
+        // the band is only *told* when the frame is built, which is after the
+        // recolour would have been paid.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        assert!(shell.owes_retint(), "the report armed nothing to defend");
+        // The same screen the session was stopped on: nothing here is a resize.
+        adopt_resume(&mut shell, &mut band, false);
+
+        for tick_number in 0..2 {
+            let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+            assert!(
+                !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
+                "tick {tick_number} after a resume repainted the document out of \
+                 a shadow describing a screen somebody else had: {written:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_report_that_arrives_behind_a_resume_owes_no_recolour_at_all() {
+        // The other order, and the one the arming guard is for: the report is
+        // decoded after the resume was adopted and before any frame has told
+        // the band what that means, so the shadow it would be paid from still
+        // describes the screen that was.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        adopt_resume(&mut shell, &mut band, false);
+        shell.route_bytes(WENT_LIGHT);
+        assert!(
+            !shell.owes_retint(),
+            "a report behind a resume owed a recolour of a screen this session \
+             can no longer describe"
+        );
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !written.contains("a streamed answer") && !written.contains("[tool] read_file ok"),
+            "the tick after a resume brought the old document back: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_recolour_deferred_by_damage_is_settled_by_the_frame_that_repairs_the_screen() {
+        // Deferred is not the same answer as done. While the band cannot
+        // describe the screen the recolour is **kept** -- and the tick goes on,
+        // because the frame below it is exactly what makes the screen
+        // describable again, and an early return here would starve the repair
+        // that settles it. It terminates rather than looping: once that frame
+        // has landed the band owns no document row of its own, and the debt is
+        // settled with no bytes at all.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        // Ctrl-L on a tick the screen refuses: the band is told -- its own
+        // `damaged` is raised -- and the frame that would clear it never lands.
+        shell.route_bytes(&[0x0c]);
+        out.refusals = 1;
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.route_bytes(WENT_LIGHT);
+        assert!(
+            shell.owes_retint(),
+            "the report armed nothing, so this case proves nothing"
+        );
+        let repairing = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !repairing.contains("a streamed answer"),
+            "a deferred recolour was paid out of a shadow that is not this \
+             screen's: {repairing:?}"
+        );
+        assert!(
+            repairing.contains("\u{1b}[?2026h"),
+            "the tick that deferred the recolour never reached the frame that \
+             repairs the screen: {repairing:?}"
+        );
+        assert!(
+            shell.owes_retint(),
+            "a deferred recolour was recorded as done"
+        );
+
+        // The frame has landed, so the next tick can answer: the band owns no
+        // document row now, and settling the debt costs nothing.
+        let settling = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            settling.is_empty(),
+            "settling a deferred recolour wrote to the screen: {settling:?}"
+        );
+        assert!(
+            !shell.owes_retint(),
+            "the debt outlived the tick that settled it"
+        );
+        let idle = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(idle.is_empty(), "the session kept writing: {idle:?}");
+    }
+
+    #[test]
+    fn a_report_in_the_middle_of_a_stream_leaves_nothing_in_the_old_palette() {
+        // The unfinished line is on the screen like any other document row, so
+        // it is recoloured like one -- and what the pacer releases behind the
+        // report is written in the palette that is in force when it lands
+        // (U-A's `Transcript::emit_front`). The two halves must not disagree:
+        // a session that recoloured only the finished rows would leave the row
+        // the answer is still growing on in the greys of the terminal that was.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.apply(UiEvent::Delta("half an answer".to_string()));
+        shell.flush_paced();
+        let dark = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            dark.contains(&format!("{BODY_DARK}half an answer")),
+            "the unfinished line never reached the screen: {dark:?}"
+        );
+
+        shell.route_bytes(WENT_LIGHT);
+        shell.apply(UiEvent::Notice("[tool] ran".to_string()));
+        shell.apply(UiEvent::Delta(" and the rest".to_string()));
+        shell.flush_paced();
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        assert!(
+            written.contains(&format!("{BODY_LIGHT}half an answer")),
+            "the row the answer is still growing on kept the old palette: \
+             {written:?}"
+        );
+        assert!(
+            written.contains(NOTICE_LIGHT) && written.contains("[tool] ran"),
+            "the notice that arrived with the report is not in the palette it \
+             landed in: {written:?}"
+        );
+        assert!(
+            // The notice is named rather than its grey alone: the light
+            // palette paints the **divider** in the same 250 that a dark
+            // notice is, and the divider is the band's own row.
+            !written.contains(BODY_DARK) && !written.contains(&format!("{NOTICE_DARK}[tool] ran")),
+            "a row went to the screen in the palette the session has left: \
+             {written:?}"
         );
     }
 
@@ -4494,6 +5257,25 @@ mod tests {
         })
     }
 
+    /// A second, different question that still fits the band -- content the
+    /// panel genuinely differs on (target, summary), not a repeat of
+    /// [`asked_inline`]'s own. `Shell::ask` replaces the one pending panel
+    /// rather than queuing a second, so this is what stands in for "the
+    /// document changed" without leaving the primary plane or touching the
+    /// document at all.
+    fn a_second_question_inline() -> UiEvent {
+        UiEvent::Approval(crate::tui::approval::ApprovalAsked {
+            id: crate::tui::approval_readiness::ApprovalId(2),
+            request: crate::permission::ApprovalRequest {
+                tool: "edit_file",
+                target: "readme.md".to_string(),
+                summary: "edit `readme.md`: replace \"old\" with \"new\"".to_string(),
+                always_scope: "allow every future edit_file to `readme.md`".to_string(),
+                diff: None,
+            },
+        })
+    }
+
     /// A question about a change no band summary could show.
     fn a_change_too_big_for_the_band() -> UiEvent {
         UiEvent::Approval(crate::tui::approval::ApprovalAsked {
@@ -4536,6 +5318,439 @@ mod tests {
         // receipt, so an affirmative typed by any case below is refused -- which
         // is correct, and is a different case from the ones here.
         shell.reconcile_approval();
+    }
+
+    /// A screen that takes `prefix` bytes of the first vector it is offered,
+    /// fails once, and takes everything after that -- the shape a terminal
+    /// holding a synchronized frame's prefix leaves for whatever this loop
+    /// tries next, real accounting and all (`super::super::deliver`).
+    struct TornScreen {
+        prefix: usize,
+        failed: bool,
+        written: Vec<u8>,
+    }
+
+    impl TornScreen {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                failed: false,
+                written: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for TornScreen {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failed {
+                self.written.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+            if self.prefix > 0 {
+                let taken = self.prefix.min(bytes.len());
+                self.prefix -= taken;
+                self.written.extend_from_slice(&bytes[..taken]);
+                return Ok(taken);
+            }
+            self.failed = true;
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the screen stopped taking bytes",
+            ))
+        }
+    }
+
+    impl Sink for TornScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    // P3-COMMIT RED, written and run before `Band::recover_primary` existed:
+    // a screen that tears the first primary-band frame must not end the
+    // session -- `commit_band` is expected to recover in this same call and
+    // report `false` (no readiness this tick), not fail. Against the
+    // unmodified code this fails, because every `Emit::Partial` reaches
+    // `disposed`, which is unconditionally fatal.
+    #[test]
+    fn a_torn_primary_band_frame_is_recovered_in_the_same_call() {
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = TornScreen::taking(5);
+
+        let landed = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn primary-band frame is recovered in the same call, not fatal");
+
+        assert!(
+            !landed,
+            "a recovered frame must not itself grant readiness this tick"
+        );
+    }
+
+    /// A screen that tears the first vector at `prefix`, heals for exactly one
+    /// vector after that -- the recovery cleanup a caller may try next -- and
+    /// then refuses everything again, so a rebuild written right behind the
+    /// cleanup finds a screen that is gone once more.
+    struct HealsOnlyForTheCleanupVector {
+        prefix: usize,
+        stage: u8,
+        written: Vec<u8>,
+    }
+
+    impl HealsOnlyForTheCleanupVector {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                stage: 0,
+                written: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for HealsOnlyForTheCleanupVector {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            match self.stage {
+                0 => {
+                    if self.prefix > 0 {
+                        let taken = self.prefix.min(bytes.len());
+                        self.prefix -= taken;
+                        self.written.extend_from_slice(&bytes[..taken]);
+                        return Ok(taken);
+                    }
+                    self.stage = 1;
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "the screen stopped taking bytes",
+                    ))
+                }
+                1 => {
+                    self.stage = 2;
+                    self.written.extend_from_slice(bytes);
+                    Ok(bytes.len())
+                }
+                _ => Err(io::Error::new(io::ErrorKind::BrokenPipe, "gone again")),
+            }
+        }
+    }
+
+    impl Sink for HealsOnlyForTheCleanupVector {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_torn_frame_whose_cleanup_vector_is_refused_ends_the_session() {
+        // Cleanup, specifically. `IrrecoverablyTorn` never heals -- it takes
+        // `prefix` bytes of the first vector it is offered and then refuses
+        // every vector after that, forever, including the fixed cleanup
+        // vector `recover_primary` tries next. That alone does not tell a
+        // cleanup refusal apart from a refusal further downstream (a rebuild
+        // that was tried and lost too), so `offered` -- every whole vector
+        // this screen was asked to send, not just the bytes it kept -- is
+        // asserted directly below: exactly two vectors reached it, the torn
+        // frame and then the cleanup, and the cleanup is the *last* one,
+        // which is what proves no rebuild was ever attempted behind it.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = IrrecoverablyTorn::taking(5);
+
+        let err = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect_err("a cleanup vector the screen refuses ends the session, not just the tick");
+        // The exact wording `Emit::Partial`'s `Display` produces
+        // (`super::super::deliver::describe_prefix`), not a bare digit a
+        // wider match could also find in an address or an errno.
+        assert!(
+            err.to_string().contains("accepted 5 bytes"),
+            "the original tear's own accepted count was lost: {err}"
+        );
+        assert_eq!(
+            screen.offered.len(),
+            2,
+            "a vector was offered after the cleanup, so a rebuild was attempted too: \
+             {:?}",
+            screen.offered
+        );
+        assert_eq!(
+            screen.offered[1],
+            super::super::check::RECOVERY_CLEANUP.as_bytes(),
+            "the second vector offered was not the fixed cleanup vector"
+        );
+        assert_eq!(
+            screen.written.len(),
+            5,
+            "the cleanup vector put bytes on the screen before it was refused, so it did \
+             not fail before any of its own landed: {:?}",
+            String::from_utf8_lossy(&screen.written)
+        );
+    }
+
+    #[test]
+    fn a_torn_frame_recovered_by_cleanup_but_lost_again_on_the_rebuild_ends_the_session() {
+        // Redraw, specifically: the cleanup vector lands, and the rebuild
+        // `recover_primary` writes right behind it does not.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = HealsOnlyForTheCleanupVector::taking(5);
+
+        let err = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect_err("a rebuild the screen refuses after a landed cleanup ends the session");
+        // Same exact wording as the cleanup-refusal case above, not a bare
+        // digit: this is the *original* tear's own count, still named after
+        // the cleanup landed and the rebuild behind it failed too.
+        assert!(
+            err.to_string().contains("accepted 5 bytes"),
+            "the original tear's own accepted count was lost: {err}"
+        );
+        assert_eq!(
+            screen.stage, 2,
+            "the cleanup vector was not the one vector that actually landed"
+        );
+    }
+
+    #[test]
+    fn recovery_makes_exactly_one_attempt_even_though_the_healed_screen_could_take_a_second() {
+        // Zero-recovery recursion. `TornScreen` heals after its first failure,
+        // so if `recover_primary` (or its caller) ever tried a second sweep,
+        // this screen would happily take it -- the only thing that can catch
+        // that is counting vectors, not just checking the outcome is `Ok`.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut torn = TornScreen::taking(5);
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut torn,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn frame is recovered in one call");
+
+        // The recovery wrote exactly two vectors: the fixed cleanup, then the
+        // one rebuilt frame. A second attempt would be a third.
+        let text = String::from_utf8(torn.written).expect("utf-8");
+        assert_eq!(
+            text.matches(super::super::check::RECOVERY_CLEANUP).count(),
+            1,
+            "the cleanup vector was not written exactly once: {text:?}"
+        );
+        assert_eq!(
+            text.matches("\u{1b}[?2026h\u{1b}[?25l").count(),
+            1,
+            "the rebuilt frame was not written exactly once, so more than one attempt was made: \
+             {text:?}"
+        );
+    }
+
+    #[test]
+    fn the_budgets_clock_does_not_reset_across_a_successful_recovery() {
+        // A recovered tear is spent on the ORIGINAL failure exactly as a
+        // refused write is: `failures.failed`, never `failures.succeeded`.
+        // So a screen that keeps tearing frames still runs the budget out,
+        // even though every individual tear is recovered -- which is only
+        // true if the clock a first tear starts survives a recovered one.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = TornScreen::taking(5);
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn frame is recovered in one call");
+
+        assert!(
+            failures.began.is_some(),
+            "a successful recovery reset the budget's clock as though nothing had failed"
+        );
+        assert!(
+            failures.first.is_some(),
+            "a successful recovery discarded the failure the budget would report if it ran out"
+        );
+    }
+
+    #[test]
+    fn a_same_shape_tick_after_a_recovered_tear_does_not_reset_the_budget_and_a_second_tear_still_exhausts_it(
+    ) {
+        // The regression the single-call assertions above cannot see:
+        // `shell.render.restore` re-arms the exact reasons a recovered tear's
+        // own failed attempt carried, unconditionally, in `commit_band`'s
+        // `Err(emit)` arm -- so the very next tick offers the *same* pending
+        // frame again, driven by nothing this test does by hand. That tick
+        // is not guaranteed to land: a screen that tears again before any
+        // frame has been independently painted must still be charged against
+        // the *original* tear's clock, not a fresh one -- `failures.failed`
+        // is `get_or_insert`, but only a test that drives two real tears in a
+        // row, both through `commit_band` itself, can see whether the second
+        // one actually goes through that path rather than accidentally
+        // resetting it.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut first_tear = TornScreen::taking(5);
+
+        let t0 = Instant::now();
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut first_tear,
+            &mut failures,
+            t0,
+        )
+        .expect("a torn frame is recovered in one call");
+        let began = failures
+            .began
+            .expect("the tear did not start the budget's clock");
+        assert!(
+            failures.first.is_some(),
+            "the tear's own error was not kept"
+        );
+
+        // The next tick: no manual `band.invalidate`, no new content -- the
+        // same shape, offered again only because `restore` re-armed it, and
+        // `FrameFailures::pending_recovery` forces it through
+        // `Band::force_redraw` rather than a trusted no-op diff. This second
+        // screen tears too, before that write can land -- so this tick is a
+        // second failure, not an independently painted frame, and must not
+        // touch the clock the first tear started.
+        let mut second_tear = TornScreen::taking(5);
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut second_tear,
+            &mut failures,
+            t0,
+        )
+        .expect("the second tear is recovered in the same call, same as the first");
+        assert_eq!(
+            failures.began,
+            Some(began),
+            "a second tear before any frame independently landed reset the budget's clock"
+        );
+        assert!(
+            failures.first.is_some(),
+            "a second tear before any frame independently landed discarded the original failure"
+        );
+        assert!(
+            failures.pending_recovery,
+            "a recovered second tear must still owe the next tick a real, verified write"
+        );
+
+        // A third tear, on genuinely different content
+        // (`a_second_question_inline`, not a repeat of either tick above), at
+        // exactly the first tear's own clock plus the whole budget. This is
+        // fatal only if neither tick above ever reset that clock.
+        fixture.shell.apply(a_second_question_inline());
+        let mut third_tear = TornScreen::taking(5);
+        let err = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut third_tear,
+            &mut failures,
+            began + FRAME_BUDGET,
+        )
+        .expect_err(
+            "a third tear at the first tear's clock plus the whole budget did not exhaust it",
+        );
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the third tear was not charged against the first tear's own clock: {err}"
+        );
+    }
+
+    #[test]
+    fn a_recovered_tick_grants_no_readiness_and_the_next_ordinary_frame_does() {
+        // No readiness grant on recovery, and the next normal repaint still
+        // verifies it the ordinary way -- the same causal shape as
+        // `a_refused_frame_grants_no_readiness_and_the_next_one_does`, driven
+        // by a recovered tear instead of a plain refusal.
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = TornScreen::taking(5);
+
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("a torn frame is recovered in one call");
+        fixture.shell.reconcile_approval();
+        assert!(
+            !fixture
+                .shell
+                .approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "a recovered tear granted a receipt on the same tick it tore on"
+        );
+
+        // No manual invalidate and no new content: the recovery already
+        // rebuilt the band correctly, so a tick that asked for the very same
+        // content again would have nothing left to paint by its own diff
+        // alone. What drives this next tick for real is `commit_band` itself
+        // -- `shell.render.restore` re-armed the original reasons in the
+        // `Err(emit)` arm the tear took, and `FrameFailures::pending_recovery`
+        // (set when recovery landed) forces this call to a real write
+        // (`Band::force_redraw`) rather than trust a diff against a shadow
+        // that is already correct. Only *that* independently painted frame
+        // may grant readiness -- an unchanged repaint could not, by the same
+        // rule `a_refused_frame_grants_no_readiness_and_the_next_one_does`
+        // rests on.
+        let landed2 = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+        )
+        .expect("the next ordinary frame lands");
+        assert!(
+            landed2,
+            "the next ordinary frame after a recovered tear did not land"
+        );
+        fixture.shell.reconcile_approval();
+        assert!(
+            fixture
+                .shell
+                .approval_ready(crate::tui::approval_readiness::ApprovalId(1)),
+            "the next ordinary frame after a recovered tear still did not grant readiness"
+        );
     }
 
     #[test]
@@ -5341,6 +6556,111 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_alternate_repaint_still_clears_a_budget_no_recovery_owns() {
+        // The positive companion to the seam test below: the same empty
+        // alternate-plane repaint, but with no primary recovery pending,
+        // still resets the budget exactly as it did before the narrowing.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let began = Instant::now();
+        assert!(
+            failures
+                .failed(refused(io::ErrorKind::WouldBlock), began)
+                .is_none(),
+            "a single counted failure ended the session on its own"
+        );
+        assert!(!failures.pending_recovery, "no recovery is owed here");
+
+        shell.render.request(Reason::Animation);
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            began,
+            Reconciled,
+        )
+        .expect("a tick on the other plane");
+        assert_eq!(
+            out.calls, 0,
+            "an unchanged alternate screen was written again"
+        );
+
+        assert!(
+            failures.began.is_none(),
+            "an empty alternate repaint with no recovery pending did not reset the budget's clock"
+        );
+        assert!(
+            failures.first.is_none(),
+            "an empty alternate repaint with no recovery pending kept the counted failure"
+        );
+    }
+
+    #[test]
+    fn a_pending_primary_recovery_survives_an_empty_alternate_repaint() {
+        // A **constructed test seam**, not a reproduced production path.
+        // Nothing in `paint_alternate`'s already-there arm ever sets
+        // `pending_recovery` -- that flag is set only by `commit_band`'s own
+        // `Err(emit)` arm, on the primary plane. `pending_recovery` set here
+        // is a hand assist standing in for a primary-band recovery the loop
+        // has not yet independently reverified, so this proves only the
+        // narrower claim `xfx-recovery-budget-narrowing.md` asks for: IF that
+        // flag were ever true while an empty alternate repaint lands, this
+        // branch must not silently clear it.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+
+        let began = Instant::now();
+        assert!(
+            failures
+                .failed(refused(io::ErrorKind::WouldBlock), began)
+                .is_none(),
+            "a single counted failure ended the session on its own"
+        );
+        failures.pending_recovery = true; // the seam -- see doc comment above
+
+        shell.render.request(Reason::Animation);
+        out.written.clear();
+        out.calls = 0;
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            began,
+            Reconciled,
+        )
+        .expect("a tick on the other plane");
+        assert_eq!(
+            out.calls, 0,
+            "an unchanged alternate screen was written again"
+        );
+
+        assert_eq!(
+            failures.began,
+            Some(began),
+            "an empty alternate repaint reset a still-pending recovery's clock"
+        );
+        assert!(
+            failures.first.is_some(),
+            "an empty alternate repaint discarded a still-pending recovery's failure"
+        );
+        assert!(
+            failures.pending_recovery,
+            "an empty alternate repaint cleared a still-pending primary recovery"
+        );
+    }
+
+    #[test]
     fn a_resume_takes_the_approval_plane_again_before_it_paints_anything_on_it() {
         // The one path on which the terminal changes plane without a frame
         // saying so. A `SIGTSTP` at a question runs `signals`'s
@@ -5424,8 +6744,7 @@ mod tests {
 
         // A continue that no handler answered: the resume flag is set and the
         // plane was never given back.
-        adopt_resume(&mut band, false);
-        shell.render.request(Reason::ExternalDamage);
+        adopt_resume(&mut shell, &mut band, false);
         assert!(
             band.on_alternate(),
             "a continue nothing restored took the plane away from the band"
@@ -5462,8 +6781,7 @@ mod tests {
         let mut out = CountingScreen::default();
         on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
 
-        adopt_resume(&mut band, true);
-        shell.render.request(Reason::ExternalDamage);
+        adopt_resume(&mut shell, &mut band, true);
         assert!(
             !band.on_alternate(),
             "the band was not told the handler gave the plane back"

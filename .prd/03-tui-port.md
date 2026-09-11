@@ -3,8 +3,10 @@
 Status: **Phases 1 and 2 of the MVS ladder below are in the binary, and Phase 3's items 18, 19, 20 and 20b are
 implemented locally — in this working tree and its gate, not in a release — with item 21 local and part-done: its
 self-check exists as a per-vector output preflight and the writes under it are now **counted**, so a write the screen
-takes only part of is measured and contained rather than unreadable; its partial-write **recovery** and frame retention
-still do not exist. The rest of Phase 3
+takes only part of is measured and contained rather than unreadable; its partial-write **recovery** now has a local,
+uncommitted implementation for the primary band's `Partial` only — reviewed with no MUST-FIX, green on the controller's
+own gated suite, and unaccepted pending independent real-terminal confirmation (see item 21) — every other band's
+`Partial` (document, carry, clear, query, alternate screen) remains fatal, unchanged by this item. The rest of Phase 3
 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
@@ -159,8 +161,11 @@ Truecolor is gated on `COLORTERM` with Apple Terminal downgraded (`:44-53`). Ups
 re-tinting (mode 2031 + DSR `?996n`) additionally rewrites stored SGR in the transcript and patches
 the pacer's pending buffer (`app_render_runtime.zig:354-367`). Published xfx releases stay
 startup-only; locally and not published, a SIGCONT arms an outbound `?996n` query and the `997;n`
-reply is decoded before focus, but the transcript rewrite and pacer-buffer patch are not
-implemented — see item 23 in the ladder.
+reply is decoded before focus. Role-tagged tail and queued text use the current palette when emitted;
+known visible document cells are repainted without scrolling, with state adopted only after delivery;
+the pacer's pending-buffer
+patch is not applied by design -- pending rows materialize the current palette at actual emission
+instead — see item 23 in the ladder.
 
 ## Runtime topology (authoritative)
 
@@ -693,11 +698,16 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     which is upstream's own reason for the matrix, or when a receipt from a terminal that speaks the
     protocol shows a key this session already claims to support arriving in the `u` form. Either way
     the falsification is one pty case: drive the affected keys and read what the decoder made of
-    them, rather than reasoning about what a terminal would send.
+    them, rather than reasoning about what a terminal would send. A WezTerm-specific case is fixed
+    (`6c42131`): Ctrl-C/D/U arrived via `modifyOtherKeys` in a tilde-suffixed CSI form rather than the
+    canonical CSI-u receipt, and the decoder now names that shape too; the full-matrix conditional this
+    implies stays open, tracked with the rest of the breadth above rather than reconciled here.
 
 **Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part — its
-self-check and its counted-delivery containment, not its recovery or its retention; the
-rest is not**, and every unmarked item below is a target that is advertised nowhere.
+self-check, its counted-delivery containment, and now a primary-band recovery are locally
+implemented and uncommitted; retention is not, and the rest is not**, and every unmarked item below
+is a target that is advertised nowhere. The primary-band recovery is unqualified for shipment: see
+item 21 below for its exact boundary and for why it is not an acceptance claim.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
     **Implemented locally** (`a03d08f`), with the bounds stated rather than implied: the 100 entries and the
@@ -755,7 +765,11 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention. **The self-check half is implemented locally** — in this working
-    tree and its gate, in no release — and the other two halves are not implemented at all. What
+    tree and its gate, in no release. **Partial-write recovery is now locally implemented too, in
+    part** — for the primary band's `Partial` case only, uncommitted, externally reviewed with no
+    MUST-FIX and green on the controller's own gated suite, but not accepted or published in any
+    release; independent real-terminal confirmation is still blocked (see below). **Frame retention
+    is not implemented at all.** What
     exists is a *stateless per-vector* preflight (`src/tui/check.rs`): every vector the TUI is about
     to write is decoded into a model of the terminal seeded from what its emitter already knows,
     compared against an intent that emitter declares **separately from the bytes**, and refused
@@ -799,11 +813,19 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     given up deliberately, because retrying the whole vector would write that prefix twice — and a
     syscall count larger than the slice it was offered is **refused rather than capped**, since
     capping it would end the write and report a whole-vector success built from the one answer known
-    to be false. **Still open, and not narrowed by any of it**: an accepted count is a kernel receipt
+    to be false. **Still open, and narrowed only for the primary band**: an accepted count is a kernel receipt
     and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is still
-    not knowable here; and there is still no partial-write recovery: a `Partial`'s bytes are never
-    replayed and nothing re-establishes a frame from a prefix. Parser recovery and the upstream
-    retained-body reuse this row does not attempt each remain open independently of that. Locally,
+    not knowable here. A `Partial` on the primary band now drives a local, uncommitted recovery in the
+    same call: an exact `CAN`+`BEL`, an OSC 8 close, an SGR reset, sync mode off, autowrap off and
+    cursor shown, then a full rebuild of the owned band from the document it preserves — one attempt,
+    and a failure in that cleanup/redraw is itself fatal. The original failure still spends the existing
+    500 ms frame budget, a pending-recovery flag forces the next paint to be a real one rather than a
+    skip (a `NoChange` frame cannot clear that flag), and there is no readiness signal on the tick the
+    recovery lands on. Every other `Partial` — document, carry, clear, query, and the alternate screen —
+    is unchanged: its bytes are never replayed and nothing re-establishes a frame from a prefix. Whether
+    a terminal's own parser actually resynced is not established by any of this, on the primary band or
+    elsewhere, and the upstream retained-body reuse this row does not attempt remains open independently
+    of that. Locally,
     and not yet published in any released or merged contract (`src/tui/event_loop.rs`'s
     `commit_document`/`commit_frame`, `src/tui/transcript.rs`'s queue, `Shell::restore_clearing`): a
     `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —
@@ -829,8 +851,10 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     again, ordering against what was queued since, blank lines and paragraphs, CRLFs split across
     pushes at every offset, and a line ended while its text is still queued. **None of that is
     published either**, and none of it widens the boundaries above: no fixed-point layout
-    convergence, no parser recovery, no upstream retained-body reuse, still no partial-write
-    recovery — a `Partial` drops its operation and adopts no state from it. What has no
+    convergence, no parser recovery, no upstream retained-body reuse, and partial-write recovery
+    stays out of this row's scope — item 21 below now covers the one case it reaches (the primary
+    band), and every other `Partial`, including any this row's own resize handling could hit, is
+    still dropped with no state adopted from it. What has no
     release-binary scenario is this exact schedule: a zero-progress refusal, then a resize, then the
     retry. The containment row 3c below is a release-binary scenario and stays one. The
     zero-progress refusal → resize → retry schedule is covered by in-crate tests in
@@ -844,14 +868,20 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     own cases, plus the tamper cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a **real**
     emitter's bytes are altered at a `#[cfg(test)]` seam and the refusal is observed **before** a
     fake writer sees them — a seam that exists for in-crate tests only and is in no binary, which is
-    also why the release-binary harness cannot drive it. The **containment** half does have a
+    also why the release-binary harness cannot drive it. The **containment** half has a
     release-binary scenario — [`06-qa-harness.md`](06-qa-harness.md) row 3c, where a
-    `fault-injection` build's sink puts a real prefix of a real frame on a real pseudoterminal and
-    the run asserts termination, a frame that is never offered again, the exit's own segments and a
-    byte-identical `termios`, against a positive control that renders the same scenario's marker
-    with nothing injected. That row proves what this product **does about** a prefix; it claims no
-    parser recovery and no restored screen, and it is not the scenario that closes this item. The one
-    that does is recovery under an injected partial write, which is still specification there.
+    `fault-injection` build's sink puts a real prefix of a real frame on a real pseudoterminal; a
+    cleanup-refusal fixture now makes that row's own cleanup segment fail too, so the session ends
+    fatally rather than restoring cleanly, against a positive control that renders the same
+    scenario's marker with nothing injected. A second row, 3d ("partial-frame-once"), tracks the
+    recovery path instead: it asserts the raw prefix bytes, the exact `CAN`+`BEL`/OSC 8/SGR/sync/
+    autowrap/cursor cleanup and its ordering, and the post-cleanup Grid, input, request, response,
+    exit and `termios`. Row 3d's Grid is only sampled **after** cleanup runs, so it proves what this
+    product does about a prefix's cleanup and rebuild, not that the terminal's own parser actually
+    resynced from the partial write — that remains unestablished by either row. Recovery itself is
+    no longer bare specification: a primary-band implementation exists locally (see item 21 above),
+    uncommitted and not accepted as closing this item, because independent real-terminal
+    confirmation of it is still blocked.
     **Diagnostic record, beside both halves above and neither of them:** the one road
     `event_loop::disposed` (`src/tui/event_loop.rs:1349-1363`) marks -- `Partial` or an exhausted
     `Rejected`/`ZeroProgress` -- is written, after the restoration attempt in `session`
@@ -877,7 +907,9 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     (`an_ordinary_exit_leaves_no_independent_diagnostic_behind`) -- in-crate/native evidence, not a
     row in [`06-qa-harness.md`](06-qa-harness.md)'s tracked table, so that suite's green is not
     evidence for this path. **It records which road a session left by; it is not recovery** --
-    parser resync and partial-write recovery remain exactly as open as stated above.
+    parser resync remains exactly as open as stated above, and partial-write recovery is open
+    everywhere except the primary-band case described in item 21 above, which is itself still
+    unaccepted pending independent confirmation.
 22. Layout convergence: on a known-undamaged band, a carry restores `document_bottom < band_top` and
     an append re-anchors it to `band_top - 1` (`src/tui/frame.rs:1278-1403,1594`); a damaged band's
     carry is a no-op, so this is not a universal postcondition, only the successful-carry path
@@ -894,16 +926,28 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     row asserts; an independent unit review found no blocker there. Together this is local validation
     that supported surfaces stabilize consistently -- it is not a claim of exact parity with upstream's
     position or algorithm, and it does not cover every geometry. The shipped painter's performance is
-    tracked separately as P3-WRAP and is not part of this item's acceptance: the release p95 at
-    300x200 (50.08 ms) still exceeds the 32 ms threshold and stays open.
+    tracked separately as P3-WRAP and is not part of this item's acceptance: row-reuse work
+    committed at `e94b933` measured the full-painter run at 250→251 frames with a p95 of
+    16.92 ms and a max of 17.25 ms at 300x200, and a max of 0.79 ms at 80x24, with `desiredScript`
+    kept and no forced repaint or real-IO guarantee -- an improvement on the prior release figures,
+    but not itself a released or accepted measurement.
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.
     **Partial, local, not published**: mode 2031 enable/restore is paired in both tmux and native
     launch, and the launch probe itself sequences OSC 11 → `?996n` → CPR. A SIGCONT arms an
     outbound `?996n` query, delivered on a checked counted paint tick even under alt-screen or
     blind; the `997;1`/`997;2` reply is decoded before focus and consumed on input, with
     `ZeroProgress`/`Rejected` retained and `Partial` fatal. An explicit `XFX_THEME` lock is still
-    honored (Depth unchanged), and repaint bands follow notifications. Transcript re-tint and the
-    pacer's pending-buffer patch are **not implemented** — that half stays open, required.
+    honored (Depth unchanged), and repaint bands follow notifications. Transcript re-tint is split:
+    role-tagged plain tail/queue rows materialize using the current palette at emission --
+    Body `255`/`235`, Notice `250`/`241`, with echo rows rendered Plain -- and are locally
+    implemented, uncommitted. Known visible document rows are repainted without scrolling; this work waits only while
+    the plane or shadow is unsuitable: a zero-progress or refused retint there retains existing retint debt, no shadow
+    adoption; a `Partial` retint is fatal; and `resume`/`clear`/resize invalidate any stale ownership
+    rather than carrying it forward. One visible-retint debt remains pending while deferred, and
+    ordinary band work continues -- there is no separate debt on the tail/queue rows. The pacer's
+    pending-buffer patch is intentionally not applied: the raw queue stays plain, and pending
+    Body/Notice rows materialize the current palette at actual emission, satisfying pending-text
+    behavior without any in-place patch or offset mutation.
 
 **Deferred, explicitly** (upstream has them as defense or breadth, and a port earns them later):
 full-transcript / subagent-manager / terminal-session alt screens and the owner-handoff transitions;

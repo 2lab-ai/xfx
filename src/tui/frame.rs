@@ -245,6 +245,22 @@ pub(crate) enum Commit {
     NoChange,
 }
 
+/// What one recolour of the document's visible cells did.
+///
+/// Two answers rather than one, because "no bytes went out" is two different
+/// facts to the caller holding the debt. [`Self::Settled`] is a decision made:
+/// the cells were repainted, or the screen already held them, or this session
+/// owns no document row on that screen -- either way nothing is owed any more.
+/// [`Self::Deferred`] is no decision at all: the band cannot describe the
+/// screen right now, so the debt stands and the ordinary frame is what makes
+/// the next tick able to answer it. Collapsing the two either drops a recolour
+/// the user is owed or leaves one owed for ever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Retint {
+    Settled(Commit),
+    Deferred,
+}
+
 impl Band {
     pub(crate) fn new() -> Self {
         Self {
@@ -737,6 +753,47 @@ impl Band {
         // What the terminal was told, rather than what this band wants: see the
         // title paragraph above.
         self.shown_title = None;
+    }
+
+    /// Forces the next [`commit`](Self::commit) to be a real write, and
+    /// nothing else [`invalidate`](Self::invalidate) also resets.
+    ///
+    /// The one caller ([`super::event_loop::commit_band`]) is a tick right
+    /// behind a recovered tear: [`recover_primary`](Self::recover_primary)
+    /// already rebuilt this band correctly, in the same call the tear
+    /// happened in, so `document_bottom`, the alternate cache, `caret` and
+    /// `shown_title` are exactly right and `invalidate` would only be
+    /// throwing away work recovery already did. What that tick still owes is
+    /// proof the screen is healthy again, and a diff against an
+    /// already-correct shadow cannot give it one -- `commit`'s own fast path
+    /// (guarded by `!self.damaged`) would call an identical frame
+    /// [`Commit::NoChange`] and write nothing, which settles nothing about
+    /// whether the terminal is still there.
+    ///
+    /// Raising `damaged` alone is not enough, and that is what the row loop
+    /// below is for. [`Band::commit`]'s erase preamble (the `if self.damaged`
+    /// branch just before [`Grid::diff`](super::grid::Grid::diff)) is gated on
+    /// `damaged`, but the *repaint* bytes that are supposed to follow it come
+    /// from `diff` alone, which is a pure content comparison against
+    /// `shadow` and knows nothing about `damaged`. A same-shape tick right
+    /// behind a recovery has a `shadow` that is already byte-identical to
+    /// what this tick's `target` will plan to -- so with `damaged` set and
+    /// nothing else changed, `diff` would find zero touched cells and the
+    /// emitted vector would erase the band's rows and never repaint them, a
+    /// frame [`check::preflight`](super::check::preflight) rightly refuses.
+    /// [`recover_primary`](Self::recover_primary) avoids exactly this by
+    /// blanking its own rows in `shadow` before its own `commit` call; this
+    /// does the same, on the same rows, so this tick's `diff` has the real
+    /// content to write that the erase preamble promises. Only the band's
+    /// own rows: `document_bottom`, the alternate cache, `caret` and
+    /// `shown_title` are left exactly as recovery set them, which is what
+    /// keeps this narrower than [`invalidate`](Self::invalidate).
+    pub(crate) fn force_redraw(&mut self, geometry: &Geometry) {
+        let top = self.top(geometry);
+        for line in top..=geometry.rows {
+            self.shadow.erase_row(line);
+        }
+        self.damaged = true;
     }
 
     /// The band's top row, if this band has painted one.
@@ -1559,6 +1616,186 @@ impl Band {
     /// given back when the question is answered.
     pub(crate) fn owes_primary_frame(&self) -> bool {
         self.caret.is_none()
+    }
+
+    /// Recovers from a primary-band frame the screen tore: a fixed cleanup
+    /// vector, then the same frame rebuilt from an erased shadow, in this
+    /// same call -- never deferred to a later tick, and never a second
+    /// attempt.
+    ///
+    /// **`rows`, `geometry` and `cursor` are the caller's torn attempt,
+    /// unchanged.** Recovery rebuilds exactly what the session already meant
+    /// to show; it is not a place a caller composes a different frame.
+    ///
+    /// Only the band's own rows are treated as unknown. `top(geometry)..=
+    /// geometry.rows` in [`shadow`](Self::shadow) is reset to
+    /// [`Cell::Empty`](super::grid::Cell::Empty) and [`damaged`](Self::damaged)
+    /// is raised, which is narrower than [`invalidate`](Self::invalidate):
+    /// `document_bottom`, `painted`/`painted_on` and every cell above the
+    /// band are left exactly as they were, because nothing about them was
+    /// touched by a torn *band* frame. `caret` and `shown_title` are forced
+    /// unknown, because a terminal that was mid-sequence for the tear may
+    /// have consumed some of what either believed it already had.
+    ///
+    /// **What licenses the cleanup vector is narrower than the normal
+    /// alphabet.** [`check::preflight_recovery_cleanup`] accepts exactly one
+    /// fixed vector and nothing a full [`check::preflight`] would also
+    /// accept from a genuine partial-parser state -- that broader claim is
+    /// not made here, and does not come from this checker: it rests on an
+    /// independent terminal experiment kept outside this crate. Silently
+    /// treating an untried screen as known is exactly what this function
+    /// must not do, which is why the erase below runs only *after* the
+    /// cleanup vector has actually landed.
+    ///
+    /// Any failure -- the cleanup vector refused or unlanded, or the rebuild
+    /// itself failing the same way the original frame did -- is returned
+    /// as-is, immediately: there is no second recovery attempt, and the
+    /// caller treats every error from this function as fatal.
+    pub(crate) fn recover_primary(
+        &mut self,
+        out: &mut impl Sink,
+        rows: &[String],
+        geometry: &Geometry,
+        cursor: (u16, u16),
+    ) -> Result<Commit, Emit> {
+        if !matches!(self.showing, super::shell::ScreenOwner::Primary) {
+            return Err(Emit::rejected(io::Error::other(
+                "recover_primary was called while the terminal is not on the primary plane",
+            )));
+        }
+        check::preflight_recovery_cleanup(check::RECOVERY_CLEANUP.as_bytes())
+            .map_err(Emit::rejected)?;
+        out.emit(check::RECOVERY_CLEANUP.as_bytes())?;
+
+        // The cleanup vector is on the terminal: only the band's own rows are
+        // unknown now, not what is above them or who owns which row.
+        let top = self.top(geometry);
+        for line in top..=geometry.rows {
+            self.shadow.erase_row(line);
+        }
+        self.damaged = true;
+        self.caret = None;
+        self.shown_title = None;
+
+        // Same captured rows, geometry and cursor; one more emit. Any error
+        // here propagates as-is -- this function makes exactly one attempt.
+        self.commit(out, rows, geometry, cursor)
+    }
+
+    /// The last document row this band can still say anything about, or `None`
+    /// when there is no such row.
+    ///
+    /// Two bounds and both are needed. [`Self::top`] is the band's own top --
+    /// the old one while a shrinking band's erasures are still owed -- and
+    /// nothing at or below it is the document's. [`Self::document_bottom`] is
+    /// the lowest row this band itself put a document row on and has not since
+    /// scrolled off the screen, which is the one number that tells "a row xfx
+    /// wrote" from "a row the terminal happened to be holding"
+    /// ([`Self::grown`] reads it for the same reason). A band that has written
+    /// no document row, or whose rows have all left the top of the screen, has
+    /// nothing here to repaint.
+    fn document_last(&self, geometry: &Geometry) -> Option<u16> {
+        let above_band = self.top(geometry).checked_sub(1).filter(|row| *row > 0)?;
+        Some(above_band.min(self.document_bottom?))
+    }
+
+    /// Repaints the document rows already on the screen in the palette a theme
+    /// report has moved the session to.
+    ///
+    /// **The one emitter that writes above the band's top row**, and everything
+    /// about it is narrowed to make that safe:
+    ///
+    /// * It writes **no scroll and no erase of its own** -- a `CUP`, the cells
+    ///   the palette moved, and the pen closed behind them ([`Grid::diff`]).
+    ///   Nothing it does can put a row into native scrollback, which is the one
+    ///   thing on this surface that cannot be taken back.
+    /// * It repaints **cells, never rows**: the candidate is a copy of the
+    ///   shadow with one colour slot rewritten per recognised cell
+    ///   ([`Grid::retint_document`]), so it cannot *create* a cell and
+    ///   therefore cannot reconstruct history the screen no longer has.
+    /// * It runs only where the shadow is a claim about **this** screen. A
+    ///   damaged band, a shadow of another size and a plane this band is not on
+    ///   are each [`Retint::Deferred`] with no bytes -- what is not knowable is
+    ///   not repainted, and nothing is manufactured to fill the gap -- while a
+    ///   session that owns no document row on a screen it *can* describe is
+    ///   [`Retint::Settled`], because there is nothing there to owe.
+    ///
+    /// The caret is put back where the last frame left it, explicitly, because
+    /// this vector is not a frame and owes the band nothing. A band that is
+    /// already owed a `CUP` (`caret == None`, after an append or a carry) gets
+    /// no promise it did not have: the vector declares no caret, leaves it
+    /// wherever the last cell put it, and the frame that was already owed still
+    /// owes it.
+    ///
+    /// **Nothing is recorded until the write lands**, as everywhere else here:
+    /// a refused vector leaves the shadow exactly as it was and the caller
+    /// still owes the retint.
+    pub(crate) fn retint_document(
+        &mut self,
+        out: &mut impl Sink,
+        palette: &super::theme::Palette,
+        geometry: &Geometry,
+    ) -> Result<Retint, Emit> {
+        if self.damaged
+            || !matches!(self.showing, super::shell::ScreenOwner::Primary)
+            || self.shadow.rows() != geometry.rows
+            || self.shadow.cols() != geometry.cols
+        {
+            return Ok(Retint::Deferred);
+        }
+        let Some(last) = self.document_last(geometry) else {
+            return Ok(Retint::Settled(Commit::NoChange));
+        };
+        // Before the candidate is built, for the reason `commit`'s is: a model
+        // seeded from state this call has already moved would agree with the
+        // vector because it was built from it.
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.target.clone_from(&self.shadow);
+        if self.target.retint_document(last, palette) == 0 {
+            return Ok(Retint::Settled(Commit::NoChange));
+        }
+        self.buffer.clear();
+        if self.shadow.diff(&self.target, geometry, &mut self.buffer) == 0 {
+            // Unreachable through [`Grid::retint_document`], which answers
+            // nothing for a cell already in this palette's own grey -- a guard
+            // rather than a case, because a zero-byte vector declared as a
+            // paint is the one shape the check below cannot be handed.
+            return Ok(Retint::Settled(Commit::NoChange));
+        }
+        let caret = self
+            .caret
+            .map(|(row, cells)| (row, cells.saturating_add(1)));
+        if let Some((row, column)) = caret {
+            cup(&mut self.buffer, row, column);
+        }
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                // The whole screen, against the candidate: the band's own rows
+                // are in it unchanged, so a vector that strayed below the
+                // document is refused by the cells rather than only by the
+                // footprint. No `?25` and no title, exactly as the append and
+                // the carry declare.
+                check::Intent::Primary {
+                    grid: &self.target,
+                    caret,
+                    cursor_visible: None,
+                    title: self.shown_title.as_deref(),
+                },
+                check::Footprint::new(check::PlaneKind::Primary, vec![check::Seg::Place(1..=last)]),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        std::mem::swap(&mut self.shadow, &mut self.target);
+        Ok(Retint::Settled(Commit::Painted))
     }
 
     pub(crate) fn append_document(
@@ -2811,6 +3048,191 @@ mod tests {
         fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
             super::super::deliver::emit_counted(self, bytes)
         }
+    }
+
+    /// A screen that takes `successes` vectors whole, then refuses every one
+    /// after that -- taking nothing of them.
+    ///
+    /// The mirror image of [`Fussy`]: that one models a screen recovering
+    /// *after* a failure, this one models a screen that fails on the
+    /// **second** vector of a call that writes more than one -- exactly the
+    /// shape [`Band::recover_primary`]'s rebuild write needs, once its
+    /// cleanup vector has already landed.
+    struct WorksThenRefuses {
+        successes: usize,
+        written: Vec<u8>,
+    }
+
+    impl RawWrite for WorksThenRefuses {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.successes > 0 {
+                self.successes -= 1;
+                self.written.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "gone after the vectors it agreed to take",
+            ))
+        }
+    }
+
+    impl Sink for WorksThenRefuses {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            super::super::deliver::emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn recovering_a_torn_primary_band_writes_the_fixed_cleanup_then_the_rebuilt_frame() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame lands so recovery has something torn to rebuild from");
+
+        screen.written.clear();
+        let commit = band
+            .recover_primary(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a cleanup and a rebuild that both land is a successful recovery");
+
+        assert!(
+            matches!(commit, Commit::Painted),
+            "a rebuild that changed the screen was not reported as painted: {commit:?}"
+        );
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.starts_with(check::RECOVERY_CLEANUP),
+            "the recovery did not lead with the fixed cleanup vector: {text:?}"
+        );
+        for row in band_rows() {
+            assert!(
+                text.contains(&row),
+                "the recovery did not rebuild the row {row:?}: {text:?}"
+            );
+        }
+        assert_eq!(
+            band.caret,
+            Some((23, 2)),
+            "a landed rebuild did not record where the frame left the cursor"
+        );
+        assert!(
+            !band.damaged,
+            "a landed rebuild left the band claiming it still owed a repaint"
+        );
+    }
+
+    #[test]
+    fn recovery_rebuilds_only_the_bands_own_rows_and_leaves_the_document_above_it_alone() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame lands");
+        band.append_document(&mut screen, 0, &["above the band".to_string()], &geometry)
+            .expect("a document row settles above the band");
+
+        // A snapshot of every cell above the band, taken by hand rather than
+        // by a helper this test does not control -- the claim is only that
+        // recovery leaves these cells exactly as it found them, whatever they
+        // are.
+        let snapshot = |band: &Band| -> Vec<String> {
+            (1..geometry.band_top())
+                .flat_map(|line| {
+                    (0..geometry.cols)
+                        .map(move |column| format!("{:?}", band.shadow.cell(line, column)))
+                })
+                .collect()
+        };
+        let document_before = snapshot(&band);
+        let document_bottom_before = band.document_bottom;
+
+        let commit = band
+            .recover_primary(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a cleanup and a rebuild that both land is a successful recovery");
+        assert!(matches!(commit, Commit::Painted));
+
+        assert_eq!(
+            band.document_bottom, document_bottom_before,
+            "a band-only recovery moved the boundary of the terminal's own document"
+        );
+        assert_eq!(
+            document_before,
+            snapshot(&band),
+            "a band-only recovery touched a cell above the band"
+        );
+    }
+
+    #[test]
+    fn recover_primary_rejects_a_call_while_the_terminal_is_not_on_the_primary_plane() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        let entered = band
+            .enter_alternate(&screen_rows(geometry.rows), &geometry, (7, 0))
+            .expect("entering the alternate plane");
+        screen.emit(&entered.bytes).expect("the enter lands");
+        band.frame_landed(&entered, &geometry, (7, 0));
+
+        let failure = band
+            .recover_primary(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect_err("recovery must refuse a screen that is not on the primary plane");
+        assert!(
+            matches!(failure, Emit::Rejected(_)),
+            "the wrong-plane guard was not reported as a rejection: {failure:?}"
+        );
+    }
+
+    #[test]
+    fn recover_primary_is_fatal_when_the_cleanup_vector_is_refused() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame lands");
+        let shadow_before = band.shadow.clone();
+
+        let mut refusing = Refuses;
+        let failure = band
+            .recover_primary(&mut refusing, &band_rows(), &geometry, (23, 2))
+            .expect_err("a refused cleanup vector must not be treated as recovered");
+        assert!(
+            matches!(failure, Emit::ZeroProgress(_)),
+            "a wholly refused cleanup vector was not reported as zero progress: {failure:?}"
+        );
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&shadow_before, &geometry, &mut owed),
+            0,
+            "a cleanup vector that never landed still erased the band's shadow rows"
+        );
+    }
+
+    #[test]
+    fn recover_primary_is_fatal_when_the_rebuild_is_refused_after_the_cleanup_lands() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame lands");
+
+        // One success: the fixed cleanup vector. The rebuild that follows in
+        // the same call is refused outright.
+        let mut screen = WorksThenRefuses {
+            successes: 1,
+            written: Vec::new(),
+        };
+        let failure = band
+            .recover_primary(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect_err("a rebuild the screen refused must not be treated as recovered");
+        assert!(
+            matches!(failure, Emit::ZeroProgress(_)),
+            "a wholly refused rebuild was not reported as zero progress: {failure:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&screen.written).starts_with(check::RECOVERY_CLEANUP),
+            "the one vector that did land was not the fixed cleanup vector"
+        );
     }
 
     #[test]
@@ -4786,6 +5208,230 @@ mod tests {
             "the refusal did not name the row: {refused}"
         );
         assert_eq!(screen.writes, writes, "the harmed row reached scrollback");
+    }
+
+    // -- The document's visible cells, recoloured (P3-THEME). --
+    //
+    // A theme report moves the palette, and this phase never repaints a
+    // document row: without these bytes every answer already on the screen
+    // stays in the greys of the terminal the user *had*. What the emitter may
+    // do is narrow -- colours, above the band, no scroll, nothing created --
+    // and these say so at the level the bytes are decided.
+
+    /// The document's two owned greys, dark and light, at the depth these
+    /// cases paint in. Spelled out rather than asked of `theme`: a test built
+    /// from the accessor it is checking passes for whatever that accessor says.
+    const BODY_DARK: &str = "\u{1b}[38;5;255m";
+    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    /// What ends either of them.
+    const ENDED: &str = "\u{1b}[0m";
+
+    fn dark_palette() -> super::super::theme::Palette {
+        super::super::theme::Palette {
+            mode: super::super::theme::Mode::Dark,
+            depth: super::super::theme::Depth::Ansi256,
+        }
+    }
+
+    fn light_palette() -> super::super::theme::Palette {
+        super::super::theme::Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::Ansi256,
+        }
+    }
+
+    /// A band whose shadow holds one answer row, one of xfx's own lines and
+    /// the echo of a prompt, with the caret where the last frame left it.
+    ///
+    /// The frame comes first because it is what sizes the shadow: rows
+    /// appended before a session has painted anything are on the screen
+    /// without the band ever having recorded them.
+    fn a_document_this_band_painted(geometry: &Geometry) -> (Band, Counted) {
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("a first frame sizes the shadow");
+        band.append_document(
+            &mut screen,
+            3,
+            &[
+                "hello".to_string(),
+                format!("{BODY_DARK}an answer{ENDED}"),
+                format!("{NOTICE_DARK}[tool] ran{ENDED}"),
+            ],
+            geometry,
+        )
+        .expect("the document lands");
+        band.commit(&mut screen, &band_rows(), geometry, (23, 2))
+            .expect("the frame the append owed");
+        screen.written.clear();
+        (band, screen)
+    }
+
+    #[test]
+    fn a_retint_writes_the_documents_own_cells_and_puts_the_caret_back() {
+        // The whole vector, byte for byte: a `CUP` and the cells of each row
+        // the palette moved, the pen closed behind them, and the caret back
+        // where the last frame left it. **No linefeed** -- a scroll here would
+        // put a row into native scrollback that nothing can take back -- and
+        // nothing on the row the user's own echo is on.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_document_this_band_painted(&geometry);
+        let writes = screen.writes;
+
+        assert_eq!(
+            band.retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("a screen that takes everything"),
+            Retint::Settled(Commit::Painted)
+        );
+
+        let written = String::from_utf8(screen.written.clone()).expect("text and escapes");
+        assert_eq!(
+            written,
+            format!(
+                // The reset in the middle is [`Grid::diff`]'s: it replays a
+                // state rather than a delta, so one colour is closed before
+                // the next is opened -- and the last one is closed at the end,
+                // which is what leaves the terminal in the default state the
+                // next frame assumes.
+                "\u{1b}[20;1H{BODY_LIGHT}an answer\
+                 \u{1b}[21;1H{ENDED}{NOTICE_LIGHT}[tool] ran{ENDED}\u{1b}[23;3H"
+            ),
+            "the recolour is not the cells, the pen and the caret"
+        );
+        assert_eq!(
+            screen.writes - writes,
+            1,
+            "a recolour cost more than one vector"
+        );
+    }
+
+    #[test]
+    fn a_second_report_finds_the_screen_already_holding_what_it_asks_for() {
+        // The way back costs nothing, and it is the mapping that makes it so:
+        // both greys map onto the mode in force, so a session reported light
+        // and then dark again is a session whose cells are already dark.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_document_this_band_painted(&geometry);
+        band.retint_document(&mut screen, &light_palette(), &geometry)
+            .expect("the way out");
+        screen.written.clear();
+
+        assert_eq!(
+            band.retint_document(&mut screen, &dark_palette(), &geometry)
+                .expect("the way back"),
+            Retint::Settled(Commit::Painted)
+        );
+        screen.written.clear();
+        assert_eq!(
+            band.retint_document(&mut screen, &dark_palette(), &geometry)
+                .expect("the same palette again"),
+            Retint::Settled(Commit::NoChange),
+            "a report that said what the screen already shows wrote bytes"
+        );
+        assert!(screen.written.is_empty());
+    }
+
+    #[test]
+    fn a_recolour_the_screen_refused_is_owed_again_rather_than_recorded_as_done() {
+        // The rule every emitter here is under: nothing is recorded until the
+        // write lands. A shadow advanced by a refused vector believes the
+        // document is in a palette it never reached, and never writes it again.
+        let geometry = geometry();
+        let (mut band, _) = a_document_this_band_painted(&geometry);
+
+        band.retint_document(&mut Refuses, &light_palette(), &geometry)
+            .expect_err("a screen that refuses everything");
+
+        let mut screen = Counted::default();
+        assert_eq!(
+            band.retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("the retry"),
+            Retint::Settled(Commit::Painted),
+            "the refused recolour was recorded as if it had landed"
+        );
+        assert!(
+            String::from_utf8_lossy(&screen.written).contains(&format!("{BODY_LIGHT}an answer")),
+            "the retry wrote something other than the recolour it still owed"
+        );
+    }
+
+    #[test]
+    fn a_recolour_that_would_write_on_the_bands_own_rows_is_refused_before_the_write() {
+        // The check is not vacuous. Every vector this emitter builds stays
+        // above the band by construction, so the claim "it may not reach the
+        // band's rows" is only testable against one that does -- and a
+        // placement on the divider is refused before a byte goes out.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_document_this_band_painted(&geometry);
+        let writes = screen.writes;
+        band.tamper_with(|bytes| {
+            let mut damaged = format!("\u{1b}[{};1Hx", 22).into_bytes();
+            damaged.append(bytes);
+            *bytes = damaged;
+        });
+
+        let refused = band
+            .retint_document(&mut screen, &light_palette(), &geometry)
+            .expect_err("a recolour that strayed onto the band");
+        assert!(
+            refused.to_string().contains("outside the footprint")
+                || refused.to_string().contains("did not declare"),
+            "the refusal did not name the stray row: {refused}"
+        );
+        assert_eq!(screen.writes, writes, "the refused vector reached the wire");
+    }
+
+    #[test]
+    fn a_band_that_cannot_describe_the_screen_defers_and_one_with_no_document_settles() {
+        // Writing nothing is two different answers and the caller must be able
+        // to tell them apart. **Deferred**: the shadow is not a claim about
+        // this screen -- a `/clear`, a Ctrl-L, a resume or a resize got here
+        // first -- so the recolour is still owed and the frame that repairs the
+        // screen is what makes the next tick able to answer it. **Settled**:
+        // the band can describe the screen and owns no document row on it, so
+        // there is nothing to owe. A single "nothing happened" would either
+        // drop a recolour the user is owed or leave one owed for ever.
+        let geometry = geometry();
+        let (mut band, mut screen) = a_document_this_band_painted(&geometry);
+        band.invalidate(geometry.rows, geometry.cols);
+        assert_eq!(
+            band.retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("a damaged band"),
+            Retint::Deferred
+        );
+
+        // A band that has painted nothing at all: its shadow is not this
+        // screen's size, so it cannot say anything about these rows either.
+        let mut fresh = Band::new();
+        assert_eq!(
+            fresh
+                .retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("a band that has written nothing"),
+            Retint::Deferred
+        );
+
+        // And a band whose frames have landed but which has never put a
+        // document row on the screen: the rows above it are the terminal's
+        // own, this phase does not own a shell's output, and nothing is owed.
+        let mut painted = Band::new();
+        painted
+            .commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a frame");
+        screen.written.clear();
+        assert_eq!(
+            painted
+                .retint_document(&mut screen, &light_palette(), &geometry)
+                .expect("a band with no document of its own"),
+            Retint::Settled(Commit::NoChange)
+        );
+        assert!(
+            screen.written.is_empty(),
+            "a band that knows nothing about the document wrote: {:?}",
+            String::from_utf8_lossy(&screen.written)
+        );
     }
 
     // -- Settled-row reuse (P3-WRAP: frame.rs/grid.rs bounded unit). --

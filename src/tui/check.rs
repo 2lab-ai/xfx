@@ -1068,6 +1068,49 @@ pub(crate) fn preflight(
     Ok(model)
 }
 
+/// The fixed vector [`preflight_recovery_cleanup`] accepts, and the only one
+/// [`super::frame::Band::recover_primary`] ever emits.
+///
+/// `CAN` first, on the chance the terminal's parser is mid-sequence for the
+/// prefix it was left holding -- the one byte this crate's normal alphabet
+/// refuses everywhere else ([`apply`]) and the one an in-progress `OSC`,
+/// `CSI` or UTF-8 sequence cannot itself contain, so it is the one byte that
+/// ends whatever that sequence was without becoming part of it. Then a
+/// hyperlink close, an SGR reset, synchronized output off, autowrap off and
+/// the cursor shown: state this crate's own writes can leave set and a torn
+/// vector might have left half-set. Fixed and never built from a runtime
+/// value, which is what makes a byte-exact check of it meaningful rather
+/// than circular.
+pub(crate) const RECOVERY_CLEANUP: &str = "\x18\x1b]8;;\x07\x1b[0m\x1b[?2026l\x1b[?7l\x1b[?25h";
+
+/// Whether `bytes` is exactly [`RECOVERY_CLEANUP`] -- the one vector this
+/// entry point exists to license -- and nothing else.
+///
+/// **Not [`preflight`].** That function decodes a vector against a seeded
+/// model of the screen it is about to land on, which is exactly what a
+/// terminal holding an unknown prefix cannot be given: there is no seed for
+/// "some parser state this crate did not choose." This asks the only
+/// question that state still admits an answer to -- is the vector the one
+/// fixed reset this crate has chosen to try, byte for byte -- and licenses
+/// nothing else, including any of the sequences `RECOVERY_CLEANUP` itself is
+/// built from: [`apply`]'s own alphabet already refuses a bare `CAN` or an
+/// `OSC 8` outside this path, and nothing here loosens that.
+///
+/// The confidence this buys is bounded and stated where it is spent
+/// ([`super::frame::Band::recover_primary`]): an independent terminal
+/// experiment, not this function's own logic, is what stands behind the
+/// choice of these particular bytes.
+pub(crate) fn preflight_recovery_cleanup(bytes: &[u8]) -> Result<(), Reject> {
+    if bytes == RECOVERY_CLEANUP.as_bytes() {
+        Ok(())
+    } else {
+        Err(Reject::new(
+            "a vector other than the fixed recovery cleanup",
+            0,
+        ))
+    }
+}
+
 /// Every effect this vector had is one the footprint allows -- on the buffer it
 /// allows it on -- and every scroll it makes is one the footprint asked for.
 fn check_footprint(model: &TerminalModel, footprint: &Footprint, at: usize) -> Result<(), Reject> {
@@ -3136,5 +3179,45 @@ mod tests {
         let refused = preflight(&seed, b"\x1b[1;1Hgone\x1b[6;1H\n\x1b[6;1Hkept", &declared)
             .expect_err("a row written on its way off the screen");
         assert_eq!(refused.shape(), "a row carried off the top of the screen");
+    }
+
+    #[test]
+    fn preflight_recovery_cleanup_accepts_only_the_exact_fixed_vector() {
+        preflight_recovery_cleanup(RECOVERY_CLEANUP.as_bytes())
+            .expect("the fixed vector this entry point exists to license");
+
+        let mut mutated = RECOVERY_CLEANUP.as_bytes().to_vec();
+        *mutated.last_mut().expect("a non-empty vector") ^= 1;
+        preflight_recovery_cleanup(&mutated).expect_err("a mutated recovery vector");
+
+        let truncated = &RECOVERY_CLEANUP.as_bytes()[..RECOVERY_CLEANUP.len() - 1];
+        preflight_recovery_cleanup(truncated).expect_err("a short recovery vector");
+
+        let extended = {
+            let mut bytes = RECOVERY_CLEANUP.as_bytes().to_vec();
+            bytes.push(b'x');
+            bytes
+        };
+        preflight_recovery_cleanup(&extended).expect_err("a padded recovery vector");
+    }
+
+    #[test]
+    fn the_ordinary_parser_still_refuses_the_recovery_vectors_bytes_on_their_own() {
+        // The recovery-only entry point licenses this vector; the general one
+        // still refuses the `CAN` and the `OSC 8` inside it exactly as it
+        // refuses them anywhere else -- this entry point loosens nothing in
+        // `apply`'s alphabet.
+        let grid = Grid::blank(24, 80);
+        let declared = Declared::new(
+            Intent::Primary {
+                grid: &grid,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            Footprint::none(PlaneKind::Primary),
+        );
+        preflight(&seed(&grid, None), RECOVERY_CLEANUP.as_bytes(), &declared)
+            .expect_err("the ordinary alphabet accepted the recovery vector");
     }
 }

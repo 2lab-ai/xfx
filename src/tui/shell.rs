@@ -93,7 +93,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
-use super::transcript::{Append, Landed, Transcript};
+use super::transcript::{Append, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
@@ -349,6 +349,37 @@ pub(crate) struct Shell {
     /// taken by the loop's paint tick, which is the one place in the session
     /// that writes to the terminal under a budget.
     theme_query: bool,
+    /// Whether the document rows already on the screen are still painted in a
+    /// palette the session has moved on from.
+    ///
+    /// Raised by [`Self::retint`] and paid by the loop's writer against the
+    /// band's own shadow ([`super::frame::Band::retint_document`]), which is
+    /// the only thing that knows which of those rows it wrote. Held as a debt
+    /// rather than written at the report for the reason [`Self::theme_query`]
+    /// is: a report is decoded on the input side, and the one writer on this
+    /// terminal is the paint tick.
+    ///
+    /// **It carries no palette of its own.** What is owed is "the visible
+    /// document, in whatever palette is in force when it is paid", so a
+    /// terminal that reports dark, light and dark again before any of it
+    /// reaches the screen converges on dark and costs nothing -- which a debt
+    /// remembering an old-to-new pair could not do.
+    retint_debt: bool,
+    /// Whether something that is not the band has written on the screen and
+    /// the band has not been told yet.
+    ///
+    /// Raised beside every [`Reason::ExternalDamage`] this shell asks for --
+    /// and by a resize, which invalidates on its own road -- and lowered by
+    /// the loop at the point it really tells the band
+    /// ([`super::frame::Band::invalidate`]).
+    ///
+    /// It exists because the two facts are recorded at **different moments of
+    /// one tick**: a `/clear` or a Ctrl-L is applied while events are, and the
+    /// band is told while the frame is built -- and the retint above is paid
+    /// in between, off a shadow that still describes the screen that was. A
+    /// report that arrives behind a `/clear` in the same batch would otherwise
+    /// repaint erased history back onto a screen the user emptied.
+    damage_untold: bool,
     /// The model a turn will talk to.
     ///
     /// Read from the configuration once, at startup, rather than consulted per
@@ -632,8 +663,15 @@ enum Asked {
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
-    /// A whole line, on rows of its own.
-    Line(String),
+    /// A whole line, on rows of its own, and what it is.
+    ///
+    /// The role is carried rather than decided where the mark is run, because
+    /// the two things that reach the document this way are not the same thing:
+    /// xfx's own sentences about the session are [`Role::Notice`], and the echo
+    /// of a line the **user** submitted is [`Role::Plain`] -- it is their text,
+    /// and colouring it as xfx's words would be this surface claiming to have
+    /// said it.
+    Line(String, Role),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -685,6 +723,10 @@ impl Shell {
             // first frame would be a second query on a terminal that is still
             // answering the first.
             theme_query: false,
+            // Nothing on the screen to recolour, and nothing the band has not
+            // been told: a session that has painted nothing has neither.
+            retint_debt: false,
+            damage_untold: false,
             // A session that has drawn nothing owes a frame. Requesting it here
             // rather than in the loop is what keeps "the band appears" a
             // property of having a shell at all.
@@ -1004,16 +1046,33 @@ impl Shell {
         )
     }
 
-    /// Adds answer text to the transcript.
+    /// Adds text of no particular kind to the transcript, for the cases that
+    /// are about **when** a row lands rather than about what it is.
+    ///
+    /// Test-only, and it is the shape this call had before a row's text came
+    /// with a meaning: every production write says what it is writing
+    /// ([`Self::write_transcript_as`]), because the colour of the row is that
+    /// answer and nothing else. What the cases reached through here get is the
+    /// plain row they always got.
+    #[cfg(test)]
+    pub(crate) fn write_transcript(&mut self, text: &str) {
+        self.write_transcript_as(text, Role::Plain);
+    }
+
+    /// Adds text to the transcript, with what it is.
     ///
     /// Nothing is written here. What the text costs the terminal is queued and
     /// a frame is asked for, because the append and the frame that follows it
     /// are one turn's worth of work and the loop is the only thing that owns
     /// the screen.
+    ///
+    /// No colour is chosen here either: the role travels with the text and the
+    /// sequence is made when the row is handed to the terminal, in whatever
+    /// palette the session is in by then ([`Transcript::emit_front`]).
     // The composer's submit is the first caller -- it echoes the line the user
     // sent so the loop is visibly closed -- and Task 12's deltas are the next.
-    pub(crate) fn write_transcript(&mut self, text: &str) {
-        if self.transcript.queue_push(text) {
+    fn write_transcript_as(&mut self, text: &str, role: Role) {
+        if self.transcript.queue_push(text, role) {
             self.owed();
         }
     }
@@ -1071,7 +1130,7 @@ impl Shell {
         &mut self,
         emit: impl FnOnce(&Append) -> Landed<E>,
     ) -> Option<Result<(), E>> {
-        self.transcript.emit_front(emit)
+        self.transcript.emit_front(self.palette, emit)
     }
 
     /// Shows what the runtime just did.
@@ -1768,7 +1827,7 @@ impl Shell {
             // The whole band is repainted every frame, so a redraw is a frame
             // here as much as anywhere else.
             Input::Action(Action::Redraw) => {
-                self.render.request(Reason::ExternalDamage);
+                self.external_damage();
                 return;
             }
             // The draft's own keys, and **only while a draft has them**: with
@@ -1999,7 +2058,7 @@ impl Shell {
             // The whole band is repainted every frame, so a redraw is a frame
             // here as much as anywhere else.
             Input::Action(Action::Redraw) => {
-                self.render.request(Reason::ExternalDamage);
+                self.external_damage();
                 return;
             }
             // Which keys a question binds is the question's own fact
@@ -2091,7 +2150,12 @@ impl Shell {
     /// are about the keystroke rather than about the answer, and the reason is
     /// written where they are.
     fn say(&mut self, line: String) {
-        self.mark(Mark::Line(line));
+        self.say_as(line, Role::Notice);
+    }
+
+    /// The same, for a line that is not xfx's own words.
+    fn say_as(&mut self, line: String, role: Role) {
+        self.mark(Mark::Line(line, role));
     }
 
     /// Records a document write at the stream position it was issued at.
@@ -2153,7 +2217,10 @@ impl Shell {
             let mut text = std::mem::take(&mut reopen);
             text.push_str(piece);
             self.emitted = self.emitted.saturating_add(piece.len());
-            self.write_transcript(&text);
+            // The answer, and what makes it the answer's colour is this call
+            // and nothing about the bytes: the queue, the marks and the
+            // offsets above are the raw stream, untouched.
+            self.write_transcript_as(&text, Role::Body);
             body = tail;
         }
     }
@@ -2196,7 +2263,7 @@ impl Shell {
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
         match mark {
-            Mark::Line(line) => self.write_document_line(&line),
+            Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::EndOfLine => self.finish_document_line(),
         }
     }
@@ -2221,9 +2288,9 @@ impl Shell {
     ///
     /// A notice must not land in the middle of a sentence, so whatever the
     /// answer had open is closed first.
-    fn write_document_line(&mut self, line: &str) {
+    fn write_document_line(&mut self, line: &str, role: Role) {
         self.finish_document_line();
-        self.write_transcript(line);
+        self.write_transcript_as(line, role);
         self.end_transcript_line();
     }
 
@@ -2410,15 +2477,69 @@ impl Shell {
     /// Otherwise the band is owed a frame, and the panel above it is owed one
     /// too when there is a panel: the palette paints the divider, the hint row
     /// and a refusal, and a question in the band is painted between them.
+    /// And the rows the document is already showing are owed one too
+    /// ([`Self::retint_debt`]) -- but only while this session can still say
+    /// what is on them. Something that damaged the screen and has not reached
+    /// the band yet ([`Self::damage_untold`]) means the shadow those rows
+    /// would be repainted from describes a screen that is gone, and repainting
+    /// from it is how erased history comes back.
     fn retint(&mut self, mode: Mode) {
         if self.theme_locked || self.palette.mode == mode {
             return;
         }
         self.palette.mode = mode;
+        if !self.damage_untold {
+            self.retint_debt = true;
+        }
         self.render.request(Reason::Footer);
         if self.slot().is_some() || self.owner == ScreenOwner::Approval {
             self.render.request(Reason::Modal);
         }
+    }
+
+    /// The palette the band and the document are painted in now.
+    pub(crate) fn palette(&self) -> Palette {
+        self.palette
+    }
+
+    /// Whether the document rows on the screen are owed a recolour.
+    pub(crate) fn owes_retint(&self) -> bool {
+        self.retint_debt
+    }
+
+    /// Records that the recolour has been fully delivered, or that there was
+    /// nothing knowable to recolour.
+    ///
+    /// Called by the loop only on a vector that landed or one that was never
+    /// needed, so a refused write leaves the debt exactly where it was and the
+    /// next tick offers it again -- there is no re-arming anywhere, because
+    /// nothing takes it.
+    pub(crate) fn retint_paid(&mut self) {
+        self.retint_debt = false;
+    }
+
+    /// Records that something which is not the band has written on the screen.
+    ///
+    /// The **one** door for that fact: the frame the reason asks for is a whole
+    /// repaint of the band, and what is already on the document's rows stops
+    /// being knowable at the same instant -- so a visible recolour owed against
+    /// it is dropped here rather than paid onto a screen that has changed
+    /// underneath it. The prior ownership goes with it: nothing of what those
+    /// rows held is carried across the damage.
+    ///
+    /// `pub(crate)` for the one raiser outside this module, and it is the one
+    /// that matters most: a resume, where the terminal has been somebody
+    /// else's in between (`super::event_loop`'s `adopt_resume`).
+    pub(crate) fn external_damage(&mut self) {
+        self.render.request(Reason::ExternalDamage);
+        self.retint_debt = false;
+        self.damage_untold = true;
+    }
+
+    /// Records that the band has been told, which is where its own `damaged`
+    /// takes over ([`super::event_loop`]'s two `Band::invalidate` calls).
+    pub(crate) fn damage_told(&mut self) {
+        self.damage_untold = false;
     }
 
     /// Asks the terminal which way round it is now, the next time the loop
@@ -2737,7 +2858,7 @@ impl Shell {
                 }
             }
             // The whole band is repainted every frame, so a redraw is a frame.
-            Action::Redraw => self.render.request(Reason::ExternalDamage),
+            Action::Redraw => self.external_damage(),
             // The frame around a paste. Everything between them is content
             // rather than keys, which is the whole of why a pasted newline does
             // not submit the composer and a pasted `0x03` does not cancel a
@@ -2901,14 +3022,14 @@ impl Shell {
                 // the turn is over a moment later, so what is left of that
                 // answer follows at the drain rate rather than at reading
                 // speed.
-                self.write_document_line(crate::app::INTERRUPT_NOTICE);
+                self.write_document_line(crate::app::INTERRUPT_NOTICE, Role::Notice);
                 if waiting {
                     // The second half of the same answer to the same keystroke,
                     // and immediate for the same reason: "and the queue went
                     // with it" is only useful beside the sentence it qualifies.
                     // Held back, it would arrive detached from the notice it
                     // belongs to and after text the user asked to stop.
-                    self.write_document_line(QUEUE_DROPPED);
+                    self.write_document_line(QUEUE_DROPPED, Role::Notice);
                 }
             }
             Interrupt::Clear => self.clear_composer(),
@@ -3031,7 +3152,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 self.echo(&text);
-                self.write_document_line(&refusal);
+                self.write_document_line(&refusal, Role::Notice);
             }
             // **Expanded here, and only here.** What the composer holds for a
             // collapsed paste is a summary; what the user meant to send is the
@@ -3117,7 +3238,10 @@ impl Shell {
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
     fn echo(&mut self, text: &str) {
-        self.say(text.to_string());
+        // The user's own line, so xfx paints nothing onto it: what is written
+        // here is what they typed, in whatever the terminal's own foreground
+        // is.
+        self.say_as(text.to_string(), Role::Plain);
     }
 
     /// One canonical command, with the rest of the line as its argument.
@@ -3249,7 +3373,7 @@ impl Shell {
             // `ModelOutcome::Refused` arm. Nothing of the argument is quoted
             // back: every one of these reasons is xfx's own words, which is
             // what keeps a hostile id out of the document.
-            self.write_document_line(&format!("xfx: {problem}"));
+            self.write_document_line(&format!("xfx: {problem}"), Role::Notice);
             return;
         }
         // **And nothing else is decided here.** Whether the id is the one
@@ -3284,7 +3408,7 @@ impl Shell {
             // (`interactive::setup_usage`), so a build that grows one does not
             // grow a sentence that forgets it. Nothing of the argument is quoted
             // back, for the reason `/model`'s refusal quotes nothing.
-            self.write_document_line(&interactive::setup_usage());
+            self.write_document_line(&interactive::setup_usage(), Role::Notice);
             return;
         };
         if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
@@ -3323,8 +3447,10 @@ impl Shell {
         self.emitted = self.enqueued;
         self.clearing = true;
         // Every row of the band is gone from the screen too, so the next frame
-        // is a repaint of the whole thing rather than an optional one.
-        self.render.request(Reason::ExternalDamage);
+        // is a repaint of the whole thing rather than an optional one -- and
+        // the document's rows are gone with it, which is what takes any
+        // visible recolour owed against them down ([`Self::external_damage`]).
+        self.external_damage();
         self.say(CLEARED_NOTICE.to_string());
     }
 
@@ -3585,6 +3711,13 @@ impl Shell {
         self.transcript.resize_unfinished(cols);
         // Every row of the band is somewhere else, and so is every column.
         self.render.request(Reason::Resize);
+        // And every document row the terminal has re-wrapped by rules this
+        // crate does not model: a recolour owed against those cells is owed
+        // against a screen that no longer exists. The caller invalidates the
+        // shadow on this same road (`super::event_loop`'s `adopt_resize`),
+        // which is where the band is told.
+        self.retint_debt = false;
+        self.damage_untold = true;
         Resize::Repaint(geometry)
     }
 
@@ -3705,11 +3838,25 @@ mod tests {
             offered
         }
 
-        /// Everything the document owes, as the text of its rows.
+        /// Everything the document owes, as the **text** of its rows.
+        ///
+        /// The roles' own sequences are taken back off here, because what the
+        /// cases reached through this are about is what the document *says*:
+        /// which line landed, in what order, on how many rows. What it is
+        /// painted in is a claim of its own, and it is made against
+        /// [`Self::take_pending`] -- the untouched rows -- by the cases under
+        /// "the document's colours", which is why this may not be read as
+        /// "colour is not checked".
+        ///
+        /// A **closed** list of sequences ([`unpainted`]) rather than a strip
+        /// of every escape: a sequence inside a row's *text* is text as far as
+        /// the transcript is concerned, and a helper that ate those would hide
+        /// exactly what the cases holding one are about.
         fn document(&mut self) -> Vec<String> {
             self.take_pending()
                 .into_iter()
                 .flat_map(|append| append.rows)
+                .map(|row| unpainted(&row))
                 .collect()
         }
 
@@ -3850,6 +3997,19 @@ mod tests {
     /// One hint row, painted the way the band paints it.
     fn hint_row(text: &str) -> String {
         format!("{}{text}{}", PALETTE.hint(), PALETTE.reset())
+    }
+
+    /// A document row with the sequences a **role** put on it taken off, and
+    /// nothing else touched.
+    ///
+    /// Exactly the three the fixture's palette can add to a transcript row --
+    /// the answer's, xfx's own lines', and the reset that closes either.
+    /// Anything else a row carries is part of its text and is left where it
+    /// is.
+    fn unpainted(row: &str) -> String {
+        row.replace(PALETTE.body(), "")
+            .replace(PALETTE.notice(), "")
+            .replace(PALETTE.reset(), "")
     }
 
     /// The palette every fixture paints in.
@@ -8371,7 +8531,10 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 1,
-                rows: vec!["the next answer".to_string()]
+                // The answer's own colour, spelled out: this case reads the
+                // rows as they are handed over rather than through
+                // [`Fixture::document`].
+                rows: vec!["\u{1b}[38;5;255mthe next answer\u{1b}[0m".to_string()]
             }],
             "the first delta after a clear was written onto a row the clear erased"
         );
@@ -10733,6 +10896,62 @@ mod tests {
     }
 
     #[test]
+    fn a_report_owes_the_document_a_recolour_and_a_locked_session_owes_none() {
+        // The band is repainted every frame and the document is not, so the
+        // rows already on the screen are a debt of their own -- paid by the
+        // loop's writer against the band's shadow, which is the only thing
+        // that knows which of those rows it wrote. A locked session has
+        // nothing to pay: the report never moved its palette.
+        let mut shell = shell(24, 80);
+        assert!(!shell.owes_retint(), "a fresh session owed a recolour");
+        shell.route_bytes(WENT_LIGHT);
+        assert!(
+            shell.owes_retint(),
+            "a report left the document in the palette the session has left"
+        );
+        shell.retint_paid();
+        assert!(
+            !shell.owes_retint(),
+            "the debt outlived the vector that paid it"
+        );
+
+        let mut locked = shell_with(24, 80, PALETTE, true);
+        locked.route_bytes(WENT_LIGHT);
+        assert!(
+            !locked.owes_retint(),
+            "a session the user decided the palette for owed a recolour for a \
+             report it ignored"
+        );
+    }
+
+    #[test]
+    fn a_report_behind_something_that_damaged_the_screen_owes_no_recolour() {
+        // The rows a recolour would be painted from are the band's shadow, and
+        // a `/clear` or a Ctrl-L means that shadow describes a screen that is
+        // gone -- but the band is only *told* when the next frame is built,
+        // which is after the recolour would have been paid. So the arming
+        // asks, and a report that arrives behind either owes nothing at all.
+        for damage in [b"/clear\r".to_vec(), vec![0x0c]] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(&damage);
+            shell.route_bytes(WENT_LIGHT);
+            assert!(
+                !shell.owes_retint(),
+                "a report behind {damage:?} owed a recolour of a screen that \
+                 is gone"
+            );
+            // And once the band has been told, the next report is ordinary
+            // again: what it would repaint is what the band really knows.
+            shell.damage_told();
+            shell.route_bytes(WENT_DARK);
+            assert!(
+                shell.owes_retint(),
+                "the session stopped recolouring the document for good"
+            );
+        }
+    }
+
+    #[test]
     fn a_background_that_changed_is_not_a_terminal_that_changed() {
         // The depth is a property of the terminal *program* -- whether it
         // renders `38;2` or quantizes it (`theme::depth_from_env`) -- and a
@@ -10847,5 +11066,140 @@ mod tests {
             !locked.take_theme_query(),
             "a session the user decided for asked the terminal anyway"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the document's colours
+    // -----------------------------------------------------------------------
+    //
+    // Read through `take_pending` rather than `document`, which takes the
+    // roles' sequences back off: these are the cases that state what those
+    // sequences are, so a helper that removed them would leave nothing to
+    // assert. The greys are spelled out rather than asked of the palette --
+    // an expectation built from the accessor passes whatever the accessor
+    // says, including nothing.
+
+    /// The dark palette's answer text, `theme::DARK`'s `255`.
+    const BODY_DARK: &str = "\u{1b}[38;5;255m";
+    /// The light palette's, `theme::LIGHT`'s `235`.
+    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    /// What xfx's own lines are painted in, dark: `theme::DARK`'s `250`.
+    const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    /// What closes either.
+    const ENDED: &str = "\u{1b}[0m";
+
+    /// Every row the document is owed, as it is handed to the terminal.
+    fn painted_rows(shell: &mut Fixture) -> Vec<String> {
+        shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect()
+    }
+
+    #[test]
+    fn the_answer_a_turn_streams_is_painted_as_the_answer() {
+        // The model's text reads as the model's text. The break this catches
+        // is the answer arriving in the terminal's default foreground -- which
+        // on a light terminal is the one thing this phase's palette exists to
+        // avoid.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("a streamed answer".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![format!("{BODY_DARK}a streamed answer{ENDED}")]
+        );
+    }
+
+    #[test]
+    fn xfx_s_own_line_is_painted_as_xfx_s_and_the_echo_of_a_prompt_is_not() {
+        // The two things that reach the document through the same call. The
+        // echo is the **user's** text: painting it in xfx's grey would be this
+        // surface claiming to have said what they typed.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello\r");
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![
+                "hello".to_string(),
+                format!("{NOTICE_DARK}[tool] read_file ok{ENDED}"),
+            ],
+            "the echo and the notice were not told apart"
+        );
+    }
+
+    #[test]
+    fn a_notice_inside_an_answer_keeps_its_own_colour_and_its_own_place() {
+        // Ordering and colour together: the notice belongs at the point the
+        // answer had reached when it happened (`Shell::mark`), and the answer
+        // that follows it is the answer again rather than more of the notice.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("before".to_string()));
+        shell.apply(UiEvent::Notice("[tool] ran".to_string()));
+        shell.apply(UiEvent::Delta("after".to_string()));
+        shell.shell.flush_paced();
+
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![
+                format!("{BODY_DARK}before{ENDED}"),
+                format!("{NOTICE_DARK}[tool] ran{ENDED}"),
+                format!("{BODY_DARK}after{ENDED}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_the_pacer_was_still_holding_lands_in_the_palette_it_lands_in() {
+        // The palette is read at the write and not at the delta, so text that
+        // was queued while the terminal was dark is written for the terminal
+        // the user has now. Nothing of the stream is rewritten to make that
+        // true -- there is nothing to rewrite, because no colour was ever put
+        // into it.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("held while it was dark".to_string()));
+        let holding = shell.shell.paced_backlog();
+        assert!(holding > 0, "the pacer released the delta immediately");
+
+        shell.route_bytes(WENT_LIGHT);
+        assert_eq!(
+            shell.shell.paced_backlog(),
+            holding,
+            "a theme report moved the stream"
+        );
+
+        shell.shell.flush_paced();
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec![format!("{BODY_LIGHT}held while it was dark{ENDED}")]
+        );
+    }
+
+    #[test]
+    fn a_theme_report_changes_no_byte_of_what_the_answer_says() {
+        // The same stream, cut by the pacer in the same places, with a report
+        // in the middle of it: what the report may change is the sequence
+        // around a row and nothing inside one.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta("first half ".to_string()));
+        shell.route_bytes(WENT_LIGHT);
+        shell.apply(UiEvent::Delta("second half".to_string()));
+        shell.shell.flush_paced();
+
+        let rows = painted_rows(&mut shell);
+        let said: String = rows
+            .iter()
+            .map(|row| {
+                row.replace(BODY_DARK, "")
+                    .replace(BODY_LIGHT, "")
+                    .replace(ENDED, "")
+            })
+            .collect();
+        assert_eq!(said, "first half second half");
     }
 }
