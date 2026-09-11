@@ -113,6 +113,15 @@ pub(crate) struct Band {
     /// frames so building one allocates nothing after the first, and swapped
     /// with [`shadow`](Self::shadow) only by a write that succeeded.
     target: Grid,
+    /// One row of scratch space [`Grid::row_matches`] renders a candidate
+    /// settled row into, reused across a whole append so only this row's own
+    /// cell-vector storage is (re)allocated once, not once per row compared
+    /// -- narrower than "the check allocates nothing": [`Grid::place_row`]
+    /// still allocates a `String` per grapheme cluster it writes into
+    /// `scratch`, on every row it renders, matched or not. Disposable:
+    /// nothing ever reads it as a claim about the screen, only as the last
+    /// thing [`Grid::row_matches`] rendered into it.
+    scratch: Grid,
     /// The window title this session wants, and `None` for a session that has
     /// not asked for one -- which is every session until [`Band::set_title`] is
     /// called, and therefore every test below.
@@ -245,6 +254,7 @@ impl Band {
             // has no screen of its own to ask.
             shadow: Grid::blank(0, 0),
             target: Grid::blank(0, 0),
+            scratch: Grid::blank(0, 0),
             title: None,
             shown_title: None,
             caret: None,
@@ -1146,6 +1156,21 @@ impl Band {
             scroll_one(&mut self.buffer, geometry);
             self.target.scroll_up(1);
         }
+        // A settled row is reused -- neither emitted nor re-placed onto
+        // `target` -- only when every fact this frame carries about the
+        // screen says the row is already sitting where it is about to be
+        // placed again: undamaged, the same terminal size and the same
+        // band top as the frame that landed last, and no extra blank scroll
+        // ahead of it (`scroll != fresh` means `Transcript` handed back more
+        // scroll than rows, which is not a screen this reasoning covers).
+        // Row-by-row it still costs a real rendered-cell comparison
+        // ([`Grid::row_matches`]) rather than trusting the frame-level facts
+        // alone -- those rule out *why* a row could be stale, not whether
+        // this particular one is.
+        let reuse_eligible = !self.damaged
+            && self.painted_on == Some((geometry.rows, geometry.cols))
+            && self.painted == Some(geometry.band_top())
+            && scroll == fresh;
         for (offset, row) in rows[settled - usize::from(shown)..settled]
             .iter()
             .enumerate()
@@ -1153,8 +1178,14 @@ impl Band {
             // A row number too, bounded by `shown` a line above it.
             let offset = u16::try_from(offset).unwrap_or(shown);
             let line = first.saturating_add(offset);
-            place(&mut self.buffer, line, row, geometry);
-            self.target.place_row(line, row, geometry);
+            let reused = reuse_eligible
+                && self
+                    .target
+                    .row_matches(line, row, geometry, &mut self.scratch);
+            if !reused {
+                place(&mut self.buffer, line, row, geometry);
+                self.target.place_row(line, row, geometry);
+            }
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
@@ -4755,6 +4786,408 @@ mod tests {
             "the refusal did not name the row: {refused}"
         );
         assert_eq!(screen.writes, writes, "the harmed row reached scrollback");
+    }
+
+    // -- Settled-row reuse (P3-WRAP: frame.rs/grid.rs bounded unit). --
+    //
+    // A settled row is reused -- placed once, then trusted across appends
+    // that repeat it verbatim -- only when nothing this frame knows about
+    // the screen has moved since the row was last verified there. These
+    // cover the emitted bytes (a match is skipped, a real change is not),
+    // the state a fully-reused append must leave untouched, the facts that
+    // withdraw the trust, and the independent checker's refusal to accept
+    // a claim about a row -- reused or not -- that the real bytes disagree
+    // with.
+
+    #[test]
+    fn a_settled_row_unchanged_since_the_last_append_is_reused_and_a_changed_one_is_repainted() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+
+        let first = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "marker-C".to_string(),
+        ];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        screen.written.clear();
+        let second = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "CHANGED".to_string(),
+        ];
+        band.append_document(&mut screen, 0, &second, &geometry)
+            .expect("the reused settled block lands");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            !text.contains("marker-A") && !text.contains("marker-B"),
+            "an unchanged settled row was re-emitted though nothing about it \
+             differed: {text:?}"
+        );
+        assert!(
+            text.contains("CHANGED"),
+            "the row that really changed was not repainted: {text:?}"
+        );
+
+        // The screen this leaves is still the one three literal placements
+        // would leave: reuse skips the *bytes*, never the cell they stand
+        // for. `reference` is `band.shadow` everywhere reuse cannot have
+        // touched, and a hand-placed literal on the three rows under test.
+        let mut reference = band.shadow.clone();
+        reference.place_row(19, "marker-A", &geometry);
+        reference.place_row(20, "marker-B", &geometry);
+        reference.place_row(21, "CHANGED", &geometry);
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&reference, &geometry, &mut owed),
+            0,
+            "the reused row's cells were not what a real placement would have \
+             left: owed {:?}",
+            String::from_utf8_lossy(&owed)
+        );
+    }
+
+    #[test]
+    fn an_append_whose_settled_rows_all_match_writes_nothing_and_leaves_band_state_untouched() {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+
+        let rows = vec!["marker-A".to_string(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &rows, &geometry)
+            .expect("the settled block lands");
+
+        let shadow_before = band.shadow.clone();
+        let painted_before = band.painted_top();
+        let document_bottom_before = band.document_bottom;
+        let caret_before = band.caret;
+
+        screen.written.clear();
+        let writes_before = screen.writes;
+        band.append_document(&mut screen, 0, &rows, &geometry)
+            .expect("a fully-reused append is still accepted");
+
+        assert_eq!(
+            screen.writes, writes_before,
+            "an append every one of whose rows already matched still wrote a \
+             vector"
+        );
+        assert!(screen.written.is_empty());
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&shadow_before, &geometry, &mut owed),
+            0,
+            "a no-op append changed what the shadow believes the screen holds"
+        );
+        assert_eq!(band.painted_top(), painted_before);
+        assert_eq!(band.document_bottom, document_bottom_before);
+        assert_eq!(band.caret, caret_before);
+    }
+
+    #[test]
+    fn invalidating_between_appends_disables_reuse_and_repaints_every_settled_row() {
+        // `invalidate` also blanks the shadow unconditionally (`Grid::resize`),
+        // so this exercises the combined effect a Ctrl-L or a stop's resume
+        // really leaves behind -- `damaged` alone is not separable from that
+        // blanking through this public path, and this is the path production
+        // takes.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+
+        let rows = vec!["marker-A".to_string(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &rows, &geometry)
+            .expect("the settled block lands");
+
+        band.invalidate(geometry.rows, geometry.cols);
+
+        screen.written.clear();
+        band.append_document(&mut screen, 0, &rows, &geometry)
+            .expect("the append after invalidation lands");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.contains("marker-A") && text.contains("marker-B"),
+            "a row identical to the pre-invalidation text was reused across an \
+             invalidation, though nothing here still knows that to be true: \
+             {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_band_top_that_moved_since_the_last_append_disables_reuse() {
+        let base = geometry();
+        let taller = crate::tui::layout::solve(24, 80, 3).expect("a taller composer");
+        assert_ne!(
+            taller.band_top(),
+            base.band_top(),
+            "the repro's own composer did not move the band top"
+        );
+
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &base, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let rows = vec!["marker-A".to_string(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &rows, &base)
+            .expect("the settled block lands at the smaller composer's band top");
+
+        // The composer grows -- more input rows -- without any invalidation:
+        // the document's own cells the first append wrote are untouched.
+        band.commit(&mut screen, &band_rows(), &taller, (23, 2))
+            .expect("the taller composer's own frame");
+
+        screen.written.clear();
+        band.append_document(&mut screen, 0, &rows, &taller)
+            .expect("the append at the new band top lands");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.contains("marker-A") && text.contains("marker-B"),
+            "a settled row was reused across a band top that moved: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_changed_row_whose_bytes_were_stripped_is_still_caught_by_the_independent_script() {
+        // The reuse decision never touches this row -- it differs, so the
+        // emitter places it same as before the feature existed. The strip is
+        // a fault this unit does not cause, and the independent script has
+        // to catch it regardless.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let first = vec!["marker-A".to_string(), "marker-B".to_string()];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        band.tamper_with(|bytes| {
+            let text = String::from_utf8(bytes.clone()).expect("an append is text and escapes");
+            let placement = format!("\u{1b}[21;1HCHANGED{ERASE_LINE}");
+            assert!(
+                text.contains(&placement),
+                "the repro's own changed-row placement is not there: {text:?}"
+            );
+            *bytes = text.replacen(&placement, "", 1).into_bytes();
+        });
+        let second = vec!["marker-A".to_string(), "CHANGED".to_string()];
+        let refused = band
+            .append_document(&mut screen, 0, &second, &geometry)
+            .expect_err("a row the script still declares must be caught even stripped");
+        assert!(
+            refused.to_string().contains("did not leave as intended"),
+            "the refusal did not name the missing cell: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_reused_row_the_emitted_bytes_corrupt_is_still_caught_by_the_independent_script() {
+        // `marker-A` is reused this call -- the emitter writes nothing for
+        // it -- so the bytes the tamper adds here are a fault an external
+        // layer injected onto a row this feature trusted without a write,
+        // not a placement this emitter forgot.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let first = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "marker-C".to_string(),
+        ];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        band.tamper_with(|bytes| {
+            let text = String::from_utf8(bytes.clone()).expect("an append is text and escapes");
+            assert!(
+                !text.contains("marker-A"),
+                "the repro's own reused row was placed by the real emitter: {text:?}"
+            );
+            let mut corrupted = format!("\u{1b}[19;1HRUINED{ERASE_LINE}").into_bytes();
+            corrupted.extend_from_slice(bytes);
+            *bytes = corrupted;
+        });
+        let second = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "CHANGED".to_string(),
+        ];
+        let refused = band
+            .append_document(&mut screen, 0, &second, &geometry)
+            .expect_err(
+                "a corrupted reused row must still be caught even though it was \
+                 never written",
+            );
+        assert!(
+            refused.to_string().contains("did not leave as intended"),
+            "the refusal did not name the corrupted cell: {refused}"
+        );
+    }
+
+    /// Regression characterization, not TDD-first: `render_append` already
+    /// rebuilds `target` from `shadow` at the top of every call
+    /// (`frame.rs:1085`), so a refused attempt's speculative `target` writes
+    /// cannot leak into a retry -- this test only makes that existing
+    /// behavior observable, no production line changed to make it pass.
+    ///
+    /// The tamper strips the changed row's own placement, which
+    /// `check::preflight` must still catch (`frame.rs:1593-1616`, strictly
+    /// before `out.emit` at `frame.rs:1617`): the sink is never called and
+    /// `shadow` is never swapped in. Clearing the tamper through the
+    /// existing seam (`Band.tamper`, `#[cfg(test)]`, a private field `mod
+    /// tests` can reach directly) and retrying the identical append must
+    /// then repaint only the row that changed -- the two unchanged rows stay
+    /// reused, omitted from what the sink receives.
+    #[test]
+    fn a_preflight_refusal_leaves_shadow_untouched_and_a_cleared_retry_lands_only_the_changed_row()
+    {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let first = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "marker-C".to_string(),
+        ];
+        band.append_document(&mut screen, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        let shadow_before = band.shadow.clone();
+        screen.written.clear();
+        let writes_before = screen.writes;
+
+        band.tamper_with(|bytes| {
+            let text = String::from_utf8(bytes.clone()).expect("an append is text and escapes");
+            let placement = format!("\u{1b}[21;1HCHANGED{ERASE_LINE}");
+            assert!(
+                text.contains(&placement),
+                "the repro's own changed-row placement is not there: {text:?}"
+            );
+            *bytes = text.replacen(&placement, "", 1).into_bytes();
+        });
+        let second = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "CHANGED".to_string(),
+        ];
+        let refused = band
+            .append_document(&mut screen, 0, &second, &geometry)
+            .expect_err("a stripped changed-row placement must still be caught");
+        assert!(
+            refused.to_string().contains("did not leave as intended"),
+            "the refusal did not name the missing cell: {refused}"
+        );
+        assert_eq!(
+            screen.writes, writes_before,
+            "a refused vector must never reach the sink"
+        );
+        assert!(
+            screen.written.is_empty(),
+            "a refused vector must never reach the sink"
+        );
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&shadow_before, &geometry, &mut owed),
+            0,
+            "a refused append must not move what the shadow believes the screen \
+             holds: owed {:?}",
+            String::from_utf8_lossy(&owed)
+        );
+
+        band.tamper = None;
+        band.append_document(&mut screen, 0, &second, &geometry)
+            .expect("the retry, with the tamper cleared, must land");
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert!(
+            text.contains("CHANGED"),
+            "the retry did not repaint the row that changed: {text:?}"
+        );
+        assert!(
+            !text.contains("marker-A") && !text.contains("marker-B"),
+            "the retry re-emitted a row reuse should still have omitted: {text:?}"
+        );
+    }
+
+    /// Companion to the preflight-level refusal above, at the sink layer
+    /// instead: `Fussy{refusals: 1, ..}`'s first `write_once` takes zero
+    /// bytes, which `deliver::classify` reports as `Emit::ZeroProgress`
+    /// (`deliver.rs:190-196`) -- a delivery failure `out.emit` returns
+    /// strictly *after* `check::preflight` already accepted the vector and
+    /// strictly *before* the `shadow`/`target` swap (`frame.rs:1617-1620`).
+    /// Regression characterization, not TDD-first; no production line
+    /// changed to make this pass.
+    #[test]
+    fn a_sink_zero_progress_refusal_leaves_shadow_untouched_and_a_retry_lands_only_the_changed_row()
+    {
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut warmup = Counted::default();
+        band.commit(&mut warmup, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame clears `damaged`");
+        let first = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "marker-C".to_string(),
+        ];
+        band.append_document(&mut warmup, 0, &first, &geometry)
+            .expect("the first settled block lands");
+
+        let shadow_before = band.shadow.clone();
+        let second = vec![
+            "marker-A".to_string(),
+            "marker-B".to_string(),
+            "CHANGED".to_string(),
+        ];
+
+        let mut sink = Fussy {
+            refusals: 1,
+            written: Vec::new(),
+        };
+        let refused = band
+            .append_document(&mut sink, 0, &second, &geometry)
+            .expect_err("a sink taking zero bytes of its first write must not count as delivered");
+        assert!(
+            matches!(refused, Emit::ZeroProgress(_)),
+            "a write that took zero bytes must classify as `ZeroProgress`, not {refused:?}"
+        );
+        assert!(
+            sink.written.is_empty(),
+            "the refused write still left bytes on the sink"
+        );
+        let mut owed = Vec::new();
+        assert_eq!(
+            band.shadow.diff(&shadow_before, &geometry, &mut owed),
+            0,
+            "a refused write must not move what the shadow believes the screen \
+             holds: owed {:?}",
+            String::from_utf8_lossy(&owed)
+        );
+
+        band.append_document(&mut sink, 0, &second, &geometry)
+            .expect("the retry through the now-willing sink must land");
+        let text = String::from_utf8(sink.written).expect("utf-8");
+        assert!(
+            text.contains("CHANGED"),
+            "the retry did not repaint the row that changed: {text:?}"
+        );
+        assert!(
+            !text.contains("marker-A") && !text.contains("marker-B"),
+            "the retry re-emitted a row reuse should still have omitted: {text:?}"
+        );
     }
 
     /// P3-WRAP diagnostic (not a gate): splits the `append` bucket already

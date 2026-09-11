@@ -244,6 +244,48 @@ impl Grid {
         }
     }
 
+    /// Whether row `line` already holds what placing `row` on it would leave
+    /// behind, without writing anything.
+    ///
+    /// `scratch` is caller-owned so a loop over many settled rows reuses one
+    /// row's own backing storage instead of allocating a fresh one per row --
+    /// see [`super::frame::Band`]'s field of the same name. Narrower than
+    /// "allocates nothing": [`Self::place_row`] still allocates a `String`
+    /// per grapheme cluster it writes ([`Cell::Lead`]), every call, whether
+    /// the row it renders ends up matching or not -- what is reused here is
+    /// only the row's own cell-vector storage, not each cell's content. It is
+    /// resized here whenever it is not already one row of this grid's own
+    /// width, and then filled through [`Self::place_row`]: the **one**
+    /// tokenizer, so this cannot agree where a real placement would
+    /// disagree, or the reverse.
+    ///
+    /// `false` on anything this grid cannot make a real comparison from --
+    /// `line` outside it, no columns, or a geometry whose columns disagree
+    /// with its own -- rather than a slice equality that would hold
+    /// vacuously on a row with nothing in it.
+    pub(crate) fn row_matches(
+        &self,
+        line: u16,
+        row: &str,
+        geometry: &Geometry,
+        scratch: &mut Grid,
+    ) -> bool {
+        if self.cols == 0 || self.cols != geometry.cols {
+            return false;
+        }
+        let Some(span) = self.span(line) else {
+            return false;
+        };
+        if scratch.rows != 1 || scratch.cols != self.cols {
+            scratch.resize(1, self.cols);
+        }
+        scratch.place_row(1, row, geometry);
+        let Some(scratch_span) = scratch.span(1) else {
+            return false;
+        };
+        self.cells[span] == scratch.cells[scratch_span]
+    }
+
     /// The band's own rows, and the erase in front of them.
     ///
     /// Exactly what one Phase-1 frame does to a screen: `CUP` to the band's top
@@ -654,5 +696,89 @@ mod tests {
         expected.place_row(1, "the document", &geometry);
         expected.place_row(geometry.divider, "--", &geometry);
         assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    // -- Grid::row_matches (P3-WRAP settled-row reuse) --
+
+    #[test]
+    fn row_matches_true_only_for_the_text_that_would_render_identically() {
+        let geometry = geometry();
+        let grid = painted(10, "abc");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(grid.row_matches(10, "abc", &geometry, &mut scratch));
+        assert!(!grid.row_matches(10, "abd", &geometry, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_is_false_for_a_row_this_grid_does_not_have() {
+        let geometry = geometry();
+        let grid = painted(10, "abc");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(!grid.row_matches(0, "abc", &geometry, &mut scratch));
+        assert!(!grid.row_matches(geometry.rows + 1, "abc", &geometry, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_is_false_when_the_geometrys_width_disagrees_with_this_grids() {
+        // A grid sized for a screen this geometry does not describe cannot be
+        // trusted about any of its cells -- the width this comparison would
+        // clip `row` to is not the width the grid's own cells were painted
+        // at, so an equal slice would say nothing real.
+        let narrower = crate::tui::layout::solve(24, 40, 1).expect("a narrower band");
+        let grid = painted(10, "abc");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(!grid.row_matches(10, "abc", &narrower, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_is_false_when_only_the_attribute_state_differs() {
+        let geometry = geometry();
+        let grid = painted(10, "abc");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(!grid.row_matches(10, &format!("{COLOUR}abc{RESET}"), &geometry, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_is_false_when_a_wide_cluster_replaces_a_narrow_one() {
+        let geometry = geometry();
+        let grid = painted(10, "ab");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(!grid.row_matches(10, &format!("{FAMILY}b"), &geometry, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_is_false_when_a_combining_mark_is_added() {
+        let geometry = geometry();
+        let grid = painted(10, "ex");
+        let mut scratch = Grid::blank(0, 0);
+        assert!(!grid.row_matches(10, "e\u{301}x", &geometry, &mut scratch));
+    }
+
+    #[test]
+    fn row_matches_agrees_with_place_row_on_a_row_clipped_to_the_screen() {
+        // Both sides go through the one tokenizer at the same width, so a row
+        // wider than the screen is clipped identically on both -- a match
+        // means what `place_row` would really paint, not what the unclipped
+        // text says, and a change inside the clip window still disagrees.
+        let geometry = crate::tui::layout::solve(24, crate::tui::layout::MIN_COLS, 1)
+            .expect("the narrowest band");
+        let long = "abcdefghijklmnopqrstuvwxyz";
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(10, long, &geometry);
+        let mut scratch = Grid::blank(0, 0);
+        assert!(grid.row_matches(10, long, &geometry, &mut scratch));
+        // Same length, and only the first character past the clip's own
+        // width changed -- a comparison that clipped one side and not the
+        // other would call this a match.
+        let changed_past_the_clip = format!(
+            "{}X{}",
+            &long[..usize::from(geometry.cols)],
+            &long[usize::from(geometry.cols) + 1..]
+        );
+        assert!(grid.row_matches(10, &changed_past_the_clip, &geometry, &mut scratch));
+        // Changed *inside* the clip window disagrees.
+        let mut inside = long.to_string();
+        inside.replace_range(2..3, "X");
+        assert!(!grid.row_matches(10, &inside, &geometry, &mut scratch));
     }
 }

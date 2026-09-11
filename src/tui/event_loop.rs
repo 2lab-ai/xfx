@@ -6155,25 +6155,40 @@ mod tests {
     /// not the near-cap one the PRD row is about. So every sample below
     /// re-seeds the line, untimed, back up to [`NEAR_CAP_ROWS`] before its
     /// own timed push, and then checks -- outside its own clock -- that the
-    /// timed push really did repaint close to a full screen of document rows,
-    /// counted from `\x1b[K` runs in its own (per-sample-cleared) output: a
-    /// tail that had silently collapsed back to a handful of rows would
-    /// repaint far fewer than that and be caught here instead of only
-    /// reading suspiciously fast.
+    /// untimed refill actually landed exactly [`NEAR_CAP_ROWS`] committed
+    /// tail rows and the timed push landed exactly one more
+    /// (`Shell::tail_rows`, the transcript's own committed answer, not a
+    /// repaint proxy): a tail that had silently collapsed back to a handful
+    /// of rows would fail those exact counts and be caught here instead of
+    /// only reading suspiciously fast. The `\x1b[K`-run count is still
+    /// collected and printed per sample, but only as a diagnostic of how
+    /// much settled-row reuse skipped -- it no longer carries the
+    /// pass/fail.
     fn run_streaming_near_cap(rows: u16, cols: u16) -> Stats {
         let (mut shell, mut band, mut out, mut failures) = painter_at(rows, cols);
         let filler = "x".repeat(usize::from(cols) * NEAR_CAP_ROWS);
         // This geometry's real document area, from the two real inputs this
         // fixture already has -- the row count it was solved for, and
         // `Shell::band_rows`'s own length -- not a guessed constant. A push
-        // whose tail genuinely has more rows than this repaints the whole of
-        // it every time (`render_append`'s `shown = min(settled, area)`), so
-        // this is also the number a near-cap sample's repaint should
-        // saturate at.
+        // whose tail genuinely has more rows than this can address at most
+        // `area` document rows in one tick (`render_append`'s `shown =
+        // min(settled, area)`), which is what makes it the upper bound on
+        // `\x1b[K` runs below -- not a target a repaint should saturate at.
+        // With settled-row reuse, a tick's actual repaint may write far
+        // fewer: any settled row that already matches is omitted entirely.
         let band_rows = shell.band_rows().len();
         let area = usize::from(rows).saturating_sub(band_rows);
+        // Upper bound unchanged from before settled-row reuse existed: the
+        // document area's share of `ERASE_LINE` plus the band's own, plus a
+        // small named slack for the one or two extra rows a push landing
+        // exactly at the cap may add before its own `freeze` would fire.
+        let upper = area + band_rows + 8;
+        // Every sample's own `\x1b[K` count, timed samples only (`i >=
+        // WARMUP`), so the distribution printed below matches the same
+        // `SAMPLES` the duration stats above it are built from.
+        let mut el_samples: Vec<usize> = Vec::with_capacity(SAMPLES);
 
-        measure(|i| {
+        let stats = measure(|i| {
             // The untimed refill: end whatever the previous sample's small
             // push left open, then push a fresh near-cap-sized unbroken line,
             // and land both before the clock starts.
@@ -6191,6 +6206,21 @@ mod tests {
                 Reconciled,
             )
             .expect("landing the untimed near-cap refill");
+            // Before the clock starts: `filler`'s length is an exact
+            // multiple of `cols` with no whitespace in it at all, so it
+            // hard-wraps into exactly `NEAR_CAP_ROWS` (250) committed rows
+            // with none left over -- true for any `cols`, checked here
+            // rather than assumed, at both this receipt's geometries (80 and
+            // 300). What the assertion below the clock relies on is this one
+            // landing exactly at 250, not somewhere near it.
+            assert_eq!(
+                shell.tail_rows(),
+                NEAR_CAP_ROWS,
+                "sample {i}: the untimed refill landed {} committed tail rows for a \
+                 {cols}x{rows} screen, not the {NEAR_CAP_ROWS} an exact-multiple filler \
+                 always wraps to",
+                shell.tail_rows()
+            );
             out.reset();
 
             let marker = format!("tail-{i:04}-");
@@ -6216,6 +6246,19 @@ mod tests {
             )
             .expect("a near-cap streaming tick");
             let elapsed = started.elapsed();
+            // Outside the clock: the filler's last word ends exactly on the
+            // last column of row 250 (checked above), so `text` -- which
+            // opens with a space and is far shorter than either geometry's
+            // width -- can only open one fresh row and fit inside it,
+            // never zero rows and never two, at 80 or 300 columns alike.
+            assert_eq!(
+                shell.tail_rows(),
+                NEAR_CAP_ROWS + 1,
+                "sample {i}: the timed push landed {} committed tail rows for a \
+                 {cols}x{rows} screen, not the {} exactly one more than the refill",
+                shell.tail_rows(),
+                NEAR_CAP_ROWS + 1
+            );
             assert!(
                 out.calls > 0 && !out.written.is_empty(),
                 "a near-cap streaming tick produced no bytes at all"
@@ -6230,23 +6273,46 @@ mod tests {
                 .windows(ERASE_LINE.len())
                 .filter(|window| *window == ERASE_LINE)
                 .count();
-            // Lower bound only needs the document side: a collapsed tail
-            // repaints far fewer rows than a screen this size can hold.
-            // Upper bound adds the band's own share of the same escape
-            // (`ERASE_LINE`'s doc comment) plus a small, named slack for the
-            // one or two extra rows a push landing exactly at the cap may
-            // add before its own `freeze` would fire.
-            let lower = area.saturating_sub(6);
-            let upper = area + band_rows + 8;
+            if i >= WARMUP {
+                el_samples.push(erase_line_runs);
+            }
+            // Lower bound is now the loosest one that still says something:
+            // at least one row -- the changed marker row itself, which is
+            // never eligible for reuse -- is always repainted. The old
+            // lower bound (`area` minus a small slack) assumed every
+            // settled row is repainted every tick; that assumption is
+            // exactly what settled-row reuse (`Grid::row_matches`,
+            // `Band::render_append` in `frame.rs`) removes, so a sample
+            // whose settled block already matches `target` may now legally
+            // emit far fewer than `area` erases. Upper bound is unchanged.
             assert!(
-                (lower..=upper).contains(&erase_line_runs),
+                (1..=upper).contains(&erase_line_runs),
                 "sample {i}: {erase_line_runs} `\\x1b[K` runs is outside \
-                 [{lower}, {upper}] for a {cols}x{rows} screen with a \
-                 {band_rows}-row band ({area}-row document area) -- the \
-                 retained tail may not be near its cap"
+                 [1, {upper}] for a {cols}x{rows} screen with a \
+                 {band_rows}-row band ({area}-row document area)"
             );
             elapsed
-        })
+        });
+
+        // The reuse optimization's measurable effect: how far below the old,
+        // now-removed lower bound (`area` minus a small slack) this receipt's
+        // own emitted `\x1b[K` counts actually land, printed rather than
+        // merely bounded, so a reduced count is something a reader can see
+        // and not only something the loosened assertion above lets pass.
+        let mut sorted = el_samples.clone();
+        sorted.sort_unstable();
+        let last = sorted.len().saturating_sub(1);
+        let old_lower = area.saturating_sub(6);
+        println!(
+            "near-cap {cols}x{rows} emitted `\\x1b[K` runs per sample ({} samples, bound \
+             [1, {upper}], old lower bound was {old_lower}): min={} median={} max={}",
+            sorted.len(),
+            sorted.first().copied().unwrap_or_default(),
+            sorted.get(last / 2).copied().unwrap_or_default(),
+            sorted.get(last).copied().unwrap_or_default(),
+        );
+
+        stats
     }
 
     /// Where the near-cap budget goes, split into the phases production

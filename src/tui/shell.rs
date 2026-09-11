@@ -3600,6 +3600,18 @@ impl Shell {
             self.edit_history.redo_depth(),
         )
     }
+
+    /// The transcript's own committed answer to "how many rows is the
+    /// unfinished line occupying right now" ([`Transcript::tail_rows`]),
+    /// forwarded rather than duplicated -- test-only, and no production
+    /// state or exposure: it reads the same field a real tick already
+    /// reads, it does not add one. `pub(crate)` (not private) for the same
+    /// reason `Transcript::tail_rows` already is: `super::event_loop`'s
+    /// tests need it and are a sibling module, not a descendant of this one.
+    #[cfg(test)]
+    pub(crate) fn tail_rows(&self) -> usize {
+        self.transcript.tail_rows()
+    }
 }
 
 #[cfg(test)]
