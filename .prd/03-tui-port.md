@@ -781,9 +781,16 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     capping it would end the write and report a whole-vector success built from the one answer known
     to be false. **Still open, and not narrowed by any of it**: an accepted count is a kernel receipt
     and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is still
-    not knowable here; and there is still no partial-write recovery and no frame retention —
-    a refused append is still dropped rather than retried, and nothing re-establishes a frame from a
-    prefix. The cost is **gated rather than
+    not knowable here; and there is still no partial-write recovery: a `Partial`'s bytes are never
+    replayed and nothing re-establishes a frame from a prefix. Parser recovery and the upstream
+    retained-body reuse this row does not attempt each remain open independently of that. Locally,
+    and not yet published in any released or merged contract (`src/tui/event_loop.rs`'s
+    `commit_document`/`commit_frame`, `Shell::restore_pending`, `Shell::restore_clearing`): a
+    `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —
+    remains queued for the next eligible output attempt under the existing budget, oldest first,
+    rather than being dropped. Untested here: a retried append's rows were wrapped against the
+    geometry held at enqueue time, and a resize before the retry lands may leave them mismatched.
+    The cost is **gated rather than
     assumed**, because a check that cost a frame would be paid for by the screen it protects:
     `scripts/check-tui-preflight-cost.sh` runs the two timing cases serially on a **release** build,
     in the default and the `fault-injection` configuration, against an unchanged 8 ms / 32 ms

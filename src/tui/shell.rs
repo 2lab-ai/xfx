@@ -1023,7 +1023,8 @@ impl Shell {
         !self.pending.is_empty()
     }
 
-    /// Gives back writes the loop took and did not attempt.
+    /// Gives back writes the loop never landed: appends it never attempted,
+    /// and one it attempted but proved -- by its `Emit` -- moved zero bytes.
     ///
     /// [`Self::take_pending`] hands over **everything** owed, and a loop that
     /// stops part-way through the batch -- a refused write ends the tick -- is
@@ -2347,6 +2348,19 @@ impl Shell {
     /// Whether the screen owes a `/clear`, taken so it is written once.
     pub(crate) fn take_clearing(&mut self) -> bool {
         std::mem::take(&mut self.clearing)
+    }
+
+    /// Hands a `/clear` back after [`Self::take_clearing`] took it and the
+    /// write never reached the terminal.
+    ///
+    /// Sets the flag and nothing else -- it must not call
+    /// [`Self::clear_screen`] again: that would drop the pending appends and
+    /// pacer text a **second** time, discarding whatever arrived between the
+    /// take and this call, and repeat a notice the screen never saw the first
+    /// half of. The bytes are the only thing that failed to land; the state
+    /// `clear_screen` already changed did not un-happen.
+    pub(crate) fn restore_clearing(&mut self) {
+        self.clearing = true;
     }
 
     /// Applies decoded events in order.

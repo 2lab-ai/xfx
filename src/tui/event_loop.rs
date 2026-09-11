@@ -755,11 +755,11 @@ fn commit_frame(
     // shell has already dropped the appends it owed against the screen that is
     // being erased, so the loop's only job is the bytes.
     //
-    // A refused clear is **not** owed again, for the reason a refused append is
-    // not: the shell has already forgotten the rows this was going to erase, so
-    // a second attempt would be aimed at a screen the session can no longer
-    // describe. It counts against the same budget, which is what ends a session
-    // on a screen that is really gone.
+    // A refused clear is handled the same way a refused append is
+    // (`commit_document` below): `Rejected` and `ZeroProgress` moved no bytes,
+    // so the intent is handed back (`Shell::restore_clearing`) and retried
+    // next tick, under the existing budget. `Partial` is fatal on the spot and
+    // is not re-armed -- there is no next tick for it to survive into.
     // Whose screen it is, before anything is written onto it. A question the
     // band cannot show is reviewed on the terminal's other buffer, and both the
     // frames that live there and the one write that gives the plane back are
@@ -842,9 +842,22 @@ fn commit_frame(
             .map_err(Emit::rejected)
             .and_then(|()| out.emit(cleared))
         {
+            // `take_clearing` already consumed the intent above, so a
+            // `Rejected` or `ZeroProgress` -- neither of which moved a byte --
+            // has to hand it back or `/clear` is forgotten for good: nothing
+            // else ever sets the flag again. A `Partial` is not re-armed: it
+            // is fatal below on every path (`disposed`), so there is no next
+            // tick for it to survive into, and re-arming here would be a flag
+            // this session never reads again.
+            let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
             return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
-                None => Ok(()),
+                None => {
+                    if rearm {
+                        shell.restore_clearing();
+                    }
+                    Ok(())
+                }
             };
         }
     }
@@ -994,8 +1007,8 @@ fn commit_band(
 /// A function of its own because there are **two** callers and they must not
 /// drift: the ordinary primary frame below, and the barrier above that pays the
 /// document before the plane changes hands. Written twice, the second copy
-/// would be the one that forgot the carry, or the order, or that a refused
-/// append is not owed again.
+/// would be the one that forgot the carry, or the order, or that a
+/// `Rejected`/`ZeroProgress` append is dropped instead of retried.
 fn commit_document(
     shell: &mut Shell,
     band: &mut Band,
@@ -1014,28 +1027,36 @@ fn commit_document(
     // where it belongs. And the rows are the *document's*, not the band's: a
     // tick that had nothing to repaint would otherwise hold them forever.
     //
-    // A refused append is **not** owed again. Its bytes are a scroll followed
-    // by the rows it made room for, and a write that failed partway through one
-    // may have moved the screen already: repeating it would put the rows in the
-    // document twice, one of them below a blank row. The failure counts against
-    // the same budget a frame's does, which is what ends a session on a screen
-    // that is really gone.
-    //
-    // **The ones behind it are owed again, and only that one is not.** The take
-    // above drains everything the session owed, and a refusal ends the tick --
-    // so what is left in the batch is rows that were never offered to the
-    // terminal and cannot have moved it. The reason above does not reach them:
-    // they are not a write that may have half-happened, they are a write that
-    // did not happen. Dropped here they would be gone for good, because Phase 1
-    // never repaints a document row.
+    // Whether a refused append is owed again depends on its `Emit`, not on
+    // where in the batch it sits. `Rejected` and `ZeroProgress` both moved no
+    // bytes -- the terminal is exactly as it was -- so the failed append and
+    // everything behind it stay owed, under the existing (unchanged) frame
+    // budget below. `Partial` already put a prefix of its vector on the
+    // terminal, so it is fatal on the spot (`disposed` sends it straight to
+    // `Some`, bypassing the budget): its bytes are never replayed, and only
+    // the untried suffix behind it -- rows that were never offered to the
+    // terminal and cannot have moved it -- is retained. Dropped here that
+    // suffix would be gone for good, because Phase 1 never repaints a document
+    // row.
     let mut owed = shell.take_pending();
     let mut index = 0;
     while index < owed.len() {
         let append = &owed[index];
         if let Err(emit) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
-            // Everything after the refused one, oldest first, back in front of
+            // Where the batch resumes depends on whether the failed one moved
+            // any bytes. `Rejected` and `ZeroProgress` both consumed none --
+            // the terminal is exactly as it was -- so the append itself is
+            // still owed and resumes *at* its own index. A `Partial` already
+            // put some of its vector on the terminal: repeating it would put
+            // that prefix down twice, so only what follows it -- which never
+            // reached the terminal at all -- resumes, at `index + 1`. Either
+            // way the ones behind it, oldest first, go back in front of
             // whatever has been owed since.
-            let untried = owed.split_off(index + 1);
+            let resume_at = match &emit {
+                Emit::Rejected(_) | Emit::ZeroProgress(_) => index,
+                Emit::Partial { .. } => index + 1,
+            };
+            let untried = owed.split_off(resume_at);
             shell.restore_pending(untried);
             return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
@@ -2333,11 +2354,17 @@ mod tests {
     }
 
     #[test]
-    fn an_append_the_screen_refused_is_not_written_a_second_time() {
-        // A scroll cannot be replayed: the write that failed may have moved the
-        // screen before it did, and a second one would put the row in the
-        // document twice with a blank row between. The frame is still owed,
-        // because a repaint of the band is the one write that *is* idempotent.
+    fn a_zero_progress_append_refusal_is_retried_exactly_once_next_tick() {
+        // Superseded rationale, kept as a note rather than deleted silently:
+        // this case used to assert the opposite -- that a refused append was
+        // *never* replayed, on the theory that a refusal of unknown shape may
+        // have moved the screen before it failed. `FlakyScreen`'s refusal is a
+        // `ZeroProgress` (`deliver::classify`'s own accounting: nothing was
+        // taken before it failed), so that theory does not reach it -- the
+        // terminal is exactly as it was, and an append never offered to it is
+        // still owed. Dropping it, as the old code did by always resuming
+        // after the failed index, was not the safety the comment claimed: it
+        // was the row gone from the session for good.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -2370,10 +2397,11 @@ mod tests {
         )
         .expect("the next tick");
         let text = String::from_utf8(screen.written).expect("utf-8");
-        assert!(
-            !text.contains("answered"),
-            "the refused append was replayed onto a screen that may already \
-             have taken it: {text:?}"
+        assert_eq!(
+            text.matches("answered").count(),
+            1,
+            "a zero-progress refusal must land its row exactly once, not zero \
+             and not twice: {text:?}"
         );
         assert!(
             text.contains("\u{1b}[22;1H"),
@@ -2382,14 +2410,14 @@ mod tests {
     }
 
     #[test]
-    fn what_a_refused_append_was_ahead_of_is_still_owed() {
-        // The other half of the sibling above, and the one a `take` of the
-        // whole batch makes possible to lose. A refusal ends the tick with rows
-        // still in hand that the terminal was never offered -- they moved no
-        // bytes, so nothing about them may have half-happened, and the reason
-        // the refused one is not repeated does not reach them. Phase 1 never
-        // repaints a document row, so dropping them is not a late frame; it is
-        // an answer with a hole in it.
+    fn a_zero_progress_refusal_and_what_was_ahead_of_it_both_land_next_tick_in_order() {
+        // Superseded rationale, kept as a note: this case used to assert that
+        // the refused row ("refused") was gone for good and only what was
+        // queued behind it ("behind it") survived. That was true only because
+        // the old code resumed the batch *after* the failed index for every
+        // kind of refusal, including the two (`Rejected`, `ZeroProgress`) that
+        // provably moved no bytes. Both are owed again now, oldest first: the
+        // one that failed and the one that was never offered.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -2426,15 +2454,287 @@ mod tests {
         )
         .expect("the next tick");
         let text = String::from_utf8(screen.written).expect("utf-8");
+        assert_eq!(
+            text.matches("refused").count(),
+            1,
+            "the append that failed with zero progress must land exactly once: {text:?}"
+        );
         assert!(
             text.contains("behind it"),
             "an append the terminal was never offered was dropped with the one \
              it was behind: {text:?}"
         );
+        let refused_at = text.find("refused").expect("the retried refusal");
+        let behind_at = text.find("behind it").expect("the append behind it");
         assert!(
-            !text.contains("refused"),
-            "the refused append was replayed onto a screen that may already \
-             have taken it: {text:?}"
+            refused_at < behind_at,
+            "the retried batch did not keep its original order: {text:?}"
+        );
+    }
+
+    /// A [`Sink`] scripted at the `emit` boundary itself, unlike
+    /// [`FlakyScreen`]'s [`RawWrite`] one.
+    ///
+    /// The seam exists for one `Emit` variant `FlakyScreen` cannot produce
+    /// from outside `frame.rs`: `Rejected` is minted by `Band`'s own preflight
+    /// check, and the tamper hook that makes a real one fail
+    /// (`Band::tamper_with`) is private to that module. This does not
+    /// exercise the checker -- every vector it is handed still passes it, so
+    /// `preflight` always returns `Ok` here -- it exercises what the batch
+    /// loop in `commit_document` does with the `Emit` it is given, which is
+    /// the same question for a real refusal and a scripted one.
+    struct ScriptedSink {
+        answers: std::collections::VecDeque<Result<(), Emit>>,
+        calls: Vec<Vec<u8>>,
+    }
+
+    impl ScriptedSink {
+        fn new(answers: impl IntoIterator<Item = Result<(), Emit>>) -> Self {
+            Self {
+                answers: answers.into_iter().collect(),
+                calls: Vec::new(),
+            }
+        }
+    }
+
+    impl Sink for ScriptedSink {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            self.calls.push(bytes.to_vec());
+            self.answers.pop_front().unwrap_or(Ok(()))
+        }
+    }
+
+    #[test]
+    fn a_rejected_append_in_the_middle_of_a_batch_is_retried_with_what_follows_it_and_not_what_already_landed(
+    ) {
+        // The cross-product the take-the-whole-batch shape makes possible to
+        // get wrong: a batch of three, the first of which already landed on a
+        // *previous* tick's own terms, is not the same case as a refusal
+        // discovered mid-batch on the tick that offers all three together.
+        // This is the second: one `commit_frame` call offers `[first, second,
+        // third]`, `second` is refused, and the assertion is that `first` --
+        // already on the terminal -- is never reoffered, while `second` and
+        // `third` are, in order, on the very next tick.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = ScriptedSink::new([
+            Ok(()),
+            Err(Emit::Rejected(io::Error::other(
+                "the output check refused this vector",
+            ))),
+        ]);
+
+        shell.write_transcript("first\n");
+        shell.write_transcript("second\n");
+        shell.write_transcript("third\n");
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a rejection within budget is not fatal");
+        assert_eq!(
+            screen.calls.len(),
+            2,
+            "the batch must stop at the refusal, not run past it or fall short: {:?}",
+            screen.calls
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the retried tail of the batch");
+        // From the second tick on -- everything up to and including the
+        // rejection is the first tick's own and already checked above; a band
+        // frame call may follow the retried appends once they all land, and
+        // is not itself part of what this case is about.
+        let retried: Vec<String> = screen.calls[2..]
+            .iter()
+            .map(|call| String::from_utf8_lossy(call).into_owned())
+            .collect();
+        assert!(
+            retried.iter().any(|call| call.contains("second")),
+            "the rejected append was not retried: {retried:?}"
+        );
+        assert!(
+            retried.iter().any(|call| call.contains("third")),
+            "what was queued behind the rejected append was not retried: {retried:?}"
+        );
+        assert!(
+            !retried.iter().any(|call| call.contains("first")),
+            "an append that already landed on the terminal was reoffered: {retried:?}"
+        );
+        assert_eq!(
+            screen
+                .calls
+                .iter()
+                .filter(|call| String::from_utf8_lossy(call).contains("first"))
+                .count(),
+            1,
+            "an append that already landed must appear exactly once across the whole run: {:?}",
+            screen.calls
+        );
+    }
+
+    #[test]
+    fn a_partial_append_ends_the_session_and_only_what_was_never_offered_stays_owed() {
+        // The sibling of the case above, for the kind of failure the resume
+        // point does *not* move for: a `Partial` already put bytes on the
+        // terminal, so it is not owed again -- only what follows it, which the
+        // terminal was never offered at all, survives. And unlike a
+        // `Rejected` or a `ZeroProgress`, it is fatal on the spot rather than
+        // spending the budget (`disposed`), because there is no vector this
+        // session could write that is known to complete the one that tore.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = ScriptedSink::new([
+            Ok(()),
+            Err(Emit::Partial {
+                delivered: 3,
+                cause: io::Error::new(io::ErrorKind::BrokenPipe, "gone mid-write"),
+            }),
+        ]);
+
+        shell.write_transcript("first\n");
+        shell.write_transcript("second\n");
+        shell.write_transcript("third\n");
+
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a partial write ends the session rather than being retried");
+        assert!(err.to_string().contains('3'), "{err}");
+
+        let untried = shell.take_pending();
+        assert_eq!(
+            untried.len(),
+            1,
+            "only the append queued behind the torn one should still be owed: {untried:?}"
+        );
+        assert!(
+            untried[0].rows.iter().any(|row| row.contains("third")),
+            "the wrong append survived the partial failure: {untried:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_progress_clear_is_retried_next_tick_and_text_queued_meanwhile_survives() {
+        // `take_clearing` consumes the flag before the write is even
+        // attempted, so a `ZeroProgress` refusal -- which moved no bytes --
+        // has nowhere else to leave the intent but `restore_clearing`. Left
+        // unrearmed, `/clear` is silently forgotten: nothing else ever sets
+        // `clearing` again.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+
+        shell.route_bytes(b"/clear\r");
+        assert!(
+            shell.owes_document(),
+            "the clear's own notice was not queued as a document row"
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a zero-progress refusal of the clear is not fatal");
+        assert!(
+            screen.written.is_empty(),
+            "the refused clear must not have reached the terminal"
+        );
+
+        // Text queued strictly between the refusal and the retry: the case
+        // `restore_clearing` exists to keep separate from `clear_screen`,
+        // which would drop this along with everything else `/clear` already
+        // discarded once.
+        shell.write_transcript("fresh text\n");
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the retried clear");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert_eq!(
+            text.matches("\u{1b}[H\u{1b}[2J\u{1b}[3J").count(),
+            1,
+            "the clear vector must land exactly once, not zero and not twice: {text:?}"
+        );
+        let clear_at = text
+            .find("\u{1b}[H\u{1b}[2J\u{1b}[3J")
+            .expect("the retried clear");
+        let notice_at = text
+            .find("cleared the screen")
+            .expect("the clear's own notice");
+        let fresh_at = text
+            .find("fresh text")
+            .expect("text queued while the clear was still owed was dropped with it");
+        assert!(
+            clear_at < notice_at && notice_at < fresh_at,
+            "the retried clear did not keep its order relative to what followed it: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_partial_clear_ends_the_session_and_the_intent_is_not_rearmed() {
+        // The sibling that does not resume: a `Partial` clear already put
+        // some of its vector on the terminal, so `disposed` ends the session
+        // on it rather than counting it against the budget -- and re-arming
+        // `clearing` would be a flag a session that is about to end never
+        // reads again.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = HalfDeaf::taking(3);
+
+        shell.route_bytes(b"/clear\r");
+
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a clear the terminal took part of ends the session rather than being retried");
+        assert!(err.to_string().contains('3'), "{err}");
+        assert!(
+            !shell.take_clearing(),
+            "a partial clear left the intent armed as if nothing had reached the terminal"
         );
     }
 
@@ -3656,10 +3956,13 @@ mod tests {
         // barrier exists to prevent, reached through the door it added. So the
         // tick ends: the rows stay owed, the plane stays where it is, and the
         // next tick offers both again in this order.
-        // **Two** rows, because the two halves of the refusal rule are
-        // different: the one the terminal was offered may have moved the screen
-        // already and is not offered again (`commit_document`), and the one
-        // behind it moved nothing and is still owed.
+        // **Two** rows, to prove the order survives a refusal mid-batch, not
+        // just that something does. `FlakyScreen`'s refusal is a
+        // `ZeroProgress` (`commit_document`): the refused row moved no bytes,
+        // so it and the one behind it are both still owed and both land on
+        // the next tick, oldest first -- only the second is asserted below,
+        // since the first landing exactly once is what the zero-progress
+        // append tests above already cover.
         let (events, mut receiver) = mpsc::channel(bridge::UI_EVENTS);
         events
             .try_send(UiEvent::Notice("xfx: a row that will not land".to_string()))
