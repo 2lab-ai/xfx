@@ -137,6 +137,19 @@ exact restore path. Everything below is written to make that obligation testable
 - **Activity row**: `"• Thinking"` + elapsed + tokens (`activity_status.zig:26-33`), with the clock
   **frozen while an approval or question is pending** (`:37-40`) and a 500 ms blink; the shimmer
   position comes from the animation phase.
+- **Activity row colour** (`Palette::activity`, `src/tui/theme.rs`): the whole row paints in a
+  neutral, ongoing-turn foreground — what is running, or that a decision on it is pending — and
+  nothing more; it is not a success, an error, a permission grant or a progress percentage. Upstream
+  paints its thinking marker and the label/elapsed beside it in `permission_auto_style`
+  (`shimmer_runtime.zig:262-291`), whose dark/light indices are `252`/`238`
+  (`render.zig:55,86,105`), pinned here exactly because that is the only fact upstream settles about
+  this row's colour — the equivalent truecolor is `208,208,208`/`68,68,68` on the same grayscale
+  ramp. What is *not* borrowed is the name: xfx has no live token suffix, so the whole row shares
+  one colour, and that colour is called `activity` rather than `permission_auto`, because a running
+  turn and a granted permission happen to share upstream's grey and nothing else. This activity
+  foreground is implemented locally and is not yet in published xfx releases. Painted through the
+  band's existing clip+reset wrapper, so the foreground cannot leak onto the divider, the composer or
+  the document.
 
 ### Theme
 

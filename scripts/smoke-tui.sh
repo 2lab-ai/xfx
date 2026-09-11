@@ -3694,8 +3694,13 @@ def scenario_9(run):
     trial.send("think about " + run.nonce + "\r")
     # Response-only **and** positional: on a 24-row screen the divider is row
     # 22, so this is the row directly above it. A needle matched anywhere would
-    # be satisfied by the word appearing in the document.
-    trial.wait_for("\x1b[21;1H• Thinking")
+    # be satisfied by the word appearing in the document. Literal, not derived
+    # from `Palette::activity` itself (`src/tui/theme.rs`): `252` is upstream's
+    # own dark index for this row (`shimmer_runtime.zig:262-291`'s
+    # `permission_auto_style`, `render.zig:55,86,105`) -- a check that asked
+    # the module what it expects would pass for whatever it happened to
+    # declare.
+    trial.wait_for("\x1b[21;1H\x1b[38;5;252m• Thinking")
     # Off the activity row rather than off the wire: a second that ticked over
     # writes the one digit that changed, so the wire never carries `2s` whole.
     trial.wait_until(
@@ -3732,6 +3737,22 @@ def scenario_9(run):
         set(grid.row_text(21)) == {"─"},
         "and the divider is the row under it: %r" % grid.row_text(21),
     )
+    # The row's own literal foreground (`attrs_of_row`, not a string search:
+    # what the palette *is* belongs to `src/tui/theme.rs`, and a check
+    # against that module's own accessor would pass for whatever it happened
+    # to declare), and none of it past row 22 -- the composer carries no
+    # colour of its own (`render.zig:69,88`'s empty `input_bar_style`), so a
+    # leaked foreground would show up as this row's grey rather than as none.
+    run.require(
+        grid.attrs_of_row(20) == ["\x1b[38;5;252m"],
+        "the activity row is not painted in the dark palette's literal foreground: %r"
+        % grid.attrs_of_row(20),
+    )
+    run.require(
+        grid.attrs_of_row(22) == [],
+        "the activity row's colour leaked past the rule onto the composer: %r"
+        % grid.attrs_of_row(22),
+    )
     run.require(
         any(run.nonce in body for body in quiet.bodies()),
         "the nonce this run minted is in the request xfx sent",
@@ -3740,6 +3761,52 @@ def scenario_9(run):
     trial.send(b"\x03\x03")
     run.require(trial.session.wait_exit() == ("exited", 130), "the quiet turn was interruptible")
     quiet.stop()
+
+    # The dark index above is only half of what upstream pins: the light row
+    # is `238` (`render.zig:55,86,105`), and a role that only matched one of
+    # the two palettes would leave a light terminal reading
+    # `permission_auto_style`'s dark grey. Fixed by environment rather than by
+    # answering the background query, the same way scenario 12's
+    # `fixed-by-environment` case is -- the palette lever moved and nothing
+    # else.
+    bright = start_fixture(run, [fixtures.hang()], name="bright")
+    lit = run.trial(
+        "thinking-light", gateway=bright, env_extra={"XFX_THEME": "light"}, answer_probes=False
+    )
+    lit.wait_for(pty.PROBE)
+    lit.send("\x1b[2;1R")
+    lit.settled()
+    lit.send("think about " + run.nonce + "\r")
+    # A raw `wait_for` only proves the needle reached the wire, not that a
+    # whole frame carrying it is complete -- `peek`/`grid` are fed only as
+    # far as the last **complete** frame (`Trial.peek`, above), so a grid
+    # built right after a raw match can still read the *previous* complete
+    # frame: a screen from before the row was painted. Waited for on the
+    # grid itself instead, the same way the dark half above already is --
+    # its clock-tick `wait_until` forces a complete frame to exist before
+    # its own `grid()` call, and this is that same discipline for the case
+    # that has no clock tick to wait on.
+    lit.wait_until(
+        "a completed frame carrying the activity row in the light palette",
+        lambda _t: lit.peek().attrs_of_row(20) == ["\x1b[38;5;238m"]
+        and "Thinking" in lit.peek().row_text(20),
+    )
+    grid_light = lit.grid("thinking-light")
+    run.require(
+        grid_light.attrs_of_row(20) == ["\x1b[38;5;238m"],
+        "the activity row is not painted in the light palette's literal foreground: %r"
+        % grid_light.attrs_of_row(20),
+    )
+    run.require(
+        grid_light.attrs_of_row(22) == [],
+        "the activity row's colour leaked past the rule onto the composer: %r"
+        % grid_light.attrs_of_row(22),
+    )
+    lit.send(b"\x03\x03")
+    run.require(
+        lit.session.wait_exit() == ("exited", 130), "the light-palette turn was interruptible"
+    )
+    bright.stop()
 
     # And the clock stops while xfx is waiting to be told what it may do,
     # because that interval measures the person rather than the model.

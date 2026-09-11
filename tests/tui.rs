@@ -2520,16 +2520,65 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    let mut command = tui_with(&sandbox, &gateway);
+    // The row's colour is the claim this case adds, so the palette that
+    // paints it is pinned by the same two levers the theme tests above use:
+    // `XFX_THEME` decides *which* palette, `depth_of_the_test_machine`
+    // decides which of its two spellings the terminal gets. Left to the
+    // developer's own terminal, this would still be dark by default
+    // (`theme.rs`'s fallback) -- pinned outright rather than relying on
+    // that, because a light-terminal developer's `COLORFGBG` is not this
+    // suite's to depend on.
+    command.env("XFX_THEME", "dark");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"think about it\r");
 
     // Response-only **and** positional: on a 24-row screen the divider is row
     // 22, so this is the frame writing the row directly above it. A needle
     // matched anywhere on the screen would be satisfied by the word appearing
-    // in the document; this one is satisfied only by the band.
-    session.wait_for("\u{1b}[21;1H\u{2022} Thinking");
+    // in the document; this one is satisfied only by the band. Literal, not
+    // derived from `Palette::activity` itself (`src/tui/theme.rs`): `252` is
+    // upstream's own dark index for this row
+    // (`shimmer_runtime.zig:262-291`'s `permission_auto_style`,
+    // `render.zig:55,86,105`) -- a check that asked the accessor what it
+    // expects would pass for whatever the module happened to declare.
+    //
+    // Waited for as *one complete frame*, not as a raw substring on the
+    // whole buffer: `last_frame` returns `None` while the frame that carries
+    // the row is still open, and a predicate that only asked for the row's
+    // own needle could still be satisfied by an incomplete paint the rule's
+    // half hasn't reached yet. The two needles below are read out of the
+    // same `last_frame` result the eventual assert uses, so "found" here
+    // means the exact frame that follows is the one both live in.
+    let activated = session.wait_until(
+        "a completed frame carrying the activity row and its rule below",
+        |text| {
+            last_frame(text).is_some_and(|frame| {
+                frame.contains("\u{1b}[21;1H\u{1b}[38;5;252m\u{2022} Thinking")
+                    && frame.contains("\u{1b}[38;5;240m\u{2500}")
+            })
+        },
+    );
+    // No leak past the row it was painted for, proven on the same frame that
+    // first painted it. `commit`'s writer is lazy about the reset -- it is
+    // not necessarily the very next byte after the row's own text, because
+    // the writer only spends a transition when the next glyph actually needs
+    // one -- so the proof is not "a reset comes before the rule's cursor
+    // move" but the stronger fact that matters: the rule's own glyphs are
+    // never drawn under the activity row's foreground. Its own literal
+    // colour (`240`, dark -- `render.zig:28`) is the last thing set before
+    // the first dash, whatever byte carried the transition there.
+    let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
+    assert!(
+        frame.contains("\u{1b}[21;1H\u{1b}[38;5;252m\u{2022} Thinking"),
+        "the completed frame lost the activity row's own literal foreground: {frame:?}"
+    );
+    assert!(
+        frame.contains("\u{1b}[38;5;240m\u{2500}"),
+        "the rule below the activity row was not repainted in its own colour: {frame:?}"
+    );
     // And the clock really advances while the model is quiet, which is the
     // whole of what the row is for. Read off the **row** rather than off the
     // wire: a frame is a difference, so a second that ticked over writes the
@@ -2537,6 +2586,48 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
     session.wait_until("the activity row's clock to reach two seconds", |text| {
         Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(21).contains("2s"))
     });
+
+    session.type_bytes(&[0x03, 0x03]);
+    assert_eq!(session.wait_exit().code(), Some(130));
+}
+
+#[test]
+fn the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_terminal() {
+    // The dark index above is only half of what upstream pins: the light
+    // row is `238` (`render.zig:55,86,105`), and a role that only matched
+    // one of the two palettes would leave a light terminal reading
+    // `permission_auto_style`'s dark grey. Same fixture, same turn, same
+    // row -- only the palette lever moves.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        support::fake_gateway::sse_body(&[]),
+    ])]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_THEME", "light");
+    depth_of_the_test_machine(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"think about it\r");
+
+    // Same completed-frame discipline as the dark case above: a raw
+    // substring wait is satisfiable by a frame still half-written, and the
+    // claim here is about the row as it actually stands once painted, not
+    // about whatever bytes have crossed the wire so far.
+    let activated = session.wait_until(
+        "a completed frame carrying the activity row in the light palette",
+        |text| {
+            last_frame(text).is_some_and(|frame| {
+                frame.contains("\u{1b}[21;1H\u{1b}[38;5;238m\u{2022} Thinking")
+            })
+        },
+    );
+    let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
+    assert!(
+        frame.contains("\u{1b}[21;1H\u{1b}[38;5;238m\u{2022} Thinking"),
+        "the completed frame lost the activity row's own literal foreground: {frame:?}"
+    );
 
     session.type_bytes(&[0x03, 0x03]);
     assert_eq!(session.wait_exit().code(), Some(130));

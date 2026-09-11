@@ -747,9 +747,15 @@ impl Shell {
         // says the band owns that row: the row's presence and its text are one
         // fact settled together ([`Self::tick_activity`]), and a band that
         // painted a row the geometry did not give it would push its hint row
-        // off the bottom of the screen.
+        // off the bottom of the screen. Painted through the same clip+reset
+        // wrapper every other band row uses, so the palette's neutral,
+        // ongoing-status colour ([`Palette::activity`]) cannot leak onto the
+        // composer or the document below it.
         if self.geometry.activity.is_some() {
-            rows.push(self.activity_row.clone().unwrap_or_default());
+            rows.push(self.painted(
+                self.palette.activity(),
+                self.activity_row.clone().unwrap_or_default(),
+            ));
         }
         // The question -- or, when there is no question, the completion menu --
         // in the rows the geometry gave the slot and only while it gave them:
@@ -5885,8 +5891,52 @@ mod tests {
         // so this is two seconds exactly however long the rest of the test
         // takes.
         assert!(rows[0].contains("2s"), "{rows:?}");
+        // Literal, not derived from `Palette::activity` itself: a check that
+        // asked the accessor what it expects would pass for whatever
+        // `theme.rs` happened to declare. `252` is upstream's own dark index
+        // for this row (`shimmer_runtime.zig:262-291`'s
+        // `permission_auto_style`, `render.zig:55,86,105`).
+        assert!(
+            rows[0].starts_with("\u{1b}[38;5;252m"),
+            "the activity row is not painted in the dark palette's literal \
+             foreground: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("\u{1b}[0m"),
+            "the activity row's colour was left open: {rows:?}"
+        );
         assert_eq!(rows[1], divider(80), "the rule moved");
+        assert!(
+            !rows[2].contains('\u{1b}'),
+            "the activity row's colour leaked onto the composer below it: {rows:?}"
+        );
         assert_eq!(rows.last().expect("a hint row"), &hint_row(IDLE_HINT));
+    }
+
+    #[test]
+    fn the_activity_rows_literal_foreground_is_the_light_palettes_too() {
+        // The dark index above is only half of what upstream pins: the light
+        // row is `238` (`render.zig:55,86,105`), and a role that only matched
+        // one of the two palettes would leave a light terminal reading
+        // `permission_auto_style`'s dark grey.
+        let mut shell = shell_with(24, 80, LIGHT, false);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.settle_band(started + Duration::from_secs(2));
+
+        let rows = shell.band_rows();
+        assert!(
+            rows[0].contains("Thinking") && rows[0].contains("2s"),
+            "{rows:?}"
+        );
+        assert!(
+            rows[0].starts_with("\u{1b}[38;5;238m"),
+            "the activity row is not painted in the light palette's literal \
+             foreground: {rows:?}"
+        );
+        assert!(
+            rows[0].ends_with("\u{1b}[0m"),
+            "the activity row's colour was left open: {rows:?}"
+        );
     }
 
     #[test]
@@ -6109,7 +6159,15 @@ mod tests {
                 shell
                     .band_rows()
                     .first()
-                    .and_then(|row| row.chars().next())
+                    // The row now opens with the activity role's colour
+                    // (`Self::band_rows`), so the marker's own cell is past
+                    // it rather than at the row's first character.
+                    .and_then(|row| {
+                        row.strip_prefix(PALETTE.activity())
+                            .unwrap_or(row)
+                            .chars()
+                            .next()
+                    })
                     .expect("the activity row's first cell"),
             );
         }

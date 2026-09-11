@@ -151,11 +151,11 @@ pub(crate) enum Depth {
 
 /// The colours the band paints its own rows in.
 ///
-/// Three roles, because three rows carry colour in this phase: the rule that
-/// separates the document from the band, the hint row at the bottom, and a
-/// refusal shown on it. The composer's own rows carry none, which is upstream's
-/// choice too -- `input_bar_style` is empty in both themes
-/// (`render.zig:69,88`).
+/// Four roles, because four rows carry colour in this phase: the rule that
+/// separates the document from the band, the hint row at the bottom, a
+/// refusal shown on it, and the activity row a running turn adds above the
+/// rule. The composer's own rows carry none, which is upstream's choice too
+/// -- `input_bar_style` is empty in both themes (`render.zig:69,88`).
 ///
 /// Every accessor answers with a whole SGR sequence rather than with a colour
 /// number, so a painter concatenates and never formats, and
@@ -173,18 +173,30 @@ pub(crate) struct Palette {
 /// sure about.
 const RESET: &str = "\u{1b}[0m";
 
-/// The greys upstream paints these three roles in, by 256-colour index
-/// (`render.zig:28,29,34` dark and `render.zig:70,71,76` light).
+/// The greys upstream paints these four roles in, by 256-colour index
+/// (`render.zig:28,29,34` dark and `render.zig:70,71,76` light, for the
+/// first three).
 ///
 /// The third is upstream's `system_notice_text_style`, which is what a refusal
 /// on the hint row is: xfx's own words about something that did not happen.
-const DARK: [u8; 3] = [240, 255, 250];
-const LIGHT: [u8; 3] = [250, 235, 241];
+///
+/// The fourth is the activity row's. Upstream paints its thinking marker and
+/// the label/elapsed beside it in `permission_auto_style`
+/// (`shimmer_runtime.zig:262-291`), whose dark/light greys are
+/// `render.zig:55,86,105`'s `252`/`238` -- pinned here exactly, because that
+/// is the only fact upstream settles about this row's colour. What is *not*
+/// borrowed is the name: a running turn and a granted permission happen to
+/// share upstream's grey, not upstream's meaning, so this crate calls the
+/// role what it is -- an ongoing, neutral turn status -- and never
+/// `permission_auto`.
+const DARK: [u8; 4] = [240, 255, 250, 252];
+const LIGHT: [u8; 4] = [250, 235, 241, 238];
 
-/// Where in one of those triples each role sits.
+/// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
 const HINT: usize = 1;
 const NOTICE: usize = 2;
+const ACTIVITY: usize = 3;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -200,6 +212,17 @@ impl Palette {
     /// A refusal shown on that row.
     pub(crate) fn notice(&self) -> &'static str {
         self.paint(NOTICE)
+    }
+
+    /// The row a running turn adds above the rule.
+    ///
+    /// A neutral, ongoing-turn status -- what is running, or that a decision
+    /// on it is pending -- and nothing more: not a success, an error, a
+    /// permission grant or a progress percentage. See [`DARK`]/[`LIGHT`] for
+    /// why this shares upstream's colour without sharing upstream's name for
+    /// it.
+    pub(crate) fn activity(&self) -> &'static str {
+        self.paint(ACTIVITY)
     }
 
     /// What ends a run, in either mode and at either depth.
@@ -234,9 +257,11 @@ impl Palette {
 fn ansi256(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;5;235m",
+        238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
         250 => "\u{1b}[38;5;250m",
+        252 => "\u{1b}[38;5;252m",
         255 => "\u{1b}[38;5;255m",
         // Unreachable from `paint`, whose only inputs are the two tables above.
         // A grey a future palette adds and forgets to spell here reads as no
@@ -262,9 +287,11 @@ fn ansi256(index: u8) -> &'static str {
 fn truecolor(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;2;38;38;38m",
+        238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
         250 => "\u{1b}[38;2;188;188;188m",
+        252 => "\u{1b}[38;2;208;208;208m",
         255 => "\u{1b}[38;2;238;238;238m",
         _ => "",
     }
@@ -491,6 +518,7 @@ mod tests {
             "the two palettes paint identically"
         );
         assert_ne!(dark.divider(), light.divider());
+        assert_ne!(dark.activity(), light.activity());
     }
 
     #[test]
@@ -507,9 +535,13 @@ mod tests {
             (Mode::Dark, DIVIDER, 240u32, 88u32),
             (Mode::Dark, HINT, 255, 238),
             (Mode::Dark, NOTICE, 250, 188),
+            // `shimmer_runtime.zig:262-291` / `render.zig:55,86,105`: the
+            // activity row's literal indices, pinned rather than derived.
+            (Mode::Dark, ACTIVITY, 252, 208),
             (Mode::Light, DIVIDER, 250, 188),
             (Mode::Light, HINT, 235, 38),
             (Mode::Light, NOTICE, 241, 98),
+            (Mode::Light, ACTIVITY, 238, 68),
         ] {
             assert_eq!(
                 level,
@@ -546,5 +578,10 @@ mod tests {
         };
         assert_eq!(dark.divider(), "\u{1b}[38;2;88;88;88m");
         assert_eq!(light.hint(), "\u{1b}[38;2;38;38;38m");
+        // The activity row's direct-colour spelling, literal: `252` and `238`
+        // are `208` and `68` on the ramp, not a number this test asked the
+        // accessor to confirm about itself.
+        assert_eq!(dark.activity(), "\u{1b}[38;2;208;208;208m");
+        assert_eq!(light.activity(), "\u{1b}[38;2;68;68;68m");
     }
 }
