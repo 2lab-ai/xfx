@@ -4195,6 +4195,61 @@ mod faults {
     }
 
     #[test]
+    fn a_terminal_that_takes_half_a_frame_ends_the_session_and_is_given_back_exactly() {
+        // The containment row, driven at the product on a real pty. The sink
+        // takes half of the first band frame onto the terminal and then fails,
+        // which is the one failure a refusing screen cannot stand in for: the
+        // terminal really is holding a prefix of a synchronized frame, and no
+        // vector this session could write is known to fix that.
+        //
+        // What must hold is the containment and the exit. **Containment**: the
+        // frame is not offered again -- there is exactly one `?2026h` on the
+        // wire, the torn one -- and nothing else is painted after it. **Exit**:
+        // the session ends rather than spending a frame budget it could not
+        // have paid, and the `termios` comes back byte for byte, which only
+        // `tcsetattr` can do.
+        //
+        // What is deliberately **not** claimed: that the terminal's parser
+        // recovered. The restore sequence is written and the attributes are
+        // measured, and neither says what a parser holding half a frame did
+        // with the bytes that followed. That is why the diagnostic below is
+        // asserted to name an accepted count rather than a restoration.
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let before = modes(&pty);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, faulty(&sandbox, "partial-frame"));
+
+        let status = session.wait_exit();
+        assert!(
+            !status.success(),
+            "a terminal that took half a frame was reported as a clean session"
+        );
+
+        let text = session.settled_text();
+        assert_eq!(
+            text.matches(FRAME_BEGIN).count(),
+            1,
+            "the frame the terminal took half of was written {} times: {text:?}",
+            text.matches(FRAME_BEGIN).count()
+        );
+        assert!(
+            text.contains("accepted"),
+            "the session did not say how much the terminal took: {text:?}"
+        );
+        assert!(
+            text.contains(RESTORE),
+            "the exit did not write the restore: {text:?}"
+        );
+        assert_eq!(
+            before,
+            modes(&pty),
+            "the terminal was not given back byte for byte"
+        );
+    }
+
+    #[test]
     fn a_failure_after_raw_mode_still_gives_the_terminal_back() {
         let sandbox = Sandbox::new();
         let pty = Pty::open();

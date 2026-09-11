@@ -35,6 +35,8 @@
 
 use std::collections::VecDeque;
 use std::io::{self, Write};
+
+use super::deliver::{Emit, Sink};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::time::{Duration, Instant};
 
@@ -300,8 +302,8 @@ impl CursorProbe {
     /// a cursor report arriving with no background reply in front of it proves
     /// the terminal has no answer to give rather than merely not having given
     /// one yet. See [`super::theme::QUERY`].
-    fn ask(out: &mut impl Write, background: bool) -> io::Result<()> {
-        // Built whole and issued as **one** `write_all`, which is the ordering
+    fn ask(out: &mut impl Sink, background: bool) -> io::Result<()> {
+        // Built whole and issued as **one** emit, which is the ordering
         // argument made good rather than merely stated. The fence works because
         // the terminal parses the two queries in the order they reach it; two
         // writes put that order at the mercy of whatever is between this and
@@ -315,8 +317,11 @@ impl CursorProbe {
         }
         queries.push_str(QUERY);
         check_ask(queries.as_bytes(), background)?;
-        out.write_all(queries.as_bytes())?;
-        out.flush()
+        // A launch failure unwinds through the session's own restore, so the
+        // typed outcome is converted here rather than carried further: there is
+        // no frame budget above this and nothing to re-offer. A prefix keeps
+        // its count inside the error it becomes.
+        out.emit(queries.as_bytes()).map_err(Emit::into_error)
     }
 
     /// Asks the terminal where the cursor is and reads the answer.
@@ -330,7 +335,7 @@ impl CursorProbe {
         background: bool,
         deadline: Instant,
     ) -> io::Result<Option<(u16, u16)>> {
-        Self::ask(&mut io::stdout().lock(), background)?;
+        Self::ask(&mut super::deliver::RawTty::stdout(), background)?;
         let stdin = io::stdin();
         self.read_answer(stdin.as_fd(), deadline)
     }
@@ -525,7 +530,7 @@ pub(crate) fn scrollback_push(cursor_row: u16, rows: u16) -> u16 {
 /// A push of nothing writes nothing: there is no reason to move the shell's
 /// cursor when there is nothing above it to save.
 pub(crate) fn push(
-    out: &mut impl Write,
+    out: &mut impl Sink,
     cursor_row: u16,
     rows: u16,
     columns: u16,
@@ -544,8 +549,9 @@ pub(crate) fn push(
     let _ = write!(bytes, "\x1b[{rows};1H");
     bytes.extend(std::iter::repeat_n(b'\n', usize::from(lines)));
     check_push(&bytes, lines, rows, columns)?;
-    out.write_all(&bytes)?;
-    out.flush()
+    // Converted here for the reason `CursorProbe::ask` converts: this runs
+    // once, at launch, above a restore and below no budget.
+    out.emit(&bytes).map_err(Emit::into_error)
 }
 
 /// The launch queries, in the order the fence needs them.
@@ -919,23 +925,17 @@ mod tests {
     /// A terminal that remembers how it was written to, not only what.
     ///
     /// The `ask` contract has two halves and a `Vec<u8>` can only check one of
-    /// them: the bytes, and the number of calls it took to put them there.
+    /// them: the bytes, and the number of vectors it took to put them there.
     #[derive(Default)]
     struct Counting {
         bytes: Vec<u8>,
         writes: usize,
-        flushes: usize,
     }
 
-    impl Write for Counting {
-        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+    impl Sink for Counting {
+        fn emit(&mut self, buffer: &[u8]) -> Result<(), Emit> {
             self.writes += 1;
             self.bytes.extend_from_slice(buffer);
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.flushes += 1;
             Ok(())
         }
     }
@@ -945,8 +945,10 @@ mod tests {
         let mut wire = Counting::default();
         CursorProbe::ask(&mut wire, false).expect("write the query");
         assert_eq!(wire.bytes, QUERY.as_bytes());
+        // One vector. The flush that used to be counted beside it is gone
+        // rather than retargeted: nothing buffers these bytes any more, so
+        // there is no second call for a test to be about.
         assert_eq!(wire.writes, 1);
-        assert_eq!(wire.flushes, 1);
     }
 
     #[test]
@@ -969,7 +971,6 @@ mod tests {
             "the two queries were written separately, so nothing here decides \
              which one the terminal parses first"
         );
-        assert_eq!(wire.flushes, 1);
     }
 
     #[test]
@@ -1206,7 +1207,7 @@ mod tests {
     #[test]
     fn the_bytes_a_push_checks_are_the_bytes_it_writes() {
         // One vector, built once: what `check_push` was handed above is the
-        // slice `write_all` is handed, rather than a second formatting of the
+        // slice the emit is handed, rather than a second formatting of the
         // same intention that a check could pass while the screen got the other.
         let mut wire = Vec::new();
         push(&mut wire, 5, 24, 80).expect("a push the check accepted");
@@ -1216,29 +1217,24 @@ mod tests {
     }
 
     #[test]
-    fn a_push_reaches_the_descriptor_as_one_write_and_one_flush() {
+    fn a_push_reaches_the_descriptor_as_one_vector() {
         // **The byte stream is unchanged and the call pattern is not**, and
         // both halves are stated because only the first is a promise. Building
         // the vector whole is what makes the checked bytes the written bytes;
-        // it also turns `lines + 1` formatting calls into one `write_all`, so
-        // no claim is made here that a session issues the same syscalls it did
-        // before -- this is what it issues now.
+        // it also turns `lines + 1` formatting calls into one emit. No claim is
+        // made here about syscalls: one emit is one vector the caller decided
+        // on, and how many writes the kernel takes it in is its own business
+        // (`super::super::deliver`).
         #[derive(Default)]
         struct Counted {
             writes: usize,
-            flushes: usize,
             written: Vec<u8>,
         }
 
-        impl Write for Counted {
-            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        impl Sink for Counted {
+            fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
                 self.writes += 1;
                 self.written.extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-
-            fn flush(&mut self) -> io::Result<()> {
-                self.flushes += 1;
                 Ok(())
             }
         }
@@ -1246,7 +1242,6 @@ mod tests {
         let mut screen = Counted::default();
         push(&mut screen, 12, 24, 80).expect("a push the check accepted");
         assert_eq!(screen.writes, 1, "the push was written in pieces");
-        assert_eq!(screen.flushes, 1);
         assert_eq!(
             screen.written.iter().filter(|byte| **byte == b'\n').count(),
             11,

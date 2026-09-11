@@ -44,6 +44,8 @@
 //! terminals gets instead of a cursor report.
 
 use std::io::{self, IsTerminal, Write};
+
+use deliver::Sink;
 use std::os::fd::{AsFd, AsRawFd};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -482,8 +484,7 @@ fn settle_screen(
 /// here -- what leaves the top of the screen goes into the terminal's own
 /// scrollback, where the user can still reach it.
 fn push_scrollback(cursor_row: u16, rows: u16, columns: u16) -> io::Result<()> {
-    let mut out = io::stdout().lock();
-    probe::push(&mut out, cursor_row, rows, columns)
+    probe::push(&mut deliver::RawTty::stdout(), cursor_row, rows, columns)
 }
 
 /// Announces the session on the wire.
@@ -499,9 +500,13 @@ fn announce(tmux: bool) -> io::Result<()> {
         term::MODE_SET
     };
     check_announced(modes.as_bytes(), tmux)?;
-    let mut out = io::stdout().lock();
-    out.write_all(modes.as_bytes())?;
-    out.flush()
+    // The same counted emit every later byte of the session goes out through,
+    // and it starts here: from this call until the restore there is no buffered
+    // writer on this terminal at all, so there is never a vector the session
+    // believes it wrote that is still sitting in a buffer.
+    deliver::RawTty::stdout()
+        .emit(modes.as_bytes())
+        .map_err(deliver::Emit::into_error)
 }
 
 /// What the mode set leaves behind, declared as state rather than read back out
@@ -571,6 +576,7 @@ mod approval_readiness;
 mod approval_screen;
 mod bridge;
 mod check;
+mod deliver;
 mod edit_history;
 mod editor;
 mod entity;

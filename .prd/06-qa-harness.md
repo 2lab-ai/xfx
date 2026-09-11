@@ -3,7 +3,8 @@
 Status: **built, and it is the gate.** `scripts/smoke.sh` still drives the line-oriented release
 binary through a real pseudoterminal against a fake Gateway on loopback; `scripts/smoke-tui.sh` is
 the second runner this document specified, and every Phase-1 and Phase-2 scenario below is
-registered in it and runs against a release binary on a real terminal. Of Phase 3, the rows whose
+registered in it and runs against a release binary on a real terminal -- including the lettered row
+3c, which is a Phase-1 restoration row driven by the `fault-injection` build beside it. Of Phase 3, the rows whose
 ladder items have shipped are registered too -- 22 for the edit history, 23 and 23b for the question
 the model asks, 24 for the approval readiness gate and 25 for an amended approval -- and the rest are
 still specification, which they say where they are listed.
@@ -141,7 +142,8 @@ Each scenario names its oracle level. Phases match [`03-tui-port.md`](03-tui-por
 | 1 | Launch and band ownership | 2 | The band is painted at the bottom; prior shell output is above it and intact; `1049h` never written; frames wrapped in `?2026h`/`?2026l` |
 | 2 | Cursor probe and scrollback push | 1+2 | CSI `6n` issued; pre-existing shell lines are still readable above the band after the first frame |
 | 3 | Restore matrix | 3 | Every row of [`03-tui-port.md`](03-tui-port.md) §"Acceptance — terminal state, positively proven": normal, panic, SIGTERM/SIGHUP (assert `WIFSIGNALED`), TSTP/CONT (assert `WIFSTOPPED` while stopped), partial init, and no-SIGINT-handler. `termios` equality is asserted in every one, because only `tcsetattr` from the saved struct can produce it |
-| 3b | Shutdown drain, no deadlock | 1+2 | Quit **while a fixture is mid-stream with the UI artificially slowed**, so the `UiEvent` channel is full and the async producer is pending in `send().await` on it: the process must still exit within the deadline, the terminal must be restored, and the session log's manifest must be published and self-consistent. This is the regression test for the drain protocol |
+| 3b | Shutdown drain, no deadlock | 1+2 | Quit **while a fixture is mid-stream with the UI artificially slowed**, so the `UiEvent` channel is full and the async producer is pending in `send().await` on it: the process must still exit within the deadline, the terminal must be restored, and the session log's manifest must be published and self-consistent. This is the regression test for the drain protocol. Its second half drives a **genuinely full** non-blocking screen rather than an injected failure, and what it verifies is exactly two things: the starvation ends the session **bounded** -- exit 1, inside the deadline -- and the `termios` comes back. **It does not verify which road the session left by, and must not be read as doing so.** Whether a full screen refuses a whole vector or takes a prefix of one is the kernel buffer's business and varies by platform and by run, and the failure the session reports carries no route tag: `FrameFailures::failed` hands back the first error of the run and nothing about how many there were (`src/tui/event_loop.rs`), so neither the presence nor the absence of any particular wording in this row's capture is proof of a budget expiry. The two roads are proven where they can be proven deterministically instead: the budget's own semantics by `FrameFailures`' unit cases, and the partial road on a release binary by row 3c below. One Darwin trace of this row happened to show a prefix of 1,024 bytes; that is an observation of that run's kernel buffer, not a cross-platform capacity and not a claim this row asserts |
+| 3c | A terminal that takes part of a frame | 1+2 | **Implemented** as `3c-partial-frame-containment`. The one failure a refusing screen cannot stand in for: every other restoration row fails a write that delivered **nothing**, so the terminal is where it was and the vector may be offered again, while here the terminal has really taken part of a synchronized frame. A `fault-injection` build's sink takes half of the first band frame onto the real pseudoterminal and then fails; the release build has neither the fault nor a way to ask for it. **The discriminator is split, and deliberately.** This session dies on the first band frame -- before a prompt can be typed and before a turn exists -- so the three-part nonce discriminator is driven in full against a **positive control**: the same fixture, geometry and profile with nothing injected, which renders this scenario's own marker and proves the setup really works. The torn session is then discriminated **against that control**: what the terminal took is asserted to be a real, incomplete **prefix of the very frame the control's launch paints**, the count the product reports is compared against the harness's own count of the bytes on the wire, exactly one frame is on the wire (the torn one was never offered again) and no frame was ever completed. The exit is then asserted whole: the process leaves with its own error, the restore goes out, the cleanup below it is still written -- the skip belongs to an exit whose *first* segment is taken in part, which a prior torn frame is not -- and `termios` is byte-identical. **The boundary this row does not cross**: `termios` equality is a `tcsetattr` fact and the restore is a byte fact, and neither says what a terminal made of an incomplete vector. This row proves **containment** -- the session terminates, nothing is re-offered, the line discipline comes back -- and claims **no parser recovery** and no restored screen. Nothing here passes by absence |
 | 4 | Raw mode positively entered | 3 | `ECHO`/`ICANON`/`IEXTEN`/`ISIG` clear, `VMIN=1`, `VTIME=0`, mouse tracking absent |
 | 5 | Editor basics | 2 | Type, arrows, Home/End, word moves, Backspace/Delete; the composer grid matches the typed text; grapheme motion moves a ZWJ family as one unit |
 | 6 | Soft wrap and growth cap | 2 | A long paragraph wraps word-aware with hanging spaces; the composer stops growing at `content_bottom/2 + 1` |
@@ -176,8 +178,9 @@ order, and a shipped row listed under a phase that has not finished would be a r
 
 **Phase 3 — depth.** Undo/redo and kill-ring behavior (2, row 22), question panel ordinals and
 freeform (2, rows 23 and 23b), the readiness gate (2, row 24) and an amended approval (2, row 25)
-are implemented and registered above. Still specification: commit self-check recovery under an
-injected partial write (1+2); live theme switch re-tints the transcript (2).
+are implemented and registered above. Still specification: commit self-check **recovery** under an
+injected partial write (1+2) -- the containment half of that row is driven by 3c above, and recovery
+is the half that is not; live theme switch re-tints the transcript (2).
 
 **The self-check's first half now exists in the working tree, and it is deliberately not a scenario
 here.** The per-vector output preflight of item 21 in [`03-tui-port.md`](03-tui-port.md) refuses a
@@ -189,8 +192,14 @@ why the claim cannot be restated as a scenario here. The scenarios above must no
 **positive** regression: the screens a correct emitter leaves, on a real terminal. A mutation test
 beside them mutates the **emitter**, which is a different question from what the terminal did with
 the bytes — so neither of the two is an injected partial write, and neither closes this row.
-That scenario stays planned, and it is the one the row is waiting on: a write the screen takes only
-part of leaves progress nobody can read and a screen nobody declared, and nothing above drives one.
+**An injected partial write is now driven, and it closes the containment half of the row rather than
+the row.** Scenario 3c above puts a real prefix of a real frame on a real terminal and asserts what
+this product does about it: the session ends, the vector is never offered again, the exit writes its
+own segments and the line discipline comes back. What it does not assert — because no measurement
+here can — is that the terminal recovered: an incomplete vector leaves a screen nobody declared, and
+nothing re-establishes a frame from a prefix. So what stays planned is the **recovery** scenario, and
+that is what this row waits on: a write the screen takes only part of is now measured and contained
+rather than unreadable, and no scenario above shows a session carrying on from one.
 
 ## Acceptance criteria per phase
 

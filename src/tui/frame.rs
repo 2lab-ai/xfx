@@ -1,10 +1,10 @@
-//! The band writer: one buffer, one `write_all`, one flush per frame.
+//! The band writer: one buffer, one counted emit per frame.
 //!
 //! Everything the TUI puts on the screen goes through here, and that is the
 //! point rather than tidiness. The band shares the screen with the terminal's
 //! own document, so "what is on those rows is what this module last wrote" is
 //! the only thing that makes the band's state knowable at all -- and it stops
-//! being true the moment a second writer, or a second `write(2)` inside one
+//! being true the moment a second writer, or a second vector inside one
 //! frame, can interleave with it.
 //!
 //! A frame is wrapped in synchronized output (`?2026h` ... `?2026l`), so a
@@ -38,6 +38,7 @@ use std::io::{self, Write};
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::check;
+use super::deliver::{Emit, Sink};
 use super::grid::Grid;
 use super::layout::Geometry;
 
@@ -199,8 +200,8 @@ pub(crate) struct Band {
 ///
 /// The pair is a type rather than two values because they are one fact: bytes
 /// that take, hold or give back a plane are only meaningful together with which
-/// plane they leave the terminal on. A caller writes [`Self::bytes`] in one
-/// `write_all` and only then records [`Self::owner`], which is the ordering the
+/// plane they leave the terminal on. A caller emits [`Self::bytes`] as one
+/// vector and only then records [`Self::owner`], which is the ordering the
 /// whole restoration matrix rests on.
 pub(crate) struct ScreenFrame {
     owner: super::shell::ScreenOwner,
@@ -815,7 +816,7 @@ impl Band {
     }
 
     /// One frame: the difference between what the terminal is holding and what
-    /// it should be holding, in exactly one `write_all` and one flush.
+    /// it should be holding, in exactly one emit.
     ///
     /// The screen is a parameter rather than `io::stdout()` for the same reason
     /// `term::shutdown_with`'s is: "the session gives up on a screen that
@@ -829,11 +830,11 @@ impl Band {
     /// them as it was and is owed again.
     pub(crate) fn commit(
         &mut self,
-        out: &mut impl Write,
+        out: &mut impl Sink,
         rows: &[String],
         geometry: &Geometry,
         cursor: (u16, u16),
-    ) -> io::Result<Commit> {
+    ) -> Result<Commit, Emit> {
         // A band that has never painted, or one whose screen has changed size,
         // knows nothing about what is on those rows.
         if self.shadow.rows() != geometry.rows || self.shadow.cols() != geometry.cols {
@@ -845,7 +846,9 @@ impl Band {
         // afterwards would be compared against state the vector it is checking
         // had already moved -- and would agree with it for that reason rather
         // than on the merits.
-        let seed = self.seed(check::PlaneKind::Primary, geometry)?;
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
         let released = self.top(geometry);
 
         // The matrix row scenario 13 compares the diff against: the Phase-1
@@ -871,9 +874,9 @@ impl Band {
                     },
                     self.band_footprint(released, geometry),
                 ),
-            )?;
-            out.write_all(&frame)?;
-            out.flush()?;
+            )
+            .map_err(Emit::rejected)?;
+            out.emit(&frame)?;
             self.landed(geometry, cursor);
             return Ok(Commit::Painted);
         }
@@ -924,7 +927,8 @@ impl Band {
                     },
                     check::Footprint::none(check::PlaneKind::Primary),
                 ),
-            )?;
+            )
+            .map_err(Emit::rejected)?;
             // The screen already holds this frame. It is still *delivered* --
             // whatever a shrinking band gave back was already blank, or the
             // diff would have had something to say about it -- so the exit
@@ -959,9 +963,9 @@ impl Band {
                 },
                 self.band_footprint(released, geometry),
             ),
-        )?;
-        out.write_all(&self.buffer)?;
-        out.flush()?;
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
         self.landed(geometry, cursor);
         Ok(Commit::Painted)
     }
@@ -1324,14 +1328,16 @@ impl Band {
     /// refused this is owed it again.
     pub(crate) fn carry_document(
         &mut self,
-        out: &mut impl Write,
+        out: &mut impl Sink,
         geometry: &Geometry,
-    ) -> io::Result<()> {
+    ) -> Result<(), Emit> {
         let grown = self.grown(geometry);
         if grown == 0 {
             return Ok(());
         }
-        let seed = self.seed(check::PlaneKind::Primary, geometry)?;
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
         // One scroll per row the band grew by, and no row edited at all: every
         // row that leaves the top of the screen on the way is compared as it
         // goes, which is the only moment it can be.
@@ -1377,9 +1383,9 @@ impl Band {
                     }],
                 ),
             ),
-        )?;
-        out.write_all(&self.buffer)?;
-        out.flush()?;
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
         std::mem::swap(&mut self.shadow, &mut self.target);
         // The rows moved up with the screen. A bottom that has reached the top
         // of the screen has left it, and what leaves the top is in the
@@ -1503,8 +1509,8 @@ impl Band {
         self.painted_on = Some((geometry.rows, geometry.cols));
     }
 
-    /// [`render_append`](Self::render_append) plus exactly one write and one
-    /// flush, for the same reason [`commit`](Self::commit) is one of each.
+    /// [`render_append`](Self::render_append) plus exactly one emit, for the
+    /// same reason [`commit`](Self::commit) is one.
     /// Whether the **primary** plane is holding bytes this band has not framed
     /// since.
     ///
@@ -1526,12 +1532,14 @@ impl Band {
 
     pub(crate) fn append_document(
         &mut self,
-        out: &mut impl Write,
+        out: &mut impl Sink,
         scroll: usize,
         rows: &[String],
         geometry: &Geometry,
-    ) -> io::Result<()> {
-        let seed = self.seed(check::PlaneKind::Primary, geometry)?;
+    ) -> Result<(), Emit> {
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
         let (appended, footprint, script) = self.render_append(scroll, rows, geometry);
         if appended.is_empty() {
             return Ok(());
@@ -1573,9 +1581,9 @@ impl Band {
                 },
                 footprint,
             ),
-        )?;
-        out.write_all(&appended)?;
-        out.flush()?;
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&appended)?;
         // The release rode along at the head of those bytes, so the same rule
         // applies: delivered, and only then is the band's top its divider.
         std::mem::swap(&mut self.shadow, &mut self.target);
@@ -1773,6 +1781,8 @@ pub(crate) fn clip(row: &str, cols: u16) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use super::super::deliver::RawWrite;
 
     fn geometry() -> Geometry {
         crate::tui::layout::solve(24, 80, 1).expect("a band")
@@ -2663,53 +2673,52 @@ mod tests {
         Some((row.parse().ok()?, column.parse().ok()?, &tail[1..]))
     }
 
-    /// A screen that remembers how many times it was written to.
+    /// A screen that remembers how many vectors it was offered.
     ///
-    /// "One `write_all` and one flush per frame" is the property that makes
-    /// what is on the terminal knowable at all -- a second `write` inside one
-    /// frame is a window another writer can interleave in -- so it is counted
-    /// rather than assumed.
+    /// "One vector per frame" is the property that makes what is on the
+    /// terminal knowable at all -- a second vector inside one frame is a window
+    /// another writer can interleave in -- so it is counted rather than
+    /// assumed. It counts **emits**, which is the unit the band decides; how
+    /// many syscalls one emit costs is the kernel's business and is asserted
+    /// where that lives (`super::super::deliver`).
     #[derive(Default)]
     struct Counted {
         writes: usize,
-        flushes: usize,
         written: Vec<u8>,
     }
 
-    impl Write for Counted {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    impl Sink for Counted {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
             self.writes += 1;
             self.written.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.flushes += 1;
             Ok(())
         }
     }
 
-    /// A screen that refuses everything, for ever.
+    /// A screen that refuses everything, for ever, and takes nothing on the way.
     struct Refuses;
 
-    impl Write for Refuses {
-        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "gone"))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
+    impl RawWrite for Refuses {
+        fn write_once(&mut self, _bytes: &[u8]) -> io::Result<usize> {
             Err(io::Error::new(io::ErrorKind::BrokenPipe, "gone"))
         }
     }
 
-    /// A screen that refuses `refusals` writes and then takes them.
+    impl Sink for Refuses {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            super::super::deliver::emit_counted(self, bytes)
+        }
+    }
+
+    /// A screen that refuses `refusals` vectors -- taking nothing of them --
+    /// and then takes them whole.
     struct Fussy {
         refusals: usize,
         written: Vec<u8>,
     }
 
-    impl Write for Fussy {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    impl RawWrite for Fussy {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
             if self.refusals > 0 {
                 self.refusals -= 1;
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"));
@@ -2717,9 +2726,92 @@ mod tests {
             self.written.extend_from_slice(bytes);
             Ok(bytes.len())
         }
+    }
 
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
+    impl Sink for Fussy {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            super::super::deliver::emit_counted(self, bytes)
+        }
+    }
+
+    /// A screen that takes `prefix` bytes of the vector it is offered, fails
+    /// once, and takes everything after that.
+    ///
+    /// The failure is deliberately not permanent: what a later offer carries
+    /// **lands**, so the bytes past the prefix are the band's own answer to
+    /// "what do you still believe the terminal is holding?".
+    struct HalfDeaf {
+        prefix: usize,
+        failed: bool,
+        written: Vec<u8>,
+    }
+
+    impl HalfDeaf {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                failed: false,
+                written: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for HalfDeaf {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failed {
+                self.written.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+            if self.prefix > 0 {
+                let taken = self.prefix.min(bytes.len());
+                self.prefix -= taken;
+                self.written.extend_from_slice(&bytes[..taken]);
+                return Ok(taken);
+            }
+            self.failed = true;
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the screen stopped taking bytes",
+            ))
+        }
+    }
+
+    impl Sink for HalfDeaf {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            super::super::deliver::emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_frame_the_screen_took_part_of_is_not_adopted_as_what_the_screen_holds() {
+        // The adoption rule, on the failure it was written for. A prefix is not
+        // a delivery: the shadow, the caret and the title are claims about a
+        // frame the terminal has, and a band that adopted them here would
+        // compute its next difference against a screen that got twelve bytes.
+        // What the *loop* does about it is a separate decision and lives in
+        // `super::event_loop`; this is only the band's own state.
+        let mut band = Band::new();
+        let geometry = geometry();
+        let mut screen = HalfDeaf::taking(12);
+
+        let failure = band
+            .commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect_err("the screen stopped taking bytes part way through");
+
+        assert!(
+            matches!(failure, Emit::Partial { delivered: 12, .. }),
+            "twelve accepted bytes were not reported as a prefix: {failure:?}"
+        );
+        let mut later = Vec::new();
+        band.commit(&mut later, &band_rows(), &geometry, (23, 2))
+            .expect("a vector takes everything");
+        let text = String::from_utf8(later).expect("utf-8");
+        for row in band_rows() {
+            assert!(
+                text.contains(&row),
+                "the band adopted a frame the screen took twelve bytes of, so \
+                 {row:?} was never offered again: {text:?}"
+            );
         }
     }
 
@@ -3038,8 +3130,10 @@ mod tests {
         band.commit(&mut screen, &band_rows(), &geometry(), (23, 2))
             .expect("commit");
         let text = String::from_utf8(screen.written).expect("utf-8");
-        assert_eq!(screen.writes, 1, "a frame is one write: {text:?}");
-        assert_eq!(screen.flushes, 1, "and one flush");
+        // One emit, and the flush that used to be asserted beside it is gone
+        // rather than retargeted: there is no buffer to flush any more, which
+        // is the whole of what this unit changed about transport.
+        assert_eq!(screen.writes, 1, "a frame is one vector: {text:?}");
         assert!(text.starts_with(BEGIN_FRAME), "{text:?}");
         assert!(text.ends_with(END_FRAME), "{text:?}");
         for (offset, row) in band_rows().iter().enumerate() {
@@ -3874,9 +3968,7 @@ mod tests {
             .enter_alternate(&rows, &geometry, (7, 0))
             .expect("a vector the check accepted");
         let mut screen = Counted::default();
-        screen
-            .write_all(entering.bytes())
-            .expect("the enter landed");
+        screen.emit(entering.bytes()).expect("the enter landed");
         band.frame_landed(&entering, &geometry, (7, 0));
 
         let mut moved = rows.clone();
@@ -3889,7 +3981,7 @@ mod tests {
             "the moved marker was not a frame"
         );
         Refuses
-            .write_all(refused.bytes())
+            .emit(refused.bytes())
             .expect_err("the screen took it");
 
         assert!(
@@ -3916,9 +4008,7 @@ mod tests {
             .enter_alternate(&rows, &geometry, (7, 0))
             .expect("a vector the check accepted");
         let mut screen = Counted::default();
-        screen
-            .write_all(entering.bytes())
-            .expect("the enter landed");
+        screen.emit(entering.bytes()).expect("the enter landed");
         band.frame_landed(&entering, &geometry, (7, 0));
 
         let idle = band
@@ -3955,9 +4045,7 @@ mod tests {
             .enter_alternate(&rows, &geometry, (7, 0))
             .expect("a vector the check accepted");
         let mut screen = Counted::default();
-        screen
-            .write_all(entering.bytes())
-            .expect("the enter landed");
+        screen.emit(entering.bytes()).expect("the enter landed");
         band.frame_landed(&entering, &geometry, (7, 0));
 
         let mut moved = rows.clone();
@@ -3966,10 +4054,7 @@ mod tests {
             .repaint_alternate(&moved, &geometry, (7, 0))
             .expect("a vector the check accepted");
         assert!(!painted.bytes().is_empty(), "the moved row was not a frame");
-        screen
-            .write_all(painted.bytes())
-            .and_then(|()| screen.flush())
-            .expect("the repaint landed");
+        screen.emit(painted.bytes()).expect("the repaint landed");
         band.frame_landed(&painted, &geometry, (7, 0));
 
         assert!(
@@ -4117,7 +4202,7 @@ mod tests {
     fn a_restore_names_the_row_the_exit_clears_from_before_it_is_written() {
         // The rule every frame in this module keeps, on the one path that grew
         // a second writer. `Band::painted` is lowered **before** the bytes go
-        // out, because `write_all` can fail with some of them delivered: a
+        // out, because an emit can fail with some of them delivered: a
         // restore that recorded nothing until it landed would leave the exit
         // clearing from a row *below* the rows it had already painted, and the
         // top of the band would survive the exit on the user's screen.

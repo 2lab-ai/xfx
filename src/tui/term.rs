@@ -13,11 +13,13 @@
 //! apart -- a restore that went back to the wrong one would leave the input raw
 //! and stamp the input terminal's attributes onto the output terminal.
 
-use std::io::{self, Write};
+use std::io;
 use std::os::fd::{BorrowedFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::thread::ThreadId;
+
+use super::deliver::{Emit, RawTty, Sink};
 
 use rustix::termios::{
     tcgetattr, tcgetwinsize, tcsetattr, ControlModes, InputModes, LocalModes, OptionalActions,
@@ -217,7 +219,10 @@ pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
 ///
 /// Every step is attempted even when an earlier one failed, and the first error
 /// is the one returned. A terminal left raw is worse than an unreported write
-/// error, so there is no `?` between here and the end of the function.
+/// error, so there is no `?` between here and the end of the function. The one
+/// exception is a restore segment the terminal took only **part** of, which
+/// costs the cleanup segment and nothing else -- the `termios` still goes back.
+/// See [`shutdown_with`].
 /// `on_alternate` is the plane the terminal is still on, asked of the band
 /// rather than of the session ([`super::frame::Band::on_alternate`]): what has
 /// to be given back is what was really written, and a session that has released
@@ -236,10 +241,13 @@ pub(crate) fn shutdown(
     let Some(owned) = OWNED.get() else {
         return Ok(());
     };
-    // The locked stdout is the same descriptor as `owned.output`; it is used
-    // rather than the raw fd because this path may take a lock and buffer,
-    // which the signal path may not.
-    let mut out = io::stdout().lock();
+    // The same descriptor as `owned.output`, written the way every other byte
+    // this session put on the terminal was written: one counted emit, no
+    // buffer. The old locked stdout is gone from this path because a buffered
+    // writer cannot say how much of a vector the terminal took -- and on the
+    // exit, that number is what decides whether the cleanup below may be
+    // written at all.
+    let mut out = RawTty::stdout();
     shutdown_with(
         &mut out,
         owned,
@@ -276,7 +284,7 @@ fn tampering<T>(tamper: fn(&mut String), body: impl FnOnce() -> T) -> T {
 /// so that "the line discipline is restored even when the screen cannot be
 /// written" is a test rather than a claim.
 fn shutdown_with(
-    out: &mut impl Write,
+    out: &mut impl Sink,
     owned: &Owned,
     tmux: bool,
     band_top: Option<u16>,
@@ -295,7 +303,9 @@ fn shutdown_with(
     // the line discipline is still put back, the later segment is still
     // attempted, and the first error is still the one returned. A refusal that
     // short-circuited any of that could leave a terminal raw, which is worse
-    // than any screen it could save.
+    // than any screen it could save. The one outcome that does hold the later
+    // segment back is a restore the terminal took only *part* of, and the
+    // paragraph below is the whole of that exception.
     let first = format!("{leave}{restore}");
     #[cfg(test)]
     let first = {
@@ -306,20 +316,35 @@ fn shutdown_with(
         first
     };
     let screen = check_restore(&first, tmux, on_alternate, screen_size)
-        .and_then(|()| out.write_all(first.as_bytes()))
-        .and_then(|()| out.flush());
+        .map_err(Emit::rejected)
+        .and_then(|()| out.emit(first.as_bytes()));
     let attrs = restore_attrs(owned);
+    // **The one place the all-attempt rule bends, and only for one outcome.**
+    // A segment the check refused, or one the descriptor took nothing of, left
+    // the terminal exactly as it was: the cleanup below is as safe to write as
+    // it ever was, and it is still attempted. A segment the terminal took a
+    // *prefix* of is different in kind -- what reached the terminal may be
+    // incomplete, and the cleanup is a `CUP` to a row and an erase from it.
+    // Offered after an incomplete vector, those are bytes whose effect this
+    // session cannot predict on a screen it no longer describes, so they are
+    // not offered. The line discipline is put back
+    // either way, because a terminal left raw is worse than any screen this
+    // could have saved -- and none of that is a claim that the restore
+    // *worked*: what a terminal holding a prefix is showing is not knowable
+    // from here.
+    let took_a_prefix = matches!(screen, Err(Emit::Partial { .. }));
     let cleanup = match band_top {
         // Leaves the transcript in scrollback and the cursor on a clean line.
-        Some(top) => {
+        Some(top) if !took_a_prefix => {
             let line = format!("\x1b[{top};1H\x1b[J\x1b[?25h\n");
             check_cleanup(&line, top, screen_size)
-                .and_then(|()| out.write_all(line.as_bytes()))
-                .and_then(|()| out.flush())
+                .map_err(Emit::rejected)
+                .and_then(|()| out.emit(line.as_bytes()))
+                .map_err(Emit::into_error)
         }
-        None => Ok(()),
+        _ => Ok(()),
     };
-    screen.and(attrs).and(cleanup)
+    screen.map_err(Emit::into_error).and(attrs).and(cleanup)
 }
 
 /// The restore segment against what it says it gives back: the modes, the title
@@ -501,6 +526,8 @@ mod tests {
 
     use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 
+    use super::super::deliver::{emit_counted, RawWrite};
+
     use rustix::termios::OutputModes;
 
     /// Every terminal word a restore is judged on. `Termios` is not `PartialEq`
@@ -586,19 +613,18 @@ mod tests {
     /// one.
     struct BrokenScreen;
 
-    impl Write for BrokenScreen {
-        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+    impl RawWrite for BrokenScreen {
+        fn write_once(&mut self, _bytes: &[u8]) -> io::Result<usize> {
             Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "the screen went away",
             ))
         }
+    }
 
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "the screen went away",
-            ))
+    impl Sink for BrokenScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
         }
     }
 
@@ -856,6 +882,165 @@ mod tests {
             live(input.as_fd()),
             words(&saved),
             "the terminal was left raw because the screen failed first"
+        );
+    }
+
+    /// A screen that takes `prefix` bytes of what it is offered, fails once,
+    /// and takes everything after that.
+    ///
+    /// The failure is deliberately not permanent: a screen that refused
+    /// everything afterwards could not tell "the exit skipped the cleanup" from
+    /// "the exit offered the cleanup and the screen refused it". Here anything
+    /// offered after the failure **lands**, so bytes past the prefix are proof
+    /// that an offer was made.
+    struct HalfDeaf {
+        prefix: usize,
+        failed: bool,
+        written: Vec<u8>,
+    }
+
+    impl HalfDeaf {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                failed: false,
+                written: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for HalfDeaf {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failed || bytes.is_empty() {
+                self.written.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+            if self.prefix > 0 {
+                let taken = self.prefix.min(bytes.len());
+                self.prefix -= taken;
+                self.written.extend_from_slice(&bytes[..taken]);
+                return Ok(taken);
+            }
+            self.failed = true;
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the screen stopped taking bytes",
+            ))
+        }
+    }
+
+    impl Sink for HalfDeaf {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_partial_frame_earlier_in_the_session_does_not_hold_back_the_exits_cleanup() {
+        // The distinction the exception below is **only** about, stated as the
+        // pair it has to be told apart from. A frame that ended in a prefix is
+        // why the session is exiting; it is not a reason to withhold the exit's
+        // own second segment, because the restore in front of that segment went
+        // out whole and the terminal took it. The skip belongs to one case --
+        // the exit's *first* segment taken in part -- and to no other.
+        //
+        // Driven on one screen in one order, because that is what makes it a
+        // distinction rather than two unrelated cases: the same sink takes a
+        // prefix of a frame, fails, and is then handed the exit.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = HalfDeaf::taking(4);
+        let earlier = screen
+            .emit(b"\x1b[22;1Ha frame the screen stopped taking")
+            .expect_err("the screen took the whole of a frame it was meant to stop taking");
+        assert!(
+            matches!(earlier, Emit::Partial { delivered: 4, .. }),
+            "the earlier frame was not a prefix, so this case proves nothing: {earlier:?}"
+        );
+        screen.written.clear();
+
+        shutdown_with(&mut screen, &owned, false, Some(21), false, (24, 80))
+            .expect("an exit onto a screen that is taking bytes again");
+
+        assert_eq!(
+            String::from_utf8_lossy(&screen.written),
+            format!("{RESTORE}\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n"),
+            "the exit withheld a segment because of a failure that was not its own"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "the exit did not put the line discipline back"
+        );
+    }
+
+    #[test]
+    fn an_exit_whose_restore_lands_in_part_gives_the_line_discipline_back_and_writes_no_cleanup() {
+        // The one place the all-attempt rule bends, and only here. What reached
+        // the terminal may be incomplete, so the cleanup line's `CUP` would be
+        // read by a terminal this session can no longer describe, and its erase
+        // addresses rows on the strength of that reading. The line discipline is
+        // still put back, because a terminal left raw is worse than any screen
+        // this could have saved.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = HalfDeaf::taking(4);
+        let err = shutdown_with(&mut screen, &owned, false, Some(21), false, (24, 80))
+            .expect_err("a restore the screen took part of must be reported");
+
+        assert_eq!(
+            screen.written,
+            RESTORE.as_bytes()[..4],
+            "the exit wrote past the prefix the screen took: {:?}",
+            String::from_utf8_lossy(&screen.written)
+        );
+        assert!(
+            err.to_string().contains('4'),
+            "the failure does not say how much the screen accepted: {err}"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "a partly written restore left the terminal raw"
+        );
+    }
+
+    #[test]
+    fn an_exit_whose_restore_took_nothing_at_all_still_attempts_the_cleanup() {
+        // The contrast that keeps the skip above from spreading. This screen
+        // failed the restore having taken **none** of it, so the terminal is
+        // exactly where it was: the cleanup line means what it always meant,
+        // and the all-attempt rule still governs. The same fake, asked for a
+        // prefix of nothing, so the two cases differ in one number.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = HalfDeaf::taking(0);
+        let err = shutdown_with(&mut screen, &owned, false, Some(21), false, (24, 80))
+            .expect_err("a restore the screen refused must be reported");
+
+        assert_eq!(
+            String::from_utf8_lossy(&screen.written),
+            "\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n",
+            "the cleanup line was skipped for a restore the screen never took"
+        );
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the first failure was not the one reported: {err}"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "a refused restore left the terminal raw"
         );
     }
 

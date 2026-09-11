@@ -60,7 +60,7 @@
 //! exit path, because the alternative is a runtime thread still parked in a
 //! `send().await` on a channel nobody will ever read again.
 
-use std::io::{self, Write};
+use std::io;
 use std::os::fd::AsFd;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -69,6 +69,7 @@ use tokio::sync::mpsc::Receiver;
 
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
+use super::deliver::{Emit, RawTty, Sink};
 use super::frame::{Band, Commit};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
@@ -201,7 +202,7 @@ pub(crate) fn run(
     let broken = shut_down(
         shell,
         band,
-        &mut io::stdout().lock(),
+        &mut RawTty::stdout(),
         &mut failures,
         outcome.is_ok(),
         Shutdown {
@@ -290,7 +291,7 @@ fn session(
         commit_frame(
             shell,
             band,
-            &mut io::stdout().lock(),
+            &mut RawTty::stdout(),
             failures,
             Instant::now(),
             reconciled,
@@ -392,7 +393,7 @@ where
 fn shut_down<R, D, S>(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     painting: bool,
     caller: Shutdown<R, D, S>,
@@ -485,7 +486,7 @@ where
 fn drained(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
     reconciled: Reconciled,
@@ -514,7 +515,7 @@ fn drained(
 fn flushed(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
     reconciled: Reconciled,
@@ -744,7 +745,7 @@ fn adopt_resize(shell: &mut Shell, band: &mut Band, size: impl FnOnce() -> (u16,
 fn commit_frame(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
     _reconciled: Reconciled,
@@ -837,11 +838,11 @@ fn commit_frame(
         // origin, and the scrollback erased, which is the one place in the TUI
         // that erases one.
         let cleared = super::shell::CLEAR_SCREEN.as_bytes();
-        if let Err(err) = check_cleared(cleared, &shell.geometry)
-            .and_then(|()| out.write_all(cleared))
-            .and_then(|()| out.flush())
+        if let Err(emit) = check_cleared(cleared, &shell.geometry)
+            .map_err(Emit::rejected)
+            .and_then(|()| out.emit(cleared))
         {
-            return match failures.failed(err, now) {
+            return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(()),
             };
@@ -926,13 +927,18 @@ fn check_cleared(bytes: &[u8], geometry: &super::layout::Geometry) -> io::Result
 fn commit_band(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
 ) -> io::Result<bool> {
     let Some(attempt) = shell.render.begin() else {
         return Ok(true);
     };
+    // The matrix row for a terminal that takes part of a frame and then stops.
+    // Armed here, where the first frame of the session is about to be built,
+    // and performed by the sink against the real descriptor.
+    #[cfg(feature = "fault-injection")]
+    super::fault::arm_partial_frame();
     if attempt.damaged() {
         // Something that is not this band wrote on the screen -- a resume that
         // handed the terminal to the shell and took it back, a `/clear` that
@@ -965,11 +971,11 @@ fn commit_band(
             failures.succeeded();
             Ok(true)
         }
-        Err(err) => {
+        Err(emit) => {
             // A refused write may have left half a frame on the screen.
             shell.approval_write_failed();
             shell.render.restore(attempt);
-            match failures.failed(err, now) {
+            match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(false),
             }
@@ -993,12 +999,12 @@ fn commit_band(
 fn commit_document(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
 ) -> io::Result<bool> {
-    if let Err(err) = band.carry_document(out, &shell.geometry) {
-        return match failures.failed(err, now) {
+    if let Err(emit) = band.carry_document(out, &shell.geometry) {
+        return match disposed(emit, failures, now) {
             Some(fatal) => Err(fatal),
             None => Ok(false),
         };
@@ -1026,12 +1032,12 @@ fn commit_document(
     let mut index = 0;
     while index < owed.len() {
         let append = &owed[index];
-        if let Err(err) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
+        if let Err(emit) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
             // Everything after the refused one, oldest first, back in front of
             // whatever has been owed since.
             let untried = owed.split_off(index + 1);
             shell.restore_pending(untried);
-            return match failures.failed(err, now) {
+            return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(false),
             };
@@ -1068,7 +1074,7 @@ fn commit_document(
 fn paint_alternate(
     shell: &mut Shell,
     band: &mut Band,
-    out: &mut impl Write,
+    out: &mut impl Sink,
     failures: &mut FrameFailures,
     now: Instant,
 ) -> io::Result<()> {
@@ -1086,14 +1092,16 @@ fn paint_alternate(
             // with the plane still owed. There is no new failure policy here.
             let frame = match band.restore_primary(&shell.band_rows(), &shell.geometry, cursor) {
                 Ok(frame) => frame,
-                Err(err) => {
-                    return match failures.failed(err, now) {
+                // A builder does no I/O, so its failure is a refusal and is
+                // said so here rather than inferred downstream.
+                Err(refusal) => {
+                    return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
                     }
                 }
             };
-            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+            match out.emit(frame.bytes()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     debug_assert!(!band.on_alternate());
@@ -1103,7 +1111,7 @@ fn paint_alternate(
                     failures.succeeded();
                     Ok(())
                 }
-                Err(err) => match failures.failed(err, now) {
+                Err(emit) => match disposed(emit, failures, now) {
                     Some(fatal) => Err(fatal),
                     None => Ok(()),
                 },
@@ -1117,17 +1125,17 @@ fn paint_alternate(
             shell.intend_approval();
             let frame = match band.enter_alternate(&rows, &shell.geometry, cursor) {
                 Ok(frame) => frame,
-                Err(err) => {
+                Err(refusal) => {
                     // Exactly the branch a refused write takes below: the
                     // question keeps its plane, and the tick is counted.
                     shell.approval_write_failed();
-                    return match failures.failed(err, now) {
+                    return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
                     };
                 }
             };
-            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+            match out.emit(frame.bytes()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
@@ -1148,9 +1156,9 @@ fn paint_alternate(
                     }
                     Ok(())
                 }
-                Err(err) => {
+                Err(emit) => {
                     shell.approval_write_failed();
-                    match failures.failed(err, now) {
+                    match disposed(emit, failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
                     }
@@ -1167,10 +1175,10 @@ fn paint_alternate(
             shell.intend_approval();
             let frame = match band.repaint_alternate(&rows, &shell.geometry, cursor) {
                 Ok(frame) => frame,
-                Err(err) => {
+                Err(refusal) => {
                     shell.approval_write_failed();
                     shell.render.restore(attempt);
-                    return match failures.failed(err, now) {
+                    return match disposed(Emit::rejected(refusal), failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
                     };
@@ -1186,17 +1194,17 @@ fn paint_alternate(
                 failures.succeeded();
                 return Ok(());
             }
-            match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
+            match out.emit(frame.bytes()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
                     shell.approval_landed(Outcome::Painted);
                     failures.succeeded();
                     Ok(())
                 }
-                Err(err) => {
+                Err(emit) => {
                     shell.approval_write_failed();
                     shell.render.restore(attempt);
-                    match failures.failed(err, now) {
+                    match disposed(emit, failures, now) {
                         Some(fatal) => Err(fatal),
                         None => Ok(()),
                     }
@@ -1205,6 +1213,35 @@ fn paint_alternate(
         }
         // Not this function's turn; `commit_frame` guards against reaching here.
         (false, ScreenOwner::Primary) => Ok(()),
+    }
+}
+
+/// Where a failed emit goes, and the **only** place that is decided.
+///
+/// Two roads, and which one a failure takes is settled by one question: is any
+/// byte of that vector already on the terminal?
+///
+/// * A refusal and a zero-progress write left the screen exactly as it was, so
+///   the vector is still owed and the session may offer it again. They spend
+///   the frame budget, which is the policy that was already here: a screen that
+///   refuses everything for [`FRAME_BUDGET`] ends the session, and one that
+///   refuses a frame and then takes the next costs nothing at all.
+/// * A partial write did not. The terminal took a prefix of a vector and then
+///   stopped, so what reached it may be incomplete -- and the whole vector is
+///   the only thing this session could offer again, which would put that
+///   prefix on the screen twice. There is nothing to
+///   re-offer and nothing to wait for, so it ends the session on the spot,
+///   whatever the budget says. `Some` is always the error the session leaves
+///   with, and the count is carried inside it rather than in any state that
+///   outlives the failure.
+///
+/// `WouldBlock` is on whichever road its position puts it: a terminal that was
+/// full before it took anything is a screen that is merely behind, and the
+/// budget is where the room for that is given ([`super::deliver`]).
+fn disposed(emit: Emit, failures: &mut FrameFailures, now: Instant) -> Option<io::Error> {
+    match emit {
+        prefix @ Emit::Partial { .. } => Some(prefix.into_error()),
+        Emit::Rejected(err) | Emit::ZeroProgress(err) => failures.failed(err, now),
     }
 }
 
@@ -1230,18 +1267,19 @@ impl FrameFailures {
 
     /// Records a failed frame. `Some` is the error the session must leave with.
     ///
-    /// Every kind counts, and there is no carve-out for `Interrupted`, because
-    /// there is nothing for one to catch: a frame is `write_all` followed by
-    /// `flush`, and **both retry `Interrupted` themselves** -- `write_all`
-    /// loops on it by contract, and every buffered writer's `flush_buf` does
-    /// the same. A signal landing inside a frame's write therefore never
-    /// reaches this function, and a branch for it would be a speculative one
-    /// that no test could reach honestly.
+    /// Every kind that reaches it counts, and there is no carve-out for
+    /// `Interrupted`, because there is nothing for one to catch: an emit
+    /// retries that kind itself ([`super::deliver`]), so a signal landing
+    /// between two of a frame's syscalls costs one more syscall and never
+    /// arrives here.
     ///
-    /// `WouldBlock` does count. A screen that is permanently full is
+    /// `WouldBlock` does count -- when it is the reason a vector went out
+    /// whole-or-not-at-all. A screen that is permanently full is
     /// indistinguishable from one that is gone, and the whole point of the
     /// budget is that neither can hide; [`FRAME_BUDGET`] is where the room for
-    /// a screen that is merely behind is given.
+    /// a screen that is merely behind is given. A `WouldBlock` that arrived
+    /// *after* the terminal took part of a vector never reaches this function
+    /// at all: [`disposed`] ends the session on it.
     ///
     /// The *first* failure of a run never ends a session, whatever the clock
     /// says: it starts the budget rather than spending it.
@@ -1261,6 +1299,8 @@ impl FrameFailures {
 mod tests {
     use super::*;
 
+    use super::super::deliver::{emit_counted, RawWrite};
+
     use std::collections::BTreeMap;
 
     use tokio::sync::mpsc;
@@ -1276,19 +1316,18 @@ mod tests {
     /// A screen that refuses every write, as Task 2's exit test has one.
     struct BrokenScreen;
 
-    impl Write for BrokenScreen {
-        fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+    impl RawWrite for BrokenScreen {
+        fn write_once(&mut self, _bytes: &[u8]) -> io::Result<usize> {
             Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "the screen went away",
             ))
         }
+    }
 
-        fn flush(&mut self) -> io::Result<()> {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "the screen went away",
-            ))
+    impl Sink for BrokenScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
         }
     }
 
@@ -1299,8 +1338,8 @@ mod tests {
         written: Vec<u8>,
     }
 
-    impl Write for FlakyScreen {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    impl RawWrite for FlakyScreen {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
             if self.refusals > 0 {
                 self.refusals -= 1;
                 return Err(io::Error::new(self.kind, "not now"));
@@ -1308,9 +1347,11 @@ mod tests {
             self.written.extend_from_slice(bytes);
             Ok(bytes.len())
         }
+    }
 
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
+    impl Sink for FlakyScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
         }
     }
 
@@ -1949,6 +1990,134 @@ mod tests {
         );
     }
 
+    /// A screen that takes `prefix` bytes of what it is offered, fails once,
+    /// and takes everything after that.
+    ///
+    /// The failure is *not* permanent, and that is what makes the cases below
+    /// discriminating: a screen that refused everything afterwards would leave
+    /// "the loop stopped offering" and "the screen kept refusing" telling the
+    /// same story on the wire. Here, anything a post-failure offer carries
+    /// **lands**, so bytes past the prefix in `written` are proof that
+    /// something was offered after a prefix had already reached the terminal.
+    struct HalfDeaf {
+        prefix: usize,
+        failed: bool,
+        written: Vec<u8>,
+    }
+
+    impl HalfDeaf {
+        fn taking(prefix: usize) -> Self {
+            Self {
+                prefix,
+                failed: false,
+                written: Vec::new(),
+            }
+        }
+    }
+
+    impl RawWrite for HalfDeaf {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.failed || bytes.is_empty() {
+                self.written.extend_from_slice(bytes);
+                return Ok(bytes.len());
+            }
+            if self.prefix > 0 {
+                let taken = self.prefix.min(bytes.len());
+                self.prefix -= taken;
+                self.written.extend_from_slice(&bytes[..taken]);
+                return Ok(taken);
+            }
+            self.failed = true;
+            Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the screen stopped taking bytes",
+            ))
+        }
+    }
+
+    impl Sink for HalfDeaf {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
+    #[test]
+    fn a_frame_the_screen_took_only_part_of_ends_the_session_rather_than_being_offered_again() {
+        // **The containment this unit exists for.** A refused frame is a frame
+        // the terminal never saw, and the budget may offer it again. A frame
+        // the terminal took a *prefix* of is a terminal holding half a vector:
+        // there is no vector this session can write that is known to fix it,
+        // and re-offering the whole one would send the prefix twice. So the
+        // tick does not end -- the session does.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = HalfDeaf::taking(12);
+
+        let err = commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect_err("a frame the screen took part of was handed back to the budget");
+
+        assert_eq!(
+            screen.written.len(),
+            12,
+            "something was offered after the prefix: {:?}",
+            String::from_utf8_lossy(&screen.written)
+        );
+        assert!(
+            err.to_string().contains("12"),
+            "the failure does not say how much the screen accepted: {err}"
+        );
+    }
+
+    #[test]
+    fn a_partial_frame_on_the_way_out_still_lets_the_drain_collect_what_the_runtime_has() {
+        // The exit's two halves are independent: a screen that took half a
+        // frame ends the painting, and the drain still runs -- the event it
+        // carries may be the `Fatal` that explains the session.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = HalfDeaf::taking(12);
+        shell.apply(UiEvent::Delta("HALF-A-FRAME".to_string()));
+
+        let broken = shut_down(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            true,
+            Shutdown {
+                reconcile: |_, _| Ok(Reconciled),
+                drain: |taken| taken(UiEvent::Fatal("A-TURN-CAME-APART".to_string())),
+                size: || panic!("an exit with no winch outstanding measured the screen"),
+            },
+        );
+
+        let broken = broken.expect("a screen that took half a frame was reported as sound");
+        assert!(
+            broken.to_string().contains("12"),
+            "the exit's failure does not say how much the screen accepted: {broken}"
+        );
+        assert_eq!(
+            shell.fatal(),
+            Some("A-TURN-CAME-APART"),
+            "the drain stopped collecting because the screen had failed"
+        );
+        assert_eq!(
+            out.written.len(),
+            12,
+            "a frame was painted after the screen took half of one: {:?}",
+            String::from_utf8_lossy(&out.written)
+        );
+    }
+
     #[test]
     fn a_screen_that_refuses_every_frame_ends_the_session_when_the_budget_runs_out() {
         let mut shell = shell();
@@ -2022,10 +2191,10 @@ mod tests {
 
     #[test]
     fn a_signal_that_lands_inside_a_frames_write_never_reaches_the_failure_policy() {
-        // The reason `failed` has no `Interrupted` branch: `write_all` retries
-        // that kind by contract, so a signal arriving mid-frame costs a second
-        // `write` and nothing else. This pins the fact the policy rests on --
-        // a frame built from a bare `write` instead would land here truncated,
+        // The reason `failed` has no `Interrupted` branch: an emit retries that
+        // kind itself, so a signal arriving mid-frame costs one more syscall
+        // and nothing else. This pins the fact the policy rests on -- a frame
+        // built from a bare `write` instead would land on the screen truncated,
         // and a policy that counted the interruption would be counting a frame
         // that was really on the screen.
         //
@@ -3114,35 +3283,26 @@ mod tests {
     const ENTERS_ALTERNATE: &str = "\u{1b}[?1049h";
     const LEAVES_ALTERNATE: &str = "\u{1b}[?1049l";
 
-    /// A screen that counts the calls, not the bytes.
+    /// A screen that counts the vectors, not the bytes and not the syscalls.
     ///
-    /// The one-write invariant is about **write calls**: a sampled snapshot of a
+    /// The one-write invariant is about **vectors**: a sampled snapshot of a
     /// pty that happened to look atomic satisfies nothing, because a terminal
     /// presents whatever it has whenever it is scheduled to. So the seam counts
-    /// `write_all`, which is what the loop is required to call exactly once for
-    /// the restore, and the default implementation -- which loops on `write` --
-    /// is overridden so that one call is one count however the vector is
-    /// delivered.
+    /// `emit`, which is what the loop is required to call exactly once for the
+    /// restore. It counts no syscalls, and cannot: one emit may cost several
+    /// short writes on a busy descriptor without the loop having offered
+    /// anything twice (`super::super::deliver`), and the old `write_all`
+    /// override here existed only to hide that difference behind `Write`.
     #[derive(Default)]
     struct CountingScreen {
         calls: usize,
         written: Vec<u8>,
     }
 
-    impl Write for CountingScreen {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    impl Sink for CountingScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
             self.calls += 1;
             self.written.extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-            self.calls += 1;
-            self.written.extend_from_slice(bytes);
-            Ok(())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
     }
@@ -3666,8 +3826,8 @@ mod tests {
         written: Vec<u8>,
     }
 
-    impl Write for DeafToTheBand {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+    impl RawWrite for DeafToTheBand {
+        fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
             if !self.refused && String::from_utf8_lossy(bytes).contains(self.needle) {
                 self.refused = true;
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "not now"));
@@ -3675,9 +3835,11 @@ mod tests {
             self.written.extend_from_slice(bytes);
             Ok(bytes.len())
         }
+    }
 
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
+    impl Sink for DeafToTheBand {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
         }
     }
 
@@ -4161,10 +4323,15 @@ mod tests {
     }
 
     #[test]
-    fn the_event_loop_issues_exactly_one_write_all_for_the_restore_frame() {
-        // The invariant this seam exists for. Two writes is two presentations
+    fn the_event_loop_issues_exactly_one_emit_for_the_restore_frame() {
+        // The invariant this seam exists for. Two vectors is two presentations
         // on a terminal that does not implement synchronized output: the plane
         // given back, and then -- a scheduler quantum later -- the band.
+        //
+        // **Vectors, not syscalls.** The seam counts what this loop decides to
+        // offer; a kernel that takes one vector in three short writes has not
+        // made the loop write twice, and the case that pins *that* difference
+        // lives with the counting itself (`super::super::deliver`).
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -4192,7 +4359,7 @@ mod tests {
         let written = String::from_utf8_lossy(&out.written).into_owned();
         assert_eq!(
             out.calls, 1,
-            "the restore was written in {} calls: {written:?}",
+            "the restore was offered as {} vectors: {written:?}",
             out.calls
         );
         assert!(
@@ -4212,10 +4379,10 @@ mod tests {
     #[test]
     fn restoration_never_shows_an_intermediate_blank_grid() {
         // Every snapshot a terminal can take between the leave and the repaint
-        // is one this loop never produces: the two are one `write_all`, so
-        // there is no moment at which the plane has been given back and the
-        // band has not been painted. Asserted as the byte fact that makes it
-        // true -- one call, and the band inside it, after the leave.
+        // is one this loop never produces: the two are one vector, so there is
+        // no moment at which this session has given the plane back and not
+        // painted the band. Asserted as the byte fact that makes it true --
+        // one emit, and the band inside it, after the leave.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();

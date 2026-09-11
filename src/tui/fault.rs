@@ -36,6 +36,17 @@ pub(crate) enum Fault {
     /// `1049l`. Injected after the entering frame has been written, flushed and
     /// recorded, and before the answer that would give the plane back.
     AlternatePanic,
+    /// A terminal that takes **part** of one band frame and then stops taking
+    /// bytes at all.
+    ///
+    /// The one failure this build can produce that a refusing screen cannot:
+    /// every other injected write failure leaves the terminal exactly as it
+    /// was, and this one leaves it holding a prefix of a synchronized frame.
+    /// It is answered by the sink itself (`super::deliver`), so what the
+    /// session runs here is the real counting against the real descriptor --
+    /// the prefix is genuinely on the user's terminal -- and the containment
+    /// that follows is the product's, not the harness's.
+    PartialFrame,
     /// **Not a failure**: the Phase-1 whole-band painter, kept as the reference
     /// the cell diff is judged against.
     ///
@@ -64,6 +75,7 @@ impl Fault {
             Self::WorkerTurn => "worker-turn",
             Self::SlowUi => "slow-ui",
             Self::AlternatePanic => "alternate-panic",
+            Self::PartialFrame => "partial-frame",
             Self::FullPaintReference => "full-paint-reference",
         }
     }
@@ -72,6 +84,62 @@ impl Fault {
 /// Whether this run was asked to fail at `point`.
 pub(crate) fn injected(point: Fault) -> bool {
     std::env::var_os(FAULT_ENV).is_some_and(|value| value == point.name())
+}
+
+/// How far [`Fault::PartialFrame`] has got: `0` before anything armed it, `1`
+/// with the prefix owed, `2` with the failure owed, `3` once it is spent.
+///
+/// A count rather than a flag because the fault is **two** answers to two
+/// syscalls, in order, and exactly once in the life of a process: after that
+/// the descriptor is the terminal's own again, which is what lets the exit
+/// below it restore for real and be measured.
+static PARTIAL_FRAME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// What the injected terminal does to the next `write`.
+pub(crate) enum Prefix {
+    /// Takes this many bytes of what it was offered -- really writes them --
+    /// and says so.
+    Takes(usize),
+    /// Fails, having taken nothing this time.
+    Fails,
+}
+
+/// Arms the prefix fault, if this run asked for it and has not had it yet.
+///
+/// Called where the *first band frame* is about to be built, so the vector it
+/// lands on is a frame rather than the mode set: a session that lost the mode
+/// set would be a startup failure, which is a row the matrix already has.
+pub(crate) fn arm_partial_frame() {
+    if !injected(Fault::PartialFrame) {
+        return;
+    }
+    let _ = PARTIAL_FRAME.compare_exchange(
+        0,
+        1,
+        std::sync::atomic::Ordering::AcqRel,
+        std::sync::atomic::Ordering::Acquire,
+    );
+}
+
+/// What an armed prefix fault answers for a write of `len` bytes.
+///
+/// `None` once, and for ever after, the two answers are spent.
+pub(crate) fn partial_frame_answer(len: usize) -> Option<Prefix> {
+    use std::sync::atomic::Ordering;
+
+    match PARTIAL_FRAME.load(Ordering::Acquire) {
+        // Half the vector, and at least one byte of it: a "prefix" of nothing
+        // would be a zero-progress failure, which is the other case entirely.
+        1 => {
+            PARTIAL_FRAME.store(2, Ordering::Release);
+            Some(Prefix::Takes((len / 2).max(1).min(len)))
+        }
+        2 => {
+            PARTIAL_FRAME.store(3, Ordering::Release);
+            Some(Prefix::Fails)
+        }
+        _ => None,
+    }
 }
 
 /// Panics on a thread that is not the one holding the terminal, and waits for

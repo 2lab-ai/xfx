@@ -1,8 +1,10 @@
 # xfx — TUI port
 
 Status: **Phases 1 and 2 of the MVS ladder below are in the binary, and Phase 3's items 18, 19, 20 and 20b are
-implemented locally — in this working tree and its gate, not in a release — with item 21 local and half-done: its
-self-check exists as a per-vector output preflight, its partial-write recovery and frame retention do not. The rest of Phase 3
+implemented locally — in this working tree and its gate, not in a release — with item 21 local and part-done: its
+self-check exists as a per-vector output preflight and the writes under it are now **counted**, so a write the screen
+takes only part of is measured and contained rather than unreadable; its partial-write **recovery** and frame retention
+still do not exist. The rest of Phase 3
 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
@@ -673,7 +675,8 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     the falsification is one pty case: drive the affected keys and read what the decoder made of
     them, rather than reasoning about what a terminal would send.
 
-**Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part; the
+**Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part — its
+self-check and its counted-delivery containment, not its recovery or its retention; the
 rest is not**, and every unmarked item below is a target that is advertised nowhere.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
@@ -760,10 +763,27 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     path a write error already took: it adds no failure policy, no exit route and no counting rule
     of its own. The preflight refusal is a new **source** of that error rather than a new kind of
     it, the rejected segment is simply not emitted, and the `termios` restore and the later shutdown
-    attempts are preserved. **Still open, and not narrowed
-    by any of it**: the transport is unchanged, a vector the screen took only part of leaves
-    progress nobody can read, and neither partial-write recovery nor frame retention exists —
-    a refused append is still dropped rather than retried. The cost is **gated rather than
+    attempts are preserved. **The transport under it is no longer unchanged**, and that is the second
+    local half of this row: every byte the TUI writes while it holds the terminal now goes out
+    through one unbuffered counted sink (`src/tui/deliver.rs`) — no buffer and no flush, so there is
+    no vector a session believes it wrote that is still sitting in one. An emit adds up what the
+    kernel accepted and reports one of three things, which is what the callers above needed and
+    could not get from `write_all`: a checker **refusal** and a syscall that took **nothing** leave
+    the screen exactly as it was, so the vector is still owed and both take the frame budget that
+    was already there; a **prefix** does not, so it ends the session at once, carrying the accepted
+    count as the error's own payload. Nothing is re-offered after a prefix, nothing is adopted from
+    one, and the exit's rule has the same shape: a restore segment the terminal took in part costs
+    the cleanup segment that would have followed it, while the `termios` restore stays unconditional
+    and the first error still wins. Two consequences are named rather than buried. `EAGAIN` **after**
+    a prefix is fatal here — the retry an inherited non-blocking descriptor would otherwise allow is
+    given up deliberately, because retrying the whole vector would write that prefix twice — and a
+    syscall count larger than the slice it was offered is **refused rather than capped**, since
+    capping it would end the write and report a whole-vector success built from the one answer known
+    to be false. **Still open, and not narrowed by any of it**: an accepted count is a kernel receipt
+    and not a terminal's acknowledgement, so what a terminal made of an incomplete vector is still
+    not knowable here; and there is still no partial-write recovery and no frame retention —
+    a refused append is still dropped rather than retried, and nothing re-establishes a frame from a
+    prefix. The cost is **gated rather than
     assumed**, because a check that cost a frame would be paid for by the screen it protects:
     `scripts/check-tui-preflight-cost.sh` runs the two timing cases serially on a **release** build,
     in the default and the `fault-injection` configuration, against an unchanged 8 ms / 32 ms
@@ -772,9 +792,14 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     own cases, plus the tamper cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a **real**
     emitter's bytes are altered at a `#[cfg(test)]` seam and the refusal is observed **before** a
     fake writer sees them — a seam that exists for in-crate tests only and is in no binary, which is
-    also why the release-binary harness cannot drive it. There is deliberately no
-    scenario for it in [`06-qa-harness.md`](06-qa-harness.md): the scenario that closes this row is
-    the injected partial write, which is still specification there.
+    also why the release-binary harness cannot drive it. The **containment** half does have a
+    release-binary scenario — [`06-qa-harness.md`](06-qa-harness.md) row 3c, where a
+    `fault-injection` build's sink puts a real prefix of a real frame on a real pseudoterminal and
+    the run asserts termination, a frame that is never offered again, the exit's own segments and a
+    byte-identical `termios`, against a positive control that renders the same scenario's marker
+    with nothing injected. That row proves what this product **does about** a prefix; it claims no
+    parser recovery and no restored screen, and it is not the scenario that closes this item. The one
+    that does is recovery under an injected partial write, which is still specification there.
 22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then
     transcript).
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.

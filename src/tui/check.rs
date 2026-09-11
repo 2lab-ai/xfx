@@ -12,7 +12,7 @@
 //!
 //! * **The bytes checked are the bytes written.** No emitter reconstructs a
 //!   copy for the checker: the vector is assembled once, checked, and that same
-//!   slice goes to `write_all`. Checking a copy would verify the copy.
+//!   slice is the one emitted. Checking a copy would verify the copy.
 //! * **The intent is computed from the emitter's inputs and the geometry, never
 //!   from the decoded bytes.** An intent read out of the output would agree
 //!   with it by construction.

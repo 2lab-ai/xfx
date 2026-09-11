@@ -8,7 +8,7 @@
 # the line-oriented product it receipts does not stop existing when a TUI
 # arrives, and `xfx ask` is still a pipe-friendly command with no terminal. This
 # one drives every scenario of `.prd/06-qa-harness.md` -- Phase 1's 1-12,
-# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 10b and
+# Phase 2's 13-21 and Phase 3's 22-25, plus the lettered rows 3b, 3c, 10b and
 # 23b -- against a
 # **release** binary on a real pseudoterminal, with a cell-grid oracle and an
 # evidence directory. The count it prints is the length of the list below and
@@ -2823,10 +2823,18 @@ def scenario_3b(run):
     # repainted, every frame"), and the draft below makes one frame 39,187
     # bytes -- 2.25x the largest of those screens and 38x the smallest.
     #
-    # One frame is one `write_all` (`src/tui/frame.rs:145-157`, onto the locked
-    # standard output passed down from `event_loop.rs:286`), and `write_all`
-    # retries `Interrupted` and nothing else: the first `WouldBlock` ends the
-    # frame, and the band owes it again rather than continuing it. So for a
+    # One frame is one counted emit (`src/tui/deliver.rs`, onto the terminal
+    # descriptor passed down from `event_loop.rs`), and an emit retries
+    # `Interrupted` and nothing else. `WouldBlock` ends it, on whichever of the
+    # two roads its position puts it: a screen that took **nothing** is a
+    # refusal the band owes again and the budget counts, and a screen that took
+    # a **prefix** ends the session on the spot, because the vector cannot be
+    # re-offered without writing that prefix twice. Both are bounded and both
+    # are asserted below by the same pair of claims -- exit 1 inside the
+    # deadline. Which of the two a given kernel produces is its buffer's
+    # business: a screen larger than one frame refuses whole vectors, and one
+    # smaller takes a prefix of the first (macOS 26 answers this row with
+    # `accepted 1024 bytes`, its whole pty buffer). So for a
     # frame this size to *land*, the reader would have to keep freeing room
     # inside the gaps between consecutive `write(2)` calls of a loop that has
     # no sleep in it -- twenty-two more kilobytes of it on the larger screen,
@@ -2899,8 +2907,8 @@ def scenario_3b(run):
     elapsed = time.time() - began
     run.require(
         elapsed < STARVED_DEADLINE,
-        "it ended on the budget rather than retrying forever (%.2fs, deadline %.2fs)"
-        % (elapsed, STARVED_DEADLINE),
+        "it ended on the budget, or on the first prefix, rather than retrying forever "
+        "(%.2fs, deadline %.2fs)" % (elapsed, STARVED_DEADLINE),
     )
     starved.session.wait_exit()
     run.require(
@@ -2924,6 +2932,143 @@ def scenario_3b(run):
 
 
 # ---------------------------------------------------------------------------
+# 3c. a terminal that takes part of a frame
+# ---------------------------------------------------------------------------
+
+
+def first_frame(captured):
+    """The launch's first **complete** frame, as bytes, or `None`.
+
+    Complete on purpose: it is the thing the torn run below is measured
+    against, so an incomplete one would make the comparison vacuous.
+    """
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    if begins < 0:
+        return None
+    ends = captured.find(FRAME_END_BYTES, begins)
+    if ends < 0:
+        return None
+    return captured[begins : ends + len(FRAME_END_BYTES)]
+
+
+def scenario_3c(run):
+    """A prefix on a real terminal: written once, never re-offered, terminal back.
+
+    The one failure a refusing screen cannot stand in for. Every other row of
+    the restoration matrix fails a write that delivered **nothing**, so the
+    terminal is exactly where it was and the vector may be offered again; here
+    the terminal really has taken part of a synchronized frame, and the session
+    has nothing it can honestly write to fix that.
+
+    **What this row cannot use, and what it uses instead.** The three-part
+    discriminator wants a nonce in a prompt, in the captured request and on the
+    screen -- and this session dies on the *first band frame*, before a prompt
+    can be typed and before any turn exists to send one. Faking a nonce that was
+    never sent would be a mockup of the very kind that discriminator exists to
+    catch. So the nonce row is driven in full against a **control** session --
+    same fixture, same geometry, same profile, nothing injected -- which proves
+    this scenario's fixture and binary really render this scenario's own text;
+    and the torn session is discriminated positively against *that* control:
+    what the terminal took is asserted to be a genuine, incomplete **prefix of
+    the very frame the control's launch paints**. Nothing here passes by
+    absence.
+
+    The control runs the release binary and the torn session the
+    fault-injection one, which is the pairing every faulty row uses. The two
+    builds differ in branches that no launch reaches (`super::fault`), so a
+    disagreement between their launch frames is a real finding rather than a
+    tolerated one -- and it is the comparison below that would report it.
+
+    **What is deliberately not claimed**: that the terminal's parser recovered.
+    The `termios` comparison is a `tcsetattr` fact read off the child's
+    terminal, and the restore sequence is a byte fact read off the wire. Neither
+    says what a terminal made of an incomplete vector, and this row asserts
+    neither.
+    """
+    marker = run.marker("partial")
+    fixture = start_fixture(run, [fixtures.content_only(marker)])
+
+    # -- the control: this scenario's own text, rendered for real ---------
+    control = run.trial("normal-control", gateway=fixture).settled()
+    run.require(control.modes().is_raw(), "control: the session took the terminal into raw mode")
+    launch_frame = first_frame(bytes(control.session.captured))
+    run.require(
+        launch_frame is not None and len(launch_frame) > len(FRAME_BEGIN_BYTES),
+        "control: the launch painted a complete first frame to compare against",
+    )
+    discriminate(run, control, fixture, marker)
+    control.send("/quit\r")
+    run.require(control.session.wait_exit() == ("exited", 0), "control: /quit leaves with 0")
+    run.require(control.modes() == control.before, "control: termios byte-identical")
+
+    # -- the same launch, onto a terminal that stops mid-frame ------------
+    torn = run.trial("partial-frame", faulty=True, fault="partial-frame", gateway=fixture)
+    state = torn.session.wait_exit()
+    # One rather than merely non-zero: `ExitCode::FAILURE` is what the give-up
+    # path returns, and a panic would leave with 101 while proving the opposite.
+    run.require(
+        state == ("exited", 1),
+        "partial frame: the session left with its own error rather than surviving (%r)" % (state,),
+    )
+    captured = bytes(torn.session.captured)
+    text = torn.session.settled_text()
+
+    begins = captured.find(FRAME_BEGIN_BYTES)
+    run.require(begins >= 0, "partial frame: a band frame really reached the terminal")
+    run.require(
+        captured.count(FRAME_BEGIN_BYTES) == 1,
+        "partial frame: the torn frame was never offered again (%d frames on the wire)"
+        % captured.count(FRAME_BEGIN_BYTES),
+    )
+    run.require(
+        FRAME_END_BYTES not in captured,
+        "partial frame: no frame was ever completed on this terminal",
+    )
+    restore = pty.RESTORE.encode()
+    restore_at = captured.find(restore, begins if begins >= 0 else 0)
+    run.require(restore_at > begins >= 0, "partial frame: the exit's restore followed the prefix")
+    prefix = captured[begins:restore_at] if restore_at > begins >= 0 else b""
+    run.require(
+        0 < len(prefix) < len(launch_frame or b""),
+        "partial frame: what the terminal took is a real and incomplete part of a frame "
+        "(%d bytes of %d)" % (len(prefix), len(launch_frame or b"")),
+    )
+    run.require(
+        bool(launch_frame) and launch_frame.startswith(prefix),
+        "partial frame: those bytes are a prefix of the frame this launch paints",
+    )
+
+    # The count the session reports is the count on the wire. Two independent
+    # measurements of one number: the product's own accounting, and the harness
+    # counting what its terminal was handed.
+    reported = re.search(r"accepted (\d+) bytes", text)
+    run.require(
+        reported is not None,
+        "partial frame: the session says how much the terminal accepted: %r" % text[-200:],
+    )
+    run.require(
+        reported is not None and int(reported.group(1)) == len(prefix),
+        "partial frame: the reported count is the number of bytes on the wire (%s vs %d)"
+        % (reported.group(1) if reported else "none", len(prefix)),
+    )
+
+    # The exit's own segments. The restore went out whole -- the terminal was
+    # taking bytes again by then -- so the cleanup below it is still written:
+    # the skip belongs to an exit whose *first* segment is taken in part, and a
+    # frame that ended in a prefix earlier in the session is not that.
+    after = captured[restore_at + len(restore) :] if restore_at >= 0 else b""
+    run.require(
+        b"\x1b[J" in after,
+        "partial frame: the exit still wrote the cleanup it owed after a whole restore",
+    )
+    run.require(
+        torn.modes() == torn.before,
+        "partial frame: termios byte-identical -- the line discipline, which is all this measures",
+    )
+    fixture.stop()
+
+
+# ---------------------------------------------------------------------------
 # 4. raw mode positively entered
 # ---------------------------------------------------------------------------
 
@@ -2933,7 +3078,10 @@ def scenario_3b(run):
 # `event_loop::FRAME_BUDGET` -- **half a second** of wall clock, past which a
 # screen that has taken nothing ends the session instead of being retried
 # forever -- so the bound has to be close enough to half a second that a budget
-# which quietly stopped being enforced is detectable. The first version of this
+# which quietly stopped being enforced is detectable. It is an **upper** bound
+# on both roads out: a screen that takes a prefix of the first frame ends the
+# session before the budget's clock matters at all, which is faster than this
+# and inside it. The first version of this
 # row accepted fifteen seconds, which bounds nothing: a regression to a
 # fourteen-second retry would have passed it.
 #
@@ -6824,6 +6972,7 @@ SCENARIOS = {
     "2-cursor-probe-and-scrollback-push": scenario_2,
     "3-restore-matrix": scenario_3,
     "3b-shutdown-drain": scenario_3b,
+    "3c-partial-frame-containment": scenario_3c,
     "4-raw-mode-positively-entered": scenario_4,
     "5-editor-basics": scenario_5,
     "6-soft-wrap-and-growth-cap": scenario_6,
@@ -6911,8 +7060,9 @@ export XFX_THEME="light"
 export TMUX="/tmp/tmux-hostile/default,1,0"
 
 # Every scenario of `.prd/06-qa-harness.md`, in its order: Phase 1's 1-12 with
-# the two lettered rows the drain and the mid-turn approval added, then Phase
-# 2's 13-21 and Phase 3's 22, 23, the lettered row 23b, 24 and 25. This list and
+# the lettered rows the drain, the counted-delivery containment and the
+# mid-turn approval added, then Phase 2's 13-21 and Phase 3's 22, 23, the
+# lettered row 23b, 24 and 25. This list and
 # `SCENARIOS` in the python helper are
 # the two registrations, and they are one order -- a name in either that the
 # other does not have is a scenario nothing runs or a runner nothing names.
@@ -6921,6 +7071,7 @@ scenarios=(
 	2-cursor-probe-and-scrollback-push
 	3-restore-matrix
 	3b-shutdown-drain
+	3c-partial-frame-containment
 	4-raw-mode-positively-entered
 	5-editor-basics
 	6-soft-wrap-and-growth-cap
