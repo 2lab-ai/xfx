@@ -830,8 +830,15 @@ fn commit_frame(
         return paint_alternate(shell, band, out, failures, now);
     }
     if shell.take_clearing() {
-        if let Err(err) = out
-            .write_all(super::shell::CLEAR_SCREEN.as_bytes())
+        // The one vector this loop writes itself, so the check sits here --
+        // ownership stays where it is: the shell decides that a clear is owed
+        // and what it means to its own state, and the loop writes it. What is
+        // declared is the whole of `/clear`: a blank screen, the caret at its
+        // origin, and the scrollback erased, which is the one place in the TUI
+        // that erases one.
+        let cleared = super::shell::CLEAR_SCREEN.as_bytes();
+        if let Err(err) = check_cleared(cleared, &shell.geometry)
+            .and_then(|()| out.write_all(cleared))
             .and_then(|()| out.flush())
         {
             return match failures.failed(err, now) {
@@ -878,6 +885,29 @@ fn commit_frame(
         return Ok(());
     }
     commit_band(shell, band, out, failures, now)?;
+    Ok(())
+}
+
+/// What `/clear` says it does: a blank screen, a caret at its origin, and the
+/// scrollback erased.
+///
+/// The one vector this loop writes itself, so the declaration lives here --
+/// ownership stays where it is, with the shell deciding that a clear is owed and
+/// what it means to the shell's own state. The scrollback erase is asserted as a
+/// flag and nothing further: no grid models a terminal's scrollback, and this is
+/// the only emitter in the TUI that erases one.
+fn check_cleared(bytes: &[u8], geometry: &super::layout::Geometry) -> io::Result<()> {
+    super::check::preflight(
+        &super::check::TerminalModel::seed_foreign(geometry.rows, geometry.cols, None),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Cleared,
+            super::check::Footprint::new(
+                super::check::PlaneKind::Primary,
+                vec![super::check::Seg::Erase(1..=geometry.rows)],
+            ),
+        ),
+    )?;
     Ok(())
 }
 
@@ -1051,7 +1081,18 @@ fn paint_alternate(
         // precisely so that no terminal can present the gap between them.
         (true, ScreenOwner::Primary) => {
             let cursor = shell.cursor();
-            let frame = band.restore_primary(&shell.band_rows(), &shell.geometry, cursor);
+            // A frame the output check refuses is not written, and it takes the
+            // same road a refused write does: into the budget, counted once,
+            // with the plane still owed. There is no new failure policy here.
+            let frame = match band.restore_primary(&shell.band_rows(), &shell.geometry, cursor) {
+                Ok(frame) => frame,
+                Err(err) => {
+                    return match failures.failed(err, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    }
+                }
+            };
             match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
@@ -1074,7 +1115,18 @@ fn paint_alternate(
             let rows = shell.screen_rows();
             let cursor = shell.screen_cursor();
             shell.intend_approval();
-            let frame = band.enter_alternate(&rows, &shell.geometry, cursor);
+            let frame = match band.enter_alternate(&rows, &shell.geometry, cursor) {
+                Ok(frame) => frame,
+                Err(err) => {
+                    // Exactly the branch a refused write takes below: the
+                    // question keeps its plane, and the tick is counted.
+                    shell.approval_write_failed();
+                    return match failures.failed(err, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    };
+                }
+            };
             match out.write_all(frame.bytes()).and_then(|()| out.flush()) {
                 Ok(()) => {
                     band.frame_landed(&frame, &shell.geometry, cursor);
@@ -1113,7 +1165,17 @@ fn paint_alternate(
             let rows = shell.screen_rows();
             let cursor = shell.screen_cursor();
             shell.intend_approval();
-            let frame = band.repaint_alternate(&rows, &shell.geometry, cursor);
+            let frame = match band.repaint_alternate(&rows, &shell.geometry, cursor) {
+                Ok(frame) => frame,
+                Err(err) => {
+                    shell.approval_write_failed();
+                    shell.render.restore(attempt);
+                    return match failures.failed(err, now) {
+                        Some(fatal) => Err(fatal),
+                        None => Ok(()),
+                    };
+                }
+            };
             // The screen already holds this, which is the commonest frame while
             // a person is reading a change: the band's animation asks for one
             // twice a second and nothing on this plane has moved. It keeps a
@@ -4395,5 +4457,43 @@ mod tests {
             written.contains("ANSWER-TEXT-WHILE-DECIDING"),
             "the document rows a question held back were dropped: {written:?}"
         );
+    }
+
+    #[test]
+    fn a_clear_that_left_synchronized_output_open_is_refused() {
+        // `?2026h` with no close leaves a terminal that supports it presenting
+        // nothing at all until somebody else closes it -- a frozen screen, from
+        // a vector whose whole declared job is to blank one.
+        let geometry = super::super::layout::solve(24, 80, 1).expect("a band");
+        let opened = "\u{1b}[?2026h\u{1b}[H\u{1b}[2J\u{1b}[3J";
+        let refused =
+            check_cleared(opened.as_bytes(), &geometry).expect_err("a clear that froze the screen");
+        assert!(
+            refused.to_string().contains("synchronized"),
+            "the refusal did not name the synchronized output: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_clear_that_kept_the_scrollback_or_a_cell_is_refused() {
+        // `/clear` is the one emitter in the TUI that erases a terminal's
+        // scrollback, and the only one whose declared intent is a blank screen:
+        // a vector missing either half is not the thing the shell asked for.
+        let geometry = super::super::layout::solve(24, 80, 1).expect("a band");
+        check_cleared(super::super::shell::CLEAR_SCREEN.as_bytes(), &geometry)
+            .expect("the clear as it stands");
+
+        let kept_scrollback = "\u{1b}[H\u{1b}[2J";
+        let refused =
+            check_cleared(kept_scrollback.as_bytes(), &geometry).expect_err("a kept scrollback");
+        assert!(
+            refused.to_string().contains("scrollback"),
+            "the refusal did not name the scrollback: {refused}"
+        );
+
+        // An erase of one row rather than the screen: the rows a clear promised
+        // to blank are still holding whatever was on them.
+        let one_row = "\u{1b}[H\u{1b}[K\u{1b}[3J";
+        assert!(check_cleared(one_row.as_bytes(), &geometry).is_err());
     }
 }

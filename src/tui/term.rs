@@ -201,6 +201,13 @@ pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
 /// restore sequence, `tcsetattr` the saved `termios`, then move to the band's
 /// top and clear downward.
 ///
+/// `screen` is the size of the screen `band_top` is a row **of**, taken from the
+/// band's own shadow rather than from a fresh `TIOCGWINSZ`: the cleanup line's
+/// coordinates were solved against the screen the band was painted on, and a
+/// terminal that has since stopped describing itself -- a pty whose size was
+/// unset answers `0x0` successfully -- would otherwise be answered with the
+/// launch fallback and the exit measured against a screen nothing is on.
+///
 /// `band_top` is `None` for a session that drew no band, and then the last step
 /// is **skipped entirely**: with no band the only row to clear from is the
 /// screen's first, and `CUP(1,1)` + `ED` would erase a screen xfx never drew
@@ -221,7 +228,11 @@ pub(crate) fn abnormal_restore(tmux: bool) -> &'static str {
 /// unlike [`abnormal_restore`]: a `1049l` written by a session that never took
 /// the alternate buffer swaps in, on a terminal that models one, a screen its
 /// user was not looking at.
-pub(crate) fn shutdown(band_top: Option<u16>, on_alternate: bool) -> io::Result<()> {
+pub(crate) fn shutdown(
+    band_top: Option<u16>,
+    on_alternate: bool,
+    screen: (u16, u16),
+) -> io::Result<()> {
     let Some(owned) = OWNED.get() else {
         return Ok(());
     };
@@ -235,7 +246,30 @@ pub(crate) fn shutdown(band_top: Option<u16>, on_alternate: bool) -> io::Result<
         TMUX.load(Ordering::Acquire),
         band_top,
         on_alternate,
+        screen,
     )
+}
+
+// A test's hand on the exit's first segment, between the moment it is built and
+// the moment it is checked.
+//
+// Compiled into test builds only, and thread-local so that two tests running
+// side by side cannot see each other's. It exists because "a segment the check
+// refuses is not written, and the restore below it still runs" is a claim about
+// a segment that gets refused -- and the one this function builds is two
+// constants, which by construction never does.
+#[cfg(test)]
+thread_local! {
+    static TAMPER: std::cell::Cell<Option<fn(&mut String)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs `body` with `tamper` applied to the exit's restore segment.
+#[cfg(test)]
+fn tampering<T>(tamper: fn(&mut String), body: impl FnOnce() -> T) -> T {
+    TAMPER.with(|hook| hook.set(Some(tamper)));
+    let outcome = body();
+    TAMPER.with(|hook| hook.set(None));
+    outcome
 }
 
 /// The exit above, against an explicit screen and an explicit ownership record,
@@ -247,6 +281,7 @@ fn shutdown_with(
     tmux: bool,
     band_top: Option<u16>,
     on_alternate: bool,
+    screen_size: (u16, u16),
 ) -> io::Result<()> {
     let restore = if tmux { RESTORE_TMUX } else { RESTORE };
     // The plane first, and everything else after it. Every sequence in
@@ -254,14 +289,130 @@ fn shutdown_with(
     // popped, the autowrap put back, the cursor shown -- so one written while
     // the alternate buffer is still up is one restored for the wrong screen.
     let leave = if on_alternate { "\x1b[?1049l" } else { "" };
-    let screen = write!(out, "{leave}{restore}").and_then(|()| out.flush());
+    // **Two segments across the `termios` boundary, and they may not be
+    // merged.** The check sits inside each of them and changes neither the
+    // order nor the all-attempt rule below: a refused segment is not written,
+    // the line discipline is still put back, the later segment is still
+    // attempted, and the first error is still the one returned. A refusal that
+    // short-circuited any of that could leave a terminal raw, which is worse
+    // than any screen it could save.
+    let first = format!("{leave}{restore}");
+    #[cfg(test)]
+    let first = {
+        let mut first = first;
+        if let Some(tamper) = TAMPER.with(std::cell::Cell::get) {
+            tamper(&mut first);
+        }
+        first
+    };
+    let screen = check_restore(&first, tmux, on_alternate, screen_size)
+        .and_then(|()| out.write_all(first.as_bytes()))
+        .and_then(|()| out.flush());
     let attrs = restore_attrs(owned);
     let cleanup = match band_top {
         // Leaves the transcript in scrollback and the cursor on a clean line.
-        Some(top) => writeln!(out, "\x1b[{top};1H\x1b[J\x1b[?25h").and_then(|()| out.flush()),
+        Some(top) => {
+            let line = format!("\x1b[{top};1H\x1b[J\x1b[?25h\n");
+            check_cleanup(&line, top, screen_size)
+                .and_then(|()| out.write_all(line.as_bytes()))
+                .and_then(|()| out.flush())
+        }
         None => Ok(()),
     };
     screen.and(attrs).and(cleanup)
+}
+
+/// The restore segment against what it says it gives back: the modes, the title
+/// stack, the plane, and a cursor the user can see.
+fn check_restore(
+    bytes: &str,
+    tmux: bool,
+    on_alternate: bool,
+    (rows, columns): (u16, u16),
+) -> io::Result<()> {
+    let plane = if on_alternate {
+        super::check::PlaneKind::Alternate
+    } else {
+        super::check::PlaneKind::Primary
+    };
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(
+            rows,
+            columns,
+            super::check::ModeSet::announced(tmux),
+            1,
+            plane,
+        ),
+        bytes.as_bytes(),
+        &super::check::Declared::new(
+            super::check::Intent::Modes {
+                modes: super::check::ModeSet::restored(tmux),
+                // **One pop, for the one push this vector is seeded against.**
+                // The seed below is a depth of one because that is what this
+                // segment is written to answer, so what is proved here is local
+                // and is exactly that: *this* vector pops once, and a restore
+                // that lost its `23;2t` is refused.
+                //
+                // It is **not** a claim about the stack's depth across a
+                // session. Unit A holds nothing between vectors by design, and
+                // the mode set is re-announced on every `SIGCONT`
+                // (`mod.rs`'s `resume`) -- each of which pushes again. A
+                // stop/continue pair is balanced, because the stop handler's
+                // own `ABNORMAL_RESTORE` carries a `23;2t` of its own; a
+                // `SIGCONT` with no stop in front of it is a separate lead for
+                // whoever takes session lifecycle on, and nothing here
+                // establishes it either way.
+                title_stack: 0,
+                plane: super::check::PlaneKind::Primary,
+                cursor_visible: Some(true),
+            },
+            // The `1049l` in front of the restore is the one transition this
+            // segment may make, and only while the band is still on the
+            // borrowed buffer: `RESTORE` carries none of its own, and a leave
+            // written by a session that never took a plane swaps in, on a
+            // terminal that models two, a screen its user was not looking at.
+            super::check::Footprint::none(super::check::PlaneKind::Primary).moving(
+                if on_alternate {
+                    super::check::PlaneMove::Give
+                } else {
+                    super::check::PlaneMove::Stay
+                },
+            ),
+        ),
+    )?;
+    Ok(())
+}
+
+/// The cleanup segment against the rows it may erase and the row it may leave
+/// the caret on.
+///
+/// The erase runs from the band's top row to the screen's last and **no
+/// higher**: everything above is the terminal's own document, and an `ED 2`
+/// here would take the user's session with it. The trailing linefeed scrolls
+/// exactly one row when the band began on the last row of the screen and none
+/// otherwise -- not "may scroll": a row that leaves the top of the screen is in
+/// native scrollback for good.
+fn check_cleanup(bytes: &str, top: u16, (rows, columns): (u16, u16)) -> io::Result<()> {
+    let scrolled = u32::from(top >= rows);
+    super::check::preflight(
+        &super::check::TerminalModel::seed_foreign(rows, columns, None),
+        bytes.as_bytes(),
+        &super::check::Declared::new(
+            super::check::Intent::Cleanup {
+                top,
+                caret: (top.saturating_add(1).min(rows), 1),
+                cursor_visible: true,
+            },
+            super::check::Footprint::new(
+                super::check::PlaneKind::Primary,
+                vec![
+                    super::check::Seg::Erase(top..=rows),
+                    super::check::Seg::Scroll { rows: scrolled },
+                ],
+            ),
+        ),
+    )?;
+    Ok(())
 }
 
 /// The terminal's dimensions, or 24x80 when it will not say. **The reading a
@@ -697,7 +848,7 @@ mod tests {
         enter_raw(input.as_fd(), &saved).expect("enter raw mode");
 
         let owned = owned_over(&input, &input, saved.clone());
-        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21), false)
+        let err = shutdown_with(&mut BrokenScreen, &owned, false, Some(21), false, (24, 80))
             .expect_err("a screen that refuses every write must be reported");
 
         assert_eq!(err.kind(), io::ErrorKind::BrokenPipe, "{err}");
@@ -716,7 +867,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, None, false, (24, 80)).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, RESTORE, "the exit wrote more than the restore");
@@ -739,7 +890,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, Some(21), false).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, Some(21), false, (24, 80)).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert_eq!(text, format!("{RESTORE}\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n"));
@@ -752,7 +903,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved);
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, true, None, false).expect("shut down");
+        shutdown_with(&mut screen, &owned, true, None, false, (24, 80)).expect("shut down");
 
         assert_eq!(
             String::from_utf8(screen).expect("the screen bytes are utf-8"),
@@ -778,7 +929,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved.clone());
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, Some(22), true).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, Some(22), true, (24, 80)).expect("shut down");
         let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
 
         assert!(
@@ -813,7 +964,7 @@ mod tests {
         let owned = owned_over(&input, &input, saved);
 
         let mut screen = Vec::new();
-        shutdown_with(&mut screen, &owned, false, None, false).expect("shut down");
+        shutdown_with(&mut screen, &owned, false, None, false, (24, 80)).expect("shut down");
 
         assert_eq!(
             String::from_utf8(screen).expect("the screen bytes are utf-8"),
@@ -993,5 +1144,192 @@ mod tests {
             ws_ypixel: 0,
         });
         assert_eq!(size_or_default(real), size_as_reported(real));
+    }
+
+    #[test]
+    fn a_cleanup_line_the_check_refuses_is_not_written_and_the_terminal_is_still_cooked() {
+        // The band's top row on a screen that no longer has one -- a `CUP` a
+        // terminal answers by clamping, silently, onto a row the exit would
+        // then erase from. The refusal costs the cleanup line and nothing else:
+        // the restore went out, the line discipline is back, and the error is
+        // reported rather than swallowed.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = Vec::new();
+        let err = shutdown_with(&mut screen, &owned, false, Some(30), false, (24, 80))
+            .expect_err("a cleanup addressed off the screen");
+
+        let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
+        assert_eq!(text, RESTORE, "the refused cleanup line was written anyway");
+        assert!(
+            err.to_string().contains("output check refused"),
+            "the exit swallowed the refusal: {err}"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "a refused cleanup line left the terminal raw"
+        );
+    }
+
+    #[test]
+    fn a_restore_that_left_the_cursor_hidden_is_refused() {
+        // `?25h` is the last sequence of every restore, and a constant is
+        // exactly where a regression hides: a session that exited with the
+        // cursor still hidden leaves the user's shell with no caret.
+        let damaged = RESTORE.replace("\u{1b}[?25h", "");
+        let refused = check_restore(&damaged, false, false, (24, 80))
+            .expect_err("a restore that kept the cursor hidden");
+        assert!(
+            refused.to_string().contains("cursor visibility"),
+            "the refusal did not name the cursor: {refused}"
+        );
+        check_restore(RESTORE, false, false, (24, 80)).expect("the restore as it stands");
+    }
+
+    #[test]
+    fn a_restore_that_leaves_a_mode_on_is_refused() {
+        // Every mode this session turned on is one the terminal's own user gets
+        // back. A restore that dropped the bracketed-paste reset would leave a
+        // shell pasting in a mode it never asked for.
+        let damaged = RESTORE.replace("\u{1b}[?2004l", "");
+        assert!(check_restore(&damaged, false, false, (24, 80)).is_err());
+    }
+
+    #[test]
+    fn a_restore_that_did_not_pop_the_title_stack_is_refused() {
+        // The window title this session set is *borrowed*: the mode set pushes
+        // the terminal's own onto its title stack and the restore pops it back.
+        // A restore that lost its pop leaves the user's window wearing a title
+        // xfx chose, and the entry behind it unreachable.
+        //
+        // **What this pins is local to this vector**: one pop against the one
+        // push it is seeded with. It says nothing about how many pushes a
+        // session that was stopped and continued has made -- Unit A keeps no
+        // state between vectors, and a depth across them would need one.
+        let damaged = RESTORE.replace("\u{1b}[23;2t", "");
+        let refused = check_restore(&damaged, false, false, (24, 80))
+            .expect_err("a restore that kept the title it borrowed");
+        assert!(
+            refused.to_string().contains("title stack"),
+            "the refusal did not name the title stack: {refused}"
+        );
+        check_restore(RESTORE, false, false, (24, 80)).expect("the restore as it stands");
+    }
+
+    #[test]
+    fn a_restore_written_while_the_borrowed_plane_is_up_must_give_it_back() {
+        // `RESTORE` carries no `1049l` on purpose, so the leave in front of it
+        // is what the plane depends on: without it every sequence after it is
+        // restored for the buffer the user is not looking at.
+        assert!(check_restore(RESTORE, false, true, (24, 80)).is_err());
+        check_restore(&format!("\u{1b}[?1049l{RESTORE}"), false, true, (24, 80))
+            .expect("the leave in front of the restore");
+    }
+
+    #[test]
+    fn a_cleanup_line_that_erased_above_the_band_is_refused() {
+        // `ED 0` erases from the caret down; an `ED 2` would take the whole
+        // screen, and everything above the band's top row is the terminal's own
+        // document -- answers the user is still reading.
+        let refused = check_cleanup("\u{1b}[21;1H\u{1b}[2J\u{1b}[?25h\n", 21, (24, 80))
+            .expect_err("an exit that erased the document");
+        assert!(
+            refused.to_string().contains("outside the footprint"),
+            "the refusal did not name the footprint: {refused}"
+        );
+        check_cleanup("\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n", 21, (24, 80))
+            .expect("the cleanup line as it stands");
+    }
+
+    #[test]
+    fn the_cleanup_lines_last_linefeed_scrolls_exactly_when_the_band_began_on_the_last_row() {
+        // From the bottom row the trailing linefeed scrolls the screen by one
+        // and the caret stays where it is; from anywhere else it walks the
+        // caret down and moves nothing. Both are asserted, because a scroll
+        // nobody declared puts a document row into native scrollback for good.
+        check_cleanup("\u{1b}[24;1H\u{1b}[J\u{1b}[?25h\n", 24, (24, 80))
+            .expect("a band that began on the last row");
+        check_cleanup("\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n", 21, (24, 80))
+            .expect("a band that began above it");
+        // And a second linefeed -- one scroll too many from the bottom row.
+        assert!(check_cleanup("\u{1b}[24;1H\u{1b}[J\u{1b}[?25h\n\n", 24, (24, 80)).is_err());
+    }
+
+    #[test]
+    fn a_restore_segment_that_moved_the_caret_is_refused() {
+        // The restore declares modes, a plane and a title stack -- it declares
+        // no caret at all, and it moves none. A `CUP` inside it puts the user's
+        // shell cursor wherever the sequence says, on a screen this session is
+        // in the middle of giving back.
+        let damaged = format!("{RESTORE}\u{1b}[5;1H");
+        let refused = check_restore(&damaged, false, false, (24, 80))
+            .expect_err("a restore that moved the caret");
+        assert!(
+            refused.to_string().contains("caret"),
+            "the refusal did not name the caret: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_restore_segment_that_erased_the_scrollback_is_refused() {
+        // The same shape as the caret above and the worst of them: `ED 3` moves
+        // no cell, so nothing about the screen's contents disagrees, and what
+        // it takes is every document row the session ever scrolled away.
+        let damaged = format!("{RESTORE}\u{1b}[3J");
+        assert!(check_restore(&damaged, false, false, (24, 80)).is_err());
+    }
+
+    #[test]
+    fn a_cleanup_line_that_erased_the_scrollback_is_refused() {
+        let damaged = "\u{1b}[21;1H\u{1b}[J\u{1b}[3J\u{1b}[?25h\n";
+        assert!(check_cleanup(damaged, 21, (24, 80)).is_err());
+    }
+
+    #[test]
+    fn a_first_segment_the_check_refuses_still_restores_the_terminal_and_attempts_the_second() {
+        // The conjunction the plan names and the first implementation left
+        // untested: it is a **check** refusal on segment one rather than a
+        // write failure, and the rule is the same -- the line discipline goes
+        // back, the cleanup line is still attempted, and the error is returned
+        // rather than swallowed. A refusal that short-circuited any of that
+        // would leave a terminal raw, which is worse than any screen it saves.
+        let (_master, input) = open_pty();
+        let saved = tcgetattr(&input).expect("read the terminal");
+        enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+        let owned = owned_over(&input, &input, saved.clone());
+
+        let mut screen = Vec::new();
+        let err = tampering(
+            |restore| {
+                // The cursor left hidden: refused by the check, and by nothing
+                // else in this function.
+                *restore = restore.replace("\u{1b}[?25h", "");
+            },
+            || shutdown_with(&mut screen, &owned, false, Some(21), false, (24, 80)),
+        )
+        .expect_err("a restore segment the check refused");
+
+        let text = String::from_utf8(screen).expect("the screen bytes are utf-8");
+        assert!(
+            !text.contains("\u{1b}[23;2t"),
+            "the refused restore segment was written anyway: {text:?}"
+        );
+        assert_eq!(
+            text, "\u{1b}[21;1H\u{1b}[J\u{1b}[?25h\n",
+            "the second segment was skipped because the first was refused"
+        );
+        assert!(
+            err.to_string().contains("output check refused"),
+            "the exit swallowed the refusal: {err}"
+        );
+        assert_eq!(
+            live(input.as_fd()),
+            words(&saved),
+            "a refused first segment left the terminal raw"
+        );
     }
 }

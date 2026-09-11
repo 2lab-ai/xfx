@@ -170,7 +170,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // around it -- `shutdown` has already run either way.
     #[cfg(feature = "fault-injection")]
     if fault::injected(fault::Fault::AfterRaw) {
-        term::shutdown(band.painted_top(), band.on_alternate())?;
+        term::shutdown(band.painted_top(), band.on_alternate(), band.screen_size())?;
         return Err(io::Error::other("the poll set could not be created"));
     }
     // The matrix row for a panic while the terminal is raw. It unwinds past
@@ -192,7 +192,7 @@ fn session(config: &crate::config::RuntimeConfig) -> io::Result<ExitCode> {
     // all. Conditional, because `RESTORE` deliberately carries no `1049l`: an
     // exit that reset a buffer it never took would swap in, on a terminal that
     // models one, a screen its user was not looking at.
-    let restored = term::shutdown(band.painted_top(), band.on_alternate());
+    let restored = term::shutdown(band.painted_top(), band.on_alternate(), band.screen_size());
     // The terminal is back, so the signals go back too -- before `wakeup` is
     // dropped, because the handlers were handed its write end and outlive it.
     signals::release();
@@ -305,7 +305,7 @@ fn hold(
                 columns,
             })
         },
-        |screen| push_scrollback(screen.cursor_row, screen.rows),
+        |screen| push_scrollback(screen.cursor_row, screen.rows, screen.columns),
         signals::take_winch,
     )?;
 
@@ -481,9 +481,9 @@ fn settle_screen(
 /// claim; this is the two lines that hand it the real one. Nothing is erased
 /// here -- what leaves the top of the screen goes into the terminal's own
 /// scrollback, where the user can still reach it.
-fn push_scrollback(cursor_row: u16, rows: u16) -> io::Result<()> {
+fn push_scrollback(cursor_row: u16, rows: u16, columns: u16) -> io::Result<()> {
     let mut out = io::stdout().lock();
-    probe::push(&mut out, cursor_row, rows)
+    probe::push(&mut out, cursor_row, rows, columns)
 }
 
 /// Announces the session on the wire.
@@ -493,17 +493,48 @@ fn push_scrollback(cursor_row: u16, rows: u16) -> io::Result<()> {
 /// bytes were written" are the same event. One function, so the ordinary path
 /// and the resume path cannot drift apart.
 fn announce(tmux: bool) -> io::Result<()> {
+    let modes = if tmux {
+        term::MODE_SET_TMUX
+    } else {
+        term::MODE_SET
+    };
+    check_announced(modes.as_bytes(), tmux)?;
     let mut out = io::stdout().lock();
-    write!(
-        out,
-        "{}",
-        if tmux {
-            term::MODE_SET_TMUX
-        } else {
-            term::MODE_SET
-        }
-    )?;
+    out.write_all(modes.as_bytes())?;
     out.flush()
+}
+
+/// What the mode set leaves behind, declared as state rather than read back out
+/// of the constant being written.
+///
+/// A mode this session turns on and never gives back, or a title stack pushed
+/// twice, is a terminal the user is left holding after xfx has gone.
+fn check_announced(bytes: &[u8], tmux: bool) -> io::Result<()> {
+    check::preflight(
+        // A mode sequence moves no cell, so the model needs no screen: anything
+        // in this vector that touched one is refused.
+        &check::TerminalModel::seed_modes(
+            1,
+            1,
+            check::ModeSet::fresh(),
+            0,
+            check::PlaneKind::Primary,
+        ),
+        bytes,
+        &check::Declared::new(
+            check::Intent::Modes {
+                modes: check::ModeSet::announced(tmux),
+                // The window title the terminal's own user set, pushed onto its
+                // title stack so the one this session sets is borrowed rather
+                // than taken.
+                title_stack: 1,
+                plane: check::PlaneKind::Primary,
+                cursor_visible: None,
+            },
+            check::Footprint::none(check::PlaneKind::Primary),
+        ),
+    )?;
+    Ok(())
 }
 
 /// What a SIGCONT means, done on the UI thread where it is allowed to allocate.
@@ -539,6 +570,7 @@ mod approval_amendment;
 mod approval_readiness;
 mod approval_screen;
 mod bridge;
+mod check;
 mod edit_history;
 mod editor;
 mod entity;

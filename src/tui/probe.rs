@@ -314,6 +314,7 @@ impl CursorProbe {
             queries.push_str(super::theme::QUERY);
         }
         queries.push_str(QUERY);
+        check_ask(queries.as_bytes(), background)?;
         out.write_all(queries.as_bytes())?;
         out.flush()
     }
@@ -523,16 +524,86 @@ pub(crate) fn scrollback_push(cursor_row: u16, rows: u16) -> u16 {
 ///
 /// A push of nothing writes nothing: there is no reason to move the shell's
 /// cursor when there is nothing above it to save.
-pub(crate) fn push(out: &mut impl Write, cursor_row: u16, rows: u16) -> io::Result<()> {
+pub(crate) fn push(
+    out: &mut impl Write,
+    cursor_row: u16,
+    rows: u16,
+    columns: u16,
+) -> io::Result<()> {
     let lines = scrollback_push(cursor_row, rows);
     if lines == 0 {
         return Ok(());
     }
-    write!(out, "\x1b[{rows};1H")?;
-    for _ in 0..lines {
-        writeln!(out)?;
-    }
+    // Built whole, checked, and then written -- **these** bytes, not a second
+    // formatting of them. Assembling into a `Vec` is formatting rather than
+    // transport, and it is what makes "the vector that was checked is the
+    // vector that went out" true for a push as well as for a frame. It costs
+    // one write where there were `lines + 1`; the byte stream is unchanged.
+    let mut bytes = Vec::with_capacity(usize::from(lines) + 16);
+    // Writing into a `Vec` cannot fail.
+    let _ = write!(bytes, "\x1b[{rows};1H");
+    bytes.extend(std::iter::repeat_n(b'\n', usize::from(lines)));
+    check_push(&bytes, lines, rows, columns)?;
+    out.write_all(&bytes)?;
     out.flush()
+}
+
+/// The launch queries, in the order the fence needs them.
+///
+/// Asserted rather than assumed: a build that reversed the two would destroy
+/// the only thing that tells a missing background reply from a late one, and a
+/// check that only asked "did any cell move" would pass it.
+fn check_ask(bytes: &[u8], background: bool) -> io::Result<()> {
+    let mut asked = Vec::with_capacity(2);
+    if background {
+        asked.push(super::check::QueryId::Background);
+    }
+    asked.push(super::check::QueryId::CursorPosition);
+    super::check::preflight(
+        // A query moves no cell, so the smallest screen a model can have is
+        // enough: anything in this vector that touched one is refused.
+        &super::check::TerminalModel::seed_modes(
+            1,
+            1,
+            super::check::ModeSet::fresh(),
+            0,
+            super::check::PlaneKind::Primary,
+        ),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Queries(&asked),
+            super::check::Footprint::none(super::check::PlaneKind::Primary),
+        ),
+    )?;
+    Ok(())
+}
+
+/// What a push says it does: `lines` rows of scroll and a caret on the bottom
+/// row, and no cell written at all.
+///
+/// The screen above the band is the shell's and its cells are unknowable, so
+/// this is the whole of what a push can honestly be checked at -- and it is
+/// exactly what a push is for. A linefeed whose `CUP` to the bottom row went
+/// missing walks the caret down and scrolls nothing; the count then disagrees,
+/// which is how the pairing is checked without matching on the bytes.
+fn check_push(bytes: &[u8], lines: u16, rows: u16, columns: u16) -> io::Result<()> {
+    super::check::preflight(
+        &super::check::TerminalModel::seed_foreign(rows, columns, None),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::ScrollOnly {
+                caret: (rows, 1),
+                rows: lines,
+            },
+            super::check::Footprint::new(
+                super::check::PlaneKind::Primary,
+                vec![super::check::Seg::Scroll {
+                    rows: u32::from(lines),
+                }],
+            ),
+        ),
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -672,7 +743,7 @@ mod tests {
     /// What the push does to a screen the shell printed `through - 1` lines on.
     fn pushed(rows: u16, through: u16) -> (Screen, Vec<u8>) {
         let mut wire = Vec::new();
-        push(&mut wire, through, rows).expect("write the push");
+        push(&mut wire, through, rows, 80).expect("write the push");
         let mut screen = Screen::shell_printed(rows, through);
         screen.feed(&wire);
         (screen, wire)
@@ -1096,5 +1167,101 @@ mod tests {
         assert_eq!(answer, None);
         // The truncated candidate included: it was typed, not answered.
         assert_eq!(probe.take_deferred(), b"hi\x1b[".to_vec());
+    }
+
+    #[test]
+    fn a_push_whose_caret_move_went_missing_is_refused() {
+        // The `CUP` to the bottom row is the whole of the mechanics: without it
+        // a linefeed walks the cursor down and the screen does not move, so the
+        // shell's output is still on the rows the band is about to open on.
+        let refused = check_push(b"\x1b[1;1H\n\n\n", 3, 24, 80)
+            .expect_err("a push that walked the caret down instead");
+        assert!(
+            refused.to_string().contains("scroll"),
+            "the refusal did not name the scroll: {refused}"
+        );
+    }
+
+    #[test]
+    fn a_push_of_one_row_too_many_is_refused() {
+        // A row over the count leaves the top of the screen for native
+        // scrollback, and no later frame can take it back.
+        let bytes = b"\x1b[24;1H\n\n\n".to_vec();
+        assert!(check_push(&bytes, 2, 24, 80).is_err());
+        check_push(&bytes, 3, 24, 80).expect("the count it declared");
+    }
+
+    #[test]
+    fn a_push_that_wrote_a_cell_is_refused() {
+        // The push may move the screen and nothing else: the rows above the
+        // band are the shell's, and this vector has no business painting one.
+        let refused = check_push(b"\x1b[24;1Hx\n", 1, 24, 80)
+            .expect_err("a push that wrote on the shell's screen");
+        assert!(
+            refused.to_string().contains("outside the footprint"),
+            "the refusal did not name the footprint: {refused}"
+        );
+    }
+
+    #[test]
+    fn the_bytes_a_push_checks_are_the_bytes_it_writes() {
+        // One vector, built once: what `check_push` was handed above is the
+        // slice `write_all` is handed, rather than a second formatting of the
+        // same intention that a check could pass while the screen got the other.
+        let mut wire = Vec::new();
+        push(&mut wire, 5, 24, 80).expect("a push the check accepted");
+        let mut expected = b"\x1b[24;1H".to_vec();
+        expected.extend(std::iter::repeat_n(b'\n', 4));
+        assert_eq!(wire, expected, "the push changed what it puts on the wire");
+    }
+
+    #[test]
+    fn a_push_reaches_the_descriptor_as_one_write_and_one_flush() {
+        // **The byte stream is unchanged and the call pattern is not**, and
+        // both halves are stated because only the first is a promise. Building
+        // the vector whole is what makes the checked bytes the written bytes;
+        // it also turns `lines + 1` formatting calls into one `write_all`, so
+        // no claim is made here that a session issues the same syscalls it did
+        // before -- this is what it issues now.
+        #[derive(Default)]
+        struct Counted {
+            writes: usize,
+            flushes: usize,
+            written: Vec<u8>,
+        }
+
+        impl Write for Counted {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.writes += 1;
+                self.written.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                self.flushes += 1;
+                Ok(())
+            }
+        }
+
+        let mut screen = Counted::default();
+        push(&mut screen, 12, 24, 80).expect("a push the check accepted");
+        assert_eq!(screen.writes, 1, "the push was written in pieces");
+        assert_eq!(screen.flushes, 1);
+        assert_eq!(
+            screen.written.iter().filter(|byte| **byte == b'\n').count(),
+            11,
+            "the rows above the cursor were not the rows pushed"
+        );
+    }
+
+    #[test]
+    fn a_query_pair_in_the_wrong_order_is_refused() {
+        // The fence: a cursor report arriving with no background reply in front
+        // of it proves the terminal has no answer only if the two went out in
+        // that order.
+        let reversed = format!("{QUERY}{}", super::super::theme::QUERY);
+        assert!(check_ask(reversed.as_bytes(), true).is_err());
+        let ordered = format!("{}{QUERY}", super::super::theme::QUERY);
+        check_ask(ordered.as_bytes(), true).expect("the order the fence needs");
     }
 }

@@ -1,7 +1,8 @@
 # xfx — TUI port
 
-Status: **Phases 1 and 2 of the MVS ladder below are in the binary, and Phase 3's items 18 and 19
-are implemented locally — in this working tree and its gate, not in a release. The rest of Phase 3
+Status: **Phases 1 and 2 of the MVS ladder below are in the binary, and Phase 3's items 18, 19, 20 and 20b are
+implemented locally — in this working tree and its gate, not in a release — with item 21 local and half-done: its
+self-check exists as a per-vector output preflight, its partial-write recovery and frame retention do not. The rest of Phase 3
 and the explicitly deferred list are still the target.** The line-oriented shell is unchanged beside it and still never
 enters raw mode: it is what a bare `xfx` runs without `XFX_TUI=1`, and `docs/parity.md`'s
 `interactive` row is its contract. The shipped TUI's contract is that file's `full-screen TUI` row,
@@ -672,8 +673,8 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     the falsification is one pty case: drive the affected keys and read what the decoder made of
     them, rather than reasoning about what a terminal would send.
 
-**Phase 3 — depth. Items 18 and 19 are implemented locally; the rest is not**, and every unmarked
-item below is a target that is advertised nowhere.
+**Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part; the
+rest is not**, and every unmarked item below is a target that is advertised nowhere.
 
 18. Delta undo/redo (100 entries / 1 MB caps, `edit_history.zig:5-6`) + the single-slot kill ring.
     **Implemented locally** (`a03d08f`), with the bounds stated rather than implied: the 100 entries and the
@@ -730,7 +731,50 @@ item below is a target that is advertised nowhere.
     [`06-qa-harness.md`](06-qa-harness.md) row 25 on a release binary and a real terminal, plus
     `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
-    recovery + frame retention.
+    recovery + frame retention. **The self-check half is implemented locally** — in this working
+    tree and its gate, in no release — and the other two halves are not implemented at all. What
+    exists is a *stateless per-vector* preflight (`src/tui/check.rs`): every vector the TUI is about
+    to write is decoded into a model of the terminal seeded from what its emitter already knows,
+    compared against an intent that emitter declares **separately from the bytes**, and refused
+    **before** `write_all` rather than after it — so the bytes that are checked are byte for byte
+    the bytes that are written, which is the whole difference between a check and a report. It is
+    stateless on purpose: nothing is carried between vectors, so a check that was wrong about one
+    frame cannot be wrong about the next one for the same reason. The comparison is whole rather
+    than sampled. The model is compared **as a value** — the plane, cursor visibility, the shown
+    title and the title stack, each mode as a **tri-state** that distinguishes *nothing has said*
+    from a default nobody measured, whether scrollback was erased, the queries asked and the saved
+    cursor — so a vector carrying a sequence its intent never claimed is refused for the claim it
+    did not make, rather than passing because the cells happened to agree. Cells are compared
+    against an expected grid built from the emitter's **inputs** (the rows, counts and geometry it
+    was handed) rather than from the bytes it produced or the effects they decoded to, because a
+    grid built from the output can only ever agree with it. Colour is compared through **two**
+    parsers, one per side: the expected side reads the slot the band recorded and the wire side
+    reads what the bytes really say, so a painter and a checker cannot share a misreading. A
+    document append is **replayed in emission order**, one step at a time in lockstep with the
+    decoder, and the top row is compared **before** each scroll evicts it: matching the final screen
+    is not enough, because what leaves the top of the screen is in the terminal's own scrollback
+    where nothing can repaint it. Effects are plane-tagged and the plane transition is declared, so
+    a write aimed at the primary buffer while the alternate one is up is refused rather than
+    averaged away; cells the emitter never authored are seeded as foreign tokens and swept, so
+    "unchanged" is a comparison rather than an absence of one. A refusal is an `io::Error` on the
+    path a write error already took: it adds no failure policy, no exit route and no counting rule
+    of its own. The preflight refusal is a new **source** of that error rather than a new kind of
+    it, the rejected segment is simply not emitted, and the `termios` restore and the later shutdown
+    attempts are preserved. **Still open, and not narrowed
+    by any of it**: the transport is unchanged, a vector the screen took only part of leaves
+    progress nobody can read, and neither partial-write recovery nor frame retention exists —
+    a refused append is still dropped rather than retried. The cost is **gated rather than
+    assumed**, because a check that cost a frame would be paid for by the screen it protects:
+    `scripts/check-tui-preflight-cost.sh` runs the two timing cases serially on a **release** build,
+    in the default and the `fault-injection` configuration, against an unchanged 8 ms / 32 ms
+    allowance, and CI runs that script as a step of its own — the ordinary parallel suite carries no
+    wall-clock assertion, since what it would measure is contention. Receipts: `src/tui/check.rs`'s
+    own cases, plus the tamper cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a **real**
+    emitter's bytes are altered at a `#[cfg(test)]` seam and the refusal is observed **before** a
+    fake writer sees them — a seam that exists for in-crate tests only and is in no binary, which is
+    also why the release-binary harness cannot drive it. There is deliberately no
+    scenario for it in [`06-qa-harness.md`](06-qa-harness.md): the scenario that closes this row is
+    the injected partial write, which is still specification there.
 22. Fixed-point layout convergence (phase 1–2 approximate it with one pass: measure footer, then
     transcript).
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.

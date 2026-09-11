@@ -126,6 +126,17 @@ jobs:
       - name: The preview publication contract holds
         run: ./scripts/check-preview-contract.sh
 
+      # The TUI output check runs in front of every frame a released binary
+      # writes, so its cost is a property of the product rather than a number in
+      # a report. It is measured here and nowhere else in this file: the two
+      # timing tests assert only under optimization, and the script runs them
+      # one at a time -- an elapsed time taken inside the parallel suite above
+      # includes whatever else the runner was doing, which is how a 20 ms case
+      # was once recorded at 133 ms. Running them alone does not give them the
+      # machine; it removes the one confound this repository controls.
+      - name: The output check still fits inside a frame's budget
+        run: ./scripts/check-tui-preflight-cost.sh
+
       - name: Release build
         run: cargo build --locked --release
 

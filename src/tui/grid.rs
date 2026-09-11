@@ -151,6 +151,21 @@ impl Grid {
         Some(start..start + usize::from(self.cols))
     }
 
+    /// One cell of this grid, read-only, or `None` when there is no such cell.
+    ///
+    /// The **one** reader this grid grew for [`super::check`], and deliberately
+    /// the only one: the checker keeps its own decoded cells and compares them
+    /// semantically, so a whole-grid equality here would either be `Cell::eq` --
+    /// the `reopen()`-based comparison the check exists to avoid -- or a second
+    /// comparison nothing else uses.
+    pub(crate) fn cell(&self, line: u16, column: u16) -> Option<&Cell> {
+        if column == 0 || column > self.cols {
+            return None;
+        }
+        let span = self.span(line)?;
+        self.cells.get(span.start + usize::from(column - 1))
+    }
+
     /// Blanks one row, as `EL` from its first column does.
     pub(crate) fn erase_row(&mut self, line: u16) {
         let Some(span) = self.span(line) else {

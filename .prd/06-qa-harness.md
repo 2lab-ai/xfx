@@ -179,6 +179,19 @@ freeform (2, rows 23 and 23b), the readiness gate (2, row 24) and an amended app
 are implemented and registered above. Still specification: commit self-check recovery under an
 injected partial write (1+2); live theme switch re-tints the transcript (2).
 
+**The self-check's first half now exists in the working tree, and it is deliberately not a scenario
+here.** The per-vector output preflight of item 21 in [`03-tui-port.md`](03-tui-port.md) refuses a
+vector *before* it is written, and what proves it is `src/tui/check.rs`'s own cases plus the tamper
+cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a real emitter's bytes are altered at a
+`#[cfg(test)]` seam and the refusal is observed before a fake writer sees them. That seam exists for
+in-crate tests only and is in no binary — including the release binary this harness drives, which is
+why the claim cannot be restated as a scenario here. The scenarios above must not be read as covering it. They are a
+**positive** regression: the screens a correct emitter leaves, on a real terminal. A mutation test
+beside them mutates the **emitter**, which is a different question from what the terminal did with
+the bytes — so neither of the two is an injected partial write, and neither closes this row.
+That scenario stays planned, and it is the one the row is waiting on: a write the screen takes only
+part of leaves progress nobody can read and a screen nobody declared, and nothing above drives one.
+
 ## Acceptance criteria per phase
 
 A phase is accepted when **all** hold:
