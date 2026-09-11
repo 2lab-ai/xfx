@@ -2054,6 +2054,64 @@ fn edit_history_undo_and_yank_on_a_real_terminal() {
 }
 
 #[test]
+fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal() {
+    // A real terminal (WezTerm, `enable_kitty_keyboard` on) was captured
+    // sending Ctrl-C, Ctrl-D and Ctrl-U as `ESC[27;5;<code>~` rather than the
+    // bare control byte the rest of this file types -- driven through the
+    // terminal's own `SendKey` action, not a physical keypress, and logged
+    // raw in `.prd/tui-phase3/loop.md:416` (R125). Replayed here
+    // literal-for-literal against a real pty: what this proves is that the
+    // captured **encoding** decodes to the same actions the bare byte already
+    // reaches elsewhere in this file, not that any particular terminal sends
+    // this spelling for this chord, which is a claim about terminals this
+    // file does not make.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    // Ctrl-U (`ESC[27;5;117~`): kill to start, the same key the bare `0x15`
+    // types in `edit_history_undo_and_yank_on_a_real_terminal`.
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+    session.type_bytes(b"\x1b[27;5;117~");
+    session.wait_until("the captured Ctrl-U to kill the line", |text| {
+        composer(text) == ">"
+    });
+
+    // Ctrl-C (`ESC[27;5;99~`) at an idle prompt: `Interrupt::Clear` throws the
+    // draft away rather than ending the session (`gesture.rs`'s idle column),
+    // the same as the bare `0x03`.
+    session.type_bytes(b"three");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> three"
+    });
+    session.type_bytes(b"\x1b[27;5;99~");
+    session.wait_until("the captured Ctrl-C to clear the idle draft", |text| {
+        composer(text) == ">"
+    });
+    assert!(
+        matches!(session.state(), Wait::Running),
+        "one idle Ctrl-C cancelled the draft, not the session"
+    );
+
+    // Ctrl-D (`ESC[27;5;100~`) on the empty composer it left: the end of the
+    // session, the same as the bare `0x04`.
+    session.type_bytes(b"\x1b[27;5;100~");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+}
+
+#[test]
 fn the_composer_stops_growing_at_half_the_content_area() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();

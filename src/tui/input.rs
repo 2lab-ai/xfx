@@ -731,9 +731,11 @@ fn csi(params: &[u8], final_byte: u8) -> Action {
             b"4" => Action::End,
             b"200" => Action::PasteStart,
             b"201" => Action::PasteEnd,
-            // The second of the two pinned Super+Z spellings, which is a
-            // **params shape** under a final byte that already carries five
-            // literal ones (`runtime.zig:3025`'s `[27;10;122~`).
+            // The second of the two pinned Super+Z spellings
+            // (`runtime.zig:3025`'s `[27;10;122~`), and also the shape a
+            // captured Ctrl-letter chord takes (`[27;5;99~` for Ctrl-C,
+            // `.prd/tui-phase3/loop.md:416`'s R125) -- both a **params shape**
+            // under a final byte that already carries five literal ones.
             _ => tilde_chord(params),
         },
         // The cursor keys, bare or with one modifier.
@@ -780,7 +782,78 @@ fn tilde_chord(params: &[u8]) -> Action {
     else {
         return Action::Ignore;
     };
+    if let Some(action) = ctrl_letter(modifier, code) {
+        return action;
+    }
     chord(code, modifier)
+}
+
+/// A Ctrl-letter, in the one shape a real terminal (WezTerm, with
+/// `enable_kitty_keyboard` on) was captured sending three of these keys in:
+/// `ESC[27;5;<ascii-code>~`, driven through the terminal's own `SendKey`
+/// action rather than a physical keypress, and logged raw in
+/// `.prd/tui-phase3/loop.md:416` (R125). Modifier `5` is ctrl alone. Only
+/// **Ctrl-C, Ctrl-D and Ctrl-U** (codes `99`, `100`, `117`) were themselves
+/// captured this way; the other fourteen arms below are extended to the same
+/// shape by protocol consistency -- the same modifier-5 tilde-chord family,
+/// the same letters `control` already binds a keystroke to -- rather than by
+/// an independent capture of each one. Only under this final byte, too --
+/// `chord`'s `CSI <code> ; <modifier> u` sibling is a different, unproven
+/// spelling and is not widened here.
+///
+/// Both parameters are matched **as bytes, in the exact shape the capture
+/// used**, the same discipline `csi`'s own doc comment states, and for a
+/// narrower reason than it first looks: a numeric parse of `code` would
+/// accept `065` for `65` and `0099` for `99` -- a leading zero does not
+/// change the value a parse folds digits into -- so those two stay refused
+/// under byte matching specifically because a parse would not have refused
+/// them. `990`, by contrast, is not a parse leniency at all: parsed as a
+/// number it is 990, not 99, so a numeric-then-compare would refuse it on
+/// its own merits too. It is tested here for a different property -- that
+/// the match is exact-length as well as exact-value, so a real code with one
+/// digit appended is not mistaken for a byte-string prefix of it. Folding
+/// the modifier into xterm's bitmask the way [`chord_modifier`] does for
+/// Super+Z would likewise accept combinations the capture never showed:
+/// `13` is Ctrl+Super under that arithmetic (mask `12` = ctrl's `4` plus
+/// super's `8`), not Ctrl+Shift, which is `6` (mask `5` = ctrl's `4` plus
+/// shift's `1`); neither was captured, which is the only reason either is
+/// refused, not which one it happens to decode as under the general scheme.
+///
+/// The table only has an arm for the letters `control` already binds a
+/// keystroke to (`a`-`f`, `h`-`n`, `p`, `u`, `w`, `y`); a letter `control`
+/// answers `Ignore` for -- `g`, `o`, `q`-`t`, `v`, `x`, `z` -- has none. That
+/// is a fact about how this table was written, not a guarantee about how it
+/// stays correct: it is a handwritten list, manually kept in step with
+/// `control`'s own `match` rather than derived from it, so a change to what
+/// `control` binds does not by itself change what this table answers -- the
+/// two have to be edited together. `Ctrl-_` is left out for the same reason
+/// `z` is bounded rather than assumed: its `27;5;95~` spelling was never
+/// captured.
+fn ctrl_letter(modifier: &[u8], code: &[u8]) -> Option<Action> {
+    if modifier != b"5" {
+        return None;
+    }
+    let byte = match code {
+        b"97" => b'a',
+        b"98" => b'b',
+        b"99" => b'c',
+        b"100" => b'd',
+        b"101" => b'e',
+        b"102" => b'f',
+        b"104" => b'h',
+        b"105" => b'i',
+        b"106" => b'j',
+        b"107" => b'k',
+        b"108" => b'l',
+        b"109" => b'm',
+        b"110" => b'n',
+        b"112" => b'p',
+        b"117" => b'u',
+        b"119" => b'w',
+        b"121" => b'y',
+        _ => return None,
+    };
+    Some(control(byte & 0x1f))
 }
 
 /// What a `z` with modifiers means (`escape_parser.zig:122-123`).
@@ -964,6 +1037,171 @@ mod tests {
         assert_eq!(csi(b"4", b'~'), Action::End);
         assert_eq!(csi(b"200", b'~'), Action::PasteStart);
         assert_eq!(csi(b"201", b'~'), Action::PasteEnd);
+    }
+
+    #[test]
+    fn captured_ctrl_c_d_u_tilde_chords_decode_to_the_bound_control_actions() {
+        // A real terminal (WezTerm, `enable_kitty_keyboard` on) was captured
+        // sending Ctrl-C, Ctrl-D and Ctrl-U as `ESC[27;5;<code>~`, modifier
+        // `5` being ctrl alone -- driven through the terminal's own `SendKey`
+        // action, not a physical keypress, and logged raw in
+        // `.prd/tui-phase3/loop.md:416` (R125). `control` is where each
+        // letter is already bound; this is the literal captured spelling,
+        // replayed straight into `csi`.
+        assert_eq!(csi(b"27;5;99", b'~'), Action::Cancel, "captured Ctrl-C");
+        assert_eq!(csi(b"27;5;100", b'~'), Action::Eof, "captured Ctrl-D");
+        assert_eq!(
+            csi(b"27;5;117", b'~'),
+            Action::KillToStart,
+            "captured Ctrl-U"
+        );
+    }
+
+    #[test]
+    fn only_the_exact_captured_shape_reaches_a_ctrl_letter() {
+        // Bounded on every axis, not just the three captured letters.
+
+        // A modifier other than the captured `5` (ctrl alone) is not
+        // decoded, even for a letter `control` binds. The modifier parameter
+        // is xterm's `1 + mask` (`csi`'s cursor-key arm above spells out the
+        // bits): `2` is shift alone, `3` is alt alone, and `13` is ctrl
+        // *and* super (mask `12` = ctrl's `4` plus super's `8`) -- Ctrl+Shift
+        // is a different value, `6` (mask `5` = ctrl's `4` plus shift's
+        // `1`), not exercised here. Neither `13` nor `6` was captured; `13`
+        // stands in for "some other combination the capture never showed".
+        assert_eq!(csi(b"27;2;99", b'~'), Action::Ignore, "shift is not ctrl");
+        assert_eq!(csi(b"27;3;99", b'~'), Action::Ignore, "alt is not ctrl");
+        assert_eq!(
+            csi(b"27;13;99", b'~'),
+            Action::Ignore,
+            "ctrl+super is unverified"
+        );
+        assert_eq!(csi(b"27;1;99", b'~'), Action::Ignore, "no modifier at all");
+
+        // A letter `control` does not bind stays `Ignore`, the same answer
+        // `control` itself gives -- this does not invent a binding `control`
+        // refused.
+        assert_eq!(
+            csi(b"27;5;103", b'~'),
+            Action::Ignore,
+            "g has no control byte"
+        );
+        assert_eq!(
+            csi(b"27;5;122", b'~'),
+            Action::Ignore,
+            "Ctrl-Z is still not undo"
+        );
+
+        // `Ctrl-_` folds to the same control byte as `z`'s Undo arm, but this
+        // shape (`27;5;95~`) was never captured against the live encoder, so
+        // it stays refused rather than assumed.
+        assert_eq!(
+            csi(b"27;5;95", b'~'),
+            Action::Ignore,
+            "Ctrl-_ is unverified here"
+        );
+
+        // Every spelling of Ctrl-C's code that is not the exact captured
+        // bytes `99`, refused for two different reasons. A leading zero
+        // (`099`) and an oversized leading zero (`0099`) are the genuine
+        // numeric-parse-leniency case: a numeric parse folds digits into a
+        // value and does not care how many leading zeros came first, so
+        // both would parse to `99` and be wrongly accepted -- byte-exact
+        // matching is what refuses them here. A trailing digit (`990`), no
+        // code at all, and Kitty's colon-separated event-qualifier suffix
+        // for a release or a repeat (`99:2`) are not that: `990` parses to
+        // a different number than `99`, and an empty or suffixed field
+        // does not parse as `99` either, so a numeric parse would have
+        // refused these three on its own merits too. They are tested here
+        // for a different property -- that the match is exact-length and
+        // exact-shape, not just exact-value, so none of these is mistaken
+        // for a byte-string prefix or extension of the real code.
+        assert_eq!(
+            csi(b"27;5;099", b'~'),
+            Action::Ignore,
+            "a leading zero is not the canonical spelling"
+        );
+        assert_eq!(
+            csi(b"27;5;0099", b'~'),
+            Action::Ignore,
+            "a leading zero, oversized too"
+        );
+        assert_eq!(
+            csi(b"27;5;990", b'~'),
+            Action::Ignore,
+            "a trailing digit is a different code"
+        );
+        assert_eq!(csi(b"27;5;", b'~'), Action::Ignore, "no code at all");
+        assert_eq!(
+            csi(b"27;5;99:2", b'~'),
+            Action::Ignore,
+            "a release/repeat event-qualifier suffix, not a plain code"
+        );
+
+        // A fourth field is refused the same way it already is for Super+Z
+        // (`everything_else_under_the_two_families_is_ignored`), because the
+        // shape check is `tilde_chord`'s, upstream of the letter lookup.
+        assert_eq!(csi(b"27;5;99;1", b'~'), Action::Ignore, "a fourth field");
+
+        // The `u` final byte is not given the same widening: only the tilde
+        // shape that was actually captured decodes a Ctrl letter.
+        assert_eq!(
+            csi(b"99;5", b'u'),
+            Action::Ignore,
+            "the u final byte stays Super+Z only"
+        );
+    }
+
+    #[test]
+    fn a_captured_ctrl_letter_split_across_reads_decodes_once() {
+        // The same one-byte-at-a-time discipline
+        // `a_redo_sequence_split_across_reads_decodes_once` proves for the
+        // two Super+Z spellings, proved here for the three captured
+        // Ctrl-letter tilde chords -- `feed` is a byte at a time, which is
+        // the shape a terminal really delivers a chord in.
+        for (sequence, action) in [
+            (&b"\x1b[27;5;99~"[..], Action::Cancel),
+            (&b"\x1b[27;5;100~"[..], Action::Eof),
+            (&b"\x1b[27;5;117~"[..], Action::KillToStart),
+        ] {
+            let mut decoder = Decoder::new();
+            let now = Instant::now();
+            let mut out = Vec::new();
+            for byte in sequence {
+                decoder.feed(*byte, now, &mut out);
+            }
+            assert_eq!(
+                out,
+                vec![Input::Action(action)],
+                "{sequence:?} did not decode to one {action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pasted_captured_ctrl_letter_is_content_not_a_cancel() {
+        // Paste is data, not keys (module doc, "Paste is data, not keys"):
+        // the captured Ctrl-C spelling between the paste markers comes back
+        // byte for byte as `PasteByte`, the same as `0x03` already does in
+        // `a_paste_still_owns_every_byte_between_its_markers`, and not as
+        // `Action::Cancel`.
+        let out = decode(b"\x1b[200~\x1b[27;5;99~\x1b[201~");
+        let pasted: Vec<u8> = out
+            .iter()
+            .filter_map(|event| match event {
+                Input::PasteByte(byte) => Some(*byte),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pasted,
+            b"\x1b[27;5;99~".to_vec(),
+            "a captured Ctrl-C inside a paste was decoded instead of pasted"
+        );
+        assert!(
+            !out.contains(&Input::Action(Action::Cancel)),
+            "a pasted Ctrl-C cancelled something: {out:?}"
+        );
     }
 
     #[test]
