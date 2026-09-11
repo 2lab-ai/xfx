@@ -84,9 +84,13 @@ exact restore path. Everything below is written to make that obligation testable
   (`frame_surface.zig:11-29,116-190`), with a per-cell owner policy on write (`:236`).
 - **Layout** is `rows/cols/content_bottom/divider/input/hint` (`terminal.zig:47-59`);
   `frame_layout.solve` places transcript/footer/activity (`frame_layout.zig:156-300`) and
-  `footer_layout.resolve` places rows inside the footer (`footer_layout.zig:3-39`). Because footer
-  height and transcript occupancy are mutually dependent, upstream converges candidates with a
-  **fixed-point iteration** (`app_render_runtime.zig:3294-3420`).
+  `footer_layout.resolve` places rows inside the footer (`footer_layout.zig:3-39`). The
+  *requested* footer measurement is taken once before the fixed-point loop and is not
+  recomputed from the candidate (`app_render_runtime.zig:1762-1767,1873`); what the loop
+  (`frame_fixed_point.zig:21-93`) actually re-solves is the transcript's occupied extent and
+  the release floor (`app_render_runtime.zig:1833-1878,3352-3453`), moving ownership -- though
+  the allocated footer height remains constrained by `available_rows`
+  (`frame_layout.zig:413-418`, `surface_frame.zig:780-801`).
 - **A shadow VT is the single source of truth for what is on the terminal.** A bounded in-process
   engine (`src/core/terminal/engine.zig:1-3,222,489`) is fed *every byte xfx writes*
   (`app_lifecycle.zig:1069-1080`), and the frame commit diffs the target surface against it

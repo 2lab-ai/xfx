@@ -14,12 +14,16 @@
 //! every row number below a unit test rather than a claim about the window the
 //! developer happened to have open.
 //!
-//! **One pass, not a fixed point.** Upstream re-solves until the composer's row
-//! count and the content area it is measured against agree
-//! (`input_presentation.zig:201-205`); this phase solves once, from the row
-//! count it is handed, and [`input_row_limit`] measures the cap against the
-//! content area a *one-row* composer leaves. The two answers differ only for a
-//! composer already at the cap, and the convergence is Phase 3 item 22.
+//! **One pass, not a fixed point.** Upstream's fixed point re-solves the
+//! transcript's occupied extent and release floor until ownership stops moving
+//! (`frame_fixed_point.zig:21-93`); the *requested* footer measurement is taken
+//! once before the loop and is not recomputed from the candidate
+//! (`app_render_runtime.zig:1762-1767,1873`, consumed at `:1833-1878,3352-3453`),
+//! though the allocated footer height remains constrained by `available_rows`
+//! (`frame_layout.zig:413-418`, `surface_frame.zig:780-801`). This phase solves
+//! once against xfx's own bottom-anchored geometry and Band's carry/release --
+//! not upstream's solver -- and Phase 3 item 22's consistency/convergence
+//! outcome remains open.
 
 /// The rows the composer starts with, before anything has been typed into it.
 pub(crate) const INITIAL_INPUT_ROWS: u16 = 1;
