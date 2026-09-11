@@ -93,7 +93,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::Palette;
-use super::transcript::{Append, Transcript};
+use super::transcript::{Append, Landed, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
@@ -416,8 +416,14 @@ pub(crate) struct Shell {
     /// across two, a paste that spans a hundred. A decoder made per read would
     /// begin each of them again.
     decoder: Decoder,
-    /// The answer text that has not ended its line yet, and the rows it has put
-    /// on the screen.
+    /// The answer text that has not ended its line yet, the rows it has put on
+    /// the screen, and every write the document is owed and has not been given.
+    ///
+    /// The owed writes live there rather than here, as the **text** they were
+    /// made of, because what they cost the screen is a function of how wide the
+    /// screen is when they are written -- and a row measured here, against the
+    /// width the session happened to have when the delta arrived, is a row the
+    /// terminal clips after a resize it never saw (`super::transcript`).
     transcript: Transcript,
     /// What the runtime has produced and the document has not been given yet.
     ///
@@ -443,12 +449,6 @@ pub(crate) struct Shell {
     enqueued: usize,
     /// How many of them have reached the transcript.
     emitted: usize,
-    /// The document writes this session owes, oldest first.
-    ///
-    /// A `Vec` rather than one `Append`, because two pushes can land between
-    /// two frames and their scrolls do not merge: the second one's rows are
-    /// measured against a screen the first one already moved.
-    pending: Vec<Append>,
     /// Where a submitted line goes.
     work: WorkHandle,
     /// What the keystroke before this one was, for the two keys whose second
@@ -684,7 +684,6 @@ impl Shell {
             marks: VecDeque::new(),
             enqueued: 0,
             emitted: 0,
-            pending: Vec::new(),
             work,
             gestures: Gestures::default(),
             notice: None,
@@ -979,68 +978,65 @@ impl Shell {
     // The composer's submit is the first caller -- it echoes the line the user
     // sent so the loop is visibly closed -- and Task 12's deltas are the next.
     pub(crate) fn write_transcript(&mut self, text: &str) {
-        let append = self.transcript.push(text);
-        self.owe(append);
+        if self.transcript.queue_push(text) {
+            self.owed();
+        }
     }
 
     /// Ends the transcript's current line, leaving it in the document.
     // The composer's submit is the first caller, and Task 12's end-of-turn is
     // the next: a turn ends whether or not the last delta carried a newline.
     pub(crate) fn end_transcript_line(&mut self) {
-        let append = self.transcript.end_line();
-        self.owe(append);
+        if self.transcript.queue_end_line() {
+            self.owed();
+        }
     }
 
-    /// Records a document write, unless it is one that would write nothing.
+    /// Asks for the frame a document write owes.
     ///
-    /// The guard is not tidiness: an append that scrolls nothing and writes no
-    /// rows would still cost the loop a frame, and a frame the band did not
-    /// need is a repaint of the whole band on a link that may be a serial line.
-    fn owe(&mut self, append: Append) {
-        if append.scroll == 0 && append.rows.is_empty() {
-            return;
-        }
-        self.pending.push(append);
+    /// Only for a write that will really put something on the screen, and the
+    /// guard is not tidiness: an operation that scrolls nothing and writes no
+    /// rows -- ending a line the screen already has -- would still cost the
+    /// loop a frame, and a frame the band did not need is a repaint of the
+    /// whole band on a link that may be a serial line.
+    fn owed(&mut self) {
         // An append scrolls the screen out from under the band, so the frame
         // that follows it is not optional.
         self.render.request(Reason::Transcript);
     }
 
-    /// Takes the document writes this session owes, oldest first.
-    pub(crate) fn take_pending(&mut self) -> Vec<Append> {
-        std::mem::take(&mut self.pending)
-    }
-
-    /// Whether the **primary** plane is owed rows that have not been written.
+    /// Whether the **primary** plane is owed anything that has not been
+    /// written.
     ///
-    /// Asked without taking them, by the one thing that has to know before it
+    /// Asked without taking it, by the one thing that has to know before it
     /// decides what to write: the frame that would hand the terminal to a
     /// question on the other buffer, where a document row cannot be written at
     /// all (`super::event_loop`'s `commit_frame`). Text the pacer is still
     /// holding is deliberately **not** counted -- it is not a row yet, and it
     /// waits for its own release whichever plane the session is on.
     pub(crate) fn owes_document(&self) -> bool {
-        !self.pending.is_empty()
+        self.transcript.owes()
     }
 
-    /// Gives back writes the loop never landed: appends it never attempted,
-    /// and one it attempted but proved -- by its `Emit` -- moved zero bytes.
+    /// Offers the oldest thing the document is owed to the terminal, measured
+    /// at the width the screen has **now**.
     ///
-    /// [`Self::take_pending`] hands over **everything** owed, and a loop that
-    /// stops part-way through the batch -- a refused write ends the tick -- is
-    /// holding rows that moved no bytes at all. They are still owed: Phase 1
-    /// never repaints a document row, so a batch dropped on the floor here is
-    /// gone from the session for good.
+    /// `None` when nothing is owed. The writer is the caller's, because the
+    /// loop owns the terminal; what is written is the transcript's, because
+    /// only it knows what text has not landed and what the rows it makes are
+    /// worth. One operation per call: what the terminal took decides whether
+    /// the next one may be offered at all, and that is the caller's question
+    /// (`super::event_loop`'s `commit_document`).
     ///
-    /// **Ahead of anything owed since**, which is where they were. The document
-    /// is a sequence, and a row that lands after one queued behind it is as
-    /// wrong as a row that never lands.
-    pub(crate) fn restore_pending(&mut self, untried: Vec<Append>) {
-        if untried.is_empty() {
-            return;
-        }
-        let queued_since = std::mem::replace(&mut self.pending, untried);
-        self.pending.extend(queued_since);
+    /// The rows do not outlive the call, which is what keeps them honest --
+    /// nothing can resize, clear or repaint between the moment they are
+    /// measured and the moment they are written, because this borrows the whole
+    /// shell for exactly that long.
+    pub(crate) fn emit_document_front<E>(
+        &mut self,
+        emit: impl FnOnce(&Append) -> Landed<E>,
+    ) -> Option<Result<(), E>> {
+        self.transcript.emit_front(emit)
     }
 
     /// Shows what the runtime just did.
@@ -2190,11 +2186,17 @@ impl Shell {
     ///
     /// The guard is the difference between "end the line" and "leave a blank
     /// row": a transcript already at the start of a line has no unfinished row,
-    /// and [`Transcript::end_line`] answers a second request for one with a
-    /// blank row of its own -- which is right for two breaks in an answer and
-    /// wrong for two notices in a row.
+    /// and ending one there answers with a blank row of its own -- which is
+    /// right for two breaks in an answer and wrong for two notices in a row.
+    ///
+    /// Asked of the transcript as it will be once everything queued has landed
+    /// ([`Transcript::open_line`]) rather than as the terminal has it. The two
+    /// differ exactly when a notice is written while an answer is still waiting
+    /// for a screen -- which is the case this guard is for -- and the committed
+    /// answer there would say "no line is open" about an answer that has one,
+    /// and put the notice on the end of its sentence.
     fn finish_document_line(&mut self) {
-        if self.transcript.tail_rows() > 0 {
+        if self.transcript.open_line() {
             self.end_transcript_line();
         }
     }
@@ -3178,10 +3180,13 @@ impl Shell {
     /// is reset, because it counts the rows it has put on the screen and every
     /// one of them is about to stop existing -- an append measured against the
     /// old count would place its rows around a row that is no longer there. And
-    /// the document writes already owed are **dropped**, because they were owed
-    /// against that same screen.
+    /// the document writes already owed are **dropped** with it, because they
+    /// were owed against that same screen.
+    ///
+    /// One statement for both, and that is the point: the owed text lives in
+    /// the transcript, so there is no second place to forget to empty and no
+    /// order between them to get wrong.
     fn clear_screen(&mut self) {
-        self.pending.clear();
         self.transcript = Transcript::new(self.geometry.cols);
         // The stream goes with them, and it is the one place this session
         // drops text the runtime produced. The rows it was going to be written
@@ -3541,10 +3546,34 @@ mod tests {
     }
 
     impl Fixture {
+        /// Everything the document owes, landed onto a terminal that takes
+        /// everything, as the appends it was offered.
+        ///
+        /// What the loop's own drain does (`super::super::event_loop`'s
+        /// `commit_document`) with the one screen a shell test can promise: the
+        /// cases here are about *what* is owed and at what width, and the
+        /// terminal's refusals are the loop's cases rather than these.
+        ///
+        /// An operation that asks the terminal for nothing -- ending a line the
+        /// screen already has -- is landed without being offered, so it appears
+        /// here as nothing at all. That is the same thing the old queue said by
+        /// never holding it.
+        fn take_pending(&mut self) -> Vec<Append> {
+            let mut offered = Vec::new();
+            while self
+                .shell
+                .emit_document_front(|append| {
+                    offered.push(append.clone());
+                    Landed::<std::convert::Infallible>::All
+                })
+                .is_some()
+            {}
+            offered
+        }
+
         /// Everything the document owes, as the text of its rows.
         fn document(&mut self) -> Vec<String> {
-            self.shell
-                .take_pending()
+            self.take_pending()
                 .into_iter()
                 .flat_map(|append| append.rows)
                 .collect()
@@ -3954,6 +3983,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn text_owed_to_the_document_is_wrapped_for_the_screen_it_is_written_on() {
+        // The same claim across a resize the text lived through. A write is
+        // queued on this side of the divider and lands when the loop has a
+        // screen to write it on (`super::event_loop`'s `commit_document`); a
+        // resize in between is a screen the text has never been on, so it is
+        // measured against the one it really lands on. Rows frozen at the old
+        // width are clipped by the painter, and this phase never repaints a
+        // document row.
+        let mut shell = shell(24, 80);
+        shell.write_transcript(&"x".repeat(25));
+
+        assert_eq!(shell.resize(24, 20), Resize::Repaint(shell.geometry));
+
+        assert_eq!(
+            shell.take_pending(),
+            vec![Append {
+                scroll: 2,
+                rows: vec!["x".repeat(20), "x".repeat(5)]
+            }],
+            "the text was written as the one 25-column row the wider screen \
+             would have given it"
+        );
+    }
+
+    #[test]
+    fn a_line_that_ended_on_its_own_break_is_not_ended_a_second_time() {
+        // The empty-tail case, which the projection has to answer the same way
+        // the committed state used to: text ending in a break leaves the row
+        // its successor starts on open, so finishing the line there writes
+        // nothing -- and must ask for no frame either. The alternative is a
+        // blank row in the document for every notice that follows a paragraph.
+        let mut shell = shell(24, 80);
+        let _first = shell.render.begin().expect("the first frame");
+        shell.write_transcript("abc\n");
+        assert_eq!(
+            shell.take_pending(),
+            vec![Append {
+                scroll: 2,
+                rows: vec!["abc".to_string(), String::new()]
+            }]
+        );
+        let _asked = shell.render.begin().expect("the frame the write asked for");
+
+        shell.finish_document_line();
+        assert!(
+            shell.take_pending().is_empty(),
+            "a line that ended on its own break was given a second blank row"
+        );
+        assert!(
+            shell.render.begin().is_none(),
+            "a whole-band repaint was asked for by a write that wrote nothing"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // the composer
     // -----------------------------------------------------------------------
@@ -4085,19 +4169,32 @@ mod tests {
     }
 
     #[test]
-    fn writes_given_back_unattempted_go_ahead_of_the_ones_owed_since() {
-        // The loop takes the whole batch and can stop part-way through it when
-        // the terminal refuses one (`super::event_loop::commit_frame`), so what
-        // comes back was never offered to the screen. It comes back *in front*:
-        // the tick that gives it back has already applied this tick's events,
-        // and a document is a sequence -- a row that lands after one queued
-        // behind it is as wrong as a row that never lands.
+    fn a_write_the_terminal_refused_stays_in_front_of_the_ones_owed_since() {
+        // The claim `restore_pending` used to keep, now kept by the queue's own
+        // shape: the loop can stop part-way through what is owed when the
+        // terminal refuses a write (`super::event_loop::commit_document`), and
+        // the tick that discovers it has already applied that tick's events. A
+        // document is a sequence -- a row that lands after one queued behind it
+        // is as wrong as a row that never lands -- so the refused one is still
+        // the oldest thing owed.
         let mut shell = shell(24, 80);
         shell.write_transcript("older\n");
-        let untried = shell.take_pending();
-        assert_eq!(untried.len(), 1, "the fixture owes one write, not a batch");
+        let refused = shell.shell.emit_document_front(|append| {
+            assert_eq!(
+                append.rows.first().map(String::as_str),
+                Some("older"),
+                "the oldest write is not what was offered: {append:?}"
+            );
+            Landed::None(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "not now",
+            ))
+        });
+        assert!(
+            matches!(refused, Some(Err(_))),
+            "a refusal was not reported to the loop: {refused:?}"
+        );
         shell.write_transcript("newer\n");
-        shell.restore_pending(untried);
 
         // The text of each write, in the order the document is owed them. Only
         // the first row of each is named: a break also opens the empty line
@@ -8041,7 +8138,7 @@ mod tests {
         ));
         shell.shell.flush_paced();
         assert!(
-            !shell.shell.pending.is_empty(),
+            shell.shell.owes_document(),
             "nothing was owed to begin with"
         );
         // And a second answer still in the pacer, which is the fourth thing a

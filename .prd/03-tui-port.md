@@ -785,11 +785,36 @@ rest is not**, and every unmarked item below is a target that is advertised nowh
     replayed and nothing re-establishes a frame from a prefix. Parser recovery and the upstream
     retained-body reuse this row does not attempt each remain open independently of that. Locally,
     and not yet published in any released or merged contract (`src/tui/event_loop.rs`'s
-    `commit_document`/`commit_frame`, `Shell::restore_pending`, `Shell::restore_clearing`): a
+    `commit_document`/`commit_frame`, `src/tui/transcript.rs`'s queue, `Shell::restore_clearing`): a
     `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —
     remains queued for the next eligible output attempt under the existing budget, oldest first,
-    rather than being dropped. Untested here: a retried append's rows were wrapped against the
-    geometry held at enqueue time, and a resize before the retry lands may leave them mismatched.
+    rather than being dropped. **And the rows a retained append writes are measured when it writes
+    them.** What that queue holds is the raw logical operation — the text a delta carried, and the
+    fact that a line ended — rather than the rows it makes (`src/tui/transcript.rs`'s `Op`,
+    `queue_push`, `queue_end_line`); the rows are built from the committed tail at the width the
+    screen has **at the moment of the write**, inside the one call that offers them
+    (`Transcript::emit_front`), and the candidate tail and row count are adopted after a **complete**
+    emit or for a logical operation that writes no bytes at all (an end of line the screen already
+    has); a width change re-measures the already-committed open tail by the **existing** behavior
+    above. So a `Rejected` or a `ZeroProgress` leaves that state exactly as it was and the next
+    attempt re-wraps the same text for the screen it really lands on. What the change reaches is
+    **queued operations the terminal has not accepted**, and nothing else: the rendered-tail resize
+    assumption above is unchanged and no completed line is replayed out of native history. The red case
+    was deterministic and in-module: a 90-character line queued at 80 columns, refused with zero
+    progress, the screen narrowed to 40 before the retry — the retry's rows were clipped to the new
+    width and the middle forty columns (`B`×40) were absent from the session for good, since this
+    phase repaints no document row. It now lands as three rows, each exactly once and in the line's
+    own order, with cases beside it for the no-resize control, the widening direction, a first frame
+    that resizes before anything has been written, a write that already landed not being offered
+    again, ordering against what was queued since, blank lines and paragraphs, CRLFs split across
+    pushes at every offset, and a line ended while its text is still queued. **None of that is
+    published either**, and none of it widens the boundaries above: no fixed-point layout
+    convergence, no parser recovery, no upstream retained-body reuse, still no partial-write
+    recovery — a `Partial` drops its operation and adopts no state from it. What has no
+    release-binary scenario is this exact schedule: a zero-progress refusal, then a resize, then the
+    retry. The containment row 3c below is a release-binary scenario and stays one. The
+    zero-progress refusal → resize → retry schedule is covered by in-crate tests in
+    `src/tui/transcript.rs` and `src/tui/event_loop.rs`, not by a standalone CLI PTY scenario.
     The cost is **gated rather than
     assumed**, because a check that cost a frame would be paid for by the screen it protects:
     `scripts/check-tui-preflight-cost.sh` runs the two timing cases serially on a **release** build,

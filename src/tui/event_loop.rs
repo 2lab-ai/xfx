@@ -74,6 +74,7 @@ use super::frame::{Band, Commit};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
 use super::signals::{self, Held, Wakeup};
+use super::transcript::Landed;
 use super::worker::{self, Worker};
 
 /// The fixed tick. A turn that nothing woke still comes round this often, which
@@ -1027,43 +1028,49 @@ fn commit_document(
     // where it belongs. And the rows are the *document's*, not the band's: a
     // tick that had nothing to repaint would otherwise hold them forever.
     //
-    // Whether a refused append is owed again depends on its `Emit`, not on
-    // where in the batch it sits. `Rejected` and `ZeroProgress` both moved no
-    // bytes -- the terminal is exactly as it was -- so the failed append and
-    // everything behind it stay owed, under the existing (unchanged) frame
-    // budget below. `Partial` already put a prefix of its vector on the
-    // terminal, so it is fatal on the spot (`disposed` sends it straight to
-    // `Some`, bypassing the budget): its bytes are never replayed, and only
-    // the untried suffix behind it -- rows that were never offered to the
-    // terminal and cannot have moved it -- is retained. Dropped here that
-    // suffix would be gone for good, because Phase 1 never repaints a document
-    // row.
-    let mut owed = shell.take_pending();
-    let mut index = 0;
-    while index < owed.len() {
-        let append = &owed[index];
-        if let Err(emit) = band.append_document(out, append.scroll, &append.rows, &shell.geometry) {
-            // Where the batch resumes depends on whether the failed one moved
-            // any bytes. `Rejected` and `ZeroProgress` both consumed none --
-            // the terminal is exactly as it was -- so the append itself is
-            // still owed and resumes *at* its own index. A `Partial` already
-            // put some of its vector on the terminal: repeating it would put
-            // that prefix down twice, so only what follows it -- which never
-            // reached the terminal at all -- resumes, at `index + 1`. Either
-            // way the ones behind it, oldest first, go back in front of
-            // whatever has been owed since.
-            let resume_at = match &emit {
-                Emit::Rejected(_) | Emit::ZeroProgress(_) => index,
-                Emit::Partial { .. } => index + 1,
-            };
-            let untried = owed.split_off(resume_at);
-            shell.restore_pending(untried);
+    // **One operation at a time, and each one measured as it is written.** The
+    // shell hands over rows rather than text ([`Shell::emit_document_front`]),
+    // and it builds them from the width the screen has at the moment of the
+    // call -- so a write refused on one tick and retried on the next, across a
+    // resize, is re-wrapped for the screen it really lands on. Taking the whole
+    // batch up front, as this did, froze every row at the width the delta
+    // happened to arrive at: the painter clips them to the columns there are
+    // now, and this phase never repaints a document row, so the overhang was
+    // gone from the session rather than from the frame.
+    //
+    // Whether a refused operation is owed again depends on its `Emit`.
+    // `Rejected` and `ZeroProgress` both moved no bytes -- the terminal is
+    // exactly as it was -- so it and everything behind it stay owed, under the
+    // existing (unchanged) frame budget below, and the next attempt measures
+    // them again. `Partial` already put a prefix of its vector on the terminal,
+    // so it is fatal on the spot (`disposed` sends it straight to `Some`,
+    // bypassing the budget): its bytes are never replayed and the state it
+    // would have produced is never adopted, while what was queued behind it --
+    // never offered to the terminal, so it cannot have moved it -- is kept.
+    // Dropped here that suffix would be gone for good.
+    //
+    // The geometry is copied once, before the loop: the shell is borrowed for
+    // each call, and nothing between the measurement and the write may change
+    // the screen it is about -- which is exactly the promise being kept here.
+    let geometry = shell.geometry;
+    while let Some(landed) = shell.emit_document_front(|append| {
+        match band.append_document(out, append.scroll, &append.rows, &geometry) {
+            Ok(()) => Landed::All,
+            Err(emit) => {
+                if matches!(emit, Emit::Partial { .. }) {
+                    Landed::Prefix(emit)
+                } else {
+                    Landed::None(emit)
+                }
+            }
+        }
+    }) {
+        if let Err(emit) = landed {
             return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(false),
             };
         }
-        index += 1;
     }
     // **A scroll is a reason for a frame.** The rows that just landed moved the
     // band's own out from under the coordinates the last frame put them at, so
@@ -1331,6 +1338,7 @@ mod tests {
     // `render_request::tests::the_resize_debounce_is_fifty_milliseconds` is --
     // and a second literal here would have to be kept correct beside it.
     use super::super::render_request::RESIZE_DEBOUNCE;
+    use super::super::transcript::Append;
 
     use crate::config::{Environment, RuntimeConfig};
 
@@ -1399,6 +1407,29 @@ mod tests {
     impl std::ops::DerefMut for Fixture {
         fn deref_mut(&mut self) -> &mut Shell {
             &mut self.shell
+        }
+    }
+
+    impl Fixture {
+        /// Everything the document owes, landed onto a terminal that takes
+        /// everything, as the appends it was offered.
+        ///
+        /// What [`commit_document`] does with a sink that never refuses, for
+        /// the cases that are about *what* was owed rather than about what the
+        /// terminal did with it. The rows are measured at the width the shell
+        /// has when this is called, which is the property under test wherever a
+        /// resize sits between the text and this call.
+        fn take_pending(&mut self) -> Vec<Append> {
+            let mut offered = Vec::new();
+            while self
+                .shell
+                .emit_document_front(|append| {
+                    offered.push(append.clone());
+                    Landed::<std::convert::Infallible>::All
+                })
+                .is_some()
+            {}
+            offered
         }
     }
 
@@ -2954,6 +2985,453 @@ mod tests {
             out.written.is_empty(),
             "the resize left the band repainting whole for ever: {:?}",
             String::from_utf8_lossy(&out.written)
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // text that has not landed is wrapped for the screen it lands on
+    // -------------------------------------------------------------------
+    //
+    // The defect these were written red against: rows were measured when the
+    // delta *arrived* and held as frozen strings until a tick could write
+    // them. A write refused on one tick is retried on the next
+    // (`commit_document`), and a screen that narrowed in between got rows
+    // wrapped for the screen it used to be -- which
+    // `Band::append_document` -> `render_append` -> `place` -> `row_text` ->
+    // `clip` (`frame.rs:1533,1156,1626,1696,1758`) cuts to `geometry.cols`
+    // **as it is now**. A row wrapped to 80 columns and clipped to 40 does not
+    // get a second, narrower row for what fell off the end, and Phase 1 never
+    // repaints a document row: the overhang was gone from the session rather
+    // than from the frame.
+    //
+    // The repair is that the transcript keeps the **text** until the terminal
+    // takes it and measures it inside the write itself
+    // (`Transcript::emit_front`), so the width a row is wrapped at is always
+    // the width it is written at. Only text the terminal has really seen is
+    // left alone by a resize, which is the boundary `resize_unfinished`
+    // already drew for the open tail.
+
+    #[test]
+    fn a_refusal_that_outlives_a_narrowing_resize_is_rewrapped_for_the_screen_the_retry_lands_on() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+
+        // One finished line, three distinct marker blocks so a partial loss
+        // names exactly what went missing. At the fixture's 80-column start
+        // this single (space-free) word hard-wraps at cols 80 -- word rule
+        // `wrap.rs:213-221` -- into exactly `"A"*40 + "B"*40` and `"C"*10`,
+        // with no clipping yet: 80 columns holds 80 cells.
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        shell.write_transcript(&format!("{a}{b}{c}\n"));
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a zero-progress refusal is not fatal");
+        assert!(
+            screen.written.is_empty(),
+            "the refusal must not have moved a single byte -- otherwise this \
+             case is testing `Partial`, not `ZeroProgress`"
+        );
+
+        // The screen narrows to 40 columns strictly between the refusal and
+        // the retry -- the same window `resize_unfinished` answers for the
+        // *tail*, and which this text, never offered to any terminal, is
+        // entitled to as well.
+        shell.render.mark_resize(start);
+        let asked = std::cell::Cell::new(0usize);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 40), &asked),
+        );
+
+        // After the debounce the resize was resolved at, because that is the
+        // order the loop can really produce: a retry timed before the resize
+        // it is retrying across is a clock no session runs on, and the budget
+        // `commit_frame` measures against would be reading it backwards.
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 58),
+            Reconciled,
+        )
+        .expect("the retry");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        // Not asserted through `frame::clip`/`row_text` -- that would be the
+        // clipping helper grading its own homework. This reads the literal
+        // bytes the sink received, the same way every other case in this
+        // module tells a landed row from a dropped one.
+        for (marker, what) in [
+            (&a, "the first 40 columns, which no width ever moved"),
+            (
+                &b,
+                "the middle 40, which only a re-wrap for the narrower screen \
+                 can place -- clipping the 80-column row loses it for good",
+            ),
+            (&c, "the tail of the line, on a row of its own"),
+        ] {
+            assert_eq!(
+                text.matches(marker.as_str()).count(),
+                1,
+                "{what}: expected exactly once in {text:?}"
+            );
+        }
+        // And in the order the line was written in. Three rows that each
+        // landed once but in the wrong order is a different defect with the
+        // same marker count.
+        let (at_a, at_b, at_c) = (
+            text.find(a.as_str()).expect("the first marker"),
+            text.find(b.as_str()).expect("the second marker"),
+            text.find(c.as_str()).expect("the third marker"),
+        );
+        assert!(
+            at_a < at_b && at_b < at_c,
+            "the re-wrapped rows did not keep the order of the line they came \
+             from: {text:?}"
+        );
+    }
+
+    #[test]
+    fn text_queued_before_the_first_frame_is_wrapped_for_the_screen_that_frame_paints() {
+        // The same guarantee without a refusal in it: a session whose terminal
+        // reports its real size only after the first delta has been applied --
+        // a `SIGWINCH` a pty delivers on attach, or a multiplexer settling.
+        // Nothing has been offered to any terminal yet, so every row is owed at
+        // the width the first frame is painted at.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut screen = screen();
+        let start = Instant::now();
+
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        shell.write_transcript(&format!("{a}{b}{c}\n"));
+
+        shell.render.mark_resize(start);
+        let asked = std::cell::Cell::new(0usize);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 40), &asked),
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 58),
+            Reconciled,
+        )
+        .expect("the first frame");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        for marker in [&a, &b, &c] {
+            assert_eq!(
+                text.matches(marker.as_str()).count(),
+                1,
+                "a row of the first line was clipped or repeated: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refusal_that_outlives_a_widening_resize_is_rewrapped_for_the_screen_the_retry_lands_on() {
+        // The other direction, and it fails differently: a narrowing loses
+        // text, a widening leaves the answer in a column of the width it was
+        // queued at while the screen around it is twice that. Both are the same
+        // defect -- rows measured against a screen that is not the one they are
+        // written on.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let asked = std::cell::Cell::new(0usize);
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+
+        // Narrow first, with nothing owed: this is the width the text is
+        // queued at and has nothing to do with the width it lands at.
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 40), &asked),
+        );
+
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        shell.write_transcript(&format!("{a}{b}{c}\n"));
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 58),
+            Reconciled,
+        )
+        .expect("a zero-progress refusal is not fatal");
+        assert!(screen.written.is_empty(), "the refusal moved bytes");
+
+        shell.render.mark_resize(at(start, 100));
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            at(start, 100) + RESIZE_DEBOUNCE,
+            sized((24, 80), &asked),
+        );
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 160),
+            Reconciled,
+        )
+        .expect("the retry");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        assert_eq!(
+            text.matches(format!("{a}{b}").as_str()).count(),
+            1,
+            "the 80 columns the screen now has were written as two 40-column \
+             rows -- the text was wrapped for a screen it did not land on: \
+             {text:?}"
+        );
+        assert_eq!(
+            text.matches(c.as_str()).count(),
+            1,
+            "the rest of the line did not land exactly once: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_write_that_landed_is_not_remeasured_when_the_one_behind_it_is() {
+        // The cross-product of the two mechanisms: a batch whose first write
+        // lands and whose second is refused, with a resize before the retry.
+        // What already reached the terminal is the terminal's -- at the width
+        // it was written at, never offered again -- and only what did not is
+        // measured against the new screen. A repair that re-measured "what is
+        // owed" without knowing where the batch stopped would write the first
+        // row twice.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let asked = std::cell::Cell::new(0usize);
+        let mut screen = ScriptedSink::new([
+            Ok(()),
+            Err(Emit::ZeroProgress(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "the screen took nothing",
+            ))),
+        ]);
+
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        shell.write_transcript("LANDED\n");
+        shell.write_transcript(&format!("{a}{b}{c}\n"));
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a zero-progress refusal is not fatal");
+        assert_eq!(
+            screen.calls.len(),
+            2,
+            "the batch must stop at the refusal: {:?}",
+            screen.calls
+        );
+
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 40), &asked),
+        );
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 58),
+            Reconciled,
+        )
+        .expect("the retry");
+
+        let whole: String = screen
+            .calls
+            .iter()
+            .map(|call| String::from_utf8_lossy(call).into_owned())
+            .collect();
+        assert_eq!(
+            whole.matches("LANDED").count(),
+            1,
+            "a write the terminal already took was offered again: {whole:?}"
+        );
+        let retried: String = screen.calls[2..]
+            .iter()
+            .map(|call| String::from_utf8_lossy(call).into_owned())
+            .collect();
+        for marker in [&a, &b, &c] {
+            assert_eq!(
+                retried.matches(marker.as_str()).count(),
+                1,
+                "the refused write was not re-measured for the narrower \
+                 screen: {retried:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn without_a_resize_the_same_zero_progress_retry_keeps_every_marker() {
+        // The positive control for the case above: same refusal, same finished
+        // line, no resize in between. If this ever failed, the case above
+        // would be proving something about the assertion method (a plain
+        // substring search on the emitted bytes) rather than about the
+        // resize -- this pins the method down first.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let start = Instant::now();
+        let mut screen = FlakyScreen {
+            refusals: 1,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        shell.write_transcript(&format!("{a}{b}{c}\n"));
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            start,
+            Reconciled,
+        )
+        .expect("a zero-progress refusal is not fatal");
+        assert!(screen.written.is_empty());
+
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut screen,
+            &mut failures,
+            at(start, 8),
+            Reconciled,
+        )
+        .expect("the retry");
+
+        let text = String::from_utf8(screen.written).expect("utf-8");
+        for marker in [&a, &b, &c] {
+            assert!(
+                text.contains(marker.as_str()),
+                "without a resize in between, the retry must keep every \
+                 marker: {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_second_delta_of_a_still_open_line_recomputes_its_scroll_from_the_tail_a_resize_just_remeasured(
+    ) {
+        // Characterization, not a defect: this is the mechanism the case
+        // above shows a *finished* line has none of. While a line is still
+        // open, `Transcript::painted` (`transcript.rs`'s own field, not
+        // anything `Shell` tracks) is the row count `resize_unfinished`
+        // keeps current, and every further `push` measures its `scroll`
+        // against *that*, not against columns or the append's own row count
+        // alone -- which is exactly the state a fix for the case above would
+        // have to reconstruct for rows that already left the tail.
+        // `layout::MIN_COLS` is 20, so every width below is a real,
+        // fittable screen and not `Resize::TooSmall` silently declining to
+        // touch the transcript at all.
+        let mut shell = shell();
+
+        // The fixture starts at 80 columns. "A" * 40 fits one row there,
+        // painted = 1.
+        shell.write_transcript(&"A".repeat(40));
+        let first = shell.take_pending();
+        assert_eq!(first.len(), 1, "one push, one append: {first:?}");
+        assert_eq!(first[0].rows, vec!["A".repeat(40)]);
+        assert_eq!(first[0].scroll, 1, "the only row this line has, freshly");
+
+        // Narrows to 20 columns strictly before the next delta.
+        // `resize_unfinished` re-wraps the *open* tail now, not later:
+        // 40 `A`s at 20 columns is two rows, so painted becomes 2 -- a fact
+        // this narrowing alone produced, before the next delta adds a
+        // single byte.
+        shell.resize(24, 20);
+
+        // A second, unrelated-length delta on the same still-open line: 25
+        // `B`s land after the 40 `A`s, wrapped fresh as one 65-character
+        // tail at 20 columns -- four rows in total (20, 20, 20, 5). A fix
+        // that read only "how many rows does this delta's own text make"
+        // (4, the same as the true total) or "how many columns are there
+        // now" (20, which says nothing about how much of the tail a
+        // previous width already accounted for) has no way to recover that
+        // two of those four rows were already counted painted by the
+        // resize, before this delta existed.
+        shell.write_transcript(&"B".repeat(25));
+        let second = shell.take_pending();
+        assert_eq!(second.len(), 1, "one push, one append: {second:?}");
+        assert_eq!(
+            second[0].rows,
+            vec![
+                "A".repeat(20),
+                "A".repeat(20),
+                "B".repeat(20),
+                "B".repeat(5),
+            ],
+            "the tail is re-wrapped whole, from both deltas, at the new width"
+        );
+        assert_eq!(
+            second[0].scroll, 2,
+            "two new rows beyond the two the resize had already re-measured \
+             as painted -- not four, which is this delta's own row total, \
+             and not a function of columns alone, which cannot distinguish \
+             this session's `painted = 2` from a session that had painted \
+             nothing at this same width"
         );
     }
 

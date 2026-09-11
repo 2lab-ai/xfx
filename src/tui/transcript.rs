@@ -14,12 +14,34 @@
 //! finished line at a time: a delta can be three characters that lengthen a row
 //! already on the screen, or a hundred that wrap it onto four more. So the
 //! module keeps the **unfinished line** -- the tail -- and how many rows of the
-//! screen it currently occupies, and answers every push with an [`Append`]:
-//! how many rows to scroll in, and the rows to write. A tail that grew without
-//! wrapping scrolls nothing and is simply written again a little longer.
+//! screen it currently occupies, and answers every landed operation with an
+//! [`Append`]: how many rows to scroll in, and the rows to write. A tail that
+//! grew without wrapping scrolls nothing and is simply written again a little
+//! longer.
 //!
-//! Once a line is finished it is gone from here ([`Transcript::end_line`]).
-//! There is nothing to remember about it, because nothing will ever repaint it.
+//! Once a line is finished it is gone from here. There is nothing to remember
+//! about it, because nothing will ever repaint it.
+//!
+//! # Text is held as text until it lands
+//!
+//! What is queued here is the **raw logical operation** -- this text was added,
+//! this line ended -- and not the rows it makes ([`Op`]). Rows are measured
+//! from the committed tail at the width the screen has *at the moment the
+//! terminal is offered them*, by the one call that offers them
+//! ([`Transcript::emit_front`]), and the state moves only for an operation the
+//! terminal really took.
+//!
+//! The alternative -- measuring at enqueue time, which is what this module did
+//! until the width could change underneath -- freezes a row string against a
+//! screen that no longer exists. A refused write is retried on the next tick,
+//! and a terminal that narrowed in between gets rows wrapped for the wider
+//! screen: the painter clips them to the columns there are now
+//! (`super::frame`'s `clip`), this phase never repaints a document row, and
+//! what fell off the end is gone from the session rather than from the frame.
+//! Text that the terminal has not seen is not the terminal's, so it is kept as
+//! text.
+
+use std::collections::VecDeque;
 
 use super::wrap;
 
@@ -55,6 +77,46 @@ impl Append {
             rows: Vec::new(),
         }
     }
+
+    /// Whether this append would move the terminal at all.
+    ///
+    /// The guard is not tidiness: an append that scrolls nothing and writes no
+    /// rows would still cost a write, a preflight check and the frame that has
+    /// to follow a scroll -- and a frame the band did not need is a repaint of
+    /// the whole band on a link that may be a serial line. It is also what
+    /// makes a state transition free: ending a line that is already on the
+    /// screen changes what this module holds and asks the terminal for
+    /// nothing.
+    fn is_nothing(&self) -> bool {
+        self.scroll == 0 && self.rows.is_empty()
+    }
+}
+
+/// What the terminal did with the one append it was offered.
+///
+/// The three answers are the three that are really different to the queue, and
+/// they are spelled as an outcome rather than as an `io::Result` because the
+/// decision they drive is this module's: whether the operation that produced
+/// the append is done with, still owed, or must never be offered again.
+///
+/// * [`Landed::All`] -- every byte reached the terminal. The operation is
+///   committed and dropped.
+/// * [`Landed::None`] -- the write moved **no** bytes (a refusal, or a
+///   descriptor that took zero). The terminal is exactly as it was, so the
+///   operation stays queued, in front of everything queued since, and is
+///   measured again -- at whatever width the screen has then -- on the next
+///   attempt.
+/// * [`Landed::Prefix`] -- part of the vector is on the terminal and the rest
+///   is not. There is nothing this module can write that is known to complete
+///   it: replaying the operation would put the prefix down twice, and adopting
+///   its state would claim rows the terminal never took. So the operation is
+///   dropped **without** its state being adopted, the error is handed back, and
+///   the session ends on it (`super::event_loop`'s `disposed`).
+#[derive(Debug)]
+pub(crate) enum Landed<E> {
+    All,
+    None(E),
+    Prefix(E),
 }
 
 /// How many rows of one unfinished line this module keeps in hand.
@@ -73,27 +135,77 @@ impl Append {
 /// long the answer runs.
 const MAX_TAIL_ROWS: usize = 256;
 
-/// The unfinished line, and what the screen already shows of it.
+/// One thing the document was told, in the shape it was told it.
+///
+/// **Logical rather than visual, and that is the whole point of the queue.** A
+/// `Push` carries the text itself -- normalized, and with a carried CRLF
+/// already resolved, because both of those are answers about the *stream* and
+/// the stream is gone by the time the rows are measured. Nothing here knows how
+/// wide the screen is; that question is asked once, at the moment the terminal
+/// is offered the rows ([`Transcript::emit_front`]).
+enum Op {
+    /// This text arrived. Never empty: an operation that adds no bytes would
+    /// ask the terminal for nothing and is not queued at all.
+    Push(String),
+    /// The line ended. Carries no bytes of its own and is queued anyway,
+    /// because it is a **state transition**: the line it closes stops being
+    /// rewritable, and the text after it starts a row of its own.
+    EndLine,
+}
+
+/// The unfinished line, what the screen already shows of it, and the text that
+/// has not been offered to the screen at all.
 pub(crate) struct Transcript {
     /// The screen's width, which is what the rows are wrapped to.
     ///
-    /// Moved only by [`Transcript::resize_unfinished`], and only ever forward
-    /// from here: the rows already handed over were written at the width they
-    /// were written at, and the terminal owns them now. What this width decides
-    /// is how the **unfinished** line wraps from the next push on.
+    /// Moved only by [`Transcript::resize_unfinished`]: the rows already handed
+    /// over were written at the width they were written at, and the terminal
+    /// owns them now. What this width decides is how the **unfinished** line
+    /// and every operation still queued wrap when they are next measured.
     cols: u16,
-    /// The line that has not ended yet. Never holds a line break: the breaks
-    /// are what [`Transcript::push`] splits on.
+    /// The line that has not ended yet, **as of the last operation the terminal
+    /// took**. Never holds a line break: the breaks are what a push splits on.
     tail: String,
     /// How many rows of the screen the tail occupies **now** -- that is, how
-    /// many rows a previous append already wrote and the next one may write
+    /// many rows an append that landed already wrote and the next one may write
     /// over. Not the same as the number of rows the tail's text wraps to: after
-    /// [`Transcript::end_line`] the tail is empty and occupies nothing, and a
-    /// wrap of an empty string is still one row.
+    /// a line ends the tail is empty and occupies nothing, and a wrap of an
+    /// empty string is still one row.
     ///
     /// A `usize` for the reason [`Append::scroll`] is one: the tail's rows are
     /// bounded by the text, not by the screen.
     painted: usize,
+    /// The operations the document has been told about and the terminal has not
+    /// been given, oldest first.
+    ///
+    /// A queue rather than one operation, because two deltas can arrive between
+    /// two frames and their scrolls do not merge: the second one is measured
+    /// against a screen the first one has already moved. Raw text rather than
+    /// rows, because the width it will be written at is not known until it is
+    /// written.
+    queue: VecDeque<Op>,
+    /// Whether a line is open once **everything queued** has landed.
+    ///
+    /// The committed answer to that question is `painted > 0`, and it is the
+    /// wrong one to ask at enqueue time: a caller deciding whether to end a
+    /// line ([`super::shell::Shell`]'s `finish_document_line`) is deciding
+    /// about the document as it will be after the text it has already queued,
+    /// not as the terminal has it so far. Read the committed one there and a
+    /// notice queued behind an unfinished answer grows a blank row, or loses
+    /// the break that keeps it off the end of a sentence.
+    ///
+    /// Maintained at enqueue, and it is a projection rather than a second
+    /// source of truth: applying the queue in order moves `painted` to exactly
+    /// what this says, so an empty queue means the two agree. The one exception
+    /// is a [`Landed::Prefix`], which drops an operation whose state was never
+    /// adopted. That disagreement is bounded by what a session does after a
+    /// torn write rather than by nobody reading it: the error is fatal, so
+    /// there is **no later normal output or adoption** -- the loop stops
+    /// painting and comes down. The shell's own drain still runs and still
+    /// applies events (`Shell::apply`), so this field may still be read and
+    /// written; what it can no longer do is decide a row the terminal is
+    /// given.
+    open: bool,
     /// Whether the last non-empty push ended on a carriage return.
     ///
     /// A CRLF that arrives in two pieces would otherwise be two line breaks:
@@ -115,24 +227,33 @@ impl Transcript {
             cols,
             tail: String::new(),
             painted: 0,
+            queue: VecDeque::new(),
+            open: false,
             split_crlf: false,
         }
     }
 
-    /// Adds `text` to the transcript and says what the document owes.
+    /// Queues `text` for the document, and says whether it asks for anything.
     ///
     /// A line break inside `text` finishes the line before it, exactly as
-    /// [`end_line`](Self::end_line) does, and the part after it becomes the new
-    /// tail; a push may therefore finish several lines at once, and the
-    /// [`Append`] it returns covers all of them -- `rows` is every row from the
-    /// first one this push changed down to the last one it wrote.
-    pub(crate) fn push(&mut self, text: &str) -> Append {
+    /// [`queue_end_line`](Self::queue_end_line) does, and the part after it
+    /// becomes the new tail; one push may therefore finish several lines, and
+    /// the [`Append`] it eventually makes covers all of them -- `rows` is every
+    /// row from the first one it changes down to the last one it writes.
+    ///
+    /// `false` when the push asks the terminal for nothing, which is what the
+    /// caller's "does this owe a frame" is: an empty delta, or one whose only
+    /// byte was the second half of a CRLF the last one already answered. The
+    /// **stream** questions are settled here rather than at emit time, because
+    /// they are answers about the order the bytes arrived in and nothing later
+    /// can reconstruct that.
+    pub(crate) fn queue_push(&mut self, text: &str) -> bool {
         // A push with nothing in it is a chunk boundary and nothing else. It
         // must be **transparent**: clearing the carry here would turn the CR
         // that ended the last chunk into a break of its own, and the LF that
         // opens the chunk after this one into a second.
         if text.is_empty() {
-            return Append::nothing();
+            return false;
         }
         let normalized = normalize(text);
         // Decided against the **raw** chunk, not the normalized one. Only a
@@ -149,67 +270,202 @@ impl Transcript {
             body = body.strip_prefix('\n').unwrap_or(body);
         }
         if body.is_empty() {
-            return Append::nothing();
+            return false;
         }
-
-        let painted = self.painted;
-        let mut rows = Vec::new();
-        let mut segments = body.split('\n');
-        // `split` yields the text itself when there is no break in it, so the
-        // first segment always exists and always joins the tail.
-        self.tail.push_str(segments.next().unwrap_or_default());
-        for next in segments {
-            // Everything before the break is a finished line. Its rows are
-            // written once, here, and never again.
-            rows.append(&mut self.tail_texts());
-            self.tail.clear();
-            self.tail.push_str(next);
-        }
-        let mut tail = self.tail_texts();
-        self.painted = tail.len();
-        rows.append(&mut tail);
-        // After the append is built, because what is frozen is what the *next*
-        // push may no longer rewrite; this one has already said what it owes.
-        self.freeze();
-
-        // The rows already on the screen are the first `painted` of these --
-        // the old tail is a prefix of the text they came from -- so they are
-        // rewritten where they are and everything past them is new.
-        Append {
-            scroll: rows.len().saturating_sub(painted),
-            rows,
-        }
+        self.queue.push_back(Op::Push(body.to_string()));
+        // Every push leaves a line open, including one that ends on a break:
+        // the row the next text starts on is the line this push opened, and it
+        // is a row of the screen as soon as the push lands.
+        self.open = true;
+        true
     }
 
-    /// Ends the current line, leaving it in the document.
+    /// Queues the end of the current line, and says whether it asks for a row.
     ///
-    /// Usually this writes nothing: the line is already on the screen exactly
+    /// Usually it asks for nothing: the line is already on the screen exactly
     /// as it stands, and all that changes is that this module stops holding it.
     /// The exception is a line with nothing on it -- two breaks in a row --
     /// which has no row of its own yet and gets one, because a blank line in an
     /// answer is a blank line on the screen.
-    // Task 10's submit, and Task 12's end-of-turn, are the callers. The method
-    // is here rather than folded into `push("\n")` because ending a line is
-    // what a *caller* knows and a byte in a stream is not: a turn ends without
-    // a trailing newline in the text.
-    pub(crate) fn end_line(&mut self) -> Append {
+    ///
+    /// Queued **either way**. A line that ends without a row of its own still
+    /// ends: the text after it may not be written onto the row this one is on,
+    /// and the rows it leaves behind are the terminal's from that moment. An
+    /// end that wrote nothing and was therefore not recorded would put the next
+    /// answer on the end of the last one's last line.
+    // Task 10's submit, and Task 12's end-of-turn, are the callers. It is not
+    // folded into `queue_push("\n")` because ending a line is what a *caller*
+    // knows and a byte in a stream is not: a turn ends without a trailing
+    // newline in the text.
+    pub(crate) fn queue_end_line(&mut self) -> bool {
         // A CR that ended the last push has been answered by this break.
         self.split_crlf = false;
-        let rows = self.tail_texts();
-        let scroll = rows.len().saturating_sub(self.painted);
-        self.tail.clear();
-        self.painted = 0;
-        if scroll == 0 {
-            return Append::nothing();
-        }
-        Append { scroll, rows }
+        let blank_row = !self.open;
+        self.queue.push_back(Op::EndLine);
+        self.open = false;
+        blank_row
     }
 
-    /// How many rows of the screen the unfinished line occupies.
+    /// Whether a line is open once everything queued has landed.
     // `super::shell::Shell::finish_document_line` is the caller: it is how
-    // "end the line" is told apart from "leave a blank row".
-    pub(crate) fn tail_rows(&self) -> usize {
-        self.painted
+    // "end the line" is told apart from "leave a blank row", and it is asked
+    // about the document the queued text is going to make rather than about the
+    // rows the terminal has so far.
+    pub(crate) fn open_line(&self) -> bool {
+        self.open
+    }
+
+    /// Whether the document is owed anything at all.
+    // Asked without taking anything, by the frame that would hand the terminal
+    // to a question on the other buffer, where a document row cannot be written
+    // (`super::event_loop`'s `commit_frame`). A queued operation that will write
+    // no bytes still counts: it is drained by the same call that would have
+    // written one, which costs the barrier nothing and keeps this answer a
+    // property of the queue rather than of a materialization nobody asked for.
+    pub(crate) fn owes(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
+    /// Offers the **oldest** queued operation to the terminal, at the width the
+    /// screen has now, and keeps exactly what the terminal took.
+    ///
+    /// `None` when nothing is owed. Otherwise `emit` is called at most once,
+    /// with the rows that operation makes *from the committed tail at the
+    /// current width* -- and the state moves only on [`Landed::All`], so a
+    /// refusal leaves this module exactly as it was and the next attempt
+    /// measures the same text against the screen it finds then. That is the
+    /// whole repair: rows are a function of the width they are written at, and
+    /// the only moment that width is knowable is the moment of the write.
+    ///
+    /// **One operation per call, and synchronously.** The candidate never
+    /// escapes the borrow, and what that buys is exactly this: the **logical**
+    /// resize and `/clear` -- the two things that change what a row's width
+    /// means -- reach this module through `&mut` calls
+    /// ([`Self::resize_unfinished`], a fresh [`Transcript`]), and neither can
+    /// run between the measurement and the write while this borrow is held.
+    ///
+    /// It is **not** a claim that no signal is delivered meanwhile. A handler
+    /// may run at any instant; what none of them does is touch this state --
+    /// a `SIGWINCH` records the fact in an atomic and pokes a pipe
+    /// (`super::signals`'s `flag_winch`), and the resize it stands for is
+    /// applied later by the loop, through the same `&mut` road. A whole-queue
+    /// plan would have no such window to rely on: it would be either recomputed
+    /// after every one of those or wrong, and "recompute the plan" is the bug
+    /// this replaced wearing a larger hat.
+    ///
+    /// An operation that asks the terminal for nothing -- ending a line that is
+    /// already on the screen -- commits without calling `emit` at all. It is a
+    /// state transition, not a write, and offering it would cost a preflight
+    /// check and a frame for a vector with no bytes in it.
+    pub(crate) fn emit_front<E>(
+        &mut self,
+        emit: impl FnOnce(&Append) -> Landed<E>,
+    ) -> Option<Result<(), E>> {
+        let prepared = self.prepare_front()?;
+        if prepared.append.is_nothing() {
+            self.commit(prepared);
+            return Some(Ok(()));
+        }
+        match emit(&prepared.append) {
+            Landed::All => {
+                self.commit(prepared);
+                Some(Ok(()))
+            }
+            // Nothing reached the terminal, so nothing here may move: the
+            // operation is still owed and the candidate built for a screen that
+            // refused it is simply dropped.
+            Landed::None(err) => Some(Err(err)),
+            // Some of it reached the terminal and the rest did not. The
+            // operation is dropped **and its state is not adopted**: the tail
+            // this module keeps describes rows that landed, and half a vector
+            // landed. Replaying it would write the prefix twice.
+            Landed::Prefix(err) => {
+                self.queue.pop_front();
+                Some(Err(err))
+            }
+        }
+    }
+
+    /// The candidate the front operation makes right now, or `None` when the
+    /// queue is empty.
+    fn prepare_front(&self) -> Option<Prepared> {
+        match self.queue.front()? {
+            Op::Push(body) => Some(self.prepare_push(body)),
+            Op::EndLine => Some(self.prepare_end_line()),
+        }
+    }
+
+    /// What a push would write, and the tail it would leave.
+    ///
+    /// Built beside the committed tail rather than in it, so a write that is
+    /// refused leaves nothing half-applied.
+    ///
+    /// **What that costs, stated exactly: one clone of the committed tail per
+    /// attempt.** The tail is the only thing copied, and [`freeze`] bounds it
+    /// at [`MAX_TAIL_ROWS`] rows of the current width, so the clone is bounded
+    /// by that and not by the answer's length or by how much is queued behind
+    /// it. An attempt is a call, so a write refused three times pays it three
+    /// times -- which is the price of measuring against the screen that is
+    /// really there. It is **not** claimed to be equal to what the old shape
+    /// cost, and nothing here is a timing or complexity guarantee: the wall
+    /// clock belongs to `scripts/check-tui-preflight-cost.sh`, and what the
+    /// cases in this module pin is the number of rows an operation produces.
+    fn prepare_push(&self, body: &str) -> Prepared {
+        let painted = self.painted;
+        let mut tail = self.tail.clone();
+        let mut rows = Vec::new();
+        let mut segments = body.split('\n');
+        // `split` yields the text itself when there is no break in it, so the
+        // first segment always exists and always joins the tail.
+        tail.push_str(segments.next().unwrap_or_default());
+        for next in segments {
+            // Everything before the break is a finished line. Its rows are
+            // written once, here, and never again.
+            rows.append(&mut texts(&tail, self.cols));
+            tail.clear();
+            tail.push_str(next);
+        }
+        let mut last = texts(&tail, self.cols);
+        let mut open_rows = last.len();
+        rows.append(&mut last);
+        // After the append is built, because what is frozen is what the *next*
+        // push may no longer rewrite; this one has already said what it owes.
+        freeze(&mut tail, &mut open_rows, self.cols);
+
+        Prepared {
+            // The rows already on the screen are the first `painted` of these
+            // -- the old tail is a prefix of the text they came from -- so they
+            // are rewritten where they are and everything past them is new.
+            append: Append {
+                scroll: rows.len().saturating_sub(painted),
+                rows,
+            },
+            tail,
+            painted: open_rows,
+        }
+    }
+
+    /// What ending the line would write, and the empty tail it would leave.
+    fn prepare_end_line(&self) -> Prepared {
+        let rows = texts(&self.tail, self.cols);
+        let scroll = rows.len().saturating_sub(self.painted);
+        Prepared {
+            append: if scroll == 0 {
+                Append::nothing()
+            } else {
+                Append { scroll, rows }
+            },
+            tail: String::new(),
+            painted: 0,
+        }
+    }
+
+    /// Adopts a candidate the terminal took, and drops the operation it came
+    /// from.
+    fn commit(&mut self, prepared: Prepared) {
+        self.queue.pop_front();
+        self.tail = prepared.tail;
+        self.painted = prepared.painted;
     }
 
     /// Re-wraps the unfinished line for a screen that changed width.
@@ -220,11 +476,17 @@ impl Transcript {
     /// scrollback now, where the terminal re-wrapped it by rules xfx does not
     /// model and no repaint of this phase's could reach it. The tail is the one
     /// text still held here, and the rows it occupies are what the **next**
-    /// [`push`](Self::push) measures its scroll against: left at the old width
+    /// append measures its scroll against: left at the old width
     /// they would be too few after a narrowing -- the renderer would treat rows
     /// nobody painted as settled, which is the silent loss this path counts in
     /// `usize` to avoid -- and too many after a widening, which scrolls a row
     /// that is already on the screen.
+    ///
+    /// The width it records is also the width every **queued** operation is
+    /// measured at from here on ([`Self::emit_front`]). Text the terminal has
+    /// not been given is not the terminal's, so a resize reaches it: that is
+    /// the difference between this module's queue and the rows it has already
+    /// handed over, and it is the whole of the repair.
     ///
     /// A width that did not change is left alone rather than re-measured: a
     /// `SIGWINCH` for a font change, or one that moved only the row count, is
@@ -243,51 +505,143 @@ impl Transcript {
         }
         self.painted = wrap::wrap(&self.tail, cols).len();
     }
+}
 
-    /// Stops holding the rows of the unfinished line that can no longer change.
-    ///
-    /// **Not a truncation, and the difference is a property of greedy
-    /// wrapping.** A row's break is decided by the first cluster that crosses
-    /// the margin, and that cluster is on the row *after* it -- so every row of
-    /// a wrapped text except the last is already settled, and appending to the
-    /// text cannot move it. Those rows are on the screen, this phase never
-    /// repaints a document row, and nothing would ever have rewritten them:
-    /// dropping them from the tail changes what this module *holds* and not
-    /// what the terminal shows. `the_rows_the_document_gets_are_the_ones_a_
-    /// single_wrap_would_give` is that claim, checked against one unbroken wrap
-    /// of the whole text.
-    ///
-    /// The alternative -- ending the line early -- was rejected: a break the
-    /// provider did not write lands in the middle of a row, and the answer
-    /// grows a short line every few thousand characters.
-    fn freeze(&mut self) {
-        if self.painted <= MAX_TAIL_ROWS {
-            return;
-        }
-        let rows = wrap::wrap(&self.tail, self.cols);
-        let Some(last) = rows.last() else {
-            return;
-        };
-        let kept = last.start;
-        if kept == 0 {
-            return;
-        }
-        self.tail.drain(..kept);
-        // Asked rather than assumed to be one: the answer is what the *next*
-        // push measures its scroll against, and a `painted` larger than the
-        // rows the tail really occupies would make that scroll too small --
-        // which is the renderer treating unpainted rows as settled, the silent
-        // loss this whole path is counted in `usize` to avoid.
-        self.painted = wrap::wrap(&self.tail, self.cols).len();
+/// Stops holding the rows of an unfinished line that can no longer change.
+///
+/// **Not a truncation, and the difference is a property of greedy wrapping.** A
+/// row's break is decided by the first cluster that crosses the margin, and that
+/// cluster is on the row *after* it -- so every row of a wrapped text except the
+/// last is already settled, and appending to the text cannot move it. Those rows
+/// are on the screen, this phase never repaints a document row, and nothing
+/// would ever have rewritten them: dropping them from the tail changes what this
+/// module *holds* and not what the terminal shows.
+/// `the_rows_the_document_gets_are_the_ones_a_single_wrap_would_give` is that
+/// claim, checked against one unbroken wrap of the whole text.
+///
+/// The alternative -- ending the line early -- was rejected: a break the
+/// provider did not write lands in the middle of a row, and the answer grows a
+/// short line every few thousand characters.
+fn freeze(tail: &mut String, open_rows: &mut usize, cols: u16) {
+    if *open_rows <= MAX_TAIL_ROWS {
+        return;
+    }
+    let rows = wrap::wrap(tail, cols);
+    let Some(last) = rows.last() else {
+        return;
+    };
+    let kept = last.start;
+    if kept == 0 {
+        return;
+    }
+    tail.drain(..kept);
+    // Asked rather than assumed to be one: the answer is what the *next*
+    // append measures its scroll against, and a count larger than the rows the
+    // tail really occupies would make that scroll too small -- which is the
+    // renderer treating unpainted rows as settled, the silent loss this whole
+    // path is counted in `usize` to avoid.
+    *open_rows = wrap::wrap(tail, cols).len();
+}
+
+/// `text`, wrapped, as the strings an append writes.
+fn texts(text: &str, cols: u16) -> Vec<String> {
+    wrap::wrap(text, cols)
+        .into_iter()
+        .map(|row| text[row.start..row.end].to_string())
+        .collect()
+}
+
+/// The one-shot shape this module had before the width could change under a
+/// write, kept for the cases that are about what a text *means* rather than
+/// about when it lands.
+///
+/// **Not production, and it may not become production.** Nothing in a session
+/// may queue text and land it in the same breath: the width it lands at is the
+/// loop's answer at the moment of the write ([`Transcript::emit_front`]), and a
+/// caller that took both decisions is the bug this module was rebuilt to make
+/// unrepresentable. What the cases here ask -- and the two other modules'
+/// (`super::bridge`, `super::frame`) that drive a transcript against a real
+/// band -- is which rows a given text makes at a given width, which is one call
+/// either way.
+#[cfg(test)]
+impl Transcript {
+    /// Queues `text` and lands it at once, answering with what it wrote.
+    pub(crate) fn push(&mut self, text: &str) -> Append {
+        self.land_own(|transcript| {
+            transcript.queue_push(text);
+        })
     }
 
-    /// The tail, wrapped, as the strings an append writes.
-    fn tail_texts(&self) -> Vec<String> {
-        wrap::wrap(&self.tail, self.cols)
-            .into_iter()
-            .map(|row| self.tail[row.start..row.end].to_string())
-            .collect()
+    /// Ends the current line and lands that, answering with what it wrote.
+    pub(crate) fn end_line(&mut self) -> Append {
+        self.land_own(Self::queue_end_line_ignored)
     }
+
+    /// How many rows of the screen the unfinished line occupies.
+    pub(crate) fn tail_rows(&self) -> usize {
+        self.painted
+    }
+
+    /// [`Self::queue_end_line`] with its answer dropped, so it has the shape
+    /// [`Self::land_own`] takes.
+    fn queue_end_line_ignored(&mut self) {
+        self.queue_end_line();
+    }
+
+    /// Queues **one** operation and lands exactly what that operation wrote.
+    ///
+    /// The guards are what keep this fixture from quietly becoming a different
+    /// thing than the one-shot call it replaces:
+    ///
+    /// * The queue must be **empty on entry**. A helper that landed whatever
+    ///   was already waiting would let a case queue three operations, ask for
+    ///   one, and be handed a fourth's worth of rows -- an aggregation the
+    ///   production path cannot do and a legacy assertion would not notice.
+    /// * `enqueue` may queue **one operation or none**, and none is a real
+    ///   answer rather than a failure: an empty push, and one whose only byte
+    ///   was the second half of a CRLF, both ask the terminal for nothing and
+    ///   are deliberately not queued ([`Self::queue_push`]). Asserting "one is
+    ///   queued" would delete exactly the cases that exist to check that.
+    /// * So at most one operation is landed, and the append handed back is that
+    ///   operation's own -- [`Append::nothing`] when there was none, or when
+    ///   the one operation asked the terminal for nothing.
+    fn land_own(&mut self, enqueue: impl FnOnce(&mut Self)) -> Append {
+        debug_assert!(
+            self.queue.is_empty(),
+            "a one-shot fixture was used on a transcript that is already \
+             holding {} operation(s): it would land them too",
+            self.queue.len()
+        );
+        enqueue(self);
+        debug_assert!(
+            self.queue.len() <= 1,
+            "one call queued {} operations",
+            self.queue.len()
+        );
+        let mut written = Append::nothing();
+        while self
+            .emit_front(|append| {
+                written = append.clone();
+                Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        written
+    }
+}
+
+/// One candidate write: the rows the front operation makes at the width the
+/// screen has now, and the state that becomes true if the terminal takes them.
+///
+/// Private, and it never leaves [`Transcript::emit_front`]'s borrow. A caller
+/// holding one of these could hold it across a resize or a `/clear` and then
+/// commit rows measured against a screen that is gone -- which is the failure
+/// this whole shape exists to make unrepresentable, not one to reintroduce at
+/// the seam.
+struct Prepared {
+    append: Append,
+    tail: String,
+    painted: usize,
 }
 
 /// `text` with every line break spelled the one way the document accepts.
@@ -432,19 +786,51 @@ mod tests {
         );
     }
 
-    /// The document a sequence of pushes leaves behind, replayed exactly as
-    /// `frame::render_append` applies an [`Append`]: scroll by `scroll`, then
-    /// write `rows` onto the last `rows.len()` lines of what is there.
-    fn document(cols: u16, chunks: &[&str]) -> Vec<String> {
-        let mut transcript = Transcript::new(cols);
+    /// The document a sequence of appends leaves behind, replayed exactly as
+    /// `frame::render_append` applies one: scroll by `scroll`, then write
+    /// `rows` onto the last `rows.len()` lines of what is there.
+    fn replay(appends: impl IntoIterator<Item = Append>) -> Vec<String> {
         let mut document: Vec<String> = Vec::new();
-        for chunk in chunks {
-            let append = transcript.push(chunk);
+        for append in appends {
             let kept = (document.len() + append.scroll).saturating_sub(append.rows.len());
             document.truncate(kept);
             document.extend(append.rows);
         }
         document
+    }
+
+    /// The document a sequence of pushes leaves behind when each one lands
+    /// before the next arrives.
+    fn document(cols: u16, chunks: &[&str]) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        replay(chunks.iter().map(|chunk| transcript.push(chunk)))
+    }
+
+    /// The same sequence, queued in full and landed afterwards -- the shape a
+    /// session that could not write for a few ticks really has.
+    fn queued_document(cols: u16, chunks: &[&str]) -> Vec<String> {
+        let mut transcript = Transcript::new(cols);
+        for chunk in chunks {
+            transcript.queue_push(chunk);
+        }
+        replay(drain(&mut transcript))
+    }
+
+    /// Everything queued, offered to a terminal that takes all of it, as the
+    /// appends it was offered.
+    ///
+    /// What the loop's drain does (`super::super::event_loop`'s
+    /// `commit_document`) with a screen that never refuses.
+    fn drain(transcript: &mut Transcript) -> Vec<Append> {
+        let mut offered = Vec::new();
+        while transcript
+            .emit_front(|append| {
+                offered.push(append.clone());
+                Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        offered
     }
 
     #[test]
@@ -791,5 +1177,304 @@ mod tests {
         let before = transcript.tail_rows();
         transcript.resize_unfinished(10);
         assert_eq!(transcript.tail_rows(), before);
+    }
+
+    // -----------------------------------------------------------------------
+    // text that has not landed yet
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_finished_line_that_never_landed_is_wrapped_for_the_narrower_screen() {
+        // The repair, at the seam it lives on. A line finished at 80 columns
+        // and not yet written is not the terminal's: it has no rows anywhere,
+        // so a screen that narrowed before it is written re-wraps it whole. The
+        // alternative -- rows frozen at 80 and clipped to 40 by the painter --
+        // loses the middle 40 columns of the line from the session, because
+        // this phase never repaints a document row.
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        let mut transcript = Transcript::new(80);
+        assert!(transcript.queue_push(&format!("{a}{b}{c}\n")));
+
+        transcript.resize_unfinished(40);
+        let appends = drain(&mut transcript);
+
+        assert_eq!(appends.len(), 1, "one push, one append: {appends:?}");
+        assert_eq!(
+            appends[0].rows,
+            vec![a, b, c, String::new()],
+            "the line kept the 80-column wrap it was queued at"
+        );
+        assert_eq!(
+            appends[0].scroll, 4,
+            "the scroll has to cover the rows the new width really needs"
+        );
+    }
+
+    #[test]
+    fn a_finished_line_that_never_landed_is_wrapped_for_the_wider_screen_too() {
+        // The other direction. It loses nothing, which is why it is the one a
+        // fix could forget: the answer simply stays in a 40-column column of a
+        // screen that is now twice that, for ever, because nothing repaints it.
+        let a = "A".repeat(40);
+        let b = "B".repeat(40);
+        let c = "C".repeat(10);
+        let mut transcript = Transcript::new(40);
+        assert!(transcript.queue_push(&format!("{a}{b}{c}\n")));
+
+        transcript.resize_unfinished(80);
+        let appends = drain(&mut transcript);
+
+        assert_eq!(appends.len(), 1, "one push, one append: {appends:?}");
+        assert_eq!(
+            appends[0].rows,
+            vec![format!("{a}{b}"), c, String::new()],
+            "the 80 columns the screen now has were written as two 40-column \
+             rows"
+        );
+    }
+
+    #[test]
+    fn a_write_the_terminal_took_nothing_of_leaves_this_module_exactly_as_it_was() {
+        // What makes the re-measurement above reachable at all: a refusal moves
+        // no state here, so the operation is still the oldest thing owed and is
+        // built again -- against whatever width the next attempt finds -- from
+        // the same text.
+        let mut transcript = Transcript::new(20);
+        transcript.queue_push("abcdefghijklmnopqrstuvwxyz");
+
+        let refused = transcript.emit_front(|_| Landed::None("the screen said no"));
+        assert!(matches!(refused, Some(Err(_))), "{refused:?}");
+        assert_eq!(
+            transcript.tail_rows(),
+            0,
+            "a refused write moved the rows this module claims are painted"
+        );
+        assert!(transcript.owes(), "a refused write stopped being owed");
+
+        transcript.resize_unfinished(10);
+        let appends = drain(&mut transcript);
+        assert_eq!(
+            appends[0].rows,
+            vec![
+                "abcdefghij".to_string(),
+                "klmnopqrst".to_string(),
+                "uvwxyz".to_string(),
+            ],
+            "the retry was not measured against the screen it landed on"
+        );
+    }
+
+    #[test]
+    fn a_write_the_terminal_tore_is_neither_replayed_nor_believed() {
+        // `Landed::Prefix`: some of the vector is on the screen and some is
+        // not. Replaying the operation would put the prefix down twice, and
+        // adopting the tail it would have produced would mean this module
+        // believes the terminal holds text it may never have received. So the
+        // operation is dropped and the state is not moved -- and the session
+        // ends on the error, which is why this is the only place the two can
+        // disagree.
+        let mut transcript = Transcript::new(80);
+        transcript.push("abc");
+        transcript.queue_push("def");
+
+        let torn = transcript.emit_front(|_| Landed::Prefix("half of it landed"));
+        assert!(matches!(torn, Some(Err(_))), "{torn:?}");
+        assert!(!transcript.owes(), "the torn write is still owed");
+
+        transcript.queue_push("xyz");
+        let appends = drain(&mut transcript);
+        assert_eq!(
+            appends[0].rows,
+            vec!["abcxyz".to_string()],
+            "the torn write's text was adopted as if the terminal had taken it, \
+             or replayed as if it had not"
+        );
+    }
+
+    #[test]
+    fn a_line_ended_before_its_text_lands_is_still_a_line_of_its_own() {
+        // The case a session reaches whenever a notice is written while an
+        // answer is waiting for a screen: the answer, the end of its line and
+        // the notice are all queued before any of them is written. The end
+        // carries no bytes and is queued anyway -- dropped, the notice would be
+        // written onto the end of the answer's own row.
+        let mut transcript = Transcript::new(80);
+        assert!(transcript.queue_push("an answer"));
+        assert!(
+            !transcript.queue_end_line(),
+            "ending a line that has text on it asks for no row of its own"
+        );
+        assert!(transcript.queue_push("a notice"));
+
+        let appends = drain(&mut transcript);
+        assert_eq!(
+            appends
+                .iter()
+                .map(|append| (append.scroll, append.rows.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, vec!["an answer".to_string()]),
+                (1, vec!["a notice".to_string()]),
+            ],
+            "the end of the line did not reach the terminal as a line break"
+        );
+    }
+
+    #[test]
+    fn whether_a_line_is_open_is_asked_of_the_queue_rather_than_of_the_screen() {
+        // The projection `super::shell::Shell::finish_document_line` reads. The
+        // committed answer -- how many rows the *landed* tail occupies -- says
+        // "no line is open" about an answer that is queued and unwritten, and a
+        // caller that believed it would end a line nobody had started and put a
+        // blank row in the middle of the document.
+        let mut transcript = Transcript::new(80);
+        assert!(
+            !transcript.open_line(),
+            "a fresh transcript has a line open"
+        );
+
+        transcript.queue_push("an answer");
+        assert!(
+            transcript.open_line(),
+            "text nobody has written yet leaves no line open"
+        );
+        assert_eq!(
+            transcript.tail_rows(),
+            0,
+            "the committed side moved before the write did"
+        );
+
+        transcript.queue_end_line();
+        assert!(
+            !transcript.open_line(),
+            "the end of the line did not close it"
+        );
+
+        // And a push that ends on a break still leaves one open: the row its
+        // successor starts on is a row of the screen as soon as it lands.
+        transcript.queue_push("a line\n");
+        assert!(transcript.open_line());
+        assert!(
+            !transcript.queue_end_line(),
+            "the row the last break opened was counted as a second blank line"
+        );
+        // Which the drain confirms costs nothing: the blank row is already
+        // written by the push that opened it.
+        let appends = drain(&mut transcript);
+        assert_eq!(
+            appends.last().map(|append| append.rows.clone()),
+            Some(vec!["a line".to_string(), String::new()]),
+            "the finish wrote a second blank row: {appends:?}"
+        );
+    }
+
+    #[test]
+    fn an_operation_with_no_bytes_in_it_leaves_nothing_owed() {
+        // An empty delta and the second half of a CRLF both reach this module
+        // as pushes, and neither asks the terminal for anything. Queued anyway
+        // they would wedge the drain: an append with no rows and no scroll that
+        // the loop offers, the terminal takes, and the band pays a frame for.
+        let mut transcript = Transcript::new(80);
+        assert!(!transcript.queue_push(""), "an empty push asked for a row");
+        assert!(!transcript.owes(), "an empty push was queued");
+
+        assert!(transcript.queue_push("a\r"));
+        assert!(
+            !transcript.queue_push("\n"),
+            "the second half of a CRLF asked for a row of its own"
+        );
+        assert_eq!(
+            drain(&mut transcript).len(),
+            1,
+            "the carry-only push was queued as an operation"
+        );
+        assert!(!transcript.owes());
+    }
+
+    #[test]
+    fn holding_text_until_it_lands_does_not_change_what_the_document_says() {
+        // The property that makes the queue a delay and not a second
+        // behaviour: on a screen that never changes width, a session that
+        // wrote every chunk as it arrived and one that could not write for a
+        // while and then wrote everything leave the **same document** -- across
+        // breaks, blank lines, CRLFs split at every offset, and the empty
+        // pushes between them.
+        for stream in [
+            "a\r\nb",
+            "a\r\rb",
+            "a\r\r\nb",
+            "a\rb\r\nc\r",
+            "\r\n",
+            "\r",
+            "one\r\ntwo\r\nthree",
+            "a paragraph\n\nand another\n\nand a third\n",
+            "no breaks at all",
+        ] {
+            for at in 0..=stream.len() {
+                if !stream.is_char_boundary(at) {
+                    continue;
+                }
+                let (head, tail) = stream.split_at(at);
+                for chunks in [vec![head, tail], vec![head, "", tail]] {
+                    assert_eq!(
+                        queued_document(12, &chunks),
+                        document(12, &chunks),
+                        "{stream:?} split at {at} said something different when \
+                         it was held"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_ended_while_the_stream_is_queued_answers_the_carry_it_was_holding() {
+        // The end of a line is a break, so a CR waiting for its LF has been
+        // answered by it -- and the LF that opens the next chunk is a break of
+        // its own. Decided when the operation is queued, because it is an
+        // answer about the order the bytes arrived in and the queue is the only
+        // thing that still knows it.
+        let mut queued = Transcript::new(80);
+        queued.queue_push("a\r");
+        queued.queue_end_line();
+        queued.queue_push("\nb");
+        let held = replay(drain(&mut queued));
+
+        let mut landed = Transcript::new(80);
+        let written = replay([landed.push("a\r"), landed.end_line(), landed.push("\nb")]);
+
+        assert_eq!(
+            held, written,
+            "the carry was answered at a different moment"
+        );
+    }
+
+    #[test]
+    fn a_queue_nothing_has_written_costs_one_pass_per_operation() {
+        // The bound the shape has to keep: each attempt materializes the
+        // **front** operation only. A drain that rebuilt everything owed on
+        // every write -- or an operation that carried the whole queue's text --
+        // would cost the square of the backlog, and the backlog is what a
+        // session that cannot write for a few hundred ticks is made of.
+        let operations = 2_000;
+        let mut transcript = Transcript::new(40);
+        for index in 0..operations {
+            transcript.queue_push(&format!("line {index}\n"));
+        }
+
+        let appends = drain(&mut transcript);
+        assert_eq!(appends.len(), operations, "one operation, one append");
+        assert_eq!(
+            appends
+                .iter()
+                .map(|append| append.rows.len())
+                .sum::<usize>(),
+            operations * 2,
+            "each finished line is one row plus the row its successor starts \
+             on -- anything more is an operation that re-wrote what an earlier \
+             one already said"
+        );
     }
 }
