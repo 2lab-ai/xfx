@@ -2512,7 +2512,7 @@ impl Shell {
             // the provider said, or the estimate of what it wrote.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
-                input.consume(&turn.user);
+                input.consume(&turn.sent);
                 let output = output.unwrap_or_else(|| streamed.estimate());
                 self.run_mark(Mark::Summary(summary_line(
                     seconds,
@@ -16462,6 +16462,7 @@ mod tests {
     ) -> HydratedTurn {
         HydratedTurn {
             user: user.to_string(),
+            sent: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
             started_at_ms: 0,
@@ -16770,6 +16771,7 @@ mod tests {
                     ),
                     HydratedTurn {
                         user: "and then".to_string(),
+                        sent: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
                         started_at_ms: 0,
