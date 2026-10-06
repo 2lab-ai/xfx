@@ -717,6 +717,7 @@ mod retry;
 mod router;
 mod shell;
 mod signals;
+mod sound;
 mod statusline;
 mod term;
 mod theme;
