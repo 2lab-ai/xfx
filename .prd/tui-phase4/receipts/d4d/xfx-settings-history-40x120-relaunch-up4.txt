@@ -1,17 +1,17 @@
-x𝒇x v0.1.0-10f1edb [debug] · Run /help for commands
+x𝒇x v0.1.0-7ecf3a9 [debug] · Run /help for commands
 
-┃ /settings
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Commands 1
+┃ first prompt
 
-  /settings   browse and update settings                                                                     Appearance
+auto · model-a
 
 
 
 
 
-────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-↑↓ navigate     enter use     esc close
+
+
+
+
 
 
 

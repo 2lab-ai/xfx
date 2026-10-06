@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-10f1edb [debug] · Run /help for commands
+x𝒇x v0.1.0-7ecf3a9 [debug] · Run /help for commands
 
 ┃ look
 
@@ -8,7 +8,7 @@ x𝒇x v0.1.0-10f1edb [debug] · Run /help for commands
 
   Read both.
 
-  0s (↑1 ↓40)
+  1s (↑1 ↓40)
 
 * collapse tool calls: saved to user settings (scope=user)
 

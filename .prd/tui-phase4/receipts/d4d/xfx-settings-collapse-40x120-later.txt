@@ -6,7 +6,7 @@
 
   Read both.
 
-  0s (↑1 ↓40)
+  1s (↑1 ↓40)
 
 * collapse tool calls: saved to user settings (scope=user)
 
@@ -20,17 +20,17 @@
 
 ┃ run it
 
-
-
 ● 1 tool call · 1 command
 
-⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
 
-✗ system: the turn was cancelled
+
+■ Cancelled · What can xfx do differently?
 
 ┃
 
 ask · model-a
+
+
 
 
 
