@@ -1,6 +1,6 @@
 # TUI Phase 3 — SSOT
 
-Status: in-progress
+Status: complete (2026-10-06; see resume.md)
 Date: 2026-09-10
 Base: `edcc2f5515870f50ac3b9ffc71201a52a0d1f746`
 Carrier: https://github.com/2lab-ai/xfx/issues/20

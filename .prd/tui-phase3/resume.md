@@ -1,14 +1,14 @@
 # Phase 3 — current execution map
 
-Status: in-progress (ship gate). Refreshed 2026-10-06 by the controller from directly read logs; P3-COMMIT row updated after `7dbd1a0`.
+Status: complete. Delivered 2026-10-06: merged as `ab55e13`, preview `preview-2026-10-06-112101-37455797717-1-ab55e133dce2`, carrier #20 closed.
 
 Branch `plan/tui-phase3`, local commits `edcc2f5..` (P3-KEYS at `72cdea8`, docs/receipts after it). Mission and the
-fixed thirteen-row universe: [`ssot.md`](ssot.md). Chronological ledger: [`loop.md`](loop.md) (R188–R194 cover this
+fixed thirteen-row universe: [`ssot.md`](ssot.md). Chronological ledger: [`loop.md`](loop.md) (R188–R198 cover this
 session). Primary receipts: [`receipts/`](receipts/). This file is the map, not the history.
 
 ## The one-paragraph state
 
-All implementation work is committed and pushed (PR #24); nothing is merged yet, issue 20 is open. The previous
+Phase 3 is merged (#24 → `ab55e13`), published on the preview channel only, installed with Homebrew and measured on the real profile (R198); issue 20 is closed with follow-ups #25–#27. The previous
 stop boundary — the independent real-terminal recovery QA blocked on a PENDIN bit — is **closed**: the corrected QA
 passed with exact comparison of every termios word on tmux (direct launch) and on herdr (interactive shell, the
 failing configuration, PENDIN included), and the tmux-interactive 1→0 was reproduced by a non-xfx reference program
@@ -33,7 +33,7 @@ delivery chain.
 | P3-WRAP | met | CI cost gate; fresh 300×200×1000 replay 4.9 ms vs 32 ms |
 | P3-QA | met | tracked 34 scenarios / 858 checks (3e added for the alternate road); independent tmux + herdr QA (WU-4, plus the alternate road on herdr) |
 | P3-DOCS | met (trinity R2 unanimous) | `03`/`06`/parity current-tense, bounds kept; no-stubs ok, parity 24/0 |
-| P3-SHIP | to work | reviewed (R194); CI green on the head → merge → preview → brew install → real-profile TUI receipt incl. running-turn Ctrl-C → close #20 with follow-ups named |
+| P3-SHIP | met | trinity unanimous; PR/main CI green on all four targets; merged `ab55e13`; preview `preview-2026-10-06-112101-37455797717-1-ab55e133dce2`; brew-installed binary hash = release asset; real-profile receipt incl. running-turn Ctrl-C (`receipts/2026-10-06-real-profile-*`); #20 closed, follow-ups #25–#27 |
 
 ## Fresh gate receipt (tree = `063fc66` + P3-KEYS, byte-identical to `72cdea8`)
 
