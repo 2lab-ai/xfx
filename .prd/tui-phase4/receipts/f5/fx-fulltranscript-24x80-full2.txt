@@ -1,0 +1,24 @@
+  │ 3   alpha line 3
+
+  2026-10-06 18:10:36.586 UTC · Tool
+└ Failed missing.txt: Path not found: missing.txt
+│  Path not found: missing.txt
+
+  2026-10-06 18:10:37.015 UTC · Response
+  All done.
+
+  2026-10-06 18:10:36.996 UTC · Usage
+  7s (↑4 ↓200)
+
+  2026-10-06 18:10:43.541 UTC · Prompt
+┃ second prompt
+
+  2026-10-06 18:10:43.866 UTC · Response
+  Second answer.
+
+  2026-10-06 18:10:43.865 UTC · Usage
+  0s (↑4 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

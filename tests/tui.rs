@@ -4714,6 +4714,86 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
     drop(gateway);
 }
 
+/// The full transcript's footer (`src/tui/full_transcript.rs`, upstream's
+/// `paint_plan.zig:1003`).
+const FULL_FOOTER: &str = "full detail \u{b7} ctrl+o close";
+
+#[test]
+fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft() {
+    // Upstream's contract, on a real terminal: the full transcript is a screen
+    // of its own (`1049h`), it shows what the inline transcript never does --
+    // here the lines a read returned -- and closing it hands back the band the
+    // session had, the draft in it untouched (`tui-full-transcript-brutal.test.ts`,
+    // `DRAFT`).
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    const ONLY_IN_FULL: &str = "a-line-only-the-full-transcript-shows";
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    std::fs::write(
+        sandbox.workspace.join("notes.txt"),
+        format!("{ONLY_IN_FULL}\n"),
+    )
+    .expect("write the fixture");
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["the read is done"])),
+    ]);
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("the read is done");
+    assert!(
+        !session.text().contains(ONLY_IN_FULL),
+        "the inline transcript showed what a tool returned"
+    );
+    session.type_bytes(b"keep me");
+    session.wait_for("keep me");
+
+    session.type_bytes(&[0x0f]);
+    let text = session.wait_until("one complete frame of the full transcript", |text| {
+        text.contains(ENTERS_ALTERNATE)
+            && last_frame(text)
+                .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains(ONLY_IN_FULL))
+    });
+    let frame = last_frame(&text).expect("the wait returns on a complete frame");
+    assert!(
+        frame.contains("Read notes.txt"),
+        "the call's row: {frame:?}"
+    );
+    assert!(
+        frame.contains(" UTC \u{b7} Tool"),
+        "the call's header: {frame:?}"
+    );
+
+    // Escape closes it, and the band comes back with the draft in it.
+    session.type_bytes(&[0x1b]);
+    session.wait_until(
+        "the band back on the primary plane with its draft",
+        |text| {
+            text.rfind(LEAVES_ALTERNATE).is_some_and(|leave| {
+                let after = &text[leave..];
+                after.contains(FRAME_END) && after.contains("keep me")
+            })
+        },
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(settled.matches(ENTERS_ALTERNATE).count(), 1, "{settled:?}");
+    assert_eq!(settled.matches(LEAVES_ALTERNATE).count(), 1, "{settled:?}");
+    drop(gateway);
+}
+
 #[test]
 fn sigterm_while_the_other_plane_is_owned_gives_the_terminal_back_whole() {
     // A supervisor's signal at the worst moment there is. The handler writes
