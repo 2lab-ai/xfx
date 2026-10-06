@@ -2302,8 +2302,13 @@ fn operating_system_command(
 /// The vocabulary is [`super::pacer`]'s allowlist: groups of a reset or the
 /// foreground default (`0`, `39`), a text attribute (`1 2 3 4 9 22 23 24 29`,
 /// which this model does not carry because no cell comparison is made about
-/// it), or one foreground colour (`38;5;n`, `38;2;r;g;b`). Anything else is a
-/// sequence this crate does not write.
+/// it -- nor reverse video `7`/`27`, a draft's caret cell and a composer
+/// selection), one foreground colour
+/// (`38;5;n`, `38;2;r;g;b`), or the file picker's
+/// background and its close (`48;5;n`, `48;2;r;g;b`, `49`) -- read whole and
+/// range-checked like a foreground, and carried no further than the text
+/// attributes are, because the comparison is about the pen's foreground.
+/// Anything else is a sequence this crate does not write.
 fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
     let malformed = || Reject::new("an SGR outside the vocabulary this crate emits", at);
     if params.is_empty() {
@@ -2314,7 +2319,17 @@ fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
     while let Some(part) = parts.next() {
         match part {
             "0" | "39" => pen = Some(Color::Default),
-            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" => {}
+            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "49" => {}
+            "48" => {
+                let wanted = match parts.next() {
+                    Some("5") => 1,
+                    Some("2") => 3,
+                    _ => return Err(malformed()),
+                };
+                for _ in 0..wanted {
+                    number(parts.next().ok_or_else(malformed)?).ok_or_else(malformed)?;
+                }
+            }
             "38" => match parts.next() {
                 Some("5") => {
                     let index = parts.next().ok_or_else(malformed)?;
@@ -2568,7 +2583,15 @@ mod tests {
         // the rule that has to live in both decoders.
         assert!(wire_color("38;5;256", 0).is_err());
         assert!(wire_color("38;2;1;2", 0).is_err());
-        assert!(wire_color("48;5;1", 0).is_err());
+        assert!(wire_color("48;5;256", 0).is_err());
+        assert!(wire_color("48;2;1;2", 0).is_err());
+        // The file picker's background is in the vocabulary, and moves no
+        // foreground: the pen it leaves is the one the group after it sets.
+        assert_eq!(
+            wire_color("48;5;239;38;5;255", 0).ok(),
+            Some(Some(Color::Indexed(255)))
+        );
+        assert_eq!(wire_color("49", 0).ok(), Some(None));
         assert!(
             wire_color("8", 0).is_err(),
             "conceal is not in the vocabulary"
@@ -2578,9 +2601,9 @@ mod tests {
             "nor hidden behind an admitted group"
         );
         // Reverse video is: upstream's one-cell caret in a draft it paints
-        // (`question_ui.zig:323-399`, `approval_ui.zig:1655-1675`). An
-        // attribute and not a pen, like bold, and the reset in front of it is
-        // the default pen.
+        // (`question_ui.zig:323-399`, `approval_ui.zig:1655-1675`), and a
+        // composer selection. An attribute and not a pen, like bold, and the
+        // reset in front of it is the default pen.
         assert_eq!(wire_color("7", 0).expect("reverse"), None);
         assert_eq!(wire_color("27", 0).expect("its close"), None);
         assert_eq!(

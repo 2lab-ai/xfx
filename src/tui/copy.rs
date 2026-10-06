@@ -34,16 +34,56 @@ pub(crate) struct Copies {
     /// Cloned into each copy's thread, which sends one outcome and ends.
     done: Sender<bool>,
     outcomes: Receiver<bool>,
+    /// The same for a composer selection's copies (Super+C and Super+X),
+    /// apart from `/copy`'s because the two are answered differently: a
+    /// `/copy` says how it went, and a selection's copy says nothing
+    /// (`copy_selection`/`cut_selection`, `app_input_runtime.zig:356-385`,
+    /// whose only report is a debug trace) -- but a cut takes its text out of
+    /// the draft only once the clipboard has it.
+    selection_done: Sender<(Selection, bool)>,
+    selections: Receiver<(Selection, bool)>,
+}
+
+/// What a selection was copied for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Selection {
+    /// Super+C: the clipboard is the whole of it.
+    Copy,
+    /// Super+X, numbered so the session can tell this cut from a later one.
+    Cut(u64),
 }
 
 impl Copies {
     pub(crate) fn new(clipboard: Clipboard) -> Self {
         let (done, outcomes) = mpsc::channel();
+        let (selection_done, selections) = mpsc::channel();
         Self {
             clipboard,
             done,
             outcomes,
+            selection_done,
+            selections,
         }
+    }
+
+    /// Starts putting a selection on the clipboard, through the same tool
+    /// and off the same thread as `/copy` ([`Self::start`]); `false` when no
+    /// thread could be started, which is a copy that failed.
+    pub(crate) fn start_selection(&self, text: Arc<str>, purpose: Selection) -> bool {
+        let clipboard = self.clipboard.clone();
+        let done = self.selection_done.clone();
+        std::thread::Builder::new()
+            .name(THREAD_NAME.to_string())
+            .spawn(move || {
+                let _ = done.send((purpose, clipboard.copy(&text)));
+            })
+            .is_ok()
+    }
+
+    /// How one selection copy that has finished went, or `None` when none has
+    /// finished since the last call.
+    pub(crate) fn selection_finished(&self) -> Option<(Selection, bool)> {
+        self.selections.try_recv().ok()
     }
 
     /// Starts putting `reply` on the clipboard, and returns without waiting.
@@ -104,6 +144,28 @@ mod tests {
         );
         assert_eq!(copies.finished(), None, "a copy still running was answered");
         assert!(outcome(&copies, Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn a_selection_copy_is_answered_on_its_own_channel_with_its_purpose() {
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let copies = Copies::new(tool.clipboard());
+        assert!(copies.start_selection(Arc::from("picked"), Selection::Cut(7)));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let answer = loop {
+            if let Some(answer) = copies.selection_finished() {
+                break answer;
+            }
+            assert!(Instant::now() < deadline, "the copy never finished");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(answer, (Selection::Cut(7), true));
+        assert_eq!(tool.copied().as_deref(), Some(&b"picked"[..]));
+        assert_eq!(
+            copies.finished(),
+            None,
+            "a selection's copy was answered as a /copy"
+        );
     }
 
     #[test]

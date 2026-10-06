@@ -530,17 +530,24 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 ///   the welcome line's brand and a statusline label are written in -- and
 ///   reverse video `7`/`27`, the one-cell caret upstream paints in a draft it
 ///   owns (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`;
-///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`);
+///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`) and the composer's
+///   selection (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
+///   `super::theme::Palette::reverse`);
 /// * `38 ; 5 ; <n>` -- a 256-colour foreground;
-/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground.
+/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground;
+/// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
+///   background the band paints, the `@` file picker's marked row
+///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
+///   and its close;
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible, `blink` makes it move, a background colour repaints the whole
-/// width of it. None of them is in upstream's assistant or footer text, and an
-/// allowlist wider than what is emitted is untested surface. Reverse video is
-/// admitted only because upstream's footer does paint it -- one cell, closed
-/// on the same row -- and provider text never reaches here with an escape in
-/// it (`super::bridge::inert`).
+/// invisible and `blink` makes it move. None of them is in upstream's
+/// assistant or footer text, and an allowlist wider than what is emitted is
+/// untested surface. A background would repaint the width an `EL` erases,
+/// which is why `super::grid` closes every attribute before it writes one.
+/// Reverse video is admitted only because upstream's footer does paint it --
+/// a caret cell, a selected run, closed on the same row -- and provider text
+/// never reaches here with an escape in it (`super::bridge::inert`).
 /// [`SgrState`] models every attribute this admits, so a row that ends with
 /// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
@@ -556,8 +563,9 @@ fn is_palette_sgr(text: &str) -> bool {
     let mut params = params.split(';');
     while let Some(group) = params.next() {
         match group {
-            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "39" => {}
-            "38" => {
+            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "39"
+            | "49" => {}
+            "38" | "48" => {
                 // The number of parameters each colour shape carries after its
                 // selector. Each one a terminal reads as a number, and nothing
                 // else: an empty one is a zero to a terminal, and a `38;5;`
@@ -1354,11 +1362,17 @@ mod tests {
             "\u{1b}[29m",
             "\u{1b}[39m",
             // Upstream's one-cell caret in a draft it paints itself, spelled
-            // as its wire writes it (a reset, then reverse) and closed.
+            // as its wire writes it (a reset, then reverse) and closed; and a
+            // selection in the composer, the same `7`.
             "\u{1b}[7m",
             "\u{1b}[0;7m",
             "\u{1b}[27m",
             "\u{1b}[1;7m",
+            // The file picker's marked row: its background, in both
+            // notations, and the background's close.
+            "\u{1b}[48;5;239m",
+            "\u{1b}[48;2;78;78;78m",
+            "\u{1b}[49m",
         ] {
             assert_eq!(
                 colour_at(painted),
@@ -1374,7 +1388,9 @@ mod tests {
         for refused in [
             "\u{1b}[5m",
             "\u{1b}[8m",
-            "\u{1b}[48;5;196m",
+            "\u{1b}[41m",
+            "\u{1b}[48;5m",
+            "\u{1b}[48;2;1;2m",
             "\u{1b}[31m",
             "\u{1b}[1;8m",
             "\u{1b}[38;5m",

@@ -2711,7 +2711,8 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
 fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     // Item 15 on a real terminal. Four claims, and the first two are the ones a
     // history without a captured draft would pass: the arrow at the edge of the
-    // draft walks back, `C-p`/`C-n` walk it from anywhere, the half-typed line
+    // draft walks back (and `C-n` forward from anywhere -- `C-p` is the model
+    // catalog, ssot divergence 8), the half-typed line
     // the walk began from is what it comes back to, and an edit to a recalled
     // line ends that walk -- so the next step back starts at the newest entry
     // again and comes back to the *edited* text.
@@ -2755,8 +2756,8 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the newest submitted line to come back", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
-    // C-p, which is the recall wherever the caret is.
-    session.type_bytes(&[0x10]);
+    // Up again, which walks on.
+    session.type_bytes(b"\x1b[A");
     session.wait_until("the line before it to come back", |text| {
         composer(text) == "\u{2503} alpha prompt"
     });
@@ -2781,7 +2782,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the recalled line to take the keystroke", |text| {
         composer(text) == "\u{2503} bravo prompt!"
     });
-    session.type_bytes(&[0x10]);
+    session.type_bytes(b"\x1b[A");
     session.wait_until("the walk to start from the newest line again", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
