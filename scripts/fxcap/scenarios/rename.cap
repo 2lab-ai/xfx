@@ -1,0 +1,31 @@
+gateway resume-turns.json
+wait 4
+title launch
+type /rename
+wait 0.5
+key Enter
+wait 1
+snap rename-empty
+type /rename   My Title  
+wait 0.5
+key Enter
+wait 1.5
+snap rename-title
+title renamed
+type /rename xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+wait 0.5
+key Enter
+wait 1
+snap too-long
+title too-long
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+snap quit
+title quit
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 4
+snap relaunched

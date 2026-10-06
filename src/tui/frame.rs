@@ -65,6 +65,12 @@ const ERASE_LINE: &str = "\x1b[K";
 /// this band is about to place are the only ones it knows about.
 const ERASE_SCREEN: &str = "\x1b[2J";
 
+/// A resume's terminal reset: the caret home, the screen erased, and the
+/// scrollback with it ([`Band::wipe`]). The one vector in this crate that
+/// erases a scrollback, which is why the output check admits `3J` for exactly
+/// one declaration (`check::Intent::Wiped`).
+pub(crate) const WIPE: &str = "\x1b[H\x1b[2J\x1b[3J";
+
 /// Take the terminal's alternate screen buffer, saving the cursor.
 ///
 /// The one sequence the main surface never writes ([`super::term::RESTORE`]
@@ -1212,6 +1218,7 @@ impl Band {
     /// band's old rows are where the new ones go, and only the rows past the
     /// bottom of the screen scroll. The settled block is where the band's top
     /// *was*, `room` rows above where it is now.
+    #[cfg(test)]
     fn render_append<'rows>(
         &mut self,
         scroll: usize,
@@ -1219,6 +1226,22 @@ impl Band {
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        self.render_append_recorded(scroll, rows, &[], geometry, room)
+    }
+
+    /// [`Self::render_append`], with what each row is recorded on the target
+    /// grid as it is placed (`super::transcript::Append::kinds`; empty is every
+    /// row plain): what a later theme report repaints its cells as
+    /// ([`Grid::retint_document`]).
+    fn render_append_recorded<'rows>(
+        &mut self,
+        scroll: usize,
+        rows: &'rows [String],
+        kinds: &[super::theme::DocumentRow],
+        geometry: &'rows Geometry,
+        room: u16,
+    ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        let kind = |index: usize| kinds.get(index).copied().unwrap_or_default();
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
         // written side by side rather than in two functions: an append that
@@ -1334,6 +1357,7 @@ impl Band {
             .iter()
             .enumerate()
         {
+            let index = settled - usize::from(shown) + offset;
             // A row number too, bounded by `shown` a line above it.
             let offset = u16::try_from(offset).unwrap_or(shown);
             let line = first.saturating_add(offset);
@@ -1345,6 +1369,8 @@ impl Band {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
             }
+            // A reused row is still the row this append says it is.
+            self.target.set_kind(line, kind(index));
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
@@ -1360,6 +1386,7 @@ impl Band {
             };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
+            self.target.set_kind(line, kind(settled + index));
         }
         // Every row these bytes may reach, and every scroll they may make,
         // named from the counts above rather than from what was emitted.
@@ -1733,6 +1760,58 @@ impl Band {
         self.damaged = false;
         // The vector left the caret where its last step put it, which is not
         // where any frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(())
+    }
+
+    /// Resets the screen **and its scrollback**, in one write and one flush:
+    /// the screen half of a `/resume`.
+    ///
+    /// Upstream's terminal reset (`finishLiveSessionResume` →
+    /// `requestTerminalReset`, `app_session_runtime.zig:1926-1929`), whose bytes
+    /// are `ESC[0m ESC[2J ESC[3J ESC[H` (`appendFrameReset`,
+    /// `render_engine/terminal_diff.zig:1311-1325`): a resumed session replaces
+    /// the conversation on the screen, and the one it replaced does not stay
+    /// in the scrollback above it (`fx-sessions-40x120-resumed.full.txt` is the
+    /// screen and nothing more). The opposite of [`Self::hand_off`], which is
+    /// what a fresh session does and keeps every row.
+    ///
+    /// The SGR reset is left out: this band closes every colour it opens, so
+    /// there is none for it to close.
+    ///
+    /// **Nothing is recorded until the write lands.** Once it has, the band's
+    /// bookkeeping is a blank screen's, as after a handoff.
+    pub(crate) fn wipe(&mut self, out: &mut impl Sink, geometry: &Geometry) -> Result<(), Emit> {
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.buffer.clear();
+        self.buffer.extend_from_slice(WIPE.as_bytes());
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Wiped,
+                check::Footprint::new(
+                    check::PlaneKind::Primary,
+                    vec![check::Seg::Erase(1..=geometry.rows)],
+                ),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        self.shadow.resize(geometry.rows, geometry.cols);
+        self.target.resize(geometry.rows, geometry.cols);
+        self.painted = None;
+        self.painted_on = None;
+        self.document_bottom = None;
+        self.damaged = false;
+        // `ESC[H` left it at the origin, which is still not where any frame
+        // left it.
         self.caret = None;
         Ok(())
     }
@@ -2126,24 +2205,29 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
-        self.append_floating(out, scroll, rows, geometry, 0)
+        self.append_floating(out, scroll, rows, &[], geometry, 0)
     }
 
     /// [`Self::append_document`] onto a band that moved `room` rows down for
     /// it: the first `room` new rows take the rows the band gave back, and
     /// only the rest scroll ([`Self::render_append`]).
+    ///
+    /// `kinds` is what each row is (`super::transcript::Append::kinds`,
+    /// empty for every row plain), recorded on the grid with the row.
     pub(crate) fn append_floating(
         &mut self,
         out: &mut impl Sink,
         scroll: usize,
         rows: &[String],
+        kinds: &[super::theme::DocumentRow],
         geometry: &Geometry,
         room: u16,
     ) -> Result<(), Emit> {
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
-        let (appended, footprint, script) = self.render_append(scroll, rows, geometry, room);
+        let (appended, footprint, script) =
+            self.render_append_recorded(scroll, rows, kinds, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }
@@ -2224,10 +2308,24 @@ fn scroll_one(buffer: &mut Vec<u8>, geometry: &Geometry) {
 /// *shorter* than the one it replaces, when a word moves down. Without the
 /// erase, either leaves characters behind on a row nothing will ever repaint --
 /// they are the terminal's document now.
+///
+/// **Only after a row that stops short of the last column.** Autowrap is off
+/// (`super::term::MODE_SET`'s `?7l`), so the cluster written into the last
+/// column leaves the caret *on* that column rather than past it -- and an
+/// erase from there clears the cell the row has just written. A row exactly as
+/// wide as the screen lost its last character that way (`word32` painted as
+/// `word3` at 120 columns). A full row has no tail to erase: every cell of it
+/// was just written. Upstream asks the same question before its erase
+/// (`finishComposedInputRow`, `input_presentation.zig:1095-1097`, and
+/// `writeDocumentAppendClear`'s `start_col < target_cols`,
+/// `terminal_diff.zig:1177-1195`).
 fn place(buffer: &mut Vec<u8>, line: u16, row: &str, geometry: &Geometry) {
     cup(buffer, line, 1);
-    buffer.extend_from_slice(row_text(row, geometry.cols).as_bytes());
-    buffer.extend_from_slice(ERASE_LINE.as_bytes());
+    let text = row_text(row, geometry.cols);
+    buffer.extend_from_slice(text.as_bytes());
+    if super::wrap::width(&text) < geometry.cols {
+        buffer.extend_from_slice(ERASE_LINE.as_bytes());
+    }
 }
 
 /// The window title a session asks for: the session's own title once it has
@@ -2438,9 +2536,14 @@ mod tests {
     /// * a linefeed on the bottom row scrolls, and the top row leaves for
     ///   native scrollback; anywhere else it walks the cursor down.
     /// * `EL` erases from the cursor to the end of its row.
-    /// * printable text overwrites from the cursor rightwards.
+    /// * printable text overwrites from the cursor rightwards, and the cursor
+    ///   stops **on** the last column rather than past it -- autowrap is off
+    ///   (`super::super::term::MODE_SET`'s `?7l`), so an `EL` sent after a
+    ///   row as wide as the screen erases that row's last cell, as a terminal
+    ///   does.
     struct Screen {
         rows: u16,
+        cols: usize,
         divider: u16,
         lines: Vec<String>,
         cursor_row: u16,
@@ -2462,6 +2565,7 @@ mod tests {
             }
             Self {
                 rows: geometry.rows,
+                cols: usize::from(geometry.cols),
                 divider: geometry.band_top(),
                 lines,
                 cursor_row: 1,
@@ -2505,16 +2609,18 @@ mod tests {
             );
             let line = &mut self.lines[usize::from(self.cursor_row) - 1];
             let mut cells: Vec<char> = line.chars().collect();
-            for (offset, character) in text.chars().enumerate() {
-                let at = self.cursor_column + offset;
+            for character in text.chars() {
+                let at = self.cursor_column;
                 if at < cells.len() {
                     cells[at] = character;
                 } else {
                     cells.push(character);
                 }
+                if self.cursor_column + 1 < self.cols {
+                    self.cursor_column += 1;
+                }
             }
             *line = cells.into_iter().collect();
-            self.cursor_column += text.chars().count();
         }
 
         fn erase_to_end_of_row(&mut self) {
@@ -3020,6 +3126,80 @@ mod tests {
     }
 
     #[test]
+    fn a_row_as_wide_as_the_screen_is_placed_without_an_erase_after_it() {
+        // Autowrap is off, so the caret that wrote the last column is still on
+        // it, and an `EL` from there erases the cell the row just wrote --
+        // `word32` was painted `word3` at 120 columns. A full row has no tail
+        // to erase; one cell short of it still does.
+        let geometry = geometry();
+        let full = "x".repeat(usize::from(geometry.cols));
+        let short = "y".repeat(usize::from(geometry.cols) - 1);
+        let mut band = Band::new();
+        let bytes = band
+            .render_append(2, &[full.clone(), short.clone()], &geometry, 0)
+            .0;
+        assert_eq!(
+            String::from_utf8(bytes).expect("utf-8"),
+            format!(
+                "\u{1b}[24;1H\n\u{1b}[21;1H{full}\
+                 \u{1b}[24;1H\n\u{1b}[21;1H{short}\u{1b}[K"
+            ),
+            "a full row was erased from its own last column, or a short one \
+             kept the tail it replaced"
+        );
+        // And rewritten where it stands -- a tail re-placed after a resize, a
+        // tool group's block redrawn under the line written beneath it: the
+        // same placement, so the same rule.
+        let bytes = band
+            .render_append(0, std::slice::from_ref(&full), &geometry, 0)
+            .0;
+        assert_eq!(
+            String::from_utf8(bytes).expect("utf-8"),
+            format!("\u{1b}[21;1H{full}"),
+            "a full row re-placed where it stands was erased from its last column"
+        );
+    }
+
+    #[test]
+    fn an_answer_row_as_wide_as_the_screen_reaches_the_document_whole() {
+        // The path the capture took (`xfx-streaming-40x120`, and
+        // `notice-midstream` at both sizes): the answer's text in its
+        // two-column gutter, wrapped to `cols - 2`, so `word16` to `word32` is
+        // 118 cells of text and a 120-cell row. Wrapped right and placed
+        // right, it lost its `2` to the erase that followed it.
+        let geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
+        let mut transcript = crate::tui::transcript::Transcript::new(geometry.cols);
+        transcript.queue_gutter(crate::tui::transcript::Gutter::Indent);
+        // A gutter writes nothing of its own; landing it is a state change.
+        let palette = crate::tui::theme::Palette {
+            mode: crate::tui::theme::Mode::Dark,
+            depth: crate::tui::theme::Depth::Ansi256,
+        };
+        while transcript
+            .emit_front(palette, |_| {
+                crate::tui::transcript::Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        let mut band = Band::new();
+        let mut screen = Screen::under_a_painted_band(&geometry);
+        let words: Vec<String> = (16..=40).map(|n| format!("word{n}")).collect();
+        let append = transcript.push(&words.join(" "));
+        screen.feed(
+            &band
+                .render_append(append.scroll, &append.rows, &geometry, 0)
+                .0,
+        );
+        let row = format!("  {}", words[..17].join(" "));
+        assert_eq!(row.chars().count(), 120, "the fixture is not a full row");
+        assert_eq!(
+            screen.document(),
+            vec![row, format!("  {}", words[17..].join(" "))],
+            "a full-width answer row lost its last cell on the way to the screen"
+        );
+    }
+
+    #[test]
     fn every_appended_row_is_on_the_screen_before_anything_scrolls_it_off() {
         // The rows of an answer taller than the document area. A batch that
         // scrolled `rows.len()` times and then painted only the surviving
@@ -3283,9 +3463,12 @@ mod tests {
                 );
                 let end = rest.find('\u{1b}').unwrap_or(rest.len());
                 let (text, tail) = rest.split_at(end);
+                // The caret stops on the last column rather than past it:
+                // autowrap is off, so a character written there leaves the
+                // caret where an `EL` would erase it.
                 for character in text.chars() {
-                    if self.col < usize::from(self.cols) {
-                        self.lines[self.row][self.col] = character;
+                    self.lines[self.row][self.col] = character;
+                    if self.col + 1 < usize::from(self.cols) {
                         self.col += 1;
                     }
                 }

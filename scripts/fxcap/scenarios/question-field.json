@@ -1,0 +1,7 @@
+[
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"What should happen first?","options":[{"label":"Inspect repo state","description":"Look around the workspace"},{"label":"Run tests"}]}]}}},
+ {"delayMs":80,"chunks":["Got ","it."]},
+ {"tool":{"name":"ask_user_question","input":{"questions":[{"question":"Deploy now?","options":[{"label":"Yes"},{"label":"No"}]}]}}},
+ {"delayMs":80,"chunks":["after ","cancel."]},
+ {"delayMs":80,"chunks":["spare."]}
+]

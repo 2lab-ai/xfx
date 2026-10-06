@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+* auth: Switched credential to AI_GATEWAY_API_KEY.
+
+┃ stream something long please
+
+* provider: Provider switching is unavailable until active and queued work finishes.
+
+  Generating (2s) (↑8 ↓55)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

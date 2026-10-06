@@ -1,0 +1,49 @@
+# `/permissions` (D4a): the bare listing, each mode, reset, a word nobody
+# reads, and the settings file after every write. A fresh HOME, so the
+# full-access warning is owed on the first full-access frame.
+wait 2
+type /permissions
+wait 0.3
+key Enter
+wait 1
+snap bare
+key Down
+wait 0.3
+snap down1
+key Escape
+wait 0.5
+snap esc
+type /permissions auto
+wait 0.3
+key Enter
+wait 1
+snap auto
+home auto
+type /permissions full-access
+wait 0.3
+key Enter
+wait 1
+snap full
+home full
+type /permissions ask
+wait 0.3
+key Enter
+wait 1
+snap ask
+home ask
+type /permissions reset
+wait 0.3
+key Enter
+wait 1
+snap reset
+home reset
+type /permissions bogus
+wait 0.3
+key Enter
+wait 1
+snap bogus
+type /permissions
+wait 0.3
+key Enter
+wait 1
+snap bare-after

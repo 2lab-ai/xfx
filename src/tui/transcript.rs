@@ -46,7 +46,7 @@ use std::collections::VecDeque;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::notice::Tone;
-use super::theme::Palette;
+use super::theme::{DocumentRow, Palette};
 use super::wrap;
 
 /// What a text *is*, which is what decides the colour the document row carrying
@@ -243,10 +243,17 @@ impl Source<'_> {
 /// the difference as settled and never paint it. That is silent, permanent
 /// loss of the beginning of an answer, the same class as a batch scroll that
 /// outruns the document area.
+///
+/// `kinds` is what each row is, for the theme report that may later repaint
+/// it (`super::theme::DocumentRow`): **empty when every row is plain**, which
+/// is most appends, and otherwise one per row. Recorded with the row as it is
+/// written rather than read back off its painted cells, because two of the
+/// document's greys are one number on a dark screen and two on a light one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Append {
     pub(crate) scroll: usize,
     pub(crate) rows: Vec<String>,
+    pub(crate) kinds: Vec<DocumentRow>,
 }
 
 impl Append {
@@ -255,6 +262,7 @@ impl Append {
         Self {
             scroll: 0,
             rows: Vec::new(),
+            kinds: Vec::new(),
         }
     }
 
@@ -269,6 +277,15 @@ impl Append {
     /// nothing.
     fn is_nothing(&self) -> bool {
         self.scroll == 0 && self.rows.is_empty()
+    }
+}
+
+/// `count` rows of `kind`, sparsely: nothing at all for plain rows ([`Append`]).
+fn kinds_of(kind: DocumentRow, count: usize) -> Vec<DocumentRow> {
+    if kind == DocumentRow::Plain {
+        Vec::new()
+    } else {
+        vec![kind; count]
     }
 }
 
@@ -419,8 +436,12 @@ enum Op {
     /// re-prefixed.
     Gutter(Gutter),
     /// The open block, whole, as it now stands: rows that are each **one**
-    /// screen row and replace the ones the block had ([`Transcript::queue_block`]).
-    Block(Vec<String>),
+    /// screen row and replace the ones the block had, and what each of them
+    /// is ([`Transcript::queue_block`]).
+    Block(Vec<String>, Vec<DocumentRow>),
+    /// Lines from here on are rows of this kind ([`Transcript::queue_kind`]).
+    /// Queued only at a line boundary, like a gutter.
+    Kind(DocumentRow),
 }
 
 /// The unfinished line, what the screen already shows of it, and the text that
@@ -508,6 +529,9 @@ pub(crate) struct Transcript {
     /// [`Op::Gutter`] -- is written with, **as of the last operation the
     /// terminal took**.
     gutter: Gutter,
+    /// What the rows of the lines written from here on are
+    /// ([`Self::queue_kind`]).
+    kind: DocumentRow,
     /// Whether what [`Self::painted`] counts is an open **block** rather than
     /// a line of text, as of the last operation the terminal took.
     ///
@@ -537,6 +561,7 @@ impl Transcript {
             blank: true,
             split_crlf: false,
             gutter: Gutter::None,
+            kind: DocumentRow::Plain,
             block: false,
             block_frozen: 0,
             block_open: false,
@@ -697,7 +722,7 @@ impl Transcript {
     /// as blank rows rather than leaving their old text on the screen.
     ///
     /// Starts on a row of its own: an open line of text is ended first.
-    pub(crate) fn queue_block(&mut self, rows: Vec<String>) -> bool {
+    pub(crate) fn queue_block(&mut self, rows: Vec<String>, kinds: Vec<DocumentRow>) -> bool {
         if rows.is_empty() {
             return false;
         }
@@ -708,7 +733,7 @@ impl Transcript {
         // the blank row it ends on, so a notice written under it does not
         // grow a second one ([`Self::ends_blank`]).
         self.blank = rows.last().is_some_and(String::is_empty);
-        self.queue.push_back(Op::Block(rows));
+        self.queue.push_back(Op::Block(rows, kinds));
         self.open = true;
         self.block_open = true;
         true
@@ -722,6 +747,17 @@ impl Transcript {
     pub(crate) fn queue_gutter(&mut self, gutter: Gutter) -> bool {
         let asked = self.open && self.queue_end_line();
         self.queue.push_back(Op::Gutter(gutter));
+        asked
+    }
+
+    /// Queues what the rows of the lines that follow are, for a theme report
+    /// that later repaints them ([`DocumentRow`]).
+    ///
+    /// Ends the open line first, as [`Self::queue_gutter`] does and for its
+    /// reason: a kind belongs to a whole line.
+    pub(crate) fn queue_kind(&mut self, kind: DocumentRow) -> bool {
+        let asked = self.open && self.queue_end_line();
+        self.queue.push_back(Op::Kind(kind));
         asked
     }
 
@@ -833,10 +869,21 @@ impl Transcript {
                 roles: self.roles.clone(),
                 painted: self.painted,
                 gutter: *gutter,
+                kind: self.kind,
                 block: self.block,
                 block_frozen: self.block_frozen,
             }),
-            Op::Block(rows) => Some(self.prepare_block(rows)),
+            Op::Kind(kind) => Some(Prepared {
+                append: Append::nothing(),
+                tail: self.tail.clone(),
+                roles: self.roles.clone(),
+                painted: self.painted,
+                gutter: self.gutter,
+                kind: *kind,
+                block: self.block,
+                block_frozen: self.block_frozen,
+            }),
+            Op::Block(rows, kinds) => Some(self.prepare_block(rows, kinds)),
         }
     }
 
@@ -845,7 +892,7 @@ impl Transcript {
     ///
     /// Only ever in front of a committed tail that is empty or is this block:
     /// [`Self::queue_block`] ends an open line before it queues one.
-    fn prepare_block(&self, rows: &[String]) -> Prepared {
+    fn prepare_block(&self, rows: &[String], kinds: &[DocumentRow]) -> Prepared {
         let (frozen, painted) = if self.block {
             (self.block_frozen, self.painted)
         } else {
@@ -859,9 +906,17 @@ impl Transcript {
         // A block that lost rows must not leave their text behind: the rows it
         // occupied are still its, and only a write can clear one.
         written.resize(written.len().max(painted), String::new());
+        let kinds = if kinds.iter().all(|kind| *kind == DocumentRow::Plain) {
+            Vec::new()
+        } else {
+            (frozen..frozen + written.len())
+                .map(|index| kinds.get(index).copied().unwrap_or(DocumentRow::Plain))
+                .collect()
+        };
         let append = Append {
             scroll: written.len() - painted,
             rows: written,
+            kinds,
         };
         let (frozen, painted) = freeze_block(frozen, append.rows.len());
         Prepared {
@@ -870,6 +925,7 @@ impl Transcript {
             roles: Roles::default(),
             painted,
             gutter: self.gutter,
+            kind: self.kind,
             block: true,
             block_frozen: frozen,
         }
@@ -946,11 +1002,13 @@ impl Transcript {
             // are rewritten where they are and everything past them is new.
             append: Append {
                 scroll: rows.len().saturating_sub(painted),
+                kinds: kinds_of(self.kind, rows.len()),
                 rows,
             },
             tail,
             painted: open_rows,
             gutter,
+            kind: self.kind,
             block: false,
             block_frozen: 0,
         }
@@ -967,6 +1025,7 @@ impl Transcript {
                 roles: Roles::default(),
                 painted: 0,
                 gutter: self.gutter,
+                kind: self.kind,
                 block: false,
                 block_frozen: 0,
             };
@@ -977,13 +1036,18 @@ impl Transcript {
             append: if scroll == 0 {
                 Append::nothing()
             } else {
-                Append { scroll, rows }
+                Append {
+                    scroll,
+                    kinds: kinds_of(self.kind, rows.len()),
+                    rows,
+                }
             },
             tail: String::new(),
             roles: Roles::default(),
             painted: 0,
             // The line a notice's glyph headed is over.
             gutter: self.gutter.continued(),
+            kind: self.kind,
             block: false,
             block_frozen: 0,
         }
@@ -997,6 +1061,7 @@ impl Transcript {
         self.roles = prepared.roles;
         self.painted = prepared.painted;
         self.gutter = prepared.gutter;
+        self.kind = prepared.kind;
         self.block = prepared.block;
         self.block_frozen = prepared.block_frozen;
     }
@@ -1070,7 +1135,7 @@ fn freeze_block(frozen: usize, rows: usize) -> (usize, usize) {
 /// makes is the row the painter puts on the screen rather than one it cuts
 /// again. A cut inside a run of colour leaves it open, so the row is closed
 /// after the ellipsis, as upstream closes it.
-fn ellipsized(row: &str, cols: u16) -> String {
+pub(crate) fn ellipsized(row: &str, cols: u16) -> String {
     if wrap::width(row) <= cols {
         return row.to_string();
     }
@@ -1432,6 +1497,7 @@ struct Prepared {
     roles: Roles,
     painted: usize,
     gutter: Gutter,
+    kind: DocumentRow,
     block: bool,
     block_frozen: usize,
 }
@@ -1969,7 +2035,8 @@ mod tests {
             transcript.push("answer"),
             Append {
                 scroll: 1,
-                rows: vec!["answer".to_string()]
+                rows: vec!["answer".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -1982,7 +2049,8 @@ mod tests {
             transcript.push("wer"),
             Append {
                 scroll: 0,
-                rows: vec!["answer".to_string()]
+                rows: vec!["answer".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -1995,7 +2063,8 @@ mod tests {
             transcript.push("efgh"),
             Append {
                 scroll: 1,
-                rows: vec!["abcd".to_string(), "efgh".to_string()]
+                rows: vec!["abcd".to_string(), "efgh".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -2010,7 +2079,8 @@ mod tests {
             transcript.push("second"),
             Append {
                 scroll: 1,
-                rows: vec!["second".to_string()]
+                rows: vec!["second".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -2041,7 +2111,8 @@ mod tests {
             transcript.push("first\nsecond"),
             Append {
                 scroll: 2,
-                rows: vec!["first".to_string(), "second".to_string()]
+                rows: vec!["first".to_string(), "second".to_string()],
+                kinds: Vec::new(),
             }
         );
         assert_eq!(
@@ -2054,7 +2125,8 @@ mod tests {
             transcript.push("!"),
             Append {
                 scroll: 0,
-                rows: vec!["second!".to_string()]
+                rows: vec!["second!".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -2068,7 +2140,8 @@ mod tests {
             transcript.push("a\n\nb"),
             Append {
                 scroll: 3,
-                rows: vec!["a".to_string(), String::new(), "b".to_string()]
+                rows: vec!["a".to_string(), String::new(), "b".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -2206,7 +2279,8 @@ mod tests {
             split.push("a\r"),
             Append {
                 scroll: 2,
-                rows: vec!["a".to_string(), String::new()]
+                rows: vec!["a".to_string(), String::new()],
+                kinds: Vec::new(),
             },
             "the line and the row its successor starts on"
         );
@@ -2214,7 +2288,8 @@ mod tests {
             split.push("\nb"),
             Append {
                 scroll: 0,
-                rows: vec!["b".to_string()]
+                rows: vec!["b".to_string()],
+                kinds: Vec::new(),
             },
             "the leading newline was answered a second time"
         );
@@ -2224,7 +2299,8 @@ mod tests {
             whole.push("a\r\nb"),
             Append {
                 scroll: 2,
-                rows: vec!["a".to_string(), "b".to_string()]
+                rows: vec!["a".to_string(), "b".to_string()],
+                kinds: Vec::new(),
             }
         );
     }
@@ -2408,7 +2484,8 @@ mod tests {
             transcript.push("pq"),
             Append {
                 scroll: 0,
-                rows: vec!["abcdefghijklmnopq".to_string()]
+                rows: vec!["abcdefghijklmnopq".to_string()],
+                kinds: Vec::new(),
             },
             "the tail was not re-wrapped to the screen it is now on"
         );
@@ -2430,7 +2507,8 @@ mod tests {
             transcript.push("rs"),
             Append {
                 scroll: 0,
-                rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()]
+                rows: vec!["abcdefghij".to_string(), "klmnopqrs".to_string()],
+                kinds: Vec::new(),
             },
             "the tail was not re-wrapped to the narrower screen"
         );
@@ -2777,11 +2855,105 @@ mod tests {
     }
 
     #[test]
+    fn rows_carry_what_they_are_from_the_kind_queued_before_their_line() {
+        // A plain line has no record at all (most appends), an answer line's
+        // rows all say so, and the kind changes only at a line boundary, so
+        // the line before it keeps its own.
+        let mut transcript = Transcript::new(20);
+        transcript.queue_push("  1) Proceed?", Role::Plain);
+        transcript.queue_kind(DocumentRow::Answer);
+        transcript.queue_push("     a long answer that wraps", Role::Plain);
+        transcript.queue_end_line();
+        transcript.queue_kind(DocumentRow::Plain);
+        transcript.queue_push("after", Role::Plain);
+        transcript.queue_end_line();
+        let appends = drain(&mut transcript, DARK_256);
+        let recorded: Vec<(String, DocumentRow)> = appends
+            .iter()
+            .flat_map(|append| {
+                append.rows.iter().enumerate().map(|(index, row)| {
+                    (
+                        row.clone(),
+                        append.kinds.get(index).copied().unwrap_or_default(),
+                    )
+                })
+            })
+            .collect();
+        assert!(
+            recorded.contains(&("  1) Proceed?".to_string(), DocumentRow::Plain)),
+            "{recorded:?}"
+        );
+        let answer: Vec<&(String, DocumentRow)> = recorded
+            .iter()
+            .filter(|(row, _)| row.contains("answer") || row.contains("wraps"))
+            .collect();
+        assert!(!answer.is_empty(), "{recorded:?}");
+        assert!(
+            answer.iter().all(|(_, kind)| *kind == DocumentRow::Answer),
+            "{recorded:?}"
+        );
+        assert!(
+            recorded.contains(&("after".to_string(), DocumentRow::Plain)),
+            "{recorded:?}"
+        );
+        assert!(
+            appends
+                .iter()
+                .filter(|append| append.rows.iter().all(|row| !row.contains("answer")))
+                .all(|append| append.kinds.is_empty()),
+            "a plain append carried a record: {appends:?}"
+        );
+    }
+
+    #[test]
+    fn a_block_carries_each_rows_kind_past_the_rows_it_froze() {
+        let mut transcript = Transcript::new(40);
+        transcript.queue_block(
+            rows(&[
+                "\u{25cf} header",
+                "\u{2514} call",
+                "",
+                "\u{25a0} Cancelled call",
+                "",
+            ]),
+            vec![
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+            ],
+        );
+        let appends = drain(&mut transcript, DARK_256);
+        assert_eq!(
+            appends[0].kinds,
+            vec![
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+            ]
+        );
+        // An all-plain block records nothing.
+        transcript.queue_block(rows(&["a", "b"]), vec![DocumentRow::Plain; 2]);
+        assert!(drain(&mut transcript, DARK_256)
+            .iter()
+            .all(|append| append.kinds.is_empty()));
+    }
+
+    #[test]
     fn a_block_is_rewritten_where_it_stands_and_scrolls_only_the_rows_it_gained() {
         let mut transcript = Transcript::new(40);
-        transcript.queue_block(rows(&["header 1", "\u{2514} one", ""]));
-        transcript.queue_block(rows(&["header 2", "\u{251c} one", "\u{2514} two", ""]));
-        transcript.queue_block(rows(&["header 2", "\u{251c} one", "\u{2514} two!", ""]));
+        transcript.queue_block(rows(&["header 1", "\u{2514} one", ""]), Vec::new());
+        transcript.queue_block(
+            rows(&["header 2", "\u{251c} one", "\u{2514} two", ""]),
+            Vec::new(),
+        );
+        transcript.queue_block(
+            rows(&["header 2", "\u{251c} one", "\u{2514} two!", ""]),
+            Vec::new(),
+        );
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(
             appends
@@ -2803,7 +2975,7 @@ mod tests {
     fn whatever_follows_a_block_starts_on_a_row_of_its_own_and_leaves_it_alone() {
         let mut transcript = Transcript::new(40);
         transcript.queue_push("the answer so far", Role::Plain);
-        transcript.queue_block(rows(&["header", "\u{2514} call", ""]));
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]), Vec::new());
         transcript.queue_push("after", Role::Plain);
         transcript.queue_end_line();
         let appends = drain(&mut transcript, DARK_256);
@@ -2813,7 +2985,7 @@ mod tests {
             "a block shared a row with the text around it"
         );
         // Closed by the text: a block queued now is a new one, under it.
-        transcript.queue_block(rows(&["second"]));
+        transcript.queue_block(rows(&["second"]), Vec::new());
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends.len(), 1);
         assert_eq!(appends[0].scroll, 1, "the second block rewrote the first");
@@ -2822,8 +2994,8 @@ mod tests {
     #[test]
     fn a_block_that_lost_rows_blanks_the_ones_it_gave_up() {
         let mut transcript = Transcript::new(40);
-        transcript.queue_block(rows(&["a", "b", "c"]));
-        transcript.queue_block(rows(&["a"]));
+        transcript.queue_block(rows(&["a", "b", "c"]), Vec::new());
+        transcript.queue_block(rows(&["a"]), Vec::new());
         assert_eq!(replay(drain(&mut transcript, DARK_256)), ["a", "", ""]);
         assert_eq!(transcript.tail_rows(), 3);
     }
@@ -2833,10 +3005,13 @@ mod tests {
         // `clipSummary`: one cell short, the ellipsis in it, and a colour the
         // cut left open closed after it.
         let mut transcript = Transcript::new(10);
-        transcript.queue_block(vec![
-            "\u{1b}[38;5;245m\u{251c} Ran something long\u{1b}[0m".to_string(),
-            "short".to_string(),
-        ]);
+        transcript.queue_block(
+            vec![
+                "\u{1b}[38;5;245m\u{251c} Ran something long\u{1b}[0m".to_string(),
+                "short".to_string(),
+            ],
+            Vec::new(),
+        );
         let written = replay(drain(&mut transcript, DARK_256));
         assert_eq!(
             written[0], "\u{1b}[38;5;245m\u{251c} Ran som\u{2026}\u{1b}[0m",
@@ -2851,11 +3026,11 @@ mod tests {
         // One screen row each, at any width: re-measuring them as wrapped text
         // would make the next rewrite scroll rows the block already has.
         let mut transcript = Transcript::new(40);
-        transcript.queue_block(rows(&["header", "\u{2514} call", ""]));
+        transcript.queue_block(rows(&["header", "\u{2514} call", ""]), Vec::new());
         drain(&mut transcript, DARK_256);
         transcript.resize_unfinished(5);
         assert_eq!(transcript.tail_rows(), 3);
-        transcript.queue_block(rows(&["header", "\u{2514} done", ""]));
+        transcript.queue_block(rows(&["header", "\u{2514} done", ""]), Vec::new());
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends[0].scroll, 0);
         // Cut at the width it lands on: four cells and the ellipsis.
@@ -2871,12 +3046,12 @@ mod tests {
         let tall: Vec<String> = (0..MAX_TAIL_ROWS + 10)
             .map(|n| format!("row {n}"))
             .collect();
-        transcript.queue_block(tall.clone());
+        transcript.queue_block(tall.clone(), Vec::new());
         drain(&mut transcript, DARK_256);
         assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
         let mut taller = tall;
         taller.push("one more".to_string());
-        transcript.queue_block(taller);
+        transcript.queue_block(taller, Vec::new());
         let appends = drain(&mut transcript, DARK_256);
         assert_eq!(appends[0].scroll, 1);
         assert_eq!(appends[0].rows.len(), MAX_TAIL_ROWS + 1);

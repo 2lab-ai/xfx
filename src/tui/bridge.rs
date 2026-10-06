@@ -155,6 +155,19 @@ pub(crate) enum UiEvent {
     /// sentence the user typed and then interrupted out of reaches neither, and
     /// a sentence that reached one reached all three.
     ToolFeedback { call_id: String, text: String },
+    /// What the session's journal recorded about a call that the document is
+    /// never shown -- its arguments, its whole result -- for the full
+    /// transcript (`super::full_transcript::Teed`).
+    ///
+    /// Its own variant rather than more fields on [`Self::ToolStart`] and
+    /// [`Self::ToolResult`]: those are the turn machine's events and carry
+    /// what the inline transcript draws; this is the journal's record, read
+    /// at the moment it is written down, and nothing but the full transcript
+    /// reads it.
+    ToolDetail {
+        call_id: String,
+        detail: super::full_transcript::Detail,
+    },
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -279,6 +292,39 @@ pub(crate) enum UiEvent {
     /// Two resets that reached the same turn are answered by one fence, the
     /// later count's.
     Fresh { through: usize },
+    /// The saved sessions a `/resume` picker lists, or `None` when the store
+    /// could not be read (`Unable to load sessions.`).
+    ///
+    /// Read on the runtime thread because a listing reads one manifest per
+    /// session, and the thread holding the terminal reads no file
+    /// ([`super::session_picker`]). Not terminal: like a `/model` answer it
+    /// ends no turn.
+    Sessions(Option<super::session_picker::Listing>),
+    /// The session `/resume` asked for is now the runtime's conversation, and
+    /// this is what it replays as ([`super::hydration`]).
+    ///
+    /// Sent **after** the swap, through `send_terminal`, for the reason a
+    /// provider switch's answer is: the conversation the next prompt goes to
+    /// has already changed, and a cancellation that dropped the one event
+    /// saying so would leave the screen showing the session that was.
+    Resumed(super::hydration::Hydration),
+    /// The session `/resume` asked for could not be opened, and why. The
+    /// conversation is the one it was.
+    ResumeFailed {
+        id: String,
+        failure: super::session_picker::ResumeFailure,
+    },
+    /// `/rename` reached the conversation: the session is called `title` from
+    /// here on, and `unsaved` is why the log does not say so, when it does not
+    /// (`renamed for this process but not saved`).
+    ///
+    /// Structured rather than a notice alone, because the window's title is
+    /// the shell's to change and it changes only for a rename that happened: a
+    /// rename a Ctrl-C dropped from the queue before it ran is not one.
+    Renamed {
+        title: String,
+        unsaved: Option<String>,
+    },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -375,6 +421,12 @@ impl UiEvent {
             Self::ToolFeedback { call_id, text } => Self::ToolFeedback {
                 call_id: inert_owned(call_id),
                 text: inert_owned(text),
+            },
+            // A call's arguments and a tool's output are the model's and the
+            // tool's, and are about to be laid out into rows.
+            Self::ToolDetail { call_id, detail } => Self::ToolDetail {
+                call_id: inert_owned(call_id),
+                detail: detail.made_inert(),
             },
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
@@ -526,8 +578,94 @@ impl UiEvent {
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
+            // Every title and every path a session store holds: a title is a
+            // prompt somebody typed, or a `/rename` of one, and a path is a
+            // directory's own name.
+            Self::Sessions(listing) => {
+                Self::Sessions(listing.map(|listing| super::session_picker::Listing {
+                    current: listing.current.into_iter().map(inert_session).collect(),
+                    all: listing.all.into_iter().map(inert_session).collect(),
+                    now_ms: listing.now_ms,
+                }))
+            }
+            // **A whole conversation read back off a disk**: every prompt,
+            // every answer, every argument a model gave a tool and every first
+            // line a tool answered with. The line breaks survive, as a delta's
+            // do -- a prompt's and an answer's rows are made of them.
+            Self::Resumed(hydration) => Self::Resumed(super::hydration::Hydration {
+                title: hydration.title.map(inert_owned),
+                turns: hydration
+                    .turns
+                    .into_iter()
+                    .map(|turn| super::hydration::HydratedTurn {
+                        user: inert_owned(turn.user),
+                        steps: turn.steps.into_iter().map(inert_step).collect(),
+                        ending: match turn.ending {
+                            super::hydration::Ending::Interrupted(reason) => {
+                                super::hydration::Ending::Interrupted(inert_owned(reason))
+                            }
+                            ending => ending,
+                        },
+                    })
+                    .collect(),
+                model: hydration.model.map(inert_owned),
+            }),
+            // The id is the store's own name for a directory, read back off a
+            // listing; the failure is this crate's word.
+            Self::ResumeFailed { id, failure } => Self::ResumeFailed {
+                id: inert_owned(id),
+                failure,
+            },
+            // The title passed `validate_title` and holds no control
+            // character; the reason quotes a path and an I/O error, which are
+            // the filesystem's words. Neither is exempt.
+            Self::Renamed { title, unsaved } => Self::Renamed {
+                title: inert_owned(title),
+                unsaved: unsaved.map(inert_owned),
+            },
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
+    }
+}
+
+/// One listed session with its text made inert.
+fn inert_session(
+    session: super::session_picker::ListedSession,
+) -> super::session_picker::ListedSession {
+    super::session_picker::ListedSession {
+        id: inert_owned(session.id),
+        title: session.title.map(inert_owned),
+        workspace: inert_owned(session.workspace),
+        updated_at_ms: session.updated_at_ms,
+        turns: session.turns,
+    }
+}
+
+/// One replayed step with its text made inert, as the live event it stands
+/// for would have been.
+fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::HydratedStep {
+    use super::hydration::HydratedStep;
+    match step {
+        HydratedStep::Text(text) => HydratedStep::Text(inert_owned(text)),
+        HydratedStep::ToolStart { id, shown } => HydratedStep::ToolStart {
+            id: inert_owned(id),
+            shown: Shown {
+                presentation: shown.presentation,
+                target: shown.target.map(inert_owned),
+            },
+        },
+        HydratedStep::ToolResult {
+            id,
+            ok,
+            detail,
+            outcome,
+        } => HydratedStep::ToolResult {
+            id: inert_owned(id),
+            ok,
+            detail: inert_owned(detail),
+            outcome,
+        },
+        HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
     }
 }
 
@@ -680,6 +818,21 @@ pub(crate) enum TurnWork {
     /// thread sits in `pselect(2)` holding the terminal and may not wait for a
     /// daemon that is not answering.
     Catalog,
+    /// List the saved sessions a `/resume` picker offers
+    /// ([`UiEvent::Sessions`]). Work because it reads the store, which the
+    /// thread holding the terminal does not.
+    Sessions,
+    /// Make the saved session with this id the conversation
+    /// ([`UiEvent::Resumed`], or [`UiEvent::ResumeFailed`]). Work rather than
+    /// control because it must happen *between* turns: the picker that asks
+    /// for it is refused while one runs, and the conversation it replaces is
+    /// one a turn would be writing into.
+    Resume(String),
+    /// Give the conversation's session this title, already validated
+    /// (`crate::session::validate_title`), opening the session first when no
+    /// prompt has. Answered with a notice: renamed, or renamed here and not
+    /// saved.
+    Rename(String),
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ run the checks
+
+  Reading first.
+
+● 4 tool calls · 2 read · 1 edit · 1 command · 2 failed
+├ Read a.txt
+├ Exited 3 echo boom; echo err >&2; exit 3
+├ Edited a.txt +1 / -1
+└ Failed missing.txt: Path not found: missing.txt
+
+  All done.
+
+  7s (↑4 ↓200)
+
+┃
+
+ask · model-a
+
+
+
+
+

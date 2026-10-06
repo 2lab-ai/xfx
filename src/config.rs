@@ -75,6 +75,16 @@ pub const EFFORT_KEY: &str = "effort";
 pub const ENV_MODEL: &str = "XFX_MODEL";
 const ENV_PERMISSION_MODE: &str = "XFX_PERMISSION_MODE";
 const ENV_MAX_AGENT_STEPS: &str = "XFX_MAX_AGENT_STEPS";
+
+/// The environment override for `/sound`'s start value, upstream's `FX_SOUND`
+/// (`vercel-labs/fx@c1db9191 src/core/app/app_lifecycle.zig:1714-1725`).
+///
+/// `0`, `false` or `off` (the last two in any case) start the session with
+/// sound off; any other value that is not blank starts it on. It decides where
+/// the session **starts** and nothing else: `/sound` still moves it, and still
+/// saves what it moved it to. A harness that must stay silent sets
+/// `XFX_SOUND=off`, as fx's own sets `FX_SOUND=0`.
+pub const ENV_SOUND: &str = "XFX_SOUND";
 const ENV_OIDC_TOKEN: &str = "VERCEL_OIDC_TOKEN";
 const ENV_GATEWAY_KEY: &str = "AI_GATEWAY_API_KEY";
 
@@ -101,10 +111,12 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "llmux_url",
     "model",
     "models",
+    "notifications",
     "permission_mode",
     "provider",
     STATUS_LINE_KEY,
     "workspaces",
+    "yolo_acknowledged",
 ];
 
 /// Which of the footer's three optional segments are shown
@@ -208,6 +220,41 @@ impl PermissionMode {
         }
     }
 
+    /// The word a person reads for this mode: upstream's
+    /// (`permissionModeDisplayLabel`, `vercel-labs/fx@c1db9191
+    /// src/core/permissions/permissions.zig`), where the mode that skips every
+    /// check is `full access` -- on the hint row, in `/permissions`, and in
+    /// the notice that sets it.
+    ///
+    /// **Not [`Self::label`]**, which stays the wire word: a session log and
+    /// the settings file record `yolo`, as upstream's own settings file does
+    /// (`"permission_mode":"yolo"`), and a reader of either must be able to
+    /// read back what an older xfx wrote.
+    pub fn display_label(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Auto => "auto",
+            Self::Yolo => "full access",
+        }
+    }
+
+    /// A mode as a person types it: upstream's grammar
+    /// (`PermissionMode.parse`, `vercel-labs/fx@c1db9191
+    /// src/core/shared/types.zig:2396-2403`) -- `ask`, `auto`, and `full-access`,
+    /// `full access` or `yolo` for the third, in any case.
+    ///
+    /// The wire grammar is [`Self::parse`] and stays exact: a session log is
+    /// something xfx wrote, and one that says `Full Access` is not one it
+    /// wrote. This is what an argument to `/permissions` is read with, and it
+    /// ends in that same table rather than in one of its own.
+    pub fn parse_choice(raw: &str) -> Option<Self> {
+        let word = raw.trim().to_ascii_lowercase();
+        match word.as_str() {
+            "full-access" | "full access" => Some(Self::Yolo),
+            other => Self::parse(other),
+        }
+    }
+
     /// The inverse of [`Self::label`], tolerating surrounding whitespace.
     ///
     /// Public because a persisted session records the label and has to be able
@@ -228,6 +275,42 @@ impl Default for PermissionMode {
     /// (`vercel-labs/fx@580a0c5d src/core/config/config_runtime.zig:18`).
     fn default() -> Self {
         Self::Auto
+    }
+}
+
+/// The two switches `/sound` moves, as a session starts with them.
+///
+/// Upstream keeps them apart in its settings (`"notifications": {"turn_end",
+/// "attention_required"}`, `vercel-labs/fx@c1db9191
+/// src/core/config/config_runtime.zig:1829-1843`) and reads them apart, so a
+/// file that sets only one keeps the other at its default -- and so does this.
+/// `/sound` always writes both to the same value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Notifications {
+    /// Ring when a turn finishes, whether it answered or failed.
+    pub turn_end: bool,
+    /// Ring when the session stops to ask the user something.
+    pub attention_required: bool,
+}
+
+impl Notifications {
+    /// Both switches at once, which is the only way `/sound` sets them.
+    pub fn both(on: bool) -> Self {
+        Self {
+            turn_end: on,
+            attention_required: on,
+        }
+    }
+}
+
+impl Default for Notifications {
+    /// Upstream's compiled default: on where it has an audio player to play
+    /// through (macOS), off elsewhere, where all it has is the terminal bell
+    /// (`vercel-labs/fx@c1db9191 src/core/notifications/sound.zig:9-11`). xfx
+    /// only ever rings the bell, so it keeps the same split rather than
+    /// inventing a third rule: a Linux user gets what fx gives them there.
+    fn default() -> Self {
+        Self::both(cfg!(target_os = "macos"))
     }
 }
 
@@ -508,6 +591,7 @@ impl Environment {
             ENV_MODEL,
             ENV_PERMISSION_MODE,
             ENV_MAX_AGENT_STEPS,
+            ENV_SOUND,
             ENV_OIDC_TOKEN,
             ENV_GATEWAY_KEY,
             // Not xfx knobs and not read by any layer below: `xfx setup llmux`
@@ -595,7 +679,19 @@ pub struct RuntimeConfig {
     pub project_settings_loaded: bool,
     pub model: String,
     pub permission_mode: PermissionMode,
+    /// Whether the person at this profile has already been shown the
+    /// full-access warning once (`yolo_acknowledged`).
+    ///
+    /// Upstream shows the warning on the hint row the first time a session is
+    /// in that mode and records that it did, so it is shown once per user,
+    /// ever (`app_permission_runtime.zig:99-111`, `:168-176`). Profile-only, like
+    /// the mode it is about: a repository cannot decide that its cloner has
+    /// already been warned.
+    pub yolo_acknowledged: bool,
     pub max_agent_steps: u32,
+    /// What `/sound` starts at: [`ENV_SOUND`], else the profile's
+    /// `notifications` (each switch on its own), else the compiled default.
+    pub notifications: Notifications,
     /// The provider a turn will talk to.
     ///
     /// This is the *configured* provider, never silently downgraded. When it is
@@ -918,7 +1014,16 @@ impl RuntimeConfig {
             project_settings_loaded,
             model,
             permission_mode: settings.permission_mode.unwrap_or_default(),
+            yolo_acknowledged: settings.yolo_acknowledged.unwrap_or(false),
             max_agent_steps: settings.max_agent_steps.unwrap_or(DEFAULT_MAX_AGENT_STEPS),
+            notifications: Notifications {
+                turn_end: settings
+                    .notification_turn_end
+                    .unwrap_or(Notifications::default().turn_end),
+                attention_required: settings
+                    .notification_attention_required
+                    .unwrap_or(Notifications::default().attention_required),
+            },
             provider,
             provider_rejected,
             llmux_url: settings.llmux_url,
@@ -955,7 +1060,12 @@ impl RuntimeConfig {
 struct Settings {
     model: Option<String>,
     permission_mode: Option<PermissionMode>,
+    yolo_acknowledged: Option<bool>,
     max_agent_steps: Option<u32>,
+    /// `notifications.turn_end`, and the override's word for it.
+    notification_turn_end: Option<bool>,
+    /// `notifications.attention_required`, and the override's word for it.
+    notification_attention_required: Option<bool>,
     backend: Option<ProviderId>,
     backend_source: Option<SettingSource>,
     /// The raw `backend` value a layer wrote that could not be read.
@@ -1012,9 +1122,21 @@ impl Settings {
             self.permission_mode = Some(mode);
             sources.permission_mode = source;
         }
+        if let Some(acknowledged) = incoming.yolo_acknowledged {
+            self.yolo_acknowledged = Some(acknowledged);
+        }
         if let Some(steps) = incoming.max_agent_steps {
             self.max_agent_steps = Some(steps);
             sources.max_agent_steps = source;
+        }
+        // Field by field, as upstream merges them (`config_runtime.zig:2002-2004`):
+        // a workspace entry that sets one switch leaves the other where the
+        // global file put it. No provenance is kept, because nothing reports it.
+        if let Some(on) = incoming.notification_turn_end {
+            self.notification_turn_end = Some(on);
+        }
+        if let Some(on) = incoming.notification_attention_required {
+            self.notification_attention_required = Some(on);
         }
         if let Some(backend) = incoming.backend {
             self.backend = Some(backend);
@@ -1112,6 +1234,16 @@ fn parse_layer(
                 )),
             }
         }
+        if let Some(value) = object.get("yolo_acknowledged") {
+            match value.as_bool() {
+                Some(acknowledged) => settings.yolo_acknowledged = Some(acknowledged),
+                None => diagnostics.push(Diagnostic::with_key(
+                    layer,
+                    DiagnosticCause::InvalidValue,
+                    "yolo_acknowledged",
+                )),
+            }
+        }
         if let Some(value) = object.get(STATUS_LINE_KEY) {
             parse_statusline(value, layer, &mut settings, diagnostics);
         }
@@ -1132,6 +1264,9 @@ fn parse_layer(
                     EFFORT_KEY,
                 )),
             }
+        }
+        if let Some(value) = object.get(NOTIFICATIONS_KEY) {
+            parse_notifications(value, &mut settings, layer, diagnostics);
         }
         if let Some(value) = object.get("backend") {
             match value.as_str().and_then(ProviderId::parse) {
@@ -1296,8 +1431,61 @@ fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Se
             )),
         }
     }
+    if let Some(raw) = env.nonblank(ENV_SOUND) {
+        // Upstream's reading, word for word (`soundEnvOverride`,
+        // `app_lifecycle.zig:1714-1725`): there is no invalid value, only the
+        // three that mean off. `max` is one of the others, and on this build
+        // that means on -- xfx has no `max` to start at.
+        let off =
+            raw == "0" || raw.eq_ignore_ascii_case("false") || raw.eq_ignore_ascii_case("off");
+        settings.notification_turn_end = Some(!off);
+        settings.notification_attention_required = Some(!off);
+    }
 
     settings
+}
+
+/// The settings key `/sound` writes under.
+pub const NOTIFICATIONS_KEY: &str = "notifications";
+
+/// Reads `notifications` out of one profile layer.
+///
+/// Upstream refuses the whole file over a value of the wrong type
+/// (`config_runtime.zig:1829-1843`); xfx's rule for every key is a diagnostic
+/// and the value dropped, so a mistyped switch falls back to whatever the layer
+/// below said rather than taking the profile's other keys down with it.
+/// `max` is upstream's and is not read: xfx has nothing for it to turn on.
+fn parse_notifications(
+    value: &Value,
+    settings: &mut Settings,
+    layer: ConfigLayer,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(object) = value.as_object() else {
+        diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            NOTIFICATIONS_KEY,
+        ));
+        return;
+    };
+    for (key, slot) in [
+        ("turn_end", &mut settings.notification_turn_end),
+        (
+            "attention_required",
+            &mut settings.notification_attention_required,
+        ),
+    ] {
+        match object.get(key) {
+            None => {}
+            Some(Value::Bool(on)) => *slot = Some(*on),
+            Some(_) => diagnostics.push(Diagnostic::with_key(
+                layer,
+                DiagnosticCause::InvalidValue,
+                NOTIFICATIONS_KEY,
+            )),
+        }
+    }
 }
 
 /// Records one diagnostic per profile-only key found in the project file.
@@ -1467,6 +1655,106 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_mode_reads_upstreams_words_in_any_case() {
+        // `types.zig:2396-2403`: `full-access`, `full access` and `yolo` are
+        // the third mode, case-insensitively, and so are the other two.
+        for (typed, mode) in [
+            ("ask", PermissionMode::Ask),
+            ("ASK", PermissionMode::Ask),
+            ("auto", PermissionMode::Auto),
+            ("Auto", PermissionMode::Auto),
+            ("full-access", PermissionMode::Yolo),
+            ("Full-Access", PermissionMode::Yolo),
+            ("full access", PermissionMode::Yolo),
+            ("yolo", PermissionMode::Yolo),
+            ("YOLO", PermissionMode::Yolo),
+            ("  auto ", PermissionMode::Auto),
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), Some(mode), "{typed:?}");
+        }
+        for typed in [
+            "",
+            "reset",
+            "full",
+            "fullaccess",
+            "full  access",
+            "remember",
+        ] {
+            assert_eq!(PermissionMode::parse_choice(typed), None, "{typed:?}");
+        }
+        // The wire grammar is not widened by it: a log or a settings file
+        // that says `Full Access` is not one xfx wrote.
+        assert_eq!(PermissionMode::parse("full-access"), None);
+        assert_eq!(PermissionMode::parse("YOLO"), None);
+    }
+
+    #[test]
+    fn the_mode_that_skips_every_check_reads_full_access_and_records_yolo() {
+        assert_eq!(PermissionMode::Ask.display_label(), "ask");
+        assert_eq!(PermissionMode::Auto.display_label(), "auto");
+        assert_eq!(PermissionMode::Yolo.display_label(), "full access");
+        assert_eq!(PermissionMode::Yolo.label(), "yolo");
+    }
+
+    #[test]
+    fn the_preferences_the_shell_writes_are_read_back_from_the_profile_only() {
+        // The round trip `/permissions` depends on: what the profile writer
+        // puts down is what the next launch resolves, through the loader and
+        // not through a second reading of the file.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(fresh.permission_mode, PermissionMode::Auto);
+        assert!(!fresh.yolo_acknowledged);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        crate::provider::profile::write_preference(
+            &path,
+            &["permission_mode"],
+            Value::String(PermissionMode::Yolo.label().to_string()),
+        )
+        .expect("write the mode");
+        crate::provider::profile::write_preference(
+            &path,
+            &["yolo_acknowledged"],
+            Value::Bool(true),
+        )
+        .expect("write the acknowledgement");
+        let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert_eq!(reloaded.permission_mode, PermissionMode::Yolo);
+        assert_eq!(reloaded.sources.permission_mode, SettingSource::UserGlobal);
+        assert!(reloaded.yolo_acknowledged);
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+
+        // A repository cannot say its cloner has been warned.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"yolo_acknowledged":false}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(shadowed.yolo_acknowledged);
+        assert!(shadowed
+            .diagnostics
+            .iter()
+            .any(|d| d.ignored_setting_key() == Some("yolo_acknowledged")));
+
+        // And a value of the wrong type is a diagnostic, not a yes.
+        std::fs::write(&path, r#"{"yolo_acknowledged":"yes"}"#).expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!refused.yolo_acknowledged);
+        assert!(refused.diagnostics.iter().any(|d| {
+            d.cause == DiagnosticCause::InvalidValue
+                && d.setting_key.as_deref() == Some("yolo_acknowledged")
+        }));
+    }
+
+    #[test]
     fn permission_mode_parsing_tolerates_surrounding_whitespace() {
         assert_eq!(
             PermissionMode::parse("  yolo \n"),
@@ -1504,7 +1792,10 @@ mod tests {
         let mut settings = Settings {
             model: Some("first".to_string()),
             permission_mode: Some(PermissionMode::Ask),
+            yolo_acknowledged: Some(true),
             max_agent_steps: Some(1),
+            notification_turn_end: Some(true),
+            notification_attention_required: Some(false),
             backend: Some(ProviderId::Llmux),
             backend_source: Some(SettingSource::UserGlobal),
             backend_rejected: None,
@@ -1533,7 +1824,10 @@ mod tests {
         );
         assert_eq!(settings.model.as_deref(), Some("first"));
         assert_eq!(settings.permission_mode, Some(PermissionMode::Ask));
+        assert_eq!(settings.yolo_acknowledged, Some(true));
         assert_eq!(settings.max_agent_steps, Some(2));
+        assert_eq!(settings.notification_turn_end, Some(true));
+        assert_eq!(settings.notification_attention_required, Some(false));
         assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(
             settings.llmux_url.as_deref(),
@@ -1661,6 +1955,196 @@ mod tests {
         assert_eq!(settings.backend, Some(ProviderId::Llmux));
         assert_eq!(settings.llmux_url.as_deref(), Some("http://127.0.0.1:3456"));
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    /// A configuration loaded from `home` (with `settings` written into its
+    /// profile, when there are any) and a workspace that holds nothing.
+    fn loaded_with(settings: Option<&str>, vars: &[(&str, &str)]) -> RuntimeConfig {
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        if let Some(settings) = settings {
+            let profile = home.path().join(PROFILE_DIR_NAME);
+            fs::create_dir_all(&profile).expect("profile");
+            fs::write(profile.join(USER_SETTINGS_FILE), settings).expect("settings");
+        }
+        let vars = vars
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), vars),
+            workspace.path(),
+        )
+        .expect("load")
+    }
+
+    #[test]
+    fn sound_starts_at_upstreams_platform_default_when_nothing_sets_it() {
+        // `sound.zig:9-11`: on where fx has a player (macOS), off elsewhere.
+        let config = loaded_with(None, &[]);
+        assert_eq!(
+            config.notifications,
+            Notifications::both(cfg!(target_os = "macos"))
+        );
+        assert_eq!(Notifications::default(), config.notifications);
+    }
+
+    #[test]
+    fn the_profile_sets_each_sound_switch_on_its_own() {
+        let both_off = loaded_with(
+            Some(r#"{"notifications":{"turn_end":false,"attention_required":false}}"#),
+            &[],
+        );
+        assert_eq!(both_off.notifications, Notifications::both(false));
+        assert!(
+            both_off.diagnostics.is_empty(),
+            "{:?}",
+            both_off.diagnostics
+        );
+        // One switch set, and the other left at the compiled default; `max`
+        // is upstream's and is neither read nor refused.
+        let one = loaded_with(
+            Some(r#"{"notifications":{"attention_required":true,"max":true}}"#),
+            &[],
+        );
+        assert_eq!(
+            one.notifications,
+            Notifications {
+                turn_end: Notifications::default().turn_end,
+                attention_required: true,
+            }
+        );
+        assert!(one.diagnostics.is_empty(), "{:?}", one.diagnostics);
+    }
+
+    #[test]
+    fn a_workspace_entry_overrides_one_sound_switch_and_keeps_the_other() {
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let root = workspace.path().canonicalize().expect("canonical");
+        let profile = home.path().join(PROFILE_DIR_NAME);
+        fs::create_dir_all(&profile).expect("profile");
+        fs::write(
+            profile.join(USER_SETTINGS_FILE),
+            serde_json::json!({
+                "notifications": {"turn_end": true, "attention_required": false},
+                "workspaces": {root.to_str().unwrap(): {"notifications": {"attention_required": true}}}
+            })
+            .to_string(),
+        )
+        .expect("settings");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(config.notifications, Notifications::both(true));
+    }
+
+    #[test]
+    fn a_mistyped_sound_switch_is_a_diagnostic_and_falls_back() {
+        for body in [
+            r#"{"notifications":true}"#,
+            r#"{"notifications":{"turn_end":1}}"#,
+            r#"{"notifications":{"attention_required":"yes"}}"#,
+        ] {
+            let config = loaded_with(Some(body), &[]);
+            assert_eq!(config.notifications, Notifications::default(), "{body}");
+            assert_eq!(
+                config.diagnostics,
+                vec![Diagnostic::with_key(
+                    ConfigLayer::User,
+                    DiagnosticCause::InvalidValue,
+                    NOTIFICATIONS_KEY
+                )],
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_sound_override_decides_where_the_session_starts() {
+        // `soundEnvOverride`, `app_lifecycle.zig:1714-1725`: three spellings of
+        // off, and every other word that is not blank is on -- over whatever
+        // the profile says.
+        let profile = Some(r#"{"notifications":{"turn_end":true,"attention_required":true}}"#);
+        for off in ["0", "false", "FALSE", "off", "Off", " off "] {
+            assert_eq!(
+                loaded_with(profile, &[(ENV_SOUND, off)]).notifications,
+                Notifications::both(false),
+                "{off:?}"
+            );
+        }
+        let quiet = Some(r#"{"notifications":{"turn_end":false,"attention_required":false}}"#);
+        for on in ["1", "on", "true", "max", "yes"] {
+            assert_eq!(
+                loaded_with(quiet, &[(ENV_SOUND, on)]).notifications,
+                Notifications::both(true),
+                "{on:?}"
+            );
+        }
+        // Blank is absent, as every override here is.
+        assert_eq!(
+            loaded_with(quiet, &[(ENV_SOUND, "  ")]).notifications,
+            Notifications::both(false)
+        );
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_the_sound() {
+        // Upstream lists `notifications` among its profile-only keys
+        // (`config_runtime.zig:854`).
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"notifications":{"turn_end":false,"attention_required":false}}"#,
+        )
+        .expect("project");
+        // On every platform the default is the answer, whatever it is there.
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(config.notifications, Notifications::default());
+        let ignored: Vec<&str> = config
+            .diagnostics
+            .iter()
+            .filter_map(Diagnostic::ignored_setting_key)
+            .collect();
+        assert_eq!(ignored, [NOTIFICATIONS_KEY]);
+    }
+
+    #[test]
+    fn what_write_preference_writes_is_what_the_next_load_reads() {
+        // The round trip `/sound` depends on, through the two real functions:
+        // the shared writer, and the one reader that decides what a settings
+        // file means.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let path = RuntimeConfig::load_with(&env, workspace.path())
+            .expect("load")
+            .user_settings_path
+            .expect("a home has a settings path");
+        for on in [true, false, true] {
+            for key in ["turn_end", "attention_required"] {
+                crate::provider::profile::write_preference(
+                    &path,
+                    &[NOTIFICATIONS_KEY, key],
+                    Value::Bool(on),
+                )
+                .expect("write");
+            }
+            let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+            assert_eq!(reloaded.notifications, Notifications::both(on));
+            assert!(
+                reloaded.diagnostics.is_empty(),
+                "{:?}",
+                reloaded.diagnostics
+            );
+        }
     }
 
     #[test]

@@ -10,7 +10,7 @@ x𝒇x v0.1.0 · Run /help for commands
     3) MariaDB please
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-type answer    ←→ cursor    ↑↓ options    tab questions    enter answer    esc cancel
+type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel
 
 
 

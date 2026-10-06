@@ -124,6 +124,11 @@ pub(crate) struct Hint<'a> {
     pub(crate) notice: Option<Notice<'a>>,
     /// What to put flush with the last column, if anything.
     pub(crate) right: Option<&'a str>,
+    /// The colour [`Self::right`] is said in, or nothing to say it in the
+    /// row's own. Upstream's full-access warning is the one that has one: its
+    /// `red_style` (`input_presentation.zig:565`), where the armed-Escape cue
+    /// is in the row's grey.
+    pub(crate) right_style: &'a str,
     /// The two colours a permission mode that grants something is said in:
     /// its own, and the row's to resume with (`render.zig:235-241`, `c1db919`:
     /// `auto` and `full access` in `permission_auto_style`, then
@@ -247,6 +252,9 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
         // screen, where the clip below is what keeps the row on it.
         let padding = budget.saturating_sub(cells(&row) + right_cells);
         row.extend(std::iter::repeat_n(' ', padding));
+        // The last thing on the row, so its colour needs no resume: whoever
+        // paints the row ends it.
+        row.push_str(hint.right_style);
         row.push_str(right);
     }
     super::frame::clip(&row, cols).to_string()
@@ -273,7 +281,10 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
         push(&mut segments, format!("queued {}", hint.queued));
     }
     let model = compact_model(hint.model);
-    let mode = hint.mode.label();
+    // The word a person reads (`permissionModeStatusLabel`,
+    // `render.zig:235-241`): `full access`, not the `yolo` the settings file
+    // and the session log record.
+    let mode = hint.mode.display_label();
     if leading_permission_mode_fits(limit, mode, &model) {
         let (accent, resume) = hint.accent;
         let lifted = !matches!(hint.mode, PermissionMode::Ask) && !accent.is_empty();
@@ -372,6 +383,7 @@ mod tests {
             workspace: None,
             notice: None,
             right: None,
+            right_style: "",
             accent: ("", ""),
         }
     }
@@ -603,25 +615,44 @@ mod tests {
     }
 
     #[test]
-    fn every_mode_is_said_in_the_word_every_other_renderer_says_it_in() {
-        // `PermissionMode::label` is "the stable wire label used by every
-        // renderer" (`config.rs:112-119`), so the band says what `xfx status`
-        // says. Upstream spells `yolo` in capitals and colours `auto`
-        // (`render.zig:245-251`); both are styling this palette has no role
-        // for, and one grammar across the front ends is worth more here than
-        // one of them shouting.
-        for mode in [
-            PermissionMode::Ask,
-            PermissionMode::Auto,
-            PermissionMode::Yolo,
+    fn every_mode_is_said_in_the_word_upstreams_row_says_it_in() {
+        // `permissionModeStatusLabel` (`render.zig:235-241`, `c1db919`): `ask`,
+        // `auto`, and `full access` for the mode that skips every check --
+        // the word `/permissions` says too, and the one a person reads.
+        // `yolo` is the wire word (`PermissionMode::label`) the settings file
+        // and the session log keep, and it is not on the row.
+        for (mode, said) in [
+            (PermissionMode::Ask, "ask · "),
+            (PermissionMode::Auto, "auto · "),
+            (PermissionMode::Yolo, "full access · "),
         ] {
             let mut hint = hint();
             hint.mode = mode;
+            let row = row(&hint, 80);
             assert!(
-                row(&hint, 80).contains(mode.label()),
-                "the {mode:?} row does not say what mode it is"
+                row.starts_with(said),
+                "the {mode:?} row does not say what mode it is: {row:?}"
             );
+            assert!(!row.contains("yolo"), "{row:?}");
         }
+    }
+
+    #[test]
+    fn the_right_slot_is_said_in_its_own_colour_at_the_last_column() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 18: the warning flush
+        // with column 120, in the warning's grey after the row's own.
+        let mut hint = hint();
+        hint.mode = PermissionMode::Yolo;
+        hint.model = "fake/model-a";
+        hint.right = Some("Full access enabled: xfx permission checks disabled");
+        hint.right_style = "\u{1b}[38;5;252m";
+        let row = row(&hint, 120);
+        assert!(row.starts_with("full access · model-a "), "{row:?}");
+        assert!(
+            row.ends_with("\u{1b}[38;5;252mFull access enabled: xfx permission checks disabled"),
+            "{row:?}"
+        );
+        assert_eq!(cells(&row), 120, "a colour costs no cells");
     }
 
     #[test]

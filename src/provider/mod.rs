@@ -277,6 +277,23 @@ pub fn authorizes(provider: ProviderId, source: crate::config::CredentialSource)
     }
 }
 
+/// Whether `provider` has a credential it would accept, doing no I/O at all.
+///
+/// The two questions `setup` asks before it writes anything
+/// (`setup::prepare_gateway`'s steps 1-2), joined: a credential resolved for
+/// this provider alone, and one [`authorizes`] lets it use. It is upstream's
+/// `current` rule for the `/provider` picker's rows -- the active provider
+/// **and** a credential that authorizes it (`vercel-labs/fx@c1db9191
+/// src/core/app/provider_picker_runtime.zig:76-78`) -- and the TUI's "nothing
+/// to authenticate with" is its negation, so the row's annotation and the hint
+/// row cannot disagree about one session. No I/O, for
+/// [`resolve_credential_for`]'s reason: a daemon that is down still has a
+/// present credential, and the thread that asks this holds the terminal.
+pub fn credential_ready(provider: ProviderId, config: &RuntimeConfig) -> bool {
+    resolve_credential_for(provider, config)
+        .is_some_and(|credential| authorizes(provider, credential.source()))
+}
+
 /// A selected provider and the transport that talks to it.
 ///
 /// Upstream's bundle also carries the catalog fetcher
@@ -495,5 +512,41 @@ mod tests {
         ] {
             assert!(!authorizes(ProviderId::Llmux, source), "for {source:?}");
         }
+    }
+
+    #[test]
+    fn a_credential_is_ready_only_for_the_provider_it_was_resolved_for() {
+        // The `/provider` picker's `current` rule and the hint row's missing
+        // credential are this one answer. A key in the environment readies the
+        // Gateway and not llmux; a recorded loopback url readies llmux and not
+        // the Gateway -- no fallback from one provider to the other's.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let load = |vars: &[(&str, &str)]| {
+            let vars = vars
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect();
+            RuntimeConfig::load_with(
+                &crate::config::Environment::new(Some(home.path().to_path_buf()), vars),
+                workspace.path(),
+            )
+            .expect("load a configuration")
+        };
+
+        let bare = load(&[]);
+        assert!(!credential_ready(ProviderId::Gateway, &bare));
+        assert!(!credential_ready(ProviderId::Llmux, &bare));
+
+        let keyed = load(&[("AI_GATEWAY_API_KEY", "fake-key-not-real")]);
+        assert!(credential_ready(ProviderId::Gateway, &keyed));
+        assert!(!credential_ready(ProviderId::Llmux, &keyed));
+
+        let settings = home.path().join(".xfx").join("settings.json");
+        std::fs::create_dir_all(settings.parent().expect("a parent")).expect("mkdir");
+        std::fs::write(&settings, r#"{"llmux_url":"http://127.0.0.1:3456"}"#).expect("seed");
+        let local = load(&[]);
+        assert!(credential_ready(ProviderId::Llmux, &local));
+        assert!(!credential_ready(ProviderId::Gateway, &local));
     }
 }

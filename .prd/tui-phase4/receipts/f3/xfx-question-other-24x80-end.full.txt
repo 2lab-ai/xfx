@@ -13,9 +13,9 @@ x𝒇x v0.1.0 · Run /help for commands
 
 ■ Cancelled
 
-  after cancel.
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
 
-  2s (↑3 ↓40)
+✗ system: the turn was cancelled
 
 ┃
 

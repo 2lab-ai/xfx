@@ -133,6 +133,18 @@ impl Editor {
         self.text.is_empty()
     }
 
+    /// Whether the caret is past the last character.
+    ///
+    /// A yes-or-no rather than the offset, for [`Self::before_caret`]'s reason.
+    /// Two readers in `super::shell`. The `/provider` picker: Right commits a
+    /// row only from the end of the text, so Right keeps moving the caret while
+    /// the argument is being edited (`app_input_runtime.zig:281-296`). And
+    /// `/model`'s inline column (`super::model_column`): a space advances it,
+    /// and typing keeps a later column, only from the end.
+    pub(crate) fn caret_at_end(&self) -> bool {
+        self.cursor == self.text.len()
+    }
+
     /// The text in front of the caret -- everything an insertion would land
     /// after.
     ///
@@ -151,13 +163,6 @@ impl Editor {
     #[cfg(test)]
     pub(crate) fn before_caret(&self) -> &str {
         &self.text[..self.cursor]
-    }
-
-    /// Whether the caret is after the last character: a yes or a no, which is
-    /// all `/model`'s inline column asks (`super::model_column`), and nothing a
-    /// caller could do arithmetic on.
-    pub(crate) fn caret_at_end(&self) -> bool {
-        self.cursor == self.text.len()
     }
 
     /// Inserts `text` at the caret, or refuses it whole.
@@ -336,11 +341,13 @@ impl Editor {
                 self.move_to(self.line_end());
                 None
             }
-            Action::Up => {
+            // Shift on the vertical arrows is a question field's to bind
+            // (`super::input::Action::SelectUp`); to an editor it is the arrow.
+            Action::Up | Action::SelectUp => {
                 self.move_by_row(Step::Up, cols);
                 None
             }
-            Action::Down => {
+            Action::Down | Action::SelectDown => {
                 self.move_by_row(Step::Down, cols);
                 None
             }
@@ -399,6 +406,9 @@ impl Editor {
             | Action::Yank
             | Action::PasteStart
             | Action::PasteEnd
+            | Action::ToggleTranscript
+            | Action::PageUp
+            | Action::PageDown
             | Action::Ignore => None,
         }
     }

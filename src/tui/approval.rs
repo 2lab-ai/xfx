@@ -2504,11 +2504,15 @@ mod tests {
                 .unwrap_or_else(|| panic!("{cols}: the caret is not on a row of the panel"));
             // The caret sits past the text on its row -- the choice's words and
             // the draft on the first row, the draft's column and text on the
-            // rest -- and never off the screen.
+            // rest -- on the one reverse-video cell upstream paints there
+            // (`writeApprovalDraft`, `approval_ui.zig:1662-1672`), which is the
+            // row's last, and never off the screen.
             assert_eq!(
                 column,
-                super::super::wrap::width(painted).min(cols.saturating_sub(1)),
-                "{cols}: the caret is not at the end of the row it is on: {painted:?}"
+                super::super::wrap::width(painted)
+                    .saturating_sub(1)
+                    .min(cols.saturating_sub(1)),
+                "{cols}: the caret is not on the last cell of the row it is on: {painted:?}"
             );
             assert!(
                 usize::from(column) >= usize::from(draft_column(Kind::Edit, 0)),

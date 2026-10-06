@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* permissions: mode=auto
+  configured rules: (none)
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+* permissions: mode set to auto
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+* permissions: permissions reset to ask, session grants cleared
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
