@@ -66,7 +66,12 @@ pub struct Cli {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// Run the interactive shell. What a bare `xfx` means.
-    Interactive,
+    Interactive {
+        /// The session the TUI continues, if the invocation named one
+        /// (`xfx --resume <last|ID>`, what upstream's exit tells the user to
+        /// run). `None` starts with no conversation, as a bare `xfx` always has.
+        resume: Option<Selector>,
+    },
     /// Print a navigation page. `page` is the exact text clap rendered, so
     /// `xfx help`, `xfx --help`, and `xfx status --help` each show their own.
     Help { page: String },
@@ -185,6 +190,14 @@ struct RawCli {
     #[arg(short = 'v', long = "version", action = ArgAction::SetTrue, global = true)]
     version: bool,
 
+    // Not `global`: it means something only to the bare invocation, which is
+    // the TUI, and `ask` spells its own. Upstream's exit prints
+    // `fx --resume <id>` (`render.zig:795-810`) and its parser takes the same
+    // flag on a bare `fx` (`cli_surface.zig:3958-3965`).
+    /// Open the TUI on a saved session: `last` for the most recent one of this workspace, or an id
+    #[arg(long, value_name = "last|ID")]
+    resume: Option<String>,
+
     #[command(subcommand)]
     command: Option<RawCommand>,
 }
@@ -196,6 +209,16 @@ impl RawCli {
         // it outranks whatever command accompanied it.
         if self.version {
             return Command::Version;
+        }
+        // A session to continue is a fact about the shell a bare `xfx` opens,
+        // so beside a subcommand it is a mistake rather than something to
+        // ignore: `xfx --resume last ask hi` most likely meant `ask --resume`.
+        if self.resume.is_some() && self.command.is_some() {
+            return Command::Rejected {
+                message: "xfx: `--resume` belongs to a bare `xfx`; `ask` takes its own \
+                          (`xfx ask --resume <last|ID> <prompt>`)"
+                    .to_string(),
+            };
         }
         match self.command {
             Some(RawCommand::Ask {
@@ -297,7 +320,10 @@ impl RawCli {
             // (`vercel-labs/fx@580a0c5d src/core/cli/cli_surface.zig:443`).
             // Whether this terminal can host one is not a grammar question, so
             // it is decided by the handler rather than here.
-            None => Command::Interactive,
+            None => match resume_selector(self.resume.as_deref(), None) {
+                Ok(resume) => Command::Interactive { resume },
+                Err(message) => Command::Rejected { message },
+            },
         }
     }
 }
@@ -716,7 +742,62 @@ mod tests {
 
     #[test]
     fn a_bare_invocation_asks_for_the_shell() {
-        assert_eq!(parse(&[]), Command::Interactive);
+        assert_eq!(parse(&[]), Command::Interactive { resume: None });
+    }
+
+    #[test]
+    fn a_bare_invocation_may_name_the_session_it_continues() {
+        // The command upstream's exit prints (`render.zig:795-810`), with
+        // `xfx` for `fx`: the line `/quit` leaves names exactly this.
+        assert_eq!(
+            parse(&["--resume", "0001-abc_DEF"]),
+            Command::Interactive {
+                resume: Some(Selector::Id(
+                    crate::session::SessionId::parse("0001-abc_DEF").unwrap()
+                ))
+            }
+        );
+        // The same grammar as `ask --resume`, keyword included.
+        assert_eq!(
+            parse(&["--resume", "last"]),
+            Command::Interactive {
+                resume: Some(Selector::Last)
+            }
+        );
+        assert_eq!(
+            parse(&["--resume=last"]),
+            Command::Interactive {
+                resume: Some(Selector::Last)
+            }
+        );
+    }
+
+    #[test]
+    fn a_resume_on_the_bare_invocation_is_refused_beside_anything_else() {
+        // An id that could name something other than a session directory is
+        // refused before it is a path, as `ask`'s is.
+        let Command::Rejected { message } = parse(&["--resume", "../escape"]) else {
+            panic!("an unsafe id must be rejected");
+        };
+        assert!(message.contains("session id"), "{message}");
+        // A missing value is a usage error, not `last`.
+        assert!(matches!(parse(&["--resume"]), Command::Rejected { .. }));
+        // Beside a subcommand it is a mistake rather than something ignored.
+        for args in [
+            vec!["--resume", "last", "ask", "hi"],
+            vec!["--resume", "last", "status"],
+            vec!["--resume", "last", "sessions"],
+        ] {
+            let Command::Rejected { message } = parse(&args) else {
+                panic!("{args:?} must be rejected");
+            };
+            assert!(message.contains("--resume"), "{args:?}: {message}");
+        }
+        // And the subcommands keep their own: `ask --resume` is still `ask`'s.
+        assert_eq!(
+            resume_of(&["ask", "--resume", "last", "hi"]),
+            Some(Selector::Last)
+        );
     }
 
     #[test]

@@ -137,6 +137,40 @@ pub(crate) fn welcome_line(palette: Palette) -> String {
     )
 }
 
+/// Upstream's way back into a session, written to standard output once the
+/// terminal has been given back (`formatResumeHandoff`, `render.zig:795-810`,
+/// `c1db919`; written at `app_entry_runtime.zig:424-438`).
+///
+/// The label, then the command: on the same row when the whole line fits the
+/// screen, and on the next one, two columns in, when it does not -- all of it
+/// in the dim grey, ended by a reset and a line feed. `xfx` where upstream says
+/// `fx`, because the command has to be one this binary answers: a bare
+/// `xfx --resume <id>` is the TUI on that session (`crate::cli`).
+pub(crate) fn resume_handoff(id: &str, columns: u16, palette: Palette) -> String {
+    let command = format!("{RESUME_COMMAND} {id}");
+    let one_row = RESUME_LABEL.len() + 1 + command.len();
+    let separator = if one_row <= usize::from(columns) {
+        " "
+    } else {
+        "\n  "
+    };
+    format!(
+        "{}{RESUME_LABEL}{separator}{command}{}\n",
+        palette.dim(),
+        palette.reset()
+    )
+}
+
+/// Upstream's label for that line (`render.zig:801`).
+const RESUME_LABEL: &str = "Continue session with:";
+
+/// The command it names, without the id.
+const RESUME_COMMAND: &str = "xfx --resume";
+
+/// What a resumed session with no title of its own is called
+/// (`session_display_metadata.zig:14`).
+const UNTITLED_SESSION: &str = "Untitled session";
+
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
 
@@ -1371,6 +1405,34 @@ impl Shell {
         self.write_transcript_as(&line, Role::Plain);
         self.end_transcript_line();
         self.end_transcript_line();
+    }
+
+    /// Says that this session continues a saved one, as upstream's resume does
+    /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
+    /// notice under `session resumed` whose body is the session's title, and
+    /// the title is the window's from here on, as a title the first turn had
+    /// given it would be.
+    ///
+    /// `title` is the store's title of the session's first prompt, read off a
+    /// log on disk, so it is made inert before it is written anywhere. A
+    /// session with none is called what upstream calls one, and the window
+    /// keeps the workspace's fallback.
+    ///
+    /// Upstream replays the session's turns into the document under this line;
+    /// xfx does not yet, so the notice is what says the conversation the next
+    /// prompt continues is the saved one.
+    pub(crate) fn resumed(&mut self, title: Option<String>) {
+        let title = title
+            .map(|title| super::bridge::inert(&title).trim().to_string())
+            .filter(|title| !title.is_empty());
+        let body = title
+            .clone()
+            .unwrap_or_else(|| UNTITLED_SESSION.to_string());
+        self.announce(notice::Notice::neutral("session resumed", body));
+        if title.is_some() {
+            self.session_title = title;
+            self.retitle();
+        }
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -2909,6 +2971,14 @@ impl Shell {
         self.leave_by(Leaving::Quit);
     }
 
+    /// The line that names `id` as the session to come back to
+    /// ([`resume_handoff`]), in this session's palette and at the width the
+    /// terminal last reported -- upstream measures it against its own layout's
+    /// columns (`resumeHandoffColumns`, `main.zig:918-920`).
+    pub(crate) fn resume_handoff(&self, id: &crate::session::SessionId) -> String {
+        resume_handoff(id.as_str(), self.screen.1, self.palette)
+    }
+
     /// Ends the session, keeping the first reason it was given.
     ///
     /// First rather than last: an interrupted session that then reaches a
@@ -4063,6 +4133,14 @@ impl CommandHandlers for Shell {
         self.announce(notice::Notice::neutral("version", crate::VERSION));
     }
 
+    /// Upstream's `commandQuit` (`app_commands.zig:662-665`): the session
+    /// ends with status 0, and on the way out names itself as the one to
+    /// resume when it had a conversation (`requestResumeExit`, `:344-348`).
+    /// The naming is the exit's, not this handler's -- `super::worker`'s
+    /// `Worker::resumable` once the runtime has stopped, written by `super`'s
+    /// `session` after the restore -- so Ctrl-D and the second Ctrl-C, which
+    /// request the same handoff upstream (`app_input_runtime.zig:1691`,
+    /// `:1752`), name it too.
     fn quit(&mut self) {
         self.leave();
     }
@@ -9597,6 +9675,156 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title().as_deref(), Some("second try"));
+    }
+
+    // -----------------------------------------------------------------------
+    // /quit, /exit, and the way back in
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn quit_and_exit_end_the_session_with_status_zero_and_say_nothing() {
+        // `commandQuit` (`app_commands.zig:662-665`) writes no notice: what
+        // the session says on the way out is the handoff, after the restore,
+        // and that is not a document row.
+        for line in [&b"/quit\r"[..], b"/exit\r", b"/quit \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(shell.leaving(), "{line:?} did not end the session");
+            assert_eq!(
+                format!("{:?}", shell.exit_code()),
+                format!("{:?}", ExitCode::SUCCESS),
+                "{line:?}"
+            );
+            assert_eq!(shell.document(), Vec::<String>::new(), "{line:?}");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn quit_or_exit_with_an_argument_is_an_unknown_command_and_leaves_nothing() {
+        // `/quit` takes nothing (`commands.zig:498`), so with a word after it
+        // the line names no command (`command_router.zig:121-133`) and is
+        // refused in upstream's words -- the session goes on.
+        for line in [&b"/quit now\r"[..], b"/exit please\r", b"/exit  now \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(!shell.leaving(), "{line:?} ended the session");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("command", UNKNOWN_COMMAND)),
+                "{line:?}"
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+            assert!(shell.editor.is_empty(), "{line:?} stayed in the composer");
+        }
+    }
+
+    #[test]
+    fn the_handoff_is_upstreams_dim_line_naming_the_xfx_command() {
+        // `fx-sessions-40x120-quit.ansi` row 10:
+        // `ESC[38;5;245mContinue session with: fx --resume PWuUVCd_N1-Z`, and
+        // upstream's own reset and line feed (`render.zig:806-809`).
+        let id = "1759800000000-0123456789abcdef";
+        assert_eq!(
+            resume_handoff(id, 120, PALETTE),
+            format!("\u{1b}[38;5;245mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+        // The light theme's dim grey (`theme.zig:128`).
+        let light = Palette {
+            mode: super::super::theme::Mode::Light,
+            ..PALETTE
+        };
+        assert_eq!(
+            resume_handoff(id, 120, light),
+            format!("\u{1b}[38;5;247mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn the_handoff_breaks_before_the_command_when_one_row_cannot_hold_it() {
+        // `render.zig:803-804`: one row when label, space and command fit the
+        // screen exactly, and otherwise the command on the next row, two in.
+        let id = "abc";
+        let whole = "Continue session with: xfx --resume abc".len();
+        let width = u16::try_from(whole).expect("short");
+        assert_eq!(
+            resume_handoff(id, width, PALETTE),
+            "\u{1b}[38;5;245mContinue session with: xfx --resume abc\u{1b}[0m\n"
+        );
+        assert_eq!(
+            resume_handoff(id, width - 1, PALETTE),
+            "\u{1b}[38;5;245mContinue session with:\n  xfx --resume abc\u{1b}[0m\n"
+        );
+        // Measured against the screen the session is on.
+        let shell = shell(24, 40);
+        let id = crate::session::SessionId::parse("1759800000000-0123456789abcdef").expect("an id");
+        assert_eq!(
+            shell.resume_handoff(&id),
+            format!("\u{1b}[38;5;245mContinue session with:\n  xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn a_resumed_session_says_so_and_its_title_is_the_windows() {
+        // `writeResumeNotice` (`app_session_runtime.zig:4657-4672`):
+        // `* session resumed: <title>`, and the cached title -- the window's --
+        // is the session's.
+        let mut shell = shell(24, 80);
+        let _ = shell.take_title();
+        shell.resumed(Some("first question alpha".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "first question alpha"
+            ))
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("first question alpha"));
+        // Its first turn here does not retitle it: the title is the saved
+        // session's first prompt, not this launch's.
+        turn_running(&mut shell, b"a follow-up\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+    }
+
+    #[test]
+    fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback() {
+        // `session_display_metadata.zig:14`; and only a real title is cached,
+        // so the window stays on the workspace.
+        let mut shell = shell(24, 80);
+        let fallback = shell.take_title().expect("the launch owes a title");
+        shell.resumed(None);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "Untitled session"
+            ))
+        );
+        assert_eq!(shell.take_title(), None, "{fallback:?} was owed again");
+        // A title read off a log is foreign text: what a terminal would obey
+        // in it is a space by the time it is written.
+        let mut hostile = self::shell(24, 80);
+        let _ = hostile.take_title();
+        hostile.resumed(Some("evil\u{1b}]2;owned\u{7} title".to_string()));
+        let document = hostile.document();
+        assert!(
+            document.iter().all(|row| !row.contains('\u{1b}')),
+            "{document:?}"
+        );
+        assert!(
+            hostile
+                .take_title()
+                .is_some_and(|title| !title.contains('\u{1b}') && !title.contains('\u{7}')),
+            "the window title carried a control"
+        );
     }
 
     #[test]
