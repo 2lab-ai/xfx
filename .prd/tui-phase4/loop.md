@@ -86,3 +86,9 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 | 3 | F6 composer keys (§5.2 of `surfaces.md`: Alt-b/f/d, `\`-Enter, PgUp/PgDn, Shift-Tab mode cycle, Ctrl-O, Ctrl-V, Ctrl-P = model catalog) and steer-while-busy (`┋` queued steer, Up retracts) | F3, F10 | D2 for Ctrl-P |
 | 4 | G backends: `/usage`, `/credits`, `/undo`, `/workspace`, `/allowlist`, `/compact`, `/fast`, `/ultrafast`, `/image(s)`, `/paste`, `/trace`, `/mcp`, `/skills` | B rows | per row |
 | — | X/G shown as nothing: `/feedback` (Vercel form), `/alias` (fx placeholder; a stub breaks `check-no-stubs`), `/shell` (fx login-shell snapshot), `/login` `/logout` (#88) | — | — |
+
+### R4 — 2026-10-07
+
+- Smoke harness ported (79c083c): one band reader from the hint row up, emulator accepts the product's text styles; 34/34 on the floating band before WU-B. Its two product findings fixed here (welcome retint, no summary under local commands).
+- WU-B merged (ede8707). Smoke row 16 reads the old menu shape and fails on the new popup — to be restated in the smoke pass after the C0/C1/F1/F2 wave, which reshapes notices, `/help` and tool rows the harness also reads.
+- `docs/parity.md` "full-screen TUI" row still says the prompt echo is not durable; true since fcc8e44/ca044a1 — fixed in the docs pass.
