@@ -1,0 +1,12 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────
+  /login    choose the model provider and how it…   Account
+  /logout   sign out of a provider session          Account
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+

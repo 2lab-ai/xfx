@@ -1,0 +1,12 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ /
+────────────────────────────────────────────────────────────
+  /new     start a fresh session                    Session
+  /reset   reset the current session context        Session
+────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+

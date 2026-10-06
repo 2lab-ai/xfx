@@ -54,10 +54,10 @@ use crate::workspace::{AccessScope, ProjectContext};
 #[rustfmt::skip]
 pub const SLASH_COMMANDS: &[&str] = &[
     "/help",
-    "/new",
     "/clear",
-    "/model",
+    "/new",
     "/setup",
+    "/model",
     "/version",
     "/quit",
 ];
@@ -83,8 +83,16 @@ pub struct SlashSpec {
     /// grow by one when it is added. What it does is make the parser answer it and
     /// the completion menu offer the command it belongs to.
     pub aliases: &'static [&'static str],
-    /// The single line `/help` prints beside the name.
+    /// The single line `/help` prints beside the name, and the menu beside it.
     pub summary: &'static str,
+    /// The group the completion menu files it under, at the right of its row.
+    ///
+    /// Upstream's own names (`SlashPresentationCategory.label`,
+    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`):
+    /// General, Session, Account, Model, Appearance, Security, Workspace,
+    /// Media, Agents, Extensions and Product. A string rather than an `enum`
+    /// because it is only ever *shown*: nothing branches on it.
+    pub category: &'static str,
     /// Whether the rest of the line means anything to it.
     ///
     /// The completion menu's reason for existing: completing a command that
@@ -101,20 +109,25 @@ pub struct SlashSpec {
 /// `picker`). A name, a summary or an alias that only some of them agreed about
 /// would be a command surface that answers differently depending on where you
 /// asked -- which is the one thing a command surface must never be.
+///
+/// **Upstream's order, upstream's categories, and upstream's words where the
+/// command is upstream's command** (`vercel-labs/fx@c1db9191
+/// src/builtins/commands.zig:463-499`), because the menu shows all three. The
+/// rows xfx does not have are absent rather than stubbed. Three summaries stay
+/// xfx's own, each because upstream's sentence describes something this
+/// command does not do: `/clear` (upstream starts a fresh conversation,
+/// `:464`; this one clears the screen and keeps it), `/setup` (upstream's
+/// `/provider` picker, `:472`, which also chooses how a provider signs in; this
+/// one takes the provider as an argument and signs nothing in), and `/model`
+/// (upstream chooses a reasoning effort as well, `:478`; xfx sends none).
 #[rustfmt::skip]
 pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
         command: Slash::Help,
         name: "/help",
         aliases: &[],
-        summary: "list these commands",
-        has_args: false,
-    },
-    SlashSpec {
-        command: Slash::New,
-        name: "/new",
-        aliases: &[],
-        summary: "start a new session; the next prompt begins a fresh conversation",
+        summary: "show available slash commands",
+        category: "General",
         has_args: false,
     },
     SlashSpec {
@@ -122,37 +135,50 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/clear",
         aliases: &[],
         summary: "clear the screen; the conversation and its session are kept",
+        category: "General",
         has_args: false,
     },
     SlashSpec {
-        command: Slash::Model,
-        name: "/model",
+        command: Slash::New,
+        name: "/new",
         aliases: &[],
-        summary: "show the model, or `/model <id>` to use another one from now on",
-        has_args: true,
+        summary: "start a fresh session",
+        category: "Session",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Setup,
         name: "/setup",
         aliases: &[],
         summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        category: "Account",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Model,
+        name: "/model",
+        aliases: &[],
+        summary: "show the model, or `/model <id>` to use another one from now on",
+        category: "Model",
         has_args: true,
     },
     SlashSpec {
         command: Slash::Version,
         name: "/version",
         aliases: &[],
-        summary: "show the version this shell was built from",
+        summary: "show the xfx version",
+        category: "General",
         has_args: false,
     },
     SlashSpec {
         command: Slash::Quit,
         name: "/quit",
         // Upstream's own alias for the same command
-        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:457`), and the
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:499`), and the
         // only one xfx answers.
         aliases: &["/exit"],
-        summary: "leave the shell",
+        summary: "exit the interactive shell",
+        category: "General",
         has_args: false,
     },
 ];
