@@ -204,8 +204,15 @@ const RESET: &str = "\u{1b}[0m";
 /// written in, with the permission mode lifted out of it in the activity
 /// row's grey (`permission_auto_style`), and the grey the welcome line's
 /// version and the transcript's turn summary are written in.
-const DARK: [u8; 7] = [240, 255, 250, 252, 255, 245, 245];
-const LIGHT: [u8; 7] = [250, 235, 241, 238, 235, 241, 247];
+///
+/// The eighth is upstream's `diff_added_style` / `diff_removed_style`, which a
+/// permission question's review paints the changed lines and the `+N  -N`
+/// counts in. Both are the same grey in either theme: the diff is monochrome
+/// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
+/// none. The same number as the activity row's and not the same decision, for
+/// the reason [`BODY`] is spelled apart from [`HINT`].
+const DARK: [u8; 8] = [240, 255, 250, 252, 255, 245, 245, 252];
+const LIGHT: [u8; 8] = [250, 235, 241, 238, 235, 241, 247, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -215,6 +222,7 @@ const ACTIVITY: usize = 3;
 const BODY: usize = 4;
 const STATUSLINE: usize = 5;
 const DIM: usize = 6;
+const DIFF: usize = 7;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -251,6 +259,27 @@ impl Palette {
     /// Secondary text: the welcome line's version, a turn's summary.
     pub(crate) fn dim(&self) -> &'static str {
         self.paint(DIM)
+    }
+
+    /// A changed line of a permission question's review, and the counts that
+    /// sum it up (`diff_added_style`, `diff_removed_style`).
+    pub(crate) fn diff(&self) -> &'static str {
+        self.paint(DIFF)
+    }
+
+    /// What a permission question emphasises: the marked choice and the
+    /// command it would run (`tag_style`). Upstream's `tag_style` and
+    /// `subtitle_style` are one sequence in both themes, so this is
+    /// [`Self::subtitle`]'s by value and a role of its own by meaning.
+    pub(crate) fn strong(&self) -> &'static str {
+        self.subtitle()
+    }
+
+    /// Bold and nothing else: a question's title and the path it is about
+    /// (`bold_style`). The same in every mode and at every depth, because it
+    /// names no colour.
+    pub(crate) fn bold(&self) -> &'static str {
+        "\u{1b}[1m"
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).

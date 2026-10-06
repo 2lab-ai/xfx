@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ edit the files
+
+[tool] read_file running
+[tool] read_file ok
+[tool] edit_file running
+[tool] edit_file ok
+[you] use capitals
+[tool] write_file running
+  Running (0s) (↑4 ↓0)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      1 + new file
+      2 + second line
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                     Write · +2  -0
+
+  c.txt  ·  Apply this change?
+
+  ❯ 1  Apply once
+    2  Apply + allow future writes to this file for this session
+    3  Don't apply
+  2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later
+  `xfx ask --resume-id 1791302191631-f9e452670e1ab3e4` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+

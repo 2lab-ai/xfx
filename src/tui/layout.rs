@@ -105,9 +105,12 @@ impl Geometry {
         self.hint - self.band_top() + 1
     }
 
-    /// How many rows the composer occupies.
+    /// How many rows the composer occupies: none while a permission question
+    /// has taken the band ([`fits_approval`]).
     pub(crate) fn input_rows(&self) -> u16 {
-        self.input_last - self.input_first + 1
+        // Added before it is subtracted: with no composer rows `input_last` is
+        // the row **above** `input_first`, and the other order underflows.
+        (self.input_last + 1) - self.input_first
     }
 
     /// The same band, sitting directly under a document `document` rows tall
@@ -170,6 +173,19 @@ pub(crate) fn fits_panel(rows: u16, cols: u16, panel: u16) -> bool {
     solve_band(rows, cols, 1, true, panel).is_some()
 }
 
+/// Whether a screen of `rows` x `cols` could hold a `panel`-row **permission**
+/// question.
+///
+/// Asked with **no** composer rows, because that is the band a permission
+/// question is painted in: upstream's question replaces the footer -- the
+/// composer, its blank and the statusline -- with its own rules, rows and hint
+/// (`render_input.zig:705`; capture `fx-approvals-40x120-edit-ask`), and the
+/// draft the composer holds is kept, unpainted, until the answer gives the band
+/// back.
+pub(crate) fn fits_approval(rows: u16, cols: u16, panel: u16) -> bool {
+    solve_band(rows, cols, 0, true, panel).is_some()
+}
+
 /// The same, saying whether the turn's activity row is on the screen and how
 /// many rows the panel is taking.
 ///
@@ -204,7 +220,9 @@ fn solve_padded(
     activity: Option<u16>,
     panel: u16,
 ) -> Option<Geometry> {
-    if rows < MIN_ROWS || cols < MIN_COLS || input_rows == 0 {
+    // No composer rows is a band only while a panel has taken them
+    // ([`fits_approval`]): a band with neither has nowhere to put the caret.
+    if rows < MIN_ROWS || cols < MIN_COLS || (input_rows == 0 && panel == 0) {
         return None;
     }
     let activity_padding = activity.unwrap_or(0);
@@ -259,6 +277,30 @@ pub(crate) fn input_row_limit(rows: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_permission_question_takes_the_composers_rows_and_nothing_else_may() {
+        // Upstream's question replaces the footer -- composer, blank,
+        // statusline -- with its rules, its rows and its hint
+        // (`render_input.zig:705`), so the band is solved with no composer row:
+        // the rule that heads the question is where the composer was.
+        let idle = solve_band(24, 80, 1, true, 0).expect("24x80 fits a band");
+        let asking =
+            solve_band(24, 80, 0, true, 8).expect("and a question in place of the composer");
+        assert_eq!(asking.input_rows(), 0, "the composer kept a row");
+        assert_eq!((asking.divider, asking.hint), (idle.divider, idle.hint));
+        assert_eq!(asking.panel_first(), asking.divider - 8);
+        assert_eq!(asking.picker_rule(), Some(asking.panel_first() - 1));
+        assert_eq!(
+            asking.band_top(),
+            asking.activity.expect("a turn is running")
+        );
+        assert_eq!(asking.content_bottom, idle.content_bottom - 8);
+        assert!(fits_approval(24, 80, 8));
+        // A band with neither a composer nor a question has nowhere for the
+        // caret, and is not one.
+        assert_eq!(solve_band(24, 80, 0, true, 0), None);
+    }
 
     #[test]
     fn the_band_is_the_composer_a_rule_and_a_hint_row_at_the_bottom() {

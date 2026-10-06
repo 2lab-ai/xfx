@@ -1,0 +1,8 @@
+== ./a.txt
+alpha line 1
+ALPHA LINE TWO
+alpha line 3
+
+== ./out.txt
+hi
+

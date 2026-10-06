@@ -378,13 +378,18 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     // strings the model sent, bounded and escaped, so a human is asked about the
     // change rather than about the file's name.
     //
-    // The diff beside it is the same pair, bounded far wider, for a review with
-    // room for it. Both are built **here**, from the strings that produced the
-    // staged bytes, rather than reconstructed by whatever renders the question:
-    // a payload rebuilt at the surface would be a second reading of the change,
-    // and only one of the two would be the one being authorized. The bound is
-    // applied at this boundary for the same reason -- `max_mutation_bytes` is
-    // four megabytes, and nothing downstream may be handed that.
+    // The diff beside it is the **file** before and after, bounded far wider,
+    // for a review that numbers the lines it shows: upstream's review is a diff
+    // of the whole file with the unchanged lines around the change
+    // (`vercel-labs/fx@c1db919 src/core/output/diff.zig:497-640`), and the
+    // strings the model sent carry neither a line number nor a neighbour. Both
+    // are built **here**, from the text that produced the staged bytes, rather
+    // than reconstructed by whatever renders the question: a payload rebuilt at
+    // the surface would be a second reading of the change, and only one of the
+    // two would be the one being authorized. The bound is applied at this
+    // boundary for the same reason -- `max_mutation_bytes` is four megabytes,
+    // and nothing downstream may be handed that.
+    let diff = ApprovalDiff::of(text, &after);
     let plan = MutationPlan::new(
         MutationKind::Edit,
         located.full().to_path_buf(),
@@ -397,7 +402,7 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         before: bounded_excerpt(&input.old_string),
         after: bounded_excerpt(&input.new_string),
     })
-    .with_diff(ApprovalDiff::of(&input.old_string, &input.new_string));
+    .with_diff(diff);
     commit(context, located, plan, |plan| {
         format!("Edited {}", plan.display())
     })
@@ -1399,11 +1404,15 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_asks_with_the_exact_bounded_before_and_after_it_would_write() {
+    fn an_edit_asks_with_the_exact_bounded_file_before_and_after_it_would_write() {
         // The whole risk of an edit is which bytes leave and which arrive, and
-        // the 160-byte summary can only quote the beginning of each. The screen
-        // review gets the exact pair, bounded once at the permission boundary
-        // rather than trusted to whatever renders it.
+        // the 160-byte summary can only quote the beginning of each. The review
+        // gets the exact pair, bounded once at the permission boundary rather
+        // than trusted to whatever renders it -- and the pair is the **file**,
+        // not the two strings the model sent, because a review that numbers its
+        // lines and shows the ones around the change (upstream's) needs the text
+        // those strings sit in. (Claim changed: this pinned `old_string` and
+        // `new_string` until the review learned to number lines.)
         let (_dir, context, recorder) = asking("alpha and more\n");
         let input = decode_edit_file(&json!({
             "path": "notes.txt",
@@ -1416,20 +1425,20 @@ mod tests {
         assert!(!result.ok, "the fixture prompter denies: {}", result.output);
 
         let diff = recorder.last().diff.expect("an edit carries its diff");
-        assert_eq!(diff.before, "alpha");
+        assert_eq!(diff.before, "alpha and more\n");
         // The break is **kept**, because the surface this side is built for
         // places rows and a break is where a row ends
         // (`crate::permission::bounded_diff_side`). The band's own one-line
         // summary still names it.
-        assert_eq!(diff.after, "beta\ngamma");
+        assert_eq!(diff.after, "beta\ngamma and more\n");
     }
 
     #[test]
     fn an_edit_larger_than_the_bound_is_cut_before_it_leaves_the_permission_boundary() {
         // One bound, at the boundary that builds the question. A tool that
-        // handed the whole `old_string` on and left the cut to the renderer
-        // would put four megabytes -- `ToolLimits::max_mutation_bytes` -- on a
-        // channel sized for two sides of 64 KiB.
+        // handed the whole file on and left the cut to the renderer would put
+        // four megabytes -- `ToolLimits::max_mutation_bytes` -- on a channel
+        // sized for two sides of 64 KiB.
         let contents = format!("{}\n", "a".repeat(100_000));
         let (_dir, context, recorder) = asking(&contents);
         let input = decode_edit_file(&json!({
@@ -1473,14 +1482,9 @@ mod tests {
         // into a row, so the file reads as the file.
         assert_eq!(diff.before, "alpha\nand more\n");
         assert_eq!(diff.after, "beta\ngamma");
-        // **And a small one is still answered in the band.** Which surface a
-        // question takes is the change's size against the summary's own bound
-        // (`ApprovalDiff::wants_screen`), so a write the sentence already
-        // showed whole does not hide the document behind a screen.
-        assert!(
-            !diff.wants_screen(),
-            "a change the band's own summary shows whole took a screen of its own"
-        );
+        // Which surface a question takes is no longer this layer's to say: it
+        // is how many rows the TUI's review of the change needs
+        // (`crate::tui::approval::ApprovalSurface`), and it is pinned there.
     }
 
     #[test]
@@ -1582,8 +1586,6 @@ mod tests {
         assert_eq!(diff.after.len(), 65_536);
         assert!(diff.before.ends_with('\u{2026}'));
         assert!(diff.after.ends_with('\u{2026}'));
-        // And this one is exactly the change the band cannot show.
-        assert!(diff.wants_screen());
     }
 
     #[test]

@@ -617,9 +617,10 @@ pub fn non_text_summary(len: usize) -> String {
 ///
 /// Beside [`MutationExcerpt`] rather than in place of it, because they answer
 /// two different questions. The excerpt is a sentence's worth of each side, and
-/// it is what the band's one-line summary quotes; this is the whole of each
-/// side up to [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and it exists because the risk
-/// of an edit lives in bytes the sentence had to leave out.
+/// it is what the one-line summary quotes (the line shell's prompt); this is the
+/// whole of each side -- for both an edit and a write, the file before and
+/// after -- up to [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and it exists because the
+/// risk of an edit lives in bytes the sentence had to leave out.
 ///
 /// Both fields are already escaped and already bounded: the payload is made
 /// inert at the permission boundary, where the change is known, rather than at
@@ -644,21 +645,6 @@ impl ApprovalDiff {
             before: bounded_diff_side(before),
             after: bounded_diff_side(after),
         }
-    }
-
-    /// Whether this change is bigger than the band's own summary can show.
-    ///
-    /// The comparison is against [`MAX_EXCERPT_BYTES`] because that is exactly
-    /// how much of each side the summary quotes: a change whose sides both fit
-    /// in it has already been shown whole, and a second surface would repeat
-    /// the band to hide the document behind it.
-    ///
-    /// Deliberately **not** a function of the terminal's height. A rule keyed on
-    /// rows would review a one-word edit on a full screen the moment somebody
-    /// made their window short, and leave a hundred-kilobyte replacement in two
-    /// rows of summary on a tall one.
-    pub fn wants_screen(&self) -> bool {
-        self.before.len() > MAX_EXCERPT_BYTES || self.after.len() > MAX_EXCERPT_BYTES
     }
 }
 
@@ -1657,10 +1643,6 @@ mod tests {
                 diff.before, diff.after,
                 "{before:?} replaced by {after:?} rendered as a change of nothing"
             );
-            assert!(
-                diff.wants_screen(),
-                "a change this size is not one the band's summary can show"
-            );
         }
     }
 
@@ -1775,18 +1757,6 @@ mod tests {
         assert_eq!(diff.before.len(), 65_536);
         assert_eq!(diff.after.len(), 65_536);
         assert!(diff.before.len() + diff.after.len() <= 131_072);
-    }
-
-    #[test]
-    fn a_change_the_bands_own_summary_could_not_have_shown_asks_for_a_screen() {
-        // 160 bytes is what the inline summary quotes of each side, and the
-        // literal is written here rather than imported: the rule this pins is
-        // "bigger than what the band already shows", and a test that imported
-        // the number would follow it wherever it went instead of noticing.
-        assert!(!ApprovalDiff::of(&"a".repeat(160), &"b".repeat(160)).wants_screen());
-        assert!(ApprovalDiff::of(&"a".repeat(161), "b").wants_screen());
-        assert!(ApprovalDiff::of("a", &"b".repeat(161)).wants_screen());
-        assert!(!ApprovalDiff::of("", "").wants_screen());
     }
 
     #[test]

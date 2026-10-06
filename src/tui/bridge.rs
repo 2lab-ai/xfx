@@ -66,7 +66,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
-use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest, ApprovalSubject};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -370,6 +370,16 @@ impl UiEvent {
                         before: inert_owned(diff.before),
                         after: inert_owned(diff.after),
                     }),
+                    // The path and the command a review lays out on rows of
+                    // their own: the same quotation as the summary, so the same
+                    // policy.
+                    subject: match asked.request.subject {
+                        ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
+                        ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
+                            command: inert_owned(command),
+                            cwd: inert_owned(cwd),
+                        },
+                    },
                 },
             }),
             // **A belt on an encoded payload.** `crate::tools::question`'s
@@ -1462,6 +1472,10 @@ mod tests {
                         before: "\x1b[2Jold".into(),
                         after: "\x1b]0;new\x07".into(),
                     }),
+                    subject: ApprovalSubject::Command {
+                        command: "\x1b[2Jrm".into(),
+                        cwd: "\x1b]0;.\x07".into(),
+                    },
                 },
             }),
         ] {
@@ -1506,6 +1520,10 @@ mod tests {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
                     }),
+                    subject: ApprovalSubject::Command {
+                        command: " [2Jrm".into(),
+                        cwd: " ]0;. ".into(),
+                    },
                 },
             })),
             "an approval quotes a file, which is where an escape would be"

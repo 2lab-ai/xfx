@@ -234,6 +234,19 @@ impl ProposedAction<'_> {
         }
     }
 
+    /// What the question is about, in the pieces a review lays out
+    /// ([`ApprovalSubject`]): taken from the plan being judged, for the reason
+    /// [`Self::diff`] is.
+    pub fn subject(&self) -> ApprovalSubject {
+        match self {
+            Self::Mutation(plan) => ApprovalSubject::Path(plan.display().to_string()),
+            Self::Command(plan) => ApprovalSubject::Command {
+                command: plan.command().to_string(),
+                cwd: plan.display_cwd().to_string(),
+            },
+        }
+    }
+
     /// Whether `auto` may admit this without asking anybody, and why not.
     ///
     /// `auto` has no human to consult, so the only actions it can admit are the
@@ -338,6 +351,27 @@ pub struct ApprovalRequest {
     /// a command, a whole-file write, a directory. A surface that has only rows
     /// ignores it and asks exactly the question it asked before.
     pub diff: Option<ApprovalDiff>,
+    /// What the question is about, in the pieces a review surface lays out on
+    /// rows of their own.
+    ///
+    /// Beside [`Self::summary`] rather than parsed back out of it: the summary
+    /// is one sentence that quotes these, and a surface that recovered a path
+    /// or a command by splitting prose would be reading a second, guessed
+    /// version of what is being approved. Presentation only -- a grant is keyed
+    /// by [`Self::tool`] and [`Self::target`], and nothing here is consulted by
+    /// the decision.
+    pub subject: ApprovalSubject,
+}
+
+/// The thing a question is about, as a reviewer names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApprovalSubject {
+    /// A file or folder, by the workspace-relative name the user and the model
+    /// both use ([`MutationPlan::display`]).
+    Path(String),
+    /// A command exactly as it would run, and the directory it would run in,
+    /// named the way the always-scope names it ([`CommandPlan::display_cwd`]).
+    Command { command: String, cwd: String },
 }
 
 /// What the user answered.
@@ -659,6 +693,7 @@ impl PermissionSession {
             summary: action.summary(),
             always_scope: self.always_scope_for(action),
             diff: action.diff(),
+            subject: action.subject(),
         };
         let Some(prompter) = self.prompter.as_mut() else {
             // Nobody was asked, so nobody said anything.

@@ -1200,6 +1200,7 @@ fn a_prompter_that_cannot_amend_still_compiles_and_reports_nothing() {
         summary: "write 6 bytes to `notes.md`".to_string(),
         always_scope: "allow every future write_file to `notes.md`".to_string(),
         diff: None,
+        subject: xfx::permission::ApprovalSubject::Path("notes.md".to_string()),
     };
 
     let response = line_oriented
