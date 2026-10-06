@@ -1814,14 +1814,16 @@ async fn one_turn(
         tools: conversation.tools.clone(),
     };
     let mut sink = UiEventSink::new(events.clone(), turn.token.clone());
-    let outcome = run_turn_saved(
-        request,
-        context,
-        provider,
-        &mut sink,
+    // The recorder, with what the full transcript shows of each call -- its
+    // arguments, its whole result -- handed to the UI as it is written down
+    // (`super::full_transcript::Teed`). The log is written first and either
+    // way: the view is best effort and the record is not.
+    let mut journal = super::full_transcript::Teed::new(
         &mut conversation.recorder,
-    )
-    .await;
+        events.clone(),
+        turn.token.clone(),
+    );
+    let outcome = run_turn_saved(request, context, provider, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
