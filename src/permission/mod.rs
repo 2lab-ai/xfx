@@ -3,6 +3,7 @@
 //! Reading is free. Changing a file and running a command are not, and this
 //! module is the only place that can say yes to either. It owns three things:
 //!
+//! - [`allowlist`]: what `/allowlist` means and says, for both shells.
 //! - [`command`]: what a command would *do*, decided from its text.
 //! - [`authority`]: the proofs a mutation rests on -- read records, content
 //!   digests, file identities -- and the [`ExecutionAuthority`] that carries
@@ -40,6 +41,7 @@
 //! agrees to start*, and nothing bounds what a started process then does
 //! (design, "Risks and controls").
 
+pub mod allowlist;
 pub mod authority;
 pub mod command;
 pub mod policy;

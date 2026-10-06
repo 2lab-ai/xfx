@@ -1538,6 +1538,40 @@ fn parse_notifications(
     }
 }
 
+/// The permission tables the profile at `settings` holds for the workspace
+/// at `workspace_root`, read afresh -- what `/allowlist` puts in force after
+/// it has written the file (`loadDetailedSettingsForNotice`,
+/// `session_commands.zig:137-142`).
+///
+/// No file is no tables. A file that cannot be read, or a table in it that
+/// does not parse, is an error naming why: upstream's post-commit resolution
+/// treats both as a reload that failed (`postCommitResolutionError`,
+/// `:144-165`), and the caller says so rather than putting half a table in
+/// force.
+pub fn read_permission_tables(
+    settings: &Path,
+    workspace_root: &Path,
+) -> Result<PermissionTables, String> {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(settings, ConfigLayer::User, &mut diagnostics);
+    let mut tables = PermissionTables::default();
+    if let Some(object) = &read.object {
+        if let Some(table) = permission_table(object, &mut diagnostics) {
+            tables.user = table;
+        }
+        if let Some(entry) = exact_workspace_entry(object, workspace_root, &mut diagnostics) {
+            if let Some(table) = permission_table(entry, &mut diagnostics) {
+                tables.local = table;
+                tables.user_shadowed_by_local = true;
+            }
+        }
+    }
+    match diagnostics.first() {
+        Some(diagnostic) => Err(diagnostic.detail()),
+        None => Ok(tables),
+    }
+}
+
 /// One profile layer's permission table, when it has a readable one.
 ///
 /// A table that does not parse is a diagnostic naming the key, and the layer

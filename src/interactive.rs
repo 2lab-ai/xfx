@@ -71,6 +71,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/status",
     "/model",
     "/permissions",
+    "/allowlist",
     "/copy",
     "/statusline",
     "/sound",
@@ -236,6 +237,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         name: "/permissions",
         aliases: &[],
         summary: "choose what xfx is allowed to do",
+        category: "Security",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Allowlist,
+        name: "/allowlist",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:480`). URLs included: xfx keeps
+        // and lists `url` and `web-fetch-domain` rules as upstream does,
+        // although no xfx tool reaches a URL for one to decide.
+        summary: "manage trusted commands, tools, and URLs",
         category: "Security",
         has_args: true,
     },
@@ -540,6 +552,10 @@ pub enum Slash {
     /// `ask`, `auto`, `full-access` or `reset`
     /// ([`crate::permission::slash`]).
     Permissions,
+    /// The persistent allow rules: view them, or add, remove and reset them
+    /// in the profile's table or this workspace's
+    /// ([`crate::permission::allowlist`]).
+    Allowlist,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
@@ -1147,6 +1163,13 @@ pub async fn run(
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut(), &rules)?;
                     }
+                    Slash::Allowlist => allowlist_on_the_line(
+                        &argument,
+                        &config,
+                        &rules,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                     Slash::Statusline => statusline_on_the_line(
                         &argument,
                         &mut config,
@@ -1675,6 +1698,58 @@ fn statusline_on_the_line(
     )
 }
 
+/// `/allowlist` on this shell: upstream's forms and words
+/// ([`crate::permission::allowlist`]), each answer one `[allowlist]` line on
+/// stdout -- a listing's further rows under it as they are -- and a refusal
+/// or a failure on stderr. A table read back from the file is put in force
+/// for this shell's next tool call through `rules`, as the TUI's is.
+fn allowlist_on_the_line(
+    argument: &str,
+    config: &RuntimeConfig,
+    rules: &LiveRules,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    use crate::permission::allowlist::{self, Tone};
+    let outcome = allowlist::run(
+        argument,
+        config.user_settings_path.as_deref(),
+        &config.workspace_root,
+        |name| crate::tools::ADVERTISED_TOOLS.contains(&name),
+    );
+    if let Some(table) = outcome.in_force {
+        rules.replace(table);
+    }
+    for answer in outcome.answers {
+        let topic = if answer.topic.is_empty() {
+            String::new()
+        } else {
+            format!("{}: ", answer.topic)
+        };
+        // A pattern is the person's own text, and a table can be edited by
+        // hand: each row goes out the way a grant's does, one line, made safe.
+        let mut rows = answer.body.lines();
+        let first = safe_one_line(rows.next().unwrap_or_default(), usize::MAX);
+        match answer.tone {
+            Tone::Error => writeln!(err, "xfx: {topic}{first}")?,
+            Tone::Neutral | Tone::Warning => writeln!(out, "[allowlist] {first}")?,
+        }
+        for row in rows {
+            let indent = row.len() - row.trim_start_matches(' ').len();
+            let row = format!(
+                "{}{}",
+                " ".repeat(indent),
+                safe_one_line(row.trim_start_matches(' '), usize::MAX)
+            );
+            match answer.tone {
+                Tone::Error => writeln!(err, "{row}")?,
+                Tone::Neutral | Tone::Warning => writeln!(out, "{row}")?,
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `/copy` on this shell: the conversation's last reply onto the clipboard,
 /// and one line saying how that went ([`crate::clipboard`]).
 ///
@@ -1797,9 +1872,10 @@ mod tests {
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
-        // than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 16);
+        // since `/resume` and `/rename`, and seventeen since `/allowlist`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 17);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2089,14 +2165,21 @@ mod tests {
         // `/setup <provider>`) picks the provider -- upstream's row has args
         // too, which is what puts the space after it when it is completed
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
-        // authority, `/statusline <item>` flips a footer segment, and
-        // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // authority, `/allowlist [view|add|remove|reset ...]` reads or edits
+        // the persistent allow rules, `/statusline <item>` flips a footer
+        // segment, and `/sound [on|off]` sets the switch a bare `/sound`
+        // toggles, and `/rename <title>` names the session. Every other name
+        // is the whole command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/allowlist"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -2378,5 +2461,49 @@ mod tests {
              (no home directory is set)\n"
         );
         assert!(config.statusline.context);
+    }
+
+    /// `/allowlist <argument>` on this shell: what it printed on each stream.
+    fn allowlist_said(
+        argument: &str,
+        config: &RuntimeConfig,
+        rules: &LiveRules,
+    ) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        allowlist_on_the_line(argument, config, rules, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_says_allowlist_answers_as_lines_and_puts_the_table_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction};
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let rules = LiveRules::default();
+        let (out, err) = allowlist_said("add command \"git *\"", &config, &rules);
+        assert_eq!(out, "[allowlist] added command: \"git *\" (scope=local)\n");
+        assert_eq!(err, "");
+        assert_eq!(
+            rules.current().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        let (out, _) = allowlist_said("view local", &config, &rules);
+        assert_eq!(
+            out,
+            "[allowlist] local persistent allow rules:\n  commands:\n    git *\n"
+        );
+        let (out, err) = allowlist_said("reset", &config, &rules);
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "xfx: usage: /allowlist reset [commands|tools|urls|web-fetch-domains|all]\n"
+        );
+        // A pattern is the person's own text: a control byte in it is not
+        // handed to the terminal.
+        let (out, _) = allowlist_said("add command \"a\u{1b}[2Jb\"", &config, &rules);
+        assert!(!out.contains('\u{1b}'), "{out:?}");
     }
 }

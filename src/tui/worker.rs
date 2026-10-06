@@ -5712,6 +5712,43 @@ mod tests {
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
     }
+
+    #[test]
+    fn the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction, RuleSet};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        crate::provider::profile::write_document(
+            &home.path().join(".xfx").join("settings.json"),
+            br#"{"permission":{"bash":{"git *":"allow"}}}"#,
+        )
+        .expect("an owner-only profile");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // At launch: the table the profile holds.
+        assert_eq!(
+            state.authority().rules().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        // The handle the UI writes is the one every authority reads, so a
+        // `/allowlist` change reaches a conversation already open.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.rules = handle.rules().clone();
+        let authority = state.authority();
+        handle
+            .rules()
+            .replace(RuleSet::new(vec![ConfiguredRule::new(
+                "edit",
+                "*",
+                RuleAction::Deny,
+            )]));
+        assert_eq!(
+            authority.rules().rules(),
+            &[ConfiguredRule::new("edit", "*", RuleAction::Deny)]
+        );
+    }
+
     #[test]
     fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
         // A daemon may advertise any number of models; the browser renders at

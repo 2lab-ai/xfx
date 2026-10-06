@@ -6464,6 +6464,36 @@ impl CommandHandlers for Shell {
         }
     }
 
+    /// Upstream's `/allowlist` (`handleAllowlist`,
+    /// `session_commands.zig:396-444`): one transcript notice per answer, and
+    /// a table read back from the file put in force for the very next tool
+    /// call -- of a turn already running too -- through the live handle every
+    /// conversation decides with ([`WorkHandle::rules`]).
+    ///
+    /// Done here, on the thread that holds the terminal, as `/statusline`'s
+    /// write is and as upstream's is: the write is a read, a change and a
+    /// rename of one small file under the settings lock, and the answer is
+    /// owed before the next keystroke is read.
+    fn allowlist(&mut self, argument: &str) {
+        use crate::permission::allowlist::{self, Tone};
+        let outcome = allowlist::run(
+            argument,
+            self.settings_path.as_deref(),
+            &self.workspace,
+            |name| crate::tools::ADVERTISED_TOOLS.contains(&name),
+        );
+        if let Some(table) = outcome.in_force {
+            self.work.rules().replace(table);
+        }
+        for answer in outcome.answers {
+            self.announce(match answer.tone {
+                Tone::Neutral => notice::Notice::neutral(answer.topic, answer.body),
+                Tone::Warning => notice::Notice::warning(answer.topic, answer.body),
+                Tone::Error => notice::Notice::error(answer.topic, answer.body),
+            });
+        }
+    }
+
     /// Upstream's `commandHandleStatusline` (`app_commands.zig:2094-2107`):
     /// bare, the picker opens on its first row in place of the composer, and
     /// the menus that share its slot close; with an item, that item flips and
@@ -13334,6 +13364,84 @@ mod tests {
                 "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
             ],
             "{document:?}"
+        );
+    }
+
+    /// A 40x120 shell over a profile the test keeps alive, so `/allowlist`
+    /// has a file to write.
+    fn allowlist_shell() -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let fixture = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        (home, workspace, fixture)
+    }
+
+    #[test]
+    fn an_allowlist_change_is_one_notice_and_in_force_for_the_next_decision() {
+        use crate::permission::{ConfiguredRule, RuleAction};
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist add command \"git *\"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* allowlist: added command: \"git *\" (scope=local)".to_string(),
+                String::new(),
+            ]
+        );
+        // The handle every conversation decides with holds it now: the next
+        // tool call is judged by it without a restart (trap (d)).
+        assert_eq!(
+            shell.work.rules().current().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "nothing went to the runtime"
+        );
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert_eq!(
+            document[..4],
+            [
+                "* permissions: mode=auto".to_string(),
+                "  configured rules:".to_string(),
+                "   - allow bash -> git *".to_string(),
+                "  session grants: (none)".to_string(),
+            ],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn an_allowlist_refusal_and_a_listing_are_said_in_upstreams_tones() {
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist bogus\r");
+        shell.route_bytes(b"/allowlist add tool web_fetch\r");
+        shell.route_bytes(b"/allowlist\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "✗ usage: /allowlist [view [effective|local|user]|[local|user] add|remove|reset ...]"
+                    .to_string(),
+                String::new(),
+                "✗ usage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>".to_string(),
+                String::new(),
+                "* allowlist: effective persistent allow rules: (none)".to_string(),
+                String::new(),
+            ]
         );
     }
 

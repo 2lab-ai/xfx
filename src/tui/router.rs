@@ -83,6 +83,10 @@ pub(crate) trait CommandHandlers {
     /// when there was none. What it may be is
     /// `crate::permission::slash::Request::parse`'s to say, not the router's.
     fn permissions(&mut self, argument: &str);
+    /// `/allowlist`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which lists the rules in force. What it may be is
+    /// `crate::permission::allowlist::Request::parse`'s to say.
+    fn allowlist(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -163,6 +167,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
+        Slash::Allowlist => handlers.allowlist(argument),
         Slash::Copy => handlers.copy(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
@@ -253,6 +258,9 @@ mod tests {
         fn permissions(&mut self, argument: &str) {
             self.calls.push(format!("permissions {argument}"));
         }
+        fn allowlist(&mut self, argument: &str) {
+            self.calls.push(format!("allowlist {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -280,6 +288,7 @@ mod tests {
             ("/quit", "quit"),
             ("/provider", "setup "),
             ("/permissions", "permissions "),
+            ("/allowlist", "allowlist "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
