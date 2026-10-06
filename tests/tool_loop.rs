@@ -2345,16 +2345,68 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
     // sentences to travel in.
     assert_eq!(provider.requests().len(), 1);
 
-    // Replayed: nothing either. The group is incomplete -- `c4` never ran --
-    // so it never flushes, and the sentences go with it rather than arriving
-    // as loose user messages beside an orphan result.
+    // Replayed (claim changed: this was "nothing", the incomplete group
+    // dropped with its sentences). A turn that did not finish is replayed as
+    // upstream replays one (`vercel-labs/fx@c1db9191
+    // src/core/session/session.zig:2695-2747`): the call that never ran is
+    // answered `aborted by user` as a failure, so the group is whole -- its
+    // answer beside the step's other results, and the sentences after every
+    // result, never between a call and its answer -- and `<turn_aborted>`
+    // closes the turn.
     let state = replayed(&journal.events, tree.root());
     let replay = state.history_messages(Wire::VercelGateway);
     assert_eq!(
-        replay.messages,
-        vec![Message::user("edit the note")],
-        "an incomplete group replayed anyway"
+        replay_shape(&replay.messages),
+        [
+            "user: edit the note",
+            "assistant: Interrupted by user after completing 3 tool calls: write_file, read_file, \
+             edit_file. | call c1 | call c2 | call c3 | call c4",
+            "tool: c1",
+            "tool: c2",
+            "tool: c3 error",
+            "tool: c4 error aborted by user",
+            "user: draft it as markdown",
+            "user: keep the heading",
+            "user: <turn_aborted>",
+        ],
+        "{:#?}",
+        replay.messages
     );
+}
+
+/// Each message as one line: its role, then its text, calls and results --
+/// a result by its call, `error` when it is sent as a failure, and its output
+/// only when that is `aborted by user`. A `<turn_aborted>` message is named by
+/// its tag.
+fn replay_shape(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| {
+            let parts: Vec<String> = message
+                .content
+                .iter()
+                .map(|part| match part {
+                    ContentPart::Text { text } if text.starts_with("<turn_aborted>") => {
+                        "<turn_aborted>".to_string()
+                    }
+                    ContentPart::Text { text } => text.clone(),
+                    ContentPart::ToolCall(call) => format!("call {}", call.id),
+                    ContentPart::ToolResult {
+                        call_id,
+                        output,
+                        error,
+                        ..
+                    } => match (*error, output.as_str()) {
+                        (true, "aborted by user") => format!("{call_id} error aborted by user"),
+                        (true, _) => format!("{call_id} error"),
+                        (false, _) => call_id.clone(),
+                    },
+                    ContentPart::RawBlocks(_) => "raw".to_string(),
+                })
+                .collect();
+            format!("{}: {}", message.role.label(), parts.join(" | "))
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -2816,10 +2868,27 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
     );
     assert_eq!(provider.requests().len(), 1, "a stopped turn asked again");
 
-    // And a resume replays neither: nothing was recorded to replay.
+    // And a resume replays no sentence: none was recorded. What it does
+    // replay (claim changed: this was the prompt alone) is the stopped batch
+    // as upstream replays a stopped turn (`session.zig:2695-2747`): the calls
+    // that ran, the one that never did answered `aborted by user` as a
+    // failure, and `<turn_aborted>`.
     let state = replayed(&journal.events, tree.root());
     let replay = state.history_messages(Wire::VercelGateway);
-    assert_eq!(replay.messages, vec![Message::user("draft three files")]);
+    assert_eq!(
+        replay_shape(&replay.messages),
+        [
+            "user: draft three files",
+            "assistant: Interrupted by user after completing 2 tool calls: write_file, \
+             write_file. | call c1 | call c2 | call c3",
+            "tool: c1",
+            "tool: c2",
+            "tool: c3 error aborted by user",
+            "user: <turn_aborted>",
+        ],
+        "{:#?}",
+        replay.messages
+    );
 }
 
 #[tokio::test]

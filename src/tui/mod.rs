@@ -700,6 +700,8 @@ mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
+mod file_index;
+mod file_picker;
 mod frame;
 mod freeform;
 mod full_transcript;
@@ -723,6 +725,7 @@ mod probe;
 mod provider_picker;
 mod question;
 mod render_request;
+mod retry;
 mod router;
 mod session_picker;
 mod settings;

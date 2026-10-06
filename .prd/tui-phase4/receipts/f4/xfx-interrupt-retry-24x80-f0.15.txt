@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+┃ try it
+
+  Recovered answer.
+
+  1s (↑2 ↓40)
+
+┃ second try
+
+• Thinking (0s) (↑3 ↓0)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+

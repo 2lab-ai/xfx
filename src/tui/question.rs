@@ -227,9 +227,14 @@ impl Act {
             Action::Delete => Some(Self::Delete),
             Action::WordLeft => Some(Self::WordLeft),
             Action::WordRight => Some(Self::WordRight),
-            Action::DeleteWordLeft => Some(Self::DeleteWordLeft),
+            // `C-w`, and Alt-Backspace, which the decoder reads as a deletion
+            // by word characters: this field has the whitespace one only.
+            Action::DeleteWordLeft | Action::DeleteWordBackward => Some(Self::DeleteWordLeft),
             Action::KillToStart => Some(Self::KillToStart),
-            Action::KillToEnd => Some(Self::KillToEnd),
+            // `C-k` is its own action to the decoder -- a menu's Up -- and the
+            // kill to the line's end here (`shortcuts.zig:18`,
+            // `fromFocusedEditorControlByte`, `:31-41`).
+            Action::KillToEnd | Action::ControlK => Some(Self::KillToEnd),
             Action::PasteStart => Some(Self::PasteStart),
             Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
@@ -2386,6 +2391,16 @@ mod tests {
         let (row, _) = panel.caret(40, 24).expect("drafting");
         assert!(rows[usize::from(row)].contains("row0"), "{rows:?}");
         assert_eq!(panel.rows(40, 24).len(), usize::from(panel.height(40, 24)));
+    }
+
+    #[test]
+    fn ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys() {
+        assert_eq!(Act::of(Action::ControlK), Some(Act::KillToEnd));
+        assert_eq!(Act::of(Action::KillToEnd), Some(Act::KillToEnd));
+        assert_eq!(
+            Act::of(Action::DeleteWordBackward),
+            Some(Act::DeleteWordLeft)
+        );
     }
 
     #[test]

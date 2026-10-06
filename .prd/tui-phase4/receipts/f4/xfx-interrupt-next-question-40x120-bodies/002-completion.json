@@ -1,0 +1,71 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "ask me"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool-call",
+     "toolCallId": "call_1_0",
+     "toolName": "ask_user_question",
+     "input": {
+      "questions": [
+       {
+        "options": [
+         {
+          "label": "Yes"
+         },
+         {
+          "label": "No"
+         }
+        ],
+        "question": "Deploy now?"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "content": [
+    {
+     "type": "tool-result",
+     "toolCallId": "call_1_0",
+     "toolName": "ask_user_question",
+     "output": {
+      "type": "error-text",
+      "value": "aborted by user"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may have partially executed. Do not continue this request unless the user explicitly asks to continue.\n</turn_aborted>"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "next"
+    }
+   ]
+  }
+ ]
+}
