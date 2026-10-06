@@ -1241,6 +1241,8 @@ mod tests {
         asked.diff = Some(ApprovalDiff {
             before: (0..lines).map(|line| format!("alpha {line}\n")).collect(),
             after: (0..lines).map(|line| format!("beta {line}\n")).collect(),
+            first_line: 1,
+            lines_below: 0,
         });
         asked
     }
@@ -1264,6 +1266,8 @@ mod tests {
             after: (0..=BAND_REVIEW_LINES)
                 .map(|line| format!("{line}\n"))
                 .collect(),
+            first_line: 1,
+            lines_below: 0,
         });
         assert_eq!(
             ApprovalSurface::for_request(&one_sided),
@@ -1297,6 +1301,8 @@ mod tests {
         near_the_top.diff = Some(ApprovalDiff {
             before: long.clone(),
             after: long.replacen("line 0\n", "LINE ZERO\n", 1),
+            first_line: 1,
+            lines_below: 0,
         });
         assert_eq!(
             ApprovalSurface::for_request(&near_the_top),
@@ -1314,6 +1320,8 @@ mod tests {
         asked.diff = Some(ApprovalDiff {
             before: "alpha line 1\nalpha line 2\nalpha line 3\n".into(),
             after: "alpha line 1\nALPHA LINE TWO\nalpha line 3\n".into(),
+            first_line: 1,
+            lines_below: 0,
         });
         let rows = Panel::new(asked).rows(120, 40);
         let header = format!(

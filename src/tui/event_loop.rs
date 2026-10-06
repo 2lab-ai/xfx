@@ -5531,6 +5531,8 @@ mod tests {
                 diff: Some(crate::permission::ApprovalDiff {
                     before: "alpha\n".repeat(40),
                     after: "beta\n".repeat(40),
+                    first_line: 1,
+                    lines_below: 0,
                 }),
                 subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
             },

@@ -366,9 +366,13 @@ impl UiEvent {
                     target: inert_owned(asked.request.target),
                     summary: inert_owned(asked.request.summary),
                     always_scope: inert_owned(asked.request.always_scope),
+                    // Where the window sits is two numbers this crate counted,
+                    // so it crosses as it was.
                     diff: asked.request.diff.map(|diff| ApprovalDiff {
                         before: inert_owned(diff.before),
                         after: inert_owned(diff.after),
+                        first_line: diff.first_line,
+                        lines_below: diff.lines_below,
                     }),
                     // The path and the command a review lays out on rows of
                     // their own: the same quotation as the summary, so the same
@@ -1471,6 +1475,8 @@ mod tests {
                     diff: Some(ApprovalDiff {
                         before: "\x1b[2Jold".into(),
                         after: "\x1b]0;new\x07".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
                     subject: ApprovalSubject::Command {
                         command: "\x1b[2Jrm".into(),
@@ -1519,6 +1525,8 @@ mod tests {
                     diff: Some(ApprovalDiff {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
                     subject: ApprovalSubject::Command {
                         command: " [2Jrm".into(),

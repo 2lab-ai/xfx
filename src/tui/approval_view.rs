@@ -71,6 +71,12 @@ const NO_DIFF: &str = "(this change has no before and after to show)";
 /// What a review shows for a change whose text would not change.
 const NO_CHANGE: &str = "(the text of this file would not change)";
 
+/// What a review shows for a change to nothing but the file's last line break.
+const LAST_BREAK_ONLY: &str = "(only the line break at the end of the file changes)";
+
+/// What a review ends with when the permission boundary's bound cut a side.
+const CUT: &str = "(the change goes on past the 64 KiB a review carries of each side)";
+
 /// The hint rows, widest first, each keeping the Enter and Escape controls so
 /// a narrow terminal never loses them (`approval_ui.zig:20-45`).
 ///
@@ -340,6 +346,15 @@ pub(crate) struct Review {
     pub deletions: usize,
 }
 
+/// Whether the permission boundary cut this side at its bound.
+///
+/// `bounded_diff_side` marks a cut with one ellipsis paid for inside the bound,
+/// so a cut side ends with it and is within a token of the bound; a file that
+/// merely ends in an ellipsis is nowhere near 64 KiB.
+fn was_cut(side: &str) -> bool {
+    side.ends_with('\u{2026}') && side.len() + 16 > crate::permission::MAX_APPROVAL_DIFF_SIDE_BYTES
+}
+
 /// The lines of one side, the way a file has them: a trailing break ends the
 /// last line rather than starting an empty one, and an empty side has none.
 fn lines_of(text: &str) -> Vec<&str> {
@@ -371,53 +386,88 @@ impl Review {
     /// between them is the change -- the shape upstream's own fallback review
     /// takes (`diff.zig:655-720`), without the line-matching pass a many-hunk
     /// diff needs. Five unchanged lines are kept on either side and the rest
-    /// counted on an elision row (`diff.zig:580-618`).
+    /// counted on an elision row (`diff.zig:580-618`), including the lines the
+    /// permission boundary left out of the window it sent
+    /// ([`ApprovalDiff::first_line`], [`ApprovalDiff::lines_below`]).
     pub(crate) fn of_diff(diff: &ApprovalDiff) -> Self {
-        let before = lines_of(&diff.before);
-        let after = lines_of(&diff.after);
+        let mut before = lines_of(&diff.before);
+        let mut after = lines_of(&diff.after);
+        // A side the bound cut ends in part of a line, and where it ends is not
+        // where the file does: its last line is not compared, nothing at the
+        // end is matched as unchanged, and the review says it stops there.
+        let cut = was_cut(&diff.before) || was_cut(&diff.after);
+        if was_cut(&diff.before) {
+            before.pop();
+        }
+        if was_cut(&diff.after) {
+            after.pop();
+        }
+        let above = diff.first_line.saturating_sub(1);
         let prefix = before
             .iter()
             .zip(&after)
             .take_while(|(old, new)| old == new)
             .count();
         let room = before.len().min(after.len()) - prefix;
-        let suffix = before
-            .iter()
-            .rev()
-            .zip(after.iter().rev())
-            .take(room)
-            .take_while(|(old, new)| old == new)
-            .count();
+        let suffix = if cut {
+            0
+        } else {
+            before
+                .iter()
+                .rev()
+                .zip(after.iter().rev())
+                .take(room)
+                .take_while(|(old, new)| old == new)
+                .count()
+        };
         let removed = &before[prefix..before.len() - suffix];
         let added = &after[prefix..after.len() - suffix];
-        if removed.is_empty() && added.is_empty() {
+        if removed.is_empty() && added.is_empty() && !cut {
+            // The lines are the same and the text is not: what differs is the
+            // break at the end of the file, which no numbered row can show.
+            let notice = if diff.before == diff.after {
+                NO_CHANGE
+            } else {
+                LAST_BREAK_ONLY
+            };
             return Self {
-                lines: vec![Line::Notice(NO_CHANGE)],
+                lines: vec![Line::Notice(notice)],
                 additions: 0,
                 deletions: 0,
             };
         }
         let mut lines = Vec::new();
         let lead = prefix.saturating_sub(CONTEXT_LINES);
-        if lead > 0 {
-            lines.push(Line::Elided(lead));
+        if above + lead > 0 {
+            lines.push(Line::Elided(above + lead));
         }
         for (index, text) in after.iter().enumerate().take(prefix).skip(lead) {
-            lines.push(Line::Context(index + 1, (*text).to_string()));
+            lines.push(Line::Context(above + index + 1, (*text).to_string()));
         }
         for (offset, text) in removed.iter().enumerate() {
-            lines.push(Line::Removed(prefix + offset + 1, (*text).to_string()));
+            lines.push(Line::Removed(
+                above + prefix + offset + 1,
+                (*text).to_string(),
+            ));
         }
         for (offset, text) in added.iter().enumerate() {
-            lines.push(Line::Added(prefix + offset + 1, (*text).to_string()));
+            lines.push(Line::Added(
+                above + prefix + offset + 1,
+                (*text).to_string(),
+            ));
         }
-        let tail = after.len() - suffix;
-        let shown = (tail + CONTEXT_LINES).min(after.len());
-        for (index, text) in after.iter().enumerate().take(shown).skip(tail) {
-            lines.push(Line::Context(index + 1, (*text).to_string()));
-        }
-        if after.len() > shown {
-            lines.push(Line::Elided(after.len() - shown));
+        if cut {
+            lines.push(Line::Notice(CUT));
+        } else {
+            let tail = after.len() - suffix;
+            let shown = (tail + CONTEXT_LINES).min(after.len());
+            for (index, text) in after.iter().enumerate().take(shown).skip(tail) {
+                lines.push(Line::Context(above + index + 1, (*text).to_string()));
+            }
+            let below = after.len() - shown + diff.lines_below;
+            if below > 0 {
+                lines.push(Line::Elided(below));
+            }
         }
         Self {
             lines,
@@ -862,6 +912,8 @@ mod tests {
         ApprovalDiff {
             before: before.to_string(),
             after: after.to_string(),
+            first_line: 1,
+            lines_below: 0,
         }
     }
 
@@ -931,6 +983,56 @@ mod tests {
         assert_eq!(rows[0], "        ⋯ 4 unchanged lines ⋯");
         assert_eq!(rows[6], "     10 - line 10");
         assert_eq!(rows[7], "     10 + LINE TEN");
+    }
+
+    #[test]
+    fn a_window_the_boundary_sent_is_numbered_where_it_sits_in_the_file() {
+        // The boundary sends the change and the lines around it
+        // (`ApprovalDiff::around_change`); the review numbers them from where
+        // the window starts and counts what it left out on either side.
+        let before: String = (1..=4_000).map(|line| format!("line {line}\n")).collect();
+        let after = before.replacen("line 3900\n", "LINE 3900\n", 1);
+        let window = crate::permission::ApprovalDiff::around_change(&before, &after);
+        let review = Review::of_diff(&window);
+        assert_eq!(review.lines.first(), Some(&Line::Elided(3_894)));
+        assert_eq!(review.lines.last(), Some(&Line::Elided(95)));
+        assert!(review
+            .lines
+            .contains(&Line::Removed(3_900, "line 3900".into())));
+        assert!(review
+            .lines
+            .contains(&Line::Added(3_900, "LINE 3900".into())));
+        assert_eq!((review.additions, review.deletions), (1, 1));
+    }
+
+    #[test]
+    fn a_side_the_bound_cut_is_said_to_go_on_and_its_cut_end_is_not_a_change() {
+        // One 100 KiB line replaced: both sides are cut at the bound, mid-line,
+        // at different text. The cut ends are not compared, nothing past them
+        // is called unchanged, and the review says the change goes on.
+        let window = crate::permission::ApprovalDiff::around_change(
+            &format!("keep\n{}\n", "a".repeat(100_000)),
+            &format!("keep\n{}\n", "b".repeat(100_000)),
+        );
+        let review = Review::of_diff(&window);
+        assert_eq!(review.lines.first(), Some(&Line::Context(1, "keep".into())));
+        assert_eq!(review.lines.last(), Some(&Line::Notice(CUT)));
+        assert!(
+            !review
+                .lines
+                .iter()
+                .any(|line| matches!(line, Line::Elided(_))),
+            "lines past a cut were counted as unchanged: {:?}",
+            review.lines
+        );
+    }
+
+    #[test]
+    fn a_change_to_nothing_but_the_last_line_break_says_so() {
+        let review = Review::of_diff(&diff("one\ntwo", "one\ntwo\n"));
+        assert_eq!(review.lines, [Line::Notice(LAST_BREAK_ONLY)]);
+        let review = Review::of_diff(&diff("one\n", "one\n"));
+        assert_eq!(review.lines, [Line::Notice(NO_CHANGE)]);
     }
 
     #[test]

@@ -448,6 +448,8 @@ mod tests {
             diff: Some(ApprovalDiff {
                 before: before.to_string(),
                 after: after.to_string(),
+                first_line: 1,
+                lines_below: 0,
             }),
             subject: ApprovalSubject::Path("notes.txt".to_string()),
         }

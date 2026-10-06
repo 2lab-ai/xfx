@@ -306,7 +306,10 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         preimage.summary(),
         bytes.to_vec(),
     )
-    .with_diff(ApprovalDiff::of(&preimage.as_text(), &input.content));
+    .with_diff(ApprovalDiff::around_change(
+        &preimage.as_text(),
+        &input.content,
+    ));
     commit(context, located, plan, |plan| {
         format!(
             "Wrote {} ({} bytes)",
@@ -378,18 +381,19 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     // strings the model sent, bounded and escaped, so a human is asked about the
     // change rather than about the file's name.
     //
-    // The diff beside it is the **file** before and after, bounded far wider,
-    // for a review that numbers the lines it shows: upstream's review is a diff
-    // of the whole file with the unchanged lines around the change
-    // (`vercel-labs/fx@c1db919 src/core/output/diff.zig:497-640`), and the
-    // strings the model sent carry neither a line number nor a neighbour. Both
+    // The diff beside it is the part of the **file** the change touches, before
+    // and after, bounded far wider, for a review that numbers the lines it
+    // shows: upstream's review is a diff of the file with the unchanged lines
+    // around the change (`vercel-labs/fx@c1db919 src/core/output/diff.zig:497-640`),
+    // and the strings the model sent carry neither a line number nor a
+    // neighbour (`ApprovalDiff::around_change` says why a window). Both
     // are built **here**, from the text that produced the staged bytes, rather
     // than reconstructed by whatever renders the question: a payload rebuilt at
     // the surface would be a second reading of the change, and only one of the
     // two would be the one being authorized. The bound is applied at this
     // boundary for the same reason -- `max_mutation_bytes` is four megabytes,
     // and nothing downstream may be handed that.
-    let diff = ApprovalDiff::of(text, &after);
+    let diff = ApprovalDiff::around_change(text, &after);
     let plan = MutationPlan::new(
         MutationKind::Edit,
         located.full().to_path_buf(),
@@ -1431,6 +1435,53 @@ mod tests {
         // (`crate::permission::bounded_diff_side`). The band's own one-line
         // summary still names it.
         assert_eq!(diff.after, "beta\ngamma and more\n");
+    }
+
+    #[test]
+    fn an_edit_past_the_first_64_kib_of_a_file_still_reaches_the_review_with_its_line_number() {
+        // A side is bounded at 64 KiB and a source file is routinely bigger: a
+        // review of the *file* cut at that bound would hold no change at all
+        // for an edit past it, and its two cut ends would read as a change that
+        // is not being made. What the boundary sends is the window around the
+        // change, and where it sits.
+        let contents: String = (1..=4_000)
+            .map(|line| format!("line number {line:05}\n"))
+            .collect();
+        assert!(
+            contents.len() > 64 * 1024,
+            "the fixture is not past the bound"
+        );
+        let (_dir, context, recorder) = asking(&contents);
+        let input = decode_edit_file(&json!({
+            "path": "notes.txt",
+            "old_string": "line number 03900\n",
+            "new_string": "LINE NUMBER 3900\n",
+        }))
+        .expect("decodes");
+
+        let result = execute_edit_file(&input, &context);
+        assert!(!result.ok, "the fixture prompter denies: {}", result.output);
+
+        let diff = recorder.last().diff.expect("an edit carries its diff");
+        assert!(
+            diff.before.contains("line number 03900") && diff.after.contains("LINE NUMBER 3900"),
+            "the change is not in what the review is sent: {} / {} bytes",
+            diff.before.len(),
+            diff.after.len()
+        );
+        assert_eq!(
+            diff.first_line, 3_895,
+            "five unchanged lines above the change"
+        );
+        assert_eq!(
+            diff.lines_below,
+            4_000 - 3_905,
+            "and the rest counted below"
+        );
+        assert!(
+            diff.before.len() < 1024,
+            "the window carried more than the change"
+        );
     }
 
     #[test]

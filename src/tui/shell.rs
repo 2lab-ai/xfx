@@ -7068,6 +7068,8 @@ mod tests {
         request.diff = Some(crate::permission::ApprovalDiff {
             before: "alpha\n".repeat(40),
             after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         request
     }
@@ -7225,6 +7227,8 @@ mod tests {
         request.diff = Some(crate::permission::ApprovalDiff {
             before: "alpha\n".repeat(40),
             after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         shell.apply(UiEvent::Approval(question(request)));
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
@@ -7280,6 +7284,8 @@ mod tests {
         request.diff = Some(crate::permission::ApprovalDiff {
             before: "alpha\n".repeat(40),
             after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         wide.apply(UiEvent::Approval(question(request)));
         assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
