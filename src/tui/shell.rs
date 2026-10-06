@@ -6739,10 +6739,12 @@ impl Shell {
     /// The cancellation goes out on the **control** channel, which is unbounded
     /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
     /// so it cannot queue behind the backlog of deltas it is trying to stop.
-    /// The UI deliberately does not cancel anything itself: what it holds is the
-    /// **session's** cancellation, and cancelling that would make every later
-    /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
-    /// Ctrl-C would end the conversation rather than the answer.
+    /// The UI does not cancel the **session's** cancellation, which would make
+    /// every later turn be born cancelled (`super::bridge`'s
+    /// `Cancellation::turn`) -- one Ctrl-C would end the conversation rather
+    /// than the answer. What the message raises on its way out is the running
+    /// turn's own flag (`super::worker`'s `WorkHandle::control`), which is how
+    /// a command that holds the runtime's thread is stopped at the keystroke.
     ///
     /// **What the screen shows is decided here, at the keystroke, and not at
     /// the conclusion**: upstream publishes the cancellation the moment it is
@@ -6763,18 +6765,22 @@ impl Shell {
     /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
     /// 5378-5383`).
     ///
-    /// **A call that is still running is not settled by this keystroke**, and
-    /// that is the difference from upstream's `fx-interrupt-40x120-cmd-cc`,
-    /// where the command is killed at once. Here a running executor holds the
-    /// runtime's thread until it returns, so the stop is read only after the
-    /// command has finished (`super::worker`'s `raced_against_control` polls
-    /// the control channel beside the turn, not inside a tool). A `Cancelled`
-    /// row now would be the screen claiming a stop the command never had, and
-    /// so would the turn's line: both wait for the turn to end. The call's
-    /// real result settles its row, one the turn ends without is settled as
-    /// stopped with its own line ([`Mark::TurnOver`]), and the turn's line is
-    /// written then only when no call's line was ([`Self::cancel_owed`]). The
-    /// activity row stays while the command runs, because it does.
+    /// **A running command is settled by this keystroke**, as upstream's is
+    /// (`fx-interrupt-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■ Cancelled
+    /// sleep 6 · …` at once): the turn's flag is raised before the message goes
+    /// ([`super::worker::WorkHandle::control`]), and the command's supervisor
+    /// kills it and its group within a poll (`crate::tools::terminal`). Its
+    /// line is the turn's, so no second one is written; the result the runtime
+    /// reports for it next is the same stop in the tool's words, and is dropped
+    /// ([`Self::abandoned`]).
+    ///
+    /// **Any other running call is not**: a file tool does not poll the flag,
+    /// and runs to its end before the turn reads the stop. A `Cancelled` row
+    /// for it now would be the screen claiming a stop the call never had --
+    /// a write that landed shown as one that did not. Its real result settles
+    /// its row, one the turn ends without is settled as stopped with its own
+    /// line ([`Mark::TurnOver`]), and the turn's line is written then only when
+    /// no call's line was ([`Self::cancel_owed`]).
     fn cancel_turn_with(&mut self, written: bool) {
         // Read **before** the message goes out, because after it the runtime
         // is dropping exactly these and the count is on its way to zero: what
@@ -6803,6 +6809,7 @@ impl Shell {
         // A prompt the runtime took before it read this is still to say it
         // started; with nothing waiting behind it, it is the only entry left.
         self.cancel_covers = self.prompts.len();
+        let written = written || (self.group.running_command() && self.settle_group());
         if !written && self.group.running() {
             self.cancel_owed = Some(waiting);
             return;
@@ -14098,27 +14105,29 @@ mod tests {
 
     #[test]
     fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile() {
-        // The command holds the turn until it returns, so the turn's line
+        // A file call holds the turn until it returns, so the turn's line
         // waits for the turn's end -- and a prompt typed while it waits is
-        // queued behind it, not a reason to forget the line.
-        let mut shell = running("run it");
+        // queued behind it, not a reason to forget the line. (A command no
+        // longer waits: it is stopped at the keystroke, and this case is now
+        // about the calls that are not.)
+        let mut shell = running("read it");
         shell.apply(tool_start(
             "1",
-            "terminal",
-            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
         ));
         shell.route_bytes(&[0x03]);
         assert!(
             shell.activity_row.is_some(),
-            "the row went while the command still runs"
+            "the row went while the call still runs"
         );
         shell.route_bytes(b"second\r");
         shell.apply(tool_ended(
             "1",
-            "terminal",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::Delta("MARKER-STOPPED\n".to_string()));
         shell.apply(UiEvent::TurnEnded {
@@ -18788,15 +18797,16 @@ mod tests {
     }
 
     #[test]
-    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
-        // A running executor holds the runtime's thread until it returns, so
-        // the stop is read after the command has finished: a `Cancelled` row at
-        // the keystroke would claim a stop the command never had. The sentence
-        // that answers the key goes under the group, and the command's real
-        // result settles its row above it when it comes. Claim changed: the
-        // answer to the key is the turn's `■ Cancelled` line, written once the
-        // turn has ended -- after the command's real row -- rather than an
-        // interrupt notice at the keystroke.
+    fn stopping_the_turn_while_a_command_runs_settles_its_row_at_the_keystroke() {
+        // Renamed, claim changed (was `stopping_the_turn_while_a_command_runs_
+        // leaves_its_row_to_its_result`): the stop now reaches the command at
+        // once -- the turn's flag is raised with the message and the command's
+        // supervisor kills it within a poll -- so the screen says so at the
+        // keystroke, as upstream's does (`fx-interrupt-40x120-cmd-cc`): the
+        // group's `· 1 cancelled`, `└ Cancelled sleep 30`, and the call's own
+        // `■ Cancelled sleep 30 · …`, which is the turn's line too. The
+        // runtime's result for the call, the same stop in the tool's words,
+        // changes nothing, and neither does the turn's conclusion.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -18807,32 +18817,87 @@ mod tests {
         let _ = shell.written();
 
         shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.activity_row.is_none(), "the row outlived the stop");
+        let at_the_key = shell.written();
+        assert_eq!(
+            at_the_key,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 cancelled",
+                "\u{2514} Cancelled sleep 30",
+                "",
+                "\u{25a0} Cancelled sleep 30 \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{at_the_key:#?}"
+        );
+
         shell.apply(tool_ended(
             "1",
             "terminal",
+            false,
+            "aborted by user",
+            CallOutcome::Cancelled,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.contains("system")),
+            "the stop was answered twice: {after:#?}"
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_file_call_runs_leaves_its_row_to_its_result() {
+        // A file tool does not poll the turn's flag and runs to its end before
+        // the turn reads the stop, so a `Cancelled` row at the keystroke would
+        // claim a stop the call never had. Its real result settles its row,
+        // and the turn's line follows once the turn has ended.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"read it\r");
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "big.txt"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        assert!(
+            !shell.written().iter().any(|row| row.contains("Cancelled")),
+            "a stop the call never had was drawn"
+        );
+        shell.apply(tool_ended(
+            "1",
+            "read_file",
             true,
             "",
-            CallOutcome::Exited(0),
+            CallOutcome::Finished,
         ));
         shell.apply(UiEvent::TurnEnded {
             failure: Some("the turn was cancelled".to_string()),
         });
         let written = shell.written();
         assert!(
-            !written
-                .iter()
-                .any(|row| row.contains("Cancelled sleep") || row.contains("cancelled")),
-            "a stop the command never had was drawn: {written:#?}"
+            !written.iter().any(|row| row.contains("Cancelled big")),
+            "{written:#?}"
         );
-        let notice = written
+        let line = written
             .iter()
             .position(|row| row.starts_with(INTERRUPTED_ROW))
-            .expect("the interrupt notice");
+            .expect("the turn's line");
         assert_eq!(
-            written[notice - 3..notice],
+            written[line - 3..line],
             [
-                "\u{25cf} 1 tool call \u{b7} 1 command",
-                "\u{2514} Ran sleep 30",
+                "\u{25cf} 1 tool call \u{b7} 1 read",
+                "\u{2514} Read big.txt",
                 ""
             ],
             "{written:#?}"

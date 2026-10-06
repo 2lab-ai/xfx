@@ -3280,6 +3280,120 @@ fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does()
 }
 
 #[test]
+fn escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does() {
+    // Upstream kills a running command at the keystroke
+    // (`fx-interrupt-cmd-40x120-cmd-cc`: `└ Cancelled sleep 6` and `■
+    // Cancelled sleep 6 · …` at once) and the next request answers the call
+    // `{"type":"error-text","value":"aborted by user"}` before `<turn_aborted>`
+    // (`fx-interrupt-next-cmd-40x120-bodies/003-completion.json`;
+    // `vercel-labs/fx@c1db9191 src/core/session/session.zig:64`, `:2701-2747`).
+    // Red before: the stop was read only once the command ended by itself, so
+    // the background sleeper outlived the keystroke by its full thirty seconds
+    // and the next request carried the command's real result.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "terminal",
+                serde_json::json!({
+                    "action": "exec",
+                    // A member of the command's group that is not the shell
+                    // xfx forked, so "the group is gone" is a claim about more
+                    // than the leader.
+                    "command": "sleep 30 & echo $! > sleeper.pid; wait",
+                }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["MARKER-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "yolo");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"run cmd\r");
+    let pid_file = sandbox.workspace.join("sleeper.pid");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let sleeper = loop {
+        if let Some(pid) = std::fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            break pid;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the command never started"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    on_screen(&session, (24, 80), &["Running sleep 30"], &[]);
+
+    // Escape, and a second one inside upstream's one-second window.
+    let stopped_at = std::time::Instant::now();
+    session.type_bytes(&[0x1b]);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    session.type_bytes(&[0x1b]);
+    let sleeper_pid = rustix::process::Pid::from_raw(sleeper).expect("a pid");
+    loop {
+        if rustix::process::test_kill_process(sleeper_pid).is_err() {
+            break;
+        }
+        assert!(
+            stopped_at.elapsed() < std::time::Duration::from_secs(1),
+            "the command's group outlived the stop by a second"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    on_screen(
+        &session,
+        (24, 80),
+        &["\u{2514} Cancelled sleep 30", "\u{25a0} Cancelled sleep 30"],
+        &["Running sleep"],
+    );
+
+    session.type_bytes(b"next\r");
+    session.wait_for("MARKER-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<serde_json::Value> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .cloned()
+        .collect();
+    let roles: Vec<&str> = prompt
+        .iter()
+        .map(|message| message["role"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "tool", "user", "user"],
+        "{body:#}"
+    );
+    assert_eq!(prompt[1]["content"][0]["type"], "tool-call", "{body:#}");
+    assert_eq!(
+        prompt[2]["content"][0]["output"],
+        serde_json::json!({ "type": "error-text", "value": "aborted by user" }),
+        "{body:#}"
+    );
+    assert!(
+        prompt[3]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("<turn_aborted>")),
+        "{body:#}"
+    );
+    assert_eq!(prompt[4]["content"][0]["text"], "next", "{body:#}");
+}
+
+#[test]
 fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() {
     // The contract in one line: after the interrupt notice, nothing else
     // starts. The runtime is held by a turn that never ends -- `SseThenHang`

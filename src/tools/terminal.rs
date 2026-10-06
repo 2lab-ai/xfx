@@ -310,14 +310,21 @@ impl Outcome {
                 ))
                 .ending(CallOutcome::TimedOut)
             }
+            // Stopped by the user under its turn: upstream's answer for the
+            // call, `aborted by user` and nothing of the command's output
+            // (`aborted_tool_output`, `vercel-labs/fx@c1db9191
+            // src/core/session/session.zig:64`, `:82-108`; fx's capture
+            // `fx-interrupt-next-cmd-40x120-bodies/003-completion.json`). The one
+            // thing kept is xfx's own: a group that could not be emptied is
+            // still said, because something the command started may be running.
             Ending::Cancelled { stranded } => {
-                return ToolResult::failure(format!(
-                    "terminal was cancelled: `{}` was killed before it finished\n{}{}",
-                    framed(plan.command()),
-                    self.streams(),
-                    stranded_notice(stranded)
-                ))
-                .ending(CallOutcome::Cancelled)
+                let notice = stranded_notice(stranded);
+                let output = if notice.is_empty() {
+                    crate::tools::question::ABORTED_OUTPUT.to_string()
+                } else {
+                    format!("{}\n{notice}", crate::tools::question::ABORTED_OUTPUT)
+                };
+                return ToolResult::failure(output).ending(CallOutcome::Cancelled);
             }
         }
         out.push_str(&self.streams());

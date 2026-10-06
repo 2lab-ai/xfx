@@ -649,12 +649,13 @@ impl DurableState {
                         awaiting.retain(|id| id != call_id);
                         // A call that answered `aborted by user` did not
                         // finish: its turn was stopped under it (a question the
-                        // user cancelled, `crate::tools::question`). It is the
+                        // user cancelled, `crate::tools::question`; a command
+                        // the user stopped, `crate::tools::terminal`). It is the
                         // call upstream keeps on the interrupted turn rather
                         // than among the completed ones
                         // (`InterruptedHistoryTurn.tool_call`,
                         // `session.zig:2701-2736`).
-                        if !*ok && output == ABORTED_TOOL_OUTPUT {
+                        if stopped_answer(*ok, output) {
                             stopped = true;
                         } else {
                             finished.push(tool.clone());
@@ -695,6 +696,15 @@ impl DurableState {
             notices,
         }
     }
+}
+
+/// Whether a recorded result is the answer of a call its turn was stopped
+/// under: a failure whose first line is [`ABORTED_TOOL_OUTPUT`] -- alone, or
+/// followed by xfx's own note that a stopped command left something running
+/// (`crate::tools::terminal`). No tool's own failure begins with those words:
+/// every other failure is a sentence xfx writes about the call.
+fn stopped_answer(ok: bool, output: &str) -> bool {
+    !ok && output.split('\n').next() == Some(ABORTED_TOOL_OUTPUT)
 }
 
 /// Closes a turn that did not finish, as upstream's history does
@@ -3148,6 +3158,37 @@ mod tests {
                 (Role::User, TURN_ABORTED.to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn history_answers_a_command_the_user_stopped_as_the_call_its_turn_stopped_under() {
+        // A command stopped under its turn answers `aborted by user`
+        // (`crate::tools::terminal`), with xfx's note after it when its group
+        // could not be emptied; either way it is the call the turn stopped
+        // under, not a tool that completed (`fx-interrupt-next-cmd-40x120-
+        // bodies/003-completion.json`).
+        for output in [
+            ABORTED_TOOL_OUTPUT.to_string(),
+            format!("{ABORTED_TOOL_OUTPUT}\n... [the command's process group was still there]\n"),
+        ] {
+            let state = reduce(vec![
+                started(),
+                SessionEvent::UserMessage {
+                    text: "run cmd".to_string(),
+                },
+                assistant("", &[("c1", "terminal")]),
+                result("c1", "terminal", false, &output),
+                interrupted(),
+            ])
+            .expect("reduces");
+            let shown = shape(&state.history_messages(Wire::VercelGateway).messages);
+            assert_eq!(shown.len(), 4, "{shown:#?}");
+            assert_eq!(shown[1], (Role::Assistant, "call c1".to_string()));
+            assert_eq!(shown[3], (Role::User, TURN_ABORTED.to_string()));
+        }
+        // A tool's own failure that merely mentions the words is not one.
+        assert!(!stopped_answer(false, "no such file: aborted by user"));
+        assert!(!stopped_answer(true, ABORTED_TOOL_OUTPUT));
     }
 
     #[test]

@@ -233,6 +233,22 @@ pub(crate) struct WorkHandle {
     live: LiveAuthority,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// The running turn's own flag (`gateway`'s [`CancelToken`], the one the
+    /// provider and every tool call of the turn poll), raised here on the UI
+    /// thread the moment the person stops the turn ([`Self::control`]).
+    ///
+    /// **The message alone cannot reach a call that holds the runtime's
+    /// thread.** A tool executes synchronously inside the turn's future, so
+    /// while a command runs nothing polls the control channel
+    /// (`raced_against_control` waits on a body that is not yielding) and the
+    /// stop would be read only once the command had finished by itself. The
+    /// command's own supervisor polls this flag every few milliseconds
+    /// (`crate::tools::terminal`'s `supervise`), so raising it here stops the
+    /// command -- and its process group -- at the keystroke, as upstream's
+    /// `cancelActiveOperation` does. The message still follows and is what
+    /// drops the queue; a flag raised between turns is reset by the next one
+    /// ([`super::bridge::Cancellation::turn`]).
+    stop: CancelToken,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -372,6 +388,15 @@ impl WorkHandle {
     /// Tells a turn that is already running something. Never blocks, never
     /// full: a UI that could not say "stop" is a UI that cannot stop it.
     pub(crate) fn control(&self, message: TurnControl) {
+        // In force before it is sent, as a change of authority is
+        // ([`Self::change_permissions`]): every message that stops the running
+        // turn raises its flag first ([`Self::stop`]).
+        if matches!(
+            message,
+            TurnControl::Cancel { .. } | TurnControl::Reset { .. } | TurnControl::Shutdown
+        ) {
+            self.stop.cancel();
+        }
         let _ = self.control.send(message);
     }
 
@@ -494,6 +519,7 @@ impl WorkHandle {
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
             },
             work_rx,
             control_rx,
@@ -758,6 +784,7 @@ pub(crate) fn spawn(
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
     let session_cancel = cancel.clone();
+    let stop = cancel.mirror();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
         .spawn(move || {
@@ -813,6 +840,7 @@ pub(crate) fn spawn(
                 permissions: permissions_tx,
                 live,
                 grants,
+                stop,
             },
             resumable: None,
         },
@@ -2732,6 +2760,34 @@ mod tests {
     const TEST_DRAIN: Duration = Duration::from_secs(10);
 
     #[test]
+    fn a_stop_raises_the_running_turns_flag_before_the_message_goes() {
+        // A command holds the runtime's thread, so the message alone would be
+        // read only once it ended by itself; the flag its supervisor polls is
+        // raised here, on the UI thread, at the keystroke. Everything else the
+        // UI sends leaves it alone.
+        let (handle, _work, mut control, _changes) = WorkHandle::detached_with_changes();
+        handle.control(TurnControl::QuestionCancelled {
+            id: crate::tui::question::QuestionId(1),
+        });
+        assert!(!handle.stop.is_cancelled(), "an answer stopped the turn");
+        handle.control(TurnControl::Cancel { through: 1 });
+        assert!(handle.stop.is_cancelled());
+        assert!(matches!(
+            control.try_recv(),
+            Ok(TurnControl::QuestionCancelled { .. })
+        ));
+        assert!(matches!(
+            control.try_recv(),
+            Ok(TurnControl::Cancel { through: 1 })
+        ));
+        for message in [TurnControl::Reset { through: 2 }, TurnControl::Shutdown] {
+            handle.stop.reset();
+            handle.control(message);
+            assert!(handle.stop.is_cancelled());
+        }
+    }
+
+    #[test]
     fn the_drain_keeps_receiving_until_the_turn_says_it_is_over() {
         // Step 3 of the protocol, and the step a bounded join would otherwise
         // hide: a producer parked in `send().await` on a full channel cannot
@@ -2796,6 +2852,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
             },
             resumable: None,
         };
@@ -2855,6 +2912,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
             },
             resumable: None,
         };
@@ -2893,6 +2951,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
             },
             resumable: None,
         };
@@ -3249,6 +3308,7 @@ mod tests {
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
             grants: Grants::default(),
+            stop: CancelToken::new(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4736,6 +4796,7 @@ mod tests {
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
+                stop: CancelToken::new(),
             },
             resumable: None,
         };
