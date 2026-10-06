@@ -27,9 +27,9 @@
 //!
 //! **What the document was given, as it was given it**, and nothing parsed back
 //! out of the screen. The shell tells this module about each thing it writes at
-//! the moment it writes it -- the card, the answer's text as the pacer releases
-//! it, a notice, a tool call's row, a question's resolution, the turn's
-//! summary -- so the entries are in
+//! the moment it writes it -- the card, the answer as the markdown presenter
+//! completes it, a notice, a tool call's row, a question's resolution, the
+//! turn's summary -- so the entries are in
 //! the document's own order and say what the document says. What the document
 //! is never given -- a call's arguments and its whole result -- comes from the
 //! session's journal: [`Teed`] stands between the turn and the recorder on the
@@ -69,7 +69,7 @@ use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::TurnJournal;
-use crate::markdown::{self, MarkdownProcessor};
+use crate::markdown;
 use crate::permission::ApprovalDiff;
 use crate::session::SessionEvent;
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
@@ -497,8 +497,10 @@ struct Key {
 
 enum Body {
     Prompt(String),
-    /// The answer's markdown, as the pacer released it to the document.
-    Response(String),
+    /// What the presenter completed of the answer, as the document was given
+    /// it: rendered prose, code, tables and rules, laid out at the screen's
+    /// width when drawn.
+    Response(Vec<markdown::Event>),
     /// A line of xfx's own that is not a notice: what the user said at an
     /// approval (`[you] …`).
     Line(String, Role, Kind),
@@ -658,30 +660,52 @@ impl FullTranscript {
         self.push(Body::Prompt(text.to_string()));
     }
 
-    /// Answer text the pacer released into the document.
+    /// Something the answer's presenter completed and the document was
+    /// given (`super::shell`'s `present`).
     ///
-    /// One entry per run of text between other things, as upstream has one
-    /// entry per assistant block. Text that is only line breaks opens none,
-    /// for the reason the document writes none for it
-    /// (`super::shell`'s `write_prose`), and closes no group either.
-    pub(crate) fn answer(&mut self, text: &str) {
+    /// One entry per run of it between other entries, as upstream's assistant
+    /// entry holds what its presenter gave it. What the presenter is still
+    /// holding -- a line whose end has not arrived -- is in no entry yet, so a
+    /// notice that lands meanwhile is an entry of its own **before** that
+    /// line, which goes on, whole, in the entry after it: upstream's order,
+    /// whose notice is appended beside the presenter and asks it for nothing
+    /// (`store.zig:1343-1390`, `fx-fulltranscript-notice-40x120-full-top`).
+    /// Prose that is only line breaks opens none, for the reason the document
+    /// writes none for it (`super::shell`'s `write_prose`), and closes no
+    /// group either.
+    pub(crate) fn presented(&mut self, event: &markdown::Event) {
         self.revision += 1;
         let revision = self.revision;
         if let Some(Entry {
-            body: Body::Response(markdown),
+            body: Body::Response(events),
             revision: entry,
             ..
         }) = self.entries.last_mut()
         {
-            markdown.push_str(text);
+            events.push(event.clone());
             *entry = revision;
             return;
         }
-        if text.trim().is_empty() {
+        if matches!(event, markdown::Event::Text(text) if text.trim().is_empty()) {
             return;
         }
         self.group_open = false;
-        self.push(Body::Response(text.to_string()));
+        self.push(Body::Response(vec![event.clone()]));
+    }
+
+    /// Answer text through a presenter of its own, completed, as the shell's
+    /// presents a whole answer.
+    #[cfg(test)]
+    pub(crate) fn answer(&mut self, text: &str) {
+        let mut processor = markdown::MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
+            markdown::theme::builtin(false),
+        ));
+        for event in processor.feed(text) {
+            self.presented(&event);
+        }
+        for event in processor.finish() {
+            self.presented(&event);
+        }
     }
 
     /// One of xfx's own lines that is not a notice, and what to call it.
@@ -1034,7 +1058,7 @@ impl FullTranscript {
     fn lay_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Vec<String> {
         let (kind, body) = match &entry.body {
             Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
-            Body::Response(text) => (Some(Kind::Response), answer(text, cols, palette)),
+            Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
             Body::Line(text, role, kind) => (Some(*kind), line(text, *role, cols, palette)),
             Body::Notice(notice) => (
                 Some(if notice.tone == Tone::Error {
@@ -1383,26 +1407,19 @@ fn notice_rows(notice: &Notice, cols: u16, palette: Palette) -> Vec<String> {
     drained(transcript, palette)
 }
 
-/// The answer's markdown, presented as the document presents it: prose in the
-/// two-column gutter, code, tables and rules as blocks of their own
+/// What the presenter completed, laid out as the document lays it out: prose
+/// in the two-column gutter, code, tables and rules as blocks of their own
 /// (`super::shell`'s `present`, `write_prose` and `write_structure`).
-fn answer(text: &str, cols: u16, palette: Palette) -> Vec<String> {
-    let light = palette.mode == Mode::Light;
-    let mut processor = MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
-        markdown::theme::builtin(light),
-    ));
+fn answer(events: &[markdown::Event], cols: u16, palette: Palette) -> Vec<String> {
     let mut writer = Prose {
         transcript: Transcript::new(cols),
         open: false,
         held: 0,
         cols,
-        light,
+        light: palette.mode == Mode::Light,
     };
-    for event in processor.feed(text) {
-        writer.present(event);
-    }
-    for event in processor.finish() {
-        writer.present(event);
+    for event in events {
+        writer.present(event.clone());
     }
     writer.close();
     drained(writer.transcript, palette)

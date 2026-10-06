@@ -5329,7 +5329,6 @@ impl Shell {
 
     /// Released answer text, through the presenter.
     fn write_answer(&mut self, text: &str) {
-        self.full.answer(text);
         for event in self.markdown.feed(text) {
             self.present(event);
         }
@@ -5337,6 +5336,7 @@ impl Shell {
 
     /// One thing the presenter completed, in the shape upstream gives it.
     fn present(&mut self, event: markdown::Event) {
+        self.full.presented(&event);
         let cols = self.geometry.cols;
         match event {
             markdown::Event::Text(text) => self.write_prose(&text),
@@ -18470,6 +18470,80 @@ mod tests {
             ],
             "the notices split the line the answer was in the middle of"
         );
+    }
+
+    #[test]
+    fn the_full_transcript_keeps_a_notice_mid_answer_as_an_entry_before_the_line_it_interrupted() {
+        // `fx-fulltranscript-notice-40x120-full-top`: Response `Opening line…`,
+        // the refusal, the version, and **one** Response holding the whole
+        // paragraph and the closing line -- upstream's presenter keeps the
+        // line it is in and its notice is an entry beside it
+        // (`store.zig:1343-1390`). Recorded from the raw text, the record
+        // cut the paragraph at each notice: `…word110 word` | Error |
+        // `111 … ` | Notice | `…`.
+        let mut shell = shell(40, 120);
+        let start = Instant::now();
+        let words: Vec<String> = (10..=19)
+            .chain(100..=139)
+            .map(|n| format!("word{n}"))
+            .collect();
+        let paragraph = format!("MARKER-A {}", words.join(" "));
+        let (said, unsaid) = paragraph.split_at(paragraph.find("word111").expect("a word") + 4);
+        shell.apply(UiEvent::Delta(format!(
+            "Opening line of the answer.\n\n{said}"
+        )));
+        for at in 1..=3000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+        }
+        shell.route_bytes(b"/notacommand\r");
+        let (said_more, unsaid) = unsaid.split_at(unsaid.find("word122").expect("a word"));
+        shell.apply(UiEvent::Delta(said_more.to_string()));
+        for at in 3000 / TICK_MILLIS..=6000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+        }
+        shell.route_bytes(b"/version\r");
+        // Ended by a blank line, so the presenter gives the closing line up
+        // without a turn's end.
+        shell.apply(UiEvent::Delta(format!(
+            "{unsaid}\n\nClosing line of the answer.\n\n"
+        )));
+        shell.shell.flush_paced();
+        shell.route_bytes(b"\x0f");
+
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Response", "Error", "Notice", "Response"],
+            "{screen:#?}"
+        );
+        let second = screen
+            .iter()
+            .rposition(|row| row.ends_with(" UTC \u{b7} Response"))
+            .expect("the second response");
+        assert_eq!(
+            screen[second + 1..second + 7],
+            // Each wrapped row with the space it broke on hung past it, as
+            // the document's rows are.
+            [
+                format!("  MARKER-A {} ", words[..15].join(" ")),
+                format!("  {} ", words[15..29].join(" ")),
+                format!("  {} ", words[29..43].join(" ")),
+                format!("  {}", words[43..].join(" ")),
+                String::new(),
+                "  Closing line of the answer.".to_string(),
+            ],
+            "{screen:#?}"
+        );
+        let first = screen
+            .iter()
+            .position(|row| row.ends_with(" UTC \u{b7} Response"))
+            .expect("the first response");
+        assert_eq!(screen[first + 1], "  Opening line of the answer.");
+        assert_eq!(screen[first + 2], "");
     }
 
     #[test]
