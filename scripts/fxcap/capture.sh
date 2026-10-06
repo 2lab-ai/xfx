@@ -13,8 +13,14 @@
 #
 #   gateway <turns.json>   turns for the fake gateway (default: none)
 #   env <K=V>...           extra environment for the binary
-#   seed <settings.json>   copied to ~/.fx/settings.json before launch (fx's own
-#                          settings file; xfx does not read it)
+#   seed <settings.json>   copied to the binary's own profile before launch,
+#                          owner-only: ~/.fx/settings.json for fx,
+#                          ~/.xfx/settings.json for xfx
+#   models <catalog.json>  what the fake gateway answers for
+#                          GET /coding-agent/v1/models (default: one model)
+#   nomodel                launch without FX_MODEL / XFX_MODEL, so the model
+#                          comes from the profile and no process override
+#                          shadows what a command saves there
 #   work <dir>             a directory under scenarios/ copied into the
 #                          workspace before launch
 #   githead <branch>       makes the workspace a checkout on <branch>: a
@@ -31,6 +37,11 @@
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
+#   home <label>           every file under the run's HOME, as it stands now,
+#                          to <bin>-<scenario>-<size>-<label>.files: the path
+#                          relative to HOME, its size, and its bytes (locks
+#                          and logs by size only), the run's own directory
+#                          written as <scratch> -- what a settings write left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -79,20 +90,24 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env=''
+  local turns='[]' extra_env='' models='' nomodel=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
-    [[ $line == seed\ * ]] && { mkdir -p "$run/home/.fx"; cp "$here/scenarios/${line#seed }" "$run/home/.fx/settings.json"; }
+    # Owner-only, as each product keeps its own profile: xfx refuses to read
+    # a profile directory anyone else can reach.
+    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$here/scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
+    [[ $line == models\ * ]] && models=$here/scenarios/${line#models }
+    [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -124,16 +139,17 @@ main() {
   : | "$run/shim/pbcopy"
   rm -f "$run/clipboard"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
-  local launch
+  local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a
+  [[ -n $nomodel ]] && { fx_model=''; xfx_model=''; }
   if [[ $which == fx ]]; then
     launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 \
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-FX_MODEL=fake/model-a $extra_env $bin"
+$fx_model $extra_env $bin"
   else
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
-XFX_MODEL=fake/model-a $extra_env $bin"
+$xfx_model $extra_env $bin"
   fi
   tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
     "cd $run/work && exec $launch"
@@ -142,7 +158,7 @@ XFX_MODEL=fake/model-a $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work|githead) ;;
+      ''|'#'*|gateway|env|seed|work|models|nomodel|githead) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -167,6 +183,20 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
+        ;;
+      home)
+        local name=$out/$which-$scenario-$size-$rest.files
+        (
+          cd "$run/home"
+          find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
+            echo "=== ~/${f#./} ($(wc -c < "$f" | tr -d ' ') bytes)"
+            case $f in
+              *.lock|*.log|*.sqlite*) ;;
+              *) head -c 4000 "$f" | sed "s#$run#<scratch>#g"; echo ;;
+            esac
+          done
+        ) > "$name"
+        echo "$name"
         ;;
       title)
         local name=$out/$which-$scenario-$size-$rest

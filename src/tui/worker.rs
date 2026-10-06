@@ -74,15 +74,17 @@ use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
+use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
 use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink,
 };
+use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
+use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{bind_conversation, open_conversation, status_snapshot, Conversation};
@@ -201,6 +203,21 @@ pub(crate) struct WorkHandle {
     reply: LastReply,
     /// What `/status` reads, as the runtime last published it.
     status: StatusBoard,
+    /// Where a change to the session's authority goes: `/permissions` and
+    /// Shift-Tab ([`Change`]).
+    ///
+    /// **A channel of its own, not a [`TurnWork`]**, and each of the three
+    /// differences is a bug the work channel would have: a change would hold a
+    /// place in [`WORK_LIMIT`] and be refused as busy behind one waiting
+    /// prompt, it would show on the band as `queued 1`, and a Ctrl-C would drop
+    /// it with the queue ([`Queue::abandon`]) after the footer had already said
+    /// the new mode. Unbounded, like the control channel, because a keystroke
+    /// that changes the mode must never be refused for want of room. The
+    /// runtime reads it only between pieces of work (`turn_loop`), which is
+    /// what keeps a change from landing under a running turn.
+    permissions: UnboundedSender<Change>,
+    /// What a bare `/permissions` lists, as the runtime last published it.
+    grants: Grants,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -366,6 +383,21 @@ impl WorkHandle {
         self.status.read()
     }
 
+    /// Hands the runtime a change to the session's authority, to apply before
+    /// the next piece of work it starts. Never blocks, never full.
+    ///
+    /// `Err` means the runtime thread is gone, which is the one thing a caller
+    /// must not paint a new mode over.
+    pub(crate) fn change_permissions(&self, change: Change) -> Result<(), Rejected> {
+        self.permissions.send(change).map_err(|_| Rejected::Gone)
+    }
+
+    /// The conversation's grants, as a bare `/permissions` lists them, from
+    /// the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn grants(&self) -> Vec<String> {
+        self.grants.read()
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -381,8 +413,28 @@ impl WorkHandle {
         Receiver<TurnWork>,
         mpsc::UnboundedReceiver<TurnControl>,
     ) {
+        let (handle, work_rx, control_rx, changes) = Self::detached_with_changes();
+        // Kept open for the handle's whole life rather than dropped: a closed
+        // channel would make every `/permissions` in a fixture read as a
+        // runtime that is gone. Leaked deliberately -- a test process that
+        // ends takes it with it.
+        std::mem::forget(changes);
+        (handle, work_rx, control_rx)
+    }
+
+    /// [`Self::detached`], with the receiving end of the authority channel
+    /// handed back too, for the cases that ask what `/permissions` and
+    /// Shift-Tab sent.
+    #[cfg(test)]
+    pub(crate) fn detached_with_changes() -> (
+        Self,
+        Receiver<TurnWork>,
+        mpsc::UnboundedReceiver<TurnControl>,
+        UnboundedReceiver<Change>,
+    ) {
         let (work, work_rx) = mpsc::channel(WORK_LIMIT);
         let (control, control_rx) = mpsc::unbounded_channel();
+        let (permissions, changes) = mpsc::unbounded_channel();
         (
             Self {
                 work,
@@ -391,10 +443,19 @@ impl WorkHandle {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions,
+                grants: Grants::default(),
             },
             work_rx,
             control_rx,
+            changes,
         )
+    }
+
+    /// Stands in for the runtime's publication of the grants list.
+    #[cfg(test)]
+    pub(crate) fn publish_grants(&self, lines: Vec<String>) {
+        self.grants.publish(lines);
     }
 
     /// Stands in for the runtime's own publication, for the cases that are
@@ -597,6 +658,7 @@ pub(crate) fn spawn(
     let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
     let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
     let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+    let (permissions_tx, mut permissions_rx) = mpsc::unbounded_channel::<Change>();
     // One receiver, read by the turn loop and -- while it is parked in an
     // approval -- by the prompter. See `super::approval::ControlChannel` for
     // why that is sound and what it costs.
@@ -624,6 +686,8 @@ pub(crate) fn spawn(
     let loops_outstanding = Arc::clone(&outstanding);
     let reply = LastReply::default();
     let loops_reply = reply.clone();
+    let grants = Grants::default();
+    let publishes_grants = grants.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -644,6 +708,7 @@ pub(crate) fn spawn(
             };
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
+            state.grants = publishes_grants;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -657,6 +722,7 @@ pub(crate) fn spawn(
                 state,
                 &events_tx,
                 &mut work_rx,
+                &mut permissions_rx,
                 control,
                 session_cancel,
                 &loops_outstanding,
@@ -674,6 +740,8 @@ pub(crate) fn spawn(
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply,
                 status,
+                permissions: permissions_tx,
+                grants,
             },
             resumable: None,
         },
@@ -807,6 +875,10 @@ struct Runtime {
     /// Where `/status` reads this runtime from ([`StatusBoard`]), written by
     /// [`Runtime::publish`] and by nothing else.
     board: StatusBoard,
+    /// Where a bare `/permissions` reads the conversation's grants from,
+    /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
+    /// cannot describe different moments.
+    grants: Grants,
 }
 
 impl Runtime {
@@ -850,6 +922,7 @@ impl Runtime {
             selector,
             reply: LastReply::default(),
             board,
+            grants: Grants::default(),
         }
     }
 
@@ -873,6 +946,73 @@ impl Runtime {
             self.model(),
             self.conversation.as_ref(),
         ));
+        self.grants.publish(self.grant_lines());
+    }
+
+    /// The conversation's grants as `/permissions` lists them, made inert:
+    /// a command a model wrote is text this crate does not trust on a terminal.
+    fn grant_lines(&self) -> Vec<String> {
+        let Some(conversation) = self.conversation.as_ref() else {
+            return Vec::new();
+        };
+        conversation
+            .grant_lines(&self.config.workspace_root)
+            .iter()
+            .map(|line| bridge::inert(line).into_owned())
+            .collect()
+    }
+
+    /// Applies one change to the session's authority, **between turns**, and
+    /// records it; answers what the session has to be told, if anything.
+    ///
+    /// Three places hold the mode and all three move together. The
+    /// configuration, because every conversation this runtime opens later is
+    /// built from it ([`Runtime::authority`]). The live conversation's
+    /// authority, because that is built **once per conversation** and not per
+    /// turn -- an "always" answer has to outlive the turn it was given in
+    /// (module header) -- so changing only the configuration would leave the
+    /// conversation the user is talking in at the mode it started with. And
+    /// the session log, as [`Runtime::resume`] records a mode that changed, so
+    /// a later resume reads what this session really ran under.
+    ///
+    /// The profile write is here, on this thread, rather than on the UI's: it
+    /// stages a file, syncs it, renames it and syncs the directory, which is
+    /// disk latency the thread holding the terminal must not wait on -- the
+    /// reason `/setup` writes from here too. A write that fails leaves the
+    /// change applied and says so, in upstream's words
+    /// (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+    fn change_permissions(&mut self, change: Change) -> Option<super::notice::Notice> {
+        let mode = match change {
+            Change::Mode(mode) => mode,
+            Change::Reset => PermissionMode::Ask,
+            Change::Acknowledge => {
+                self.config.yolo_acknowledged = true;
+                return self
+                    .persist("yolo_acknowledged", serde_json::Value::Bool(true))
+                    .err()
+                    .map(|reason| permissions::not_saved("full-access-acknowledgment", &reason));
+            }
+        };
+        self.config.permission_mode = mode;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.set_permission_mode(mode, change == Change::Reset);
+        }
+        self.publish();
+        self.persist(
+            "permission_mode",
+            serde_json::Value::String(mode.label().to_string()),
+        )
+        .err()
+        .map(|reason| permissions::not_saved("permission-mode", &reason))
+    }
+
+    /// Writes one key of the profile, or says why it could not.
+    fn persist(&self, key: &str, value: serde_json::Value) -> Result<(), String> {
+        let Some(path) = self.config.user_settings_path.as_ref() else {
+            return Err("no home directory".to_string());
+        };
+        crate::provider::profile::write_preference(path, &[key], value)
+            .map_err(|err| err.to_string())
     }
 
     /// Publishes what `/copy` would copy from the conversation as it stands.
@@ -1034,7 +1174,17 @@ impl Runtime {
     /// switch would replay one provider's history into another's wire format,
     /// and a bundle is a connection to an endpoint that is no longer configured.
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
+        // **Except the session's permission mode**, which is not what the file
+        // says but what the person last chose: `/permissions` and Shift-Tab
+        // write the profile too, but an `XFX_PERMISSION_MODE` that outranks it
+        // would otherwise take a provider switch back to the launch's mode
+        // while the hint row goes on saying the chosen one. The same for a
+        // warning already shown: it stays shown.
+        let mode = self.config.permission_mode;
+        let acknowledged = self.config.yolo_acknowledged || reloaded.yolo_acknowledged;
         self.config = reloaded;
+        self.config.permission_mode = mode;
+        self.config.yolo_acknowledged = acknowledged;
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -1047,7 +1197,7 @@ impl Runtime {
         // is: the UI holds a bool rather than a configuration, so this is the
         // only place the question can be answered after a switch.
         let missing_credential =
-            crate::provider::resolve_credential_for(self.config.provider, &self.config).is_none();
+            !crate::provider::credential_ready(self.config.provider, &self.config);
         Selected {
             provider: self.config.provider,
             model: self.model().to_string(),
@@ -1075,16 +1225,14 @@ impl Runtime {
         from_state(self.selector.ensure_catalog().await)
     }
 
-    /// What `/model <id>` means, with the line shell's own meaning.
+    /// What `/model <query>` means, with the line shell's own meaning.
     ///
     /// **The decision is [`ModelSelector::apply`]'s and is not remade here.**
-    /// That is where the whole catalog is, and the catalog is what decides: an
-    /// id the provider publishes is applied, an id it does not is refused by
-    /// name rather than sent, and an id nothing could be checked against is
-    /// applied carrying the reason it was not. A front end that judged
-    /// membership for itself would be a second reading of a list only one of
-    /// the two holds -- which is exactly how this surface came to accept ids
-    /// the line shell refuses.
+    /// That is where the whole catalog is, and the catalog is what a query is
+    /// resolved against -- an id or an alias spelled exactly, else upstream's
+    /// fuzzy score over the ids, else the query as typed, which is applied
+    /// as upstream applies it. A front end that resolved for itself would be a
+    /// second reading of a list only one of the two holds.
     ///
     /// What is this function's own is the **durable** half: a selection is
     /// recorded so that a resumed session continues in the model the
@@ -1110,6 +1258,51 @@ impl Runtime {
         }
         outcome
     }
+
+    /// Records `model` as the configured provider's in the profile
+    /// (`models.<provider>`), and says what is worth saying about it.
+    ///
+    /// Through [`crate::provider::profile::write_preference`], the one writer
+    /// every command that changes one preference shares, and **on this
+    /// thread**: a settings write is a read, a staged file and a rename, none
+    /// of which the thread holding the terminal may wait on. Read back at the
+    /// next launch by [`RuntimeConfig::load_with`], which ranks it as upstream
+    /// does: the environment over the profile over the compiled default.
+    ///
+    /// `None` -- nothing to say -- is the ordinary case, as upstream's benign
+    /// `saved to user settings` line is dropped when the caller has announced
+    /// the change (`reportUserSettingsCommit`, `session_commands.zig:27-85`).
+    /// Said: that a layer above the profile will still decide what a fresh
+    /// session uses (upstream's words), or that the write failed and the model
+    /// holds for this process only. A session with no home has no profile to
+    /// write and says nothing about one.
+    fn save_model(&self, model: &str) -> Option<super::notice::Notice> {
+        let path = self.config.user_settings_path.as_ref()?;
+        let key = [crate::config::MODELS_KEY, self.config.provider.label()];
+        match crate::provider::profile::write_preference(
+            path,
+            &key,
+            serde_json::Value::String(model.to_string()),
+        ) {
+            Ok(()) => {
+                let source = self.config.sources.model;
+                (source > crate::config::SettingSource::UserGlobal).then(|| {
+                    super::notice::Notice::neutral(
+                        "model",
+                        format!(
+                            "saved to user settings (scope=user); fresh sessions here use \
+                             higher-precedence model={}",
+                            source.label()
+                        ),
+                    )
+                })
+            }
+            Err(err) => Some(super::notice::Notice::error(
+                "model",
+                format!("active for this process but not saved to user settings ({err})"),
+            )),
+        }
+    }
 }
 
 /// What a provider switch produced, once the reload has said so.
@@ -1127,11 +1320,10 @@ struct Selected {
 ///
 /// **Three answers, not two**, and the third is the whole point: "there is
 /// nothing to browse" and "xfx could not ask" are different claims about
-/// different things. The first is a property of the provider -- the Gateway
-/// publishes no catalog endpoint this port has evidence for
-/// (`crate::provider::model::catalog_for`) -- and reporting it as a turn
-/// failure made every Gateway user's first `/model` read as a broken session.
-/// The second really is a failure and stays one.
+/// different things. The first is a property of the session -- a Gateway with
+/// no credential to ask its catalog with, a llmux with no daemon URL
+/// (`crate::provider::model::catalog_for`) -- and the menu says the list is
+/// empty. The second really is a failure, and the menu says so.
 #[derive(Debug, PartialEq, Eq)]
 enum CatalogAnswer {
     /// The provider's rows, bounded to what the UI will render.
@@ -1164,7 +1356,12 @@ fn from_state(state: &CatalogState) -> CatalogAnswer {
 /// frame at a time. A named function rather than a `take` inline so that "the
 /// browser is bounded" is a claim a test can make without a daemon.
 fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
-    entries.iter().take(MAX_RENDERED_MODELS).cloned().collect()
+    // Ordered first, so the rows the bound keeps are the ones the menu would
+    // have put on top.
+    crate::provider::model::picker_order(entries)
+        .into_iter()
+        .take(MAX_RENDERED_MODELS)
+        .collect()
 }
 
 /// Runs work until the UI says to stop, or until it is gone, and says which
@@ -1177,6 +1374,7 @@ async fn turn_loop(
     mut state: Runtime,
     events: &Sender<UiEvent>,
     work: &mut Receiver<TurnWork>,
+    changes: &mut UnboundedReceiver<Change>,
     control: Arc<ControlChannel>,
     cancel: Cancellation,
     outstanding: &AtomicUsize,
@@ -1186,6 +1384,9 @@ async fn turn_loop(
         outstanding,
         taken: 0,
     };
+    // Whether the UI can still send a change. A closed channel answers `recv`
+    // at once, every time, so an arm left on it would spin this loop.
+    let mut changes_open = true;
     loop {
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
@@ -1194,7 +1395,10 @@ async fn turn_loop(
             biased;
             message = control.recv() => match message {
                 // The session is over, or the UI is gone with its sender.
-                Some(TurnControl::Shutdown) | None => return state.resumable(),
+                // Answered below rather than here: the changes still waiting
+                // are applied on the way out, and the select holds that
+                // channel for its own branch.
+                Some(TurnControl::Shutdown) | None => Taken::Shutdown,
                 // Between turns there is nothing *running* to cancel -- but
                 // there may be work waiting that nobody has started, and after
                 // an interrupt nothing may start.
@@ -1215,6 +1419,13 @@ async fn turn_loop(
                     | TurnControl::QuestionCancelled { .. },
                 ) => Taken::Nothing,
             },
+            // **After control and before work**, and that order is the whole
+            // of "between turns": this loop is the only place a turn starts,
+            // so a change typed while one was running is applied the moment it
+            // ends and before whatever was queued behind it begins -- upstream
+            // syncs its queued prompts to a new mode the same way
+            // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
+            change = changes.recv(), if changes_open => Taken::Change(change),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -1228,16 +1439,32 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
+            Taken::Shutdown => return settled(state, changes),
+            Taken::Change(Some(change)) => {
+                // Not a terminal event -- nothing is waiting on one for a
+                // change -- but `send_terminal` is the send that makes the
+                // event inert and does not depend on a turn's token.
+                if let Some(notice) = state.change_permissions(change) {
+                    bridge::send_terminal(events, UiEvent::Notice(notice)).await;
+                }
+                continue;
+            }
+            Taken::Change(None) => {
+                changes_open = false;
+                continue;
+            }
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
             // one.
-            Taken::Work(None) => return state.resumable(),
+            Taken::Work(None) => return settled(state, changes),
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
-            TurnWork::Model(name) => {
-                run_model(&mut state, &name, events).await;
-                Ended::Turn
+            TurnWork::Model { name, next_turn } => {
+                run_model(
+                    &mut state, &name, next_turn, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             TurnWork::Submit(prompt) => {
                 run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
@@ -1268,7 +1495,7 @@ async fn turn_loop(
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
         match ended {
-            Ended::Session => return state.resumable(),
+            Ended::Session => return settled(state, changes),
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
             // taken.
@@ -1307,6 +1534,22 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
 }
 
+/// Applies every authority change still waiting, then names the session to
+/// resume -- the way out of [`turn_loop`], on every path.
+///
+/// A change typed while the last turn ran and followed at once by `/quit` was
+/// shown to the user and has not been applied yet: the loop takes changes
+/// only between pieces of work. Upstream writes the preference the moment the
+/// key is pressed (`selectMode`), so a session that left without this would be
+/// the one place the two disagree about what the next launch starts in. What
+/// the UI is owed for a failed write here is not sent: it is leaving.
+fn settled(mut state: Runtime, changes: &mut UnboundedReceiver<Change>) -> Option<SessionId> {
+    while let Ok(change) = changes.try_recv() {
+        let _ = state.change_permissions(change);
+    }
+    state.resumable()
+}
+
 /// What one turn of [`turn_loop`]'s wait produced.
 ///
 /// A value rather than an early `continue` inside the `select!` because the
@@ -1324,6 +1567,11 @@ enum Taken {
     Reset(usize),
     /// A message that means nothing here.
     Nothing,
+    /// A change to the session's authority, or the channel that carries them
+    /// closing.
+    Change(Option<Change>),
+    /// The session is over.
+    Shutdown,
 }
 
 /// The work waiting on the runtime thread, and what an interrupt does to it.
@@ -1586,31 +1834,68 @@ async fn run_setup(
     }
 }
 
-/// Applies one `/model <id>` and tells the UI what the selector made of it.
+/// Applies one `/model <query>` and tells the UI what the selector made of it.
 ///
-/// **No I/O and no cancellation arm**, unlike its two neighbours: the decision
-/// is a pure function of a catalog this thread already holds, so there is
-/// nothing here for a Ctrl-C to interrupt and nothing to race a control message
-/// against. The load that fills that catalog is `run_catalog`'s, and a bare
-/// `/model` is what asks for it.
+/// **The catalog first, when none is loaded yet**: upstream resolves a query
+/// against the catalog it holds and fetches it when it holds none
+/// (`resolveModelQuery`, `session_commands.zig:1147-1166`), so `/model opus`
+/// typed before the menu was ever opened still finds `anthropic/claude-opus-5`.
+/// The load is the selector's once-per-provider one -- a second `/model` asks
+/// no socket -- and it is raced against the control channel like
+/// `run_catalog`'s, because it is the one piece of this that waits on a
+/// network. A Ctrl-C while it waits stops the selection with everything queued
+/// behind it, and nothing is applied: the user stopped this piece of work.
+///
+/// Then the selection, and **the profile write, here on the runtime thread**
+/// ([`Runtime::save_model`]): `/setup`'s file discipline, off the thread that
+/// holds the terminal.
 ///
 /// The answer goes through [`bridge::send_terminal`] rather than `send_ui`, for
 /// the reason a provider switch's does: by the time it is sent the change has
 /// been made and written into the session log, and a cancellation that dropped
 /// the one event saying so would leave the band showing a model the session is
 /// no longer in.
-async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
+async fn run_model(
+    state: &mut Runtime,
+    name: &str,
+    next_turn: bool,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let ((), ended) = raced_against_control(
+        async {
+            state.selector.ensure_catalog().await;
+        },
+        control,
+        |through| {
+            turn.cancel();
+            queue.abandon(through);
+        },
+    )
+    .await;
+    if turn.token.is_cancelled() {
+        return ended;
+    }
     let outcome = state.use_model(name);
     state.publish();
-    let answered = match outcome {
-        ModelOutcome::Selected { unverified, .. } => ModelAnswer::Applied { unverified },
-        ModelOutcome::Unchanged { .. } => ModelAnswer::Unchanged,
-        ModelOutcome::Refused { reason } => ModelAnswer::Refused { reason },
+    let (answered, chosen) = match outcome {
+        ModelOutcome::Selected {
+            unverified, model, ..
+        } => (ModelAnswer::Applied { unverified }, Some(model)),
+        ModelOutcome::Unchanged { model } => (ModelAnswer::Unchanged, Some(model)),
+        ModelOutcome::Refused { reason } => (ModelAnswer::Refused { reason }, None),
         // A select request cannot produce a report. Answered rather than
         // asserted away: a `/model` that took the session down because an enum
         // grew an arm would be a worse failure than one that says nothing.
-        ModelOutcome::Reported { .. } => return,
+        ModelOutcome::Reported { .. } => return ended,
     };
+    // Written for an unchanged model too, as upstream writes it
+    // (`setResolvedModel` persists whatever it resolved): the operator named
+    // this model, and the profile is where a later launch reads that.
+    let saved = chosen.and_then(|model| state.save_model(&model));
     bridge::send_terminal(
         events,
         UiEvent::ModelAnswered {
@@ -1619,12 +1904,25 @@ async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
             // standing model, and it is the one the band must show.
             model: state.model().to_string(),
             outcome: answered,
+            next_turn,
         },
     )
     .await;
+    // After the switch it is about, as upstream's commit line follows the
+    // announcement.
+    if let Some(notice) = saved {
+        bridge::send_terminal(events, UiEvent::Notice(notice)).await;
+    }
+    ended
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
+///
+/// What the UI is told is what `/model`'s menu shows: the rows, in the order
+/// the menu lists them ([`crate::provider::model::picker_order`]); no rows at
+/// all when the provider has no catalog (`No models available.`); or that the
+/// load failed (`Unable to load models.`). None of the three is written into
+/// the document -- the menu is where the answer is, as upstream's is.
 async fn run_catalog(
     state: &mut Runtime,
     events: &Sender<UiEvent>,
@@ -1639,52 +1937,22 @@ async fn run_catalog(
         queue.abandon(through);
     })
     .await;
-    match loaded {
-        CatalogAnswer::Rows(entries) => {
-            // Through `send_ui`: a catalog whose turn was cancelled is a list
-            // nobody is waiting for any more, and the conclusion below still
-            // closes the item either way.
-            let _ = bridge::send_ui(
-                events,
-                &turn.token,
-                UiEvent::CatalogLoaded { provider, entries },
-            )
-            .await;
-            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-        }
-        // A **notice**, and a turn that ended without a failure. The provider
-        // has no catalog; nothing went wrong. The words are the line shell's
-        // own (`crate::provider::model::NO_CATALOG_NOTICE`), so `/model` says
-        // the same thing on both surfaces rather than reading as a broken
-        // session on one of them.
-        CatalogAnswer::NoneAdvertised => {
-            let _ =
-                bridge::send_ui(events, &turn.token, UiEvent::Notice(no_catalog_notice())).await;
-            bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
-        }
-        // This one really is a failure: there is a catalog and xfx could not
-        // read it, which is a fact about the daemon the operator has to act on.
-        CatalogAnswer::Unread(reason) => {
-            bridge::send_terminal(
-                events,
-                UiEvent::TurnEnded {
-                    failure: Some(format!("xfx: {reason}")),
-                },
-            )
-            .await;
-        }
-    }
+    // Through `send_ui`: a catalog whose turn was cancelled is a list nobody
+    // is waiting for any more, and the conclusion below still closes the item
+    // either way.
+    let answer = match loaded {
+        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+        // The provider has no catalog; nothing went wrong, and the menu says
+        // there is nothing in it.
+        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+            provider,
+            entries: Vec::new(),
+        },
+        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread { provider },
+    };
+    let _ = bridge::send_ui(events, &turn.token, answer).await;
+    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
     ended
-}
-
-/// What a bare `/model` says when the provider advertises no catalog: the line
-/// shell's sentence (`crate::provider::model::NO_CATALOG_NOTICE`,
-/// `[shell] catalog=unavailable (…)`) in a notice's shape -- the topic is the
-/// key it reported and the body the value, so both surfaces say the same words.
-fn no_catalog_notice() -> super::notice::Notice {
-    let line = crate::provider::model::NO_CATALOG_NOTICE;
-    let said = line.strip_prefix("[shell] catalog=").unwrap_or(line);
-    super::notice::Notice::neutral("catalog", said)
 }
 
 /// Runs `body` while still listening to the UI, and says what ended.
@@ -1862,14 +2130,16 @@ async fn one_turn(
         tools: conversation.tools.clone(),
     };
     let mut sink = UiEventSink::new(events.clone(), turn.token.clone());
-    let outcome = run_turn_saved(
-        request,
-        context,
-        provider,
-        &mut sink,
+    // The recorder, with what the full transcript shows of each call -- its
+    // arguments, its whole result -- handed to the UI as it is written down
+    // (`super::full_transcript::Teed`). The log is written first and either
+    // way: the view is best effort and the record is not.
+    let mut journal = super::full_transcript::Teed::new(
         &mut conversation.recorder,
-    )
-    .await;
+        events.clone(),
+        turn.token.clone(),
+    );
+    let outcome = run_turn_saved(request, context, provider, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -2070,6 +2340,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2126,6 +2398,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2161,6 +2435,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2514,6 +2790,8 @@ mod tests {
             accepted: Arc::new(AtomicUsize::new(0)),
             reply: LastReply::default(),
             status: StatusBoard::unpublished(),
+            permissions: mpsc::unbounded_channel().0,
+            grants: Grants::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -2612,6 +2890,285 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // `/permissions` and Shift-Tab
+    // -----------------------------------------------------------------------
+
+    /// The profile `state` writes, as text, or nothing when it has none yet.
+    fn profile_text(state: &Runtime) -> String {
+        std::fs::read_to_string(state.config.user_settings_path.as_ref().expect("a profile"))
+            .unwrap_or_default()
+    }
+
+    /// The session log of the conversation `state` holds, as text.
+    fn log_text(state: &Runtime) -> String {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        std::fs::read_to_string(
+            state
+                .store
+                .sessions_dir()
+                .join(conversation.recorder.id().as_str())
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log")
+    }
+
+    #[test]
+    fn a_mode_change_moves_the_conversation_the_configuration_the_log_and_the_profile() {
+        let (_home, _workspace, mut state) = recording();
+        assert_eq!(state.config.permission_mode, PermissionMode::Auto);
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+
+        assert_eq!(state.config.permission_mode, PermissionMode::Yolo);
+        let conversation = state.conversation.as_ref().expect("still open");
+        assert_eq!(
+            conversation.tools.permissions().mode(),
+            PermissionMode::Yolo,
+            "the conversation the user is talking in kept the mode it started with"
+        );
+        assert_eq!(
+            conversation.recorder.state().permission_mode,
+            PermissionMode::Yolo
+        );
+        assert!(log_text(&state).contains(r#""permission_mode":"yolo""#));
+        assert_eq!(
+            profile_text(&state),
+            "{\n  \"permission_mode\": \"yolo\"\n}\n"
+        );
+        // A conversation opened after it is opened in it.
+        assert_eq!(state.authority().mode(), PermissionMode::Yolo);
+
+        // The same mode again changes nothing the log has to record.
+        let before = log_text(&state);
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+        assert_eq!(log_text(&state), before);
+    }
+
+    #[test]
+    fn a_reset_is_ask_and_no_grants_and_says_so_to_the_board() {
+        let (_home, _workspace, mut state) = recording();
+        let grants = Grants::default();
+        state.grants = grants.clone();
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new(
+                "write_file",
+                state.config.workspace_root.join("a.txt").to_string_lossy(),
+            ));
+        state.publish();
+        assert_eq!(grants.read(), vec![" - write_file -> a.txt".to_string()]);
+
+        assert_eq!(state.change_permissions(Change::Reset), None);
+        let conversation = state.conversation.as_ref().expect("still open");
+        assert_eq!(conversation.tools.permissions().mode(), PermissionMode::Ask);
+        assert!(conversation.tools.permissions().grants().is_empty());
+        assert!(grants.read().is_empty(), "the board still lists the grant");
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        assert!(profile_text(&state).contains(r#""permission_mode": "ask""#));
+    }
+
+    #[test]
+    fn a_grant_is_listed_inert() {
+        // A command a model wrote is not text the terminal may be handed.
+        let (_home, _workspace, mut state) = recording();
+        let grants = Grants::default();
+        state.grants = grants.clone();
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new("terminal", "printf '\u{1b}[2J' in /w"));
+        state.publish();
+        let listed = grants.read();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].contains('\u{1b}'), "{listed:?}");
+        assert!(listed[0].starts_with(" - terminal -> printf"), "{listed:?}");
+    }
+
+    #[test]
+    fn the_acknowledgement_is_recorded_beside_whatever_else_the_profile_says() {
+        let (_home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        std::fs::write(
+            &path,
+            "{\"provider\":\"gateway\",\"permission_mode\":\"yolo\"}\n",
+        )
+        .expect("seed");
+        assert_eq!(state.change_permissions(Change::Acknowledge), None);
+        assert!(state.config.yolo_acknowledged);
+        let written: serde_json::Value = serde_json::from_str(&profile_text(&state)).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "provider": "gateway",
+                "permission_mode": "yolo",
+                "yolo_acknowledged": true,
+            })
+        );
+        // And the next launch reads it back.
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(_home.path().to_path_buf()), BTreeMap::new()),
+            _workspace.path(),
+        )
+        .expect("reload");
+        assert!(reloaded.yolo_acknowledged);
+        assert_eq!(reloaded.permission_mode, PermissionMode::Yolo);
+    }
+
+    #[test]
+    fn a_write_that_fails_leaves_the_change_applied_and_says_so() {
+        let (_home, _workspace, mut state) = recording();
+        // A directory where the settings file belongs: unreadable as a file,
+        // so the write is refused rather than made over it.
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        std::fs::create_dir_all(&path).expect("a directory in the way");
+        let said = state
+            .change_permissions(Change::Mode(PermissionMode::Ask))
+            .expect("a failure is said");
+        assert_eq!(said.topic, "permission-mode");
+        assert!(
+            said.body
+                .starts_with("active for this process but not saved to user settings ("),
+            "{said:?}"
+        );
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        let said = state
+            .change_permissions(Change::Acknowledge)
+            .expect("a failure is said");
+        assert_eq!(said.topic, "full-access-acknowledgment");
+    }
+
+    #[test]
+    fn a_change_sent_after_work_was_queued_is_applied_before_that_work_starts() {
+        // Upstream syncs a new mode into the prompts already queued
+        // (`syncQueuedPermissionSnapshot`); here the loop takes changes before
+        // work, so whatever was waiting starts under the mode the user chose
+        // after it was typed. Observed through a queued `/model`, which writes
+        // its own line into the same log: the change's line has to come first.
+        let (_home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
+        let log = state
+            .store
+            .sessions_dir()
+            .join(
+                state
+                    .conversation
+                    .as_ref()
+                    .expect("open")
+                    .recorder
+                    .id()
+                    .as_str(),
+            )
+            .join(crate::session::store::EVENTS_FILE);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        work_tx
+            .try_send(TurnWork::Model {
+                name: "second-model".into(),
+                next_turn: false,
+            })
+            .expect("room");
+        let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        changes_tx
+            .send(Change::Mode(PermissionMode::Ask))
+            .expect("open");
+        drop(work_tx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(1);
+        on_a_runtime(turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        let log = std::fs::read_to_string(log).expect("the log");
+        let mode = log
+            .find(r#""permission_mode":"ask""#)
+            .unwrap_or_else(|| panic!("the change never reached the log: {log}"));
+        let model = log
+            .find(r#""model":"second-model""#)
+            .unwrap_or_else(|| panic!("the work never ran: {log}"));
+        assert!(mode < model, "the queued work ran before the change: {log}");
+    }
+
+    #[test]
+    fn a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost() {
+        let (home, _workspace, state) = recording();
+        let path = home.path().join(".xfx").join("settings.json");
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(0);
+        let driver = async {
+            // Nothing else is sent: only the change itself can wake the loop.
+            changes_tx
+                .send(Change::Mode(PermissionMode::Yolo))
+                .expect("open");
+            while !std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .contains("yolo")
+            {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            // Typed, then straight out: applied on the way.
+            changes_tx.send(Change::Acknowledge).expect("open");
+            control_tx.send(TurnControl::Shutdown).expect("open");
+        };
+        let looped = turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        );
+        on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, async { tokio::join!(looped, driver) })
+                .await
+                .expect("the loop never applied the change")
+        });
+        drop(work_tx);
+        let written = std::fs::read_to_string(&path).expect("the profile");
+        assert!(
+            written.contains(r#""yolo_acknowledged": true"#),
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn a_provider_switch_keeps_the_mode_the_person_chose() {
+        let (_home, _workspace, mut state) = recording();
+        state.change_permissions(Change::Mode(PermissionMode::Ask));
+        state.change_permissions(Change::Acknowledge);
+        // A reload that says otherwise -- an environment override of the
+        // mode, say -- does not take the session back to it.
+        let mut reloaded = state.config.clone();
+        reloaded.permission_mode = PermissionMode::Yolo;
+        reloaded.yolo_acknowledged = false;
+        state.adopt(reloaded);
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        assert!(state.config.yolo_acknowledged);
+    }
+
+    // -----------------------------------------------------------------------
     // what `/status` reads
     // -----------------------------------------------------------------------
 
@@ -2705,9 +3262,9 @@ mod tests {
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
-        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(run_model(&mut state, "second-model", &events_tx));
+        let _said = ran_model(&mut state, "second-model", false);
         assert_eq!(board.read().model, "second-model");
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
         assert_ne!(
             state.config.model, "second-model",
             "the case proves nothing"
@@ -2722,10 +3279,12 @@ mod tests {
             .send(TurnControl::Reset { through: 0 })
             .expect("alive");
         drop(work_tx);
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         on_a_runtime(turn_loop(
             state,
             &events_tx,
             &mut work_rx,
+            &mut changes,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3007,10 +3566,12 @@ mod tests {
                     .send(TurnControl::Reset { through: 0 })
                     .expect("alive");
                 control_tx.send(TurnControl::Shutdown).expect("alive");
+                let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
                 on_a_runtime(turn_loop(
                     state,
                     &events,
                     &mut work_rx,
+                    &mut changes,
                     ControlChannel::new(control_rx),
                     Cancellation::new(CancelToken::new()),
                     &outstanding,
@@ -3284,6 +3845,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -3362,6 +3925,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: None,
+            facts: Default::default(),
         }
     }
 
@@ -3373,11 +3937,17 @@ mod tests {
         // what was submitted after it is a new intention and stays.
         let (handle, mut work_rx, _unused) = WorkHandle::detached();
         handle
-            .submit(TurnWork::Model("dropped".into()))
+            .submit(TurnWork::Model {
+                name: "dropped".into(),
+                next_turn: false,
+            })
             .expect("idle");
         let through = handle.accepted();
         handle
-            .submit(TurnWork::Model("kept".into()))
+            .submit(TurnWork::Model {
+                name: "kept".into(),
+                next_turn: false,
+            })
             .expect("one may wait");
         let mut queue = Queue {
             work: &mut work_rx,
@@ -3388,7 +3958,10 @@ mod tests {
         assert_eq!(handle.outstanding(), 1);
         assert_eq!(
             queue.work.try_recv(),
-            Ok(TurnWork::Model("kept".into())),
+            Ok(TurnWork::Model {
+                name: "kept".into(),
+                next_turn: false,
+            }),
             "a submission past the reset's count was dropped with it"
         );
 
@@ -3402,10 +3975,12 @@ mod tests {
             .expect("alive");
         control_tx.send(TurnControl::Shutdown).expect("alive");
         let outstanding = AtomicUsize::new(0);
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         on_a_runtime(turn_loop(
             state,
             &events_tx,
             &mut work_rx,
+            &mut changes,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3531,37 +4106,26 @@ mod tests {
     }
 
     #[test]
-    fn a_model_a_loaded_catalog_does_not_publish_is_refused_and_the_session_keeps_its_own() {
-        // The rule lives in `ModelSelector::apply`, beside the whole catalog,
-        // and the runtime thread is where the TUI's `/model` reaches it: a
-        // front end that applied an id the provider does not publish would
-        // write that id into the session log and send it as a header on the
-        // next turn, and the failure would arrive as a provider error about a
-        // model nobody has.
+    fn a_model_a_loaded_catalog_does_not_list_is_applied_and_recorded_as_typed() {
+        // Used to be refused here. Upstream applies it
+        // (`fx-model-fuzzy-40x120-unknown`): a catalog is what a provider
+        // lists, and the provider is the one place that can say no. So the id
+        // becomes the model the next turn talks to and is written into the log
+        // a resume reads, as any selection is.
         let (_home, _workspace, mut state) = recording();
         state
             .selector
             .set_catalog_for_test(CatalogState::Loaded(vec![published("published-model")]));
-        let standing = state.model().to_string();
-        let before = state
-            .conversation
-            .as_ref()
-            .expect("open")
-            .recorder
-            .state()
-            .last_event_seq;
 
-        let refused = state.use_model("not-published");
+        // Nothing of it scores against the one id listed, so it is the id.
+        let applied = state.use_model("unlisted-xyz");
 
         assert!(
-            matches!(&refused, ModelOutcome::Refused { reason } if reason.contains("not-published")),
-            "{refused:?}"
+            matches!(&applied, ModelOutcome::Selected { model, unverified: None, .. }
+                if model == "unlisted-xyz"),
+            "{applied:?}"
         );
-        assert_eq!(
-            state.model(),
-            standing,
-            "an id the catalog does not publish became the model the next turn talks to"
-        );
+        assert_eq!(state.model(), "unlisted-xyz");
         assert_eq!(
             state
                 .conversation
@@ -3569,19 +4133,214 @@ mod tests {
                 .expect("open")
                 .recorder
                 .state()
-                .last_event_seq,
-            before,
-            "a refused id was written into the log a later resume reads"
+                .model,
+            "unlisted-xyz"
+        );
+        // And a query the catalog does answer is resolved to its id.
+        assert!(matches!(
+            state.use_model("published"),
+            ModelOutcome::Selected { model, .. } if model == "published-model"
+        ));
+    }
+
+    /// Runs one `/model` the way the loop runs it, and hands back what it told
+    /// the UI.
+    fn ran_model(state: &mut Runtime, name: &str, next_turn: bool) -> Vec<UiEvent> {
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let ended = on_a_runtime(run_model(
+            state, name, next_turn, &events_tx, &cancel, &control, &mut queue,
+        ));
+        assert_eq!(ended, Ended::Turn);
+        let mut said = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            said.push(event);
+        }
+        said
+    }
+
+    fn settings(home: &std::path::Path) -> serde_json::Value {
+        let path = home.join(".xfx").join("settings.json");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("a profile")).expect("json")
+    }
+
+    #[test]
+    fn a_model_is_saved_for_its_provider_and_the_next_launch_reads_it_back() {
+        let (home, workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"permission_mode":"ask","models":{"llmux":"fable"}}"#,
+        )
+        .expect("seed");
+
+        let said = ran_model(&mut state, "acme/one", false);
+
+        assert_eq!(
+            said,
+            [UiEvent::ModelAnswered {
+                model: "acme/one".to_string(),
+                outcome: ModelAnswer::Applied { unverified: None },
+                next_turn: false,
+            }],
+            "a write nothing outranks says nothing of its own"
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"permission_mode": "ask",
+                               "models": {"llmux": "fable", "gateway": "acme/one"}})
+        );
+        // Round trip: the next launch reads it, from the profile.
+        let reloaded = config(home.path(), workspace.path());
+        assert_eq!(reloaded.model, "acme/one");
+        assert_eq!(
+            reloaded.sources.model,
+            crate::config::SettingSource::UserGlobal
         );
 
-        // And the same catalog admits the id it does publish, so the refusal
-        // above is the membership rule rather than a selector that refuses
-        // everything.
-        assert!(matches!(
-            state.use_model("published-model"),
-            ModelOutcome::Selected { .. }
-        ));
-        assert_eq!(state.model(), "published-model");
+        // The model already in force is announced and saved again, as
+        // upstream's is, and the answer carries the wording's fact through.
+        std::fs::write(home.path().join(".xfx").join("settings.json"), "{}").expect("reset");
+        let said = ran_model(&mut state, "acme/one", true);
+        assert_eq!(
+            said,
+            [UiEvent::ModelAnswered {
+                model: "acme/one".to_string(),
+                outcome: ModelAnswer::Unchanged,
+                next_turn: true,
+            }]
+        );
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"models": {"gateway": "acme/one"}})
+        );
+    }
+
+    #[test]
+    fn a_save_a_higher_layer_outranks_or_that_fails_says_so_after_the_switch() {
+        // `XFX_MODEL` decides a fresh session's model over the profile, so the
+        // write is upstream's `saved ... fresh sessions here use
+        // higher-precedence model=process_override`.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_MODEL".to_string(), "pinned/model".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = ran_model(&mut state, "acme/two", false);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert_eq!(
+            said[1],
+            UiEvent::Notice(super::super::notice::Notice::neutral(
+                "model",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence model=process_override"
+            ))
+        );
+        assert_eq!(settings(home.path())["models"]["gateway"], "acme/two");
+
+        // A profile xfx could not read is never written over: the model holds
+        // for this process, and the session says the save did not happen.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(home.path().join(".xfx").join("settings.json"), "{ not json").expect("seed");
+        let said = ran_model(&mut state, "acme/three", false);
+        assert_eq!(state.model(), "acme/three");
+        let UiEvent::Notice(notice) = &said[1] else {
+            panic!("no notice for a failed save: {said:?}");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert!(
+            notice
+                .body
+                .starts_with("active for this process but not saved to user settings ("),
+            "{notice:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(home.path().join(".xfx").join("settings.json")).expect("read"),
+            "{ not json"
+        );
+    }
+
+    #[test]
+    fn a_catalog_load_answers_the_menu_and_never_the_document() {
+        // Each of the three answers the menu has, from the one item that
+        // asked; none of them is a notice or a failed turn.
+        let (_home, _workspace, mut state) = recording();
+        let catalog = |state: &mut Runtime| {
+            let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+            let (_control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let cancel = Cancellation::new(CancelToken::new());
+            let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+            let outstanding = AtomicUsize::new(1);
+            let mut queue = Queue {
+                work: &mut work_rx,
+                outstanding: &outstanding,
+                taken: 0,
+            };
+            on_a_runtime(run_catalog(
+                state, &events_tx, &cancel, &control, &mut queue,
+            ));
+            let mut said = Vec::new();
+            while let Ok(event) = events_rx.try_recv() {
+                said.push(event);
+            }
+            said
+        };
+        let provider = state.config.provider;
+        // No catalog at all: an empty list.
+        assert_eq!(
+            catalog(&mut state),
+            [
+                UiEvent::CatalogLoaded {
+                    provider,
+                    entries: Vec::new()
+                },
+                UiEvent::TurnEnded { failure: None }
+            ]
+        );
+        // Unread: the menu's failure, and no failed turn.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        assert_eq!(
+            catalog(&mut state),
+            [
+                UiEvent::CatalogUnread { provider },
+                UiEvent::TurnEnded { failure: None }
+            ]
+        );
+        // Rows: in the order the menu lists them.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![
+                published("zeta/one"),
+                published("alpha/two"),
+            ]));
+        let said = catalog(&mut state);
+        let UiEvent::CatalogLoaded { entries, .. } = &said[0] else {
+            panic!("{said:?}");
+        };
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha/two", "zeta/one"]
+        );
     }
 
     #[test]
@@ -3782,6 +4541,7 @@ mod tests {
                 name: None,
                 efforts: Vec::new(),
                 max_context: None,
+                facts: Default::default(),
             })
             .collect();
         let shown = bounded(&many);
@@ -3794,8 +4554,8 @@ mod tests {
 
     #[test]
     fn a_provider_with_no_catalog_is_informational_rather_than_a_failed_turn() {
-        // The Gateway advertises no catalog, and that is a **fact about the
-        // provider**, not something that went wrong. The line shell says so in
+        // A provider with no catalog to ask is a **fact about the session**,
+        // not something that went wrong. The line shell says so in
         // as many words (`interactive`'s `print_catalog`); a bare `/model` in
         // the band must not turn the same fact into a turn failure, or every
         // Gateway user's first `/model` reads as a broken session.
@@ -3836,6 +4596,7 @@ mod tests {
             name: None,
             efforts: Vec::new(),
             max_context: Some(1),
+            facts: Default::default(),
         }];
         assert_eq!(
             from_state(&CatalogState::Loaded(entries.clone())),
@@ -4575,20 +5336,5 @@ mod tests {
         assert!(!session.workspace.path().join("asked-about.txt").exists());
         assert!(!session.written().exists());
         assert_eq!(provider.requests(), 1);
-    }
-
-    #[test]
-    fn a_provider_with_no_catalog_is_said_in_the_line_shells_words() {
-        // `[shell] catalog=unavailable (this provider advertises none)` on the
-        // line shell; `* catalog: unavailable (…)` here. If the line shell's
-        // sentence stopped having the key this strips, the notice would carry
-        // it whole -- and this would say so.
-        assert_eq!(
-            no_catalog_notice(),
-            super::super::notice::Notice::neutral(
-                "catalog",
-                "unavailable (this provider advertises none)"
-            )
-        );
     }
 }

@@ -1,0 +1,28 @@
+# Shift-Tab (D4a): ask, auto, full access and round, from the harness's
+# `auto`, with the one-time full-access warning seen and then gone after its
+# four seconds on the screen -- and not shown again on the way back in.
+wait 2
+snap start
+key BTab
+wait 0.5
+snap btab-full
+home btab-full
+wait 4.5
+snap btab-full-later
+home btab-full-later
+key BTab
+wait 0.5
+snap btab-ask
+home btab-ask
+key BTab
+wait 0.5
+snap btab-auto
+key BTab
+wait 0.5
+snap btab-full-again
+type /permissions
+wait 0.3
+key Enter
+wait 1
+snap bare
+home end

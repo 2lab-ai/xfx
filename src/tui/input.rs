@@ -190,6 +190,16 @@ pub(crate) enum Action {
     /// sequences (`runtime.zig:3018,3025`). `C-z` (`0x1a`) is not this key --
     /// upstream binds nothing to it and neither does this decoder.
     Redo,
+    /// The full transcript: open it, or close it again. `C-o` (`0x0f`), and
+    /// kitty's Ctrl+O report (`escape_parser.zig` at `c1db919`, :111-114,
+    /// :270).
+    ToggleTranscript,
+    /// `CSI 5 ~` and kitty's keypad Page Up, bare (`escape_parser.zig` at
+    /// `c1db919`, :169-173, :632). The full transcript pages with it; the
+    /// composer has no page of its own and binds nothing to it.
+    PageUp,
+    /// `CSI 6 ~`, the same key the other way.
+    PageDown,
     /// Insert what was last killed. `C-y` (`0x19`, `shortcuts.zig:84-85`).
     Yank,
     Escape,
@@ -730,6 +740,8 @@ fn control(byte: u8) -> Action {
         0x0c => Action::Redraw,
         0x0d => Action::Submit,
         0x0e => Action::HistoryNext,
+        // `controlByteFeatureAction` (`escape_parser.zig` at `c1db919`, :270).
+        0x0f => Action::ToggleTranscript,
         0x10 => Action::HistoryPrevious,
         0x15 => Action::KillToStart,
         0x17 => Action::DeleteWordLeft,
@@ -771,6 +783,9 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
             b"1" => Input::Action(Action::Home),
             b"3" => Input::Action(Action::Delete),
             b"4" => Input::Action(Action::End),
+            // The page keys (`escape_parser.zig` at `c1db919`, :632-633).
+            b"5" => Input::Action(Action::PageUp),
+            b"6" => Input::Action(Action::PageDown),
             b"200" => Input::Action(Action::PasteStart),
             b"201" => Input::Action(Action::PasteEnd),
             // xterm's `modifyOtherKeys` spelling of a key report -- a
@@ -982,14 +997,17 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   `delete_next` are [`Action::Escape`], [`Action::InsertNewline`],
 ///   [`Action::Undo`]/[`Action::Redo`], [`Action::WordLeft`]/[`Action::WordRight`],
 ///   [`Action::DeleteWordLeft`], [`Action::KillToStart`]/[`Action::KillToEnd`]
-///   and [`Action::Delete`].
+///   and [`Action::Delete`];
+/// * `toggle_full_transcript` -- Ctrl+O and nothing else held (:111-114,
+///   :252) -- is [`Action::ToggleTranscript`], and a bare keypad Page Up or
+///   Page Down (:169-173) is [`Action::PageUp`] or [`Action::PageDown`].
 ///
 /// What has no action here is [`Action::Ignore`], each named where it falls:
 /// `select_all` (:223-225), `copy_selection` (:226-228), `cut_selection`
 /// (:229-231), every `composerMove` that extends a selection (:238-241, :244,
-/// :248), `delete_word_right` (:178, :251), `toggle_full_transcript`
-/// (:111-114, :252), `open_all_sessions` (:253), and the page keys with or
-/// without a modifier (:169-173). `toggle_permission_mode` (:254) is
+/// :248), `delete_word_right` (:178, :251), an `o` under any other modifiers
+/// (:111-114), `open_all_sessions` (:253), and a page key with a modifier,
+/// which is a `composerMove` (:171). `toggle_permission_mode` (:254) is
 /// [`Action::BackTab`], the key it is spelled with. Upstream's
 /// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
 /// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
@@ -1013,9 +1031,16 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         } else if let Some(letter) = keypad_navigation(code) {
             return Input::Action(cursor(letter, mods));
         } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
-            // `page_up`/`page_down`, or a `composerMove` to them with a
-            // modifier (:169-173): this session has no page key.
-            return ignore;
+            // `page_up`/`page_down` bare, or a `composerMove` to them with a
+            // modifier (:169-173) -- a move this composer does not have.
+            if mods != 0 {
+                return ignore;
+            }
+            return Input::Action(if code == KP_PAGE_UP {
+                Action::PageUp
+            } else {
+                Action::PageDown
+            });
         } else if code == KP_ENTER {
             return kitty_key(13, modifiers);
         } else if code == KP_DELETE {
@@ -1081,9 +1106,17 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
             Action::WordRight
         });
     }
-    // `delete_word_right` (:251), `toggle_full_transcript` or nothing (:252),
-    // `open_all_sessions` (:253).
-    if (is(b'd') && mods & ALT != 0) || is(b'o') || (is(b'r') && mods & SUPER != 0) {
+    // `toggle_full_transcript` for Ctrl+O alone, and nothing for an `o` under
+    // any other modifiers (`ctrlOKeyAction`, :111-114, :252).
+    if is(b'o') {
+        return Input::Action(if mods == CTRL {
+            Action::ToggleTranscript
+        } else {
+            Action::Ignore
+        });
+    }
+    // `delete_word_right` (:251), `open_all_sessions` (:253).
+    if (is(b'd') && mods & ALT != 0) || (is(b'r') && mods & SUPER != 0) {
         return ignore;
     }
     // `toggle_permission_mode` (:254): Tab with Shift, whatever else is held.
@@ -1646,9 +1679,13 @@ mod tests {
             (b"\x1b[102;4u", "composerMove word_right + selection :248"),
             (b"\x1b[100;3u", "delete_word_right :251"),
             (b"\x1b[100;7u", "delete_word_right ahead of Ctrl-D :251"),
-            (b"\x1b[111;5u", "toggle_full_transcript :252,:111-114"),
+            (
+                b"\x1b[111;6u",
+                "ctrlOKeyAction with Shift beside Ctrl :111-114",
+            ),
+            (b"\x1b[111;3u", "ctrlOKeyAction with Alt :111-114"),
             (b"\x1b[114;9u", "open_all_sessions :253"),
-            (b"\x1b[57421u", "page_up :169-173"),
+            (b"\x1b[57421;2u", "composerMove page_up with Shift :171"),
             (b"\x1b[57422;5u", "composerMove page_down :171"),
             (b"\x1b[57426;5u", "delete_word_right :178"),
             (b"\x1b[57426;2u", "forward delete with Shift :179"),
@@ -1660,6 +1697,30 @@ mod tests {
                 "{bytes:?} ({upstream})"
             );
         }
+    }
+
+    #[test]
+    fn ctrl_o_and_the_page_keys_are_the_full_transcripts_in_every_spelling_upstream_reads() {
+        // `escape_parser.zig` at `c1db919`: the control byte (:270), kitty's
+        // Ctrl+O and only Ctrl+O (:111-114, :252), the tilde page keys
+        // (:632-633) and the bare keypad ones (:169-173). One action per key
+        // whatever the spelling, so the screen has one binding to answer.
+        for (bytes, action) in [
+            (&b"\x0f"[..], Action::ToggleTranscript),
+            (b"\x1b[111;5u", Action::ToggleTranscript),
+            (b"\x1b[79;5u", Action::ToggleTranscript),
+            (b"\x1b[27;5;111~", Action::ToggleTranscript),
+            (b"\x1b[5~", Action::PageUp),
+            (b"\x1b[6~", Action::PageDown),
+            (b"\x1b[57421u", Action::PageUp),
+            (b"\x1b[57422u", Action::PageDown),
+        ] {
+            assert_eq!(decode(bytes), vec![Input::Action(action)], "{bytes:?}");
+        }
+        // A spelling of the tilde key no terminal sends is not a page key, for
+        // the reason every tilde key is matched as bytes (`csi`).
+        assert_eq!(csi(b"05", b'~'), Action::Ignore);
+        assert_eq!(csi(b"5;1", b'~'), Action::Ignore);
     }
 
     #[test]
@@ -2165,6 +2226,7 @@ mod tests {
             (0x0c, Action::Redraw),
             (0x0d, Action::Submit),
             (0x0e, Action::HistoryNext),
+            (0x0f, Action::ToggleTranscript),
             (0x10, Action::HistoryPrevious),
             (0x15, Action::KillToStart),
             (0x17, Action::DeleteWordLeft),

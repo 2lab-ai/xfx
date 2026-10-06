@@ -1,0 +1,40 @@
+
+[38;5;245m  2026-10-06 18:03:59.188 UTC · Response[39m
+  Reading first.
+
+[38;5;245m  2026-10-06 18:03:59.188 UTC · Tool[39m
+[38;5;255m●[39m [38;5;245m4 tool calls · 2 read · 1 edit · 1 command · 2 failed[39m
+├ Read a.txt
+│[38;5;245m  1    alpha line 1[39m
+│[38;5;245m  2    alpha line 2[39m
+│[38;5;245m  3    alpha line 3[39m
+
+[38;5;245m  2026-10-06 18:03:59.220 UTC · Tool[39m
+├ Exited 3 [38;5;252mecho[39m boom[38;5;252m;[39m [38;5;252mecho[39m err [38;5;252m>&[38;5;250m2[38;5;252m;[39m [38;5;252mexit[39m 3
+│[38;5;245m  action: run[39m
+│[38;5;245m  yield_time_ms: 30000[39m
+│[38;5;245m boom[39m
+│[38;5;245m err[39m
+│[38;5;245m exit code 3[39m
+
+[38;5;245m  2026-10-06 18:04:05.127 UTC · Tool[39m
+├ Edited a.txt +1 / -1
+
+[38;5;245m  │ 1   alpha line 1[39m
+[38;5;252m  │ 2 - alpha line 2[39m
+[38;5;252m  │ 2 + ALPHA LINE TWO[39m
+[38;5;245m  │ 3   alpha line 3[39m
+
+[38;5;245m  2026-10-06 18:04:05.633 UTC · Tool[39m
+└ Failed missing.txt: Path not found: missing.txt
+│[38;5;245m  Path not found: missing.txt
+
+  2026-10-06 18:04:06.081 UTC · Response[39m
+  All done.
+
+[38;5;245m  2026-10-06 18:04:06.078 UTC · Usage[39m
+[38;5;245m  6s (↑4 ↓200)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;245mask · model-a[39m

@@ -60,14 +60,19 @@ pub(crate) trait CommandHandlers {
     fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
-    /// `/setup`, with the rest of the line -- already trimmed, and empty when
-    /// there was none.
+    /// `/provider` (or its alias `/setup`), with the rest of the line --
+    /// already trimmed, and empty when there was none.
     ///
-    /// The argument is the provider to switch to. It is *not* validated here:
+    /// Bare, it opens the provider picker; with an argument, the argument is
+    /// the provider to switch to. It is *not* validated here:
     /// what a provider name may be is `crate::provider::ProviderId::parse`'s to
     /// say, and a router that pre-screened it would be a second place that
     /// decides which backend a prompt can go to.
     fn setup(&mut self, argument: &str);
+    /// `/permissions`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. What it may be is
+    /// `crate::permission::slash::Request::parse`'s to say, not the router's.
+    fn permissions(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -145,6 +150,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Reset => handlers.reset(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
+        Slash::Permissions => handlers.permissions(argument),
         Slash::Copy => handlers.copy(),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
@@ -222,6 +228,9 @@ mod tests {
         fn setup(&mut self, argument: &str) {
             self.calls.push(format!("setup {argument}"));
         }
+        fn permissions(&mut self, argument: &str) {
+            self.calls.push(format!("permissions {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -244,7 +253,8 @@ mod tests {
             ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
-            ("/setup", "setup "),
+            ("/provider", "setup "),
+            ("/permissions", "permissions "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -256,6 +266,7 @@ mod tests {
     #[test]
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
+        assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {
@@ -272,6 +283,18 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Every argument form reaches the one handler, trimmed; what each
+        // means is the handler's question.
+        for (line, call) in [
+            ("/permissions auto", "permissions auto"),
+            ("/permissions   full-access  ", "permissions full-access"),
+            ("/permissions full access", "permissions full access"),
+            ("/permissions reset", "permissions reset"),
+            ("/permissions bogus", "permissions bogus"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert_eq!(super::classify(line), classify(line), "{line:?}");
+        }
         // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
         // the item, and whether it names one is the handler's question.
         assert_eq!(

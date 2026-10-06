@@ -258,6 +258,54 @@ fn a_failed_turn_is_reported_and_the_shell_keeps_going() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn slash_permissions_says_the_mode_changes_it_and_records_it() {
+    // The line shell's half of `/permissions`: upstream's `[permissions] …`
+    // text lines, the same words as the TUI's notices, and the same profile
+    // key written.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/permissions");
+    let text = session.wait_for("[permissions] usage:");
+    for row in [
+        "[permissions] mode=auto",
+        "[permissions] configured rules: (none)",
+        "[permissions] session grants: (none)",
+        "[permissions] saved-session permission rules: none",
+        "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+    ] {
+        assert!(text.contains(row), "{row} missing: {text}");
+    }
+    assert!(!text.contains("remember"), "{text}");
+
+    session.type_line("/permissions Full-Access");
+    let text = session.wait_for("mode set to full access");
+    assert!(
+        text.contains("[permissions] mode set to full access"),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "yolo"}));
+
+    session.type_line("/permissions");
+    session.wait_for("[permissions] mode=full access");
+
+    session.type_line("/permissions reset");
+    session.wait_for("[permissions] permissions reset to ask, session grants cleared");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "ask"}));
+
+    session.type_line("/permissions bogus");
+    session.wait_for("xfx: usage: /permissions [ask|auto|full-access|reset]");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
@@ -273,24 +321,17 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         assert!(text.contains(command), "help omits {command}: {text}");
     }
     assert!(
-        text.contains("/setup"),
-        "the seventh canonical command is not advertised: {text}"
+        text.contains("/provider") && text.contains("(also /setup)"),
+        "the provider command and its alias are not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
     // may appear. `/setup` left this list when it stopped being deferred, and
-    // `/stats` and `/status` after it; `/models` and `/provider` did not,
-    // because the catalog browser is reached by a bare `/model` rather than by
-    // a command of its own.
+    // `/stats`, `/status` and `/permissions` after it, and `/provider` when it
+    // became the canonical name of the same command with `/setup` as its
+    // alias; `/models` did not, because the catalog browser is reached by a
+    // bare `/model` rather than by a command of its own.
     for absent in [
-        "/resume",
-        "/login",
-        "/permissions",
-        "/models",
-        "/provider",
-        "/mcp",
-        "/undo",
-        "/usage",
-        "/image",
+        "/resume", "/login", "/models", "/mcp", "/undo", "/usage", "/image",
     ] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
@@ -432,25 +473,29 @@ fn slash_model_browses_the_catalog_the_daemon_publishes() {
 }
 
 #[test]
-fn slash_model_refuses_an_id_the_daemon_does_not_publish() {
+fn slash_model_applies_an_id_the_daemon_does_not_list_and_resolves_one_it_does() {
+    // Upstream's rule (`fx-model-fuzzy-40x120-unknown`): an id the catalog does
+    // not list is applied as typed, not refused -- a catalog is what a provider
+    // lists, not everything it will run. A query that names a listed id is
+    // resolved to it (`resolveModelQuery`).
     let daemon = FakeLlmux::start(Vec::new())
         .with_catalog(json!({"models": [{"id": "m-1", "aliases": ["fable"]}]}));
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
 
-    // Load the catalog first, the way a user does: the refusal is only possible
-    // against a catalog xfx actually read.
+    // Load the catalog first, the way a user does: resolution is against a
+    // catalog xfx actually read.
     session.type_line("/model");
     session.wait_for("catalog=1 models");
-    session.type_line("/model not-published");
-    let text = session.wait_for("does not publish");
-    assert!(text.contains("not-published"), "{text}");
-    assert!(text.contains("llmux"), "{text}");
+    session.type_line("/model unlisted-xyz");
+    let text = session.wait_for("[shell] model=unlisted-xyz");
+    assert!(!text.contains("does not publish"), "{text}");
+    // Checked against a catalog that was read, so no caveat.
+    assert!(!text.contains("not checked"), "{text}");
 
-    session.type_line("/model");
-    let text = session.wait_for("model=");
-    assert!(text.contains("m-1"), "a refusal changes nothing: {text}");
+    session.type_line("/model m");
+    session.wait_for("[shell] model=m-1");
 
     assert_eq!(session.quit().code(), Some(0));
 }

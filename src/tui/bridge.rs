@@ -155,6 +155,19 @@ pub(crate) enum UiEvent {
     /// sentence the user typed and then interrupted out of reaches neither, and
     /// a sentence that reached one reached all three.
     ToolFeedback { call_id: String, text: String },
+    /// What the session's journal recorded about a call that the document is
+    /// never shown -- its arguments, its whole result -- for the full
+    /// transcript (`super::full_transcript::Teed`).
+    ///
+    /// Its own variant rather than more fields on [`Self::ToolStart`] and
+    /// [`Self::ToolResult`]: those are the turn machine's events and carry
+    /// what the inline transcript draws; this is the journal's record, read
+    /// at the moment it is written down, and nothing but the full transcript
+    /// reads it.
+    ToolDetail {
+        call_id: String,
+        detail: super::full_transcript::Detail,
+    },
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -194,22 +207,34 @@ pub(crate) enum UiEvent {
         /// would go on being told to run `xfx setup`.
         missing_credential: bool,
     },
-    /// What `/model <id>` came back as, from the selector that owns the rule.
+    /// What `/model <query>` came back as, from the selector that owns the rule.
     ///
     /// Sent **after** the decision, and it carries the model in force
-    /// afterwards -- the new one when the id was applied, the standing one when
-    /// it was refused -- for the reason [`Self::ProviderSelected`] carries the
-    /// reloaded configuration's: the UI cannot know whether an id will be
-    /// taken, because the **catalog** decides and the catalog is on the runtime
-    /// thread. A band that adopted the id it submitted would put a model the
-    /// provider does not publish on its hint row and report it to the next bare
-    /// `/model`, while the turn after it was held in another one.
+    /// afterwards -- the id the query resolved to, or the standing one when it
+    /// was refused -- for the reason [`Self::ProviderSelected`] carries the
+    /// reloaded configuration's: the UI cannot know what a query becomes,
+    /// because it is resolved against the **catalog** and the catalog is on the
+    /// runtime thread. A band that adopted the query it submitted would put
+    /// `opus` on its hint row while the turn after it was held in
+    /// `anthropic/claude-opus-5`.
     ///
     /// Structured rather than a sentence: which model is in force is a fact the
     /// hint row reads, and a UI given only prose would have to parse it back
     /// out. The wording is the surface's ([`super::shell`]), exactly as the
     /// line shell's is its own (`crate::interactive`'s `apply_model`).
-    ModelAnswered { model: String, outcome: ModelAnswer },
+    ModelAnswered {
+        model: String,
+        outcome: ModelAnswer,
+        /// Whether a turn was running when the change was asked for, so it
+        /// takes effect from the turn after it: upstream's `Next turn will use`
+        /// rather than `Switched to` (`announceModelSelection`,
+        /// `session_commands.zig:1266-1279`). Decided where the request was
+        /// made -- the UI knows whether a turn was running; the runtime only
+        /// ever applies a change between turns -- and carried back, so a
+        /// request an interrupt dropped cannot leave a stale answer for the
+        /// next one.
+        next_turn: bool,
+    },
     /// The provider's model catalog, bounded to what the UI will render.
     ///
     /// One event per load. The load happens on the runtime thread because it
@@ -217,6 +242,14 @@ pub(crate) enum UiEvent {
     CatalogLoaded {
         provider: crate::provider::ProviderId,
         entries: Vec<crate::provider::model::CatalogEntry>,
+    },
+    /// The provider's catalog could not be read.
+    ///
+    /// No reason rides with it: what `/model`'s menu says is upstream's
+    /// `Unable to load models.`, and the selector remembers the failure, so a
+    /// `/model <id>` still applies the id as typed.
+    CatalogUnread {
+        provider: crate::provider::ProviderId,
     },
     /// What a **completed** turn spent.
     ///
@@ -264,9 +297,9 @@ pub(crate) enum ModelAnswer {
     /// Applied, and recorded where a resumed session will read it.
     ///
     /// `unverified` is the reason the catalog could not confirm the id -- a
-    /// provider that advertises none, or a load that failed -- and `None` when
-    /// it did. It is not a refusal: a daemon that is down must not stop an
-    /// operator changing a preference.
+    /// provider with no catalog to ask, or a load that failed -- and `None`
+    /// when it did. It is not a refusal, and the band says nothing of it:
+    /// upstream applies an id it could not check without a word.
     Applied { unverified: Option<String> },
     /// Already the model in force. Nothing was written down.
     Unchanged,
@@ -346,6 +379,12 @@ impl UiEvent {
                 call_id: inert_owned(call_id),
                 text: inert_owned(text),
             },
+            // A call's arguments and a tool's output are the model's and the
+            // tool's, and are about to be laid out into rows.
+            Self::ToolDetail { call_id, detail } => Self::ToolDetail {
+                call_id: inert_owned(call_id),
+                detail: detail.made_inert(),
+            },
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
             // and is therefore exactly as foreign as a delta.
@@ -362,7 +401,12 @@ impl UiEvent {
             // composer, and the reason quotes the id it is about -- so both are
             // as foreign as a delta, and neither is exempt for having been
             // decided by xfx's own selector.
-            Self::ModelAnswered { model, outcome } => Self::ModelAnswered {
+            Self::ModelAnswered {
+                model,
+                outcome,
+                next_turn,
+            } => Self::ModelAnswered {
+                next_turn,
                 model: inert_owned(model),
                 outcome: match outcome {
                     ModelAnswer::Applied { unverified } => ModelAnswer::Applied {
@@ -388,9 +432,15 @@ impl UiEvent {
                         name: entry.name.map(inert_owned),
                         efforts: entry.efforts.into_iter().map(inert_owned).collect(),
                         max_context: entry.max_context,
+                        facts: crate::provider::model::ModelFacts {
+                            owned_by: entry.facts.owned_by.map(inert_owned),
+                            ..entry.facts
+                        },
                     })
                     .collect(),
             },
+            // A provider tag. Nothing here is text.
+            Self::CatalogUnread { provider } => Self::CatalogUnread { provider },
             // Two numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input, output } => Self::Usage { input, output },
             // A count. There is nothing here a terminal can be made to obey.
@@ -568,8 +618,12 @@ pub(crate) enum TurnControl {
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
-    /// Change the model, with the shell's own `/model` meaning.
-    Model(String),
+    /// Change the model, with the shell's own `/model` meaning: `name` is the
+    /// query as typed, or the id a menu row named.
+    ///
+    /// `next_turn` says a turn was running when it was asked for, which is
+    /// what the answer is worded by ([`UiEvent::ModelAnswered`]).
+    Model { name: String, next_turn: bool },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
     /// A piece of *work* for the same reason `Model` is, and more
@@ -1705,6 +1759,10 @@ mod tests {
             name: Some("name\u{1b}[H".to_string()),
             efforts: vec!["high\u{1b}[3J".to_string()],
             max_context: Some(200_000),
+            facts: crate::provider::model::ModelFacts {
+                owned_by: Some("vendor\u{1b}[2J".to_string()),
+                ..Default::default()
+            },
         }
     }
 
@@ -1728,6 +1786,7 @@ mod tests {
             .chain(entry.aliases.iter())
             .chain(entry.name.iter())
             .chain(entry.efforts.iter())
+            .chain(entry.facts.owned_by.iter())
         {
             assert!(!text.contains('\u{1b}'), "{text:?} still carries an escape");
             assert!(
@@ -1837,16 +1896,23 @@ mod tests {
         // document row, having been built by xfx's own selector rather than by
         // a model, which is exactly the producer a reader stops suspecting.
         let hostile = "model\u{1b}[2J".to_string();
-        let UiEvent::ModelAnswered { model, outcome } = (UiEvent::ModelAnswered {
+        let UiEvent::ModelAnswered {
+            model,
+            outcome,
+            next_turn,
+        } = (UiEvent::ModelAnswered {
             model: hostile.clone(),
             outcome: ModelAnswer::Applied {
                 unverified: Some(hostile.clone()),
             },
+            next_turn: true,
         })
-        .made_inert() else {
+        .made_inert()
+        else {
             panic!("the variant changed");
         };
         assert!(!model.contains('\u{1b}'), "{model:?}");
+        assert!(next_turn, "a fact, not text, and carried through");
         let ModelAnswer::Applied { unverified } = outcome else {
             panic!("the answer changed");
         };
@@ -1859,6 +1925,7 @@ mod tests {
             outcome: ModelAnswer::Refused {
                 reason: hostile.clone(),
             },
+            next_turn: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1872,6 +1939,7 @@ mod tests {
         let UiEvent::ModelAnswered { outcome, .. } = (UiEvent::ModelAnswered {
             model: "plain".to_string(),
             outcome: ModelAnswer::Unchanged,
+            next_turn: false,
         })
         .made_inert() else {
             panic!("the variant changed");
@@ -1886,6 +1954,7 @@ mod tests {
         assert!(!UiEvent::ModelAnswered {
             model: "m-1".to_string(),
             outcome: ModelAnswer::Unchanged,
+            next_turn: false,
         }
         .is_terminal());
     }
@@ -1903,6 +1972,10 @@ mod tests {
         assert!(!UiEvent::CatalogLoaded {
             provider: crate::provider::ProviderId::Gateway,
             entries: Vec::new()
+        }
+        .is_terminal());
+        assert!(!UiEvent::CatalogUnread {
+            provider: crate::provider::ProviderId::Gateway,
         }
         .is_terminal());
         assert!(!UiEvent::ProviderSelected {

@@ -1,0 +1,58 @@
+# The full transcript (`.prd/tui-phase4` F5): Ctrl-O refused over a command's
+# approval, then a turn of a read, a command that exits 3, an approved edit
+# and a failed read, opened at its tail, paged, scrolled, closed with
+# Escape; a second turn, opened again, closed with Ctrl-C, and toggled with
+# Ctrl-O. Both binaries in `ask` mode, so the edit is reviewed on both.
+fx: gateway fulltranscript-fx.json
+xfx: gateway fulltranscript-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type run the checks
+key Enter
+wait 2.5
+snap cmd-ask
+key C-o
+wait 0.7
+snap cmd-ask-ctrl-o
+key 1
+wait 2.5
+snap edit-ask
+key 1
+wait 3
+snap end
+snapfull end
+key C-o
+wait 1
+snap full
+key PPage
+wait 0.6
+snap full-pgup
+key Up Up
+wait 0.6
+snap full-up2
+key NPage
+wait 0.6
+snap full-pgdn
+key Escape
+wait 0.8
+snap full-esc
+type second prompt
+key Enter
+wait 2
+snap second
+key C-o
+wait 1
+snap full2
+key C-c
+wait 0.8
+snap full2-cc
+key C-o
+wait 1
+snap full3
+key C-o
+wait 0.8
+snap full3-close
+gwlog

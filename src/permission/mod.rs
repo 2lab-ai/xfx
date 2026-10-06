@@ -9,6 +9,7 @@
 //!   permission for exactly one prepared action.
 //! - [`policy`]: the modes, the configured rules, the session grants, the
 //!   approval channel, and the decision itself.
+//! - [`slash`]: what `/permissions` means and says, for both shells.
 //!
 //! # Why this shape
 //!
@@ -40,6 +41,7 @@
 pub mod authority;
 pub mod command;
 pub mod policy;
+pub mod slash;
 
 /// The permission mode is a configuration setting, and configuration owns it.
 ///

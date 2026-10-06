@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ say something
+
+* Next turn will use xai/grok-4.7 (effort: default, speed: normal)
+
+  Generating (2s) (↑4 ↓59)
+
+┃
+
+auto · grok-4.7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -64,10 +64,23 @@ fn watch_git_head() {
         return;
     };
     if let Some(reference) = contents.trim().strip_prefix("ref: ") {
-        // A packed ref has no file of its own; watching it is then a no-op.
-        let path = common.join(reference);
-        if path.exists() {
-            println!("cargo:rerun-if-changed={}", path.display());
+        // A packed ref has no file of its own, and the next commit on the
+        // branch writes one; watching nothing until then left the revision
+        // stale. So the loose file if it is there, else the nearest directory
+        // above it that is (Cargo rescans a watched directory, so the file
+        // appearing is a change), and the packed list either way. A path that
+        // does not exist is never named: Cargo would rerun on every build.
+        // Never above `refs/`: a watched git directory would be rescanned,
+        // objects and all, on every build.
+        let refs = common.join("refs");
+        let mut watched = common.join(reference);
+        while !watched.exists() && watched.pop() && watched.starts_with(&refs) {}
+        if watched.exists() && watched.starts_with(&refs) {
+            println!("cargo:rerun-if-changed={}", watched.display());
+        }
+        let packed = common.join("packed-refs");
+        if packed.exists() {
+            println!("cargo:rerun-if-changed={}", packed.display());
         }
     }
 }

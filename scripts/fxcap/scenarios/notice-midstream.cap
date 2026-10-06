@@ -1,0 +1,18 @@
+gateway notice-midstream-turn.json
+wait 2
+type stream a long answer please
+key Enter
+wait 2
+type /notacommand
+wait 0.3
+key Enter
+wait 0.7
+snap nosuch
+type /version
+wait 0.3
+key Enter
+wait 0.7
+snap version
+wait 5
+snap end
+snapfull end

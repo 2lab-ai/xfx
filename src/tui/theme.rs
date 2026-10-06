@@ -248,11 +248,18 @@ const RESET: &str = "\u{1b}[0m";
 /// roles share a number with it in one mode each ([`DIM`]'s `245` in the dark,
 /// [`NOTICE`]'s `241` in the light), so a report finds it by the row it is on,
 /// which is recorded as one ([`DocumentRow::Answer`]).
-const DARK: [u8; 13] = [
-    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245,
+///
+/// The fourteenth is upstream's `red_style` **on the hint row**: the one-time
+/// full-access warning flush with its last column
+/// (`input_presentation.zig:565`, `cap/fx-permissions-40x120-full.ansi`). The
+/// same grey as [`LABEL`] in each theme (`theme.zig:86-88`, `:129-131`) and not
+/// the same decision: that one is written into the document, and this one is
+/// the band's alone, so a theme report has nothing of it to retint.
+const DARK: [u8; 14] = [
+    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252,
 ];
-const LIGHT: [u8; 13] = [
-    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241,
+const LIGHT: [u8; 14] = [
+    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238,
 ];
 
 /// Where in one of those tuples each role sits.
@@ -269,6 +276,7 @@ const WARNING: usize = 9;
 const TOOL: usize = 10;
 const COMMAND: usize = 11;
 const ANSWER: usize = 12;
+const DANGER: usize = 13;
 
 /// What kind of document row a theme report is repainting, **recorded with
 /// the row when it was written** (`super::transcript::Append::kinds`, kept per
@@ -377,6 +385,11 @@ impl Palette {
     /// question batch (`statusline_style`, `question_ui.zig:481`; [`ANSWER`]).
     pub(crate) fn answer(&self) -> &'static str {
         self.paint(ANSWER)
+    }
+
+    /// The hint row's warning that every permission check is off ([`DANGER`]).
+    pub(crate) fn danger(&self) -> &'static str {
+        self.paint(DANGER)
     }
 
     /// What a permission question emphasises: the marked choice and the
