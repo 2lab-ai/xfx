@@ -85,7 +85,7 @@ use super::input::Action;
 // armed the clear (`input_presentation.zig:530-537`): the composer's own
 // words, because it is the composer's own gesture.
 use super::shell::ESCAPE_ARMED;
-use super::theme::Palette;
+use super::theme::{DocumentRow, Palette};
 use super::wrap::width;
 
 /// What the question is written into (`question_ui.zig:78`).
@@ -706,16 +706,27 @@ impl QuestionPanel {
     /// and a hanging indent is not a gutter it has. The answer is shown as the
     /// tool encodes it for the model (`answer_safe`), so what the user reads
     /// back is what was sent.
+    ///
+    /// Each row comes with what it is (`super::theme::DocumentRow`): an
+    /// answer's rows are recorded as answers, so a theme report repaints their
+    /// grey as the answer's and not as a turn summary's, which is the same
+    /// number on a dark screen.
     pub(crate) fn answered_rows(
         &self,
         answers: &[String],
         cols: u16,
         palette: &Palette,
-    ) -> Vec<String> {
+    ) -> Vec<(String, DocumentRow)> {
         self.answered_with(answers, cols, palette.answer(), palette.reset())
     }
 
-    fn answered_with(&self, answers: &[String], cols: u16, pen: &str, reset: &str) -> Vec<String> {
+    fn answered_with(
+        &self,
+        answers: &[String],
+        cols: u16,
+        pen: &str,
+        reset: &str,
+    ) -> Vec<(String, DocumentRow)> {
         let mut rows = Vec::new();
         for (index, (entry, answer)) in self.entries.iter().zip(answers).enumerate() {
             let prefix = format!("  {}) ", index + 1);
@@ -723,14 +734,17 @@ impl QuestionPanel {
             let budget = cols.saturating_sub(width(&prefix)).max(1);
             for (row, segment) in safe_rows(&entry.question, budget).into_iter().enumerate() {
                 let lead = if row == 0 { &prefix } else { &indent };
-                rows.push(format!("{lead}{segment}"));
+                rows.push((format!("{lead}{segment}"), DocumentRow::Plain));
             }
             for segment in safe_rows(&answer_safe(answer), budget) {
-                rows.push(if pen.is_empty() {
-                    format!("{indent}{segment}")
-                } else {
-                    format!("{pen}{indent}{segment}{reset}")
-                });
+                rows.push((
+                    if pen.is_empty() {
+                        format!("{indent}{segment}")
+                    } else {
+                        format!("{pen}{indent}{segment}{reset}")
+                    },
+                    DocumentRow::Answer,
+                ));
             }
         }
         rows
@@ -1446,6 +1460,11 @@ mod tests {
                 ],
             }],
         }
+    }
+
+    /// The record's rows as text, without what each is.
+    fn texts(rows: Vec<(String, DocumentRow)>) -> Vec<String> {
+        rows.into_iter().map(|(row, _)| row).collect()
     }
 
     /// One bracketed paste of `text`, byte by byte, as the decoder hands it on.
@@ -2537,7 +2556,7 @@ mod tests {
         let panel = captured();
         let answers = vec!["SQLite".to_string(), "Yes".to_string()];
         assert_eq!(
-            panel.answered_with(&answers, 120, "", ""),
+            texts(panel.answered_with(&answers, 120, "", "")),
             vec![
                 "  1) Which database should I use?",
                 "     SQLite",
@@ -2545,13 +2564,24 @@ mod tests {
                 "     Yes",
             ]
         );
+        // And each row says what it is, so a theme report repaints the
+        // answer's grey as the answer's (`DocumentRow::Answer`).
         assert_eq!(
             panel.answered_rows(&answers, 120, &DARK),
             vec![
-                "  1) Which database should I use?".to_string(),
-                "\u{1b}[38;5;245m     SQLite\u{1b}[0m".to_string(),
-                "  2) Deploy now?".to_string(),
-                "\u{1b}[38;5;245m     Yes\u{1b}[0m".to_string(),
+                (
+                    "  1) Which database should I use?".to_string(),
+                    DocumentRow::Plain
+                ),
+                (
+                    "\u{1b}[38;5;245m     SQLite\u{1b}[0m".to_string(),
+                    DocumentRow::Answer
+                ),
+                ("  2) Deploy now?".to_string(), DocumentRow::Plain),
+                (
+                    "\u{1b}[38;5;245m     Yes\u{1b}[0m".to_string(),
+                    DocumentRow::Answer
+                ),
             ]
         );
     }
@@ -2563,12 +2593,12 @@ mod tests {
         let panel = QuestionPanel::new(one_entry(
             "When you ask fx to ask a question the question text must remain fully visible",
         ));
-        let rows = panel.answered_with(
+        let rows = texts(panel.answered_with(
             &["a freeform answer that is much too long for one row".to_string()],
             40,
             "",
             "",
-        );
+        ));
         assert_eq!(
             rows,
             vec![
@@ -2588,13 +2618,19 @@ mod tests {
         // encoding rather than an invisible character the model was told about.
         let panel = QuestionPanel::new(one_entry("Proceed?"));
         assert_eq!(
-            panel.answered_with(&["a\u{200b}b".to_string()], 80, "", "")[1],
+            texts(panel.answered_with(&["a\u{200b}b".to_string()], 80, "", ""))[1],
             "     a\\u{200b}b"
         );
         // An empty freeform answer is still a row.
         assert_eq!(
-            panel.answered_with(&[String::new()], 80, "", ""),
+            texts(panel.answered_with(&[String::new()], 80, "", "")),
             vec!["  1) Proceed?", "     "]
+        );
+        // A line break in an answer is a row break in the record, hung like
+        // the rest (`writeResolutionField`, `question_ui.zig:478-496`).
+        assert_eq!(
+            texts(panel.answered_with(&["one\ntwo".to_string()], 80, "", "")),
+            vec!["  1) Proceed?", "     one", "     two"]
         );
     }
 

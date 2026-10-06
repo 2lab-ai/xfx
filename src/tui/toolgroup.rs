@@ -41,7 +41,7 @@ use crate::markdown::{code_highlight_languages, theme as syntax};
 use crate::output::safe_one_line;
 use crate::tools::{Activity, LineChanges, Outcome, Shown};
 
-use super::theme::{Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette};
 
 /// What a cancelled call's own line ends with, after its mark and its row
 /// (`vercel-labs/fx@c1db9191 src/ui/transcript/runtime.zig:644`), in this
@@ -322,6 +322,31 @@ impl ToolGroup {
                 .collect(),
             drawn: Vec::new(),
         }
+    }
+
+    /// What each row of [`Self::rows`] is, in the same order, for a theme
+    /// report that later repaints the block (`super::theme::DocumentRow`): the
+    /// header and the call rows are the group's, a cancelled call's own line
+    /// is a stopped one, and the blank rows are plain.
+    ///
+    /// Beside [`Self::rows`] rather than inside it, so the rows stay the text
+    /// they are; [`Self::redraw`]'s caller pairs the two.
+    pub(crate) fn kinds(&self) -> Vec<DocumentRow> {
+        let shown = self.calls.iter().filter(|call| call.visible()).count();
+        if shown == 0 {
+            return Vec::new();
+        }
+        let mut kinds = vec![DocumentRow::ToolGroup; shown + 1];
+        kinds.push(DocumentRow::Plain);
+        for _ in self
+            .calls
+            .iter()
+            .filter(|call| call.visible() && call.state == State::Cancelled)
+        {
+            kinds.push(DocumentRow::ToolStopped);
+            kinds.push(DocumentRow::Plain);
+        }
+        kinds
     }
 
     /// The block: the header, one row per call that has one, a blank row, and
@@ -898,14 +923,22 @@ mod tests {
         group.redraw(palette, &[]).expect("rows")
     }
 
-    /// `rows` placed from row 1 down on a 120-column grid, and a turn's summary
-    /// (the dim grey, 245 on dark like the group's own) under them.
-    fn on_a_grid(rows: &[String], palette: Palette) -> (super::super::grid::Grid, u16) {
+    /// `rows` placed from row 1 down on a 120-column grid -- each recorded as
+    /// what the group says it is ([`ToolGroup::kinds`]), as the frame records
+    /// an append's rows -- and a turn's summary (the dim grey, 245 on dark like
+    /// the group's own) under them.
+    fn on_a_grid(
+        group: &ToolGroup,
+        rows: &[String],
+        palette: Palette,
+    ) -> (super::super::grid::Grid, u16) {
         let geometry = crate::tui::layout::solve(40, 120, 1).expect("a band");
         let mut grid = super::super::grid::Grid::blank(geometry.rows, geometry.cols);
+        let kinds = group.kinds();
         let mut line = 1u16;
-        for row in rows {
+        for (index, row) in rows.iter().enumerate() {
             grid.place_row(line, row, &geometry);
+            grid.set_kind(line, kinds.get(index).copied().unwrap_or_default());
             line += 1;
         }
         grid.place_row(
@@ -930,6 +963,35 @@ mod tests {
     }
 
     #[test]
+    fn the_groups_kinds_name_each_row_it_draws() {
+        // One kind per row of the block, in its order: the header and the
+        // call rows are the group's, the blank rows plain, and a cancelled
+        // call's own line a stopped one.
+        let mut group = ToolGroup::default();
+        group.start("1".into(), command("sleep 30"));
+        group.start("2".into(), command("sleep 31"));
+        group.cancel_running();
+        let rows = drawn_in(&mut group, DARK);
+        let kinds = group.kinds();
+        assert_eq!(rows.len(), kinds.len(), "{rows:?}");
+        assert_eq!(
+            kinds,
+            vec![
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::ToolGroup,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+                DocumentRow::ToolStopped,
+                DocumentRow::Plain,
+            ]
+        );
+        assert!(rows[4].contains('\u{25a0}'), "{rows:?}");
+        assert!(ToolGroup::default().kinds().is_empty());
+    }
+
+    #[test]
     fn a_theme_report_repaints_a_group_as_the_other_palette_would_draw_it() {
         // The 245 of a group's rows is upstream's statusline grey and goes to
         // 241 on a light screen; the summary under it is the dim grey, also
@@ -948,10 +1010,12 @@ mod tests {
         group.start("3".into(), command("sleep 30"));
         group.cancel_running();
 
-        let (mut repainted, last) = on_a_grid(&drawn_in(&mut group, DARK), DARK);
+        let dark_rows = drawn_in(&mut group, DARK);
+        let (mut repainted, last) = on_a_grid(&group, &dark_rows, DARK);
         let moved = repainted.retint_document(last, &LIGHT);
         assert!(moved > 0, "nothing was repainted");
-        let (fresh, _) = on_a_grid(&drawn_in(&mut group, LIGHT), LIGHT);
+        let light_rows = drawn_in(&mut group, LIGHT);
+        let (fresh, _) = on_a_grid(&group, &light_rows, LIGHT);
         same_cells(&repainted, &fresh, last);
 
         // And back: a light screen reported dark again is the dark drawing.
@@ -960,9 +1024,11 @@ mod tests {
         let mut plain_group = ToolGroup::default();
         plain_group.start("1".into(), command("sleep 30"));
         plain_group.cancel_running();
-        let (mut back, last) = on_a_grid(&drawn_in(&mut plain_group, LIGHT), LIGHT);
+        let light_rows = drawn_in(&mut plain_group, LIGHT);
+        let (mut back, last) = on_a_grid(&plain_group, &light_rows, LIGHT);
         assert!(back.retint_document(last, &DARK) > 0);
-        let (dark, _) = on_a_grid(&drawn_in(&mut plain_group, DARK), DARK);
+        let dark_rows = drawn_in(&mut plain_group, DARK);
+        let (dark, _) = on_a_grid(&plain_group, &dark_rows, DARK);
         same_cells(&back, &dark, last);
     }
 

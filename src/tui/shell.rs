@@ -97,7 +97,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::statusline::{self, MenuAction as StatuslineAction};
-use super::theme::{Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
@@ -978,10 +978,11 @@ enum Mark {
     /// ([`Shell::write_notice`]).
     Notice(notice::Notice),
     /// Rows laid out already -- wrapped at the screen they were composed for
-    /// and painted in the palette's own colours -- as one block of the
-    /// document, with a blank row above and below it ([`Shell::write_block`]).
-    /// What a question batch leaves behind ([`super::question`]).
-    Block(Vec<String>),
+    /// and painted in the palette's own colours -- each with what it is, as
+    /// one block of the document with a blank row above and below it
+    /// ([`Shell::write_block`]). What a question batch leaves behind
+    /// ([`super::question`]).
+    Block(Vec<(String, DocumentRow)>),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -3130,7 +3131,10 @@ impl Shell {
             // Escape or Ctrl-C: the turn's own stop, and **only** it.
             question::Answered::Cancelled => {
                 self.ask = None;
-                self.mark(Mark::Block(vec![question::cancelled_row(&self.palette)]));
+                self.mark(Mark::Block(vec![(
+                    question::cancelled_row(&self.palette),
+                    DocumentRow::Plain,
+                )]));
                 self.settled_question();
                 self.interrupt(now);
             }
@@ -3354,7 +3358,11 @@ impl Shell {
         let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
-        if self.transcript.queue_block(rows) {
+        // What each row is, recorded with it for a theme report: the group's
+        // own rows by the group, and the lines written under it plain.
+        let mut kinds = self.group.kinds();
+        kinds.resize(rows.len(), DocumentRow::Plain);
+        if self.transcript.queue_block(rows, kinds) {
             self.owed();
         }
     }
@@ -3530,8 +3538,10 @@ impl Shell {
     ///
     /// The rows are written as they are, with no gutter: their indents are
     /// part of them, because an answer's hangs five columns in, under the
-    /// question's text, and the document has no gutter that wide.
-    fn write_block(&mut self, rows: &[String]) {
+    /// question's text, and the document has no gutter that wide. Each is
+    /// recorded as what it is ([`Transcript::queue_kind`]), for a theme report
+    /// that later repaints it.
+    fn write_block(&mut self, rows: &[(String, DocumentRow)]) {
         self.close_answer();
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -3540,9 +3550,19 @@ impl Shell {
         if !self.transcript.ends_blank() {
             self.end_transcript_line();
         }
-        for row in rows {
+        let mut current = DocumentRow::Plain;
+        for (row, kind) in rows {
+            if *kind != current {
+                current = *kind;
+                if self.transcript.queue_kind(current) {
+                    self.owed();
+                }
+            }
             self.write_transcript_as(row, Role::Plain);
             self.end_transcript_line();
+        }
+        if current != DocumentRow::Plain && self.transcript.queue_kind(DocumentRow::Plain) {
+            self.owed();
         }
         self.end_transcript_line();
     }
@@ -6205,7 +6225,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 1,
-                rows: vec!["answered".to_string()]
+                rows: vec!["answered".to_string()],
+                kinds: Vec::new(),
             }]
         );
     }
@@ -6233,11 +6254,13 @@ mod tests {
             vec![
                 Append {
                     scroll: 2,
-                    rows: vec!["first".to_string(), String::new()]
+                    rows: vec!["first".to_string(), String::new()],
+                    kinds: Vec::new(),
                 },
                 Append {
                     scroll: 0,
-                    rows: vec!["second".to_string()]
+                    rows: vec!["second".to_string()],
+                    kinds: Vec::new(),
                 },
             ]
         );
@@ -6275,7 +6298,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["x".repeat(20), "x".repeat(5)]
+                rows: vec!["x".repeat(20), "x".repeat(5)],
+                kinds: Vec::new(),
             }]
         );
     }
@@ -6298,7 +6322,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["x".repeat(20), "x".repeat(5)]
+                rows: vec!["x".repeat(20), "x".repeat(5)],
+                kinds: Vec::new(),
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -6319,7 +6344,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["abc".to_string(), String::new()]
+                rows: vec!["abc".to_string(), String::new()],
+                kinds: Vec::new(),
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -6464,11 +6490,13 @@ mod tests {
             vec![
                 Append {
                     scroll: 1,
-                    rows: vec![card_row("ask me")]
+                    rows: vec![card_row("ask me")],
+                    kinds: Vec::new(),
                 },
                 Append {
                     scroll: 1,
-                    rows: vec![String::new()]
+                    rows: vec![String::new()],
+                    kinds: Vec::new(),
                 },
             ]
         );
@@ -11815,11 +11843,13 @@ mod tests {
                 vec![
                     Append {
                         scroll: 1,
-                        rows: vec!["  the next answer".to_string()]
+                        rows: vec!["  the next answer".to_string()],
+                        kinds: Vec::new(),
                     },
                     Append {
                         scroll: 1,
-                        rows: vec![String::new()]
+                        rows: vec![String::new()],
+                        kinds: Vec::new(),
                     },
                 ],
                 "{}",
