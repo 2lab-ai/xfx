@@ -59,12 +59,18 @@ pub(crate) trait CommandHandlers {
     /// `/status`: the configuration a turn would run under, and the live
     /// conversation's counts.
     fn status(&mut self);
+    /// `/statusline`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the picker; anything else names the
+    /// item to flip, and what an item may be called is
+    /// `crate::config::StatusLineItem::parse`'s to say.
+    fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
-    /// `/setup`, with the rest of the line -- already trimmed, and empty when
-    /// there was none.
+    /// `/provider` (or its alias `/setup`), with the rest of the line --
+    /// already trimmed, and empty when there was none.
     ///
-    /// The argument is the provider to switch to. It is *not* validated here:
+    /// Bare, it opens the provider picker; with an argument, the argument is
+    /// the provider to switch to. It is *not* validated here:
     /// what a provider name may be is `crate::provider::ProviderId::parse`'s to
     /// say, and a router that pre-screened it would be a second place that
     /// decides which backend a prompt can go to.
@@ -151,6 +157,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Copy => handlers.copy(),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
+        Slash::Statusline => handlers.statusline(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -218,6 +225,9 @@ mod tests {
         fn status(&mut self) {
             self.calls.push("status".to_string());
         }
+        fn statusline(&mut self, argument: &str) {
+            self.calls.push(format!("statusline {argument}"));
+        }
         fn version(&mut self) {
             self.calls.push("version".to_string());
         }
@@ -248,9 +258,10 @@ mod tests {
             ("/copy", "copy"),
             ("/stats", "stats"),
             ("/status", "status"),
+            ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
-            ("/setup", "setup "),
+            ("/provider", "setup "),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -262,6 +273,7 @@ mod tests {
     #[test]
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
+        assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {
@@ -283,6 +295,19 @@ mod tests {
         assert_eq!(
             routed("/rename   My Title  "),
             vec!["rename My Title".to_string()]
+        );
+        // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
+        // the item, and whether it names one is the handler's question.
+        assert_eq!(
+            routed("/statusline context"),
+            vec!["statusline context".to_string()]
+        );
+        assert_eq!(
+            super::classify("/statusline  bogus words "),
+            Submitted::Command {
+                command: Slash::Statusline,
+                argument: "bogus words".to_string()
+            }
         );
     }
 

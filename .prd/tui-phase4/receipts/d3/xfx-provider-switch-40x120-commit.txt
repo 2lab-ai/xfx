@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-5c371f8 [debug] · Run /help for commands
+
+* provider: Preparing Vercel AI Gateway.
+
+* provider: Switched to Vercel AI Gateway with fake/model-a. The next prompt starts a fresh conversation.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

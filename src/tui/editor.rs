@@ -133,6 +133,16 @@ impl Editor {
         self.text.is_empty()
     }
 
+    /// Whether the caret is past the last character.
+    ///
+    /// A yes-or-no rather than the offset, for [`Self::before_caret`]'s reason.
+    /// The `/provider` picker's one reader (`super::shell`): Right commits a
+    /// row only from the end of the text, so Right keeps moving the caret while
+    /// the argument is being edited (`app_input_runtime.zig:281-296`).
+    pub(crate) fn caret_at_end(&self) -> bool {
+        self.cursor == self.text.len()
+    }
+
     /// The text in front of the caret -- everything an insertion would land
     /// after.
     ///
@@ -392,6 +402,9 @@ impl Editor {
             | Action::Yank
             | Action::PasteStart
             | Action::PasteEnd
+            | Action::ToggleTranscript
+            | Action::PageUp
+            | Action::PageDown
             | Action::Ignore => None,
         }
     }

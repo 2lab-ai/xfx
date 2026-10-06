@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
-use crate::config::{Environment, PermissionMode, RuntimeConfig};
+use crate::config::{Environment, PermissionMode, RuntimeConfig, StatusLineItem};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{
     safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
@@ -66,11 +66,12 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/reset",
     "/resume",
     "/rename",
-    "/setup",
+    "/provider",
     "/stats",
     "/status",
     "/model",
     "/copy",
+    "/statusline",
     "/version",
     "/quit",
 ];
@@ -128,14 +129,16 @@ pub struct SlashSpec {
 /// **Upstream's order, upstream's categories, and upstream's words where the
 /// command is upstream's command** (`vercel-labs/fx@c1db9191
 /// src/builtins/commands.zig:463-499`), because the menu shows all three. The
-/// rows xfx does not have are absent rather than stubbed. Two summaries stay
-/// xfx's own, each because upstream's sentence describes something this
-/// command does not do: `/setup` (upstream's `/provider` picker, `:472`, which
-/// also chooses how a provider signs in; this one takes the provider as an
-/// argument and signs nothing in) and `/model` (upstream chooses a reasoning
-/// effort as well, `:478`; xfx sends none). `/clear`, `/new` and `/reset` are
-/// one operation, as upstream's are (`app_commands.zig:667-680`), and carry
-/// upstream's three sentences (`:464-466`).
+/// rows xfx does not have are absent rather than stubbed. One summary stays
+/// xfx's own, because upstream's sentence describes something this command
+/// does not do: `/model` (upstream chooses a reasoning effort as well,
+/// `:478`; xfx sends none). `/clear`, `/new` and `/reset` are one operation, as
+/// upstream's are (`app_commands.zig:667-680`), and carry upstream's three
+/// sentences (`:464-466`). `/provider` is upstream's row whole -- name, `/setup`
+/// alias, sentence and category (`:472`) -- and is the one whose sentence
+/// promises more than xfx's picker shows: the provider column is there, the
+/// sign-in columns after it are gated (zbrain open-loop #88) and absent, as
+/// `docs/parity.md` says.
 /// `/stats` keeps upstream's sentence although what it prints is the
 /// terminal writer's counters rather than tokens: so does upstream's
 /// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
@@ -192,9 +195,12 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
     },
     SlashSpec {
         command: Slash::Setup,
-        name: "/setup",
-        aliases: &[],
-        summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        name: "/provider",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:472`), and the
+        // name this command had before it was upstream's row.
+        aliases: &["/setup"],
+        summary: "choose the model provider and how it signs in",
         category: "Account",
         has_args: true,
     },
@@ -229,6 +235,16 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "copy the last assistant response",
         category: "Session",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Statusline,
+        name: "/statusline",
+        aliases: &[],
+        // Upstream's words (`commands.zig:494`); the grammar is
+        // `STATUSLINE_USAGE`, which the refusal prints.
+        summary: "toggle status line segments",
+        category: "Appearance",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Version,
@@ -397,6 +413,50 @@ pub(crate) fn rename_conversation(
     }
 }
 
+/// What every `/statusline` notice is filed under, on both surfaces.
+pub const STATUSLINE_TOPIC: &str = "statusline";
+
+/// `/statusline`'s refusal, upstream's words exactly
+/// (`handleStatuslineCommand`, `app_commands.zig:3931-3941`).
+pub const STATUSLINE_USAGE: &str = "usage: /statusline [context|session|workspace]";
+
+/// What a `/statusline` write that landed says (`reportUserSettingsCommit`,
+/// `session_commands.zig:27-84`): the profile is the one scope xfx writes.
+pub const STATUSLINE_SAVED: &str = "saved to user settings (scope=user)";
+
+/// What `/statusline` says an item is now: `context: on`
+/// (`applyStatuslineItem`, `app_commands.zig:3915-3923`).
+pub fn statusline_state(item: StatusLineItem, on: bool) -> String {
+    format!("{}: {}", item.name(), if on { "on" } else { "off" })
+}
+
+/// Keeps one `/statusline` item in the profile at `path`, or says why it could
+/// not.
+///
+/// One preference, through the profile's one writer
+/// ([`crate::provider::profile::write_preference`]): read, set
+/// `statusLine.<item>`, write back staged and owner-only. A session with no
+/// home has no profile to keep it in, and that is the reason it says.
+pub fn save_statusline(
+    path: Option<&std::path::Path>,
+    item: StatusLineItem,
+    on: bool,
+) -> Result<(), String> {
+    let Some(path) = path else {
+        return Err("no home directory is set".to_string());
+    };
+    crate::provider::profile::write_preference(path, &item.key_path(), serde_json::Value::Bool(on))
+        .map_err(|err| err.to_string())
+}
+
+/// What a `/statusline` write that failed says: the change is in force for
+/// this process and nowhere else (`reportUserSettingsFailure`,
+/// `session_commands.zig:110-133`, whose `runtime_changed` is always true
+/// here -- every `/statusline` change is a flip).
+pub fn statusline_not_saved(reason: &str) -> String {
+    format!("active for this process but not saved to user settings ({reason})")
+}
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -448,6 +508,11 @@ pub enum Slash {
     /// and the only one that reaches the network, which is why it is a command
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
+    ///
+    /// `/provider`, with `/setup` as its alias. The variant keeps the name the
+    /// command had when `/setup` was canonical: it names what the command does
+    /// (`provider::setup`), and every surface reaches it by parsing the
+    /// registry rather than by spelling it.
     Setup,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
@@ -458,6 +523,10 @@ pub enum Slash {
     /// The configuration a turn would run under, and the live conversation's
     /// own two counts.
     Status,
+    /// Which of the footer's optional segments are shown: a picker in the
+    /// TUI, one item flipped by name on either surface, and the choice kept in
+    /// the profile (`statusLine.{context,session,workspace}`).
+    Statusline,
     Version,
     Quit,
 }
@@ -973,6 +1042,12 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Statusline => statusline_on_the_line(
+                        &argument,
+                        &mut config,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                 }
                 io::stdout().flush()?;
             }
@@ -1358,6 +1433,47 @@ async fn apply_model(
     }
 }
 
+/// `/statusline` on this shell.
+///
+/// There is no footer here to draw the segments in and no band to put a picker
+/// in, so this surface does the half of the command that outlives it: an item
+/// named is flipped and kept in the profile the full-screen shell reads at
+/// launch, in the same two sentences that shell says. Bare, it says what each
+/// item is set to and how to change one -- the picker's content, as lines.
+fn statusline_on_the_line(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    if argument.is_empty() {
+        let states: Vec<String> = StatusLineItem::ALL
+            .into_iter()
+            .map(|item| statusline_state(item, config.statusline.get(item)))
+            .collect();
+        writeln!(out, "[shell] {STATUSLINE_TOPIC}: {}", states.join(", "))?;
+        return writeln!(out, "[shell] {STATUSLINE_USAGE}");
+    }
+    let Some(item) = StatusLineItem::parse(argument) else {
+        return writeln!(err, "xfx: {STATUSLINE_USAGE}");
+    };
+    let on = !config.statusline.get(item);
+    config.statusline.set(item, on);
+    match save_statusline(config.user_settings_path.as_deref(), item, on) {
+        Ok(()) => writeln!(out, "[shell] {STATUSLINE_TOPIC}: {STATUSLINE_SAVED}")?,
+        Err(reason) => writeln!(
+            err,
+            "xfx: {STATUSLINE_TOPIC}: {}",
+            statusline_not_saved(&reason)
+        )?,
+    }
+    writeln!(
+        out,
+        "[shell] {STATUSLINE_TOPIC}: {}",
+        statusline_state(item, on)
+    )
+}
+
 /// `/copy` on this shell: the conversation's last reply onto the clipboard,
 /// and one line saying how that went ([`crate::clipboard`]).
 ///
@@ -1428,9 +1544,11 @@ mod tests {
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
-        // upstream's third name for the one reset -- and thirteen since
-        // `/resume` and `/rename`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 13);
+        // upstream's third name for the one reset -- twelve since
+        // `/statusline`, and fourteen since `/resume` and `/rename`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 14);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1578,7 +1696,6 @@ mod tests {
             "/logout",
             "/permissions",
             "/models",
-            "/provider",
             "/mcp",
             "/undo",
             "/usage",
@@ -1718,26 +1835,57 @@ mod tests {
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
         // The three that mean something by the rest of the line: `/model <id>`
-        // picks among what a provider offers, `/setup <provider>` picks the
-        // provider, `/rename <title>` names the session. Every other name is
-        // the whole command.
+        // picks among what a provider offers, `/provider <provider>` (or
+        // `/setup <provider>`) picks the provider -- upstream's row has args
+        // too, which is what puts the space after it when it is completed
+        // (`commands.zig:472`) -- `/statusline <item>` flips a footer segment,
+        // and `/rename <title>` names the session. Every other name is the
+        // whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup" | "/rename");
+            let takes_one = matches!(
+                spec.name,
+                "/model" | "/provider" | "/statusline" | "/rename"
+            );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }
 
     #[test]
-    fn setup_is_the_seventh_canonical_command() {
-        // Task 4's one new name. It is canonical rather than an alias: it takes
-        // an argument, it has a handler of its own on both surfaces, and it is
-        // the only command in the palette that can change which provider a turn
-        // talks to.
-        assert!(SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+    fn provider_is_canonical_and_setup_is_its_alias() {
+        // Upstream's row (`commands.zig:472`): `/provider`, with `/setup` as
+        // the alias. `/setup` was canonical here before; it is still answered,
+        // by the same command, and the count of canonical names did not move.
+        assert!(SLASH_COMMANDS.contains(&"/provider"), "{SLASH_COMMANDS:?}");
+        assert!(!SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+        assert_eq!(Slash::parse("/provider"), Some(Slash::Setup));
         assert_eq!(Slash::parse("/setup"), Some(Slash::Setup));
-        assert_eq!(Slash::Setup.name(), "/setup");
-        assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
-        assert!(help_text().contains("/setup"), "{}", help_text());
+        assert_eq!(Slash::Setup.name(), "/provider");
+        let spec = slash_spec(Slash::Setup);
+        assert_eq!(
+            (spec.aliases, spec.summary, spec.category, spec.has_args),
+            (
+                &["/setup"][..],
+                "choose the model provider and how it signs in",
+                "Account",
+                true
+            )
+        );
+        assert_eq!(
+            classify("/setup llmux"),
+            Submitted::Command {
+                command: Slash::Setup,
+                argument: "llmux".to_string()
+            }
+        );
+        // `/help` says the alias on the command's own line.
+        assert!(
+            help_text()
+                .lines()
+                .any(|line| line.trim_start().starts_with("/provider")
+                    && line.ends_with("(also /setup)")),
+            "{}",
+            help_text()
+        );
     }
 
     #[test]
@@ -1760,11 +1908,11 @@ mod tests {
             ),
             ("/status", "show runtime configuration", "General", false)
         );
-        // Upstream's order: `/provider` (xfx's `/setup`), `/stats`, `/usage`,
-        // `/status`, then `/model` (`commands.zig:472-478`).
+        // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
+        // `/model` (`commands.zig:472-478`).
         let order: Vec<&str> = SLASH_COMMANDS.to_vec();
         let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
-        assert!(at("/setup") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/provider") < at("/stats") && at("/stats") < at("/status"));
         assert!(at("/status") < at("/model"));
         assert!(help_text().contains("/status"), "{}", help_text());
     }
@@ -1809,17 +1957,16 @@ mod tests {
     }
 
     #[test]
-    fn the_standalone_catalog_commands_are_still_deferred() {
-        // `/setup` is the *only* name this task adds. `/models` and `/provider`
-        // are upstream commands xfx does not answer, and the catalog browser
-        // this task builds is reached by bare `/model` rather than by either of
-        // them -- so advertising one would be advertising a surface that is not
-        // there.
-        for absent in ["/models", "/provider"] {
-            assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
-            assert_eq!(Slash::parse(absent), None, "{absent} parses");
-            assert!(!help_text().contains(absent), "help advertises {absent}");
-        }
+    fn the_standalone_catalog_command_is_still_deferred() {
+        // `/models` is an upstream command xfx does not answer: the catalog
+        // browser is reached by a bare `/model`, so advertising it would be
+        // advertising a surface that is not there. (`/provider` used to be
+        // listed here; it is answered now, as upstream's row with `/setup` as
+        // its alias -- `provider_is_canonical_and_setup_is_its_alias`.)
+        let absent = "/models";
+        assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
+        assert_eq!(Slash::parse(absent), None, "{absent} parses");
+        assert!(!help_text().contains(absent), "help advertises {absent}");
     }
 
     #[test]
@@ -1840,5 +1987,93 @@ mod tests {
         // Still one bounded, sanitized line: deriving the count must not have
         // moved the guidance off the end of it.
         assert!(refusal.ends_with("commands"), "{refusal}");
+    }
+
+    /// A configuration over `root/home` and `root/work`, both kept by the
+    /// caller's temporary directory.
+    fn config_under(root: &std::path::Path) -> RuntimeConfig {
+        let home = root.join("home");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&home).expect("a home");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        RuntimeConfig::load_with(
+            &Environment::new(Some(home), std::collections::BTreeMap::new()),
+            &workspace,
+        )
+        .expect("load a configuration")
+    }
+
+    /// `/statusline <argument>` on this shell: what it printed on each stream.
+    fn statusline_said(argument: &str, config: &mut RuntimeConfig) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        statusline_on_the_line(argument, config, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_flips_and_keeps_a_statusline_item_in_the_tuis_words() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("workspace", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: saved to user settings (scope=user)\n\
+             [shell] statusline: workspace: on\n"
+        );
+        assert_eq!(err, "");
+        assert!(config.statusline.workspace);
+        // What it kept is what the next launch reads.
+        let reloaded = config_under(root.path());
+        assert!(reloaded.statusline.workspace);
+        assert!(!reloaded.statusline.context);
+
+        let (out, _) = statusline_said("workspace", &mut config);
+        assert!(
+            out.ends_with("[shell] statusline: workspace: off\n"),
+            "{out}"
+        );
+        assert!(!config_under(root.path()).statusline.workspace);
+    }
+
+    #[test]
+    fn a_bare_statusline_on_the_line_shell_says_each_item_and_how_to_change_one() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        config.statusline.session = true;
+        let (out, err) = statusline_said("", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: context: off, session: on, workspace: off\n\
+             [shell] usage: /statusline [context|session|workspace]\n"
+        );
+        assert_eq!(err, "");
+        assert!(
+            !root.path().join("home").join(".xfx").exists(),
+            "asking wrote the profile"
+        );
+    }
+
+    #[test]
+    fn the_line_shell_refuses_an_item_it_does_not_have_and_says_a_failed_write() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("Context", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(err, "xfx: usage: /statusline [context|session|workspace]\n");
+        assert_eq!(config.statusline, crate::config::StatusLine::default());
+
+        // No home: in force for this process, and said not to be kept.
+        config.user_settings_path = None;
+        let (out, err) = statusline_said("context", &mut config);
+        assert_eq!(out, "[shell] statusline: context: on\n");
+        assert_eq!(
+            err,
+            "xfx: statusline: active for this process but not saved to user settings \
+             (no home directory is set)\n"
+        );
+        assert!(config.statusline.context);
     }
 }

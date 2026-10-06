@@ -1,0 +1,8 @@
+[
+ {"chunks": ["Reading first.\n"], "tool": {"name": "read_file", "input": {"path": "a.txt"}}},
+ {"tool": {"name": "shell", "input": {"request": {"action": "run", "command": "echo boom; echo err >&2; exit 3", "yield_time_ms": 30000}}}},
+ {"tool": {"name": "edit_file", "input": {"path": "a.txt", "old_string": "alpha line 2", "new_string": "ALPHA LINE TWO"}}},
+ {"tool": {"name": "read_file", "input": {"path": "missing.txt"}}},
+ {"delayMs": 100, "chunks": ["All ", "done."]},
+ {"delayMs": 100, "chunks": ["Second ", "answer."]}
+]

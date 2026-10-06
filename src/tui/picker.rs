@@ -826,10 +826,20 @@ mod tests {
             ranks(&live)
         );
         // Deterministic within a rank: registry order, which is `/help`'s.
+        // `/provider` and its alias `/setup` both have an `e`; a tie keeps the
+        // command's own name.
         assert_eq!(
             labels(&live)[1..],
             [
-                "/help", "/clear", "/new", "/reset", "/resume", "/rename", "/setup", "/model",
+                "/help",
+                "/clear",
+                "/new",
+                "/reset",
+                "/resume",
+                "/rename",
+                "/provider",
+                "/model",
+                "/statusline",
                 "/version"
             ]
         );
