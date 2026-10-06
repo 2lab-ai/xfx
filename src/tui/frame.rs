@@ -35,8 +35,6 @@
 use std::borrow::Cow;
 use std::io::{self, Write};
 
-use unicode_segmentation::UnicodeSegmentation;
-
 use super::check;
 use super::deliver::{Emit, Sink};
 use super::grid::Grid;
@@ -2187,7 +2185,7 @@ pub(crate) fn clip(row: &str, cols: u16) -> &str {
             end += len;
             continue;
         }
-        let Some(cluster) = rest.graphemes(true).next() else {
+        let Some(cluster) = super::wrap::first_cluster(rest) else {
             break;
         };
         let width = usize::from(super::wrap::width(cluster));

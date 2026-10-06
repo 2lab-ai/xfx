@@ -31,8 +31,6 @@
 //! adding a sequence the emulator -- and therefore the acceptance suite --
 //! would have to be widened for.
 
-use unicode_segmentation::UnicodeSegmentation;
-
 use super::frame::cup;
 use super::layout::Geometry;
 use super::pacer::SgrState;
@@ -96,6 +94,93 @@ impl PartialEq for Cell {
             }
             _ => false,
         }
+    }
+}
+
+/// One thing [`tokenize_row`] finds a row's text putting on the row.
+#[derive(Debug)]
+pub(crate) enum Placed<'a> {
+    /// A cluster that takes cells: the zero-based column it starts in, the
+    /// cluster, how many columns it takes, and what was switched on when it
+    /// was reached.
+    Lead {
+        column: usize,
+        cluster: &'a str,
+        width: usize,
+        sgr: &'a SgrState,
+    },
+    /// A cluster that takes no cell, for the cell in `column` -- the one in
+    /// front of it -- to take as its own if that cell is a lead.
+    Join { column: usize, cluster: &'a str },
+}
+
+/// What placing `row` on a row `cols` cells wide puts there, cluster by
+/// cluster and in column order, handed to `put` one at a time.
+///
+/// The **one** tokenizer, and that is the point of routing it through
+/// [`super::frame::row_text`]: the same function decides what a row may carry
+/// when it is written to a terminal and what a grid believes a terminal is
+/// showing. A second reading of a row -- one that kept a sequence the painter
+/// drops, or measured a cluster differently -- would make the diff emit bytes
+/// for cells that never changed and, worse, skip cells that did.
+/// [`Grid::place_row`] writes what it finds into grid cells, and
+/// `super::check`'s replay of a declared row writes it into the cells it
+/// expects, so neither can read a row the other would not.
+///
+/// A [`Placed::Lead`] never starts left of the end of the one before it, so
+/// nothing it reports is overwritten by what it reports later.
+pub(crate) fn tokenize_row(
+    row: &str,
+    cols: u16,
+    geometry: &Geometry,
+    mut put: impl FnMut(Placed<'_>),
+) {
+    let budget = usize::from(cols);
+    // Clipped to the narrower of the two, because a row built for a screen
+    // this row is not the width of is a row it cannot hold.
+    let text = super::frame::row_text(row, cols.min(geometry.cols));
+    let mut sgr = SgrState::default();
+    let mut column = 0usize;
+    let mut rest = text.as_ref();
+    while !rest.is_empty() {
+        if let Some(len) = super::pacer::escape_at(rest) {
+            // `row_text` keeps colours and removes everything else, so the
+            // only sequences that reach here are the ones a cell is allowed
+            // to remember. Handed to the model whole; what it does not
+            // model, it drops.
+            sgr.observe(&rest[..len]);
+            rest = &rest[len..];
+            continue;
+        }
+        let Some(cluster) = super::wrap::first_cluster(rest) else {
+            break;
+        };
+        rest = &rest[cluster.len()..];
+        let width = usize::from(super::wrap::width(cluster));
+        if width == 0 {
+            // A combining mark that arrived on its own -- across a colour,
+            // or as the first thing on the row. It belongs to the cluster
+            // in front of it rather than to a cell of its own; with nothing
+            // in front of it there is no cell for it to join and a terminal
+            // would draw nothing either.
+            if let Some(column) = column.checked_sub(1) {
+                put(Placed::Join { column, cluster });
+            }
+            continue;
+        }
+        if column + width > budget {
+            // `row_text` clips to the same width, so this is unreachable
+            // through it; a cluster that straddled the last column would be
+            // drawn in a column the layout believes is empty.
+            break;
+        }
+        put(Placed::Lead {
+            column,
+            cluster,
+            width,
+            sgr: &sgr,
+        });
+        column += width;
     }
 }
 
@@ -179,70 +264,39 @@ impl Grid {
 
     /// Puts `row`'s text on row `line`, and blanks the rest of it.
     ///
-    /// The **one** tokenizer, and that is the point of routing it through
-    /// [`super::frame::row_text`]: the same function decides what a row may
-    /// carry when it is written to a terminal and what this grid believes a
-    /// terminal is showing. A second reading of a row -- one that kept a
-    /// sequence the painter drops, or measured a cluster differently -- would
-    /// make the diff emit bytes for cells that never changed and, worse, skip
-    /// cells that did.
+    /// The cells are the ones [`tokenize_row`] says the text puts there, which
+    /// is the point of there being one tokenizer: the same function decides
+    /// what a row may carry when it is written to a terminal and what this grid
+    /// believes a terminal is showing.
     pub(crate) fn place_row(&mut self, line: u16, row: &str, geometry: &Geometry) {
         self.erase_row(line);
         let Some(span) = self.span(line) else {
             return;
         };
-        let cols = usize::from(self.cols);
-        // Clipped to the narrower of the two, because a row built for a screen
-        // this grid is not the size of is a row this grid cannot hold.
-        let text = super::frame::row_text(row, self.cols.min(geometry.cols));
-        let mut sgr = SgrState::default();
-        let mut column = 0usize;
-        let mut rest = text.as_ref();
-        while !rest.is_empty() {
-            if let Some(len) = super::pacer::escape_at(rest) {
-                // `row_text` keeps colours and removes everything else, so the
-                // only sequences that reach here are the ones a cell is allowed
-                // to remember. Handed to the model whole; what it does not
-                // model, it drops.
-                sgr.observe(&rest[..len]);
-                rest = &rest[len..];
-                continue;
+        let cols = self.cols;
+        let cells = &mut self.cells[span];
+        tokenize_row(row, cols, geometry, |placed| match placed {
+            Placed::Lead {
+                column,
+                cluster,
+                width,
+                sgr,
+            } => {
+                cells[column] = Cell::Lead {
+                    grapheme: cluster.to_string(),
+                    width: u8::try_from(width).unwrap_or(u8::MAX),
+                    sgr: sgr.clone(),
+                };
+                for offset in 1..width {
+                    cells[column + offset] = Cell::Continuation;
+                }
             }
-            let Some(cluster) = rest.graphemes(true).next() else {
-                break;
-            };
-            rest = &rest[cluster.len()..];
-            let width = usize::from(super::wrap::width(cluster));
-            if width == 0 {
-                // A combining mark that arrived on its own -- across a colour,
-                // or as the first thing on the row. It belongs to the cluster
-                // in front of it rather than to a cell of its own; with nothing
-                // in front of it there is no cell for it to join and a terminal
-                // would draw nothing either.
-                if let Some(Cell::Lead { grapheme, .. }) = column
-                    .checked_sub(1)
-                    .map(|at| &mut self.cells[span.start + at])
-                {
+            Placed::Join { column, cluster } => {
+                if let Cell::Lead { grapheme, .. } = &mut cells[column] {
                     grapheme.push_str(cluster);
                 }
-                continue;
             }
-            if column + width > cols {
-                // `row_text` clips to the same width, so this is unreachable
-                // through it; a cluster that straddled the last column would be
-                // drawn in a column the layout believes is empty.
-                break;
-            }
-            self.cells[span.start + column] = Cell::Lead {
-                grapheme: cluster.to_string(),
-                width: u8::try_from(width).unwrap_or(u8::MAX),
-                sgr: sgr.clone(),
-            };
-            for offset in 1..width {
-                self.cells[span.start + column + offset] = Cell::Continuation;
-            }
-            column += width;
-        }
+        });
     }
 
     /// Whether row `line` already holds what placing `row` on it would leave

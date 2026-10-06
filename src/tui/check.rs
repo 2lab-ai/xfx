@@ -40,7 +40,7 @@ use std::ops::RangeInclusive;
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::grid::{Cell, Grid};
+use super::grid::{Cell, Grid, Placed};
 
 /// A foreground colour, as a value rather than as the bytes some painter spelt
 /// it with.
@@ -141,6 +141,87 @@ impl From<Reject> for io::Error {
     }
 }
 
+/// A grapheme cluster, as one modelled cell holds it.
+///
+/// **Inline when it is short**, which nearly every cluster is, and on the heap
+/// when it is not. Replaying a long append puts a cluster in a cell for every
+/// column the vector writes and every column the declaration expects, and
+/// drops them all again as the rows scroll away; held as a `String`, each one
+/// was an allocation and a free, and together they were the largest single
+/// cost of the replay.
+///
+/// It is the text and nothing else. Two glyphs are equal when their bytes are,
+/// however each is held -- which is exactly what comparing two `String`s was.
+#[derive(Clone)]
+enum Glyph {
+    Inline { len: u8, bytes: [u8; Glyph::INLINE] },
+    Heap(String),
+}
+
+impl Glyph {
+    /// The longest cluster held inline, in bytes. Fifteen keeps a cell the size
+    /// a `String` made it, and holds a letter with its marks, a flag, a keycap
+    /// and a toned emoji; a ZWJ family of three is eighteen and goes to the
+    /// heap.
+    const INLINE: usize = 15;
+
+    fn new(text: &str) -> Self {
+        let mut bytes = [0u8; Self::INLINE];
+        match (bytes.get_mut(..text.len()), u8::try_from(text.len())) {
+            (Some(slot), Ok(len)) => {
+                slot.copy_from_slice(text.as_bytes());
+                Self::Inline { len, bytes }
+            }
+            _ => Self::Heap(text.to_string()),
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Inline { len, bytes } => &bytes[..usize::from(*len)],
+            Self::Heap(text) => text.as_bytes(),
+        }
+    }
+
+    /// The cluster with `more` joined to the end of it, as a combining mark
+    /// joins the cluster in front of it -- moving to the heap if it no longer
+    /// fits.
+    fn push_str(&mut self, more: &str) {
+        match self {
+            Self::Heap(text) => text.push_str(more),
+            Self::Inline { len, bytes } => {
+                let start = usize::from(*len);
+                let end = start + more.len();
+                if let (Some(slot), Ok(grown)) = (bytes.get_mut(start..end), u8::try_from(end)) {
+                    slot.copy_from_slice(more.as_bytes());
+                    *len = grown;
+                    return;
+                }
+                // Whole text went in, so whole UTF-8 is what comes out.
+                let held = std::str::from_utf8(&bytes[..start]).expect("a glyph built from text");
+                let mut text = String::with_capacity(end);
+                text.push_str(held);
+                text.push_str(more);
+                *self = Self::Heap(text);
+            }
+        }
+    }
+}
+
+impl PartialEq for Glyph {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl Eq for Glyph {}
+
+impl fmt::Debug for Glyph {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&String::from_utf8_lossy(self.as_bytes()), out)
+    }
+}
+
 /// One column of the modelled screen.
 ///
 /// A cell the model was seeded with but did not author is [`Foreign`](Self::Foreign),
@@ -156,7 +237,7 @@ impl From<Reject> for io::Error {
 enum CellState {
     Empty,
     Lead {
-        grapheme: String,
+        grapheme: Glyph,
         width: u8,
         color: Color,
     },
@@ -175,7 +256,7 @@ impl CellState {
                 width,
                 sgr,
             } => Self::Lead {
-                grapheme: grapheme.clone(),
+                grapheme: Glyph::new(grapheme),
                 width: *width,
                 color: sgr.color()?,
             },
@@ -187,25 +268,47 @@ impl CellState {
     /// A space and an untouched cell are one thing on a screen and the painter
     /// spells one as the other; everything else compares exactly, tokens
     /// included.
+    ///
+    /// The first two arms are the general rule's own answer for the two pairs
+    /// nearly every comparison is made of, reached without building the shown
+    /// form of either side: two untouched cells show the same space, and two
+    /// leads show the same thing exactly when their fields agree. Every other
+    /// pair goes the general way.
     fn same_as(&self, other: &Self) -> bool {
-        match (self.shown(), other.shown()) {
-            (Some(shown), Some(other)) => shown == other,
-            _ => self == other,
+        match (self, other) {
+            (Self::Empty, Self::Empty) => true,
+            (
+                Self::Lead {
+                    grapheme,
+                    width,
+                    color,
+                },
+                Self::Lead {
+                    grapheme: other_grapheme,
+                    width: other_width,
+                    color: other_color,
+                },
+            ) => width == other_width && color == other_color && grapheme == other_grapheme,
+            _ => match (self.shown(), other.shown()) {
+                (Some(shown), Some(other)) => shown == other,
+                _ => self == other,
+            },
         }
     }
 
     /// What a terminal would be showing here, with a plain space and an
     /// untouched cell being the same thing -- which they are on a screen, and
     /// the painter relies on it: [`Grid::diff`] spells an empty target cell as
-    /// a space.
-    fn shown(&self) -> Option<(&str, u8, Color)> {
+    /// a space. The text is given as its bytes, which compare exactly as the
+    /// text does.
+    fn shown(&self) -> Option<(&[u8], u8, Color)> {
         match self {
-            Self::Empty => Some((" ", 1, Color::Default)),
+            Self::Empty => Some((b" ", 1, Color::Default)),
             Self::Lead {
                 grapheme,
                 width,
                 color,
-            } => Some((grapheme.as_str(), *width, *color)),
+            } => Some((grapheme.as_bytes(), *width, *color)),
             Self::Continuation | Self::Foreign(_) => None,
         }
     }
@@ -218,8 +321,13 @@ impl CellState {
 /// row rather than a whole screen, which is what makes an append of thousands of
 /// rows -- every one of them compared as it leaves the top -- linear in the rows
 /// it delivers instead of quadratic. Nothing outside this type may index
-/// [`cells`](Self::cells) directly; [`index`](Self::index) and
-/// [`logical`](Self::logical) are the two doors.
+/// [`cells`](Self::cells) directly; [`index`](Self::index),
+/// [`logical`](Self::logical) and [`row`](Self::row) are the doors.
+///
+/// **A row never wraps.** The plane is a whole number of rows and the origin
+/// only ever moves by a whole row, so `top` is always a multiple of `cols` and
+/// every row is one contiguous run of [`cells`](Self::cells) -- which is what
+/// lets [`row`](Self::row) hand one out as a slice.
 #[derive(Debug, Clone)]
 struct Plane {
     rows: u16,
@@ -276,19 +384,7 @@ impl Plane {
                     continue;
                 };
                 let at = plane.index(row, column).expect("a cell of this plane");
-                plane.cells[at] = match cell {
-                    Cell::Empty => CellState::Empty,
-                    Cell::Continuation => CellState::Continuation,
-                    Cell::Lead {
-                        grapheme,
-                        width,
-                        sgr,
-                    } => CellState::Lead {
-                        grapheme: grapheme.clone(),
-                        width: *width,
-                        color: sgr.color()?,
-                    },
-                };
+                plane.cells[at] = CellState::of(cell)?;
             }
         }
         Ok(plane)
@@ -306,21 +402,32 @@ impl Plane {
         Some((self.top + at) % len)
     }
 
+    /// One whole row, by its one-based number, as the run of cells it is.
+    fn row(&self, row: u16) -> Option<&[CellState]> {
+        let start = self.index(row, 1)?;
+        self.cells.get(start..start + usize::from(self.cols))
+    }
+
+    fn row_mut(&mut self, row: u16) -> Option<&mut [CellState]> {
+        let start = self.index(row, 1)?;
+        self.cells.get_mut(start..start + usize::from(self.cols))
+    }
+
     /// Blanks `[column ..]` of one row, and the orphaned lead of a wide cluster
     /// the erase begins inside.
     fn erase_from(&mut self, row: u16, column: u16) {
-        let Some(start) = self.index(row, column) else {
+        if column == 0 || column > self.cols {
+            return;
+        }
+        let Some(cells) = self.row_mut(row) else {
             return;
         };
-        if matches!(self.cells[start], CellState::Continuation) && column > 1 {
-            if let Some(lead) = self.index(row, column - 1) {
-                self.cells[lead] = CellState::Empty;
-            }
+        let start = usize::from(column - 1);
+        if start > 0 && matches!(cells[start], CellState::Continuation) {
+            cells[start - 1] = CellState::Empty;
         }
-        for at in column..=self.cols {
-            if let Some(index) = self.index(row, at) {
-                self.cells[index] = CellState::Empty;
-            }
+        for cell in &mut cells[start..] {
+            *cell = CellState::Empty;
         }
     }
 
@@ -340,8 +447,9 @@ impl Plane {
         // whatever the screen's height -- a `drain` from the front would move
         // every remaining cell on every linefeed, and an append delivering
         // thousands of rows makes one linefeed per row.
-        for offset in 0..width {
-            self.cells[(self.top + offset) % len] = CellState::Empty;
+        debug_assert_eq!(self.top % width, 0, "an origin inside a row");
+        for cell in &mut self.cells[self.top..self.top + width] {
+            *cell = CellState::Empty;
         }
         self.top = (self.top + width) % len;
     }
@@ -887,9 +995,6 @@ struct Expected<'a> {
     /// The next step to perform.
     at: usize,
     geometry: &'a super::layout::Geometry,
-    /// One row of grid, reused, so a thirty-thousand-row append does not
-    /// allocate a grid per row to compare one against.
-    scratch: Grid,
 }
 
 impl<'a> Expected<'a> {
@@ -899,7 +1004,6 @@ impl<'a> Expected<'a> {
             steps: &script.steps,
             at: 0,
             geometry: script.geometry,
-            scratch: Grid::blank(1, seed.cols),
         }
     }
 
@@ -924,26 +1028,60 @@ impl<'a> Expected<'a> {
 
     /// Puts one row of expected text on the expected plane.
     fn place(&mut self, row: u16, text: &str, at: usize) -> Result<(), Reject> {
+        let cols = self.plane.cols;
+        let Some(cells) = self.plane.row_mut(row) else {
+            return Ok(());
+        };
+        for cell in cells.iter_mut() {
+            *cell = CellState::Empty;
+        }
         // Through the product's own tokenizer, which is the point of there
         // being one: what a row *may carry* and what a grid believes a terminal
-        // is showing must not be two answers.
-        self.scratch.place_row(1, text, self.geometry);
-        for column in 1..=self.plane.cols {
-            let (Some(index), Some(cell)) =
-                (self.plane.index(row, column), self.scratch.cell(1, column))
-            else {
-                continue;
-            };
-            self.plane.cells[index] = CellState::of(cell).map_err(|MalformedSlot| {
-                Reject::at_cell(
-                    "an attribute slot this crate does not emit",
-                    at,
-                    row,
-                    column,
-                )
-            })?;
+        // is showing must not be two answers. `Grid::place_row` writes what the
+        // tokenizer finds into a grid; this writes it straight into the
+        // expected row, blanked first as that blanks its own, so these are the
+        // cells a grid this wide would hold without a grid to read them from.
+        //
+        // A lead whose colour cannot be read is refused at its column, the
+        // first such column -- leads arrive in column order, and the rest of
+        // the row is not looked at once one has been found.
+        let mut malformed = None;
+        super::grid::tokenize_row(text, cols, self.geometry, |placed| match placed {
+            _ if malformed.is_some() => {}
+            Placed::Lead {
+                column,
+                cluster,
+                width,
+                sgr,
+            } => {
+                let Ok(color) = sgr.color() else {
+                    malformed = Some(column);
+                    return;
+                };
+                cells[column] = CellState::Lead {
+                    grapheme: Glyph::new(cluster),
+                    width: u8::try_from(width).unwrap_or(u8::MAX),
+                    color,
+                };
+                for offset in 1..width {
+                    cells[column + offset] = CellState::Continuation;
+                }
+            }
+            Placed::Join { column, cluster } => {
+                if let CellState::Lead { grapheme, .. } = &mut cells[column] {
+                    grapheme.push_str(cluster);
+                }
+            }
+        });
+        match malformed {
+            Some(column) => Err(Reject::at_cell(
+                "an attribute slot this crate does not emit",
+                at,
+                row,
+                u16::try_from(column + 1).unwrap_or(u16::MAX),
+            )),
+            None => Ok(()),
         }
-        Ok(())
     }
 
     /// The vector is about to scroll: the row that is leaving is compared, and
@@ -1002,14 +1140,17 @@ fn compare_row(
     at: usize,
     shape: &'static str,
 ) -> Result<(), Reject> {
-    for column in 1..=model.cols {
-        let (Some(found), Some(wanted)) = (model.index(row, column), expected.index(row, column))
-        else {
-            continue;
-        };
-        if model.cells[found].same_as(&expected.cells[wanted]) {
+    // A row either plane does not have compares nothing, and a column only one
+    // of them has is not compared: the two rows are read side by side, as far
+    // as the narrower goes.
+    let (Some(found), Some(wanted)) = (model.row(row), expected.row(row)) else {
+        return Ok(());
+    };
+    for (offset, (found, wanted)) in found.iter().zip(wanted).enumerate() {
+        if found.same_as(wanted) {
             continue;
         }
+        let column = u16::try_from(offset + 1).unwrap_or(u16::MAX);
         return Err(Reject::at_cell(shape, at, row, column));
     }
     Ok(())
@@ -1601,14 +1742,14 @@ fn agree(found: &CellState, wanted: &Cell, at: usize, row: u16, column: u16) -> 
         // A space and an untouched cell are the same thing on a screen, and the
         // painter spells one as the other -- [`Grid::diff`] writes a space
         // where the target cell is empty.
-        Cell::Empty => Some((" ", 1u8, Color::Default)),
+        Cell::Empty => Some((&b" "[..], 1u8, Color::Default)),
         Cell::Continuation => None,
         Cell::Lead {
             grapheme,
             width,
             sgr,
         } => Some((
-            grapheme.as_str(),
+            grapheme.as_bytes(),
             *width,
             sgr.color().map_err(|MalformedSlot| {
                 Reject::at_cell(
@@ -1730,7 +1871,7 @@ fn linefeed(
 
 /// Puts `text` on the screen at the caret, cluster by cluster.
 fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Reject> {
-    for cluster in text.graphemes(true) {
+    for cluster in clusters(text) {
         let Caret::Known((row, column)) = model.caret else {
             return Err(Reject::new("text written at a caret nothing can place", at));
         };
@@ -1804,7 +1945,7 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
             }
         }
         plane.cells[index] = CellState::Lead {
-            grapheme: cluster.to_string(),
+            grapheme: Glyph::new(cluster),
             width: u8::try_from(width).unwrap_or(u8::MAX),
             color,
         };
@@ -1817,6 +1958,30 @@ fn write_text(model: &mut TerminalModel, text: &str, at: usize) -> Result<(), Re
         model.caret = Caret::Known((row, column + width));
     }
     Ok(())
+}
+
+/// The grapheme clusters of one run of text, in order.
+///
+/// A run of printable ASCII -- space through `~` -- is one cluster per byte: no
+/// rule of the segmentation joins two of them, and everything that can join a
+/// character to its neighbour (a combining mark, a joiner, a variation
+/// selector) is outside that range. Nearly every run [`apply`] hands over is
+/// one, so it is walked a byte at a time instead of being segmented, and a
+/// single byte outside the range sends the whole run the general way. The
+/// precondition is `super::wrap::width`'s, and so is the promise: a faster
+/// route to the same clusters, not a second answer.
+fn clusters(text: &str) -> impl Iterator<Item = &str> {
+    let ascii = text.bytes().all(|byte| (0x20..=0x7e).contains(&byte));
+    let mut graphemes = text.graphemes(true);
+    let mut start = 0usize;
+    std::iter::from_fn(move || {
+        if !ascii {
+            return graphemes.next();
+        }
+        let cluster = text.get(start..start + 1)?;
+        start += 1;
+        Some(cluster)
+    })
 }
 
 /// How many bytes the sequence at `at` takes, once it has been applied.
@@ -2176,10 +2341,10 @@ mod tests {
     }
 
     /// Runs `pass` `passes` times, timing each run on its own, and returns the
-    /// fastest, the middle and the slowest of them -- the middle being the
-    /// upper of the two for an even count. The cost tests assert on the first
-    /// and print all three.
-    fn timed(passes: usize, mut pass: impl FnMut()) -> (Duration, Duration, Duration) {
+    /// mean of them followed by the fastest, the middle and the slowest -- the
+    /// middle being the upper of the two for an even count. The cost tests
+    /// assert the mean and print the other three beside it as its spread.
+    fn timed(passes: u32, mut pass: impl FnMut()) -> (Duration, Duration, Duration, Duration) {
         let mut each: Vec<Duration> = (0..passes)
             .map(|_| {
                 let began = Instant::now();
@@ -2187,8 +2352,10 @@ mod tests {
                 began.elapsed()
             })
             .collect();
+        let mean = each.iter().sum::<Duration>() / passes;
         each.sort_unstable();
-        (each[0], each[passes / 2], each[passes - 1])
+        let count = each.len();
+        (mean, each[0], each[count / 2], each[count - 1])
     }
 
     #[test]
@@ -2800,25 +2967,25 @@ mod tests {
                     },
                     anywhere(rows, scroll),
                 );
-                let (min, median, max) = timed(20, || {
+                let (mean, min, median, max) = timed(20, || {
                     preflight(&seed, &bytes, &declared).expect("the vector it declared");
                 });
                 eprintln!(
-                    "preflight {rows}x{cols} {name}: {} bytes in {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
+                    "preflight {rows}x{cols} {name}: {} bytes in {mean:?} mean, {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
                     bytes.len()
                 );
-                // The fastest of twenty passes, each timed on its own, is what
-                // is held to the budget -- not their mean. A pass can only be
-                // slowed by what else the machine does, never sped up, so the
-                // minimum measures this code's own floor while a mean measures
-                // the runner's scheduler as well. The replay below is where
-                // that showed: on GitHub's shared `macos-15-intel` runner the
-                // same code averaged 6.55, 7.10, 7.36, 7.71, 8.40 and 10.32 ms
-                // against its 8 ms budget -- two failures -- where the other
-                // three runners measured 2.8 to 4.5 ms.
+                // The mean of twenty passes is what is held to the budget, as
+                // it always was; the fastest, the middle and the slowest pass
+                // are printed beside it as a diagnostic and assert nothing. The
+                // spread is there because of the replay below: on GitHub's
+                // shared `macos-15-intel` runner that one averaged 6.55, 7.10,
+                // 7.36, 7.71, 8.40 and 10.32 ms against its 8 ms budget -- two
+                // failures -- where the other three runners measured 2.8 to
+                // 4.5 ms, and a mean on its own cannot say whether a miss like
+                // that was every pass or a few slow ones.
                 assert!(
-                    cfg!(debug_assertions) || min.as_millis() < budget,
-                    "a {rows}x{cols} {name} preflight took {min:?} at its fastest ({median:?} median, {max:?} max) against a {budget} ms frame budget"
+                    cfg!(debug_assertions) || mean.as_millis() < budget,
+                    "a {rows}x{cols} {name} preflight took {mean:?} on average ({min:?} min, {median:?} median, {max:?} max) against a {budget} ms frame budget"
                 );
             }
         }
@@ -3097,11 +3264,11 @@ mod tests {
             );
             let seed = TerminalModel::seed_foreign(rows, cols, Some((rows, 1)));
 
-            let (min, median, max) = timed(15, || {
+            let (mean, min, median, max) = timed(15, || {
                 preflight(&seed, &bytes, &declared).expect("the rows it declared");
             });
             eprintln!(
-                "replay {rows}x{cols} 1000 rows: {} bytes in {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
+                "replay {rows}x{cols} 1000 rows: {} bytes in {mean:?} mean, {min:?} min, {median:?} median, {max:?} max (budget {budget} ms)",
                 bytes.len()
             );
             // Asserted under optimization only, and run one test at a time by
@@ -3111,19 +3278,21 @@ mod tests {
             // every profile either way, and every vector in it must still be
             // accepted -- which is the correctness half, and is not timed.
             //
-            // What is held to the budget is the fastest of fifteen passes,
-            // each timed on its own, and not their mean. Running alone does
-            // not give a shared runner's scheduler back: on GitHub's
-            // `macos-15-intel` runner the mean of five passes at 24x80 came to
-            // 6.55, 7.10, 7.36, 7.71, 8.40 and 10.32 ms against 8 ms -- two
-            // failures -- while the other three runners measured 2.8 to 4.5 ms
-            // for the same code. A pass can only be slowed by what else the
-            // machine does, never sped up, so the minimum measures this code's
-            // own cost floor while a mean measures the scheduler as well; the
-            // median and the slowest are printed beside it to keep the spread.
+            // What is held to the budget is the mean of fifteen passes, the
+            // same acceptance as ever; fifteen rather than five only makes
+            // that mean steadier. Each pass is timed on its own so that the
+            // fastest, the middle and the slowest can be printed beside it,
+            // and they are a diagnostic that asserts nothing. They are printed
+            // because running alone does not give a shared runner's scheduler
+            // back: on GitHub's `macos-15-intel` runner the mean of five
+            // passes at 24x80 came to 6.55, 7.10, 7.36, 7.71, 8.40 and
+            // 10.32 ms against 8 ms -- two failures -- while the other three
+            // runners measured 2.8 to 4.5 ms for the same code, and a mean on
+            // its own cannot say whether a miss like that was every pass or a
+            // few slow ones.
             assert!(
-                cfg!(debug_assertions) || min.as_millis() < budget,
-                "a {rows}x{cols} thousand-row append replay took {min:?} at its fastest ({median:?} median, {max:?} max) against a {budget} ms frame budget"
+                cfg!(debug_assertions) || mean.as_millis() < budget,
+                "a {rows}x{cols} thousand-row append replay took {mean:?} on average ({min:?} min, {median:?} median, {max:?} max) against a {budget} ms frame budget"
             );
         }
     }
@@ -3206,6 +3375,145 @@ mod tests {
         let refused = preflight(&seed, b"\x1b[1;1Hgone\x1b[6;1H\n\x1b[6;1Hkept", &declared)
             .expect_err("a row written on its way off the screen");
         assert_eq!(refused.shape(), "a row carried off the top of the screen");
+    }
+
+    #[test]
+    fn a_row_leaving_the_top_is_compared_to_its_last_column() {
+        // The departing row is read as one run of cells rather than cell by
+        // cell through the origin, so this pins that the run reaches the end
+        // of the row: a single glyph in the last column of a row about to be
+        // carried off is refused, and at that column. A space written where
+        // the declaration expects nothing is still nothing -- the one pair
+        // of different kinds of cell that shows the same thing.
+        let blank = Grid::blank(6, 20);
+        let seed =
+            TerminalModel::seed_primary(&blank, 6, 20, Some((6, 1)), None, PlaneKind::Primary)
+                .expect("a shadow this crate painted");
+        let geometry = geometry();
+        let mut script = Script::new(&geometry);
+        script.scroll();
+        let declared = Declared::new(
+            Intent::Document {
+                script: &script,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            Footprint::new(
+                PlaneKind::Primary,
+                vec![Seg::Place(1..=1), Seg::Scroll { rows: 1 }],
+            ),
+        );
+        let refused = preflight(&seed, b"\x1b[1;20Hx\x1b[6;1H\n", &declared)
+            .expect_err("a glyph in the last column of a departing row");
+        assert_eq!(refused.shape(), "a row carried off the top of the screen");
+        assert_eq!(refused.cell, Some((1, 20)));
+
+        preflight(&seed, b"\x1b[1;20H \x1b[6;1H\n", &declared)
+            .expect("a space, which is what an untouched cell shows");
+    }
+
+    #[test]
+    fn a_cluster_too_long_to_hold_inline_is_still_compared_whole() {
+        // A modelled cell holds a short cluster inline and a long one on the
+        // heap. This one is a letter and twelve combining marks, twenty-five
+        // bytes, and both sides build it by joining: the marks come after a
+        // colour, so the decoder and the tokenizer each find them as a cluster
+        // of no width and add them to the letter in front of it, outgrowing the
+        // inline space as they do.
+        let blank = Grid::blank(6, 20);
+        let seed =
+            TerminalModel::seed_primary(&blank, 6, 20, Some((1, 1)), None, PlaneKind::Primary)
+                .expect("a shadow this crate painted");
+        let geometry = geometry();
+        let written = format!("e{COLOUR}{}", "\u{301}".repeat(12));
+        let bytes = format!("\u{1b}[3;1H{written}\u{1b}[K");
+        let footprint = || Footprint::new(PlaneKind::Primary, vec![Seg::Place(3..=3)]);
+
+        let mut same = Script::new(&geometry);
+        same.place(3, &written);
+        let declared = Declared::new(
+            Intent::Document {
+                script: &same,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            footprint(),
+        );
+        preflight(&seed, bytes.as_bytes(), &declared).expect("the row it declared");
+
+        // The same length, and the same bytes up to the last mark.
+        let other = format!("e{COLOUR}{}\u{302}", "\u{301}".repeat(11));
+        let mut differs = Script::new(&geometry);
+        differs.place(3, &other);
+        let declared = Declared::new(
+            Intent::Document {
+                script: &differs,
+                caret: None,
+                cursor_visible: None,
+                title: None,
+            },
+            footprint(),
+        );
+        let refused = preflight(&seed, bytes.as_bytes(), &declared)
+            .expect_err("a cluster that differs in its last mark");
+        assert_eq!(
+            refused.shape(),
+            "a cell the vector did not leave as intended"
+        );
+        assert_eq!(refused.cell, Some((3, 1)));
+    }
+
+    #[test]
+    fn a_declared_row_is_expected_as_exactly_the_cells_a_grid_would_hold() {
+        // The replay does not place a declared row in a grid and read it back:
+        // it takes the clusters of the same tokenizer `Grid::place_row` runs
+        // straight into the cells it expects. This holds the two consumers of
+        // that tokenizer to one answer on the rows where they could part -- a
+        // colour mid-row, a wide cluster that would straddle the last column,
+        // a mark that lands behind a wide cluster's second half, a mark with
+        // nothing in front of it, a tab, controls the painter drops, a row
+        // longer than the screen, and clusters too long to hold inline.
+        let geometry = geometry();
+        let script = Script::new(&geometry);
+        let joined = format!("e{COLOUR}{}", "\u{301}".repeat(12));
+        let coloured = format!("ab{COLOUR}cd{RESET}ef");
+        let behind_wide = format!("\u{4e2d}{COLOUR}\u{301}x");
+        let long = "x".repeat(100);
+        let rows = [
+            "plain text",
+            "",
+            coloured.as_str(),
+            "abcdefghi\u{4e2d}",
+            behind_wide.as_str(),
+            "\u{301}abc",
+            "a\tb",
+            "a\u{7}b\u{1b}[2Jc",
+            long.as_str(),
+            FAMILY,
+            joined.as_str(),
+        ];
+        for cols in [10u16, 80] {
+            for row in rows {
+                let mut grid = Grid::blank(1, cols);
+                grid.place_row(1, row, &geometry);
+                let mut expected = Expected::new(&Plane::blank(1, cols), &script);
+                expected
+                    .place(1, row, 0)
+                    .expect("a row this crate can paint");
+                let cells = expected.plane.row(1).expect("the one row");
+                for column in 1..=cols {
+                    let held = CellState::of(grid.cell(1, column).expect("a cell of the row"))
+                        .expect("a slot this crate wrote");
+                    assert_eq!(
+                        cells[usize::from(column - 1)],
+                        held,
+                        "{row:?} at column {column} of {cols}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

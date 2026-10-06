@@ -102,14 +102,15 @@ pub(crate) struct Row {
 pub(crate) fn width(text: &str) -> u16 {
     // Printable ASCII (space through `~`, empty allowed) is exactly its own
     // byte length in cells -- no control, no combining mark, no escape
-    // sequence, no multi-byte grapheme can be in it. `grid.rs:210-214` and
-    // `check.rs:1689-1694` already hand this function one grapheme-segmented
-    // cluster at a time, most of which are one printable ASCII byte, so the
-    // general path's grapheme segmentation and per-cluster `unicode_width`
-    // lookup below is repeated work for an answer this loop already knows
-    // before it starts. Anything outside that range -- a single non-ASCII
-    // byte anywhere in `text` -- falls through untouched: this is a faster
-    // route to the same answer, not a second answer.
+    // sequence, no multi-byte grapheme can be in it. `grid::tokenize_row`,
+    // `super::frame::clip` and `super::check`'s decoder already hand this
+    // function one grapheme-segmented cluster at a time, most of which are
+    // one printable ASCII byte, so the general path's grapheme segmentation
+    // and per-cluster `unicode_width` lookup below is repeated work for an
+    // answer this loop already knows before it starts. Anything outside that
+    // range -- a single non-ASCII byte anywhere in `text` -- falls through
+    // untouched: this is a faster route to the same answer, not a second
+    // answer.
     if text.bytes().all(|byte| (0x20..=0x7e).contains(&byte)) {
         return u16::try_from(text.len()).unwrap_or(u16::MAX);
     }
@@ -117,6 +118,29 @@ pub(crate) fn width(text: &str) -> u16 {
         .map(|painted| cluster_cells(painted.cluster))
         .sum();
     u16::try_from(cells).unwrap_or(u16::MAX)
+}
+
+/// The grapheme cluster `text` begins with, or `None` when it is empty.
+///
+/// `text.graphemes(true).next()`, and the same answer, reached without
+/// segmenting where it is already known: a printable ASCII character (space
+/// through `~`) followed by another ASCII byte, or by nothing, is a cluster on
+/// its own. No printable ASCII character joins the one after it, and every
+/// character that can join the one in front of it -- a combining or spacing
+/// mark, a joiner, a variation selector -- is outside ASCII, so the byte after
+/// the first is all that has to be looked at. Anything else is segmented
+/// exactly as before. The painter's tokenizer cuts a row this way one cluster
+/// at a time ([`super::frame::clip`], [`super::grid::tokenize_row`]), and a row
+/// of plain text is nearly all such clusters.
+pub(crate) fn first_cluster(text: &str) -> Option<&str> {
+    match text.as_bytes() {
+        [first, after @ ..]
+            if (0x20..=0x7e).contains(first) && after.first().is_none_or(u8::is_ascii) =>
+        {
+            text.get(..1)
+        }
+        _ => text.graphemes(true).next(),
+    }
 }
 
 /// One cluster that paints something, and the bytes it travels with.
@@ -346,6 +370,44 @@ mod tests {
 
     fn texts<'a>(text: &'a str, rows: &[Row]) -> Vec<&'a str> {
         rows.iter().map(|row| &text[row.start..row.end]).collect()
+    }
+
+    #[test]
+    fn the_first_cluster_is_the_segmentations_first_cluster() {
+        // The shortcut's whole claim, checked against the segmentation it
+        // stands in for on every pair it can take: each printable ASCII
+        // character followed by every ASCII byte, controls and escape
+        // included, and by nothing at all.
+        for first in 0x20u8..=0x7e {
+            let alone = String::from(char::from(first));
+            assert_eq!(first_cluster(&alone), alone.graphemes(true).next());
+            for second in 0x00u8..=0x7f {
+                let pair: String = [char::from(first), char::from(second)].iter().collect();
+                assert_eq!(
+                    first_cluster(&pair),
+                    pair.graphemes(true).next(),
+                    "{first:#04x} then {second:#04x}"
+                );
+            }
+        }
+        // And the cases the byte after the first is there for: a printable
+        // character that a combining mark, a variation selector and keycap, a
+        // joiner or a spacing mark makes part of something longer.
+        for joined in [
+            "e\u{301}x",
+            "#\u{fe0f}\u{20e3}",
+            "a\u{200d}b",
+            "k\u{93f}",
+            "\r\n",
+            "\u{1f468}\u{200d}\u{1f469}",
+            "",
+        ] {
+            assert_eq!(
+                first_cluster(joined),
+                joined.graphemes(true).next(),
+                "{joined:?}"
+            );
+        }
     }
 
     #[test]
