@@ -1,0 +1,9 @@
+== ./.xfx/settings.json
+{
+  "statusLine": {
+    "context": true,
+    "session": true,
+    "workspace": true
+  }
+}
+

@@ -5,10 +5,10 @@
 fx: env FX_SOUND= TMPDIR=/var/empty
 wait 3
 bells start
-files start
+home start
 type /sound
 key Enter
 wait 1
 snap toggled
-files toggled
+home toggled
 bells toggled

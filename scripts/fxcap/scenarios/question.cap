@@ -1,0 +1,33 @@
+# A model's question batch, walked on both binaries: two questions, the first
+# with described and bare choices; Down onto `Other` and past it (the walk
+# wraps), back up, Tab to the second question, Enter answers it and returns to
+# the unanswered first, and a digit answers that and submits the batch.
+gateway question.json
+wait 3
+type pick a database
+key Enter
+wait 2.5
+snap q1
+key Down
+wait 0.4
+snap q1-down
+key Down Down
+wait 0.4
+snap q1-down3
+key Down
+wait 0.4
+snap q1-down4
+key Up Up Up
+wait 0.4
+snap q1-back
+key Tab
+wait 0.4
+snap q1-tab
+key Enter
+wait 0.8
+snap q2
+key 2
+wait 2.5
+snap answered
+snapfull answered
+gwlog

@@ -20,9 +20,9 @@
 
 ┃ write the file
 
-[tool] write_file running
+● 1 tool call · 1 write
+└ Wrote c.txt +1
 
-[tool] write_file ok
   Wrote c.txt.
 
   3s (↑4 ↓40)

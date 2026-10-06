@@ -1,0 +1,19 @@
+gateway statusline-turn.json
+githead main
+wait 2
+snap launch
+type /statusline context
+key Enter
+wait 1
+type /statusline session
+key Enter
+wait 1
+type /statusline workspace
+key Enter
+wait 1
+snap all-on
+home all-on
+type say the marker
+key Enter
+wait 5
+snap after-turn

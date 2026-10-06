@@ -1,0 +1,41 @@
+# /model's router form: one word resolved against the catalog, an id the catalog
+# does not list, two words (the usage line), and an exact id in another case.
+# fx opens its inline column on `/model ` and a space; Escape dismisses it so
+# Enter takes the router path, as `fx-model-fuzzy` did. xfx has no such column.
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model opus
+wait 0.5
+fx: key Escape
+fx: wait 0.4
+key Enter
+wait 1.5
+snap opus
+home after-opus
+type /model nonexistent-xyz
+wait 0.5
+fx: key Escape
+fx: wait 0.4
+key Enter
+wait 1.5
+snap unknown
+home after-unknown
+paste /model fake/model-a high
+wait 0.6
+key Enter
+wait 1.2
+snap usage
+key C-u
+wait 0.3
+type /model XAI/GROK-4.7
+wait 0.5
+fx: key Escape
+fx: wait 0.4
+key Enter
+wait 1.5
+snap exact
+home end
+gwlog

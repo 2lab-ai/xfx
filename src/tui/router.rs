@@ -57,6 +57,11 @@ pub(crate) trait CommandHandlers {
     /// `/status`: the configuration a turn would run under, and the live
     /// conversation's counts.
     fn status(&mut self);
+    /// `/statusline`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the picker; anything else names the
+    /// item to flip, and what an item may be called is
+    /// `crate::config::StatusLineItem::parse`'s to say.
+    fn statusline(&mut self, argument: &str);
     fn version(&mut self);
     fn quit(&mut self);
     /// `/setup`, with the rest of the line -- already trimmed, and empty when
@@ -148,6 +153,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
+        Slash::Statusline => handlers.statusline(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -212,6 +218,9 @@ mod tests {
         fn status(&mut self) {
             self.calls.push("status".to_string());
         }
+        fn statusline(&mut self, argument: &str) {
+            self.calls.push(format!("statusline {argument}"));
+        }
         fn version(&mut self) {
             self.calls.push("version".to_string());
         }
@@ -241,6 +250,7 @@ mod tests {
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/status", "status"),
+            ("/statusline", "statusline "),
             ("/version", "version"),
             ("/quit", "quit"),
             ("/setup", "setup "),
@@ -271,6 +281,19 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Upstream's `accepts_payload` (`commands.zig:494`): the argument is
+        // the item, and whether it names one is the handler's question.
+        assert_eq!(
+            routed("/statusline context"),
+            vec!["statusline context".to_string()]
+        );
+        assert_eq!(
+            super::classify("/statusline  bogus words "),
+            Submitted::Command {
+                command: Slash::Statusline,
+                argument: "bogus words".to_string()
+            }
+        );
         // Every form `/sound` is typed in reaches its one handler, the words
         // it does not know included: refusing them is the handler's, with the
         // usage line (`app_commands.zig:3984-3988`), not this module's with

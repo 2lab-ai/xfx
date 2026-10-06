@@ -17,14 +17,18 @@ turn, then a turn that asks to write `c.txt` (answered `1`), then `/sound off`
 and a last turn. `scenarios/sound-default.cap` starts both with nothing setting
 the level and types one `/sound`.
 
-The xfx binary is `target/debug/xfx`, built from the working tree of this
-commit. Its banner shows `b9c5591` because that commit is the base.
+The xfx binary is `target/debug/xfx`, built from this branch after
+`plan/tui-phase4` (fbfaf4c) was merged into it; its banner shows `4b7264f`,
+the commit before that merge. The captures were retaken on the merged tree,
+with plan's `home` verb for the settings dumps; an earlier set taken before
+the merge, with a `files` verb of this unit's own, said the same thing row for
+row and bell for bell.
 
 ## What was added to capture.sh
 
-- `files <label>`: every file under the run's HOME except session logs, to
-  `<bin>-<scenario>-<size>-<label>.files`, with the run's scratch path replaced
-  by `<scratch>`. This is where the settings file is read after each write.
+- The settings file after each write is read with plan's `home <label>` verb
+  (`<bin>-<scenario>-<size>-<label>.home`: each binary's settings file, and
+  fx's backups of it).
 - `bells <label>`: the number of terminal bells the pane has rung so far, and
   the number of tmux clients attached, to `<bin>-<scenario>-<size>-<label>.bells`.
   The count comes from a tmux `alert-bell` hook that capture.sh now sets on
@@ -49,9 +53,9 @@ attached: `clients=0` in every `.bells` file here. A bell also changes no cell,
 so the screens are the same either way. Each scenario sets the start level
 itself where it matters (`xfx: env XFX_SOUND=off` in `sound.cap`).
 
-Sanitized: no scratch path appears in any `.txt`, `.ansi` or `.bells` file. The
-`.files` dumps have the run directory replaced by `<scratch>` by the `files`
-verb. Nothing else was replaced.
+Sanitized: no scratch path appears in any `.txt`, `.ansi`, `.bells` or `.home`
+file (checked with `grep` for `/private/`, `/var/folders` and `fxcap.`), so
+nothing was replaced.
 
 ## Per snap: the notices
 
@@ -96,7 +100,7 @@ four ways:
   `attention_required` before `turn_end`, because `serde_json` here is built
   without `preserve_order`.
 - **Backups.** fx keeps every prior version as
-  `~/.fx/backups/settings.json.backup.<ms>-<seq>-<hash>`, as the `.files`
+  `~/.fx/backups/settings.json.backup.<ms>-<seq>-<hash>`, as the `.home`
   dumps show. xfx keeps none: its writer is a staged `0600` file and a rename.
 - **Number of writes.** xfx saves the level as two preference writes,
   `turn_end` then `attention_required`. fx writes one patch. fx also skipped
@@ -121,11 +125,16 @@ after the snap before it.
 
 `clients=0` in every file: none of these bells reached a terminal.
 
-xfx's `ask` and `answered` screens differ from fx's in the approval panel and
-tool rows: the scope sentence, the `wheel scroll` key, and the `[tool] write_file`
-rows where fx draws a tool group card. Those surfaces belong to other units (the
-approval layout and the tool groups) and are unchanged by this one. The
-`/sound` rows on those screens match.
+Other rows differ on the `ask`, `answered`, `off2` and `turn-off2` screens, and
+this unit does not draw any of them:
+
+- The approval panel: the second choice's wording, the scope sentence under it,
+  and the `wheel scroll` key.
+- The approved turn's summary: fx counts `↓80` where xfx counts `↓40`.
+- Where the document has scrolled.
+
+The tool group card now matches fx (`● 1 tool call · 1 write`, `└ Wrote c.txt
++1`). The `/sound` rows on these screens match.
 
 ## What differs and is not on these screens
 

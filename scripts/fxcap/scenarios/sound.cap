@@ -8,7 +8,7 @@ gateway sound-turns.json
 fx: env FX_PERMISSION_MODE=ask TMPDIR=/var/empty
 xfx: env XFX_PERMISSION_MODE=ask XFX_SOUND=off
 wait 3
-files start
+home start
 type first question
 key Enter
 wait 3
@@ -18,32 +18,32 @@ type /sound
 key Enter
 wait 1
 snap bare
-files bare
+home bare
 type /sound on
 key Enter
 wait 1
 snap on
-files on
+home on
 type /sound max
 key Enter
 wait 1
 snap max
-files max
+home max
 type /sound off
 key Enter
 wait 1
 snap off
-files off
+home off
 type /sound
 key Enter
 wait 1
 snap bare2
-files bare2
+home bare2
 type /sound bogus
 key Enter
 wait 1
 snap bogus
-files bogus
+home bogus
 bells before-turn
 type second question
 key Enter
@@ -63,7 +63,7 @@ type /sound off
 key Enter
 wait 1
 snap off2
-files off2
+home off2
 type fourth question
 key Enter
 wait 3
