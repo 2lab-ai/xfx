@@ -262,14 +262,25 @@ enum Ending {
 /// "something is still running in there" and "the question could not be asked"
 /// are different failures, and a report that cannot tell them apart is the
 /// silent path this sweep exists to close.
+///
+/// It is a claim that something may still be running, so it is made only about
+/// a member that could be: one that is neither dead nor dying and that xfx did
+/// not send `SIGKILL` to. A killed process that has not finished exiting, and
+/// a zombie its reaper has not collected, keep a group in existence for a
+/// while on a loaded machine; neither will run another instruction, and
+/// reporting either as a survivor told the model that a process had escaped
+/// when none had (`reconsider`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stranded {
-    /// `kill(-pgid, 0)` succeeded: the group still has a member xfx may signal.
+    /// A member that is not dead, not exiting, and was never sent `SIGKILL`
+    /// by xfx, and that xfx may signal. Where the kernel cannot be asked
+    /// member by member, `kill(-pgid, 0)` succeeding is reported as this.
     Running,
-    /// `EPERM`. Per `kill(2)`, when signalling a process group this "is
-    /// returned if any members of the group could not be signaled" -- so the
-    /// group still exists. A process that has died but not been collected by
-    /// its reaper answers this way.
+    /// `EPERM`: a member xfx is not permitted to signal, so no kill of xfx's
+    /// can have reached it. Where the kernel cannot be asked member by member,
+    /// the group answering `kill(-pgid, 0)` with `EPERM` -- which per
+    /// `kill(2)` "is returned if any members of the group could not be
+    /// signaled" -- is reported as this.
     Unsignalable,
     /// Any other errno, named rather than swallowed.
     Errno(i32),
@@ -500,11 +511,12 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
 /// first -- and only after that is the leader collected and the group asked
 /// whether it is gone.
 ///
-/// Returns `None` when the group is gone, and otherwise the kernel's reason for
-/// saying it is not. That answer is not a detail to swallow: it means something
-/// the command started may still be running, still holding the pipes xfx handed
-/// it, after xfx did everything it can do about it -- and the caller says so in
-/// the tool's own output.
+/// Returns `None` when the group is gone or holds nothing that can run again,
+/// and otherwise the kernel's reason for saying something might. That answer
+/// is not a detail to swallow: it means something the command started may
+/// still be running, still holding the pipes xfx handed it, after xfx did
+/// everything it can do about it -- and the caller says so in the tool's own
+/// output.
 fn stop(child: &mut Child) -> Option<Stranded> {
     #[cfg(unix)]
     let group = rustix::process::Pid::from_raw(child.id() as i32);
@@ -518,16 +530,19 @@ fn stop(child: &mut Child) -> Option<Stranded> {
     // After the leader has exited, before it is collected, never after: see
     // `sweep_anchored`.
     #[cfg(unix)]
-    if let Some(group) = group {
-        exited_uncollected(group);
-        sweep_anchored(group);
-    }
+    let killed = match group {
+        Some(group) => {
+            exited_uncollected(group);
+            sweep_anchored(group)
+        }
+        None => Killed::new(),
+    };
 
     let _ = child.wait();
 
     #[cfg(unix)]
     let stranded = match group {
-        Some(group) => settled(group),
+        Some(group) => settled(group, &killed),
         None => None,
     };
     #[cfg(not(unix))]
@@ -621,8 +636,20 @@ fn exited_uncollected(leader: rustix::process::Pid) {
 /// collected and the id handed out again. The unreaped leader is the one
 /// member whose presence xfx controls, which is why every signal is sent while
 /// it is held.
+///
+/// Returns who it killed, for `settled` to tell a member that is still exiting
+/// from one that was never signalled (`Killed`).
+///
+/// The record is taken after the rounds, not inside them, and paid for with
+/// one more signal. Listing the group before each round's signal delays that
+/// signal by the listing, and measured against the rounds left as they were,
+/// that delay is not free: with four forking shells inside each of 144
+/// commands stopped at once, children that outlived the stop went from 17 to
+/// 76 in 4608 stops. Listed after the rounds and signalled once more, the
+/// rounds keep their timing and the record is still of members a signal
+/// reached.
 #[cfg(unix)]
-fn sweep_anchored(group: rustix::process::Pid) {
+fn sweep_anchored(group: rustix::process::Pid) -> Killed {
     for round in 0..ANCHORED_ROUNDS {
         // No pause before the first round: the leader has exited, so the
         // member its last `fork` made is already there to be signalled.
@@ -630,9 +657,338 @@ fn sweep_anchored(group: rustix::process::Pid) {
             std::thread::sleep(GROUP_KILL_PAUSE);
         }
         if rustix::process::kill_process_group(group, rustix::process::Signal::KILL).is_err() {
-            break;
+            // Nothing in the group that a signal can find, so nothing for a
+            // record to vouch for.
+            return Killed::new();
         }
     }
+    // Listed before the signal and recorded only once it has been sent: see
+    // `Killed` for why that order is what makes the record true.
+    let present = listed_before_a_kill(group);
+    match rustix::process::kill_process_group(group, rustix::process::Signal::KILL) {
+        Ok(()) => present.into_iter().collect(),
+        Err(_) => Killed::new(),
+    }
+}
+
+/// The members a group signal was sent to, by identity.
+///
+/// macOS will not say whether a process has a `SIGKILL` pending: `kinfo_proc`
+/// and `proc_bsdinfo` carry its state and whether it has begun to exit
+/// (`P_LEXIT`, set by the dying process itself in `exit_with_reason`,
+/// `bsd/kern/kern_exit.c`), and nothing about signals. A member that has been
+/// killed but has not yet been scheduled to act on it therefore looks exactly
+/// like one that was never signalled. What tells them apart is a record of
+/// who was there when xfx signalled.
+///
+/// The record is true because of what XNU lists. `proc_listpgrppids` walks
+/// `allproc` and `zombproc` (`proc_listpids`, `bsd/kern/proc_info.c`), and a
+/// forked child enters `allproc` in `pinsertchild` under the same lock that
+/// clears `P_REF_NEW` (`bsd/kern/kern_proc.c`) -- so a listed member is never
+/// one the group walk would skip as still being created. Listed before the
+/// signal, it is a member that signal reached, or one that had already begun
+/// to exit or left the group, or one xfx may not signal; `reconsider` asks
+/// about the last of those again rather than trusting the record. A process
+/// keeps its start time across `exec` (`forkproc`, `bsd/kern/kern_fork.c`),
+/// so the identity survives the `sleep` a shell's child becomes.
+///
+/// Linux needs no record: `/proc/<pid>/status` shows the pending `SIGKILL`
+/// itself (`procfs_members`), so the set stays empty there.
+#[cfg(unix)]
+type Killed = std::collections::HashSet<Identity>;
+
+/// A process, named so that a recycled pid is a different name.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Identity {
+    pid: i32,
+    /// When it started, in the kernel's own units.
+    started: u64,
+}
+
+/// One member of a stopped command's group, as the kernel describes it.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Member {
+    /// It will run no more code: a zombie, a process that has begun to exit,
+    /// or one the kernel shows with `SIGKILL` pending.
+    Finished,
+    /// Anything else -- running, sleeping, or killed in a way only `Killed`
+    /// can vouch for.
+    Live(Identity),
+}
+
+#[cfg(target_os = "macos")]
+fn listed_before_a_kill(group: rustix::process::Pid) -> Vec<Identity> {
+    members(group)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|member| match member {
+            Member::Live(identity) => Some(identity),
+            Member::Finished => None,
+        })
+        .collect()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn listed_before_a_kill(_: rustix::process::Pid) -> Vec<Identity> {
+    Vec::new()
+}
+
+/// Every member of `group`, or `None` when the kernel could not be asked.
+#[cfg(target_os = "macos")]
+fn members(group: rustix::process::Pid) -> Option<Vec<Member>> {
+    darwin_members(group.as_raw_nonzero().get())
+}
+
+#[cfg(target_os = "linux")]
+fn members(group: rustix::process::Pid) -> Option<Vec<Member>> {
+    procfs_members(std::path::Path::new("/proc"), group.as_raw_nonzero().get())
+}
+
+/// Elsewhere the kernel's group answer is all there is, and `reconsider`
+/// keeps it.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn members(_: rustix::process::Pid) -> Option<Vec<Member>> {
+    None
+}
+
+/// `PROC_FLAG_INEXIT`, "process is working its way in exit()"
+/// (`bsd/sys/proc_info.h`); the `libc` crate does not carry it.
+#[cfg(target_os = "macos")]
+const PROC_FLAG_INEXIT: u32 = 4;
+
+/// The members of `group`, from `proc_listpgrppids` and one
+/// `proc_pidinfo(PROC_PIDTBSDINFO)` each.
+///
+/// A listed pid that `proc_pidinfo` answers with `ESRCH` is a member that has
+/// already begun to die. `proc_pidinfo` finds a process with `proc_find`
+/// unless its argument asks for zombies, and `proc_find` refuses a process
+/// once `proc_prepareexit` has moved it to `zombproc` and marked it
+/// `P_REF_DEAD` (`bsd/kern/kern_exit.c`); it is the same refusal that keeps
+/// `kill(-pgid)` from counting it. The zombie lookup is not used: it takes the
+/// zombie's `P_LIST_WAITING` (`proc_find_zombref`), which makes its reaper wait
+/// on xfx.
+///
+/// What the listing cannot show is a member it skips: `proc_listpids` passes
+/// over shadow processes -- the husk an `exec` leaves behind, which stays in
+/// its group until the kernel reaps it (`proc_exit`, `bsd/kern/kern_exit.c`)
+/// -- and a forked child is not on `allproc` until it is finished. See
+/// `reconsider` for what that means for a group that lists nobody.
+///
+/// `proc_listpgrppids` returns a count, and turns a failed system call into
+/// zero (`libsyscall/wrappers/libproc/libproc.c`) with `errno` left set. So
+/// `errno` is cleared before the call and read after an empty answer: an empty
+/// listing is only an answer if nothing failed.
+#[cfg(target_os = "macos")]
+fn darwin_members(group: libc::pid_t) -> Option<Vec<Member>> {
+    let mut pids: Vec<libc::pid_t> = vec![0; 16];
+    let listed = loop {
+        let bytes = libc::c_int::try_from(std::mem::size_of_val(pids.as_slice())).ok()?;
+        // SAFETY: `__error` returns this thread's `errno`, which is always a
+        // valid, writable `int`.
+        unsafe { *libc::__error() = 0 };
+        // SAFETY: `pids` is an initialized buffer of exactly `bytes` bytes that
+        // this frame owns, and the call writes at most `bytes` bytes into it.
+        let count = unsafe { libc::proc_listpgrppids(group, pids.as_mut_ptr().cast(), bytes) };
+        if count == 0 && std::io::Error::last_os_error().raw_os_error() != Some(0) {
+            return None;
+        }
+        let count = usize::try_from(count).ok()?;
+        // A full buffer may have been cut short. The kernel lists at most its
+        // process count plus twenty, so doubling ends.
+        if count < pids.len() {
+            break count;
+        }
+        pids.resize(pids.len() * 2, 0);
+    };
+
+    let mut members = Vec::with_capacity(listed);
+    for &pid in &pids[..listed] {
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+        let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
+        // SAFETY: `info` is `size` bytes of zeroed, writable storage owned by
+        // this frame, and the call writes at most `size` bytes into it.
+        let wrote = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        if wrote != size {
+            match std::io::Error::last_os_error().raw_os_error() {
+                Some(libc::ESRCH) => {
+                    members.push(Member::Finished);
+                    continue;
+                }
+                _ => return None,
+            }
+        }
+        // SAFETY: `proc_bsdinfo` is plain integers and arrays of them, so the
+        // zeroed storage was already a valid value, and the kernel has written
+        // the whole of it.
+        let info = unsafe { info.assume_init() };
+        // Left the group since it was listed.
+        if i64::from(info.pbi_pgid) != i64::from(group) {
+            continue;
+        }
+        members.push(
+            if info.pbi_status == libc::SZOMB || info.pbi_flags & PROC_FLAG_INEXIT != 0 {
+                Member::Finished
+            } else {
+                Member::Live(Identity {
+                    pid,
+                    started: info
+                        .pbi_start_tvsec
+                        .saturating_mul(1_000_000)
+                        .saturating_add(info.pbi_start_tvusec),
+                })
+            },
+        );
+    }
+    Some(members)
+}
+
+/// `PF_EXITING`, "getting shut down" (`include/linux/sched.h`), set by
+/// `exit_signals` as `do_exit` begins.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const PF_EXITING: u64 = 0x4;
+
+/// `SIGKILL`'s bit in the masks `/proc/<pid>/status` prints, where signal `n`
+/// is bit `n - 1` (`render_sigset_t`, `fs/proc/array.c`).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SIGKILL_PENDING: u64 = 1 << (libc::SIGKILL as u32 - 1);
+
+/// The members of `group`, from `/proc/<pid>/stat` and `/proc/<pid>/status`.
+///
+/// Linux lists no group's members, so every process is read and the ones in
+/// `group` kept. A member is finished when its state is `Z` or `X`, when
+/// `PF_EXITING` is set, or when `SIGKILL` is pending: a group `SIGKILL` lands
+/// in the shared pending set and in every thread's
+/// (`__send_signal_locked`, `complete_signal`, `kernel/signal.c`), and
+/// `get_signal` takes it back out of the thread's set only on the way into
+/// `do_group_exit`, leaving the shared one -- so from the kill until the
+/// process is released one of those three is visible.
+///
+/// Compiled everywhere and called only on Linux, so that the parsing is
+/// tested on every platform the suite runs on (`root` is a parameter for the
+/// same reason).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn procfs_members(root: &std::path::Path, group: i32) -> Option<Vec<Member>> {
+    let mut members = Vec::new();
+    for entry in std::fs::read_dir(root).ok()? {
+        let entry = entry.ok()?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let dir = entry.path();
+        // Gone since the directory was read: not a member of anything.
+        let Some(stat) = procfs_read(&dir.join("stat"))? else {
+            continue;
+        };
+        let stat = ProcStat::parse(&stat)?;
+        if stat.pgrp != group {
+            continue;
+        }
+        if stat.finished() {
+            members.push(Member::Finished);
+            continue;
+        }
+        // Gone between the two reads: it was a member, and it is finished.
+        let Some(status) = procfs_read(&dir.join("status"))? else {
+            members.push(Member::Finished);
+            continue;
+        };
+        members.push(if sigkill_pending(&status)? {
+            Member::Finished
+        } else {
+            Member::Live(Identity {
+                pid,
+                started: stat.started,
+            })
+        });
+    }
+    Some(members)
+}
+
+/// `Some(None)` for a process that has gone since it was listed, `None` for a
+/// file that could not be read for any other reason.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn procfs_read(path: &std::path::Path) -> Option<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Some(Some(text)),
+        Err(err)
+            if err.kind() == std::io::ErrorKind::NotFound
+                || err.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            Some(None)
+        }
+        Err(_) => None,
+    }
+}
+
+/// The fields of `/proc/<pid>/stat` that `procfs_members` reads.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProcStat {
+    state: char,
+    pgrp: i32,
+    flags: u64,
+    started: u64,
+}
+
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+impl ProcStat {
+    /// Fields 3, 5, 9 and 22 of `proc(5)`: state, pgrp, flags, starttime.
+    ///
+    /// The command name, field 2, is in parentheses and may itself contain
+    /// spaces and parentheses, so the fields are counted from the last `)`.
+    fn parse(text: &str) -> Option<ProcStat> {
+        let (_, rest) = text.rsplit_once(')')?;
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        Some(ProcStat {
+            state: fields.first()?.chars().next()?,
+            pgrp: fields.get(2)?.parse().ok()?,
+            flags: fields.get(6)?.parse().ok()?,
+            started: fields.get(19)?.parse().ok()?,
+        })
+    }
+
+    fn finished(&self) -> bool {
+        matches!(self.state, 'Z' | 'X' | 'x') || self.flags & PF_EXITING != 0
+    }
+}
+
+/// Whether `/proc/<pid>/status` shows `SIGKILL` pending, for the thread or
+/// for the whole process; `None` if it shows neither mask.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn sigkill_pending(status: &str) -> Option<bool> {
+    let mut seen = false;
+    let mut pending = 0;
+    for line in status.lines() {
+        if let Some(mask) = line
+            .strip_prefix("SigPnd:")
+            .or_else(|| line.strip_prefix("ShdPnd:"))
+        {
+            pending |= u64::from_str_radix(mask.trim(), 16).ok()?;
+            seen = true;
+        }
+    }
+    seen.then_some(pending & SIGKILL_PENDING != 0)
 }
 
 /// Asks whether `group` is gone, `GROUP_SETTLE_ROUNDS` times at most and
@@ -657,9 +1013,180 @@ fn sweep_anchored(group: rustix::process::Pid) {
 /// Asking after the leader has been collected is safe in a way signalling would
 /// not be: if the id has been recycled, the worst outcome is a notice about a
 /// group that is not xfx's, and no process is touched either way.
+///
+/// A group still there after the last question is then looked at member by
+/// member (`linger`, `reconsider`), because the group's own answer cannot say
+/// *what* is still there.
 #[cfg(unix)]
-fn settled(group: rustix::process::Pid) -> Option<Stranded> {
-    settle(|| rustix::process::test_kill_process_group(group))
+fn settled(group: rustix::process::Pid, killed: &Killed) -> Option<Stranded> {
+    let answer = settle(|| rustix::process::test_kill_process_group(group))?;
+    linger(|| {
+        reconsider(
+            answer,
+            members(group),
+            killed,
+            // Linux lists every process its reader may see, and `kill` skips
+            // nothing it lists, so there an unlisted member is one xfx may not
+            // see -- another user's -- and the group's `EPERM` is the truth
+            // about it.
+            cfg!(target_os = "macos"),
+            |pid| match rustix::process::Pid::from_raw(pid) {
+                Some(pid) => rustix::process::test_kill_process(pid),
+                None => Err(rustix::io::Errno::SRCH),
+            },
+            || rustix::process::test_kill_process_group(group),
+        )
+    })
+}
+
+/// What one look at a stopped command's members found.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Reading {
+    /// The notice the members justify, if any.
+    stranded: Option<Stranded>,
+    /// Whether a member xfx killed has not yet begun to exit.
+    dying: bool,
+}
+
+/// Looks at the members again, `GROUP_SETTLE_ROUNDS` times at most, while a
+/// member xfx killed has not yet begun to exit, and returns what the last look
+/// found.
+///
+/// Such a member cannot run another instruction of its own, but it may be
+/// inside `fork`, which it finishes before it can act on the signal -- and the
+/// child it makes was never signalled, and is not listed until it is finished
+/// (`darwin_members`). The first look cannot see that child; a look after its
+/// parent has begun to exit can. Measured with four forking shells inside each
+/// of 144 commands stopped at once on 18 cores, in runs of 11520 stops: the
+/// group's own answer, which calls every member `kill` can find a survivor,
+/// disclosed every stop that left a child alive (34 of 34, 43 of 43) along
+/// with 112 and 109 in which nothing had; one look at the members disclosed 39
+/// of 47 and nothing else; looking until the killed have begun to exit, 29 of
+/// 30 and nothing else.
+///
+/// A member still dying after the last look is not reported: everything xfx
+/// can see has been sent `SIGKILL`, and a notice would be about a child that
+/// may never exist. That is the one case this can miss, and it is bounded by
+/// the rounds, as the wait is.
+///
+/// `read` is a parameter for the reason `settle`'s `ask` is.
+#[cfg(unix)]
+fn linger(mut read: impl FnMut() -> Reading) -> Option<Stranded> {
+    let mut stranded = None;
+    for round in 0..GROUP_SETTLE_ROUNDS {
+        if round > 0 {
+            std::thread::sleep(GROUP_KILL_PAUSE);
+        }
+        let reading = read();
+        stranded = reading.stranded;
+        // A running member is already the worst answer; nothing a later look
+        // finds can change what the notice has to say.
+        if !reading.dying || stranded == Some(Stranded::Running) {
+            break;
+        }
+    }
+    stranded
+}
+
+/// Turns the group's last answer into a claim about its members.
+///
+/// `kill(-pgid, 0)` reports on the group as a whole, and under load the group
+/// outlasts `settle`'s rounds for reasons that are not survivals: on macOS a
+/// member xfx killed answers `Ok` until it is scheduled to act on the signal,
+/// and members that have begun to exit or are zombies answer `EPERM` until
+/// their reaper collects them; on Linux a zombie answers `Ok`. With 144 forking
+/// commands stopped at once on 18 cores, `stop` reported a stranded group in 3
+/// to 10 of 1152 stops in each of six runs (40 of 6912), both `Running` and
+/// `Unsignalable`, and nothing in any of them outlived the kill.
+///
+/// So the members are listed, and a notice is kept only for one that could
+/// still run: a `Member::Live` that xfx did not kill and may signal
+/// (`Running`), or one it may not signal at all (`Unsignalable`, whatever the
+/// record says, since no kill of xfx's can have reached it). A `Member::Live`
+/// that xfx did kill is reported as `dying`, for `linger` to look again. Each
+/// look is bounded: one listing, at most one question per member, and one more
+/// question of the group if the listing is empty.
+///
+/// A listing with nobody in it, from a group that still answers, is read by
+/// what the group says when asked again:
+///
+/// * `ESRCH` -- it has just gone.
+/// * `EPERM`, where `unlisted_cannot_run` -- the macOS case. The group exists
+///   and holds nobody `kill` can find; the listing shows every process `kill`
+///   can find and every zombie, so what is left is what it skips, the husks of
+///   `exec`s waiting for the kernel to reap them (`darwin_members`). A child
+///   still being forked is not among them: its parent is in the group, in
+///   `fork`, and findable, so the group would have answered `Ok`. Measured: the
+///   8 such groups seen under the load above all answered `ESRCH` on their own
+///   42 to 722 milliseconds later.
+/// * anything else -- the listing and the group disagree, and the group's own
+///   answer stands. So does it when the kernel cannot be asked member by
+///   member at all.
+///
+/// Every input is a parameter, for the reason `settle`'s `ask` is: the states
+/// that matter cannot be produced on demand, so the reading is proven against
+/// scripted ones (`tests` below).
+#[cfg(unix)]
+fn reconsider(
+    answer: Stranded,
+    members: Option<Vec<Member>>,
+    killed: &Killed,
+    unlisted_cannot_run: bool,
+    mut ask_member: impl FnMut(i32) -> Result<(), rustix::io::Errno>,
+    mut ask_group: impl FnMut() -> Result<(), rustix::io::Errno>,
+) -> Reading {
+    let Some(members) = members else {
+        return Reading {
+            stranded: Some(answer),
+            dying: false,
+        };
+    };
+    if members.is_empty() {
+        let stranded = match ask_group() {
+            Err(rustix::io::Errno::SRCH) => None,
+            Err(rustix::io::Errno::PERM) if unlisted_cannot_run => None,
+            _ => Some(answer),
+        };
+        return Reading {
+            stranded,
+            dying: false,
+        };
+    }
+
+    let mut verdict: Option<Stranded> = None;
+    let mut dying = false;
+    for member in members {
+        let Member::Live(identity) = member else {
+            continue;
+        };
+        let reason = match ask_member(identity.pid) {
+            // Gone since it was listed.
+            Err(rustix::io::Errno::SRCH) => continue,
+            Err(rustix::io::Errno::PERM) => Stranded::Unsignalable,
+            Err(other) => Stranded::Errno(other.raw_os_error()),
+            // Sent `SIGKILL` while a listed member, and not yet far enough
+            // into dying for the kernel to say so.
+            Ok(()) if killed.contains(&identity) => {
+                dying = true;
+                continue;
+            }
+            Ok(()) => Stranded::Running,
+        };
+        // The most serious answer wins: something running outranks something
+        // xfx may not touch, which outranks a question that failed.
+        verdict = Some(match (verdict, reason) {
+            (Some(Stranded::Running), _) | (_, Stranded::Running) => Stranded::Running,
+            (Some(Stranded::Unsignalable), _) | (_, Stranded::Unsignalable) => {
+                Stranded::Unsignalable
+            }
+            (_, errno) => errno,
+        });
+    }
+    Reading {
+        stranded: verdict,
+        dying,
+    }
 }
 
 /// The rounds and the reading, with the question itself a parameter.
@@ -707,11 +1234,7 @@ fn stranded_notice(stranded: Option<Stranded>) -> String {
     };
     let because = match stranded {
         Stranded::Running => "it still has a running member".to_string(),
-        Stranded::Unsignalable => {
-            "its members could not be signalled (EPERM), so something in it has not been \
-             collected yet"
-                .to_string()
-        }
+        Stranded::Unsignalable => "a member could not be signalled (EPERM)".to_string(),
         Stranded::Errno(code) => format!("the group could not be checked (errno {code})"),
     };
     format!(
@@ -1060,6 +1583,427 @@ mod tests {
         assert_eq!(asked.get(), 2, "the answer `ESRCH` ends the questioning");
     }
 
+    #[cfg(unix)]
+    fn live(pid: i32) -> Member {
+        Member::Live(Identity { pid, started: 7 })
+    }
+
+    #[cfg(unix)]
+    fn killed_set(pids: &[i32]) -> Killed {
+        pids.iter()
+            .map(|&pid| Identity { pid, started: 7 })
+            .collect()
+    }
+
+    /// `reconsider` with every kernel answer scripted: `members` is the
+    /// listing, `asks` what each member answers `kill(pid, 0)`, and `group`
+    /// what the group answers when asked again.
+    #[cfg(unix)]
+    fn read_members(
+        answer: Stranded,
+        members: Option<Vec<Member>>,
+        killed: &Killed,
+        unlisted_cannot_run: bool,
+        asks: &[(i32, Result<(), rustix::io::Errno>)],
+        group: Result<(), rustix::io::Errno>,
+    ) -> Reading {
+        reconsider(
+            answer,
+            members,
+            killed,
+            unlisted_cannot_run,
+            |pid| {
+                asks.iter()
+                    .find(|(asked, _)| *asked == pid)
+                    .map_or(Err(rustix::io::Errno::SRCH), |(_, answer)| *answer)
+            },
+            || group,
+        )
+    }
+
+    #[cfg(unix)]
+    fn clear() -> Reading {
+        Reading {
+            stranded: None,
+            dying: false,
+        }
+    }
+
+    /// A group made only of the dead, the dying, and members xfx killed is
+    /// not a stranded group, whatever the group as a whole answered.
+    #[cfg(unix)]
+    #[test]
+    fn a_group_of_the_dead_and_the_killed_is_not_reported_as_stranded() {
+        let none = Killed::new();
+        let ok = Ok(());
+        let srch = Err(rustix::io::Errno::SRCH);
+        let perm = Err(rustix::io::Errno::PERM);
+
+        // Zombies and processes already exiting, behind either group answer.
+        for answer in [Stranded::Running, Stranded::Unsignalable] {
+            let members = Some(vec![Member::Finished, Member::Finished]);
+            assert_eq!(read_members(answer, members, &none, true, &[], ok), clear());
+        }
+
+        // A member xfx killed that has not got far enough to say so: nothing
+        // to report, and worth a second look.
+        let members = Some(vec![live(10), Member::Finished]);
+        assert_eq!(
+            read_members(
+                Stranded::Running,
+                members,
+                &killed_set(&[10]),
+                true,
+                &[(10, ok)],
+                ok
+            ),
+            Reading {
+                stranded: None,
+                dying: true
+            }
+        );
+
+        // A listed member that has gone since is nobody.
+        let members = Some(vec![live(11)]);
+        assert_eq!(
+            read_members(Stranded::Running, members, &none, true, &[(11, srch)], ok),
+            clear()
+        );
+
+        // An empty listing from a group that is gone when asked again.
+        for unlisted_cannot_run in [true, false] {
+            let reading = read_members(
+                Stranded::Unsignalable,
+                Some(Vec::new()),
+                &none,
+                unlisted_cannot_run,
+                &[],
+                srch,
+            );
+            assert_eq!(reading, clear());
+        }
+
+        // An empty listing from a group that still says `EPERM`: on macOS,
+        // only husks the listing skips.
+        let reading = read_members(
+            Stranded::Unsignalable,
+            Some(Vec::new()),
+            &none,
+            true,
+            &[],
+            perm,
+        );
+        assert_eq!(reading, clear());
+    }
+
+    /// Everything that could still run is reported, and as what it is.
+    #[cfg(unix)]
+    #[test]
+    fn a_member_that_could_still_run_is_reported_as_what_it_is() {
+        let none = Killed::new();
+        let ok = Ok(());
+        let perm = Err(rustix::io::Errno::PERM);
+        let running = |stranded| Reading {
+            stranded: Some(stranded),
+            dying: false,
+        };
+
+        // Never signalled, and signalable: the escape this notice exists for.
+        let members = Some(vec![live(20), Member::Finished]);
+        assert_eq!(
+            read_members(Stranded::Running, members, &none, true, &[(20, ok)], ok),
+            running(Stranded::Running)
+        );
+
+        // Not signalable is reported as such, even when the record says it was
+        // killed: no kill of xfx's can have reached it.
+        for killed in [none.clone(), killed_set(&[21])] {
+            let members = Some(vec![live(21)]);
+            assert_eq!(
+                read_members(Stranded::Running, members, &killed, true, &[(21, perm)], ok),
+                running(Stranded::Unsignalable)
+            );
+        }
+
+        // Any other answer is named.
+        let members = Some(vec![live(22)]);
+        let odd = Err(errno(42));
+        assert_eq!(
+            read_members(Stranded::Running, members, &none, true, &[(22, odd)], ok),
+            running(Stranded::Errno(42))
+        );
+
+        // The most serious answer wins, in either order, and a killed member
+        // beside it is still noticed as dying.
+        let members = Some(vec![live(23), live(24), live(25), live(26)]);
+        let asks = [(23, odd), (24, perm), (25, ok), (26, ok)];
+        assert_eq!(
+            read_members(
+                Stranded::Unsignalable,
+                members,
+                &killed_set(&[26]),
+                true,
+                &asks,
+                ok
+            ),
+            Reading {
+                stranded: Some(Stranded::Running),
+                dying: true
+            }
+        );
+        let members = Some(vec![live(24), live(23)]);
+        assert_eq!(
+            read_members(Stranded::Running, members, &none, true, &asks, ok),
+            running(Stranded::Unsignalable)
+        );
+    }
+
+    /// Where the members cannot be read, the group's own answer stands.
+    #[cfg(unix)]
+    #[test]
+    fn a_group_whose_members_cannot_be_read_keeps_the_kernels_answer() {
+        let none = Killed::new();
+        let answers = [
+            Stranded::Running,
+            Stranded::Unsignalable,
+            Stranded::Errno(42),
+        ];
+        for answer in answers {
+            let reading = read_members(answer, None, &none, true, &[], Ok(()));
+            assert_eq!(reading.stranded, Some(answer));
+            assert!(!reading.dying);
+        }
+
+        // An empty listing the group contradicts: a failed listing looks like
+        // this too.
+        let reading = read_members(
+            Stranded::Running,
+            Some(Vec::new()),
+            &none,
+            true,
+            &[],
+            Ok(()),
+        );
+        assert_eq!(reading.stranded, Some(Stranded::Running));
+        // And `EPERM` with nobody listed, where unlisted members may be other
+        // users' processes rather than husks (Linux).
+        let perm = Err(rustix::io::Errno::PERM);
+        let reading = read_members(
+            Stranded::Unsignalable,
+            Some(Vec::new()),
+            &none,
+            false,
+            &[],
+            perm,
+        );
+        assert_eq!(reading.stranded, Some(Stranded::Unsignalable));
+    }
+
+    /// `linger` looks again only while a killed member is dying, stops at the
+    /// first running one, never asks more than `GROUP_SETTLE_ROUNDS` times,
+    /// and reports what the last look found.
+    #[cfg(unix)]
+    #[test]
+    fn lingering_looks_again_only_while_a_killed_member_is_dying() {
+        let rounds = GROUP_SETTLE_ROUNDS as usize;
+        let dying = Reading {
+            stranded: None,
+            dying: true,
+        };
+        let scripted = |readings: Vec<Reading>| {
+            let looked = Rc::new(Cell::new(0));
+            let counter = Rc::clone(&looked);
+            let read = move || {
+                let reading = readings.get(counter.get()).copied().unwrap_or(dying);
+                counter.set(counter.get() + 1);
+                reading
+            };
+            (read, looked)
+        };
+
+        // Nothing dying: one look.
+        let (read, looked) = scripted(vec![clear()]);
+        assert_eq!(linger(read), None);
+        assert_eq!(looked.get(), 1);
+
+        // Dying, then the child its `fork` made, never signalled.
+        let escaped = Reading {
+            stranded: Some(Stranded::Running),
+            dying: true,
+        };
+        let (read, looked) = scripted(vec![dying, dying, escaped, clear()]);
+        assert_eq!(linger(read), Some(Stranded::Running));
+        assert_eq!(looked.get(), 3, "a running member ends the looking");
+
+        // Dying, then gone.
+        let (read, looked) = scripted(vec![dying, dying, clear()]);
+        assert_eq!(linger(read), None);
+        assert_eq!(looked.get(), 3);
+
+        // An unsignalable member beside a dying one is looked at again, and the
+        // last look is what is reported.
+        let unsignalable = Reading {
+            stranded: Some(Stranded::Unsignalable),
+            dying: true,
+        };
+        let (read, looked) = scripted(vec![unsignalable, clear()]);
+        assert_eq!(linger(read), None);
+        assert_eq!(looked.get(), 2);
+
+        // Dying forever: exactly the bound, and nothing reported.
+        let (read, looked) = scripted(Vec::new());
+        assert_eq!(linger(read), None);
+        assert_eq!(looked.get(), rounds);
+    }
+
+    /// `/proc/<pid>/stat` is read by its fields, counted from the end of the
+    /// command name, which may contain anything.
+    #[cfg(unix)]
+    #[test]
+    fn a_proc_stat_line_is_read_past_a_command_name_that_contains_parentheses() {
+        let line = "4242 (sh) (x) y) S 1 4240 4240 0 -1 4194560 92 0 0 0 0 0 0 0 20 0 1 0 \
+                    123456 3784704 213 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 3 0 0\n";
+        let stat = ProcStat::parse(line).expect("a stat line");
+        assert_eq!(
+            stat,
+            ProcStat {
+                state: 'S',
+                pgrp: 4240,
+                flags: 4194560,
+                started: 123456,
+            }
+        );
+        assert!(!stat.finished());
+
+        let zombie = ProcStat::parse(&line.replace(") S 1", ") Z 1")).expect("a zombie");
+        assert!(zombie.finished());
+        let exiting = ProcStat::parse(&line.replace("4194560", "4194564")).expect("exiting");
+        assert!(exiting.finished(), "PF_EXITING is bit 0x4");
+
+        assert_eq!(ProcStat::parse("4242 (sh"), None);
+        assert_eq!(ProcStat::parse("4242 (sh) S 1"), None);
+    }
+
+    /// The pending masks are read for `SIGKILL`, bit 8, in either set.
+    #[cfg(unix)]
+    #[test]
+    fn a_pending_sigkill_is_read_from_either_mask() {
+        let status = |thread: &str, shared: &str| {
+            format!("Name:\tsleep\nState:\tS (sleeping)\nSigQ:\t0/63\nSigPnd:\t{thread}\nShdPnd:\t{shared}\nSigBlk:\t0000000000000000\n")
+        };
+        let none = "0000000000000000";
+        let kill = "0000000000000100";
+        let term = "0000000000004000";
+        assert_eq!(sigkill_pending(&status(none, none)), Some(false));
+        assert_eq!(sigkill_pending(&status(kill, none)), Some(true));
+        assert_eq!(sigkill_pending(&status(none, kill)), Some(true));
+        assert_eq!(sigkill_pending(&status(term, term)), Some(false));
+        assert_eq!(sigkill_pending("Name:\tsleep\n"), None);
+        assert_eq!(sigkill_pending(&status("zz", none)), None);
+    }
+
+    /// The Linux reader, against a `/proc` laid out in a directory: members of
+    /// the group are kept and classified, everything else is passed over.
+    #[cfg(unix)]
+    #[test]
+    fn a_proc_tree_is_read_into_the_members_of_one_group() {
+        let root = tempfile::tempdir().expect("a root");
+        let process = |pid: i32, state: char, pgrp: i32, flags: u64, status: Option<&str>| {
+            let dir = root.path().join(pid.to_string());
+            std::fs::create_dir(&dir).expect("a process directory");
+            std::fs::write(
+                dir.join("stat"),
+                format!(
+                    "{pid} (sleep) {state} 1 {pgrp} {pgrp} 0 -1 {flags} 0 0 0 0 0 0 0 0 20 0 1 0 \
+                     {} 0 0\n",
+                    1000 + pid
+                ),
+            )
+            .expect("stat");
+            if let Some(shared) = status {
+                std::fs::write(
+                    dir.join("status"),
+                    format!("Name:\tsleep\nSigPnd:\t0000000000000000\nShdPnd:\t{shared}\n"),
+                )
+                .expect("status");
+            }
+        };
+        process(100, 'S', 7, 0, Some("0000000000000000"));
+        process(101, 'Z', 7, 0, None);
+        process(102, 'S', 7, 0, Some("0000000000000100"));
+        process(103, 'R', 7, 0x4, None);
+        process(104, 'S', 8, 0, Some("0000000000000000"));
+        // Listed, then gone before its status could be read.
+        process(105, 'S', 7, 0, None);
+        std::fs::create_dir(root.path().join("self")).expect("a non-process entry");
+
+        let mut members = procfs_members(root.path(), 7).expect("a readable tree");
+        members.sort_by_key(|member| match member {
+            Member::Live(identity) => identity.pid,
+            Member::Finished => i32::MAX,
+        });
+        assert_eq!(
+            members,
+            vec![
+                Member::Live(Identity {
+                    pid: 100,
+                    started: 1100
+                }),
+                Member::Finished,
+                Member::Finished,
+                Member::Finished,
+                Member::Finished,
+            ]
+        );
+
+        // A stat line that cannot be read as one is not an answer.
+        std::fs::write(root.path().join("100").join("stat"), "garbage").expect("stat");
+        assert_eq!(procfs_members(root.path(), 7), None);
+    }
+
+    /// The kernel's listing, on the platforms that have one, names a live
+    /// group's members, and finds nothing that can run once `stop` is done.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn the_kernel_lists_a_groups_members_and_nothing_live_after_a_stop() {
+        let _alone = one_group_test_at_a_time();
+        let tag = tag_for(4);
+        let _sweep = SweepTag(tag.clone());
+        let (mut child, marker) = a_shell_that_says_it_forked(&tag);
+        let group = rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
+        wait_for_the_fork(&marker);
+
+        let listed = members(group).expect("a listing");
+        let live: Vec<i32> = listed
+            .iter()
+            .filter_map(|member| match member {
+                Member::Live(identity) => Some(identity.pid),
+                Member::Finished => None,
+            })
+            .collect();
+        assert!(
+            live.contains(&group.as_raw_nonzero().get()),
+            "the leader is a live member: {listed:?}"
+        );
+        assert_eq!(live.len(), 2, "the shell and its sleep: {listed:?}");
+
+        assert_eq!(stop(&mut child), None);
+        // What `stop` killed may take a while to say so on a loaded machine;
+        // it may not stay live.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let after = members(group).expect("a listing");
+            if after.iter().all(|member| *member == Member::Finished) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "still live after a stop: {after:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     /// `settled` asks the kernel the question the scripted test asks a script,
     /// and the two answers a real group can give come back as themselves.
     ///
@@ -1082,11 +2026,11 @@ mod tests {
 
         // A group with something running in it is reported as running, every
         // round, and the answer that comes back is that one.
-        assert_eq!(settled(group), Some(Stranded::Running));
+        assert_eq!(settled(group, &Killed::new()), Some(Stranded::Running));
 
         // And once it is gone, there is nothing to report.
         assert_eq!(stop(&mut child), None);
-        assert_eq!(settled(group), None);
+        assert_eq!(settled(group, &Killed::new()), None);
     }
 
     /// Each answer the kernel can give reads as itself, and none of them reads
@@ -1381,6 +2325,14 @@ mod tests {
     /// `(1 - 0.0033)^1152`, about 2%, and at the lowest rate seen in one run
     /// (2 of 1152) about 14%. Against this one, 12 of 12 runs and 0 of 13824
     /// stops. A quieter machine lowers the old rate, not the new one.
+    ///
+    /// The same load also tests the notice from the other side: a stop
+    /// reported as stranded when nothing in the group outlived the kill is a
+    /// false report, and fails this test as an escape does. Against the
+    /// `settled` that read only the group's answer, 6 of 6 runs failed, with
+    /// 5, 3, 10, 7, 6 and 9 false notices in 1152 stops (40 of 6912), both
+    /// `Running` and `Unsignalable`; reading the members (`reconsider`), 12 of
+    /// 12 runs and 0 of 13824.
     #[cfg(unix)]
     #[test]
     fn a_stopped_command_leaves_nothing_alive_in_its_process_group_on_a_loaded_machine() {
@@ -1394,30 +2346,47 @@ mod tests {
                     let tag = tag_for(100 + worker as u32);
                     let _sweep = SweepTag(tag.clone());
                     let mut escaped = 0;
+                    let mut misreported = Vec::new();
                     for _ in 0..ROUNDS {
                         let mut child = a_forking_shell(&tag, 50);
                         let group =
                             rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
                         std::thread::sleep(Duration::from_millis(10));
-                        stop(&mut child);
-                        if outlived_its_kill(group) {
+                        let stranded = stop(&mut child);
+                        let outlived = outlived_its_kill(group);
+                        if outlived {
                             escaped += 1;
                         }
+                        // The notice is a claim that something may still be
+                        // running. Made about a group whose every member was
+                        // dead or dying, it is false.
+                        if let (Some(stranded), false) = (stranded, outlived) {
+                            misreported.push(stranded);
+                        }
                     }
-                    escaped
+                    (escaped, misreported)
                 })
             })
             .collect();
         let stopped = workers.len() * ROUNDS;
-        let escaped: usize = workers
-            .into_iter()
-            .map(|worker| worker.join().expect("a worker"))
-            .sum();
+        let mut escaped = 0;
+        let mut misreported = Vec::new();
+        for worker in workers {
+            let (escapes, notices) = worker.join().expect("a worker");
+            escaped += escapes;
+            misreported.extend(notices);
+        }
 
         assert_eq!(
             escaped, 0,
             "{escaped} of {stopped} commands stopped on a loaded machine left a process \
              alive in their group"
+        );
+        assert!(
+            misreported.is_empty(),
+            "{} of {stopped} commands stopped on a loaded machine were reported as leaving \
+             their group behind, and nothing in it outlived the kill: {misreported:?}",
+            misreported.len()
         );
     }
 
