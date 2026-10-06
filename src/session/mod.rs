@@ -24,17 +24,18 @@
 //! own the offset it starts at.
 
 pub mod event;
+pub mod prompt_history;
 pub mod store;
 
 pub use event::{
-    new_identifier, EventEnvelope, FrameError, RecordedToolCall, RequestUsage, SessionEvent,
-    TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
+    new_identifier, EventEnvelope, FrameError, RecordedImage, RecordedToolCall, RequestUsage,
+    SessionEvent, TurnConclusion, EVENT_SCHEMA_VERSION, MAX_EVENT_FRAME_BYTES,
 };
 pub use store::{
     validate_title, workspace_key, Clock, DurableState, HistoryTurn, ListFilter, ListScope,
     NewSession, RecordedUsage, Resumed, Selector, SessionDetail, SessionError, SessionId,
-    SessionList, SessionManifest, SessionRecorder, SessionStore, SessionSummary, TitleError,
-    TurnStep, TurnTiming, UsageScan, WritableSession, DEFAULT_LIST_LIMIT, EVENTS_FILE,
-    MANIFEST_FILE, MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT, MAX_RENAMED_TITLE_BYTES,
-    SESSIONS_DIR_NAME, STAGE_SUFFIX, STORAGE_FORMAT,
+    SessionList, SessionManifest, SessionRecorder, SessionStore, SessionSummary, Snapshot,
+    TitleError, TurnImage, TurnStep, TurnTiming, UsageScan, WritableSession, DEFAULT_LIST_LIMIT,
+    EVENTS_FILE, IMAGES_DIR, MANIFEST_FILE, MANIFEST_SCHEMA_VERSION, MAX_LIST_LIMIT,
+    MAX_RENAMED_TITLE_BYTES, SESSIONS_DIR_NAME, STAGE_SUFFIX, STORAGE_FORMAT,
 };

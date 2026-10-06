@@ -70,12 +70,16 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/stats",
     "/usage",
     "/status",
+    "/image",
+    "/images",
     "/model",
     "/permissions",
     "/undo",
     "/copy",
     "/trace",
+    "/settings",
     "/credits",
+    "/paste",
     "/statusline",
     "/sound",
     "/version",
@@ -240,6 +244,24 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Image,
+        name: "/image",
+        // Upstream's row (`commands.zig:476`): its alias, its sentence, and
+        // the category its tab is.
+        aliases: &["/img"],
+        summary: "attach an image by path",
+        category: "Media",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Images,
+        name: "/images",
+        aliases: &[],
+        summary: "manage pending image attachments",
+        category: "Media",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Model,
         name: "/model",
         aliases: &[],
@@ -284,6 +306,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Settings,
+        name: "/settings",
+        aliases: &[],
+        // Upstream's words (`commands.zig:488`). It takes an argument there
+        // (`startup-scrollback`) and is filed so here too, so completing it
+        // leaves the caret past a space as upstream's popup does; xfx answers
+        // any argument with `SETTINGS_USAGE`.
+        summary: "browse and update settings",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Credits,
         name: "/credits",
         // Upstream's own alias for the same command
@@ -291,6 +325,15 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         aliases: &["/balance"],
         summary: "show gateway credits balance",
         category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Paste,
+        name: "/paste",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:491`); it takes nothing.
+        summary: "attach an image from the clipboard when supported",
+        category: "Media",
         has_args: false,
     },
     SlashSpec {
@@ -461,6 +504,16 @@ pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session i
      shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
      full-screen one, and `xfx --resume <last|ID>` opens it on a session";
 
+/// What `/image`, `/images` and `/paste` say on this surface.
+///
+/// An attachment is a badge in the prompt being written, and this shell reads
+/// a finished line at a time: there is no draft for an image to wait in, and
+/// a path typed here is sent to the model as the words it is. It says where the
+/// attachments are, as `/stats` and `/resume` say where theirs are.
+pub const IMAGES_ON_THE_LINE_SHELL: &str = "xfx: /image, /images and /paste attach images to the \
+     prompt being written in the full-screen shell, and this line-oriented shell has no draft to \
+     attach them to; without XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/rename` says when there is no title to give the session, or one it
 /// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
 /// words both shells use.
@@ -491,6 +544,22 @@ pub(crate) fn rename_conversation(
         None => Ok(()),
     }
 }
+
+/// What `/settings` says to anything after its name (`writeSettingsUsage`,
+/// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
+/// form: that setting chooses at launch whether the shell's earlier output is
+/// pushed into scrollback (`prepareStartupViewport`, `app_lifecycle.zig:966-988`),
+/// and xfx always pushes it -- there is no other value to set.
+pub const SETTINGS_USAGE: &str = "usage: /settings";
+
+/// What `/settings` says on this surface.
+///
+/// Upstream's `/settings` is a menu in its footer (`commandHandleSettings`,
+/// `app_commands.zig:2022-2041`), and this shell has no footer to put one in.
+/// It says where the menu is, as `/resume` says where its picker is.
+pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes settings in \
+     the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
+     opens the full-screen one";
 
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
@@ -603,6 +672,13 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Attach the image a path names to the prompt being written
+    /// ([`crate::image`]).
+    Image,
+    /// What the prompt being written has attached, or `clear` to drop it all.
+    Images,
+    /// Attach the image on the clipboard ([`crate::clipboard::Clipboard::read_image`]).
+    Paste,
     /// Write a private diagnostic report about this session and put the file
     /// on the clipboard ([`crate::trace`]).
     Trace,
@@ -625,6 +701,10 @@ pub enum Slash {
     /// TUI, one item flipped by name on either surface, and the choice kept in
     /// the profile (`statusLine.{context,session,workspace}`).
     Statusline,
+    /// Every preference the session can change, by category, in one menu
+    /// that changes each in place: the TUI's settings menu
+    /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
+    Settings,
     Version,
     Quit,
 }
@@ -1157,6 +1237,12 @@ pub async fn run(
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Image | Slash::Images | Slash::Paste => {
+                        writeln!(io::stderr(), "{IMAGES_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Settings => {
+                        writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
+                    }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
                     // something to keep, and a session renamed before anything
@@ -1327,6 +1413,7 @@ async fn one_turn(
         .state()
         .history_messages(config.provider.wire());
     let request = TurnRequest {
+        images: Vec::new(),
         model: model.to_string(),
         prompt,
         history: replay.messages,
@@ -1960,10 +2047,11 @@ mod tests {
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
         // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
-        // since `/usage` and `/credits`, and twenty since `/trace`;
-        // `/provider` took `/setup`'s place rather than adding one, and
-        // `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 20);
+        // since `/usage` and `/credits`, twenty since `/trace`, twenty-one
+        // since `/settings`, and twenty-four since `/image`, `/images` and
+        // `/paste`; `/provider` took `/setup`'s place rather than adding one,
+        // and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 24);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2106,14 +2194,7 @@ mod tests {
     #[test]
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
-        for deferred in [
-            "/login",
-            "/logout",
-            "/models",
-            "/mcp",
-            "/image",
-            "/background",
-        ] {
+        for deferred in ["/login", "/logout", "/models", "/mcp", "/background"] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
     }
@@ -2252,13 +2333,25 @@ mod tests {
         // too, which is what puts the space after it when it is completed
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
-        // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // `/sound [on|off]` sets the switch a bare `/sound` toggles,
+        // `/rename <title>` names the session, `/image <path>` attaches a file
+        // and `/images [clear]` lists or drops what is attached. `/settings`
+        // is declared to take one as upstream's row is (`commands.zig:488`),
+        // so completing it leaves the caret past a space; every argument it is
+        // given is its usage line, since upstream's only form names a setting
+        // xfx does not have. Every other name is the whole command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/image"
+                    | "/images"
+                    | "/settings"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -2369,6 +2462,52 @@ mod tests {
         assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
         assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
         assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
+    }
+
+    #[test]
+    fn the_media_commands_are_upstreams_rows_and_say_where_they_work() {
+        // `commands.zig:476-477`, `:491`: the names, the `/img` alias, the
+        // sentences and the Media tab.
+        for (command, name, aliases, summary, has_args) in [
+            (
+                Slash::Image,
+                "/image",
+                &["/img"][..],
+                "attach an image by path",
+                true,
+            ),
+            (
+                Slash::Images,
+                "/images",
+                &[],
+                "manage pending image attachments",
+                true,
+            ),
+            (
+                Slash::Paste,
+                "/paste",
+                &[],
+                "attach an image from the clipboard when supported",
+                false,
+            ),
+        ] {
+            let spec = slash_spec(command);
+            assert_eq!(spec.name, name);
+            assert_eq!(spec.aliases, aliases);
+            assert_eq!(spec.summary, summary);
+            assert_eq!(spec.category, "Media");
+            assert_eq!(spec.has_args, has_args);
+        }
+        assert_eq!(
+            classify("/img shot.png"),
+            Submitted::Command {
+                command: Slash::Image,
+                argument: "shot.png".to_string()
+            }
+        );
+        // This shell has no draft to attach to, and says where there is one.
+        assert!(IMAGES_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(IMAGES_ON_THE_LINE_SHELL.starts_with("xfx: /image"));
     }
 
     #[test]

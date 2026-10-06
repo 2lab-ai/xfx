@@ -1441,15 +1441,16 @@ impl Runtime {
             .ok_or_else(|| "the conversation could not be opened".to_string())
     }
 
-    /// `/undo` against the conversation as it stands: its newest change taken
-    /// back ([`crate::tools::mutate::undo_last`]), or nothing when there is no
-    /// conversation -- a session that has asked nothing has changed nothing,
-    /// and one `/new` or a provider switch dropped took its changes with it.
-    fn undo(&self) -> crate::tools::undo::Undone {
+    /// `/undo` against the conversation as it stands: its newest change as of
+    /// `through` taken back ([`crate::tools::mutate::undo_through`]), or
+    /// nothing when there is no conversation -- a session that has asked
+    /// nothing has changed nothing, and one `/new` or a provider switch
+    /// dropped took its changes with it.
+    fn undo(&self, through: crate::tools::undo::Mark) -> crate::tools::undo::Undone {
         self.conversation
             .as_ref()
             .map_or(crate::tools::undo::Undone::Nothing, |conversation| {
-                crate::tools::mutate::undo_last(&conversation.tools)
+                crate::tools::mutate::undo_through(&conversation.tools, through)
             })
     }
 
@@ -1986,7 +1987,7 @@ async fn turn_loop(
                 Some(TurnControl::Model(change)) => Taken::Model(change),
                 // Nothing is running, so nothing is changing the files: the
                 // undo is done now, as upstream's always is.
-                Some(TurnControl::Undo) => Taken::Undo,
+                Some(TurnControl::Undo { through }) => Taken::Undo(through),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -2038,8 +2039,8 @@ async fn turn_loop(
                 }
                 continue;
             }
-            Taken::Undo => {
-                run_undo(&state, events, false).await;
+            Taken::Undo(through) => {
+                run_undo(&state, events, through, false).await;
                 continue;
             }
             Taken::Nothing => continue,
@@ -2069,7 +2070,22 @@ async fn turn_loop(
         };
         let ended = match item {
             TurnWork::Submit(prompt) => {
-                run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
+                run_turn(
+                    &mut state,
+                    prompt,
+                    Vec::new(),
+                    events,
+                    &cancel,
+                    &control,
+                    &mut queue,
+                )
+                .await
+            }
+            TurnWork::Attached { prompt, images } => {
+                run_turn(
+                    &mut state, prompt, images, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             // Both of these open a socket, so both are work rather than control
             // messages, and both owe **exactly one** terminal event -- which is
@@ -2199,8 +2215,8 @@ enum Taken {
     Reset(usize),
     /// `/model`, between turns: applied now.
     Model(ModelChange),
-    /// `/undo`, between turns: done now.
-    Undo,
+    /// `/undo`, between turns: done now, as of the position it was typed at.
+    Undo(crate::tools::undo::Mark),
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2314,6 +2330,7 @@ enum Ended {
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
@@ -2333,7 +2350,7 @@ async fn run_turn(
     // event either way.
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, events, &turn,
+        state, prompt, images, events, &turn,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2506,6 +2523,16 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // `/settings`' effort row: the effort is the session's from here on, and
+    // that is all -- the band chose it, wrote it and said so
+    // ([`ModelChange::effort_only`]).
+    if change.effort_only {
+        if let Some(effort) = change.effort {
+            state.effort = effort;
+            state.publish();
+        }
+        return Ended::Turn;
+    }
     let mut ended = Ended::Turn;
     if !change.announced {
         state.selector.retry_after_failure();
@@ -2600,8 +2627,11 @@ async fn apply_deferred(
                 // Done whatever ended: an undo needs no socket, and the file
                 // is what the person asked about -- a `/quit` after it does
                 // not take it back.
-                Deferred::Undo { after_reset } => {
-                    run_undo(state, events, after_reset).await;
+                Deferred::Undo {
+                    through,
+                    after_reset,
+                } => {
+                    run_undo(state, events, through, after_reset).await;
                     continue;
                 }
                 Deferred::Model(change) => change,
@@ -2624,8 +2654,9 @@ async fn apply_deferred(
 
 /// `/undo`, and what became of it (`commandUndoLast`,
 /// `vercel-labs/fx@c1db9191 src/core/app/app_commands.zig:1242-1290`): the
-/// conversation's newest change taken back ([`Runtime::undo`]) and upstream's
-/// sentence for it, neutral whatever it says, as upstream's is.
+/// conversation's newest change as of `through` -- the position the keystroke
+/// saw -- taken back ([`Runtime::undo`]) and upstream's sentence for it,
+/// neutral whatever it says, as upstream's is.
 ///
 /// `after_reset` is an undo typed after a reset this runtime has not acted on
 /// yet ([`Deferred::Undo`]): it is answered for the conversation that reset
@@ -2637,11 +2668,16 @@ async fn apply_deferred(
 /// told (`change_tracker.zig`; `commandUndoLast` writes a notice and nothing
 /// else). Through `send_terminal`, like every answer about something already
 /// done: a file has changed by the time this is sent.
-async fn run_undo(state: &Runtime, events: &Sender<UiEvent>, after_reset: bool) {
+async fn run_undo(
+    state: &Runtime,
+    events: &Sender<UiEvent>,
+    through: crate::tools::undo::Mark,
+    after_reset: bool,
+) {
     let undone = if after_reset {
         crate::tools::undo::Undone::Nothing
     } else {
-        state.undo()
+        state.undo(through)
     };
     bridge::send_terminal(
         events,
@@ -2788,8 +2824,8 @@ async fn raced_against_control<F: Future>(
                 // a reset has already been read here -- that undo was typed in
                 // the conversation the reset starts, which has changed nothing
                 // yet, rather than in the one it drops once this work is over.
-                Some(TurnControl::Undo) => {
-                    control.defer_undo(matches!(ended, Ended::Reset(_)));
+                Some(TurnControl::Undo { through }) => {
+                    control.defer_undo(through, matches!(ended, Ended::Reset(_)));
                 }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
@@ -2824,9 +2860,53 @@ async fn raced_against_control<F: Future>(
 }
 
 /// One turn, exactly as `xfx ask` runs one. `Some` is why it did not finish.
+/// Why a turn carrying an image may not be sent to the model in force, or
+/// `None` when it may.
+///
+/// **On the Gateway, the catalog decides** (`image_input_support`,
+/// `vercel-labs/fx@c1db9191 src/core/config/model_capabilities.zig:96-104`): a
+/// row tagged `vision` and `file-input` both reads images inline; a row without
+/// them would be upstream's second route, a forced `vision` tool call answered
+/// by another model, which xfx does not have ([`crate::image::NOT_NATIVE`]); and
+/// a model the catalog does not list -- or a catalog that could not be read --
+/// is one whose support nobody can vouch for
+/// ([`crate::image::CAPABILITY_UNKNOWN`]). The catalog is read for it like the
+/// effort's: once, raced against this turn's cancellation, and told to the UI.
+///
+/// **On llmux, the daemon decides.** Its catalog has no capability field
+/// (`2lab-ai/llmux@4b3d4a4 src/catalog.rs:1227`), so the image is sent and a
+/// model that cannot read it is the daemon's 400, reported as any refusal it
+/// sends is.
+async fn image_refusal(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Option<String> {
+    if state.config.provider != ProviderId::Gateway {
+        return None;
+    }
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if turn.token.is_cancelled() {
+        return Some(crate::agent::TurnError::Cancelled.to_string());
+    }
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+    match state.selector.entry(state.selector.model()) {
+        Some(entry) if entry.facts.image_input => None,
+        Some(_) => Some(crate::image::NOT_NATIVE.to_string()),
+        None => Some(crate::image::CAPABILITY_UNKNOWN.to_string()),
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Option<String> {
@@ -2855,6 +2935,25 @@ async fn one_turn(
         };
         if fresh {
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
+    }
+    // **Whether the model reads images, before anything is sent or written.**
+    // A turn whose prompt -- or whose history, which every request re-sends --
+    // carries one goes inline only to a model the catalog tags `vision` and
+    // `file-input`; any other is refused here, with upstream's words, and no
+    // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
+    let carries_images = !images.is_empty()
+        || state.conversation.as_ref().is_some_and(|conversation| {
+            conversation
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty())
+        });
+    if carries_images {
+        if let Some(refusal) = image_refusal(state, events, turn).await {
+            return Some(refusal);
         }
     }
     let options = state.request_options();
@@ -2913,6 +3012,7 @@ async fn one_turn(
     }
 
     let request = TurnRequest {
+        images,
         model,
         prompt,
         history: replay.messages,
@@ -3062,6 +3162,7 @@ mod tests {
         ProposedAction, TargetScope,
     };
     use crate::provider::Wire;
+    use crate::tools::undo::Mark;
 
     /// A configuration from a home and a workspace that exist and hold no
     /// settings.
@@ -4285,6 +4386,7 @@ mod tests {
         let ended = on_a_runtime(run_turn(
             &mut state,
             "hello".to_string(),
+            Vec::new(),
             &events_tx,
             &cancel,
             &control,
@@ -4474,6 +4576,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -4574,6 +4677,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -5572,6 +5676,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn,
+                effort_only: false,
             },
         )
     }
@@ -5658,6 +5763,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -5692,6 +5798,38 @@ mod tests {
         assert_eq!(effort, &low, "a model change dropped the session's effort");
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
+        // band wrote `effort` and said so; the runtime only takes it up. The
+        // model stays, and the profile is not touched -- in particular no
+        // `models` entry is written for a model some other layer chose.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let model = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "something/else".to_string(),
+                effort: Some(high.clone()),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            },
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(state.effort, high);
+        assert_eq!(state.model(), model, "the model moved");
+        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
 
     #[test]
@@ -5777,6 +5915,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         control_tx
             .send(TurnControl::Model(asked.clone()))
@@ -5820,6 +5959,7 @@ mod tests {
             picker: true,
             announced: true,
             next_turn: true,
+            effort_only: false,
         });
         control.defer(ModelChange {
             name: "unresolved".to_string(),
@@ -5827,6 +5967,7 @@ mod tests {
             picker: false,
             announced: false,
             next_turn: true,
+            effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
             &mut state,
@@ -5901,13 +6042,13 @@ mod tests {
         );
         assert!(made.ok, "{}", made.output);
 
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(
             undo_said(&mut events_rx),
             format!("Deleted {} (was newly created)", path.display())
         );
         assert!(!path.exists(), "the created file is still there");
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
     }
 
@@ -5916,7 +6057,7 @@ mod tests {
         let (_home, _workspace, state) = a_runtime_that_can_open_one();
         assert!(state.conversation.is_none());
         let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
     }
 
@@ -5950,13 +6091,13 @@ mod tests {
             events_rx.try_recv(),
             Ok(UiEvent::Fresh { through: 0 })
         ));
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
 
         state
             .resume_by_id(&id, &CancelToken::new())
             .expect("the session resumes");
-        on_a_runtime(run_undo(&state, &events_tx, false));
+        on_a_runtime(run_undo(&state, &events_tx, Mark::LATEST, false));
         assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
         assert_eq!(
             std::fs::read_to_string(&path).expect("still there"),
@@ -5969,16 +6110,12 @@ mod tests {
         // Put aside, never a stop. Ahead of a reset it is about the
         // conversation that reset drops; behind one it is about the
         // conversation the reset starts.
+        let typed = Mark::now();
+        let undo = TurnControl::Undo { through: typed };
         for (messages, after_reset) in [
-            (vec![TurnControl::Undo], false),
-            (
-                vec![TurnControl::Undo, TurnControl::Reset { through: 0 }],
-                false,
-            ),
-            (
-                vec![TurnControl::Reset { through: 0 }, TurnControl::Undo],
-                true,
-            ),
+            (vec![undo.clone()], false),
+            (vec![undo.clone(), TurnControl::Reset { through: 0 }], false),
+            (vec![TurnControl::Reset { through: 0 }, undo.clone()], true),
         ] {
             let (control_tx, control_rx) = mpsc::unbounded_channel();
             let control = ControlChannel::new(control_rx);
@@ -5998,9 +6135,14 @@ mod tests {
                 |through| stops.push(through),
             ));
             assert_eq!(stops.len(), resets, "an undo stopped the work");
+            // The keystroke's position, carried as it came: the work that
+            // runs on does not move it.
             assert_eq!(
                 control.take_deferred(),
-                vec![Deferred::Undo { after_reset }]
+                vec![Deferred::Undo {
+                    through: typed,
+                    after_reset
+                }]
             );
         }
     }
@@ -6030,9 +6172,9 @@ mod tests {
         );
         // One typed behind a reset: answered for the fresh conversation, and
         // the change it would have reached is left alone.
-        control.defer_undo(true);
+        control.defer_undo(Mark::now(), true);
         // One typed before it, and a `/quit` after both: still done.
-        control.defer_undo(false);
+        control.defer_undo(Mark::now(), false);
         let ended = on_a_runtime(apply_deferred(
             &mut state,
             Ended::Session,
@@ -6048,6 +6190,77 @@ mod tests {
             format!("Deleted {} (was newly created)", path.display())
         );
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn an_undo_put_aside_takes_back_what_was_newest_when_it_was_typed() {
+        // fx undoes at the keystroke; this runtime does it once the work is
+        // over. The work committed a second change after the `/undo` was
+        // typed: that one stays, and the one that was newest at the keystroke
+        // is taken back.
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let first = in_workspace(&state, "a.txt");
+        let second = in_workspace(&state, "b.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "one\n"})
+            )
+            .ok
+        );
+        // The keystroke, as the band sends it, read while the work runs.
+        control_tx
+            .send(TurnControl::Undo {
+                through: Mark::now(),
+            })
+            .expect("alive");
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            },
+            &control,
+            |_| {},
+        ));
+        // The same work goes on to change another file.
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "b.txt", "content": "two\n"})
+            )
+            .ok
+        );
+
+        on_a_runtime(apply_deferred(
+            &mut state, ended, &events_tx, &cancel, &control, &mut queue,
+        ));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", first.display())
+        );
+        assert!(!first.exists(), "the change typed at was not taken back");
+        assert_eq!(
+            std::fs::read_to_string(&second).expect("the later change stays"),
+            "two\n"
+        );
+        // And it is the next `/undo`'s.
+        on_a_runtime(run_undo(&state, &events_tx, Mark::now(), false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", second.display())
+        );
     }
 
     fn settings(home: &std::path::Path) -> serde_json::Value {
@@ -6846,6 +7059,7 @@ mod tests {
         };
         let turn = cancel.turn();
         let request = TurnRequest {
+            images: Vec::new(),
             model: "vendor/model".to_string(),
             prompt: "write two files".to_string(),
             history: Vec::new(),
@@ -7009,6 +7223,7 @@ mod tests {
         ) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "anything".to_string(),
                 history: Vec::new(),
@@ -7079,6 +7294,7 @@ mod tests {
         fn plain_turn(&mut self, provider: &ScriptedProvider) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "and now".to_string(),
                 history: Vec::new(),

@@ -79,6 +79,7 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::clipboard_image::ClipboardReads;
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
@@ -103,9 +104,11 @@ use super::permissions::{self, Change};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
+use super::recall::Recall;
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::session_picker::{self, SessionAction, SessionPicker};
+use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
@@ -998,6 +1001,23 @@ pub(crate) struct Shell {
     /// Where a `/statusline` change is kept: `~/.xfx/settings.json`, or `None`
     /// for a session with no home to keep it in.
     settings_path: Option<std::path::PathBuf>,
+    /// The `/settings` menu, while it is up ([`super::settings`]).
+    ///
+    /// Another occupant of the slot, and a view of the composer like the
+    /// catalog: what is typed is its search. Unlike the catalog it binds Left,
+    /// Right and Enter, so it is offered every keystroke before the editor
+    /// sees it. It opens with the other menus closed and none of them can open
+    /// while it is up: Enter, which is how a command would, is its own.
+    settings_menu: Option<SettingsMenu>,
+    /// Whether the slash popup shows each command's category: the profile's
+    /// `slash_menu_categories` at launch, and `/settings` since.
+    slash_menu_categories: bool,
+    /// Whether a tool group is drawn as its header alone: the profile's
+    /// `collapse_tool_calls` at launch, and `/settings` since.
+    collapse_tool_calls: bool,
+    /// Whether submitted lines are kept, where, and the thread that writes
+    /// them down ([`super::recall`]).
+    recall: Recall,
     /// The `/provider` picker, while the draft is its argument
     /// ([`super::provider_picker`]).
     ///
@@ -1138,6 +1158,17 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// The clipboard reads `/paste` and Ctrl-V started, and what each found
+    /// ([`super::clipboard_image`]).
+    clipboard_reads: ClipboardReads,
+    /// The number the next attached image takes. Spent only when a badge
+    /// lands and never given back, so no two images in one process answer to
+    /// one `[Image #N]` (`allocateImageId`, `image_attachments.zig:1366-1370`);
+    /// a resumed session moves it past every number its prompts name.
+    images_next: u32,
+    /// The home directory `/image ~/…` is read under: the one the
+    /// configuration found its profile in.
+    home: Option<std::path::PathBuf>,
     /// The `/trace` reports still being built, written and copied on their own
     /// threads, and how each went ([`super::trace`]).
     traces: Traces,
@@ -1487,6 +1518,9 @@ enum Slot<'a> {
     Ask(&'a QuestionPanel),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// The `/settings` menu. Rows, and the composer as its search; it binds
+    /// more keys than the catalog does, and owns nothing else.
+    Settings(&'a SettingsMenu),
     /// `/usage`'s dashboard. The same: the focus and the composer's rows.
     Usage(&'a Dashboard),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
@@ -1582,6 +1616,15 @@ impl Shell {
         let settings = config.user_settings_path.clone();
         #[cfg(test)]
         let settings = None;
+        // The prompt history, on the same terms: a shell a test built keeps
+        // none unless the test hands it one ([`Recall::keep_in`]).
+        #[cfg(not(test))]
+        let history_store = config
+            .profile_dir
+            .as_deref()
+            .map(crate::session::prompt_history::PromptHistory::in_profile);
+        #[cfg(test)]
+        let history_store = None;
         // The profile `/usage` reads its sessions from -- the same exception
         // for a shell a test built, which reads none unless the test says
         // where ([`Self::read_usage_from`]).
@@ -1589,7 +1632,7 @@ impl Shell {
         let profile = config.profile_dir.clone();
         #[cfg(test)]
         let profile = None;
-        Self {
+        let mut shell = Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
             geometry: geometry.floated(0),
@@ -1695,6 +1738,14 @@ impl Shell {
                 identity
             },
             settings_path: config.user_settings_path.clone(),
+            settings_menu: None,
+            slash_menu_categories: config.slash_menu_categories,
+            collapse_tool_calls: config.collapse_tool_calls,
+            recall: Recall::new(
+                config.prompt_history,
+                history_store,
+                config.workspace_root.to_str().map(str::to_string),
+            ),
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
@@ -1717,8 +1768,15 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            clipboard_reads: ClipboardReads::new(clipboard.clone()),
             traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
+            images_next: 1,
+            home: config
+                .profile_dir
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf),
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
@@ -1726,12 +1784,14 @@ impl Shell {
             usage_reader: usage_menu::Reader::new(profile),
             usage_read: None,
             // A shell a test built asks nobody: a question published to it is
-            // kept for the case to answer ([`Self::ask_credits_by_hand`]).
+            // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
             #[cfg(not(test))]
             credit_asks: super::credits_ask::Asks::new(),
             #[cfg(test)]
             credit_asks: super::credits_ask::Asks::by_hand(),
-        }
+        };
+        shell.recall_saved_lines();
+        shell
     }
 
     /// The band's rows, top first, starting at the band's own top row -- the
@@ -1836,6 +1896,13 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same, with the values in force.
+                Some(Slot::Settings(menu)) => menu.rows(
+                    &self.settings_snapshot(),
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    self.palette,
+                ),
                 Some(Slot::Sessions(sessions)) => {
                     sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
@@ -1856,9 +1923,12 @@ impl Shell {
                 Some(Slot::Usage(dashboard)) => {
                     dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
-                Some(Slot::Menu(picker)) => {
-                    picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
-                }
+                Some(Slot::Menu(picker)) => picker.rows(
+                    self.geometry.cols,
+                    self.geometry.rows,
+                    self.palette,
+                    self.slash_menu_categories,
+                ),
                 Some(Slot::Column) => self.column_rows(),
                 // In the rows the geometry gave it, under the argument it is
                 // the column of.
@@ -1932,6 +2002,13 @@ impl Shell {
             Some(Slot::Catalog(_)) => self.painted(
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // The settings menu's, `←→ change` where the catalog's says
+            // `enter open` (`composeSettingsMenuHintRow`,
+            // `input_presentation.zig:729-765`).
+            Some(Slot::Settings(_)) => self.painted(
+                self.palette.dim(),
+                settings::key_help(self.geometry.cols).to_string(),
             ),
             // The picker's, in the same grey (`input_presentation.zig:834-840`).
             Some(Slot::Sessions(_)) => self.painted(
@@ -2215,6 +2292,13 @@ impl Shell {
         if let Some(dashboard) = self.usage_menu.as_ref() {
             return Some(Slot::Usage(dashboard));
         }
+        // Ahead of the catalog and the pickers, as upstream ranks it
+        // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
+        // ranking never decides anything: it opens with them closed and none
+        // of them can open while it is up.
+        if let Some(menu) = self.settings_menu.as_ref() {
+            return Some(Slot::Settings(menu));
+        }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
@@ -2473,6 +2557,9 @@ impl Shell {
         self.tally = Tally::default();
         self.context_used = None;
         self.forget_session_title();
+        // Past every image number the session's prompts already name, so a
+        // new attachment's `[Image #N]` is never one of theirs.
+        self.images_next = self.images_next.max(replay.next_image);
         if wipe {
             // The rows a recolour or a handoff was owed against are about to
             // be erased, scrollback and all.
@@ -2567,7 +2654,7 @@ impl Shell {
             // the provider said, or the estimate of what it wrote.
             Ending::Concluded { seconds, output } => {
                 let mut input = Estimator::default();
-                input.consume(&turn.user);
+                input.consume(&turn.sent);
                 let output = output.unwrap_or_else(|| streamed.estimate());
                 self.run_mark(Mark::Summary(summary_line(
                     seconds,
@@ -3663,6 +3750,113 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// What each `/settings` row is set to now ([`settings::Snapshot`]): the
+    /// session's own fields, read at the moment they are painted or changed.
+    fn settings_snapshot(&self) -> settings::Snapshot<'_> {
+        settings::Snapshot {
+            statusline: self.statusline,
+            slash_menu_categories: self.slash_menu_categories,
+            collapse_tool_calls: self.collapse_tool_calls,
+            model: &self.model,
+            effort: self.effort.display(),
+            efforts: self.model_levels(),
+            permission_mode: self.mode,
+            sound: self.sound.notifications(),
+            prompt_history: self.recall.enabled,
+        }
+    }
+
+    /// The levels the catalog lists for the model in force, as `/model`'s
+    /// footer segment reads them: none while the catalog has not been read
+    /// (`resolvedModelCapabilities`' generic answer for a model it does not
+    /// know, `settings_catalog.zig:308-313`).
+    fn model_levels(&self) -> &[String] {
+        if self.catalog_known != CatalogKnown::Loaded {
+            return &[];
+        }
+        self.catalog
+            .iter()
+            .find(|entry| entry.matches(&self.model))
+            .map_or(&[], |entry| entry.efforts.as_slice())
+    }
+
+    /// Offers one keystroke to the `/settings` menu, and says whether it was
+    /// taken.
+    ///
+    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// a Backspace or a C-u edits the search and goes on to the composer with
+    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// and with it the menu's height, so the band is re-solved; Left and Right
+    /// change the marked setting at once (`changeSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
+    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
+    /// is spent on every other row; Escape closes the menu and empties its
+    /// search.
+    fn offer_to_settings(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = SettingsAction::of(*action) else {
+            return false;
+        };
+        // Taken out and put back, so the menu can be moved against a snapshot
+        // that borrows the rest of the shell.
+        let Some(mut menu) = self.settings_menu.take() else {
+            return false;
+        };
+        let snapshot = self.settings_snapshot();
+        let mut change = None;
+        let mut models = false;
+        let mut close = false;
+        let mut refit = false;
+        let mut repaint = false;
+        match request {
+            SettingsAction::Up | SettingsAction::Down => {
+                let visible = menu.visible_items(&snapshot, self.geometry.panel);
+                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+            }
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
+                menu.cycle(request == SettingsAction::NextCategory);
+                refit = true;
+            }
+            SettingsAction::Previous | SettingsAction::Next => {
+                let forward = request == SettingsAction::Next;
+                if menu.selected(&snapshot) == Some(Setting::Model) {
+                    models = forward;
+                } else {
+                    change = menu.change(forward, &snapshot);
+                }
+            }
+            SettingsAction::Open => {
+                models = menu.selected(&snapshot) == Some(Setting::Model);
+            }
+            SettingsAction::Close => close = true,
+        }
+        self.settings_menu = Some(menu);
+        if close {
+            self.close_settings();
+            return true;
+        }
+        if models {
+            self.open_models_from_settings();
+            return true;
+        }
+        if let Some(change) = change {
+            self.apply_setting(change);
+            // A change can narrow or widen what the search finds -- the search
+            // reads values too -- so the height is asked again.
+            refit = true;
+        }
+        if refit {
+            self.refit();
+            repaint = true;
+        }
+        if repaint {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
     /// Offers one keystroke to the `@` file picker, and says whether it was
     /// taken.
     ///
@@ -3723,6 +3917,237 @@ impl Shell {
             self.render.request(Reason::Modal);
         }
         true
+    }
+
+    /// Takes the settings menu down and empties its search
+    /// (`cancelSettingsMenu` -> `closeSettingsMenu(app, true)`,
+    /// `app_input_runtime.zig:2324-2333`, `:3292-3294`).
+    fn close_settings(&mut self) {
+        if self.settings_menu.take().is_none() {
+            return;
+        }
+        if !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the menu gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
+    /// opens it -- the settings menu closed and its search emptied first, so
+    /// what was typed to find the row is not taken for a model's name.
+    ///
+    /// Upstream opens an inline list of models **under the row**, inside the
+    /// settings menu, and Left in it applies the marked one
+    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
+    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
+    /// which lists the same catalog and applies a model the same way.
+    fn open_models_from_settings(&mut self) {
+        self.close_settings();
+        self.open_models();
+    }
+
+    /// Applies one `/settings` change through the code path the setting's own
+    /// command takes, and says so in its words (`applySettingsCatalogChange`,
+    /// `app_commands.zig:4110-4210`).
+    fn apply_setting(&mut self, change: settings::Change) {
+        let on = change.value == "on";
+        let value = change.value.as_str();
+        match change.setting {
+            // `applyStatuslineItem(.announce)`: both of `/statusline <item>`'s
+            // notices.
+            Setting::Statusline(item) => {
+                if on != self.statusline.get(item) {
+                    self.set_statusline(item, on, true);
+                }
+            }
+            // `handlePermissions(app, value)`: `/permissions <mode>` itself.
+            Setting::PermissionMode => CommandHandlers::permissions(self, value),
+            // `handleNotificationsCommand(app, value)`: `/sound <level>`.
+            Setting::SoundLevel => CommandHandlers::sound(self, value),
+            // `selectEffortFromSettings` (`session_commands.zig:863-884`): the
+            // effort is the session's at once, written as `effort`, and the
+            // saved line is all that is said -- no `Switched to`.
+            Setting::Effort => {
+                if let Some(effort) = Effort::parse(value) {
+                    self.set_effort(effort);
+                }
+            }
+            Setting::SlashMenuCategories => {
+                let changed = on != self.slash_menu_categories;
+                self.slash_menu_categories = on;
+                self.save_preference(
+                    settings::SLASH_MENU_CATEGORIES_TOPIC,
+                    &[crate::config::SLASH_MENU_CATEGORIES_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            Setting::CollapseToolCalls => {
+                let changed = on != self.collapse_tool_calls;
+                self.collapse_tool_calls = on;
+                // The open group is the document's last thing and is drawn
+                // again at once; a group the document has already moved past
+                // keeps the rows it was written with.
+                if changed {
+                    self.redraw_group();
+                }
+                self.save_preference(
+                    settings::COLLAPSE_TOOL_CALLS_TOPIC,
+                    &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            Setting::PromptHistory => self.set_prompt_history(on),
+            // The menu offers no change for the model: its row opens `/model`'s
+            // menu instead ([`settings::SettingsMenu::change`]).
+            Setting::Model => {}
+        }
+        self.render.request(Reason::Footer);
+    }
+
+    /// `/settings`' effort row: the band's effort and the runtime's move to
+    /// `effort`, and the profile's `effort` is written here and announced
+    /// (`applyEffort(app, effort, announce=false, persist=true)`,
+    /// `session_commands.zig:863-880`). The runtime is told as a model change
+    /// that keeps the model ([`ModelChange::effort_only`]), so one made while
+    /// a turn runs waits for it as `/model`'s does.
+    fn set_effort(&mut self, effort: Effort) {
+        self.effort = effort.clone();
+        self.work.control(TurnControl::Model(ModelChange {
+            name: self.model.clone(),
+            effort: Some(effort.clone()),
+            picker: false,
+            announced: true,
+            next_turn: self.turn_pending(),
+            effort_only: true,
+        }));
+        self.save_preference(
+            settings::EFFORT_TOPIC,
+            &[crate::config::EFFORT_KEY],
+            serde_json::Value::String(effort.label().to_string()),
+            true,
+        );
+    }
+
+    /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
+    /// off is in force at once and then saved; on is saved first and in force
+    /// only once it was, so a history that could not be kept on stays off and
+    /// says so.
+    fn set_prompt_history(&mut self, on: bool) {
+        let key: &[&str] = &[crate::config::PROMPT_HISTORY_KEY, "enabled"];
+        if !on {
+            let changed = self.recall.enabled;
+            self.recall.enabled = false;
+            self.save_preference(
+                settings::HISTORY_TOPIC,
+                key,
+                serde_json::Value::Bool(false),
+                changed,
+            );
+            return;
+        }
+        if self.save_preference(
+            settings::HISTORY_TOPIC,
+            key,
+            serde_json::Value::Bool(true),
+            false,
+        ) {
+            self.recall.enabled = true;
+        }
+    }
+
+    /// Writes one `/settings` preference to the profile and announces it
+    /// (`persistUserPreferences`, `app_commands.zig:167-192`): `* <topic>:
+    /// saved to user settings (scope=user)`, or, when the write failed,
+    /// `✗ <topic>: [active for this process but ]not saved to user settings
+    /// (<reason>)` (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+    /// Answers whether it was written.
+    ///
+    /// On this thread, for the reason [`Self::set_statusline`]'s write is.
+    fn save_preference(
+        &mut self,
+        topic: &str,
+        key: &[&str],
+        value: serde_json::Value,
+        changed: bool,
+    ) -> bool {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => crate::provider::profile::write_preference(path, key, value)
+                .map_err(|err| err.to_string()),
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.announce(notice::Notice::neutral(
+                    topic,
+                    interactive::STATUSLINE_SAVED,
+                ));
+                true
+            }
+            Err(reason) => {
+                let body = if changed {
+                    interactive::statusline_not_saved(&reason)
+                } else {
+                    format!("not saved to user settings ({reason})")
+                };
+                self.announce(notice::Notice::error(topic, body));
+                false
+            }
+        }
+    }
+
+    /// Puts the workspace's saved lines into this session's recall, oldest
+    /// first, at launch ([`Recall::saved_lines`]).
+    fn recall_saved_lines(&mut self) {
+        for line in self.recall.saved_lines() {
+            self.history.record(HistoryEntry::new(line, Vec::new()));
+        }
+    }
+
+    /// The text a submitted line is saved as: the line with its collapsed
+    /// pastes put back, trimmed -- what upstream records, which is the
+    /// expanded submission (`recordAcceptedInput(app, visual_text.text)`,
+    /// `input_submit_runtime.zig:884-886`), since a file cannot hold the
+    /// in-memory blocks a summary stands for.
+    fn saved_line(&self, text: &str) -> String {
+        if self.editor.entities().is_empty() {
+            return text.trim().to_string();
+        }
+        self.editor.expanded().trim().to_string()
+    }
+
+    /// Hands one submitted line to the history's writer (`recordAcceptedInput`,
+    /// `input_submit_runtime.zig:1246-1281`), when the history is on and has a
+    /// file. A failure is said once, as a warning, until an append works
+    /// again; the submission goes on either way. One the writer reports later
+    /// is said by [`Self::settle_history`].
+    fn save_line(&mut self, saved: String) {
+        if let Some(reason) = self.recall.keep(saved) {
+            self.history_failed(&reason);
+        }
+    }
+
+    /// Says how the history's appends went -- only a failure, and only the
+    /// first of a run of them.
+    fn settle_history(&mut self) {
+        while let Some(reason) = self.recall.failure() {
+            self.history_failed(&reason);
+        }
+    }
+
+    /// `! history: failed to save input history (<reason>); submission
+    /// continued` (`input_submit_runtime.zig:1256-1274`).
+    fn history_failed(&mut self, reason: &str) {
+        self.announce(notice::Notice::warning(
+            settings::HISTORY_TOPIC,
+            format!("failed to save input history ({reason}); submission continued"),
+        ));
     }
 
     /// Offers one keystroke to the `/resume` picker, and says whether it was
@@ -4004,7 +4429,13 @@ impl Shell {
                         | Action::WordRight
                 )
         );
-        if !bound || self.help_menu.is_some() || self.model_menu.is_some() {
+        // Nor while the settings menu is up: the draft is its search, and a
+        // `/model ` typed there names a setting, not a model.
+        if !bound
+            || self.help_menu.is_some()
+            || self.model_menu.is_some()
+            || self.settings_menu.is_some()
+        {
             return false;
         }
         if self.column.active(self.editor.text()).is_none() {
@@ -4144,6 +4575,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -4191,6 +4623,7 @@ impl Shell {
         }
         if self.help_menu.is_none()
             && self.model_menu.is_none()
+            && self.settings_menu.is_none()
             && self.column.active(self.editor.text()).is_some()
         {
             self.want_catalog();
@@ -4269,7 +4702,8 @@ impl Shell {
     /// (`openModelPickerShortcut`, `:2356-2375`; [`Self::settle_model_draft`]).
     /// A second `C-p` backs out, as does closing a catalog `/model` opened; a surface that owns the
     /// keyboard already makes it nothing (`modelPickerShortcutBlocked`,
-    /// `:2406-2418`) -- here, the `/help` catalog, the `/statusline` picker,
+    /// `:2406-2418`) -- here, the `/help` catalog, the `/settings` menu
+    /// (`settingsMenuActive`, `:2409`), the `/statusline` picker,
     /// the `/resume` picker and the full transcript, which leaves the key
     /// unbound for the composer behind it. A catalog that cannot open (the runtime refused to load one)
     /// gives the draft straight back.
@@ -4284,6 +4718,7 @@ impl Shell {
             return;
         }
         if self.help_menu.is_some()
+            || self.settings_menu.is_some()
             || self.statusline_menu.is_some()
             || self.sessions.is_some()
             || self.full.is_open()
@@ -4685,6 +5120,15 @@ impl Shell {
         // (`app_input_runtime.zig:2935-2938`, `syncHelpMenu`) -- and the
         // dismissal is left exactly as it was for when the catalog closes.
         if let Some(menu) = self.help_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            self.file_picker = None;
+            self.provider_picker = None;
+            return;
+        }
+        // The same for the settings menu (`syncSettingsMenu`,
+        // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
+        if let Some(menu) = self.settings_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
             self.file_picker = None;
@@ -5642,6 +6086,7 @@ impl Shell {
     /// every other write closes it first ([`Self::close_group`]).
     fn redraw_group(&mut self) {
         let trailer = self.trailer_rows();
+        self.group.set_collapsed(self.collapse_tool_calls);
         let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
@@ -5977,12 +6422,15 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a clipboard image.
+        self.settle_clipboard_reads();
         // So is a file index or a directory listing.
         self.settle_files();
         // And a report.
         self.settle_traces();
-        // And so is a `/sound` save.
+        // And so is a `/sound` save, and a line the history kept.
         self.settle_saves();
+        self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
         // And what the Gateway said to a `/credits`.
@@ -6100,6 +6548,81 @@ impl Shell {
                 notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
             });
         }
+    }
+
+    /// Puts each clipboard image that has been read into the draft at the
+    /// caret, or says why there is none, in the order the reads finished.
+    ///
+    /// Upstream's `attachClipboard` (`image_commands.zig:86-104`): an image is
+    /// a badge and **no notice** -- the composer is the answer; a clipboard
+    /// with no image is a neutral notice; a system with no way to read one
+    /// says nothing at all; anything else is an error naming what failed.
+    fn settle_clipboard_reads(&mut self) {
+        while let Some(read) = self.clipboard_reads.finished() {
+            match read {
+                Ok((media_type, bytes)) => {
+                    let id = self.images_next;
+                    let mut image = crate::image::Image::new(
+                        id,
+                        std::path::PathBuf::new(),
+                        media_type,
+                        std::sync::Arc::from(bytes),
+                    );
+                    // Named by the copy the session keeps of it, which is what
+                    // upstream links a clipboard badge to: the source was a
+                    // temporary file and is gone.
+                    image.path = std::path::PathBuf::from(image.snapshot_name());
+                    if !self.attach(image) {
+                        self.announce(notice::Notice::neutral(
+                            crate::image::TOPIC,
+                            crate::image::INPUT_FULL,
+                        ));
+                    }
+                }
+                Err(crate::clipboard::ImageReadError::NoImage) => {
+                    self.announce(notice::Notice::neutral(
+                        crate::image::TOPIC,
+                        crate::image::NO_CLIPBOARD_IMAGE,
+                    ));
+                }
+                Err(crate::clipboard::ImageReadError::Unsupported) => {}
+                Err(crate::clipboard::ImageReadError::Failed(name)) => {
+                    self.announce(notice::Notice::error(
+                        crate::image::TOPIC,
+                        format!("failed to paste clipboard image: {name}"),
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Puts `image`'s badge into the draft at the caret, the image behind it,
+    /// and spends its number. `false` when the composer has no room for the
+    /// badge, which spends nothing.
+    ///
+    /// The insertion is a boundary of the edit history rather than an entry
+    /// in it, as upstream's is (`historyBoundary`, `image_commands.zig:172-174`):
+    /// an undo does not take an attachment back -- deleting its badge does.
+    fn attach(&mut self, image: crate::image::Image) -> bool {
+        let id = image.id;
+        let Some(next) = id.checked_add(1) else {
+            return false;
+        };
+        let kind = EntityKind::Image {
+            token: std::sync::Arc::from(crate::image::token(id)),
+            image: std::sync::Arc::new(image),
+        };
+        if self
+            .editor
+            .insert_entity(&crate::image::badge(id), kind)
+            .is_none()
+        {
+            return false;
+        }
+        self.images_next = next;
+        self.edit_history.boundary();
+        self.amended(None);
+        true
     }
 
     /// Says how each `/trace` that has finished went, in upstream's one
@@ -6426,6 +6949,7 @@ impl Shell {
                     self.ask.is_some()
                         || self.asking()
                         || self.help_menu.is_some()
+                        || self.settings_menu.is_some()
                         || self.picker.is_some()
                         || self.full.is_open()
                 }
@@ -6486,6 +7010,9 @@ impl Shell {
             // them. Everything else falls through with it still up, because
             // each is a view of the draft and typing is what the draft is made
             // of.
+            if self.offer_to_settings(&event) {
+                continue;
+            }
             if self.offer_to_sessions(&event) {
                 continue;
             }
@@ -6886,6 +7413,16 @@ impl Shell {
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
+            // `/paste`'s read, at the caret -- except while a menu reads the
+            // composer as its search, where a badge would be a query: upstream
+            // skips it while its model picker borrows the composer
+            // (`app_input_runtime.zig:1561-1567`).
+            Action::PasteImage => {
+                if self.model_menu.is_none() && self.help_menu.is_none() && self.sessions.is_none()
+                {
+                    self.paste_image();
+                }
+            }
             // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
             // `cut_selection`, `app_input_runtime.zig:350-385`).
             Action::SelectAll => {
@@ -6915,6 +7452,17 @@ impl Shell {
                 }
             }
             Action::Tab | Action::Ignore => {}
+        }
+    }
+
+    /// Starts reading the clipboard's image; its badge lands when the read
+    /// answers ([`Self::settle_clipboard_reads`]).
+    fn paste_image(&mut self) {
+        if !self.clipboard_reads.start() {
+            self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                "failed to paste clipboard image: SystemResources",
+            ));
         }
     }
 
@@ -7184,6 +7732,10 @@ impl Shell {
             return;
         }
         let text = self.editor.text().to_string();
+        if let Some((cut, submitted)) = self.after_badges(&text) {
+            self.run_command_after_badges(&text, cut, &submitted);
+            return;
+        }
         let submitted = router::classify(&text);
         // **Before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
@@ -7198,7 +7750,13 @@ impl Shell {
         //
         // `Blank` still ends the walk, for the same reason recording one does:
         // the draft the walk was standing beside has been consumed.
-        if matches!(submitted, Submitted::Blank) {
+        //
+        // **Neither while the prompt history is off** (`/settings`): the line
+        // is kept nowhere, and the walk still ends, because the draft it stood
+        // beside has been consumed either way.
+        let saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
+            .then(|| self.saved_line(&text));
+        if saved.is_none() {
             self.history.leave();
         } else {
             // **With the blocks its summaries name.** An entry is the line as
@@ -7268,6 +7826,13 @@ impl Shell {
                 self.send(self.expanded_prompt(&text, prompt), &text);
             }
         }
+        // To the file after the line has been acted on, as upstream appends
+        // once the submission is through (`input_submit_runtime.zig:884-886`,
+        // `:1048-1053`): a warning that the save failed reads under what was
+        // sent, not above it.
+        if let Some(saved) = saved {
+            self.save_line(saved);
+        }
     }
 
     /// The prompt a draft really sends: its blocks put back, trimmed exactly
@@ -7305,13 +7870,30 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // The images whose badges the draft holds, in the order they stand:
+        // what goes after the prompt's text on the wire.
+        let images: Vec<crate::image::Image> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| crate::image::Image::clone(image))
+            .collect();
+        // An image counts as the token the prompt names it by, as upstream's
+        // composer holds it (`fx-image-40x120-sent`: `↑12` for `[Image
+        // #3][Image #4] what is in this image?`). Read before the draft goes.
+        let counted = self.editor.entities().with_image_tokens(text);
+        let work = if images.is_empty() {
+            TurnWork::Submit(prompt)
+        } else {
+            TurnWork::Attached { prompt, images }
+        };
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
         // prompt typed after it goes out as soon as that work unwinds, and its
         // card is written at once, as it always was.
         let waits = self.activity.working();
-        match self.work.submit(TurnWork::Submit(prompt)) {
+        match self.work.submit(work) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
                 // an accepted prompt may wait behind another turn for a minute
@@ -7322,7 +7904,7 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
                 let mut estimate = Estimator::default();
-                estimate.consume(text);
+                estimate.consume(&counted);
                 if waits {
                     self.prompts
                         .push_back((estimate.estimate(), title, Some(text.to_string())));
@@ -7499,6 +8081,64 @@ impl Shell {
     /// answer it.
     fn run_command(&mut self, submitted: &Submitted) {
         self.take_draft();
+        self.edited(None);
+        self.gestures.submitted();
+        router::route(submitted, self);
+    }
+
+    /// Where a command typed after image badges begins, and the command, when
+    /// the draft is that: blanks, one or more badges with blanks between them,
+    /// and then a line that names a command (`pendingImagesPrefixEnd`,
+    /// `input_submit_runtime.zig:718-736`, `:945-969`).
+    ///
+    /// The one way `/images` can see an attachment, and the way a second
+    /// `/image` lands beside the first: the command runs with the badges kept.
+    /// A line after them that names no command is a prompt like any other, and
+    /// the badges go with it.
+    fn after_badges(&self, text: &str) -> Option<(usize, Submitted)> {
+        let blanks = |at: usize| {
+            at + text[at..].len()
+                - text[at..]
+                    .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                    .len()
+        };
+        let mut at = blanks(0);
+        let mut badges = 0usize;
+        while let Some(span) = self
+            .editor
+            .entities()
+            .spans()
+            .iter()
+            .find(|span| span.start == at && span.image().is_some())
+        {
+            badges += 1;
+            at = blanks(span.end);
+        }
+        if badges == 0 {
+            return None;
+        }
+        match router::classify(&text[at..]) {
+            submitted @ Submitted::Command { .. } => Some((at, submitted)),
+            _ => None,
+        }
+    }
+
+    /// Runs `submitted` with the badges in front of `cut` kept in the composer,
+    /// as upstream's `submitSlashCommand` keeps its retained prefix
+    /// (`input_submit_runtime.zig:1000-1047`). The command is recorded in the
+    /// history as the command alone: the badges stay where they were.
+    fn run_command_after_badges(&mut self, text: &str, cut: usize, submitted: &Submitted) {
+        self.history
+            .record(HistoryEntry::new(text[cut..].to_string(), Vec::new()));
+        let mut kept = Entities::new();
+        for span in self.editor.entities().spans() {
+            if span.end <= cut {
+                kept.register(span.clone());
+            }
+        }
+        self.take_draft();
+        let restored = self.editor.set_text(&text[..cut], kept);
+        debug_assert!(restored, "a prefix of the draft fits where the draft did");
         self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
@@ -7794,6 +8434,34 @@ impl CommandHandlers for Shell {
         self.set_statusline(item, !self.statusline.get(item), true);
     }
 
+    /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
+    /// bare, the menu opens on `All` with its first row marked, the composer
+    /// -- emptied by the submit that got here -- as its search, and the menus
+    /// that share its slot closed. With anything after it, the usage line as
+    /// an error with no topic, as upstream answers a word its argument form
+    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
+    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
+    /// not have, so the usage does not offer it.
+    fn settings(&mut self, argument: &str) {
+        if !argument.is_empty() {
+            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            return;
+        }
+        self.picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.provider_picker = None;
+        self.file_picker = None;
+        self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // [`Self::run_command`] re-solved the band before routing here, for a
+        // band with no menu in it.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///
@@ -7829,8 +8497,15 @@ impl CommandHandlers for Shell {
     /// done at once between turns or the moment a running one is over. Nothing
     /// is said here: the answer is the runtime's ([`UiEvent::Undone`]), because
     /// only it knows which file, and whether it could be put back.
+    ///
+    /// **Which change it is, is decided here**: the journal's position now,
+    /// at the keystroke ([`crate::tools::undo::Mark::now`] -- one atomic read,
+    /// no lock and no file), so an undo the runtime does once a turn is over
+    /// takes back what was newest when it was typed, as upstream's does.
     fn undo(&mut self) {
-        self.work.control(TurnControl::Undo);
+        self.work.control(TurnControl::Undo {
+            through: crate::tools::undo::Mark::now(),
+        });
     }
 
     /// Upstream's `handleTraceReport` (`app_commands.zig:624-660`): a private
@@ -7877,6 +8552,77 @@ impl CommandHandlers for Shell {
     /// could not be started is said before the level, as upstream says a
     /// failed one, and a save that fails later is said when it does
     /// ([`Self::settle_saves`]).
+    /// `/image <path>` (and `/img`): upstream's `attachPath`
+    /// (`image_commands.zig:22-57`). Nothing after it is the usage line, an
+    /// error with no topic; a path that cannot be attached says why under
+    /// `images`; one that can puts its badge at the caret and says
+    /// `attached image: <name>`. The file is read now, whole, and what was read
+    /// is what every request sends ([`crate::image`]).
+    fn image(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']).is_empty() {
+            self.write_notice(&notice::Notice::error("", crate::image::USAGE));
+            return;
+        }
+        match crate::image::load(&self.workspace, self.home.as_deref(), argument) {
+            Err(problem) => self.announce(notice::Notice::error(
+                crate::image::TOPIC,
+                problem.to_string(),
+            )),
+            Ok((path, media_type, bytes)) => {
+                let image = crate::image::Image::new(
+                    self.images_next,
+                    path,
+                    media_type,
+                    std::sync::Arc::from(bytes),
+                );
+                let name = image.name();
+                let body = if self.attach(image) {
+                    format!("attached image: {name}")
+                } else {
+                    crate::image::INPUT_FULL.to_string()
+                };
+                self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+            }
+        }
+    }
+
+    /// `/images [clear]`: upstream's `managePending`
+    /// (`image_commands.zig:58-84`). `clear` drops every attachment -- the
+    /// badges are the attachments, so the draft they stand in goes -- and
+    /// anything else lists them, `N pending` with one ` - <name> (<type>)` row
+    /// each. Neutral throughout, under `images`.
+    ///
+    /// The list is the badges in the draft, in the order they stand: the only
+    /// way to have one when this runs is to have typed the command after them
+    /// ([`Self::submit`]'s retained badges).
+    fn images(&mut self, argument: &str) {
+        if argument.trim_matches([' ', '\t']) == "clear" {
+            self.clear_composer();
+            self.announce(notice::Notice::neutral(
+                crate::image::TOPIC,
+                crate::image::CLEARED,
+            ));
+            return;
+        }
+        let rows: Vec<String> = self
+            .editor
+            .entities()
+            .images()
+            .map(|image| format!(" - {} ({})", image.name(), image.media_type.label()))
+            .collect();
+        let body = if rows.is_empty() {
+            crate::image::NONE_PENDING.to_string()
+        } else {
+            format!("{} pending\n{}", rows.len(), rows.join("\n"))
+        };
+        self.announce(notice::Notice::neutral(crate::image::TOPIC, body));
+    }
+
+    /// `/paste`: the clipboard's image, as Ctrl-V reads it.
+    fn paste(&mut self) {
+        self.paste_image();
+    }
+
     fn sound(&mut self, argument: &str) {
         let Some(request) = crate::sound::Request::parse(argument) else {
             self.write_notice(&notice::Notice::error("", crate::sound::USAGE));
@@ -8124,6 +8870,7 @@ impl Shell {
             picker: false,
             announced,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -8219,6 +8966,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         }))
     }
 
@@ -8707,14 +9455,19 @@ impl Shell {
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
+            | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
             | Some(Slot::Provider(_))
             | Some(Slot::Files(_))
             | None => 0,
         };
+        let snapshot = self.settings_snapshot();
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Settings(menu)) => {
+                menu.height(&snapshot, rows, input_rows.saturating_sub(1))
+            }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
@@ -14925,11 +15678,31 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/paste" {
+                // The clipboard is read on a thread of its own, so its answer
+                // is the read's -- this shell reads nowhere, and says so
+                // (`super::copy::NOWHERE`).
+                assert_eq!(
+                    read_settled(&mut shell),
+                    said(notice::Notice::error(
+                        "images",
+                        "failed to paste clipboard image: FileNotFound"
+                    )),
+                    "/paste did not answer"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/settings" {
+                assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+                assert!(
+                    document.is_empty(),
+                    "/settings wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/undo" {
                 // The runtime's to answer: the journal is the conversation's
                 // and the conversation is on that thread
                 // ([`UiEvent::Undone`]). Nothing is said here first.
-                assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+                assert!(matches!(shell.controlled(), Some(TurnControl::Undo { .. })));
                 assert!(
                     document.is_empty(),
                     "/undo answered before the runtime did: {document:?}"
@@ -16723,6 +17496,7 @@ mod tests {
             title: title.map(str::to_string),
             turns,
             model: None,
+            next_image: 1,
         }
     }
 
@@ -16735,6 +17509,7 @@ mod tests {
     ) -> HydratedTurn {
         HydratedTurn {
             user: user.to_string(),
+            sent: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
             started_at_ms: 0,
@@ -17043,6 +17818,7 @@ mod tests {
                     ),
                     HydratedTurn {
                         user: "and then".to_string(),
+                        sent: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
                         started_at_ms: 0,
@@ -17440,6 +18216,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn: false,
+                effort_only: false,
             },
             "the model change never reached the thread that owns the session log"
         );
@@ -17610,6 +18387,7 @@ mod tests {
                 picker: false,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -17801,6 +18579,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -18204,6 +18983,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -18925,10 +19705,17 @@ mod tests {
     fn an_undo_is_said_as_upstreams_neutral_notice() {
         // `* undo: Restored …` (`fx-undo-40x120-undo1`): topic `undo`, the
         // neutral glyph, whatever the answer was -- `Could not undo` too
-        // (`commandUndoLast`, `app_commands.zig:1285-1289`).
+        // (`commandUndoLast`, `app_commands.zig:1286-1290`).
         let mut shell = shell(24, 80);
+        let before = crate::tools::undo::Mark::now();
         shell.route_bytes(b"/undo\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+        // Pinned at the keystroke: the journal's position then, never a bound
+        // that would reach a change made after it.
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Undo { through })
+                if through >= before && through <= crate::tools::undo::Mark::now()
+        ));
         for body in [
             "Restored /w/a.txt",
             "Deleted /w/a.txt (was newly created)",
@@ -21366,7 +22153,11 @@ mod tests {
         shell.help();
         assert!(shell.document().is_empty(), "/help wrote to the document");
         let rows = menu(&shell);
-        assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
+        // Every command, up to upstream's twenty at once.
+        let visible = crate::interactive::SLASH_REGISTRY
+            .len()
+            .min(super::help_menu::MOST_ITEMS);
+        assert_eq!(rows.len(), 2 + visible);
         assert_eq!(usize::from(shell.geometry.panel), rows.len());
         assert!(
             visible_text(&rows[0]).starts_with(&format!(
@@ -21406,6 +22197,7 @@ mod tests {
                     .iter()
                     .filter(move |spec| spec.category == *category))
                 .map(|spec| Some(spec.name.to_string()))
+                .take(visible)
                 .collect::<Vec<_>>()
         );
         assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
@@ -21546,7 +22338,10 @@ mod tests {
         // Shift-Tab, as a terminal spells it, is back to `All`.
         shell.route_bytes(b"\x1b[Z");
         let count = crate::interactive::SLASH_REGISTRY.len();
-        assert_eq!(usize::from(shell.geometry.panel), 2 + count);
+        assert_eq!(
+            usize::from(shell.geometry.panel),
+            2 + count.min(super::help_menu::MOST_ITEMS)
+        );
         assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
     }
 
@@ -24826,6 +25621,440 @@ mod tests {
         assert!(!shell.full.is_open());
     }
 
+    // -- /image, /images, /paste and Ctrl-V ---------------------------------
+
+    /// A workspace holding upstream's capture files -- `shot.png` (the 73-byte
+    /// PNG), `notes.txt`, `huge.png` one byte over the ceiling with a PNG
+    /// signature, and a directory -- and the shell reading from it.
+    struct Attaching {
+        shell: Fixture,
+        _root: tempfile::TempDir,
+        workspace: std::path::PathBuf,
+    }
+
+    fn attaching() -> Attaching {
+        let root = tempfile::tempdir().expect("a root");
+        let workspace = root.path().canonicalize().expect("canonical").join("work");
+        std::fs::create_dir(&workspace).expect("a workspace");
+        std::fs::write(workspace.join("shot.png"), crate::image::fixture::SHOT_PNG).expect("shot");
+        std::fs::write(workspace.join("notes.txt"), "not an image").expect("notes");
+        std::fs::create_dir(workspace.join("pics")).expect("a directory");
+        let huge = std::fs::File::create(workspace.join("huge.png")).expect("huge");
+        huge.set_len(crate::image::MAX_IMAGE_BYTES + 1)
+            .expect("sparse");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(workspace.join("huge.png"))
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, &crate::image::fixture::SHOT_PNG[..8])
+            })
+            .expect("a signature");
+        let mut shell = shell(40, 120);
+        shell.workspace = workspace.clone();
+        shell.home = Some(root.path().to_path_buf());
+        Attaching {
+            shell,
+            _root: root,
+            workspace,
+        }
+    }
+
+    impl std::ops::Deref for Attaching {
+        type Target = Fixture;
+        fn deref(&self) -> &Fixture {
+            &self.shell
+        }
+    }
+
+    impl std::ops::DerefMut for Attaching {
+        fn deref_mut(&mut self) -> &mut Fixture {
+            &mut self.shell
+        }
+    }
+
+    /// The images the draft's badges attach, by number.
+    fn attached_ids(shell: &Shell) -> Vec<u32> {
+        shell
+            .editor
+            .entities()
+            .images()
+            .map(|image| image.id)
+            .collect()
+    }
+
+    #[test]
+    fn image_with_nothing_after_it_is_the_usage_error_with_no_topic() {
+        // `fx-image-40x120-bare.ansi`: `✗ usage: /image <path>`, the error's
+        // glyph and no topic (`image_commands.zig:24-27`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("", "usage: /image <path>"))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn a_path_that_cannot_be_attached_is_refused_in_upstreams_words() {
+        // `fx-image-40x120-{missing,unsupported,toolarge}.ansi`.
+        for (line, body) in [
+            (&b"/image nope.png\r"[..], "image file not found"),
+            (b"/image notes.txt\r", "unsupported image type"),
+            (b"/image huge.png\r", "image exceeds the 20 MiB limit"),
+            (b"/image pics\r", "failed to attach image: NotRegularFile"),
+            (
+                b"/image ~nobody/x.png\r",
+                "failed to attach image: InvalidPath",
+            ),
+        ] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("images", body)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+            assert!(shell.editor.is_empty(), "a refused image left a badge");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a refusal reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn a_path_spelled_inside_the_workspace_may_not_read_outside_it_through_a_symlink() {
+        let mut shell = attaching();
+        let outside = shell
+            .workspace
+            .parent()
+            .expect("a parent")
+            .join("secret.png");
+        std::fs::write(&outside, crate::image::fixture::SHOT_PNG).expect("outside");
+        std::os::unix::fs::symlink(&outside, shell.workspace.join("link.png")).expect("a link");
+        shell.route_bytes(b"/image link.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "images",
+                "failed to attach image: PathOutsideWorkspace"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+    }
+
+    #[test]
+    fn an_attached_image_is_a_badge_at_the_caret_and_one_neutral_notice() {
+        // `fx-image-40x120-attached.ansi`: `* images: attached image:
+        // shot.png`, and the composer `┃ [Image 1]`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "images",
+                "attached image: shot.png"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "[Image 1]");
+        assert_eq!(attached_ids(&shell), [1]);
+        // Nothing went to the runtime: an attachment waits for its prompt.
+        assert!(shell.sent.try_recv().is_err());
+        // The quoted and the escaped spellings of a path are the same file,
+        // and `~` is the home directory.
+        let home = shell.home.clone().expect("a home");
+        std::fs::write(home.join("home.png"), crate::image::fixture::SHOT_PNG).expect("home");
+        for line in [
+            &b"/img \"shot.png\"\r"[..],
+            b"/img sh\\ot.png\r",
+            b"/img ~/home.png\r",
+        ] {
+            shell.route_bytes(line);
+        }
+        assert_eq!(attached_ids(&shell), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_command_typed_after_the_badges_runs_with_the_badges_kept() {
+        // `fx-image-40x120-two-attached.ansi`: `/img shot.png` and then
+        // `/image shot.png` typed straight after its badge leave
+        // `┃ [Image 3][Image 4]` (`pendingImagesPrefixEnd`,
+        // `input_submit_runtime.zig:718-736`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2]");
+        shell.document();
+        // `fx-image-40x120-images-listed.ansi`: one notice, a row per image,
+        // and the composer keeps what it had.
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 2 pending",
+                "   - shot.png (image/png)",
+                "   - shot.png (image/png)",
+                ""
+            ]
+        );
+        assert_eq!(shell.editor.text(), "[Image 1][Image 2] ");
+        assert_eq!(attached_ids(&shell), [1, 2]);
+        // A word after the badges that names no command is a prompt, and the
+        // badges go with it.
+        shell.route_bytes(b"/nosuch\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images }
+                if prompt == "[Image #1][Image #2] /nosuch" && images.len() == 2
+        ));
+    }
+
+    #[test]
+    fn images_clear_drops_every_attachment_and_the_draft_they_stood_in() {
+        // `fx-image-40x120-images-cleared.ansi`.
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" /images clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "cleared pending images"))
+        );
+        assert!(shell.editor.is_empty());
+        // And a number spent is never handed out again.
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [2]);
+    }
+
+    #[test]
+    fn images_with_nothing_attached_says_so_and_any_other_word_lists() {
+        // `fx-image-40x120-images-empty.ansi`; `/images foo` lists too, only
+        // `clear` is a word (`image_commands.zig:58-84`).
+        for line in [&b"/images\r"[..], b"/images foo\r", b"/images clear\r"] {
+            let mut shell = attaching();
+            shell.route_bytes(line);
+            let body = if line == b"/images clear\r" {
+                "cleared pending images"
+            } else {
+                "no pending images"
+            };
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("images", body))
+            );
+        }
+    }
+
+    #[test]
+    fn deleting_the_badge_drops_the_image_and_nothing_brings_it_back() {
+        // `fx-image-cu-40x120-after.ansi`: Ctrl-U, then `/images` says none
+        // (`kill_ring.zig:562-584`: `placeholder backing dropped kind=image`).
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15");
+        assert!(shell.editor.is_empty());
+        shell.document();
+        shell.route_bytes(b"/images\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("images", "no pending images"))
+        );
+        // A yank of the killed badge is its words, and so is an undo of the
+        // delete: neither attaches the image again.
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x15\x19");
+        assert_eq!(shell.editor.text(), "[Image 2]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\x15");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.route_bytes(b"\x7f");
+        assert!(
+            shell.editor.is_empty(),
+            "a backspace at a badge takes it whole"
+        );
+        shell.route_bytes(b"\x1f");
+        assert_eq!(shell.editor.text(), "[Image 3]");
+        assert!(attached_ids(&shell).is_empty());
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("[Image 3]".to_string()));
+    }
+
+    #[test]
+    fn a_prompt_sends_its_badges_as_tokens_with_the_images_after_them() {
+        // `fx-image-40x120-sent.ansi` and its `001-completion.json`: the card
+        // shows the badges, the prompt says `[Image #N]`, and the images go
+        // in the order they were attached.
+        let mut shell = attaching();
+        shell.route_bytes(b"/img shot.png\r");
+        shell.route_bytes(b"/image shot.png\r");
+        shell.document();
+        shell.route_bytes(b" what is in this image?\r");
+        let TurnWork::Attached { prompt, images } = shell.picks_up() else {
+            panic!("the images were not handed to the runtime");
+        };
+        assert_eq!(prompt, "[Image #1][Image #2] what is in this image?");
+        assert_eq!(
+            images.iter().map(|image| image.id).collect::<Vec<_>>(),
+            [1, 2]
+        );
+        // The summary's `↑` counts the tokens, as upstream's composer holds
+        // them: 12 here, where the badges alone would be 11
+        // (`fx-image-40x120-sent`, `0s (↑12 ↓40)`).
+        assert_eq!(
+            shell.prompts.back().map(|(estimate, ..)| *estimate),
+            Some(12)
+        );
+        assert!(images
+            .iter()
+            .all(|image| &*image.bytes == crate::image::fixture::SHOT_PNG));
+        assert_eq!(
+            shell.document(),
+            card("[Image 1][Image 2] what is in this image?")
+        );
+        assert!(shell.editor.is_empty());
+        // The bytes are the ones attached: the file changing afterwards is
+        // not what was sent.
+        std::fs::write(shell.workspace.join("shot.png"), b"GIF89a").expect("replace");
+        assert_eq!(&*images[0].bytes, crate::image::fixture::SHOT_PNG);
+    }
+
+    #[test]
+    fn a_prompt_of_badges_alone_is_sent_with_its_images() {
+        let mut shell = attaching();
+        shell.route_bytes(b"/image shot.png\r\r");
+        assert!(matches!(
+            shell.picks_up(),
+            TurnWork::Attached { prompt, images } if prompt == "[Image #1]" && images.len() == 1
+        ));
+    }
+
+    /// Settles the band until the clipboard read has answered: the document
+    /// rows it wrote, or none when it put a badge in the draft instead.
+    fn read_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let before = shell.editor.text().to_string();
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            if shell.editor.text() != before {
+                return Vec::new();
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the clipboard read never answered"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn ctrl_v_puts_the_clipboard_image_at_the_caret_with_no_notice() {
+        // `image_commands.zig:86-104`: a badge and a repaint, no notice -- and
+        // the image is named by the copy the session will keep of it.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        shell.route_bytes(b"look ");
+        shell.route_bytes(b"\x16");
+        let written = read_settled(&mut shell);
+        assert!(
+            written.is_empty(),
+            "a pasted image wrote a notice: {written:?}"
+        );
+        assert_eq!(shell.editor.text(), "look [Image 1]");
+        let name =
+            crate::image::snapshot_name(1, &crate::image::digest(crate::image::fixture::SHOT_PNG));
+        shell.route_bytes(b" /images\r");
+        // `look ` is not a badge, so this is a prompt, not the command.
+        assert!(matches!(shell.picks_up(), TurnWork::Attached { .. }));
+        shell.document();
+        // `/paste` is the same read.
+        shell.route_bytes(b"/paste\r");
+        assert!(read_settled(&mut shell).is_empty());
+        shell.route_bytes(b" /images\r");
+        assert_eq!(
+            shell.document(),
+            [
+                "* images: 1 pending".to_string(),
+                format!("   - {} (image/png)", name.replace("image-1-", "image-2-")),
+                String::new()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_clipboard_with_no_image_or_no_reader_says_so() {
+        // No image: neutral. No reader: upstream's error name -- which is
+        // also what the capture harness's do-nothing `osascript` produces
+        // (`fx-paste-40x120-paste.ansi`).
+        let empty = crate::clipboard::fake::FakeTool::holding(None);
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(empty.clipboard());
+        shell.route_bytes(b"/paste\r");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "no image found on clipboard"
+            ))
+        );
+        let mut shell = attaching();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::error(
+                "images",
+                "failed to paste clipboard image: FileNotFound"
+            ))
+        );
+        assert!(shell.editor.is_empty());
+    }
+
+    #[test]
+    fn an_image_the_composer_has_no_room_for_is_not_attached_and_says_so() {
+        // `writeInputFullNotice` (`image_commands.zig:9-19`): neutral, under
+        // `images`, and nothing in the draft -- reached by a clipboard image
+        // arriving at a draft the badge does not fit beside.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        let room = "[Image 1]".len() - 1;
+        assert!(shell
+            .editor
+            .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+            .is_some());
+        let before = shell.editor.text().len();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "input is full; image not attached"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.editor.text().len(), before, "the draft changed");
+        // The number was not spent: the next image that fits is #1.
+        shell.take_draft();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [1]);
+    }
+
+    #[test]
+    fn a_resumed_session_numbers_new_images_past_the_ones_it_holds() {
+        let mut shell = attaching();
+        let mut saved = replay(Some("pictures"), Vec::new());
+        saved.next_image = 5;
+        shell.hydrate(saved, false);
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [5]);
+    }
+
     // -----------------------------------------------------------------------
     // `/usage` and `/credits`
     // -----------------------------------------------------------------------
@@ -25236,5 +26465,724 @@ mod tests {
                 crate::output::MISSING_AUTH_HELP
             ))
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // `/settings`: the menu, its keys, and each row's change
+    // -----------------------------------------------------------------------
+
+    /// The settings menu's key help as the hint row paints it at 120 columns.
+    fn settings_key_help() -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.dim(),
+            settings::key_help(120),
+            PALETTE.reset()
+        )
+    }
+
+    /// The menu's rows with their colours taken out.
+    fn settings_text(shell: &Shell) -> Vec<String> {
+        menu(shell).iter().map(|row| visible_text(row)).collect()
+    }
+
+    /// A `shell_at_home` with `/settings` up.
+    fn with_settings(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+        shell
+    }
+
+    /// `n` presses of Down.
+    fn down(shell: &mut Fixture, n: usize) {
+        for _ in 0..n {
+            shell.route_bytes(b"\x1b[B");
+        }
+    }
+
+    const RIGHT: &[u8] = b"\x1b[C";
+    const LEFT: &[u8] = b"\x1b[D";
+
+    /// The saved line a `/settings` preference announces under `topic`.
+    fn settings_saved(topic: &str) -> Vec<String> {
+        said(notice::Notice::neutral(
+            topic,
+            interactive::STATUSLINE_SAVED,
+        ))
+    }
+
+    #[test]
+    fn a_bare_settings_opens_upstreams_menu_under_the_composer() {
+        // `cap/fx-settings-40x120-bare`: the composer row stays, the rule, the
+        // header and a blank, a row per setting with the first marked, the
+        // rule and the key help -- and nothing written anywhere.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.document().is_empty(), "the menu wrote a notice");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(shell.geometry.panel, 12);
+        let model = format!("  Model                    {}", shell.model);
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Status line context      off  on",
+                "  Status line session      off  on",
+                "  Status line workspace    off  on",
+                "  Slash menu categories    off  on",
+                "  Collapse tool calls      off  on",
+                model.as_str(),
+                "  Reasoning effort         default",
+                "  Permission mode          ask  auto  full access",
+                "  Sound level              off  on",
+                "  Prompt history           off  on",
+            ]
+        );
+        let rows = menu(&shell);
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            rows[2],
+            format!("  {bright}Status line context{reset}      {bright}off{reset}  {dim}on{reset}")
+        );
+        assert_eq!(
+            rows[5],
+            format!("  {dim}Slash menu categories{reset}    {dim}off{reset}  {bright}on{reset}")
+        );
+        assert_eq!(shell.band_rows().last(), Some(&settings_key_help()));
+        // A view of the composer: the caret stays in it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the menu took the caret"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/settings reached the runtime"
+        );
+    }
+
+    #[test]
+    fn typing_is_the_search_and_escape_closes_the_menu_and_empties_it() {
+        // `fx-settings2-40x120-filter-sou`, `-filter-none`, `-esc`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"sou");
+        assert_eq!(shell.editor.text(), "sou");
+        assert!(shell.picker.is_none());
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 2  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Slash menu categories    off  on",
+                "  Sound level              off  on",
+            ]
+        );
+        assert_eq!(shell.geometry.panel, 4, "the band follows the search");
+        shell.route_bytes(b"zzz");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["No settings found.".to_string()]
+        );
+        // A slash word typed into it is its search, not a command.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/");
+        assert!(shell.picker.is_none(), "the completion menu opened over it");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn nothing_typed_into_the_search_opens_another_picker_and_c_p_is_nothing_over_it() {
+        // The draft is the menu's search: an `@` word is no file query, a
+        // `/model ` line no model column, and C-p -- blocked by a menu that
+        // owns the keyboard (`modelPickerShortcutBlocked`,
+        // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"@src");
+        assert!(
+            shell.file_picker.is_none(),
+            "an @ word opened the file picker"
+        );
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/model ");
+        assert!(shell.column.active(shell.editor.text()).is_some());
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the model column took the slot"
+        );
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "/model x");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the search asked for a catalog"
+        );
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none(), "C-p opened the model catalog");
+        assert!(shell.settings_menu.is_some());
+        assert_eq!(shell.editor.text(), "/model x");
+    }
+
+    #[test]
+    fn tab_and_shift_tab_walk_the_categories_and_the_band_follows() {
+        // `fx-settings2-40x120-tab1..5`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[0],
+            "Settings 5  All  [Interface]  Agent  Notifications  Advanced"
+        );
+        assert_eq!(shell.geometry.panel, 7);
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model               {}", shell.model),
+                "  Reasoning effort    default".to_string(),
+                "  Permission mode     ask  auto  full access".to_string(),
+            ]
+        );
+        // Shift-Tab is the category back, and not the permission mode.
+        shell.route_bytes(b"\x1b[Z");
+        assert!(settings_text(&shell)[0].contains("[Interface]"));
+        assert_eq!(shell.mode, PermissionMode::Auto);
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "",
+                "  Prompt history    off  on",
+            ]
+        );
+        assert_eq!(shell.mode, PermissionMode::Auto);
+    }
+
+    #[test]
+    fn up_and_down_wrap_and_enter_changes_nothing_on_a_setting() {
+        // `fx-settings2-40x120-enter` is `-sound-right` again: Enter is inert
+        // everywhere but on `Model` (trap b: the statusline picker is the one
+        // whose Enter flips).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\x1b[A");
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        let before = shell.band_rows();
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.band_rows(), before);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.recall.enabled);
+        assert!(shell.document().is_empty());
+        assert_eq!(profile_at(root.path()), "");
+        down(&mut shell, 1);
+        assert_eq!(menu(&shell)[2].matches(PALETTE.subtitle()).count(), 2);
+    }
+
+    #[test]
+    fn right_on_a_status_line_row_is_statusline_item_and_says_both_notices() {
+        // `fx-settings2-40x120-right-context`: the two notices above the
+        // still-open menu, the row's `on` bold, and the profile written.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("context", true));
+        assert!(shell.statusline.context);
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+        assert_eq!(
+            settings_text(&shell)[2],
+            "  Status line context      off  on"
+        );
+        assert!(menu(&shell)[2].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"statusLine\": {\n    \"context\": true\n  }\n}\n"
+        );
+        // Left wraps back to off, and says so the same way.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), flipped("context", false));
+        assert!(!shell.statusline.context);
+        // The workspace segment shows on the hint row at once.
+        down(&mut shell, 2);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("workspace", true));
+        escape(&mut shell);
+        assert!(
+            shell
+                .hint()
+                .ends_with(&shell.workspace.display().to_string()),
+            "{}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn right_on_permission_mode_is_permissions_with_the_mode_its_notice_and_the_runtime_told() {
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions full-access\r");
+        assert_eq!(shell.mode, PermissionMode::Yolo);
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
+        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert_eq!(
+            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            2,
+            "the marked label and `full access`"
+        );
+        // Right again wraps to ask.
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions ask\r");
+        assert_eq!(shell.mode, PermissionMode::Ask);
+        assert_eq!(shell.document(), typed.document());
+    }
+
+    #[test]
+    fn right_on_sound_level_is_sound_on_and_saves_both_switches() {
+        // `fx-settings2-40x120-sound-right`: `* sound: on`.
+        let (_home, path) = profile();
+        let mut shell = sounding(40, false, Some(path.clone()));
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 8);
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        assert_eq!(
+            shell.sound.notifications(),
+            crate::config::Notifications::both(true)
+        );
+        saved_as(
+            &path,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
+        );
+        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_reasoning_effort_walks_the_models_levels_saves_effort_and_tells_the_runtime() {
+        // `fx-settings-effort-40x120-right1..3`, `-left`: each change says
+        // only `* effort: saved to user settings (scope=user)`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.model = "openai/gpt-6-astra".to_string();
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default  low  medium  high  xhigh"
+        );
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Named("low".to_string()));
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"low\"\n}\n");
+        // The runtime is told the effort and nothing else: the model kept.
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("low".to_string())),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            }
+        );
+        assert!(menu(&shell)[8].contains(&format!("{}low{}", PALETTE.subtitle(), PALETTE.reset())));
+        // Left from low is the default again, written as upstream writes it.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Auto);
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
+        // And the footer says the level in force once it is not the default.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.effort, Effort::Named("xhigh".to_string()));
+        escape(&mut shell);
+        assert!(shell.hint().ends_with("xhigh"), "{}", shell.hint());
+
+        // A model with no levels and the default in force: the value alone,
+        // and Right changes nothing.
+        shell.model = "fake/model-a".to_string();
+        shell.effort = Effort::Auto;
+        let _ = shell.document();
+        while shell.controlled().is_some() {}
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn slash_menu_categories_off_hides_the_popups_column_and_is_read_back_at_launch() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 3);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("slash menu categories"));
+        assert!(!shell.slash_menu_categories);
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"slash_menu_categories\": false\n}\n"
+        );
+        escape(&mut shell);
+        shell.route_bytes(b"/");
+        let popup = menu(&shell);
+        assert!(
+            popup[2..]
+                .iter()
+                .all(|row| !visible_text(row).trim_end().ends_with("General")),
+            "{popup:?}"
+        );
+        // The next launch reads it back.
+        let config = config(&root.path().join("home"), &root.path().join("work"));
+        assert!(!config.slash_menu_categories);
+        let relaunched = shell_at_home(root.path(), 40, 120);
+        assert!(!relaunched.slash_menu_categories);
+    }
+
+    #[test]
+    fn collapse_tool_calls_draws_the_open_group_as_its_header_and_the_next_one_too() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running sleep 4",
+                ""
+            ]
+        );
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        // The open block is rewritten as its header, and the notice is written
+        // under it as every line under an open group is.
+        let written = shell.written();
+        assert_eq!(
+            written[..2],
+            ["\u{25cf} 1 tool call \u{b7} 1 command", ""],
+            "{written:#?}"
+        );
+        assert!(
+            written.contains(
+                &"* collapse tool calls: saved to user settings (scope=user)".to_string()
+            ),
+            "{written:#?}"
+        );
+        assert!(
+            !written.iter().any(|row| row.contains("Running")),
+            "{written:#?}"
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"collapse_tool_calls\": true\n}\n"
+        );
+        // The group's result and the next group are drawn collapsed as well.
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.written();
+        shell.apply(tool_start(
+            "2",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        let written = shell.written();
+        assert_eq!(
+            written,
+            ["\u{25cf} 1 tool call \u{b7} 1 read", ""],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_preference_that_could_not_be_saved_is_in_force_and_says_so_in_error() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.settings_path = None;
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "collapse tool calls",
+                "active for this process but not saved to user settings (no home directory is set)"
+            ))
+        );
+        // History on is saved first and only then in force: a failed save
+        // leaves it as it was, and says it was not saved -- with nothing
+        // "active" about it.
+        shell.recall.enabled = false;
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "history",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+    }
+
+    #[test]
+    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        // `model used` is the Model row's description alone: the effort row's
+        // mentions the model too.
+        shell.route_bytes(b"model used");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [format!("  Model    {}", shell.model)]
+        );
+        // Left does nothing on it.
+        shell.route_bytes(LEFT);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.model_menu.is_none());
+        shell.route_bytes(b"\r");
+        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
+        assert!(shell.model_menu.is_some(), "no model menu");
+        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert!(shell.document().is_empty());
+
+        let mut right = with_settings(root.path());
+        down(&mut right, 5);
+        right.route_bytes(RIGHT);
+        assert!(right.settings_menu.is_none());
+        assert!(right.model_menu.is_some());
+    }
+
+    #[test]
+    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
+        // `fx-settings-40x120-bogus`, with this product's grammar.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("", "usage: /settings")),
+                "{argument}"
+            );
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+        assert_eq!(profile_at(root.path()), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // the prompt history
+    // -----------------------------------------------------------------------
+
+    /// A [`shell_at_home`] that keeps its prompt history in its own profile.
+    fn remembering(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell
+            .recall
+            .keep_in(crate::session::prompt_history::PromptHistory::in_profile(
+                &root.join("home").join(".xfx"),
+            ));
+        shell
+    }
+
+    /// The texts the history file under `root` holds, oldest first, once the
+    /// shell's writer has written what it was handed -- and whatever it said
+    /// about that settled into the document.
+    fn saved_texts(shell: &mut Fixture, root: &std::path::Path) -> Vec<String> {
+        shell.recall.wait_for_writes();
+        shell.settle_band(Instant::now());
+        std::fs::read_to_string(root.join("home").join(".xfx").join("history.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let record: serde_json::Value = serde_json::from_str(line).expect("a record");
+                assert_eq!(record["schema_version"], 1, "{line}");
+                assert!(record["timestamp_ms"].as_u64().is_some(), "{line}");
+                record["text"].as_str().expect("a text").to_string()
+            })
+            .collect()
+    }
+
+    /// What Up puts in the composer.
+    fn recalled(shell: &mut Fixture) -> String {
+        shell.route_bytes(b"\x1b[A");
+        shell.editor.text().to_string()
+    }
+
+    #[test]
+    fn a_submitted_line_is_kept_in_the_file_under_its_workspace() {
+        // `fx-settings-history-40x120-*.files`: commands and prompts alike,
+        // one record each, the workspace's latest not twice.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"  a prompt  \r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["/version", "a prompt"]
+        );
+        let line =
+            std::fs::read_to_string(root.path().join("home/.xfx/history.jsonl")).expect("the file");
+        let workspace = shell.workspace.display().to_string();
+        assert!(
+            line.contains(&format!(
+                "\"workspace_root\":{}",
+                serde_json::json!(workspace)
+            )),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        let document = shell.document();
+        assert!(
+            document.ends_with(&settings_saved("history")),
+            "{document:?}"
+        );
+        assert!(profile_at(root.path()).contains("\"enabled\": false"));
+        escape(&mut shell);
+        shell.route_bytes(b"secret\r");
+        // Not in the file, and not in this session's recall either.
+        assert_eq!(saved_texts(&mut shell, root.path()), ["first", "/settings"]);
+        let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
+        assert_eq!(walked[0], "/settings");
+        assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
+        shell.route_bytes(&[0x15]);
+
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(shell.recall.enabled);
+        assert!(profile_at(root.path()).contains("\"enabled\": true"));
+        escape(&mut shell);
+        shell.route_bytes(b"public\r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["first", "/settings", "public"]
+        );
+    }
+
+    #[test]
+    fn a_launch_recalls_its_workspaces_saved_lines_unless_the_history_is_off() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut first = remembering(root.path());
+        first.route_bytes(b"alpha\r");
+        first.route_bytes(b"beta\r");
+        assert_eq!(saved_texts(&mut first, root.path()), ["alpha", "beta"]);
+        let workspace = first
+            .recall
+            .workspace()
+            .expect("a UTF-8 workspace")
+            .to_string();
+        crate::session::prompt_history::PromptHistory::in_profile(&root.path().join("home/.xfx"))
+            .append(1, "/another/workspace", "theirs")
+            .expect("append");
+
+        let mut next = remembering(root.path());
+        next.recall_saved_lines();
+        // Up recalls, and the next Up first takes the caret to the start of the
+        // recalled line, as upstream's does (`fx-settings-history-40x120-relaunch-up1..4`).
+        let walked: Vec<String> = (0..6).map(|_| recalled(&mut next)).collect();
+        assert_eq!(walked[0], "beta");
+        assert!(walked.contains(&"alpha".to_string()), "{walked:?}");
+        assert!(
+            !walked.contains(&"theirs".to_string()),
+            "another workspace's line was recalled: {walked:?}"
+        );
+        assert_eq!(next.recall.workspace(), Some(workspace.as_str()));
+
+        let mut off = remembering(root.path());
+        off.recall.enabled = false;
+        off.recall_saved_lines();
+        assert_eq!(recalled(&mut off), "");
+    }
+
+    #[test]
+    fn a_saved_line_is_the_text_a_collapsed_paste_stands_for() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        let pasted = "p".repeat(2000);
+        shell.route_bytes(format!("\x1b[200~{pasted}\x1b[201~").as_bytes());
+        assert!(
+            shell.editor.text().starts_with("[Pasted text #1"),
+            "{}",
+            shell.editor.text()
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(saved_texts(&mut shell, root.path()), [pasted]);
+    }
+
+    #[test]
+    fn a_history_that_cannot_be_written_warns_once_and_the_line_still_goes() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        // A directory where the file goes: every append fails.
+        std::fs::create_dir_all(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
+        shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
+        let document = shell.document();
+        assert!(
+            document.iter().any(
+                |row| row.starts_with("! history: failed to save input history (")
+                    && row.ends_with("); submission continued")
+            ),
+            "{document:?}"
+        );
+        shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.contains("history:")),
+            "warned twice: {document:?}"
+        );
+        assert_eq!(recalled(&mut shell), "/version", "the recall lost the line");
     }
 }

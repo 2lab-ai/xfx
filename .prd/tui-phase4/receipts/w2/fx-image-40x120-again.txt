@@ -1,0 +1,40 @@
+✗ images: image file not found
+
+✗ images: unsupported image type
+
+✗ images: image exceeds the 20 MiB limit
+
+✗ images: failed to attach image: NotRegularFile
+
+* images: no pending images
+
+* images: attached image: shot.png
+
+* images: 1 pending
+   - shot.png (image/png)
+
+* images: cleared pending images
+
+* images: attached image: shot.png
+
+* images: no pending images
+
+* images: attached image: shot.png
+
+* images: attached image: shot.png
+
+┃ [Image 3][Image 4] what is in this image?
+
+  It is a small red square.
+
+  0s (↑12 ↓40)
+
+┃ describe it again
+
+  Still red.
+
+  0s (↑5 ↓40)
+
+┃
+
+auto · model-a

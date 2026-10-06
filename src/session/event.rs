@@ -66,6 +66,32 @@ pub struct RecordedToolCall {
     pub input: Value,
 }
 
+/// One image a user message carried, as the log remembers it: which one, where
+/// it came from, and how to know its saved copy when it is read back.
+///
+/// **References, never bytes.** The bytes are in a file of the session's own
+/// -- `images/` + [`crate::image::snapshot_name`] of `id` and `sha256` -- which
+/// a frame of at most [`MAX_EVENT_FRAME_BYTES`] could not hold, and the name of
+/// that file is **derived** from these fields rather than written in them, so a
+/// log cannot point a resume at any other file. Upstream records the same
+/// facts on its user event (`images: [{id, path, media_type, snapshot_path,
+/// snapshot_sha256}]`, `vercel-labs/fx@c1db9191
+/// src/core/session/session_store.zig:102-118`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordedImage {
+    /// The number the prompt's `[Image #N]` names it by.
+    pub id: u32,
+    /// The file it was read from, or the name of its saved copy for one that
+    /// came off the clipboard.
+    pub path: String,
+    /// Its MIME type, one of [`crate::image::MediaType`]'s.
+    pub media_type: String,
+    /// The SHA-256 of its bytes, lowercase hex.
+    pub sha256: String,
+    /// How many bytes it is.
+    pub bytes: u64,
+}
+
 /// One model request a turn made, as the provider accounted for it.
 ///
 /// What `/usage` adds up (`GenerationFact`, `vercel-labs/fx@c1db9191
@@ -197,6 +223,16 @@ pub enum SessionEvent {
     ProjectContextRecorded { sources: Vec<String>, bytes: u64 },
     /// The user's message. This is what opens a turn.
     UserMessage { text: String },
+    /// The images the message just opened carries, in the order they were
+    /// attached -- written immediately after it and before anything else of
+    /// its turn, with their copies already saved beside the log.
+    ///
+    /// A frame of its own rather than a field on [`Self::UserMessage`], under
+    /// schema 1 like [`Self::ToolFeedback`] and for its reason: a new binary
+    /// reads every old log, and an older one refuses a log that holds this
+    /// frame rather than resuming the conversation without the images its
+    /// prompts name.
+    ImagesAttached { images: Vec<RecordedImage> },
     /// One assistant step: its text, then the tools it asked for, in order.
     ///
     AssistantMessage {
@@ -346,6 +382,7 @@ impl SessionEvent {
             Self::PreferencesChanged { .. } => "preferences_changed",
             Self::ProjectContextRecorded { .. } => "project_context_recorded",
             Self::UserMessage { .. } => "user_message",
+            Self::ImagesAttached { .. } => "images_attached",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",

@@ -342,7 +342,7 @@ pub(crate) enum UiEvent {
         unsaved: Option<String>,
     },
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
-    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1285-1289`).
+    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
     /// **Not a [`Self::Notice`]**, and the one difference is the reason: a
     /// notice the old conversation's work sends after a reset is dropped
@@ -652,6 +652,7 @@ impl UiEvent {
                     .into_iter()
                     .map(|turn| super::hydration::HydratedTurn {
                         user: inert_owned(turn.user),
+                        sent: inert_owned(turn.sent),
                         steps: turn.steps.into_iter().map(inert_step).collect(),
                         ending: match turn.ending {
                             super::hydration::Ending::Interrupted(reason) => {
@@ -669,6 +670,8 @@ impl UiEvent {
                     })
                     .collect(),
                 model: hydration.model.map(inert_owned),
+                // A number.
+                next_image: hydration.next_image,
             }),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.
@@ -798,7 +801,7 @@ pub(crate) enum TurnControl {
     /// queued behind it is taken. An interrupt does not drop it: it is not a
     /// piece of work, and the turn after the interrupt is the one it was for.
     Model(ModelChange),
-    /// `/undo` ([`crate::tools::mutate::undo_last`]), answered with
+    /// `/undo` ([`crate::tools::mutate::undo_through`]), answered with
     /// [`UiEvent::Undone`].
     ///
     /// **A control message rather than work**, for the reason [`Self::Model`]
@@ -811,10 +814,16 @@ pub(crate) enum TurnControl {
     /// -- **not at once, as upstream's is**: the files a running turn is
     /// changing are the runtime thread's to change, and an undo there,
     /// between one call's commit and the next call's read, is exactly the
-    /// interleaving a single thread exists to rule out. The cost is that an
-    /// undo typed mid-turn takes back the newest change when the turn is over,
-    /// which may be one the turn made after it was typed.
-    Undo,
+    /// interleaving a single thread exists to rule out.
+    ///
+    /// **What it takes back is decided at the keystroke all the same.**
+    /// `through` is the journal's position when the key was pressed
+    /// ([`crate::tools::undo::Mark::now`], read on the UI thread), and the
+    /// undo takes back the newest change at or before it -- the one upstream's
+    /// would have -- whatever the turn has committed since. A later change to
+    /// the same file makes it `Could not undo` rather than a restore that
+    /// discards that change.
+    Undo { through: crate::tools::undo::Mark },
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -863,6 +872,13 @@ pub(crate) struct ModelChange {
     pub(crate) announced: bool,
     /// A turn was running, or waiting to, when it was asked for.
     pub(crate) next_turn: bool,
+    /// The effort alone: `/settings`' `Reasoning effort` row, which keeps the
+    /// model and leaves the runtime nothing to select, load or write
+    /// (`selectEffortFromSettings`, `session_commands.zig:882-884`) -- the band
+    /// has written `effort` itself and said so. Carried as a model change so
+    /// it waits behind a running turn exactly as one does, and keeps its place
+    /// among them.
+    pub(crate) effort_only: bool,
 }
 
 /// What the UI asks the runtime to do next.
@@ -881,6 +897,16 @@ pub(crate) struct ModelChange {
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
+    /// Run a turn on this prompt and the images its `[Image #N]` name, in the
+    /// order they were attached.
+    ///
+    /// A variant of its own rather than a field on [`Self::Submit`]: a prompt
+    /// with nothing attached is the case every other surface and test sends,
+    /// and it stays the one-word value it always was.
+    Attached {
+        prompt: String,
+        images: Vec<crate::image::Image>,
+    },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
     /// A piece of *work* rather than a control message like `/model`'s

@@ -1,0 +1,32 @@
+# /settings, bare (`.prd/tui-phase4` D4d): the popup with the name typed, the
+# menu, Down, Escape, and the argument form. The research scenario
+# (`appearance-security-ext/scenarios/settings.cap`) keystroke for keystroke,
+# less `startup-scrollback`'s own answers on xfx, which has no such setting:
+# there `/settings startup-scrollback` is the usage line like any argument.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+wait 2
+type /settings
+wait 0.5
+snap typed
+key Enter
+wait 1
+snap bare
+key Down
+wait 0.3
+snap down1
+key Down Down Down
+wait 0.3
+snap down4
+key Escape
+wait 0.5
+snap esc
+type /settings startup-scrollback
+key Enter
+wait 1
+snap ss-query
+type /settings bogus
+key Enter
+wait 1
+snap bogus
+home files
