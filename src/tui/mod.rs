@@ -703,6 +703,7 @@ mod hint;
 mod history;
 mod input;
 mod layout;
+mod model_menu;
 mod notice;
 mod pacer;
 mod panic;

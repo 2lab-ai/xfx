@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+* Switched to anthropic/claude-opus-5 (effort: default, speed: normal)
+
+* Switched to nonexistent-xyz (effort: default, speed: normal)
+
+✗ usage: /model <id> <effort> [normal|fast|ultrafast]
+
+┃ /model fake/model-a high
+
+auto · nonexistent-xyz
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

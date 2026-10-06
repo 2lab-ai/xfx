@@ -1,0 +1,13 @@
+# /model's menu over a catalog with no language model in it.
+models models-empty.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Enter
+wait 1.5
+snap open
+key Escape
+wait 0.6
+snap esc
