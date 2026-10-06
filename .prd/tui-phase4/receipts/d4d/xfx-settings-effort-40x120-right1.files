@@ -1,0 +1,15 @@
+=== ~/.xfx/history.jsonl (257 bytes)
+{"schema_version":1,"timestamp_ms":1791321470867,"workspace_root":"<scratch>/work","text":"/model"}
+{"schema_version":1,"timestamp_ms":1791321472911,"workspace_root":"<scratch>/work","text":"/settings"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (95 bytes)
+{
+  "effort": "low",
+  "models": {
+    "gateway": "zai/glm-5.2"
+  },
+  "provider": "gateway"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

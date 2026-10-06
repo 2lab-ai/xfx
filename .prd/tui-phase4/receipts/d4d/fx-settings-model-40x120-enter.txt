@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 14  [All]  Interface  Agent  Notifications  Advanced
+
+  Model                    fake/model-a
+                           fake/model-a
+  Reasoning effort         default
+  Fast mode                off
+  Ultra mode               off
+  Permission mode          ask  auto  full access
+  Session titles           off  on
+  Sound level              off  on  max
+  Startup scrollback       off  on
+  Prompt history           off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

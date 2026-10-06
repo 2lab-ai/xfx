@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-10f1edb [debug] · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* sound: on
+
+┃ sou
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 2  [All]  Interface  Agent  Notifications  Advanced
+
+  Slash menu categories    off  on
+  Sound level              off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

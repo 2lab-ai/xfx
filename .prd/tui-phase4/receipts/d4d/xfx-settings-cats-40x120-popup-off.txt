@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-10f1edb [debug] · Run /help for commands
+
+* slash menu categories: saved to user settings (scope=user)
+
+┃ /
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 17 · type to filter                                                                                        1–6
+
+  /help     show available slash commands
+  /clear    start a fresh conversation while keeping managed processes
+  /new      start a fresh session
+  /reset    reset the current session context
+  /resume   resume a saved session
+  /rename   rename the current session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

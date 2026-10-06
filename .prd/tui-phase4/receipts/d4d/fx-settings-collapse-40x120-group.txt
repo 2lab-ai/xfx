@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓80)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

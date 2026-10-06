@@ -1,0 +1,40 @@
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+* collapse tool calls: saved to user settings (scope=user)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓40)
+
+┃ run it
+
+
+
+● 1 tool call · 1 command
+
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+
+• Running (3s) (↑2 ↓0)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+

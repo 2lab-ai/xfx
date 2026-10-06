@@ -1,0 +1,40 @@
+┃ look
+
+● 2 tool calls · 2 read
+├ Read a.txt
+└ Read b.txt
+
+  Read both.
+
+  0s (↑1 ↓40)
+
+* collapse tool calls: saved to user settings (scope=user)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓40)
+
+┃ run it
+
+● 1 tool call · 1 command
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                                                               Command
+
+  Would you like to run the following command?
+
+  $ # terminal.exec cwd=.
+    sleep 4; echo hi
+
+  ❯ 1. Yes
+    2. Yes, and don't ask again for this exact command
+    3. No
+  2 = allow every future run of exactly `sleep 4; echo hi` in . for the rest of this session, and in every later `xfx
+  ask --resume-id 1791321420182-f5e3ddc927cf38ef` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

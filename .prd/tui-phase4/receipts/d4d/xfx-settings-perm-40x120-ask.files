@@ -1,0 +1,10 @@
+=== ~/.xfx/history.jsonl (130 bytes)
+{"schema_version":1,"timestamp_ms":1791321403908,"workspace_root":"<scratch>/work","text":"/settings"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (31 bytes)
+{
+  "permission_mode": "ask"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
