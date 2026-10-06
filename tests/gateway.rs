@@ -995,6 +995,7 @@ fn stopped(text: &str) -> Completion {
 
 fn turn(prompt: &str) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),

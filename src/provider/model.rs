@@ -52,6 +52,11 @@ pub struct ModelFacts {
     pub released: i64,
     /// Whether the row is tagged `tool-use`.
     pub tool_use: bool,
+    /// Whether the row is tagged `vision` and `file-input` both: the one case
+    /// upstream sends an image to the model inline (`image_input_support`
+    /// `.native`, `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:2847-2848`,
+    /// `src/core/config/model_capabilities.zig:96-104`).
+    pub image_input: bool,
     /// The most tokens one answer may carry (`max_tokens`).
     pub max_output: Option<u64>,
     /// Whether the catalog offers Fast mode for it (`supportsFastMode`).
@@ -281,6 +286,8 @@ pub fn parse_gateway_catalog(body: &str) -> Option<Vec<CatalogEntry>> {
                 let facts = ModelFacts {
                     released: object.get("released").and_then(Value::as_i64).unwrap_or(0),
                     tool_use: tagged(object.get("tags"), "tool-use"),
+                    image_input: tagged(object.get("tags"), "vision")
+                        && tagged(object.get("tags"), "file-input"),
                     max_output: positive(object.get("max_tokens")),
                     fast: supports_fast(object, owned_by.as_deref()),
                     ultrafast: supports_ultrafast(object, owned_by.as_deref()),
@@ -1967,6 +1974,28 @@ mod tests {
     }
 
     #[test]
+    fn a_row_reads_images_inline_only_when_it_is_tagged_vision_and_file_input_both() {
+        // `image_input_support` is `.native` only for the two tags together
+        // (`gateway.zig:2847-2848`, `model_capabilities.zig:96-104`); either
+        // alone is a model upstream would route through its vision tool.
+        let catalog = parse_gateway_catalog(
+            r#"{"data":[
+              {"id":"a/both","tags":["tool-use","vision","file-input"]},
+              {"id":"a/vision","tags":["tool-use","vision"]},
+              {"id":"a/file","tags":["FILE-INPUT"]},
+              {"id":"a/none","tags":["tool-use"]},
+              {"id":"a/untagged"}
+            ]}"#,
+        )
+        .expect("a catalog document");
+        let reads: Vec<bool> = catalog
+            .iter()
+            .map(|entry| entry.facts.image_input)
+            .collect();
+        assert_eq!(reads, [true, false, false, false, false]);
+    }
+
+    #[test]
     fn a_gateway_row_carries_the_facts_upstream_reads_and_nothing_else() {
         let entries = parse_gateway_catalog(MODELS_JSON).expect("a catalog document");
         // The embedding row is not a language model.
@@ -1988,6 +2017,7 @@ mod tests {
                 owned_by: Some("openai".to_string()),
                 released: 1_780_000_000,
                 tool_use: true,
+                image_input: false,
                 max_output: Some(128_000),
                 // A `priority` tier on an OpenAI row is Fast; a priced
                 // `ultrafast` tier, cached input included, is Ultra.

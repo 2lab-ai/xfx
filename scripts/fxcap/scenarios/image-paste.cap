@@ -1,0 +1,33 @@
+# /paste and Ctrl-V. First with the harness's do-nothing osascript (the read
+# claims success and writes no file), then with `clipimage`, whose osascript
+# writes shot.png where the clipboard script asks: two badges, no notice,
+# `/images` naming each by its session copy, and a prompt that sends both.
+models models-image.json
+gateway image-turns.json
+work image-ws
+wait 3
+type /paste
+key Enter
+wait 1.5
+snap paste-none
+key C-v
+wait 1.5
+snap ctrl-v-none
+clipimage image-ws/shot.png
+type /paste
+key Enter
+wait 1.5
+snap paste
+key C-v
+wait 1.5
+snap ctrl-v
+type  /images
+key Enter
+wait 1
+snap images
+type what is this?
+key Enter
+wait 4
+snap sent
+snapfull end
+gwlog

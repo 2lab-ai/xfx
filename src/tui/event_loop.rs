@@ -3215,6 +3215,7 @@ mod tests {
             title: Some("first question alpha".to_string()),
             turns: vec![HydratedTurn {
                 user: "first question alpha".to_string(),
+                sent: "first question alpha".to_string(),
                 steps: vec![HydratedStep::Text("ALPHA answer line one.".to_string())],
                 ending: Ending::Concluded {
                     seconds: 0,
@@ -3225,6 +3226,7 @@ mod tests {
                 details: Vec::new(),
             }],
             model: None,
+            next_image: 1,
         }
     }
 
