@@ -1,0 +1,7 @@
+[
+ {"delayMs":50,"chunks":["First answer, sound off."]},
+ {"delayMs":50,"chunks":["Second answer, sound on."]},
+ {"tool":{"name":"write_file","input":{"path":"c.txt","content":"new file\n"}}},
+ {"delayMs":50,"chunks":["Wrote c.txt."]},
+ {"delayMs":50,"chunks":["Fourth answer, sound off again."]}
+]

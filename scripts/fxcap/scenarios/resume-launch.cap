@@ -1,0 +1,31 @@
+gateway resume-turns.json
+wait 4
+type first question alpha
+wait 0.5
+key Enter
+wait 4
+type second question beta
+wait 0.5
+key Enter
+wait 4
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+snap quit
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+snap resumed
+snapfull resumed
+title resumed
+type third question gamma
+wait 0.5
+key Enter
+wait 4
+snap continued
+type /quit
+wait 0.5
+key Enter
+wait 2

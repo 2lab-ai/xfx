@@ -1,0 +1,40 @@
+
+  First answer, sound off.
+
+  0s (↑4 ↓40)
+
+* sound: on
+
+* sound: on
+
+✗ usage: /sound [on|off]
+
+* sound: off
+
+* sound: on
+
+✗ usage: /sound [on|off]
+
+┃ second question
+
+  Second answer, sound on.
+
+  0s (↑4 ↓40)
+
+┃ write the file
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+      1 + new file
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                     Write · +1  -0
+
+  c.txt  ·  Apply this change?
+
+  ❯ 1  Apply once
+    2  Apply + allow future writes to this file for this session
+    3  Don't apply
+  2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later
+  `xfx ask --resume-id 1791315580159-cd07388fc4a00721` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel

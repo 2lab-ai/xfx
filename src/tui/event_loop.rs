@@ -826,6 +826,24 @@ fn commit_frame(
             };
         }
     }
+    // `/resume`, before everything else on the primary plane -- a handoff
+    // included, which a wipe makes moot: the screen and its scrollback are
+    // reset (`Band::wipe`), so the resume notice and the turns the shell has
+    // already queued land from row 1 of a terminal with nothing above it, as
+    // upstream's do after its terminal reset (`fx-sessions-40x120-resumed`).
+    // Held, and retried, under exactly the rules of the handoff below and for
+    // the same reasons: a question's plane is not this screen, a screen no
+    // band fits on is addressed by nothing, and the turns must not be appended
+    // onto the document they replace.
+    if !band.on_alternate() && !shell.blind() && shell.owes_wipe() {
+        if let Err(emit) = band.wipe(out, &shell.geometry) {
+            return match disposed(emit, failures, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(()),
+            };
+        }
+        shell.wiped();
+    }
     // `/clear`, `/new` and `/reset`, and before everything else on the primary
     // plane: the document still on the screen goes into the terminal's own
     // scrollback and the screen is left blank (`Band::hand_off`), so the
@@ -989,9 +1007,77 @@ fn commit_counted(
     reconciled: Reconciled,
 ) -> io::Result<()> {
     let mut counted = Counted::new(out);
-    let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled);
+    let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled)
+        .and_then(|()| commit_bells(shell, &mut counted, failures, now));
     shell.metrics.ansi_bytes += counted.delivered();
     committed
+}
+
+/// `/sound`'s terminal bells, **after** everything else this tick wrote.
+///
+/// After, because a turn's bell is owed once its answer has been presented
+/// ([`super::sound`]) and the last rows of that answer are in this tick's
+/// appends: the bell rings with the end of the answer on the screen rather
+/// than a frame before it. And after **every** way out of [`commit_frame`],
+/// because a bell carries no coordinates: it means the same on the borrowed
+/// plane, on a screen no band fits on, and after a frame the terminal refused
+/// -- the three states a session can wait in while it waits on the user, which
+/// is when a question's bell is for.
+///
+/// Through the output check like every other vector ([`check_bells`]), and
+/// disposed of as the theme query is: refused without a byte taken, the bells
+/// are owed again; torn, the session ends; landed, they mend nothing, because
+/// a bell is no proof the screen is taking frames.
+fn commit_bells(
+    shell: &mut Shell,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+) -> io::Result<()> {
+    let rings = shell.take_bells();
+    if rings == 0 {
+        return Ok(());
+    }
+    let bells = vec![BEL; usize::from(rings)];
+    if let Err(emit) = check_bells(&bells, rings)
+        .map_err(Emit::rejected)
+        .and_then(|()| out.emit(&bells))
+    {
+        let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
+        return match disposed(emit, failures, now) {
+            Some(fatal) => Err(fatal),
+            None => {
+                if rearm {
+                    shell.restore_bells(rings);
+                }
+                Ok(())
+            }
+        };
+    }
+    Ok(())
+}
+
+/// The terminal bell (upstream's `writeNotificationBell`,
+/// `src/ui/transcript/runtime.zig:10152-10163`: the one byte, on its own).
+const BEL: u8 = 0x07;
+
+/// What `/sound`'s bells say they do: ring, `rings` times, and nothing else.
+///
+/// Seeded as the theme query is, one cell and no footprint, and for the same
+/// reason: a vector that moved a cell or the caret is refused by the emptiness
+/// check whatever size the model is, and a bell that did either would be a
+/// bell that also did something else.
+fn check_bells(bytes: &[u8], rings: u16) -> io::Result<()> {
+    let plane = super::check::PlaneKind::Primary;
+    super::check::preflight(
+        &super::check::TerminalModel::seed_modes(1, 1, super::check::ModeSet::fresh(), 0, plane),
+        bytes,
+        &super::check::Declared::new(
+            super::check::Intent::Bell { rings },
+            super::check::Footprint::none(plane),
+        ),
+    )?;
+    Ok(())
 }
 
 /// What the theme query says it does: **nothing at all** except ask.
@@ -3115,6 +3201,113 @@ mod tests {
         assert!(!text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"));
     }
 
+    /// A saved session of one turn, as the runtime hands it over.
+    fn one_saved_turn() -> super::super::hydration::Hydration {
+        use super::super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
+        Hydration {
+            title: Some("first question alpha".to_string()),
+            turns: vec![HydratedTurn {
+                user: "first question alpha".to_string(),
+                steps: vec![HydratedStep::Text("ALPHA answer line one.".to_string())],
+                ending: Ending::Concluded {
+                    seconds: 0,
+                    output: Some(40),
+                },
+            }],
+            model: None,
+        }
+    }
+
+    #[test]
+    fn a_resume_resets_the_screen_and_its_scrollback_and_replays_from_row_one() {
+        // `fx-sessions-40x120-resumed.full.txt`: after a picker's resume the
+        // terminal holds the replay and nothing above it. Upstream writes
+        // `ESC[0m ESC[2J ESC[3J ESC[H` (`terminal_diff.zig:1311-1325`); this
+        // band closes every colour it opens, so its vector is the other three.
+        let mut shell = floating();
+        let mut band = Band::new();
+        let lines: Vec<String> = (1..=10).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+        shell.end_transcript_line();
+        committed(&mut shell, &mut band);
+        assert_eq!(shell.document_rows(), 10);
+
+        shell.hydrate(one_saved_turn(), true);
+        assert!(shell.owes_wipe());
+        let text = committed(&mut shell, &mut band);
+
+        assert!(
+            text.starts_with("\u{1b}[H\u{1b}[2J\u{1b}[3J"),
+            "the reset is not the first thing written: {text:?}"
+        );
+        assert_eq!(text.matches("\u{1b}[3J").count(), 1, "{text:?}");
+        assert!(!shell.owes_wipe(), "a reset that landed is still owed");
+        let rest = &text["\u{1b}[H\u{1b}[2J\u{1b}[3J".len()..];
+        let notice_at = rest
+            .find("\u{1b}[1;1H")
+            .unwrap_or_else(|| panic!("the replay does not start on row 1: {rest:?}"));
+        assert!(rest[notice_at..].contains("session resumed:"), "{rest:?}");
+        assert!(rest.contains("first question alpha"), "{rest:?}");
+        assert!(rest.contains("ALPHA answer line one."), "{rest:?}");
+        // Nothing of the old document is written again, and nothing is
+        // scrolled into scrollback on the way: a reset, not a handoff.
+        assert!(
+            (1..=10).all(|n| !rest.contains(&format!("line {n}"))),
+            "{rest:?}"
+        );
+        assert!(!text.contains("\u{1b}[24;1H\n"), "{text:?}");
+        // The band is painted whole, under the replay: notice, blank, card,
+        // blank, answer, blank, summary, blank -- composer on row 9.
+        let band_at = rest
+            .find("\u{1b}[?2026h")
+            .unwrap_or_else(|| panic!("no band frame followed: {rest:?}"));
+        assert!(
+            rest[band_at..].contains(&format!("\u{1b}[9;1H\u{1b}[38;5;255m{COMPOSER_MARKER}")),
+            "the composer is not under the replay: {rest:?}"
+        );
+        assert_eq!(shell.document_rows(), 8);
+    }
+
+    #[test]
+    fn a_resume_owed_on_top_of_a_reset_is_only_the_reset_of_the_terminal() {
+        // A `/new` whose handoff has not landed, then a resume: the handoff
+        // would carry rows into a scrollback the reset is about to erase.
+        let mut shell = floating();
+        let mut band = Band::new();
+        shell.write_transcript("line 1\nline 2\n");
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"/new\r");
+        assert!(shell.owes_handoff());
+        shell.hydrate(one_saved_turn(), true);
+        assert!(!shell.owes_handoff(), "the handoff outlived the reset");
+        let text = committed(&mut shell, &mut band);
+        assert!(text.starts_with("\u{1b}[H\u{1b}[2J\u{1b}[3J"), "{text:?}");
+        assert!(
+            !text.contains("\u{1b}[J\u{1b}[24;1H"),
+            "a handoff was written: {text:?}"
+        );
+        // The fresh session's welcome line went with it: a resume writes none.
+        assert!(!text.contains("Run /help for commands"), "{text:?}");
+    }
+
+    #[test]
+    fn a_launch_resume_resets_nothing_and_writes_no_welcome_line() {
+        // `tui-resume.test.ts:330-400`: what the shell printed before
+        // `fx --resume` is still above the replay. The launch has pushed it
+        // into scrollback already; the replay is appended, not reset onto.
+        let mut shell = floating();
+        let mut band = Band::new();
+        shell.hydrate(one_saved_turn(), false);
+        assert!(!shell.owes_wipe());
+        let text = committed(&mut shell, &mut band);
+        assert!(
+            !text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"),
+            "{text:?}"
+        );
+        assert!(!text.contains("Run /help for commands"), "{text:?}");
+        assert!(text.contains("session resumed:"), "{text:?}");
+    }
+
     #[test]
     fn a_zero_progress_append_refusal_is_retried_exactly_once_next_tick() {
         // Superseded rationale, kept as a note rather than deleted silently:
@@ -4451,6 +4644,186 @@ mod tests {
         failures: &mut FrameFailures,
     ) -> io::Result<()> {
         commit_counted(shell, band, out, failures, Instant::now(), Reconciled)
+    }
+
+    /// A screen that keeps every vector it takes apart from the others, and
+    /// refuses a vector made only of bells `refusals` times, taking nothing.
+    ///
+    /// Apart, because the byte a bell is also ends every window title a frame
+    /// writes (`OSC 2 ; … BEL`): a count over the whole stream would count
+    /// titles. And the refusal is aimed, because a frame goes out in the same
+    /// tick and a case about a refused bell must not be one about a refused
+    /// frame.
+    #[derive(Default)]
+    struct BellScreen {
+        refusals: usize,
+        vectors: Vec<Vec<u8>>,
+    }
+
+    impl BellScreen {
+        /// The vectors that were bells and nothing else, as their lengths.
+        fn rung(&self) -> Vec<usize> {
+            self.vectors
+                .iter()
+                .filter(|vector| is_bells(vector))
+                .map(Vec::len)
+                .collect()
+        }
+    }
+
+    fn is_bells(bytes: &[u8]) -> bool {
+        !bytes.is_empty() && bytes.iter().all(|byte| *byte == BEL)
+    }
+
+    impl Sink for BellScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            if self.refusals > 0 && is_bells(bytes) {
+                self.refusals -= 1;
+                return Err(Emit::ZeroProgress(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "not now",
+                )));
+            }
+            self.vectors.push(bytes.to_vec());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn owed_bells_go_out_after_the_frame_on_their_own_and_are_counted() {
+        // Upstream writes the one byte through its frame sink, counted with
+        // every other (`writeNotificationBell`, `runtime.zig:10152-10163`).
+        // Here it is the tick's last vector: the rows a turn's bell announces
+        // are in this tick's appends, and they land first.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = BellScreen::default();
+        // Two owed, through the seam the loop hands refused bells back by.
+        shell.restore_bells(2);
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick");
+        assert!(
+            out.vectors.len() > 1,
+            "no frame went out, so this proves nothing"
+        );
+        assert_eq!(
+            out.vectors.last().map(Vec::as_slice),
+            Some(&b"\x07\x07"[..]),
+            "the bells were not the tick's last vector, or were not alone in it"
+        );
+        assert_eq!(out.rung(), [2], "a bell went out twice");
+        let wrote: usize = out.vectors.iter().map(Vec::len).sum();
+        assert_eq!(
+            shell.metrics.ansi_bytes, wrote as u64,
+            "/stats missed the bells"
+        );
+        assert_eq!(shell.take_bells(), 0, "the bells are still owed");
+
+        // And a tick with none owed rings none.
+        shell.route_bytes(b"x");
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick");
+        assert_eq!(out.rung(), [2]);
+    }
+
+    #[test]
+    fn a_refused_bell_is_owed_again_and_rings_once() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = BellScreen {
+            refusals: 1,
+            ..BellScreen::default()
+        };
+        shell.restore_bells(1);
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("a refusal inside the budget");
+        assert!(out.rung().is_empty(), "the refused bell rang");
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the bell owed");
+        assert_eq!(out.rung(), [1], "the bell was forgotten, or rung twice");
+    }
+
+    #[test]
+    fn a_bell_rings_on_the_other_plane_and_on_a_screen_no_band_fits_on() {
+        // Both are states a session waits on the user in, which is when a
+        // question's bell is for -- and a bell carries no coordinates, so
+        // neither has a reason to hold it back.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        on_the_alternate_plane(&mut shell, &mut band, &mut out, &mut failures);
+        // The question that took the plane owed one of its own; whatever it
+        // owed, the ones owed now are the ones this case counts.
+        let _ = shell.take_bells();
+        shell.restore_bells(1);
+        let mut out = BellScreen::default();
+        commit_counted(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the tick on the other plane");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(out.rung(), [1], "no bell on the other plane");
+
+        let mut blind = self::shell();
+        let mut band = Band::new();
+        let mut out = screen();
+        counted_tick(&mut blind, &mut band, &mut out, &mut failures).expect("the first frame");
+        let _ = blind.resize(3, 10);
+        assert!(blind.blind(), "the screen still fits a band");
+        blind.restore_bells(1);
+        let before = out.written.len();
+        counted_tick(&mut blind, &mut band, &mut out, &mut failures).expect("the blind tick");
+        assert_eq!(
+            &out.written[before..],
+            &[BEL],
+            "a blind screen wrote more, or no bell"
+        );
+    }
+
+    #[test]
+    fn the_bell_vector_is_checked_for_its_count_and_for_nothing_else() {
+        check_bells(b"\x07", 1).expect("one bell, declared");
+        check_bells(b"\x07\x07\x07", 3).expect("three, declared");
+        check_bells(b"\x07\x07", 1).expect_err("one more than declared");
+        check_bells(b"", 1).expect_err("one fewer than declared");
+        check_bells(b"\x07\x1b[1;1Hx", 1).expect_err("a bell that also wrote a cell");
+        check_bells(b"\x07\x1b[2;1H", 1).expect_err("a bell that also moved the caret");
     }
 
     #[test]

@@ -1,0 +1,40 @@
+
+[38;5;255m┃[39m [1mfirst question[0m
+
+  First answer, sound off.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;250m* sound: max[39m
+
+[38;5;250m* sound: off[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;252m✗ [38;5;250musage: /sound [on|off|max][39m
+
+[38;5;255m┃[39m [1msecond question[0m
+
+  Second answer, sound on.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m [1mwrite the file[0m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m      [38;5;245m1[39m [38;5;252m+[39m [38;5;252mnew file[39m
+[38;5;240m┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+[39m  [1mPermission needed · Review change[0m                                                                     [38;5;245mWrite[39m · [38;5;252m+1[39m  [38;5;252m-0[39m
+
+  [1mc.txt[0m  ·  Apply this change?
+
+  [1m[38;5;255m❯ 1  Apply once[0m
+    [38;5;245m2[39m  Apply + allow workspace file access for this session
+    [38;5;245m3[39m  Don't apply
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    wheel scroll    enter confirm    esc cancel[39m

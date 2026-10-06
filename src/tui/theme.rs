@@ -251,16 +251,23 @@ const RESET: &str = "\u{1b}[0m";
 /// painted blank -- so a retinted answer cell is taken to whichever of the
 /// two is listed first ([`Palette::document_retint`]).
 ///
-/// The fourteenth is the foreground of the `@` file picker's marked row,
+/// The fourteenth is upstream's `red_style` **on the hint row**: the one-time
+/// full-access warning flush with its last column
+/// (`input_presentation.zig:565`, `cap/fx-permissions-40x120-full.ansi`). The
+/// same grey as [`LABEL`] in each theme (`theme.zig:86-88`, `:129-131`) and not
+/// the same decision: that one is written into the document, and this one is
+/// the band's alone, so a theme report has nothing of it to retint.
+///
+/// The fifteenth is the foreground of the `@` file picker's marked row,
 /// upstream's `approval_button_inactive_style` (`theme.zig:96` dark, `:139`
 /// light): the hint grey over a background of its own ([`Palette::selected`]).
 /// Band rows only, so nothing of it is in the document for a theme report to
 /// find.
-const DARK: [u8; 14] = [
-    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 255,
+const DARK: [u8; 15] = [
+    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252, 255,
 ];
-const LIGHT: [u8; 14] = [
-    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 237,
+const LIGHT: [u8; 15] = [
+    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238, 237,
 ];
 
 /// Where in one of those tuples each role sits.
@@ -277,7 +284,8 @@ const WARNING: usize = 9;
 const TOOL: usize = 10;
 const COMMAND: usize = 11;
 const ANSWER: usize = 12;
-const SELECTED: usize = 13;
+const DANGER: usize = 13;
+const SELECTED: usize = 14;
 
 /// What kind of document row a theme report is repainting, read off the row's
 /// first cell ([`Palette::document_row`]).
@@ -380,6 +388,11 @@ impl Palette {
     /// question batch (`statusline_style`, `question_ui.zig:481`; [`ANSWER`]).
     pub(crate) fn answer(&self) -> &'static str {
         self.paint(ANSWER)
+    }
+
+    /// The hint row's warning that every permission check is off ([`DANGER`]).
+    pub(crate) fn danger(&self) -> &'static str {
+        self.paint(DANGER)
     }
 
     /// What a permission question emphasises: the marked choice and the

@@ -1,0 +1,19 @@
+=== ~/.xfx/sessions/1791315580159-cd07388fc4a00721/events.jsonl (1562 bytes)
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":1,"event_id":"096770e9b9ec01c68a6ee12d542fb812","timestamp_ms":1791315580159,"event":{"kind":"session_started","id":"1791315580159-cd07388fc4a00721","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask"}}
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":2,"event_id":"037be5fd2b46977e6d1cb72bdb4b57f6","timestamp_ms":1791315580173,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":3,"event_id":"736bad96c56c6e5a9b682a4202c0fbdc","timestamp_ms":1791315580186,"event":{"kind":"user_message","text":"first question"}}
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":4,"event_id":"e246d63eda5ecd450b860c372485b09d","timestamp_ms":1791315580256,"event":{"kind":"assistant_message","text":"First answer, sound off.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":5,"event_id":"9564c291f1b2de29c03d229cc03dbca0","timestamp_ms":1791315580268,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40}}
+{"schema_version":1,"log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","seq":6,"event_id":"8316a27f1edb292910da0ab42c79781a","timestamp_ms":1791315580280,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791315580159-cd07388fc4a00721/session.json (623 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791315580159-cd07388fc4a00721","log_generation":"93e0d9bd1bd88d6a45b9ac8d0bf31a58","created_at_ms":1791315580159,"updated_at_ms":1791315580280,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"ask","title":"first question","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1562,"event_log_sha256":"46fbbc200e1c88bbc2724165e79033a06d2208d85ece386763a782a717195bfd"}
+
+=== ~/.xfx/settings.json (84 bytes)
+{
+  "notifications": {
+    "attention_required": false,
+    "turn_end": false
+  }
+}
+

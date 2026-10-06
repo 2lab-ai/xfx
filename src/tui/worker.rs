@@ -74,18 +74,22 @@ use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
-use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedSender};
+use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
 use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink,
 };
+use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
+use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
-use crate::interactive::{bind_conversation, open_conversation, status_snapshot, Conversation};
+use crate::interactive::{
+    bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
+};
 use crate::output::StatusSnapshot;
 use crate::permission::PermissionSession;
 use crate::provider::model::{
@@ -201,6 +205,21 @@ pub(crate) struct WorkHandle {
     reply: LastReply,
     /// What `/status` reads, as the runtime last published it.
     status: StatusBoard,
+    /// Where a change to the session's authority goes: `/permissions` and
+    /// Shift-Tab ([`Change`]).
+    ///
+    /// **A channel of its own, not a [`TurnWork`]**, and each of the three
+    /// differences is a bug the work channel would have: a change would hold a
+    /// place in [`WORK_LIMIT`] and be refused as busy behind one waiting
+    /// prompt, it would show on the band as `queued 1`, and a Ctrl-C would drop
+    /// it with the queue ([`Queue::abandon`]) after the footer had already said
+    /// the new mode. Unbounded, like the control channel, because a keystroke
+    /// that changes the mode must never be refused for want of room. The
+    /// runtime reads it only between pieces of work (`turn_loop`), which is
+    /// what keeps a change from landing under a running turn.
+    permissions: UnboundedSender<Change>,
+    /// What a bare `/permissions` lists, as the runtime last published it.
+    grants: Grants,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -366,6 +385,21 @@ impl WorkHandle {
         self.status.read()
     }
 
+    /// Hands the runtime a change to the session's authority, to apply before
+    /// the next piece of work it starts. Never blocks, never full.
+    ///
+    /// `Err` means the runtime thread is gone, which is the one thing a caller
+    /// must not paint a new mode over.
+    pub(crate) fn change_permissions(&self, change: Change) -> Result<(), Rejected> {
+        self.permissions.send(change).map_err(|_| Rejected::Gone)
+    }
+
+    /// The conversation's grants, as a bare `/permissions` lists them, from
+    /// the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn grants(&self) -> Vec<String> {
+        self.grants.read()
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -381,8 +415,28 @@ impl WorkHandle {
         Receiver<TurnWork>,
         mpsc::UnboundedReceiver<TurnControl>,
     ) {
+        let (handle, work_rx, control_rx, changes) = Self::detached_with_changes();
+        // Kept open for the handle's whole life rather than dropped: a closed
+        // channel would make every `/permissions` in a fixture read as a
+        // runtime that is gone. Leaked deliberately -- a test process that
+        // ends takes it with it.
+        std::mem::forget(changes);
+        (handle, work_rx, control_rx)
+    }
+
+    /// [`Self::detached`], with the receiving end of the authority channel
+    /// handed back too, for the cases that ask what `/permissions` and
+    /// Shift-Tab sent.
+    #[cfg(test)]
+    pub(crate) fn detached_with_changes() -> (
+        Self,
+        Receiver<TurnWork>,
+        mpsc::UnboundedReceiver<TurnControl>,
+        UnboundedReceiver<Change>,
+    ) {
         let (work, work_rx) = mpsc::channel(WORK_LIMIT);
         let (control, control_rx) = mpsc::unbounded_channel();
+        let (permissions, changes) = mpsc::unbounded_channel();
         (
             Self {
                 work,
@@ -391,10 +445,19 @@ impl WorkHandle {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions,
+                grants: Grants::default(),
             },
             work_rx,
             control_rx,
+            changes,
         )
+    }
+
+    /// Stands in for the runtime's publication of the grants list.
+    #[cfg(test)]
+    pub(crate) fn publish_grants(&self, lines: Vec<String>) {
+        self.grants.publish(lines);
     }
 
     /// Stands in for the runtime's own publication, for the cases that are
@@ -402,6 +465,14 @@ impl WorkHandle {
     #[cfg(test)]
     pub(crate) fn publish_status(&self, snapshot: StatusSnapshot) {
         self.status.publish(snapshot);
+    }
+
+    /// Stands in for the runtime giving one place back once a piece of work
+    /// is over (`turn_loop`), for the cases that submit more than the queue
+    /// holds at once.
+    #[cfg(test)]
+    pub(crate) fn give_back(&self) {
+        self.outstanding.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -597,6 +668,7 @@ pub(crate) fn spawn(
     let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
     let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
     let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+    let (permissions_tx, mut permissions_rx) = mpsc::unbounded_channel::<Change>();
     // One receiver, read by the turn loop and -- while it is parked in an
     // approval -- by the prompter. See `super::approval::ControlChannel` for
     // why that is sound and what it costs.
@@ -624,6 +696,8 @@ pub(crate) fn spawn(
     let loops_outstanding = Arc::clone(&outstanding);
     let reply = LastReply::default();
     let loops_reply = reply.clone();
+    let grants = Grants::default();
+    let publishes_grants = grants.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -644,6 +718,7 @@ pub(crate) fn spawn(
             };
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
+            state.grants = publishes_grants;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -657,6 +732,7 @@ pub(crate) fn spawn(
                 state,
                 &events_tx,
                 &mut work_rx,
+                &mut permissions_rx,
                 control,
                 session_cancel,
                 &loops_outstanding,
@@ -674,6 +750,8 @@ pub(crate) fn spawn(
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply,
                 status,
+                permissions: permissions_tx,
+                grants,
             },
             resumable: None,
         },
@@ -712,15 +790,16 @@ impl Resumption {
         })
     }
 
-    /// What the session's log says it is called: the store's own title of its
-    /// first prompt, which `xfx sessions` lists it under.
-    pub(crate) fn title(&self) -> Option<String> {
-        self.session.state().title()
-    }
-
     /// The model the session last ran under.
     pub(crate) fn model(&self) -> &str {
         &self.session.state().model
+    }
+
+    /// What the session replays as on the screen it continues on
+    /// ([`super::hydration`]): read off the state this value already holds, so
+    /// the launch builds it with no read of its own.
+    pub(crate) fn hydration(&self) -> super::hydration::Hydration {
+        super::hydration::Hydration::of(self.session.state(), None)
     }
 }
 
@@ -807,6 +886,10 @@ struct Runtime {
     /// Where `/status` reads this runtime from ([`StatusBoard`]), written by
     /// [`Runtime::publish`] and by nothing else.
     board: StatusBoard,
+    /// Where a bare `/permissions` reads the conversation's grants from,
+    /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
+    /// cannot describe different moments.
+    grants: Grants,
 }
 
 impl Runtime {
@@ -850,6 +933,7 @@ impl Runtime {
             selector,
             reply: LastReply::default(),
             board,
+            grants: Grants::default(),
         }
     }
 
@@ -873,6 +957,73 @@ impl Runtime {
             self.model(),
             self.conversation.as_ref(),
         ));
+        self.grants.publish(self.grant_lines());
+    }
+
+    /// The conversation's grants as `/permissions` lists them, made inert:
+    /// a command a model wrote is text this crate does not trust on a terminal.
+    fn grant_lines(&self) -> Vec<String> {
+        let Some(conversation) = self.conversation.as_ref() else {
+            return Vec::new();
+        };
+        conversation
+            .grant_lines(&self.config.workspace_root)
+            .iter()
+            .map(|line| bridge::inert(line).into_owned())
+            .collect()
+    }
+
+    /// Applies one change to the session's authority, **between turns**, and
+    /// records it; answers what the session has to be told, if anything.
+    ///
+    /// Three places hold the mode and all three move together. The
+    /// configuration, because every conversation this runtime opens later is
+    /// built from it ([`Runtime::authority`]). The live conversation's
+    /// authority, because that is built **once per conversation** and not per
+    /// turn -- an "always" answer has to outlive the turn it was given in
+    /// (module header) -- so changing only the configuration would leave the
+    /// conversation the user is talking in at the mode it started with. And
+    /// the session log, as [`Runtime::resume`] records a mode that changed, so
+    /// a later resume reads what this session really ran under.
+    ///
+    /// The profile write is here, on this thread, rather than on the UI's: it
+    /// stages a file, syncs it, renames it and syncs the directory, which is
+    /// disk latency the thread holding the terminal must not wait on -- the
+    /// reason `/setup` writes from here too. A write that fails leaves the
+    /// change applied and says so, in upstream's words
+    /// (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+    fn change_permissions(&mut self, change: Change) -> Option<super::notice::Notice> {
+        let mode = match change {
+            Change::Mode(mode) => mode,
+            Change::Reset => PermissionMode::Ask,
+            Change::Acknowledge => {
+                self.config.yolo_acknowledged = true;
+                return self
+                    .persist("yolo_acknowledged", serde_json::Value::Bool(true))
+                    .err()
+                    .map(|reason| permissions::not_saved("full-access-acknowledgment", &reason));
+            }
+        };
+        self.config.permission_mode = mode;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.set_permission_mode(mode, change == Change::Reset);
+        }
+        self.publish();
+        self.persist(
+            "permission_mode",
+            serde_json::Value::String(mode.label().to_string()),
+        )
+        .err()
+        .map(|reason| permissions::not_saved("permission-mode", &reason))
+    }
+
+    /// Writes one key of the profile, or says why it could not.
+    fn persist(&self, key: &str, value: serde_json::Value) -> Result<(), String> {
+        let Some(path) = self.config.user_settings_path.as_ref() else {
+            return Err("no home directory".to_string());
+        };
+        crate::provider::profile::write_preference(path, &[key], value)
+            .map_err(|err| err.to_string())
     }
 
     /// Publishes what `/copy` would copy from the conversation as it stands.
@@ -917,6 +1068,141 @@ impl Runtime {
             )?);
         }
         Ok(())
+    }
+
+    /// The conversation, opened now when no prompt has opened it: what a
+    /// `/rename` before the first prompt writes into.
+    ///
+    /// [`Self::ready`]'s second half without its first, because naming a
+    /// session reaches no provider: a machine with no credential can still
+    /// give its session a title.
+    fn conversation(&mut self, mirror: &CancelToken) -> Result<&mut Conversation, String> {
+        if self.conversation.is_none() {
+            let model = self.model().to_string();
+            self.conversation = Some(open_conversation(
+                &self.store,
+                &self.config,
+                &model,
+                self.authority(),
+                Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
+                mirror,
+            )?);
+        }
+        self.conversation
+            .as_mut()
+            .ok_or_else(|| "the conversation could not be opened".to_string())
+    }
+
+    /// `/rename`: the title written into the conversation's session, which is
+    /// opened for it when no prompt has opened one.
+    ///
+    /// Opened rather than held back for the first prompt, because a title is
+    /// what upstream keeps a session for: its session exists from launch, and
+    /// one renamed before anything was asked in it survives the exit
+    /// (`discardableOnClose`, `app_session_runtime.zig:5702-5720`). Opening it
+    /// here is that, with the store's own failure reported at the rename --
+    /// which is when upstream reports it -- rather than at a prompt that came
+    /// later.
+    fn rename(&mut self, title: &str, mirror: &CancelToken) -> Result<(), String> {
+        let conversation = self.conversation(mirror)?;
+        rename_conversation(conversation, title)
+    }
+
+    /// What a `/resume` picker lists, read now: both scopes, newest first,
+    /// without the session this runtime is in and without sessions that hold
+    /// no turn (`hasResumableContent`, `session_store_types.zig:71-73`).
+    ///
+    /// `None` when either listing could not be read, which the picker says as
+    /// upstream's does (`Unable to load sessions.`).
+    fn sessions(&self) -> Option<super::session_picker::Listing> {
+        use crate::session::{ListFilter, ListScope, MAX_LIST_LIMIT};
+        let active = self
+            .conversation
+            .as_ref()
+            .map(|conversation| conversation.recorder.id().as_str().to_string());
+        let read = |scope: ListScope| {
+            self.store
+                .list(&ListFilter::new(scope).with_limit(MAX_LIST_LIMIT))
+                .ok()
+        };
+        let rows =
+            |list: crate::session::SessionList| -> Vec<super::session_picker::ListedSession> {
+                list.sessions
+                    .into_iter()
+                    .filter(|summary| summary.history_turns > 0)
+                    .filter(|summary| active.as_deref() != Some(summary.id.as_str()))
+                    .map(|summary| super::session_picker::ListedSession {
+                        id: summary.id,
+                        title: summary.title,
+                        workspace: summary.workspace_root,
+                        updated_at_ms: summary.updated_at_ms,
+                        turns: summary.history_turns,
+                    })
+                    .collect()
+            };
+        let current = read(ListScope::CurrentWorkspace(
+            self.config.workspace_root.clone(),
+        ))?;
+        let all = read(ListScope::AllWorkspaces)?;
+        Some(super::session_picker::Listing {
+            current: rows(current),
+            all: rows(all),
+            now_ms: crate::session::event::system_now_ms(),
+        })
+    }
+
+    /// `/resume`'s Enter: the session `id` names becomes the conversation, and
+    /// the answer is what it replays as.
+    ///
+    /// **Opened before anything is let go of**: a session that cannot be
+    /// opened -- another xfx holds it, it is gone, it cannot be trusted --
+    /// leaves the conversation this runtime is in exactly as it was. Opened
+    /// without waiting on a held lock, as upstream's picker is
+    /// (`session_lock_deadline_ms = 0`, `app_session_runtime.zig:2263-2265`).
+    /// Then the conversation it replaces is dropped, which closes its log and
+    /// releases its lock; xfx writes no session before its first prompt or a
+    /// `/rename`, so the one dropped here is always one worth keeping.
+    ///
+    /// The model follows the launch's rule ([`super::session`]): a session
+    /// continues in the model it last ran under when no setting chose one.
+    fn resume_by_id(
+        &mut self,
+        id: &str,
+        mirror: &CancelToken,
+    ) -> Result<super::hydration::Hydration, super::session_picker::ResumeFailure> {
+        use super::session_picker::ResumeFailure;
+        let id = crate::session::SessionId::parse(id).map_err(|_| ResumeFailure::Unavailable)?;
+        let scope = AccessScope::primary_only(&self.config.workspace_root)
+            .map_err(|_| ResumeFailure::Unavailable)?;
+        let resumed = self
+            .store
+            .resume_without_waiting(
+                &crate::session::Selector::Id(id),
+                &self.config.workspace_root,
+            )
+            .map_err(|err| match err {
+                crate::session::SessionError::Busy { .. } => ResumeFailure::OpenElsewhere,
+                _ => ResumeFailure::Unavailable,
+            })?;
+        let resumption = Resumption {
+            session: resumed.session,
+            scope,
+        };
+        if self.config.sources.model == crate::config::SettingSource::CompiledDefault
+            && self.model() != resumption.model()
+        {
+            self.config.model = resumption.model().to_string();
+            self.selector = ModelSelector::new(&self.config);
+        }
+        let replay = super::hydration::Hydration::of(
+            resumption.session.state(),
+            Some(self.model().to_string()),
+        );
+        self.conversation = None;
+        self.resume(resumption, mirror);
+        self.publish_reply();
+        self.publish();
+        Ok(replay)
     }
 
     /// The model this session's next turn is held in.
@@ -1034,7 +1320,17 @@ impl Runtime {
     /// switch would replay one provider's history into another's wire format,
     /// and a bundle is a connection to an endpoint that is no longer configured.
     fn adopt(&mut self, reloaded: RuntimeConfig) -> Selected {
+        // **Except the session's permission mode**, which is not what the file
+        // says but what the person last chose: `/permissions` and Shift-Tab
+        // write the profile too, but an `XFX_PERMISSION_MODE` that outranks it
+        // would otherwise take a provider switch back to the launch's mode
+        // while the hint row goes on saying the chosen one. The same for a
+        // warning already shown: it stays shown.
+        let mode = self.config.permission_mode;
+        let acknowledged = self.config.yolo_acknowledged || reloaded.yolo_acknowledged;
         self.config = reloaded;
+        self.config.permission_mode = mode;
+        self.config.yolo_acknowledged = acknowledged;
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -1224,6 +1520,7 @@ async fn turn_loop(
     mut state: Runtime,
     events: &Sender<UiEvent>,
     work: &mut Receiver<TurnWork>,
+    changes: &mut UnboundedReceiver<Change>,
     control: Arc<ControlChannel>,
     cancel: Cancellation,
     outstanding: &AtomicUsize,
@@ -1233,6 +1530,9 @@ async fn turn_loop(
         outstanding,
         taken: 0,
     };
+    // Whether the UI can still send a change. A closed channel answers `recv`
+    // at once, every time, so an arm left on it would spin this loop.
+    let mut changes_open = true;
     loop {
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
@@ -1241,7 +1541,10 @@ async fn turn_loop(
             biased;
             message = control.recv() => match message {
                 // The session is over, or the UI is gone with its sender.
-                Some(TurnControl::Shutdown) | None => return state.resumable(),
+                // Answered below rather than here: the changes still waiting
+                // are applied on the way out, and the select holds that
+                // channel for its own branch.
+                Some(TurnControl::Shutdown) | None => Taken::Shutdown,
                 // Between turns there is nothing *running* to cancel -- but
                 // there may be work waiting that nobody has started, and after
                 // an interrupt nothing may start.
@@ -1262,6 +1565,13 @@ async fn turn_loop(
                     | TurnControl::QuestionCancelled { .. },
                 ) => Taken::Nothing,
             },
+            // **After control and before work**, and that order is the whole
+            // of "between turns": this loop is the only place a turn starts,
+            // so a change typed while one was running is applied the moment it
+            // ends and before whatever was queued behind it begins -- upstream
+            // syncs its queued prompts to a new mode the same way
+            // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
+            change = changes.recv(), if changes_open => Taken::Change(change),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -1275,10 +1585,24 @@ async fn turn_loop(
                 continue;
             }
             Taken::Nothing => continue,
+            Taken::Shutdown => return settled(state, changes),
+            Taken::Change(Some(change)) => {
+                // Not a terminal event -- nothing is waiting on one for a
+                // change -- but `send_terminal` is the send that makes the
+                // event inert and does not depend on a turn's token.
+                if let Some(notice) = state.change_permissions(change) {
+                    bridge::send_terminal(events, UiEvent::Notice(notice)).await;
+                }
+                continue;
+            }
+            Taken::Change(None) => {
+                changes_open = false;
+                continue;
+            }
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
             // one.
-            Taken::Work(None) => return state.resumable(),
+            Taken::Work(None) => return settled(state, changes),
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
@@ -1301,6 +1625,26 @@ async fn turn_loop(
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
+            // Three answers that read or write the store and nothing else, so
+            // like `/model` they need no race against the control channel:
+            // there is no socket to stop and nothing a Ctrl-C would shorten.
+            TurnWork::Sessions => {
+                let listing = state.sessions();
+                bridge::send_terminal(events, UiEvent::Sessions(listing)).await;
+                Ended::Turn
+            }
+            TurnWork::Resume(id) => {
+                let answer = match state.resume_by_id(&id, &cancel.mirror()) {
+                    Ok(replay) => UiEvent::Resumed(replay),
+                    Err(failure) => UiEvent::ResumeFailed { id, failure },
+                };
+                bridge::send_terminal(events, answer).await;
+                Ended::Turn
+            }
+            TurnWork::Rename(title) => {
+                run_rename(&mut state, &title, events, &cancel.mirror()).await;
+                Ended::Turn
+            }
         };
         // After **every** piece of work rather than in the arms that change
         // the conversation: a provider switch replaces it, and a piece of work
@@ -1317,7 +1661,7 @@ async fn turn_loop(
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
         match ended {
-            Ended::Session => return state.resumable(),
+            Ended::Session => return settled(state, changes),
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
             // taken.
@@ -1356,6 +1700,22 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
 }
 
+/// Applies every authority change still waiting, then names the session to
+/// resume -- the way out of [`turn_loop`], on every path.
+///
+/// A change typed while the last turn ran and followed at once by `/quit` was
+/// shown to the user and has not been applied yet: the loop takes changes
+/// only between pieces of work. Upstream writes the preference the moment the
+/// key is pressed (`selectMode`), so a session that left without this would be
+/// the one place the two disagree about what the next launch starts in. What
+/// the UI is owed for a failed write here is not sent: it is leaving.
+fn settled(mut state: Runtime, changes: &mut UnboundedReceiver<Change>) -> Option<SessionId> {
+    while let Ok(change) = changes.try_recv() {
+        let _ = state.change_permissions(change);
+    }
+    state.resumable()
+}
+
 /// What one turn of [`turn_loop`]'s wait produced.
 ///
 /// A value rather than an early `continue` inside the `select!` because the
@@ -1373,6 +1733,11 @@ enum Taken {
     Reset(usize),
     /// A message that means nothing here.
     Nothing,
+    /// A change to the session's authority, or the channel that carries them
+    /// closing.
+    Change(Option<Change>),
+    /// The session is over.
+    Shutdown,
 }
 
 /// The work waiting on the runtime thread, and what an interrupt does to it.
@@ -1715,6 +2080,29 @@ async fn run_model(
         bridge::send_terminal(events, UiEvent::Notice(notice)).await;
     }
     ended
+}
+
+/// `/rename`, and whether it was written down (`handleRenameCommand`,
+/// `app_commands.zig:3815-3858`). The session is called `title` either way --
+/// upstream sets its cached title before it writes the manifest
+/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`) -- and the
+/// shell says which ([`UiEvent::Renamed`]).
+async fn run_rename(
+    state: &mut Runtime,
+    title: &str,
+    events: &Sender<UiEvent>,
+    mirror: &CancelToken,
+) {
+    let unsaved = state.rename(title, mirror).err();
+    state.publish();
+    bridge::send_terminal(
+        events,
+        UiEvent::Renamed {
+            title: title.to_string(),
+            unsaved,
+        },
+    )
+    .await;
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
@@ -2141,6 +2529,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2197,6 +2587,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2232,6 +2624,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -2585,6 +2979,8 @@ mod tests {
             accepted: Arc::new(AtomicUsize::new(0)),
             reply: LastReply::default(),
             status: StatusBoard::unpublished(),
+            permissions: mpsc::unbounded_channel().0,
+            grants: Grants::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -2680,6 +3076,285 @@ mod tests {
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
+    }
+
+    // -----------------------------------------------------------------------
+    // `/permissions` and Shift-Tab
+    // -----------------------------------------------------------------------
+
+    /// The profile `state` writes, as text, or nothing when it has none yet.
+    fn profile_text(state: &Runtime) -> String {
+        std::fs::read_to_string(state.config.user_settings_path.as_ref().expect("a profile"))
+            .unwrap_or_default()
+    }
+
+    /// The session log of the conversation `state` holds, as text.
+    fn log_text(state: &Runtime) -> String {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        std::fs::read_to_string(
+            state
+                .store
+                .sessions_dir()
+                .join(conversation.recorder.id().as_str())
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log")
+    }
+
+    #[test]
+    fn a_mode_change_moves_the_conversation_the_configuration_the_log_and_the_profile() {
+        let (_home, _workspace, mut state) = recording();
+        assert_eq!(state.config.permission_mode, PermissionMode::Auto);
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+
+        assert_eq!(state.config.permission_mode, PermissionMode::Yolo);
+        let conversation = state.conversation.as_ref().expect("still open");
+        assert_eq!(
+            conversation.tools.permissions().mode(),
+            PermissionMode::Yolo,
+            "the conversation the user is talking in kept the mode it started with"
+        );
+        assert_eq!(
+            conversation.recorder.state().permission_mode,
+            PermissionMode::Yolo
+        );
+        assert!(log_text(&state).contains(r#""permission_mode":"yolo""#));
+        assert_eq!(
+            profile_text(&state),
+            "{\n  \"permission_mode\": \"yolo\"\n}\n"
+        );
+        // A conversation opened after it is opened in it.
+        assert_eq!(state.authority().mode(), PermissionMode::Yolo);
+
+        // The same mode again changes nothing the log has to record.
+        let before = log_text(&state);
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+        assert_eq!(log_text(&state), before);
+    }
+
+    #[test]
+    fn a_reset_is_ask_and_no_grants_and_says_so_to_the_board() {
+        let (_home, _workspace, mut state) = recording();
+        let grants = Grants::default();
+        state.grants = grants.clone();
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new(
+                "write_file",
+                state.config.workspace_root.join("a.txt").to_string_lossy(),
+            ));
+        state.publish();
+        assert_eq!(grants.read(), vec![" - write_file -> a.txt".to_string()]);
+
+        assert_eq!(state.change_permissions(Change::Reset), None);
+        let conversation = state.conversation.as_ref().expect("still open");
+        assert_eq!(conversation.tools.permissions().mode(), PermissionMode::Ask);
+        assert!(conversation.tools.permissions().grants().is_empty());
+        assert!(grants.read().is_empty(), "the board still lists the grant");
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        assert!(profile_text(&state).contains(r#""permission_mode": "ask""#));
+    }
+
+    #[test]
+    fn a_grant_is_listed_inert() {
+        // A command a model wrote is not text the terminal may be handed.
+        let (_home, _workspace, mut state) = recording();
+        let grants = Grants::default();
+        state.grants = grants.clone();
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new("terminal", "printf '\u{1b}[2J' in /w"));
+        state.publish();
+        let listed = grants.read();
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].contains('\u{1b}'), "{listed:?}");
+        assert!(listed[0].starts_with(" - terminal -> printf"), "{listed:?}");
+    }
+
+    #[test]
+    fn the_acknowledgement_is_recorded_beside_whatever_else_the_profile_says() {
+        let (_home, _workspace, mut state) = recording();
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        std::fs::write(
+            &path,
+            "{\"provider\":\"gateway\",\"permission_mode\":\"yolo\"}\n",
+        )
+        .expect("seed");
+        assert_eq!(state.change_permissions(Change::Acknowledge), None);
+        assert!(state.config.yolo_acknowledged);
+        let written: serde_json::Value = serde_json::from_str(&profile_text(&state)).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "provider": "gateway",
+                "permission_mode": "yolo",
+                "yolo_acknowledged": true,
+            })
+        );
+        // And the next launch reads it back.
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(_home.path().to_path_buf()), BTreeMap::new()),
+            _workspace.path(),
+        )
+        .expect("reload");
+        assert!(reloaded.yolo_acknowledged);
+        assert_eq!(reloaded.permission_mode, PermissionMode::Yolo);
+    }
+
+    #[test]
+    fn a_write_that_fails_leaves_the_change_applied_and_says_so() {
+        let (_home, _workspace, mut state) = recording();
+        // A directory where the settings file belongs: unreadable as a file,
+        // so the write is refused rather than made over it.
+        let path = state.config.user_settings_path.clone().expect("a profile");
+        std::fs::create_dir_all(&path).expect("a directory in the way");
+        let said = state
+            .change_permissions(Change::Mode(PermissionMode::Ask))
+            .expect("a failure is said");
+        assert_eq!(said.topic, "permission-mode");
+        assert!(
+            said.body
+                .starts_with("active for this process but not saved to user settings ("),
+            "{said:?}"
+        );
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        let said = state
+            .change_permissions(Change::Acknowledge)
+            .expect("a failure is said");
+        assert_eq!(said.topic, "full-access-acknowledgment");
+    }
+
+    #[test]
+    fn a_change_sent_after_work_was_queued_is_applied_before_that_work_starts() {
+        // Upstream syncs a new mode into the prompts already queued
+        // (`syncQueuedPermissionSnapshot`); here the loop takes changes before
+        // work, so whatever was waiting starts under the mode the user chose
+        // after it was typed. Observed through a queued `/model`, which writes
+        // its own line into the same log: the change's line has to come first.
+        let (_home, _workspace, mut state) = recording();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
+        let log = state
+            .store
+            .sessions_dir()
+            .join(
+                state
+                    .conversation
+                    .as_ref()
+                    .expect("open")
+                    .recorder
+                    .id()
+                    .as_str(),
+            )
+            .join(crate::session::store::EVENTS_FILE);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        work_tx
+            .try_send(TurnWork::Model {
+                name: "second-model".into(),
+                next_turn: false,
+            })
+            .expect("room");
+        let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        changes_tx
+            .send(Change::Mode(PermissionMode::Ask))
+            .expect("open");
+        drop(work_tx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(1);
+        on_a_runtime(turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        let log = std::fs::read_to_string(log).expect("the log");
+        let mode = log
+            .find(r#""permission_mode":"ask""#)
+            .unwrap_or_else(|| panic!("the change never reached the log: {log}"));
+        let model = log
+            .find(r#""model":"second-model""#)
+            .unwrap_or_else(|| panic!("the work never ran: {log}"));
+        assert!(mode < model, "the queued work ran before the change: {log}");
+    }
+
+    #[test]
+    fn a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost() {
+        let (home, _workspace, state) = recording();
+        let path = home.path().join(".xfx").join("settings.json");
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(0);
+        let driver = async {
+            // Nothing else is sent: only the change itself can wake the loop.
+            changes_tx
+                .send(Change::Mode(PermissionMode::Yolo))
+                .expect("open");
+            while !std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .contains("yolo")
+            {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            // Typed, then straight out: applied on the way.
+            changes_tx.send(Change::Acknowledge).expect("open");
+            control_tx.send(TurnControl::Shutdown).expect("open");
+        };
+        let looped = turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            &mut changes,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        );
+        on_a_runtime(async {
+            tokio::time::timeout(TEST_DRAIN, async { tokio::join!(looped, driver) })
+                .await
+                .expect("the loop never applied the change")
+        });
+        drop(work_tx);
+        let written = std::fs::read_to_string(&path).expect("the profile");
+        assert!(
+            written.contains(r#""yolo_acknowledged": true"#),
+            "{written}"
+        );
+    }
+
+    #[test]
+    fn a_provider_switch_keeps_the_mode_the_person_chose() {
+        let (_home, _workspace, mut state) = recording();
+        state.change_permissions(Change::Mode(PermissionMode::Ask));
+        state.change_permissions(Change::Acknowledge);
+        // A reload that says otherwise -- an environment override of the
+        // mode, say -- does not take the session back to it.
+        let mut reloaded = state.config.clone();
+        reloaded.permission_mode = PermissionMode::Yolo;
+        reloaded.yolo_acknowledged = false;
+        state.adopt(reloaded);
+        assert_eq!(state.config.permission_mode, PermissionMode::Ask);
+        assert!(state.config.yolo_acknowledged);
     }
 
     // -----------------------------------------------------------------------
@@ -2793,10 +3468,12 @@ mod tests {
             .send(TurnControl::Reset { through: 0 })
             .expect("alive");
         drop(work_tx);
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         on_a_runtime(turn_loop(
             state,
             &events_tx,
             &mut work_rx,
+            &mut changes,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3078,10 +3755,12 @@ mod tests {
                     .send(TurnControl::Reset { through: 0 })
                     .expect("alive");
                 control_tx.send(TurnControl::Shutdown).expect("alive");
+                let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
                 on_a_runtime(turn_loop(
                     state,
                     &events,
                     &mut work_rx,
+                    &mut changes,
                     ControlChannel::new(control_rx),
                     Cancellation::new(CancelToken::new()),
                     &outstanding,
@@ -3256,7 +3935,10 @@ mod tests {
 
         let resumed = Resumption::open(&config, &crate::session::Selector::Id(id.clone()))
             .expect("the saved session opens");
-        assert_eq!(resumed.title().as_deref(), Some("first question alpha"));
+        assert_eq!(
+            resumed.hydration().title.as_deref(),
+            Some("first question alpha")
+        );
         let store = open_store(&config).expect("a store");
         let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
         state.resume(resumed, &CancelToken::new());
@@ -3280,6 +3962,191 @@ mod tests {
         assert_eq!(state.resumable(), Some(id.clone()));
         // And no second session was made for it.
         assert_eq!(sessions_in(home.path()), vec![id.to_string()]);
+    }
+
+    #[test]
+    fn a_rename_before_any_prompt_opens_the_session_and_keeps_it_titled() {
+        // Upstream's session exists from launch, and one renamed and never
+        // asked anything survives the exit (`discardableOnClose`,
+        // `app_session_runtime.zig:5702-5720`) -- with no resume line, since a
+        // titled session with no turn is still pristine (`:350-354`).
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        state
+            .rename("My Title", &CancelToken::new())
+            .expect("the rename is written");
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("opened for the rename")
+            .recorder
+            .id()
+            .clone();
+        assert_eq!(state.resumable(), None, "a session with no turn was named");
+        state
+            .rename("Second name", &CancelToken::new())
+            .expect("the second rename is written");
+        drop(state);
+        assert_eq!(sessions_in(home.path()), vec![id.to_string()]);
+        // On disk, published, with the last title.
+        let store = open_store(&config).expect("a store");
+        let listed = store
+            .list(&crate::session::ListFilter::new(
+                crate::session::ListScope::AllWorkspaces,
+            ))
+            .expect("a listing");
+        assert_eq!(listed.sessions[0].title.as_deref(), Some("Second name"));
+        assert_eq!(listed.sessions[0].history_turns, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        state
+            .rename("My Title", &CancelToken::new())
+            .expect("the first rename is written");
+        // The manifest is replaced by a rename in the session's directory, so
+        // a directory nobody may write in refuses the next one.
+        let dir = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .state()
+            .id
+            .clone();
+        let dir = home.path().join(".xfx").join("sessions").join(dir);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).expect("chmod");
+        let refused = state.rename("Second name", &CancelToken::new());
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        let problem = refused.expect_err("a rename the store refused was reported as written");
+        assert!(problem.contains("session_renamed"), "{problem}");
+        // And it stays refused: the recorder writes nothing after a failure.
+        assert!(state.rename("Third", &CancelToken::new()).is_err());
+        drop(state);
+        let listed = open_store(&config)
+            .expect("a store")
+            .list(&crate::session::ListFilter::new(
+                crate::session::ListScope::AllWorkspaces,
+            ))
+            .expect("a listing");
+        assert_eq!(listed.sessions[0].title.as_deref(), Some("My Title"));
+    }
+
+    #[test]
+    fn a_listing_leaves_out_the_session_this_one_is_in_and_the_ones_with_no_turn() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let saved = a_saved_session(&config, &grant);
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        // This runtime's own session: renamed, so on disk, but empty.
+        state
+            .rename("Only a title", &CancelToken::new())
+            .expect("renamed");
+        let listing = state.sessions().expect("the store reads");
+        let ids: Vec<&str> = listing.current.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec![saved.as_str()]);
+        assert_eq!(listing.all, listing.current);
+        assert_eq!(
+            listing.current[0].title.as_deref(),
+            Some("first question alpha")
+        );
+        assert_eq!(listing.current[0].turns, 1);
+        // Once it holds a turn it is listed -- by another runtime, not this one.
+        let conversation = state.conversation.as_mut().expect("open");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "now asked".to_string(),
+        });
+        let mine = conversation.recorder.id().clone();
+        assert!(state
+            .sessions()
+            .expect("reads")
+            .current
+            .iter()
+            .all(|row| row.id != mine.as_str()));
+    }
+
+    #[test]
+    fn resuming_from_the_picker_swaps_the_conversation_and_refuses_a_held_one_at_once() {
+        use super::super::session_picker::ResumeFailure;
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let saved = a_saved_session(&config, &grant);
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config.clone(), store, a_prompter(), a_questioner());
+        // The conversation it is in now has a turn, so it is kept.
+        state
+            .conversation(&CancelToken::new())
+            .expect("opened")
+            .recorder
+            .commit(SessionEvent::UserMessage {
+                text: "the one before".to_string(),
+            });
+        let before = state.resumable().expect("a turn");
+
+        // Held by another writer: refused at once, and nothing changed.
+        let held = open_store(&config)
+            .expect("a store")
+            .resume(
+                &crate::session::Selector::Id(saved.clone()),
+                workspace.path(),
+            )
+            .expect("the other writer opens it");
+        let started = Instant::now();
+        assert_eq!(
+            state.resume_by_id(saved.as_str(), &CancelToken::new()),
+            Err(ResumeFailure::OpenElsewhere)
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "the picker waited on the lock"
+        );
+        assert_eq!(state.resumable(), Some(before.clone()));
+        drop(held);
+
+        // A name that is not a session is the other failure.
+        assert_eq!(
+            state.resume_by_id("not a session id!", &CancelToken::new()),
+            Err(ResumeFailure::Unavailable)
+        );
+
+        let replay = state
+            .resume_by_id(saved.as_str(), &CancelToken::new())
+            .expect("resumed");
+        assert_eq!(replay.title.as_deref(), Some("first question alpha"));
+        assert_eq!(replay.turns.len(), 1);
+        assert_eq!(replay.model.as_deref(), Some(config.model.as_str()));
+        assert_eq!(state.resumable(), Some(saved.clone()));
+        // Both sessions are on disk; the one before was closed, not deleted.
+        let mut on_disk = sessions_in(home.path());
+        on_disk.sort();
+        let mut expected = vec![before.to_string(), saved.to_string()];
+        expected.sort();
+        assert_eq!(on_disk, expected);
+        // And the one this runtime left is the picker's to list now.
+        let listing = state.sessions().expect("reads");
+        assert_eq!(
+            listing
+                .current
+                .iter()
+                .map(|row| row.id.clone())
+                .collect::<Vec<_>>(),
+            vec![before.to_string()]
+        );
     }
 
     #[test]
@@ -3355,6 +4222,8 @@ mod tests {
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
+                permissions: mpsc::unbounded_channel().0,
+                grants: Grants::default(),
             },
             resumable: None,
         };
@@ -3483,10 +4352,12 @@ mod tests {
             .expect("alive");
         control_tx.send(TurnControl::Shutdown).expect("alive");
         let outstanding = AtomicUsize::new(0);
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         on_a_runtime(turn_loop(
             state,
             &events_tx,
             &mut work_rx,
+            &mut changes,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,

@@ -23,6 +23,9 @@ pub const CONTROLLED_VARS: &[&str] = &[
     "XFX_PERMISSION_MODE",
     "XFX_MAX_AGENT_STEPS",
     "XFX_GATEWAY_URL",
+    // Where `/sound` starts: a developer who silenced their own shell must not
+    // silence the cases that are about the bell.
+    "XFX_SOUND",
 ];
 
 /// A test secret that must never appear on the terminal.

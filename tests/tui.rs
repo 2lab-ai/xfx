@@ -750,6 +750,18 @@ fn quit_after_a_conversation_names_the_session_and_resume_continues_it() {
     let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
     second.wait_for(READY);
     second.wait_for("session resumed:");
+    // And the saved turn is on the screen under it, as upstream replays one
+    // (`replayHistoryToSinkIncremental`, `app_session_runtime.zig:4753-4810`):
+    // its card and its answer, with no welcome line above them.
+    let replayed = second.wait_for("MARKER-FIRST");
+    assert!(
+        replayed.contains("first question alpha"),
+        "the saved prompt was not replayed: {replayed:?}"
+    );
+    assert!(
+        !replayed.contains("Run /help for commands"),
+        "a resumed launch wrote the welcome line: {replayed:?}"
+    );
     second.type_bytes(b"second question beta\r");
     second.wait_for("MARKER-SECOND");
     let sent = user_messages(&gateway.requests()[1].json());
@@ -6955,6 +6967,177 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     // The key went only where the turn's goes, and never to the screen.
     assert!(!session.settled_text().contains(support::sandbox::TEST_KEY));
 }
+
+// ---------------------------------------------------------------------------
+// /sound
+// ---------------------------------------------------------------------------
+
+/// The terminal bells in `text`: every `BEL` that is not the terminator of an
+/// `OSC` -- the same byte ends every window title a frame writes.
+fn bells(text: &str) -> usize {
+    let mut count = 0;
+    let mut rest = text;
+    while let Some(at) = rest.find(['\u{1b}', '\u{7}']) {
+        let tail = &rest[at..];
+        if let Some(after) = tail.strip_prefix('\u{7}') {
+            count += 1;
+            rest = after;
+        } else {
+            rest = &tail[escape_len(tail).max(1)..];
+        }
+    }
+    count
+}
+
+#[test]
+fn the_bell_counter_skips_the_titles_terminator() {
+    assert_eq!(
+        bells("\u{1b}]2;a title\u{7}text\u{7}\u{1b}[1;1H\u{7}\u{7}"),
+        3
+    );
+    assert_eq!(bells("\u{1b}]2;a title\u{7}"), 0);
+}
+
+#[test]
+fn slash_sound_saves_both_switches_and_moves_what_the_next_turn_rings() {
+    // Upstream's `/sound` through the real binary (`app_commands.zig:3974-4029`,
+    // `hooks/notifications.zig:222-240`): started off by the environment, as
+    // fx's harness starts it, a turn ends in silence; `/sound` says
+    // `* sound: on`, saves both switches, and the next turn's end rings the
+    // terminal bell once; `/sound off` saves both off, and the turn after it is
+    // silent again.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["QUIET-ONE"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["LOUD-TWO"])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["QUIET-THREE"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_SOUND", "off");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"first\r");
+    session.wait_for("QUIET-ONE");
+    session.type_bytes(b"/sound\r");
+    on_screen(&session, (24, 80), &["* sound: on"], &[]);
+    let on = serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}});
+    session.wait_until("both switches saved on", |_| {
+        sandbox.settings() == Some(on.clone())
+    });
+
+    session.type_bytes(b"second\r");
+    session.wait_until("the second turn's bell", |text| {
+        text.contains("LOUD-TWO") && bells(text) >= 1
+    });
+    session.type_bytes(b"/sound off\r");
+    on_screen(&session, (24, 80), &["* sound: off"], &[]);
+    let off =
+        serde_json::json!({"notifications": {"turn_end": false, "attention_required": false}});
+    session.wait_until("both switches saved off", |_| {
+        sandbox.settings() == Some(off.clone())
+    });
+
+    session.type_bytes(b"third\r");
+    session.wait_for("QUIET-THREE");
+    session.type_bytes(b"/version\r");
+    session.wait_for("version:");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    // Read once the writer is gone, so an absence is an absence: one bell, and
+    // it is between `* sound: on` and `* sound: off`. Found by their labels,
+    // which are a colour run of their own on the wire and are said nowhere
+    // else in this session.
+    let text = session.settled_text();
+    let notices: Vec<usize> = text.match_indices("sound:").map(|(at, _)| at).collect();
+    let [on_at, off_at] = notices[..] else {
+        panic!("not exactly the two notices: {notices:?}");
+    };
+    assert_eq!(bells(&text[..on_at]), 0, "the turn before `/sound` rang");
+    assert_eq!(
+        bells(&text[on_at..off_at]),
+        1,
+        "the turn after `/sound` did not ring once"
+    );
+    assert_eq!(
+        bells(&text[off_at..]),
+        0,
+        "the turn after `/sound off` rang"
+    );
+    // The bell follows the answer it announces.
+    let answered = text.find("LOUD-TWO").expect("the second answer");
+    assert!(
+        answered > on_at && bells(&text[on_at..answered]) == 0,
+        "rang before the answer"
+    );
+}
+
+#[test]
+fn a_permission_question_rings_the_bell_when_it_opens() {
+    // `dispatchAttentionRequired(.., .permission)`: the turn stops on the
+    // user, and the bell is how a user in another window finds out. The
+    // turn's own end rings too, once the edit is through.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let _notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.env("XFX_SOUND", "on");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.wait_until("the question's bell", |text| bells(text) >= 1);
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    session.wait_until("the turn's bell", |text| bells(text) >= 2);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let text = session.settled_text();
+    assert_eq!(bells(&text), 2, "one for the question, one for the end");
+    let asked = text.find(PERMISSION_TITLE).expect("the question");
+    assert_eq!(bells(&text[..asked]), 0, "rang before anything was asked");
+}
+
+#[test]
+fn xfx_sound_off_keeps_a_session_silent() {
+    // The switch a harness sets, and the one `scripts/fxcap/capture.sh`'s
+    // fx side sets as `FX_SOUND=0`: a question and a turn's end, no bell.
+    let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
+    let sandbox = Sandbox::new();
+    let _notes = support::sandbox::with_notes(&sandbox);
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "ask");
+    command.env("XFX_SOUND", "off");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"edit the notes\r");
+    session.wait_for(PERMISSION_TITLE);
+    session.type_bytes(b"1");
+    session.wait_for("the edit is done");
+    session.type_bytes(b"/version\r");
+    session.wait_for("version:");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(bells(&session.settled_text()), 0);
+    assert_eq!(
+        sandbox.settings(),
+        None,
+        "a session that set nothing wrote settings"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// /copy
+// ---------------------------------------------------------------------------
+
 #[test]
 fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
     // Upstream's three answers (`app_commands.zig:1974-2001`) through the real

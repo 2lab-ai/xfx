@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+✗ usage: /rename <title>
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
