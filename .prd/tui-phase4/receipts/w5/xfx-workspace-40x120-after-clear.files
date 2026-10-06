@@ -1,0 +1,15 @@
+=== ~/.xfx/history.jsonl (1109 bytes)
+{"schema_version":1,"timestamp_ms":1791326873565,"workspace_root":"<scratch>/work","text":"/workspace"}
+{"schema_version":1,"timestamp_ms":1791326875010,"workspace_root":"<scratch>/work","text":"/workspace list"}
+{"schema_version":1,"timestamp_ms":1791326876102,"workspace_root":"<scratch>/work","text":"/workspace bogus"}
+{"schema_version":1,"timestamp_ms":1791326876937,"workspace_root":"<scratch>/work","text":"/workspace add ../missing"}
+{"schema_version":1,"timestamp_ms":1791326877981,"workspace_root":"<scratch>/work","text":"/workspace remove ../extra"}
+{"schema_version":1,"timestamp_ms":1791326879040,"workspace_root":"<scratch>/work","text":"/workspace add ../extra"}
+{"schema_version":1,"timestamp_ms":1791326880738,"workspace_root":"<scratch>/work","text":"/workspace"}
+{"schema_version":1,"timestamp_ms":1791326888101,"workspace_root":"<scratch>/work","text":"/workspace clear"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (3 bytes)
+{}
+
+=== ~/.xfx/settings.lock (0 bytes)

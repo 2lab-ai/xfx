@@ -1,0 +1,17 @@
+# /workspace add, then the `@` picker finds a file in the added directory by
+# its absolute path, after the workspace's own entries.
+dir extra workspace-extra
+wait 2
+type /workspace add ../extra
+key Enter
+wait 1.5
+type @plan
+wait 2
+snap at-plan
+key Escape
+wait 0.4
+key C-u
+wait 0.3
+type @
+wait 2
+snap at-all

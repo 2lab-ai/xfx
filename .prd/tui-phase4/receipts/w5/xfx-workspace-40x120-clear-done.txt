@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-1aa1153 [debug] · Run /help for commands
+
+* workspace: primary=<scratch>/work
+  saved_suppressed=false limit=16
+  additional directories: (none)
+
+✗ usage: /workspace [add PATH|remove PATH|clear]
+
+✗ workspace: Workspace update rejected: directory does not exist
+
+✗ workspace: Workspace update rejected: path is invalid
+
+* workspace: primary=<scratch>/work
+  saved_suppressed=false limit=16
+  add ../extra saved_changed=true runtime_changed=true launch_flag_can_restore=false
+  additional directories:
+   - <scratch>/extra saved=true command_line=false available=true active=true
+
+* workspace: primary=<scratch>/work
+  saved_suppressed=false limit=16
+  clear saved_changed=true runtime_changed=true launch_flag_can_restore=false
+  additional directories: (none)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
