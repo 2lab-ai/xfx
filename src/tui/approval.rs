@@ -2190,6 +2190,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         tx.send(TurnControl::Model(change.clone()))
             .expect("the channel is open");
@@ -2233,6 +2234,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         tx.send(TurnControl::Undo).expect("the channel is open");
         tx.send(TurnControl::Model(change.clone()))

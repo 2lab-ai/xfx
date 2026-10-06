@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ look
+
+● 2 tool calls · 2 read
+
+  Read both.
+
+  0s (↑1 ↓80)
+
+* collapse tool calls: saved to user settings (scope=user)
+
+┃ again
+
+● 1 tool call · 1 read
+
+  Again.
+
+  0s (↑2 ↓80)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

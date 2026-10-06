@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Settings 6  All  Interface  [Agent]  Notifications  Advanced
+
+  Model               fake/model-a
+  Reasoning effort    default
+  Fast mode           off
+  Ultra mode          off
+  Permission mode     ask  auto  full access
+  Session titles      off  on
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     ←→ change     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* settings: startup_scrollback: off (applies on next launch)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

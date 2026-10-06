@@ -60,6 +60,15 @@ pub const BACKEND_KEY: &str = "backend";
 /// The settings object holding which of the footer's optional segments are
 /// shown, upstream's spelling (`config_runtime.zig:1807-1826`, `c1db919`).
 pub const STATUS_LINE_KEY: &str = "statusLine";
+/// Whether the slash popup shows each command's category, upstream's key
+/// (`config_runtime.zig:63`, written by `/settings`).
+pub const SLASH_MENU_CATEGORIES_KEY: &str = "slash_menu_categories";
+/// Whether a tool group is drawn as its header alone, upstream's key
+/// (`settings_store.zig:108`, written by `/settings`).
+pub const COLLAPSE_TOOL_CALLS_KEY: &str = "collapse_tool_calls";
+/// The object holding whether submitted lines are kept for recall:
+/// `prompt_history.enabled`, upstream's shape (`settings_store.zig:1076-1085`).
+pub const PROMPT_HISTORY_KEY: &str = "prompt_history";
 
 /// The session's reasoning effort, upstream's key (`config_runtime.zig:1798-1805`,
 /// `c1db919`): `"auto"` or a level the catalog names. Profile-only, as
@@ -106,6 +115,7 @@ pub const ENV_XDG_CONFIG_HOME: &str = "XDG_CONFIG_HOME";
 /// subset that its own settings surface actually supports.
 const PROFILE_ONLY_KEYS: &[&str] = &[
     "backend",
+    COLLAPSE_TOOL_CALLS_KEY,
     "credential_source",
     EFFORT_KEY,
     "llmux_url",
@@ -113,7 +123,9 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "models",
     "notifications",
     "permission_mode",
+    PROMPT_HISTORY_KEY,
     "provider",
+    SLASH_MENU_CATEGORIES_KEY,
     STATUS_LINE_KEY,
     "workspaces",
     "yolo_acknowledged",
@@ -718,6 +730,16 @@ pub struct RuntimeConfig {
     pub models: BTreeMap<String, String>,
     /// Which of the footer's optional segments the profile turned on.
     pub statusline: StatusLine,
+    /// Whether the slash popup shows each command's category: on unless the
+    /// profile turns it off (`settings_catalog.zig:61`, `app_lifecycle.zig:785`).
+    pub slash_menu_categories: bool,
+    /// Whether a tool group is drawn as its header alone: off unless the
+    /// profile turns it on (`settings_catalog.zig:62`, `app_lifecycle.zig:786`).
+    pub collapse_tool_calls: bool,
+    /// Whether submitted lines are kept for the composer's recall and written
+    /// to `~/.xfx/history.jsonl`: on unless the profile turns it off
+    /// (`settings_catalog.zig:65`).
+    pub prompt_history: bool,
     /// The reasoning effort a session starts in ([`EFFORT_KEY`]), the default
     /// when the profile names none. Whether a given model *takes* it is the
     /// catalog's question, asked per request
@@ -1033,6 +1055,9 @@ impl RuntimeConfig {
                 session: settings.statusline_session.unwrap_or(false),
                 workspace: settings.statusline_workspace.unwrap_or(false),
             },
+            slash_menu_categories: settings.slash_menu_categories.unwrap_or(true),
+            collapse_tool_calls: settings.collapse_tool_calls.unwrap_or(false),
+            prompt_history: settings.prompt_history.unwrap_or(true),
             effort: settings.effort.unwrap_or_default(),
             sources,
             diagnostics,
@@ -1089,6 +1114,12 @@ struct Settings {
     statusline_context: Option<bool>,
     statusline_session: Option<bool>,
     statusline_workspace: Option<bool>,
+    /// `slash_menu_categories`.
+    slash_menu_categories: Option<bool>,
+    /// `collapse_tool_calls`.
+    collapse_tool_calls: Option<bool>,
+    /// `prompt_history.enabled`.
+    prompt_history: Option<bool>,
     /// `effort`, when a layer wrote a readable one.
     effort: Option<crate::provider::effort::Effort>,
 }
@@ -1114,6 +1145,17 @@ impl Settings {
         }
         if let Some(on) = incoming.statusline_workspace {
             self.statusline_workspace = Some(on);
+        }
+        // The three `/settings` switches, each on its own and with no
+        // provenance kept, for the reason the segments above keep none.
+        if let Some(on) = incoming.slash_menu_categories {
+            self.slash_menu_categories = Some(on);
+        }
+        if let Some(on) = incoming.collapse_tool_calls {
+            self.collapse_tool_calls = Some(on);
+        }
+        if let Some(on) = incoming.prompt_history {
+            self.prompt_history = Some(on);
         }
         if let Some(effort) = incoming.effort {
             self.effort = Some(effort);
@@ -1268,6 +1310,27 @@ fn parse_layer(
         if let Some(value) = object.get(NOTIFICATIONS_KEY) {
             parse_notifications(value, &mut settings, layer, diagnostics);
         }
+        for (key, slot) in [
+            (
+                SLASH_MENU_CATEGORIES_KEY,
+                &mut settings.slash_menu_categories,
+            ),
+            (COLLAPSE_TOOL_CALLS_KEY, &mut settings.collapse_tool_calls),
+        ] {
+            if let Some(value) = object.get(key) {
+                match value.as_bool() {
+                    Some(on) => *slot = Some(on),
+                    None => diagnostics.push(Diagnostic::with_key(
+                        layer,
+                        DiagnosticCause::InvalidValue,
+                        key,
+                    )),
+                }
+            }
+        }
+        if let Some(value) = object.get(PROMPT_HISTORY_KEY) {
+            parse_prompt_history(value, layer, &mut settings, diagnostics);
+        }
         if let Some(value) = object.get("backend") {
             match value.as_str().and_then(ProviderId::parse) {
                 Some(backend) => settings.backend = Some(backend),
@@ -1402,6 +1465,30 @@ fn parse_statusline(
                 &format!("{STATUS_LINE_KEY}.{item}"),
             )),
         }
+    }
+}
+
+/// Reads one layer's `prompt_history` object into `settings`.
+///
+/// Upstream's shape (`settings_store.zig:1076-1085`, `:2011`): an object whose
+/// `enabled` is a `bool`, other keys in it left alone for a build that knows
+/// them. A value of the wrong type is a diagnostic and keeps whatever an
+/// earlier layer said, as a mistyped `statusLine` item does.
+fn parse_prompt_history(
+    value: &Value,
+    layer: ConfigLayer,
+    settings: &mut Settings,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let enabled = value.as_object().map(|object| object.get("enabled"));
+    match enabled {
+        Some(None) => {}
+        Some(Some(Value::Bool(on))) => settings.prompt_history = Some(*on),
+        _ => diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            &format!("{PROMPT_HISTORY_KEY}.enabled"),
+        )),
     }
 }
 
@@ -1755,6 +1842,105 @@ mod tests {
     }
 
     #[test]
+    fn the_settings_menus_three_switches_round_trip_through_the_profile_only() {
+        // `/settings`' `Slash menu categories`, `Collapse tool calls` and
+        // `Prompt history`: upstream's keys and defaults
+        // (`settings_catalog.zig:61-65`), written by the profile writer and
+        // read back by the next launch.
+        let home = tempfile::tempdir().expect("home");
+        let workspace = tempfile::tempdir().expect("workspace");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let fresh = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert!(fresh.slash_menu_categories);
+        assert!(!fresh.collapse_tool_calls);
+        assert!(fresh.prompt_history);
+
+        let path = fresh.user_settings_path.clone().expect("a profile path");
+        for (key, on) in [
+            (&[SLASH_MENU_CATEGORIES_KEY][..], false),
+            (&[COLLAPSE_TOOL_CALLS_KEY][..], true),
+            (&[PROMPT_HISTORY_KEY, "enabled"][..], false),
+        ] {
+            crate::provider::profile::write_preference(&path, key, Value::Bool(on)).expect("write");
+        }
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "slash_menu_categories": false,
+                "collapse_tool_calls": true,
+                "prompt_history": {"enabled": false}
+            })
+        );
+        let reloaded = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!reloaded.slash_menu_categories);
+        assert!(reloaded.collapse_tool_calls);
+        assert!(!reloaded.prompt_history);
+        assert!(
+            reloaded.diagnostics.is_empty(),
+            "{:?}",
+            reloaded.diagnostics
+        );
+
+        // A repository cannot choose them for whoever clones it.
+        std::fs::write(
+            workspace.path().join(PROJECT_SETTINGS_FILE),
+            r#"{"slash_menu_categories":true,"collapse_tool_calls":false,"prompt_history":{"enabled":true}}"#,
+        )
+        .expect("project file");
+        let shadowed = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(!shadowed.slash_menu_categories);
+        assert!(shadowed.collapse_tool_calls);
+        assert!(!shadowed.prompt_history);
+        for key in [
+            SLASH_MENU_CATEGORIES_KEY,
+            COLLAPSE_TOOL_CALLS_KEY,
+            PROMPT_HISTORY_KEY,
+        ] {
+            assert!(
+                shadowed
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.ignored_setting_key() == Some(key)),
+                "{key}: {:?}",
+                shadowed.diagnostics
+            );
+        }
+
+        // A value of the wrong type is a diagnostic and the default.
+        std::fs::remove_file(workspace.path().join(PROJECT_SETTINGS_FILE)).expect("remove");
+        std::fs::write(
+            &path,
+            r#"{"slash_menu_categories":"no","collapse_tool_calls":1,"prompt_history":false}"#,
+        )
+        .expect("rewrite");
+        let refused = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(refused.slash_menu_categories);
+        assert!(!refused.collapse_tool_calls);
+        assert!(refused.prompt_history);
+        for key in [
+            SLASH_MENU_CATEGORIES_KEY,
+            COLLAPSE_TOOL_CALLS_KEY,
+            "prompt_history.enabled",
+        ] {
+            assert!(
+                refused.diagnostics.iter().any(|d| {
+                    d.cause == DiagnosticCause::InvalidValue
+                        && d.setting_key.as_deref() == Some(key)
+                }),
+                "{key}: {:?}",
+                refused.diagnostics
+            );
+        }
+        // Keys upstream keeps beside `enabled` are not this reader's to judge.
+        std::fs::write(&path, r#"{"prompt_history":{"future":1}}"#).expect("rewrite");
+        let future = RuntimeConfig::load_with(&env, workspace.path()).expect("reload");
+        assert!(future.prompt_history);
+        assert!(future.diagnostics.is_empty(), "{:?}", future.diagnostics);
+    }
+
+    #[test]
     fn permission_mode_parsing_tolerates_surrounding_whitespace() {
         assert_eq!(
             PermissionMode::parse("  yolo \n"),
@@ -1811,6 +1997,9 @@ mod tests {
             statusline_context: Some(true),
             statusline_session: None,
             statusline_workspace: None,
+            slash_menu_categories: Some(false),
+            collapse_tool_calls: Some(true),
+            prompt_history: Some(false),
             effort: Some(crate::provider::effort::Effort::Named("low".to_string())),
         };
         let mut sources = Sources::default();
@@ -1835,6 +2024,9 @@ mod tests {
             "a layer that says nothing about the backend leaves its url alone"
         );
         assert_eq!(settings.statusline_context, Some(true));
+        assert_eq!(settings.slash_menu_categories, Some(false));
+        assert_eq!(settings.collapse_tool_calls, Some(true));
+        assert_eq!(settings.prompt_history, Some(false));
         assert_eq!(
             settings.effort,
             Some(crate::provider::effort::Effort::Named("low".to_string()))

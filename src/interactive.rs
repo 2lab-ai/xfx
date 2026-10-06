@@ -74,6 +74,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/permissions",
     "/undo",
     "/copy",
+    "/trace",
+    "/settings",
     "/credits",
     "/statusline",
     "/sound",
@@ -271,6 +273,28 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "copy the last assistant response",
         category: "Session",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Trace,
+        name: "/trace",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:486`): its words, its category,
+        // and no argument.
+        summary: "copy a private diagnostic trace",
+        category: "Product",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Settings,
+        name: "/settings",
+        aliases: &[],
+        // Upstream's words (`commands.zig:488`). It takes an argument there
+        // (`startup-scrollback`) and is filed so here too, so completing it
+        // leaves the caret past a space as upstream's popup does; xfx answers
+        // any argument with `SETTINGS_USAGE`.
+        summary: "browse and update settings",
+        category: "Appearance",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Credits,
@@ -481,6 +505,22 @@ pub(crate) fn rename_conversation(
     }
 }
 
+/// What `/settings` says to anything after its name (`writeSettingsUsage`,
+/// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
+/// form: that setting chooses at launch whether the shell's earlier output is
+/// pushed into scrollback (`prepareStartupViewport`, `app_lifecycle.zig:966-988`),
+/// and xfx always pushes it -- there is no other value to set.
+pub const SETTINGS_USAGE: &str = "usage: /settings";
+
+/// What `/settings` says on this surface.
+///
+/// Upstream's `/settings` is a menu in its footer (`commandHandleSettings`,
+/// `app_commands.zig:2022-2041`), and this shell has no footer to put one in.
+/// It says where the menu is, as `/resume` says where its picker is.
+pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes settings in \
+     the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -592,6 +632,9 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Write a private diagnostic report about this session and put the file
+    /// on the clipboard ([`crate::trace`]).
+    Trace,
     /// Upstream's sound switch, which here is the terminal bell
     /// ([`crate::sound`]).
     Sound,
@@ -611,6 +654,10 @@ pub enum Slash {
     /// TUI, one item flipped by name on either surface, and the choice kept in
     /// the profile (`statusLine.{context,session,workspace}`).
     Statusline,
+    /// Every preference the session can change, by category, in one menu
+    /// that changes each in place: the TUI's settings menu
+    /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
+    Settings,
     Version,
     Quit,
 }
@@ -1143,6 +1190,9 @@ pub async fn run(
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Settings => {
+                        writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
+                    }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
                     // something to keep, and a session renamed before anything
@@ -1209,6 +1259,18 @@ pub async fn run(
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                     Slash::Undo => undo_on_the_line(conversation.as_ref())?,
+                    Slash::Trace => trace_on_the_line(
+                        &config,
+                        &model,
+                        conversation.as_ref(),
+                        &store,
+                        &TraceTarget {
+                            dir: crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref()),
+                            clipboard: Clipboard::system(),
+                        },
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut())?;
                     }
@@ -1769,6 +1831,63 @@ fn undo_on_the_line(conversation: Option<&Conversation>) -> io::Result<()> {
     )
 }
 
+/// Where `/trace` puts its report: the directory the file is written in, and
+/// the clipboard the file is copied to.
+pub(crate) struct TraceTarget {
+    pub(crate) dir: std::path::PathBuf,
+    pub(crate) clipboard: Clipboard,
+}
+
+/// `/trace` on this shell: the report built from this shell's own state,
+/// written and copied inline -- everything this loop does is inline, and a
+/// clipboard tool that never answers is killed at its deadline -- and one line
+/// saying how it went, on standard output when there is a report to paste or
+/// open and on the diagnostic stream when the copy or the write failed, as
+/// `/copy`'s lines are split here.
+///
+/// The session is the live conversation's, read from the recorder's own state
+/// rather than back from disk: on this surface that state is in hand. Before
+/// the first prompt there is none, and the report says so. The report has no
+/// screen to describe, so it has no timeline and no network records -- the
+/// full-screen shell's full transcript is where those are kept.
+fn trace_on_the_line(
+    config: &RuntimeConfig,
+    model: &str,
+    conversation: Option<&Conversation>,
+    store: &SessionStore,
+    target: &TraceTarget,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    let status = status_snapshot(config, model, conversation);
+    let settings = crate::trace::Settings::of(config);
+    let dir = conversation.map(|conversation| store.session_dir(conversation.recorder.id()));
+    let session = match (conversation, &dir) {
+        (Some(conversation), Some(dir)) => crate::trace::Session::Read {
+            dir,
+            state: conversation.recorder.state(),
+            failure: conversation.recorder.failure(),
+        },
+        _ => crate::trace::Session::None,
+    };
+    let now = crate::session::event::system_now_ms();
+    let report = crate::trace::Report {
+        generated_ms: now,
+        status: &status,
+        effort: Some(config.effort.label()),
+        settings: &settings,
+        session,
+        screen: None,
+    }
+    .render();
+    let disposition = crate::trace::deliver(&report, &target.dir, &target.clipboard, now);
+    if disposition.failed() {
+        writeln!(err, "xfx: {}", disposition.sentence())
+    } else {
+        writeln!(out, "[shell] {}", disposition.sentence())
+    }
+}
+
 /// What this shell adds to `/sound`'s answer: that the switch it just moved is
 /// the full-screen shell's to ring.
 ///
@@ -1876,10 +1995,12 @@ mod tests {
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
-        // since `/resume` and `/rename`, seventeen since `/undo`, and
-        // nineteen since `/usage` and `/credits`; `/provider` took `/setup`'s
-        // place rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 19);
+        // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
+        // since `/usage` and `/credits`, twenty since `/trace`, and twenty-one
+        // since `/settings`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 21);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2169,12 +2290,21 @@ mod tests {
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
         // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // `/rename <title>` names the session. `/settings` is declared to take
+        // one as upstream's row is (`commands.zig:488`), so completing it
+        // leaves the caret past a space; every argument it is given is its
+        // usage line, since upstream's only form names a setting xfx does not
+        // have. Every other name is the whole command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/settings"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -2523,5 +2653,139 @@ mod tests {
              (no home directory is set)\n"
         );
         assert!(config.statusline.context);
+    }
+
+    /// `/trace` on this shell into `dir`, copying with `tool`: what it printed
+    /// on each stream.
+    fn trace_said(
+        config: &RuntimeConfig,
+        conversation: Option<&Conversation>,
+        store: &SessionStore,
+        dir: &std::path::Path,
+        tool: &crate::clipboard::fake::FakeTool,
+    ) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let target = TraceTarget {
+            dir: dir.to_path_buf(),
+            clipboard: tool.clipboard(),
+        };
+        trace_on_the_line(
+            config,
+            &config.model,
+            conversation,
+            store,
+            &target,
+            &mut out,
+            &mut err,
+        )
+        .expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    /// The one report written under `dir`.
+    fn one_report(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+        let written: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+            .expect("the report directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        assert_eq!(written.len(), 1, "{written:?}");
+        let report = std::fs::read_to_string(&written[0]).expect("the report");
+        (written[0].clone(), report)
+    }
+
+    #[test]
+    fn the_line_shell_writes_a_report_about_its_own_conversation_and_says_so() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let store = SessionStore::open(&root.path().join("home").join(".xfx")).expect("a store");
+        let dir = tempfile::tempdir().expect("a report directory");
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+
+        // Before the first prompt there is no session to describe.
+        let (out, err) = trace_said(&config, None, &store, dir.path(), &tool);
+        let (path, report) = one_report(dir.path());
+        let expected = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path.clone())
+        } else {
+            crate::trace::Disposition::Saved(path.clone())
+        };
+        assert_eq!(out, format!("[shell] {}\n", expected.sentence()));
+        assert_eq!(err, "");
+        assert!(report.contains("\nsession: none (xfx opens one at the first prompt)\n"));
+        if cfg!(target_os = "macos") {
+            assert_eq!(tool.copied_file().as_deref(), path.to_str());
+        }
+        std::fs::remove_file(&path).expect("clear the directory");
+
+        // With one, the live conversation's own state.
+        let mut conversation = open_conversation(
+            &store,
+            &config,
+            &config.model,
+            crate::app::permission_session(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("a conversation");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "what is in here?".to_string(),
+        });
+        let _ = trace_said(&config, Some(&conversation), &store, dir.path(), &tool);
+        let (_, report) = one_report(dir.path());
+        for line in [
+            format!("session_id: {}", conversation.recorder.id()),
+            "history_turns: 1".to_string(),
+            "    what is in here?".to_string(),
+        ] {
+            assert!(report.lines().any(|row| row == line), "{line}\n{report}");
+        }
+        assert!(
+            !report.contains("## Transcript Timeline"),
+            "this shell has no screen to describe: {report}"
+        );
+    }
+
+    #[test]
+    fn the_line_shell_says_a_failed_copy_or_write_on_the_diagnostic_stream() {
+        let root = tempfile::tempdir().expect("a root");
+        let config = config_under(root.path());
+        let store = SessionStore::read_only(&root.path().join("home").join(".xfx"));
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let (out, err) = trace_said(&config, None, &store, dir.path(), &tool);
+        let (path, _) = one_report(dir.path());
+        if cfg!(target_os = "macos") {
+            assert_eq!(out, "");
+            assert_eq!(
+                err,
+                format!(
+                    "xfx: {}\n",
+                    crate::trace::Disposition::CopyFailed(path).sentence()
+                )
+            );
+        } else {
+            assert_eq!(
+                out,
+                format!(
+                    "[shell] {}\n",
+                    crate::trace::Disposition::Saved(path).sentence()
+                )
+            );
+        }
+        let (out, err) = trace_said(
+            &config,
+            None,
+            &store,
+            std::path::Path::new("/nonexistent/xfx-trace-dir"),
+            &tool,
+        );
+        assert_eq!(
+            (out.as_str(), err.as_str()),
+            ("", "xfx: Could not create trace.\n")
+        );
     }
 }

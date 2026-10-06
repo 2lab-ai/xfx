@@ -3008,6 +3008,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         let sent = change.clone();
         let answers = harness.request_while(move |events_rx, control_tx, _cancel| {

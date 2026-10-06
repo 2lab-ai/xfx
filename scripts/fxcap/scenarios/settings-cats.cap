@@ -1,0 +1,35 @@
+# /settings' Slash menu categories row: off, the slash popup without its
+# category column; on again, the column back.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+wait 2
+type /settings
+key Enter
+wait 1
+key Down Down Down
+wait 0.3
+key Right
+wait 0.8
+snap off
+home off
+key Escape
+wait 0.5
+type /
+wait 0.6
+snap popup-off
+key BSpace
+wait 0.3
+type /settings
+key Enter
+wait 1
+key Down Down Down
+wait 0.3
+key Right
+wait 0.8
+snap on
+home on
+key Escape
+wait 0.5
+type /
+wait 0.6
+snap popup-on
