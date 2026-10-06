@@ -94,6 +94,16 @@ pub(crate) trait CommandHandlers {
     /// when there was none. What it may be is
     /// `crate::permission::slash::Request::parse`'s to say, not the router's.
     fn permissions(&mut self, argument: &str);
+    /// `/image` (or its alias `/img`), with the rest of the line -- already
+    /// trimmed, and empty when there was none, which is the usage line. What
+    /// file it names is `crate::image::resolve`'s to say.
+    fn image(&mut self, argument: &str);
+    /// `/images`, with the rest of the line: `clear` drops every attachment
+    /// and any other word lists them, as upstream reads it
+    /// (`managePending`, `image_commands.zig:58-84`).
+    fn images(&mut self, argument: &str);
+    /// `/paste`: the clipboard's image. It takes nothing.
+    fn paste(&mut self);
     /// `/settings`, with the rest of the line -- already trimmed, and empty
     /// when there was none. Empty opens the settings menu; anything else is
     /// its usage line, because xfx answers none of upstream's argument forms.
@@ -180,6 +190,9 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Permissions => handlers.permissions(argument),
         Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
+        Slash::Image => handlers.image(argument),
+        Slash::Images => handlers.images(argument),
+        Slash::Paste => handlers.paste(),
         Slash::Trace => handlers.trace(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
@@ -285,6 +298,15 @@ mod tests {
         fn permissions(&mut self, argument: &str) {
             self.calls.push(format!("permissions {argument}"));
         }
+        fn image(&mut self, argument: &str) {
+            self.calls.push(format!("image {argument}"));
+        }
+        fn images(&mut self, argument: &str) {
+            self.calls.push(format!("images {argument}"));
+        }
+        fn paste(&mut self) {
+            self.calls.push("paste".to_string());
+        }
         fn settings(&mut self, argument: &str) {
             self.calls.push(format!("settings {argument}"));
         }
@@ -318,6 +340,9 @@ mod tests {
             ("/quit", "quit"),
             ("/provider", "setup "),
             ("/permissions", "permissions "),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/paste", "paste"),
             ("/settings", "settings "),
             ("/undo", "undo"),
         ];
@@ -326,6 +351,34 @@ mod tests {
             assert!(SLASH_COMMANDS.contains(&name), "{name} is not canonical");
             assert_eq!(routed(name), vec![call.to_string()], "{name}");
         }
+    }
+
+    #[test]
+    fn an_image_line_is_a_command_and_never_a_prompt() {
+        // Before this surface had the command, `/image shot.png` was a slash
+        // word with more on the line -- a prompt, and the path went to the
+        // model as prose (`cap/xfx-xfx-today-40x120-all.ansi`, row 3).
+        for (line, call) in [
+            ("/image shot.png", "image shot.png"),
+            ("/img shot.png", "image shot.png"),
+            ("/image   \"my shot.png\"  ", "image \"my shot.png\""),
+            ("/image", "image "),
+            ("/images", "images "),
+            ("/images clear", "images clear"),
+            ("/images foo", "images foo"),
+        ] {
+            assert_eq!(routed(line), vec![call.to_string()], "{line:?}");
+            assert!(
+                matches!(super::classify(line), Submitted::Command { .. }),
+                "{line:?} is not a command on this surface"
+            );
+        }
+        // `/paste` takes nothing, so with a word after it it names nothing.
+        assert_eq!(routed("/paste"), vec!["paste".to_string()]);
+        assert!(matches!(
+            super::classify("/paste now"),
+            Submitted::UnknownCommand { .. }
+        ));
     }
 
     #[test]

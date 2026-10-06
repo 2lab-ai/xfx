@@ -18,6 +18,10 @@ pub struct TurnRequest {
     pub model: String,
     /// The user's message for this turn.
     pub prompt: String,
+    /// The images it carries, in the order they were attached: sent after its
+    /// text on the user message, and recorded with it
+    /// ([`TurnJournal::attach_images`]). Empty for a prompt with none.
+    pub images: Vec<crate::image::Image>,
     /// Durable history, oldest first. Empty until sessions exist.
     pub history: Vec<Message>,
     /// The most model steps this turn may take. `0` means unbounded, matching
@@ -63,6 +67,14 @@ pub trait TurnJournal {
     /// how a surface watching the turn gets it as it happens. A journal that
     /// only keeps the log needs nothing from it.
     fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
+
+    /// The images the user message just recorded carries.
+    ///
+    /// **A method rather than an event**, because recording them is two
+    /// things in one order: their bytes saved beside the log, then the record
+    /// that names them ([`crate::session::SessionRecorder::attach_images`]). A
+    /// journal that keeps no log keeps no images either.
+    fn attach_images(&mut self, _images: &[crate::image::Image]) {}
 }
 
 /// A journal that keeps nothing.
