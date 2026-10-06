@@ -32,6 +32,8 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 | F5 transcript look | closed (R2) | `answered` scenario 40x120: rows 2-24 byte-identical ANSI to fx (3efe232) |
 | F5 streaming | matches fx | fx mid-stream shows only the activity row; xfx now shows lines once complete (presenter hold) |
 | F2 slash popup | closed (WU-B, ede8707) | `receipts/wu-b/`: 5 snaps byte-identical band rows; the rest differ only by xfx's 7 commands vs fx's 36 and three summaries kept as xfx's own (`/clear`, `/model` — no reasoning effort sent, `/setup` — no sign-in), each a description xfx could not honour |
+| F5 notices + dispatch | closed (C0, e727eaa + 51601e4) | `receipts/c0/`: notices byte-identical to fx except the version number; unknown-with-words → prompt as fx |
+| A1 `/help` | closed (C1, c9b6c11) | `receipts/c1/`: `query-none` 7/7 and four snaps 3/3 identical; header packing same rule; Ctrl-C pending hint (`press ctrl+c again to exit`) belongs to F4 |
 | F6 activity row | closed (ca044a1) | fx `  Generating (2s) (↑4 ↓61)` with a blinking bullet; xfx `• Thinking  0s` |
 | F5 links | open | fx renders markdown links as OSC 8 hyperlinks; xfx's painter (`src/tui/frame.rs` `tamed`, via `pacer::escape_at`) drops every non-colour escape, so a link reaches the screen as its text only. Fixing it widens `check.rs`'s vocabulary (OSC 8 open/close) — a decision, recorded here |
 | F5 notices | open | fx notices are `<glyph> <topic>: <body>` (glyphs `* ✗ ! ✓ i ⊘`, 252/250, blank row either side, `transcript_blocks.zig:1758-1800`); fx does not echo slash lines; unknown command = `✗ command: Unknown command. Try /help.` with exact-match dispatch. xfx: `[shell] …` lines, echoes every submitted line |
@@ -81,7 +83,7 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 | 3 | F1 tool group block: `● N tool calls · k read · …` header, `├`/`└` rows per call spanning steps until assistant text; outcomes (`Exited 3`, `Failed x: reason`, `Denied …`, `Cancelled …`); live `└ Running <cmd>` row; activity row hidden under a modal (research `surfaces.md` §1) | F5 | C0 |
 | 3 | F2 approvals: file review (diff, `Review change`, `Edit · +1 -1`, `Apply once / Apply + allow … / Don't apply`), command approval (`Would you like to run…`, `$ # shell.run …`), keys per divergence 7 | F6 | C0 |
 | 3 | F3 ask_user_question presentation (`1) label  desc`, `Question i of n`, freeform Other, summary rows) | F6 | F2 |
-| 3 | F4 interrupt: `■ Cancelled · What can xfx do differently?`, Esc-Esc interrupts, Ctrl-C clears a draft first, exit hint; retry countdown row `⚠ Provider unavailable · HTTP n · … · retrying request in Ns` | F10 | C0 |
+| 3 | F4 interrupt: `■ Cancelled · What can xfx do differently?`, Esc-Esc interrupts, Ctrl-C clears a draft first, exit hint (`press ctrl+c again to exit` on the hint row, every surface incl. the /help catalog); retry countdown row `⚠ Provider unavailable · HTTP n · … · retrying request in Ns` | F10 | C0 |
 | 3 | F5 full-transcript screen (Ctrl-O): timestamps, args, outputs, diffs, notices; PgUp/PgDn/Esc | F7 | F1 |
 | 3 | F6 composer keys (§5.2 of `surfaces.md`: Alt-b/f/d, `\`-Enter, PgUp/PgDn, Shift-Tab mode cycle, Ctrl-O, Ctrl-V, Ctrl-P = model catalog) and steer-while-busy (`┋` queued steer, Up retracts) | F3, F10 | D2 for Ctrl-P |
 | 4 | G backends: `/usage`, `/credits`, `/undo`, `/workspace`, `/allowlist`, `/compact`, `/fast`, `/ultrafast`, `/image(s)`, `/paste`, `/trace`, `/mcp`, `/skills` | B rows | per row |
