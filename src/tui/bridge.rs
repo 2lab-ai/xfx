@@ -67,6 +67,7 @@ use tokio_util::sync::CancellationToken;
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
 use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest, ApprovalSubject};
+use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The most answer text one `UiEvent` may carry.
 ///
@@ -123,14 +124,23 @@ pub(crate) enum UiEvent {
     TurnStarted,
     /// A fragment of the answer, in arrival order.
     Delta(String),
-    /// A tool call was admitted and is about to run.
-    ToolStart { call_id: String, tool: String },
-    /// A tool call finished, correlated to its start by `call_id`.
+    /// A tool call was admitted and is about to run, and what the transcript
+    /// names it by.
+    ToolStart {
+        call_id: String,
+        tool: String,
+        shown: Shown,
+    },
+    /// A tool call finished, correlated to its start by `call_id`, and how it
+    /// ended for the person watching ([`Outcome`]) beside how it ended for the
+    /// model (`ok`).
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         detail: String,
+        outcome: Outcome,
+        changes: Option<LineChanges>,
     },
     /// Something the session wants said that is not part of an answer, as a
     /// notice whose tone and topic the side that knows what happened chose
@@ -220,6 +230,25 @@ pub(crate) enum UiEvent {
     },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
+    /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
+    /// on, and the next prompt opens a new session.
+    ///
+    /// **The fence a reset waits on**, and the only reason it is sent. The work
+    /// a reset cancelled can still be reporting -- the tail of an answer, a tool
+    /// row, the turn's conclusion -- and those events belong to the
+    /// conversation the reset handed to scrollback, not to the fresh screen.
+    /// The runtime takes work in order and this is sent only once everything
+    /// before the drop has been sent, so on the UI's side everything that
+    /// arrives ahead of it is the old conversation's and everything after it is
+    /// the new one's (`super::shell`'s `draining`). Not terminal: no turn ends
+    /// here, and the drain at exit does not wait for it.
+    ///
+    /// `through` is the reset's own count, so that two resets in a row -- with
+    /// a prompt submitted between them, which the second one drops -- are told
+    /// apart: the UI drains until the fence of the **last** reset it sent.
+    /// Two resets that reached the same turn are answered by one fence, the
+    /// later count's.
+    Fresh { through: usize },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -268,20 +297,36 @@ impl UiEvent {
             Self::Delta(text) => Self::Delta(inert_owned(text)),
             // `call_id` and `tool` are the registry's and the provider's, and
             // the provider's half is exactly why they are not exempt.
-            Self::ToolStart { call_id, tool } => Self::ToolStart {
+            // The target is the model's own argument -- a path, a pattern, a
+            // command -- and is about to be painted into a row, so it is the
+            // least exempt string here. The verbs are this crate's `'static`
+            // words and carry nothing to make inert.
+            Self::ToolStart {
+                call_id,
+                tool,
+                shown,
+            } => Self::ToolStart {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
+                shown: Shown {
+                    presentation: shown.presentation,
+                    target: shown.target.map(inert_owned),
+                },
             },
             Self::ToolResult {
                 call_id,
                 tool,
                 ok,
                 detail,
+                outcome,
+                changes,
             } => Self::ToolResult {
                 call_id: inert_owned(call_id),
                 tool: inert_owned(tool),
                 ok,
                 detail: inert_owned(detail),
+                outcome,
+                changes,
             },
             // The topic is this crate's word and the body may quote a file, a
             // daemon or a settings layer; both are made inert, because a rule
@@ -348,6 +393,8 @@ impl UiEvent {
             },
             // Two numbers. There is nothing here a terminal can be made to obey.
             Self::Usage { input, output } => Self::Usage { input, output },
+            // A count. There is nothing here a terminal can be made to obey.
+            Self::Fresh { through } => Self::Fresh { through },
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -484,6 +531,23 @@ pub(crate) enum TurnControl {
     /// stop, which is the one they most certainly meant. Work submitted through
     /// this count is dropped; anything past it is a new intention and runs.
     Cancel { through: usize },
+    /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
+    /// then the conversation is dropped -- the recorder closed, the tool
+    /// context's grants and read proofs with it -- so the next prompt opens a
+    /// new session. The runtime says so with [`UiEvent::Fresh`].
+    ///
+    /// **A control message rather than work**, which is upstream's "cancel
+    /// first, then apply once the worker is idle"
+    /// (`decideLiveSessionTransition`, `app_session_runtime.zig:137-170`) in
+    /// this channel's terms. As work it would take a place in the queue, so a
+    /// reset typed behind a turn and a waiting prompt would have nowhere to go
+    /// -- and a prompt typed straight after one would be refused while the
+    /// cancelled turn was still unwinding. Here it is never refused and costs
+    /// no place: the turn it reaches is stopped, the drop is made the moment
+    /// that turn has sent its conclusion and before anything else is taken,
+    /// and a prompt submitted after it -- past `through` -- runs in the new
+    /// conversation.
+    Reset { through: usize },
     /// Stop this turn and end the session.
     Shutdown,
 }
@@ -508,7 +572,7 @@ pub(crate) enum TurnWork {
     Model(String),
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
-    /// A piece of *work* for the same reason `Model` and `New` are, and more
+    /// A piece of *work* for the same reason `Model` is, and more
     /// so: it performs network I/O, it writes a file, and it replaces the
     /// configuration, the bundle and the conversation together. None of that may
     /// happen under a running turn, and none of it may happen on the thread
@@ -520,14 +584,6 @@ pub(crate) enum TurnWork {
     /// thread sits in `pselect(2)` holding the terminal and may not wait for a
     /// daemon that is not answering.
     Catalog,
-    /// Drop the conversation, with the shell's own `/new` meaning: the next
-    /// prompt opens a fresh session.
-    ///
-    /// A piece of *work* rather than a control message, and for the reason the
-    /// other two are: the conversation belongs to the runtime thread, and `/new`
-    /// has to take effect between turns rather than in the middle of the one
-    /// that is writing into it.
-    New,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport
@@ -872,20 +928,29 @@ fn translate(event: &Event) -> Option<UiEvent> {
         // An empty delta is a permit and a frame spent on nothing.
         Event::AssistantDelta { text } if text.is_empty() => None,
         Event::AssistantDelta { text } => Some(UiEvent::Delta(text.clone())),
-        Event::ToolStart { call_id, tool } => Some(UiEvent::ToolStart {
+        Event::ToolStart {
+            call_id,
+            tool,
+            shown,
+        } => Some(UiEvent::ToolStart {
             call_id: call_id.clone(),
             tool: tool.clone(),
+            shown: shown.clone(),
         }),
         Event::ToolResult {
             call_id,
             tool,
             ok,
             detail,
+            outcome,
+            changes,
         } => Some(UiEvent::ToolResult {
             call_id: call_id.clone(),
             tool: tool.clone(),
             ok: *ok,
             detail: detail.clone(),
+            outcome: *outcome,
+            changes: *changes,
         }),
         // Carried through, unlike `Final` and `Error`: nothing else on this
         // channel says it, and the worker's `TurnEnded` is about the turn
@@ -1334,12 +1399,15 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "1".into(),
                 tool: "read".into(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             UiEvent::ToolResult {
                 call_id: "1".into(),
                 tool: "read".into(),
                 ok: true,
                 detail: "done".into(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
@@ -1471,12 +1539,17 @@ mod tests {
             UiEvent::ToolStart {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
+                // The model's own argument, which is what the row will quote.
+                shown: crate::tools::terminal::TERMINAL
+                    .shown(&serde_json::json!({"action": "exec", "command": "\x1b[2Jls"})),
             },
             UiEvent::ToolResult {
                 call_id: "\x1b[2Jc".into(),
                 tool: "\x1b[2Jt".into(),
                 ok: false,
                 detail: "\x1b[2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             },
             UiEvent::Notice(super::super::notice::Notice::warning(
                 "\x1b[2Jtopic",
@@ -1516,6 +1589,10 @@ mod tests {
             Some(UiEvent::ToolStart {
                 call_id: " [2Jc".into(),
                 tool: " [2Jt".into(),
+                shown: Shown {
+                    presentation: crate::tools::terminal::TERMINAL.presentation(),
+                    target: Some(" [2Jls".into()),
+                },
             })
         );
         assert_eq!(
@@ -1525,6 +1602,8 @@ mod tests {
                 tool: " [2Jt".into(),
                 ok: false,
                 detail: " [2Jd".into(),
+                outcome: Outcome::Denied,
+                changes: None,
             })
         );
         assert_eq!(

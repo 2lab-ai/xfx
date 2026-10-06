@@ -1,0 +1,14 @@
+== ./a.txt
+alpha line 1
+alpha line 2
+alpha line 3
+
+== ./b.txt
+beta one
+beta two
+
+== ./src/main.rs
+fn main() {
+    println!("hi");
+}
+

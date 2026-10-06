@@ -830,7 +830,15 @@ mod tests {
         // command's own name.
         assert_eq!(
             labels(&live)[1..],
-            ["/help", "/clear", "/new", "/provider", "/model", "/version"]
+            [
+                "/help",
+                "/clear",
+                "/new",
+                "/reset",
+                "/provider",
+                "/model",
+                "/version"
+            ]
         );
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//").is_none());
@@ -902,7 +910,7 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert_eq!(rows.len(), 8);
         // The header: dim, the range in an en dash against the last column but
-        // one, because ten commands do not fit in six rows.
+        // one, because the registry's commands do not fit in six rows.
         let left = format!("Commands {} \u{b7} type to filter", SLASH_REGISTRY.len());
         let range = "1\u{2013}6";
         assert_eq!(
@@ -921,13 +929,13 @@ mod tests {
             ("/help", "show available slash commands", "General"),
             ("/clear", SLASH_REGISTRY[1].summary, "General"),
             ("/new", "start a fresh session", "Session"),
+            ("/reset", "reset the current session context", "Session"),
             (
                 "/provider",
                 "choose the model provider and how it signs in",
                 "Account",
             ),
             ("/stats", "show token and turn statistics", "Account"),
-            ("/status", "show runtime configuration", "General"),
         ];
         for (row, (name, summary, category)) in body.iter().zip(expected) {
             assert_eq!(
@@ -979,7 +987,11 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert!(plain(&rows[0]).ends_with("2\u{2013}7"), "{:?}", rows[0]);
         assert!(rows[7].starts_with(MARKED), "{:?}", rows[7]);
-        assert!(plain(&rows[7]).starts_with("  /model"), "{:?}", rows[7]);
+        assert!(
+            plain(&rows[7]).starts_with(&format!("  {}", SLASH_REGISTRY[6].name)),
+            "{:?}",
+            rows[7]
+        );
         // Back up one: the mark moves and the window stays.
         assert_eq!(picker.apply(PickerAction::Up), PickerOutcome::Changed);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
@@ -1104,7 +1116,10 @@ mod tests {
     #[test]
     fn a_query_that_names_nothing_opens_no_picker() {
         assert!(Picker::open("/zzz").is_none());
-        assert!(Picker::open("/re").is_none(), "no xfx name has `re` in it");
+        assert!(
+            Picker::open("/ren").is_none(),
+            "no xfx name has `ren` in it"
+        );
         assert!(Trigger::of("say /help to me").is_none());
         assert!(Trigger::of("/model acme").is_none());
     }

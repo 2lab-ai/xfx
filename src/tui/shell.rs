@@ -98,6 +98,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
+use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
@@ -110,6 +111,7 @@ use crate::provider::model::model_id_problem;
 use crate::provider::model::CatalogEntry;
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
+use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
 
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
@@ -325,22 +327,6 @@ const RECALL_UNNUMBERED: &str = "no paste numbers left; the recalled blocks are 
 /// describing a keystroke they did not make.
 const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are words now";
 
-/// What `/clear` leaves behind after it has erased the screen.
-///
-/// The line-oriented shell prints its banner and a `kept` line here
-/// (`interactive.rs:451-456`); the TUI has no banner, and the identity that
-/// banner carries belongs on the hint row. What is left is the promise the
-/// command's own summary makes -- that clearing the screen is not clearing the
-/// conversation -- said where a user who just watched their transcript vanish
-/// is looking.
-///
-/// A neutral notice under the topic `screen`.
-const CLEARED_NOTICE: &str = "cleared the screen; the conversation is kept";
-
-/// What `/new` says, in the words the line-oriented shell says them in
-/// (`interactive.rs:461-463`), as a neutral notice under the topic `session`.
-const NEW_SESSION_NOTICE: &str = "new session; the next prompt starts a fresh conversation";
-
 /// What a line that names no command -- or names one with something after it
 /// that the command does not take -- is answered with: upstream's own
 /// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
@@ -376,16 +362,6 @@ pub(crate) const AMENDMENT_PREFIX: &str = "[you]";
 /// transcript row is not where the whole of one belongs. The model gets the
 /// text whole either way -- this is a display of it, not the record.
 const AMENDMENT_BYTES: usize = 240;
-
-/// Erases the screen, its scrollback, and puts the cursor home.
-///
-/// The same three sequences `/clear` writes on the line-oriented path
-/// (`interactive.rs:85`), and the only bytes this session writes that are not a
-/// frame or a document append. `3J` is the one that matters here: xfx's answers
-/// live in the terminal's *own* scrollback (`super::frame`), so a `/clear` that
-/// erased only the visible screen would leave the transcript one wheel-turn
-/// away and mean something different on this surface than it does on the other.
-pub(crate) const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
 
 /// What a screen that changed size did to the band.
 ///
@@ -742,17 +718,63 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
-    /// Whether the screen owes a `/clear`.
+    /// Whether the screen owes a reset's scrollback handoff
+    /// (`super::frame::Band::hand_off`), and how many blank rows the document
+    /// it hands off ends on.
     ///
-    /// Taken by the loop, which owns the writer. A `bool` rather than a queued
-    /// write because two clears in one turn are one clear.
-    clearing: bool,
+    /// Asked by the loop, which owns the writer, and settled only by a handoff
+    /// that landed ([`Self::handed_off`]). One value rather than a queue of
+    /// writes because two resets before one tick are one handoff: the second
+    /// has no document of its own to hand off.
+    handoff: Option<u16>,
+    /// Whether the rows above the band may no longer end the way the
+    /// transcript's own record of its tail says ([`Transcript::ends_blank`]).
+    ///
+    /// Raised by a resize, after which the terminal has reflowed them, and by
+    /// anything else that damaged the screen from outside -- a resume after
+    /// somebody else had the terminal above all. Cleared only by a handoff,
+    /// which leaves a screen this session wrote every row of. While it is up a
+    /// reset carries the blank row a document ends on into scrollback rather
+    /// than guess that it is there ([`Self::handoff`]) -- and so does a reset
+    /// already owed when it is raised.
+    tail_unknown: bool,
+    /// Whether the work a reset cancelled is still reporting: the count the
+    /// last reset quoted, until the runtime's fence for it arrives.
+    ///
+    /// From the reset until the runtime says the conversation is gone
+    /// ([`UiEvent::Fresh`] with that count or a later one). Everything that arrives in between belongs to the
+    /// conversation the reset handed to scrollback -- the tail of an answer, a
+    /// tool row, a turn's conclusion -- and painted on the fresh screen it
+    /// would be a stray from a session the user just left. So it is dropped,
+    /// except for the state the runtime really changed and the questions a
+    /// parked turn is waiting on ([`Self::drained`]).
+    draining: Option<usize>,
     /// The answer as upstream presents it: the model's markdown rendered as it
     /// streams (`assistant_stream.zig:435-457`), its prose in the two-column
     /// gutter and its code, tables and rules as blocks of their own.
     markdown: MarkdownProcessor,
     /// Where the answer being written stands ([`Answer`]).
     answer: Answer,
+    /// The tool calls the transcript is showing as one group, and whether its
+    /// block is the document's open tail ([`super::toolgroup`]).
+    ///
+    /// Moved only where the stream reaches the call -- by the marks the tool
+    /// events leave ([`Mark::ToolStart`], [`Mark::ToolResult`]) -- so the group
+    /// lands where the answer had got to when the call happened, as every other
+    /// line of xfx's does.
+    group: ToolGroup,
+    /// The calls this turn settled as cancelled while they were still running.
+    ///
+    /// A stop is shown when the user asks for it ([`Self::interrupt`]), and the
+    /// runtime may already have sent the result of a call that finished in the
+    /// same moment. That result is about a row the screen has already settled
+    /// the other way, so it is dropped rather than drawn as a second answer to
+    /// one call. Emptied when the turn is over ([`Mark::TurnOver`]): the
+    /// runtime sends a turn's conclusion after everything else of it.
+    abandoned: Vec<String>,
+    /// xfx's own lines written while the tool group was open, which are the
+    /// group's block's last rows until it closes ([`Self::trail_group`]).
+    trailer: Vec<Trailed>,
     /// What the summary under the turn's answer will say ([`Tally`]).
     tally: Tally,
     /// The token estimate of every prompt that was sent and whose turn has
@@ -786,7 +808,8 @@ pub(crate) struct Shell {
     /// Every row an append added, less every row a growing band carried off
     /// the top: so while the screen is not full it is the document's last row,
     /// and once the screen has filled it is at least the rows above the band
-    /// and the band stays at the bottom. A `/clear` starts it again at none. A
+    /// and the band stays at the bottom. A reset's handoff starts it again at
+    /// none ([`Self::handed_off`]). A
     /// resize sets it past any screen, because where a terminal reflows the
     /// rows already on it is the terminal's own business and a band floated
     /// under a guess would be painted over them.
@@ -896,6 +919,57 @@ enum Asked {
     Alternate(ApprovalScreen),
 }
 
+/// One of xfx's own lines written while a tool group was open
+/// ([`Shell::trail_group`]): what it is, so it can be laid out again at the
+/// width of whatever screen the block is next written to.
+#[derive(Debug, Clone)]
+enum Trailed {
+    Line(String, Role),
+    Notice(notice::Notice),
+}
+
+/// Queues one whole line onto `transcript`, on rows of its own -- the
+/// transcript half of [`Shell::write_document_line`].
+fn queue_line(transcript: &mut Transcript, line: &str, role: Role) {
+    if transcript.open_line() {
+        transcript.queue_end_line();
+    }
+    transcript.queue_push(line, role);
+    transcript.queue_end_line();
+}
+
+/// Queues one notice onto `transcript` as upstream renders one -- the
+/// transcript half of [`Shell::write_notice`], whose documentation says what
+/// the shape is -- and says whether the document is owed a frame for it.
+fn queue_notice(transcript: &mut Transcript, notice: &notice::Notice) -> bool {
+    let mut owed = false;
+    // The gutter in force is the one the row above is written with.
+    owed |= transcript.queue_gutter(Gutter::None);
+    if !transcript.ends_blank() {
+        owed |= transcript.queue_end_line();
+    }
+    owed |= transcript.queue_gutter(Gutter::Head(notice.tone));
+    // One push for the label and the whole body: the head is one row's, and
+    // every line after the first is written two columns in by the gutter
+    // itself (`Gutter::continued`), so nothing here splits lines.
+    let label = notice.label();
+    let body = notice.said();
+    let gap = if label.is_empty() || body.is_empty() {
+        ""
+    } else {
+        " "
+    };
+    owed |= transcript.queue_push_runs(&[
+        (&label, Role::Label(notice.tone)),
+        (gap, Role::Notice),
+        (body, Role::Notice),
+    ]);
+    owed |= transcript.queue_end_line();
+    owed |= transcript.queue_gutter(Gutter::None);
+    owed |= transcript.queue_end_line();
+    owed
+}
+
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
@@ -920,6 +994,19 @@ enum Mark {
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
+    /// A tool call started: a row in the open group, or a group of its own.
+    ToolStart { id: String, shown: Shown },
+    /// A tool call finished: its row settled, and the header recounted.
+    ToolResult {
+        id: String,
+        ok: bool,
+        detail: String,
+        outcome: CallOutcome,
+        changes: Option<LineChanges>,
+    },
+    /// The turn is over: whatever of its group is still running was stopped
+    /// with it, and the group is closed.
+    TurnOver,
 }
 
 /// The answer being written: whether its prose block is open, and the line
@@ -1129,11 +1216,16 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
-            clearing: false,
+            handoff: None,
+            tail_unknown: false,
+            draining: None,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
                 markdown::theme::builtin(palette.mode == Mode::Light),
             )),
             answer: Answer::default(),
+            group: ToolGroup::default(),
+            abandoned: Vec::new(),
+            trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
             session_title: None,
@@ -1550,6 +1642,7 @@ impl Shell {
     // The composer's submit is the first caller -- it echoes the line the user
     // sent so the loop is visibly closed -- and Task 12's deltas are the next.
     fn write_transcript_as(&mut self, text: &str, role: Role) {
+        self.close_group();
         if self.transcript.queue_push(text, role) {
             self.owed();
         }
@@ -1596,6 +1689,11 @@ impl Shell {
     // The composer's submit is the first caller, and Task 12's end-of-turn is
     // the next: a turn ends whether or not the last delta carried a newline.
     pub(crate) fn end_transcript_line(&mut self) {
+        // An open group's block ends as a line, and its blank last row is the
+        // break this would have made.
+        if self.close_group() {
+            return;
+        }
         if self.transcript.queue_end_line() {
             self.owed();
         }
@@ -1655,6 +1753,11 @@ impl Shell {
     /// event is a tool that ran invisibly or a turn that ended without saying
     /// so.
     pub(crate) fn apply(&mut self, event: UiEvent) {
+        // The old conversation's events, after a reset handed its screen to
+        // scrollback and before the runtime has said it is gone.
+        if self.draining.is_some() && self.drained(&event) {
+            return;
+        }
         match event {
             // A turn is running, which is what the row above the divider is
             // about. The clock is not read here: the *label* is this event's
@@ -1671,34 +1774,41 @@ impl Shell {
             // document, so a provider that sends a kilobyte in one frame and
             // nothing in the next is still read at one speed.
             UiEvent::Delta(text) => self.stream(&text),
-            // The same two sentences `xfx ask --tool-notices` puts on the
-            // diagnostic stream (`output.rs:1154-1174`), so a tool means the
-            // same thing on both surfaces.
-            UiEvent::ToolStart { tool, .. } => {
+            // A row in the transcript's tool group (`super::toolgroup`),
+            // behind whatever of the answer the pacer still holds -- the call
+            // happened after that text, so its row goes under it.
+            UiEvent::ToolStart {
+                call_id,
+                tool,
+                shown,
+            } => {
                 // And on the band, where the activity row stops saying
                 // `Thinking` and says `Running`, as upstream's phase does: a
                 // turn that has gone quiet because a tool is taking a minute
                 // looks exactly like a turn that has gone quiet, unless it says
                 // so.
-                self.activity.set(Work::Tool { name: tool.clone() });
-                self.say(format!("[tool] {tool} running"));
+                self.activity.set(Work::Tool { name: tool });
+                self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
-                tool, ok, detail, ..
+                call_id,
+                ok,
+                detail,
+                outcome,
+                changes,
+                ..
             } => {
-                let line = if ok {
-                    format!("[tool] {tool} ok")
-                } else {
-                    format!(
-                        "[tool] {tool} refused: {}",
-                        safe_one_line(&detail, TOOL_DETAIL_BYTES)
-                    )
-                };
                 // The tool is over, so the model has the turn again. The
                 // clock is not restarted with it: what the row measures is the
                 // turn, and a tool call is part of one.
                 self.activity.set(Work::Thinking);
-                self.say(line);
+                self.mark(Mark::ToolResult {
+                    id: call_id,
+                    ok,
+                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    outcome,
+                    changes,
+                });
             }
             // What the user said about a decision, once the runtime has
             // really delivered it (`crate::agent::machine`'s
@@ -1861,7 +1971,11 @@ impl Shell {
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
-                // in the middle of the answer.
+                // in the middle of the answer. The tool group goes first,
+                // because it is part of the turn and the conclusion is under
+                // it: whatever of it is still running was stopped with the
+                // turn ([`Mark::TurnOver`]).
+                self.mark(Mark::TurnOver);
                 // A summary only under a turn the runtime ran: `/model`, `/setup`
                 // and a catalog listing end with this event too, and they
                 // started no turn to summarize.
@@ -1901,6 +2015,15 @@ impl Shell {
                 self.activity.end();
                 self.pacer.finish();
                 self.gestures.turn_ended();
+            }
+            // The conversation a reset asked to drop is gone, and nothing the
+            // runtime sends from here on is about it -- once this is the fence
+            // of the last reset sent. An earlier reset's fence ends nothing:
+            // what follows it can be a prompt the later reset dropped.
+            UiEvent::Fresh { through } => {
+                if self.draining.is_some_and(|last| through >= last) {
+                    self.draining = None;
+                }
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -2876,7 +2999,18 @@ impl Shell {
             // to stop. **One message still**, and it carries no sentence: the
             // drafts were dropped above, so a cancel at a filled draft says
             // nothing on either channel.
-            approval::Action::Escape => self.interrupt(now),
+            // **The call this panel was asking about is stopped by this key**:
+            // the prompter answers the stop by refusing it and handing the
+            // interrupt on, so the call never runs (`super::approval`'s
+            // `TuiPrompter`). The group says so now, above the sentence that
+            // answers the key, as upstream's does the moment it is pressed
+            // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
+            // reports for it next is the same stop in the tool's words, and is
+            // dropped ([`Self::abandoned`]).
+            approval::Action::Escape => {
+                self.settle_group();
+                self.interrupt(now);
+            }
             // Ctrl-C and the rest are an answer about *this call* and nothing
             // more: the turn goes on, and is told no -- with whatever the user
             // said about it, which is context and never authority.
@@ -3201,10 +3335,102 @@ impl Shell {
                 self.write_document_line(&line, Role::Dim);
                 self.end_transcript_line();
             }
+            // One of xfx's own lines rides under an open tool group rather
+            // than closing it ([`Self::trail_group`]).
+            Mark::Line(line, role) if self.group.drawn() => {
+                self.trail_group(Trailed::Line(line, role));
+            }
             Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::Notice(notice) => self.write_notice(&notice),
             Mark::EndOfLine => self.finish_document_line(),
+            Mark::ToolStart { id, shown } => {
+                self.group.start(id, shown);
+                self.redraw_group();
+            }
+            Mark::ToolResult {
+                id,
+                ok,
+                detail,
+                outcome,
+                changes,
+            } => {
+                if !self.abandoned.contains(&id)
+                    && self.group.finish(&id, ok, &detail, outcome, changes)
+                {
+                    self.redraw_group();
+                }
+            }
+            Mark::TurnOver => {
+                self.settle_group();
+                self.abandoned.clear();
+            }
         }
+    }
+
+    /// Hands the transcript the group's block as it now stands, when it
+    /// changed.
+    ///
+    /// A group that has no block yet starts one on a row of its own
+    /// ([`Transcript::queue_block`] ends an open line first); one that has is
+    /// rewritten where it is, because it is still the document's last thing --
+    /// every other write closes it first ([`Self::close_group`]).
+    fn redraw_group(&mut self) {
+        let trailer = self.trailer_rows();
+        let Some(rows) = self.group.redraw(self.palette, &trailer) else {
+            return;
+        };
+        if self.transcript.queue_block(rows) {
+            self.owed();
+        }
+    }
+
+    /// Closes the group's block, so that what comes next is written under it,
+    /// and says whether there was one to close.
+    ///
+    /// Called by every write that is not the group's own -- the answer's text,
+    /// a line of xfx's, a card -- through the two places they all pass
+    /// ([`Self::finish_document_line`], [`Self::write_transcript_as`]). That
+    /// is upstream's rule, said in terms of the one thing this transcript can
+    /// do: a group is broken by the next thing shown that is not one of its
+    /// calls (`tool_group_projection.zig:1280-1375`), and a block that is not
+    /// the document's last thing can no longer be rewritten.
+    ///
+    /// A call still running when its block closes keeps its row as the block
+    /// left it, and is drawn again -- under whatever closed it -- when its
+    /// result arrives ([`ToolGroup::unsettled`]).
+    fn close_group(&mut self) -> bool {
+        if !self.group.drawn() {
+            return false;
+        }
+        self.group = std::mem::take(&mut self.group).unsettled();
+        // What was written under it went with the block, which keeps it.
+        self.trailer.clear();
+        // Straight to the transcript: the block ends as a line does, and its
+        // last row is already the blank one that separates it from what
+        // follows -- or the last of the lines written under it.
+        if self.transcript.queue_end_line() {
+            self.owed();
+        }
+        true
+    }
+
+    /// Stops what the group still has running, shows it stopped, and closes
+    /// the group -- for a turn that is over, whichever way it ended.
+    ///
+    /// A call with no result when its turn ends did not finish: the runtime
+    /// sends a result for every call that returned, and what ends a turn
+    /// between a call's start and its result is a stop -- once the runtime
+    /// has read one, its stream goes silent (`super::bridge`'s `send_ui`). So
+    /// it is shown as upstream shows a call the user stopped: `Cancelled`,
+    /// counted, with its own line under the group.
+    fn settle_group(&mut self) {
+        let stopped = self.group.cancel_running();
+        if !stopped.is_empty() {
+            self.redraw_group();
+        }
+        self.abandoned.extend(stopped);
+        self.close_group();
+        self.group = ToolGroup::default();
     }
 
     /// How much answer text is waiting to be released.
@@ -3251,41 +3477,73 @@ impl Shell {
     ///
     /// Like [`Self::write_document_line`], whatever the answer had open is
     /// closed first: a notice does not land in the middle of a sentence.
+    ///
+    /// **Under an open tool group it is one of the group's last rows**
+    /// ([`Self::trail_group`]), and the group goes on growing above it.
     fn write_notice(&mut self, notice: &notice::Notice) {
+        if self.group.drawn() {
+            self.trail_group(Trailed::Notice(notice.clone()));
+            return;
+        }
         self.close_answer();
         self.finish_document_line();
-        // The gutter in force is the one the row above is written with.
-        if self.transcript.queue_gutter(Gutter::None) {
+        if queue_notice(&mut self.transcript, notice) {
             self.owed();
         }
-        if !self.transcript.ends_blank() {
-            self.end_transcript_line();
+    }
+
+    /// Puts one of xfx's own lines under the open tool group, as the group's
+    /// last rows rather than as rows after it.
+    ///
+    /// **One group per turn, broken by text and by nothing else**: upstream
+    /// gives every call of a turn's active group one presentation id
+    /// (`tool_presentation.zig:667-708`) and draws them all at the group's
+    /// anchor (`tool_group_projection.zig:1294-1319`), so a line written while
+    /// the group is open -- what the user said at an approval, a notice, the
+    /// interrupt's sentence -- lands under the group while the group's later
+    /// calls are still added above it (`fx-approvals-40x120-cmd2`: the fourth
+    /// call is counted and drawn over `┃ use capitals`). The document here is
+    /// append-only past its open block, so the line is made part of the block:
+    /// laid out exactly as it would have been written ([`Self::trailer_rows`])
+    /// and rewritten with the block until it closes.
+    fn trail_group(&mut self, line: Trailed) {
+        self.trailer.push(line);
+        self.redraw_group();
+    }
+
+    /// The lines under the open group, laid out at this screen's width as the
+    /// document would lay them out -- by a transcript of their own, through
+    /// the same operations ([`queue_line`], [`queue_notice`]), so a notice's
+    /// head, its wrap, its blank rows and the line's colours are the ones it
+    /// would have had written on its own.
+    fn trailer_rows(&self) -> Vec<String> {
+        if self.trailer.is_empty() {
+            return Vec::new();
         }
-        if self.transcript.queue_gutter(Gutter::Head(notice.tone)) {
-            self.owed();
+        // The group ends on a blank row, which is the row above the first of
+        // these: a fresh transcript starts out "ending blank" for exactly that.
+        let mut scratch = Transcript::new(self.geometry.cols);
+        for line in &self.trailer {
+            match line {
+                Trailed::Line(text, role) => queue_line(&mut scratch, text, *role),
+                Trailed::Notice(notice) => {
+                    queue_notice(&mut scratch, notice);
+                }
+            }
         }
-        // One push for the label and the whole body: the head is one row's,
-        // and every line after the first is written two columns in by the
-        // gutter itself (`Gutter::continued`), so nothing here splits lines.
-        let label = notice.label();
-        let body = notice.said();
-        let gap = if label.is_empty() || body.is_empty() {
-            ""
-        } else {
-            " "
-        };
-        if self.transcript.queue_push_runs(&[
-            (&label, Role::Label(notice.tone)),
-            (gap, Role::Notice),
-            (body, Role::Notice),
-        ]) {
-            self.owed();
-        }
-        self.end_transcript_line();
-        if self.transcript.queue_gutter(Gutter::None) {
-            self.owed();
-        }
-        self.end_transcript_line();
+        let mut rows: Vec<String> = Vec::new();
+        while scratch
+            .emit_front(self.palette, |append| {
+                // Each append rewrites the rows it does not scroll in, at the
+                // bottom of what is already there ([`Append`]).
+                let settled = append.rows.len() - append.scroll.min(append.rows.len());
+                rows.truncate(rows.len().saturating_sub(settled));
+                rows.extend(append.rows.iter().cloned());
+                Landed::<std::convert::Infallible>::All
+            })
+            .is_some()
+        {}
+        rows
     }
 
     /// Ends the document's current line, if there is one open.
@@ -3302,6 +3560,9 @@ impl Shell {
     /// answer there would say "no line is open" about an answer that has one,
     /// and put the notice on the end of its sentence.
     fn finish_document_line(&mut self) {
+        if self.close_group() {
+            return;
+        }
         if self.transcript.open_line() {
             self.end_transcript_line();
         }
@@ -3470,13 +3731,23 @@ impl Shell {
             dim: self.palette.dim(),
             reset: self.palette.reset(),
         };
-        let row = self.activity.row(
-            now,
-            self.phase,
-            self.geometry.cols,
-            (self.tally.input, output),
-            colours,
-        );
+        // **No row at all while a question is up**, as upstream's footer has
+        // none (`render_input.zig:705`, `frameOwnedActivityProjection`): the
+        // band is the question's then, and a clock that is not running beside
+        // it would be a row reporting on a turn that is waiting for the person
+        // reading it. The clock stopped above; the row comes back, at the
+        // elapsed time it stopped at, when the question goes.
+        let row = if self.modal() {
+            None
+        } else {
+            self.activity.row(
+                now,
+                self.phase,
+                self.geometry.cols,
+                (self.tally.input, output),
+                colours,
+            )
+        };
         if row == self.activity_row {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
@@ -3517,7 +3788,9 @@ impl Shell {
     /// what is on them. Something that damaged the screen and has not reached
     /// the band yet ([`Self::damage_untold`]) means the shadow those rows
     /// would be repainted from describes a screen that is gone, and repainting
-    /// from it is how erased history comes back.
+    /// from it is how erased history comes back. A reset whose handoff is
+    /// still owed ([`Self::handoff`]) is the same: the rows are on their way
+    /// into scrollback, which is never recoloured.
     fn retint(&mut self, mode: Mode) {
         if self.theme_locked || self.palette.mode == mode {
             return;
@@ -3528,7 +3801,7 @@ impl Shell {
         let theme = markdown::theme::builtin(mode == Mode::Light);
         self.markdown.apply_theme(&theme);
         self.markdown.activate_theme(theme);
-        if !self.damage_untold {
+        if !self.damage_untold && self.handoff.is_none() {
             self.retint_debt = true;
         }
         self.render.request(Reason::Footer);
@@ -3571,6 +3844,10 @@ impl Shell {
     /// that matters most: a resume, where the terminal has been somebody
     /// else's in between (`super::event_loop`'s `adopt_resume`).
     pub(crate) fn external_damage(&mut self) {
+        self.tail_unknown = true;
+        // A handoff still owed was measured against rows this damage may have
+        // changed; it carries the blank tail it was going to leave out.
+        self.handoff = self.handoff.map(|_| 0);
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
         self.damage_untold = true;
@@ -3608,30 +3885,47 @@ impl Shell {
     /// Hands one back after [`Self::take_theme_query`] took it and the write
     /// never reached the terminal.
     ///
-    /// The pair [`Self::take_clearing`] and [`Self::restore_clearing`] make,
-    /// for the same reason: a refused write moved no byte, so what it was
-    /// offering is still owed, and nothing else ever sets this flag for a
-    /// resume that has already been adopted.
+    /// A refused write moved no byte, so what it was offering is still owed,
+    /// and nothing else ever sets this flag for a resume that has already been
+    /// adopted.
     pub(crate) fn restore_theme_query(&mut self) {
         self.theme_query = true;
     }
 
-    /// Whether the screen owes a `/clear`, taken so it is written once.
-    pub(crate) fn take_clearing(&mut self) -> bool {
-        std::mem::take(&mut self.clearing)
+    /// Whether the screen owes a reset's scrollback handoff.
+    ///
+    /// Asked rather than taken: the handoff is owed until one lands
+    /// ([`Self::handed_off`]), so a write the terminal refused leaves it owed
+    /// without a second call that would have to remember to put it back.
+    pub(crate) fn owes_handoff(&self) -> bool {
+        self.handoff.is_some()
     }
 
-    /// Hands a `/clear` back after [`Self::take_clearing`] took it and the
-    /// write never reached the terminal.
+    /// How many of the rows the handed-off document ends on are blank -- the
+    /// spacing under its last summary or notice, which upstream does not carry
+    /// into scrollback (`super::frame::Band::hand_off`).
+    pub(crate) fn handoff_spacing(&self) -> u16 {
+        self.handoff.unwrap_or(0)
+    }
+
+    /// Records that the handoff landed: the screen is blank, the document has
+    /// no row on it, and the band floats back to the top under the welcome
+    /// line the reset queued.
     ///
-    /// Sets the flag and nothing else -- it must not call
-    /// [`Self::clear_screen`] again: that would drop the pending appends and
-    /// pacer text a **second** time, discarding whatever arrived between the
-    /// take and this call, and repeat a notice the screen never saw the first
-    /// half of. The bytes are the only thing that failed to land; the state
-    /// `clear_screen` already changed did not un-happen.
-    pub(crate) fn restore_clearing(&mut self) {
-        self.clearing = true;
+    /// **Here and not at the reset**, because until this moment the rows the
+    /// old document holds are still on the screen. A band painted under a
+    /// document of no rows before the handoff -- the frame that gives the
+    /// plane back after a question, which paints from this geometry -- would
+    /// be painted over them, and the handoff would then erase what it was
+    /// supposed to carry into scrollback.
+    pub(crate) fn handed_off(&mut self) {
+        self.handoff = None;
+        self.tail_unknown = false;
+        self.document_rows = 0;
+        self.refloat();
+        // Every row of the band is gone from the screen with the document, so
+        // the frame that follows is not optional whether or not the band moved.
+        self.render.request(Reason::Transcript);
     }
 
     /// Applies decoded events in order.
@@ -4048,6 +4342,20 @@ impl Shell {
                 self.work.control(TurnControl::Cancel {
                     through: self.work.accepted(),
                 });
+                // A call that is already running is **not** settled by this
+                // keystroke, and that is the difference from upstream's
+                // `fx-interrupt-40x120-cmd-cc`, where the command is killed at
+                // once. Here a running executor holds the runtime's thread
+                // until it returns, so the stop is read only after the command
+                // has finished (`super::worker`'s `raced_against_control`
+                // polls the control channel beside the turn, not inside a
+                // tool). A `Cancelled` row now would be the screen claiming a
+                // stop the command never had; the call's real result settles
+                // it, and a turn that ends without one settles it as stopped
+                // ([`Mark::TurnOver`]). A call parked at an approval is the
+                // other case, and is settled where that key is read
+                // ([`approval::Action::Cancel`]).
+                //
                 // The same sentence the line-oriented shell writes for the same
                 // keystroke (`app::INTERRUPT_NOTICE`), so that the request is
                 // something the user watched land rather than something they
@@ -4447,11 +4755,14 @@ impl Shell {
 
 /// What each canonical command does on this surface.
 ///
-/// Most are answered on the UI thread; `/new`, `/model` and `/setup` are
-/// handed to the runtime as [`TurnWork`] -- because the model and the
-/// conversation they change live there and have to change *between* turns
-/// rather than under one, and because `/setup` and a bare `/model` open a
-/// socket the thread holding the terminal must never wait on.
+/// Most are answered on the UI thread; `/model` and `/setup` are handed to the
+/// runtime as [`TurnWork`] -- because the model and the conversation they
+/// change live there and have to change *between* turns rather than under one,
+/// and because `/setup` and a bare `/model` open a socket the thread holding
+/// the terminal must never wait on. The conversation half of `/new`, `/clear`
+/// and `/reset` goes there too, as a control message rather than as work
+/// ([`TurnControl::Reset`]), because it must not wait behind the turn it
+/// stops.
 impl CommandHandlers for Shell {
     /// Opens the catalog (`commandShowHelp`, `app_commands.zig:700-706`):
     /// `All`, the first command marked, the composer -- emptied by the submit
@@ -4459,7 +4770,7 @@ impl CommandHandlers for Shell {
     ///
     /// **Nothing is written to the document**: the catalog is the answer, and
     /// it is in the band. The line-oriented shell keeps its page
-    /// ([`interactive::help_text`]); it has no band to put a catalog in.
+    /// ([`crate::interactive::help_text`]); it has no band to put a catalog in.
     fn help(&mut self) {
         // The completion menu goes first: the two share the slot, and the
         // catalog is what the user asked for.
@@ -4472,35 +4783,15 @@ impl CommandHandlers for Shell {
     }
 
     fn new_session(&mut self) {
-        if let Err(rejected) = self.work.submit(TurnWork::New) {
-            self.refused(rejected);
-            return;
-        }
-        // **After the offer was taken, and not before.** The far side drops the
-        // conversation (`super::worker`'s `TurnWork::New` arm), and the meter's
-        // numerator is a measurement *of that conversation* -- so it goes with
-        // it, and a `/new` the runtime refused leaves a session whose
-        // measurement is still about the conversation on the screen.
-        //
-        // The denominator stays: it is the model's context window, and `/new`
-        // changes neither the provider nor the model. Clearing it would discard
-        // a fact that is still true and cost a socket to learn again.
-        self.context_used = None;
-        self.render.request(Reason::Footer);
-        // The session the title named is the one being dropped
-        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`) -- and so
-        // is every prompt already waiting: the work runs in order, so each of
-        // them is answered in the conversation `/new` drops, and none of them
-        // may title the one it starts.
-        self.forget_session_title();
-        for (_, title) in &mut self.prompts {
-            *title = None;
-        }
-        self.announce(notice::Notice::neutral("session", NEW_SESSION_NOTICE));
+        self.reset_session();
     }
 
     fn clear(&mut self) {
-        self.clear_screen();
+        self.reset_session();
+    }
+
+    fn reset(&mut self) {
+        self.reset_session();
     }
 
     fn model(&mut self, argument: &str) {
@@ -4703,43 +4994,144 @@ impl Shell {
         }
     }
 
-    /// `/clear`: the screen, its scrollback, and what the band remembers of
-    /// both.
+    /// `/clear`, `/new` and `/reset`: one operation under three names, as
+    /// upstream's are (`app_commands.zig:667-680`, all three reaching
+    /// `resetSessionWithBackgroundPolicy`, whose policy is discarded at
+    /// `app_session_runtime.zig:2001`).
     ///
-    /// Three things go together and none of them is optional. The **bytes** are
-    /// the loop's to write, because the loop owns the writer. The **transcript**
-    /// is reset, because it counts the rows it has put on the screen and every
-    /// one of them is about to stop existing -- an append measured against the
-    /// old count would place its rows around a row that is no longer there. And
-    /// the document writes already owed are **dropped** with it, because they
-    /// were owed against that same screen.
+    /// **Cancel first, and never wait in the queue.** One control message
+    /// ([`TurnControl::Reset`]): a turn that is running is cancelled exactly as
+    /// Ctrl-C cancels one, together with everything queued behind it, and the
+    /// conversation is dropped the moment that turn has unwound -- rather than
+    /// waiting for it to finish by itself, and without taking a place in the
+    /// queue a prompt typed straight afterwards needs
+    /// (`decideLiveSessionTransition`, `:137-170`). Unlike Ctrl-C it says
+    /// nothing about it: upstream's reset writes no cancelled notice, and the
+    /// screen the notice would land on is the fresh one.
     ///
-    /// One statement for both, and that is the point: the owed text lives in
-    /// the transcript, so there is no second place to forget to empty and no
-    /// order between them to get wrong.
-    fn clear_screen(&mut self) {
-        self.transcript = Transcript::new(self.geometry.cols);
-        // The stream goes with them, and it is the one place this session
-        // drops text the runtime produced. The rows it was going to be written
-        // on are being erased *and* taken out of the terminal's scrollback at
-        // the user's request; letting the rest of that answer dribble onto the
-        // blank screen afterwards would be the surprise, not the loss. The
-        // marks go with it because their places do -- and the stream is
-        // declared arrived, so nothing later is held behind a position no
-        // emission will ever reach.
+    /// **The screen is handed to scrollback, not erased.** The document still
+    /// on it goes into the terminal's own history and the welcome line is
+    /// painted on row 1 of a blank screen with the band under it
+    /// (`commitVisibleTranscriptBeforeFreshSession`, then
+    /// `finishLiveSessionTransition`, `:1978`, `:2012-2018`). The bytes are the
+    /// loop's to write ([`Self::owes_handoff`]); what is dropped here is
+    /// everything owed against the old screen -- the appends not yet written
+    /// and the pacer's text, so the partial answer of a cancelled turn does
+    /// not follow it -- and what is queued is the welcome line.
+    ///
+    /// **No notice**, and the window title goes back to the workspace
+    /// (`clearCachedSessionTitle`, `:1982`). The context meter's numerator goes
+    /// with the conversation it measured; its denominator, the model's window,
+    /// is still true and stays.
+    fn reset_session(&mut self) {
+        // Everything submitted so far belongs to the conversation being
+        // dropped; a prompt typed after this is past the count and runs in the
+        // new one.
+        let through = self.work.accepted();
+        self.work.control(TurnControl::Reset { through });
+        // The prompts the cancellation drops, and the turn it stops, will
+        // title nothing: none of them belongs to the session that starts now.
+        self.prompts.clear();
+        self.forget_session_title();
+        self.tally = Tally::default();
+        self.activity.end();
+        self.gestures.turn_ended();
+        self.context_used = None;
+        // The old screen's debts: the text the pacer holds, the lines placed
+        // behind it, the answer block a cancelled turn left open, and -- once
+        // its tail has been read below -- the rows not yet written. The stream
+        // is declared arrived, so nothing later is held behind a position no
+        // emission will reach.
         self.pacer.forget();
         self.marks.clear();
         self.emitted = self.enqueued;
-        self.clearing = true;
-        // The band starts again under nothing, as it did at launch.
-        self.document_rows = 0;
-        self.refloat();
-        // Every row of the band is gone from the screen too, so the next frame
-        // is a repaint of the whole thing rather than an optional one -- and
-        // the document's rows are gone with it, which is what takes any
-        // visible recolour owed against them down ([`Self::external_damage`]).
-        self.external_damage();
-        self.announce(notice::Notice::neutral("screen", CLEARED_NOTICE));
+        self.markdown.reset();
+        self.answer = Answer::default();
+        // The tool group goes whole, unlike a block a write merely closes
+        // ([`Self::close_group`]): its block is the old screen's, and a call
+        // still running belongs to the turn this stops -- its result is
+        // drained, so a call kept here would sit unsettled in the next
+        // session's first group.
+        self.group = ToolGroup::default();
+        self.trailer.clear();
+        self.abandoned.clear();
+        // A recolour owed against the old rows is owed against rows on their
+        // way into scrollback, which is never recoloured ([`Self::retint`]).
+        self.retint_debt = false;
+        // The blank row the document ends on, when this session can say so:
+        // everything it wrote has landed, so the transcript's own record of
+        // its tail is a record of the screen, and no resize has left the rows
+        // above the band to the terminal's reflow. Otherwise none is left out,
+        // and the worst that costs is a blank row in history. A second reset
+        // before the handoff has no document of its own and keeps the first's.
+        if self.handoff.is_none() {
+            let known = !self.transcript.owes() && !self.tail_unknown;
+            self.handoff = Some(u16::from(known && self.transcript.ends_blank()));
+        }
+        self.transcript = Transcript::new(self.geometry.cols);
+        self.welcome();
+        // What the runtime still sends about the old conversation is dropped
+        // until it says the conversation is gone.
+        self.draining = Some(through);
+        self.render.request(Reason::Footer);
+    }
+
+    /// What a draining session does with one event from the work a reset
+    /// cancelled, or `false` when the event is to be shown as usual.
+    ///
+    /// Exhaustive on purpose, for the reason [`Self::apply`] is.
+    fn drained(&mut self, event: &UiEvent) -> bool {
+        match event {
+            // The old conversation's words and numbers, on a screen that is no
+            // longer about it.
+            UiEvent::TurnStarted
+            | UiEvent::Delta(_)
+            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolResult { .. }
+            | UiEvent::ToolFeedback { .. }
+            | UiEvent::Notice(_)
+            | UiEvent::Usage { .. } => true,
+            // A question the cancelled turn asked before it heard about the
+            // cancellation. **Refused on the user's behalf rather than
+            // dropped**: the prompter parks on the session's root and the
+            // control channel (`super::approval`), and the cancellation it
+            // would otherwise wake on may already have been consumed by the
+            // turn -- so a question nobody answered could hold the runtime, and
+            // the drop behind it, for good.
+            UiEvent::Approval(asked) => {
+                self.work.control(TurnControl::Answer {
+                    id: asked.id,
+                    answer: ApprovalAnswer::Deny,
+                    feedback: None,
+                });
+                true
+            }
+            UiEvent::Question(request) => {
+                self.work
+                    .control(TurnControl::QuestionCancelled { id: request.id });
+                true
+            }
+            // The cancelled work is over. What a conclusion does to the band
+            // still happens -- the activity row is about a turn that has ended
+            // -- and nothing is written: no summary and no failure for a turn
+            // the user reset.
+            UiEvent::TurnEnded { .. } => {
+                self.tally = Tally::default();
+                self.turn_title = None;
+                self.activity.end();
+                self.pacer.finish();
+                self.gestures.turn_ended();
+                true
+            }
+            // The fence itself, the runtime's own state, and a runtime that is
+            // gone: shown as usual. A provider switch or a model change that
+            // completed before the cancellation reached it really did happen.
+            UiEvent::Fresh { .. }
+            | UiEvent::ProviderSelected { .. }
+            | UiEvent::ModelAnswered { .. }
+            | UiEvent::CatalogLoaded { .. }
+            | UiEvent::Fatal(_) => false,
+        }
     }
 
     /// The window title the session wants, when the band has not been told it
@@ -5108,6 +5500,11 @@ impl Shell {
         }
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
+        self.tail_unknown = true;
+        // And a handoff still owed -- deferred behind a question or a screen
+        // no band fits on -- was measured against the rows the terminal has
+        // just reflowed.
+        self.handoff = self.handoff.map(|_| 0);
         let Some(geometry) = self.fit(rows, cols) else {
             return Resize::TooSmall;
         };
@@ -7816,32 +8213,31 @@ mod tests {
 
     #[test]
     fn a_command_the_runtime_runs_after_a_turn_is_not_the_model_thinking() {
-        // `/new` and `/model` travel on the work channel like a prompt, so the
-        // runtime has work in hand for one -- but nothing is being answered.
-        // A session that started a clock because a turn ended with something
-        // still queued would say `Thinking` about a command it had already
-        // answered on its own thread.
-        for command in [b"/new\r".as_slice(), b"/model other\r".as_slice()] {
-            let mut shell = shell(24, 80);
-            let started = turn_running(&mut shell, b"ask something\r");
-            shell.route_bytes(command);
-            let _ = shell.document();
-            assert!(
-                shell.work.outstanding() > 1,
-                "the command did not reach the runtime, so this proves nothing"
-            );
+        // `/model` travels on the work channel like a prompt, so the runtime
+        // has work in hand for one -- but nothing is being answered. A session
+        // that started a clock because a turn ended with something still
+        // queued would say `Thinking` about a command it had already answered
+        // on its own thread. (`/new` used to travel the same way; a reset is a
+        // control message now, and takes no place in the queue.)
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.route_bytes(b"/model other\r");
+        let _ = shell.document();
+        assert!(
+            shell.work.outstanding() > 1,
+            "the command did not reach the runtime, so this proves nothing"
+        );
 
-            shell.apply(UiEvent::TurnEnded { failure: None });
-            let _ = shell.document();
-            shell.settle_band(started + Duration::from_millis(50));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.document();
+        shell.settle_band(started + Duration::from_millis(50));
 
-            let rows = shell.band_rows();
-            assert_eq!(
-                shell.geometry.activity, None,
-                "a queued command put a turn's row on the band: {rows:?}"
-            );
-            assert!(!rows.iter().any(|row| row.contains("Thinking")), "{rows:?}");
-        }
+        let rows = shell.band_rows();
+        assert_eq!(
+            shell.geometry.activity, None,
+            "a queued command put a turn's row on the band: {rows:?}"
+        );
+        assert!(!rows.iter().any(|row| row.contains("Thinking")), "{rows:?}");
     }
 
     #[test]
@@ -7849,25 +8245,21 @@ mod tests {
         // A turn that has gone quiet because a tool is taking a minute looks
         // exactly like a turn that has gone quiet, unless the band says which:
         // `Running` while the tool runs (`activity_status.zig:105-111`); which
-        // tool it is, the document's `[tool] ... running` line says.
+        // tool it is, the tool group's `└ Running ...` row says.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"ask something\r");
 
-        shell.apply(UiEvent::ToolStart {
-            call_id: "1".to_string(),
-            tool: "read_file".to_string(),
-        });
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
         shell.settle_band(started + Duration::from_millis(50));
         let rows = shell.band_rows();
         assert!(rows[0].contains("Running"), "{rows:?}");
         assert!(!rows[0].contains("Thinking"), "{rows:?}");
 
-        shell.apply(UiEvent::ToolResult {
-            call_id: "1".to_string(),
-            tool: "read_file".to_string(),
-            ok: true,
-            detail: String::new(),
-        });
+        shell.apply(tool_result("1", "read_file", true, ""));
         shell.settle_band(started + Duration::from_millis(100));
         let rows = shell.band_rows();
         assert!(rows[0].contains("Thinking"), "{rows:?}");
@@ -8046,6 +8438,80 @@ mod tests {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    /// `row` with every SGR sequence taken out.
+    fn colourless(row: &str) -> String {
+        let mut out = String::with_capacity(row.len());
+        let mut rest = row;
+        while let Some(at) = rest.find('\u{1b}') {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at..];
+            let end = super::super::pacer::colour_at(tail).unwrap_or(1);
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// How the interrupt's notice opens in the document: `⊘ turn: ` and the
+    /// sentence after it.
+    const INTERRUPTED_ROW: &str = "\u{2298} turn: interrupted";
+
+    /// A tool call starting, as the runtime announces it: with the row its
+    /// own spec gives it (`crate::tools::ToolSpec::shown`).
+    fn tool_start(id: &str, tool: &str, input: serde_json::Value) -> UiEvent {
+        let spec = crate::tools::Registry::builtin()
+            .spec(tool)
+            .expect("a tool the registry has");
+        UiEvent::ToolStart {
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            shown: spec.shown(&input),
+        }
+    }
+
+    /// A tool call finishing with nothing more to say than `ok`.
+    fn tool_result(id: &str, tool: &str, ok: bool, detail: &str) -> UiEvent {
+        tool_ended(id, tool, ok, detail, CallOutcome::Finished)
+    }
+
+    /// A tool call finishing as `outcome`.
+    fn tool_ended(id: &str, tool: &str, ok: bool, detail: &str, outcome: CallOutcome) -> UiEvent {
+        UiEvent::ToolResult {
+            call_id: id.to_string(),
+            tool: tool.to_string(),
+            ok,
+            detail: detail.to_string(),
+            outcome,
+            changes: None,
+        }
+    }
+
+    impl Fixture {
+        /// The document as a terminal holds it once everything owed has
+        /// landed, with the colours taken off.
+        ///
+        /// Not [`Self::document`], which lists every row of every append: an
+        /// open tool group is **rewritten** where it stands (`Append`'s
+        /// settled rows), so its rows appear in that list once per rewrite.
+        /// This replays the appends the way the screen takes them -- the
+        /// settled rows of each replace the last ones written -- which is the
+        /// view the group's cases are about.
+        ///
+        /// **Every** colour is taken off, not [`unpainted`]'s closed list: a
+        /// command's words are coloured by the shell highlighter inside the
+        /// row, and what these cases pin is the rows' words. The colours have
+        /// cases of their own (`super::super::toolgroup`).
+        fn written(&mut self) -> Vec<String> {
+            let mut document: Vec<String> = Vec::new();
+            for append in self.take_pending() {
+                let settled = append.rows.len() - append.scroll.min(append.rows.len());
+                document.truncate(document.len().saturating_sub(settled));
+                document.extend(append.rows.iter().map(|row| colourless(row)));
+            }
+            document
+        }
     }
 
     /// The frame that really disclosed the standing question, written and then
@@ -8760,14 +9226,16 @@ mod tests {
         assert!(before.contains("2s"), "{before:?}");
 
         // The question arrives, and the next tick of the loop is what stops the
-        // clock -- the same seam every other timed row is settled on.
+        // clock -- the same seam every other timed row is settled on. The row
+        // itself is off the band while the question is up, as upstream's is
+        // (`render_input.zig:705`): what proves the clock stopped is the
+        // number it comes back with.
         shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started + Duration::from_secs(2));
         shell.settle_band(started + Duration::from_secs(30));
         assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(before.as_str()),
-            "the clock ran while xfx was waiting for the user"
+            shell.activity_row, None,
+            "the turn's row was painted beside the question"
         );
         delivered(&mut shell);
 
@@ -9586,10 +10054,11 @@ mod tests {
         fixture.apply(UiEvent::Question(a_batch()));
         fixture.settle_band(started + Duration::from_secs(2));
         fixture.settle_band(started + Duration::from_secs(30));
+        // Off the band while the question is up (`render_input.zig:705`); the
+        // number it comes back with is the proof the clock stopped.
         assert_eq!(
-            fixture.activity_row.as_deref(),
-            Some(before.as_str()),
-            "the clock ran while xfx was waiting for the user"
+            fixture.activity_row, None,
+            "the turn's row was painted beside the question"
         );
 
         fixture.route_bytes(b"1");
@@ -9976,8 +10445,10 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, and `/help` and `/provider` the ones whose answer is in
-            // the band; every other one says something, as a notice.
+            // a row, `/help` and `/provider` the ones whose answer is in the
+            // band, and the reset's three names answer with a fresh screen and
+            // say nothing (`fx-sessions-40x120-new.txt`); every other one says
+            // something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
             } else if *name == "/provider" {
@@ -9999,6 +10470,15 @@ mod tests {
                     document.is_empty(),
                     "/help wrote to the document: {document:?}"
                 );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if ["/clear", "/new", "/reset"].contains(name) {
+                assert!(
+                    document
+                        .first()
+                        .is_some_and(|row| row.contains("Run /help for commands")),
+                    "{name} did not start a fresh screen: {document:?}"
+                );
+                assert!(shell.owes_handoff(), "{name} owed the screen nothing");
                 assert!(!shell.leaving(), "{name} ended the session");
             } else {
                 // Every other one a neutral answer: a notice, glyph first.
@@ -10433,18 +10913,49 @@ mod tests {
 
     #[test]
     fn a_notice_has_a_blank_row_above_it_unless_the_document_already_ends_on_one() {
-        // A tool row ends on its text, so the notice after it opens a blank
-        // row first; the notice's own blank row under it is the one the next
-        // notice stands on.
+        // A row that ends on its text -- the user's own amendment, read back --
+        // so the notice after it opens a blank row first; the notice's own
+        // blank row under it is the one the next notice stands on. (This case
+        // used a tool row; a tool call is a group now, which ends on a blank
+        // row of its own -- `a_notice_under_a_tool_group_shares_its_blank_row`.)
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::ToolStart {
+        shell.apply(UiEvent::ToolFeedback {
             call_id: "1".to_string(),
-            tool: "read_file".to_string(),
+            text: "keep the header".to_string(),
         });
         shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "said")));
         assert_eq!(
             shell.document(),
-            vec!["[tool] read_file running", "", "* tool: said", ""]
+            vec![
+                format!("{AMENDMENT_PREFIX} keep the header"),
+                String::new(),
+                "* tool: said".to_string(),
+                String::new()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_notice_under_a_tool_group_shares_its_blank_row() {
+        // The group ends on its blank row, so the notice's blank row above is
+        // that one -- one row between them, as between two notices.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.apply(tool_result("1", "read_file", true, ""));
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "said")));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 read",
+                "\u{2514} Read a.txt",
+                "",
+                "* tool: said",
+                "",
+            ]
         );
     }
 
@@ -10542,15 +11053,14 @@ mod tests {
 
         shell.route_bytes(b"/new\r");
         assert_eq!(shell.take_title(), Some(fallback.clone()));
-        let _ = shell.picks_up();
 
-        // A prompt that was waiting when `/new` was taken is answered in the
-        // conversation `/new` drops, so its turn titles nothing.
+        // A prompt that was waiting when `/new` was taken belongs to the
+        // conversation `/new` drops, so its turn -- if it started before the
+        // reset reached it -- titles nothing.
         let mut queued = shell_with(24, 80, PALETTE, false);
         let _ = queued.take_title();
         queued.route_bytes(b"asked before the new session\r");
         queued.route_bytes(b"/new\r");
-        let _ = queued.picks_up();
         let _ = queued.picks_up();
         queued.apply(UiEvent::TurnStarted);
         queued.apply(UiEvent::TurnEnded { failure: None });
@@ -10931,78 +11441,461 @@ mod tests {
         }
     }
 
-    #[test]
-    fn new_reaches_the_runtime_because_the_conversation_lives_there() {
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"/new\r");
-        assert_eq!(shell.picks_up(), TurnWork::New);
+    // -----------------------------------------------------------------------
+    // `/clear`, `/new` and `/reset`
+    // -----------------------------------------------------------------------
+
+    /// The three names of the one reset, as typed.
+    const RESETS: [&[u8]; 3] = [b"/clear\r", b"/new\r", b"/reset\r"];
+
+    /// What a reset leaves owed to the document: the welcome line and the
+    /// blank row under it, exactly as a session that has just started owes
+    /// them -- and nothing else, because upstream's reset writes no notice.
+    fn welcomed() -> Vec<Append> {
+        let mut fresh = shell(24, 80);
+        fresh.welcome();
+        fresh.take_pending()
     }
 
     #[test]
-    fn clear_forgets_the_rows_it_is_about_to_erase_and_owes_the_erase_itself() {
-        // Three things, and none of them is optional: the bytes, the
-        // transcript's memory of what is on the screen, and the appends already
-        // owed against a screen that is about to stop existing.
+    fn every_name_of_the_reset_reaches_the_runtime_because_the_conversation_lives_there() {
+        for command in RESETS {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(command);
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Reset { through: 0 }),
+                "{}",
+                String::from_utf8_lossy(command)
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "a reset took a place in the queue: {}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn a_reset_forgets_what_it_owed_the_old_screen_and_owes_the_handoff() {
+        // The rows the old screen was still owed and the text the pacer holds
+        // belong to a document that is about to be handed to scrollback; written
+        // after it they would land on the fresh screen under the welcome line.
+        for command in RESETS {
+            let mut shell = shell(24, 80);
+            shell.apply(UiEvent::Delta(
+                "an answer that goes to scrollback".to_string(),
+            ));
+            shell.shell.flush_paced();
+            assert!(
+                shell.shell.owes_document(),
+                "nothing was owed to begin with"
+            );
+            shell.apply(UiEvent::Delta("and one still being released".to_string()));
+
+            shell.route_bytes(command);
+            assert_eq!(
+                shell.shell.paced_backlog(),
+                0,
+                "the stream survived the screen it was measured against"
+            );
+            assert!(shell.owes_handoff(), "the screen was never handed off");
+            // No notice: upstream's reset says nothing (`fx-sessions-…-new.txt`).
+            assert_eq!(
+                shell.take_pending(),
+                welcomed(),
+                "a row owed to the old screen survived, or the reset said something"
+            );
+            // The old document's rows are still on the screen until the handoff
+            // lands, so the band is still placed under them.
+            assert_eq!(shell.document_rows(), u32::MAX);
+            assert!(shell.owes_handoff(), "asking took the handoff");
+
+            shell.handed_off();
+            assert!(!shell.owes_handoff());
+            assert_eq!(
+                shell.document_rows(),
+                0,
+                "the band was not floated back to the top of the blank screen"
+            );
+
+            // After the runtime has said the conversation is gone, the next
+            // answer opens a row of its own under the welcome line rather than
+            // continuing the line a cancelled answer left open.
+            shell.apply(UiEvent::Fresh { through: 0 });
+            shell.apply(UiEvent::Delta("the next answer".to_string()));
+            shell.shell.flush_paced();
+            assert_eq!(
+                shell.take_pending(),
+                vec![
+                    Append {
+                        scroll: 1,
+                        rows: vec!["  the next answer".to_string()]
+                    },
+                    Append {
+                        scroll: 1,
+                        rows: vec![String::new()]
+                    },
+                ],
+                "{}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn a_reset_mid_turn_cancels_the_turn_and_does_not_wait_behind_it() {
+        // Upstream cancels and applies once the worker is idle
+        // (`decideLiveSessionTransition`, `app_session_runtime.zig:137-170`);
+        // a reset queued behind the turn would let the answer finish first.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta(
-            "an answer nobody will see again".to_string(),
-        ));
-        shell.shell.flush_paced();
-        assert!(
-            shell.shell.owes_document(),
-            "nothing was owed to begin with"
-        );
-        // And a second answer still in the pacer, which is the fourth thing a
-        // clear has to forget: text released onto the blank screen afterwards
-        // would be the tail of an answer the user asked to have erased, landing
-        // under a notice that says the screen was cleared.
-        shell.apply(UiEvent::Delta("and one still being released".to_string()));
+        let _ = shell.take_title();
+        let started = turn_running(&mut shell, b"ask something\r");
+        let _turn = shell.picks_up();
+        shell.apply(UiEvent::Delta("the start of an answer".to_string()));
 
         shell.route_bytes(b"/clear\r");
         assert_eq!(
-            shell.shell.paced_backlog(),
-            0,
-            "the stream survived the screen it was measured against"
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 1 }),
+            "the running turn was not reached, or the reset reached past it"
         );
-
-        assert!(shell.take_clearing(), "the screen was never asked to clear");
         assert!(
-            !shell.take_clearing(),
-            "the clear was owed twice, so it would be written twice"
+            shell.sent.try_recv().is_err(),
+            "the reset was queued behind the turn"
         );
-        let document = shell.document();
-        // A notice at the top of a blank screen: no blank row above it -- a
-        // fresh transcript has nothing to put one under -- and its own below.
+        assert_eq!(shell.shell.notice, None, "the reset was refused");
+        // No cancelled notice and no partial answer: the welcome alone.
+        assert_eq!(shell.take_pending(), welcomed());
+        shell.settle_band(started + Duration::from_millis(50));
         assert_eq!(
-            document,
-            said(notice::Notice::neutral("screen", CLEARED_NOTICE)),
-            "a row measured against the erased screen survived the clear"
+            shell.geometry.activity, None,
+            "the activity row outlived the reset"
         );
 
-        // And the transcript's own memory: the line it had open is gone, so the
-        // next delta opens a **new** row on a blank screen -- an append that
-        // still believed the old row was up there would rewrite it in place and
-        // put the next answer on the end of one nobody can see.
-        shell.apply(UiEvent::Delta("the next answer".to_string()));
+        // A prompt typed straight away is taken -- the reset costs it no place
+        // -- and goes out past the reset's count, into the new conversation.
+        shell.route_bytes(b"straight away\r");
+        assert_eq!(
+            shell.shell.notice, None,
+            "the prompt after a reset was refused"
+        );
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("straight away".to_string())
+        );
+        // Its card is on the fresh screen, under the welcome line.
+        assert_eq!(shell.document(), card("straight away"));
+
+        // What the cancelled turn still sends belongs to the conversation the
+        // reset handed to scrollback.
+        shell.apply(UiEvent::Delta("the rest of it".to_string()));
+        shell.apply(tool_start(
+            "call_1",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.apply(UiEvent::Notice(notice::Notice::warning("tool", "a stray")));
+        shell.apply(UiEvent::Usage {
+            input: Some(9_000),
+            output: Some(40),
+        });
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: interrupted".to_string()),
+        });
+        shell.shell.flush_paced();
+        shell.settle_band(started + Duration::from_millis(100));
+        assert!(
+            shell.take_pending().is_empty(),
+            "the cancelled turn wrote onto the fresh screen"
+        );
+        assert_eq!(shell.shell.context_used, None);
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "the cancelled turn's conclusion titled the fresh session"
+        );
+        assert_eq!(shell.geometry.activity, None);
+
+        // The fence, and what follows it is the new conversation's: the turn
+        // the prompt typed straight away started.
+        shell.apply(UiEvent::Fresh { through: 1 });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("a fresh answer".to_string()));
         shell.shell.flush_paced();
         assert_eq!(
-            shell.take_pending(),
-            vec![
-                Append {
-                    scroll: 1,
-                    // The answer as it is handed over, spelled out: this case
-                    // reads the rows as they are handed over rather than
-                    // through [`Fixture::document`] -- in its two-column
-                    // gutter, with no palette colour of xfx's on it.
-                    rows: vec!["  the next answer".to_string()]
-                },
-                // and the blank row its block ends on
-                Append {
-                    scroll: 1,
-                    rows: vec![String::new()]
-                },
-            ],
-            "the first delta after a clear was written onto a row the clear erased"
+            shell.document(),
+            vec!["  a fresh answer".to_string(), String::new()]
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(
+            shell.take_title().as_deref(),
+            Some("straight away"),
+            "the first turn of the fresh session did not title it"
+        );
+    }
+
+    #[test]
+    fn clear_new_and_reset_leave_exactly_the_same_session() {
+        // One operation under three names (`app_commands.zig:667-680`): from
+        // the same session, each sends the same messages, owes the same
+        // screen and leaves the same band.
+        let after = |command: &[u8]| {
+            let mut shell = shell(24, 80);
+            let _ = shell.take_title();
+            turn_running(&mut shell, b"ask something\r");
+            let _turn = shell.picks_up();
+            shell.apply(UiEvent::Usage {
+                input: Some(1_234),
+                output: None,
+            });
+            shell.apply(UiEvent::Delta("half an answer".to_string()));
+            shell.route_bytes(command);
+            let controls: Vec<_> = std::iter::from_fn(|| shell.controlled()).collect();
+            let sent: Vec<_> = std::iter::from_fn(|| shell.sent.try_recv().ok()).collect();
+            (
+                controls,
+                sent,
+                shell.take_pending(),
+                shell.owes_handoff(),
+                shell.take_title(),
+                shell.shell.context_used,
+                shell.band_rows(),
+                shell.shell.notice,
+            )
+        };
+        let clear = after(b"/clear\r");
+        assert_eq!(after(b"/new\r"), clear, "/new is not /clear");
+        assert_eq!(after(b"/reset\r"), clear, "/reset is not /clear");
+        assert_eq!(clear.0, vec![TurnControl::Reset { through: 1 }]);
+        assert!(clear.1.is_empty(), "{:?}", clear.1);
+        assert!(clear.3, "no handoff was owed");
+    }
+
+    #[test]
+    fn a_reset_with_a_prompt_waiting_drops_it_and_is_never_refused() {
+        // A turn in flight and a prompt behind it are everything the queue
+        // holds (`super::worker::WORK_LIMIT`). The reset takes no place in it,
+        // so it is not refused the way a third prompt is, and the count it
+        // quotes covers the waiting prompt too: that prompt belonged to the
+        // conversation being dropped.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _first = shell.picks_up();
+        shell.route_bytes(b"second\r");
+        let _ = shell.document();
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 2 }),
+            "the waiting prompt was not dropped with the turn"
+        );
+        assert_eq!(
+            shell.shell.notice, None,
+            "a reset was refused like a prompt"
+        );
+        assert_eq!(shell.take_pending(), welcomed());
+    }
+
+    #[test]
+    fn a_question_the_cancelled_turn_asks_after_a_reset_is_refused_for_the_user() {
+        // The prompter parks on the control channel (`super::approval`), and
+        // the reset it would wake on may already have been consumed by the
+        // turn. Dropped silently, the question could hold the runtime -- and
+        // the fence the session is draining to -- for good.
+        let mut shell = shell(24, 80);
+        turn_running(&mut shell, b"edit the notes\r");
+        let _turn = shell.picks_up();
+        shell.route_bytes(b"/reset\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 1 }));
+
+        shell.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::Answer {
+                id: ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
+        );
+        shell.apply(UiEvent::Question(a_batch()));
+        assert_eq!(
+            shell.controlled(),
+            Some(TurnControl::QuestionCancelled { id: QuestionId(1) })
+        );
+        assert_eq!(shell.geometry.panel, 0, "a question took the band");
+        assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
+        assert_eq!(shell.take_pending(), welcomed());
+    }
+
+    #[test]
+    fn the_blank_row_a_document_ends_on_is_left_out_only_when_it_is_known() {
+        // Upstream's history ends on the turn's summary and the next welcome
+        // line follows it at once (`fx-reset-40x120-clear.full.txt`): the
+        // blank row under the summary is spacing above the footer, not part of
+        // the transcript it hands over. xfx leaves it out when its own record
+        // of the document's tail is a record of the screen -- and carries it
+        // when it is not, because erasing a row that turned out to hold text
+        // would lose it, while carrying a blank one costs a blank row.
+        let ends_blank = |shell: &mut Fixture| {
+            shell.write_transcript("a row");
+            shell.end_transcript_line();
+            shell.end_transcript_line();
+        };
+
+        let mut landed = shell(24, 80);
+        ends_blank(&mut landed);
+        let _ = landed.take_pending();
+        landed.route_bytes(b"/clear\r");
+        assert_eq!(landed.handoff_spacing(), 1);
+        // A second reset before the handoff landed has no document of its
+        // own: it hands off the first one's, spacing and all.
+        landed.route_bytes(b"/new\r");
+        assert_eq!(landed.handoff_spacing(), 1);
+
+        let mut text_last = shell(24, 80);
+        text_last.write_transcript("a row");
+        text_last.end_transcript_line();
+        let _ = text_last.take_pending();
+        text_last.route_bytes(b"/clear\r");
+        assert_eq!(text_last.handoff_spacing(), 0, "a row of text was left out");
+
+        let mut unwritten = shell(24, 80);
+        ends_blank(&mut unwritten);
+        unwritten.route_bytes(b"/clear\r");
+        assert_eq!(
+            unwritten.handoff_spacing(),
+            0,
+            "rows that never reached the screen were taken as its tail"
+        );
+
+        let mut reflowed = shell(24, 80);
+        ends_blank(&mut reflowed);
+        let _ = reflowed.take_pending();
+        assert!(matches!(reflowed.resize(30, 100), Resize::Repaint(_)));
+        reflowed.route_bytes(b"/clear\r");
+        assert_eq!(
+            reflowed.handoff_spacing(),
+            0,
+            "a tail the terminal reflowed was taken as known"
+        );
+        // The same when the reflow comes after the reset, while its handoff
+        // is still owed: the spacing was measured against rows that moved.
+        let mut deferred = shell(24, 80);
+        ends_blank(&mut deferred);
+        let _ = deferred.take_pending();
+        deferred.route_bytes(b"/clear\r");
+        assert_eq!(deferred.handoff_spacing(), 1);
+        assert!(matches!(deferred.resize(30, 100), Resize::Repaint(_)));
+        assert_eq!(
+            deferred.handoff_spacing(),
+            0,
+            "a reflow under an owed handoff kept its spacing"
+        );
+        assert!(deferred.owes_handoff(), "the reflow dropped the handoff");
+        let mut damaged = shell(24, 80);
+        ends_blank(&mut damaged);
+        let _ = damaged.take_pending();
+        damaged.route_bytes(b"/new\r");
+        damaged.external_damage();
+        assert_eq!(damaged.handoff_spacing(), 0);
+        assert!(damaged.owes_handoff());
+
+        // A handoff leaves a screen this session wrote every row of.
+        reflowed.handed_off();
+        ends_blank(&mut reflowed);
+        let _ = reflowed.take_pending();
+        reflowed.route_bytes(b"/reset\r");
+        assert_eq!(reflowed.handoff_spacing(), 1);
+    }
+
+    #[test]
+    fn a_reset_takes_an_open_tool_group_with_it() {
+        // A turn whose call is still running has its group open as the
+        // document's last block. A write that merely closes the group keeps
+        // the unsettled call to draw it again under whatever closed it
+        // (`ToolGroup::unsettled`); a reset must not, because that call's
+        // result is drained and the call would sit in the next session's
+        // first group for good.
+        for command in RESETS {
+            let mut shell = shell(24, 80);
+            turn_running(&mut shell, b"read the old notes\r");
+            let _turn = shell.picks_up();
+            shell.apply(tool_start(
+                "call_1",
+                "read_file",
+                serde_json::json!({"path": "old-notes.txt"}),
+            ));
+            assert!(
+                shell
+                    .document()
+                    .iter()
+                    .any(|row| row.contains("old-notes.txt")),
+                "the group was never open, so this proves nothing"
+            );
+
+            shell.route_bytes(command);
+            assert_eq!(
+                shell.take_pending(),
+                welcomed(),
+                "the open group's block reached the fresh screen"
+            );
+
+            // The new session's first turn, and its first call: the group is
+            // that call alone.
+            shell.apply(UiEvent::Fresh { through: 1 });
+            shell.apply(UiEvent::TurnStarted);
+            shell.apply(tool_start(
+                "call_2",
+                "read_file",
+                serde_json::json!({"path": "new-notes.txt"}),
+            ));
+            let rows = shell.document();
+            assert!(
+                rows.iter().any(|row| row.contains("new-notes.txt")),
+                "{}: {rows:?}",
+                String::from_utf8_lossy(command)
+            );
+            assert!(
+                !rows.iter().any(|row| row.contains("old-notes.txt")),
+                "{}: the old turn's call trailed into the new session: {rows:?}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_last_resets_fence_ends_the_draining() {
+        // Two resets with a prompt between them: the second drops that prompt,
+        // so its turn -- if it started before the second reset reached it --
+        // reports after the first fence and belongs to a screen the second
+        // reset handed to scrollback.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 0 }));
+        shell.route_bytes(b"in between\r");
+        let _taken = shell.picks_up();
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 1 }));
+        let _ = shell.document();
+
+        shell.apply(UiEvent::Fresh { through: 0 });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("dropped by the second reset".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        assert!(
+            shell.take_pending().is_empty(),
+            "the first fence let the dropped prompt's turn onto the screen"
+        );
+
+        shell.apply(UiEvent::Fresh { through: 1 });
+        shell.apply(UiEvent::Delta("an answer".to_string()));
+        shell.shell.flush_paced();
+        assert_eq!(
+            shell.document(),
+            vec!["  an answer".to_string(), String::new()]
         );
     }
 
@@ -11175,26 +12068,476 @@ mod tests {
     fn a_tool_that_refused_says_so_where_the_user_can_read_it() {
         // A denial nobody can see is the same as no denial at all, whatever
         // the reason for it: a rule in the configuration, a screen too small to
-        // ask on, or a `3` typed at the panel.
+        // ask on, or a `3` typed at the panel. Said as upstream's tool group
+        // says it -- a row and a count (`fx-approvals-cc-40x120-after-cc`) --
+        // and a refusal the tool made on its own as a `Failed` row with its
+        // reason.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::ToolStart {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-        });
-        shell.apply(UiEvent::ToolResult {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-            ok: false,
-            detail: "no approval channel".to_string(),
-        });
+        shell.apply(tool_start(
+            "c1",
+            "write_file",
+            serde_json::json!({"path": "c.txt", "content": "x"}),
+        ));
+        shell.apply(tool_ended(
+            "c1",
+            "write_file",
+            false,
+            "write_file was not permitted: no approval channel",
+            CallOutcome::Denied,
+        ));
+        shell.apply(tool_start(
+            "c2",
+            "read_file",
+            serde_json::json!({"path": "gone.txt"}),
+        ));
+        shell.apply(tool_result(
+            "c2",
+            "read_file",
+            false,
+            "no such path: `gone.txt`",
+        ));
 
         assert_eq!(
-            shell.document(),
+            shell.written(),
             vec![
-                "[tool] write_file running".to_string(),
-                "[tool] write_file refused: no approval channel".to_string(),
+                "\u{25cf} 2 tool calls \u{b7} 1 read \u{b7} 1 write \u{b7} 1 failed \u{b7} 1 denied"
+                    .to_string(),
+                "\u{251c} Denied file".to_string(),
+                "\u{2514} Failed gone.txt: no such path: `gone.txt`".to_string(),
+                String::new(),
             ]
         );
+    }
+
+    #[test]
+    fn a_tool_group_spans_the_turns_steps_and_is_closed_by_its_text() {
+        // Upstream's `tools-auto` shape: a sentence, calls across two steps in
+        // one group, then the answer (`fx-tools-auto-40x120-t10`). The group
+        // is not broken by the step boundary -- only by text.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Delta(
+            "I will look at the files first.\n".to_string(),
+        ));
+        shell.apply(tool_start(
+            "1",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        shell.apply(tool_result("1", "read_file", true, ""));
+        shell.apply(tool_start(
+            "2",
+            "glob_files",
+            serde_json::json!({"pattern": "**/*.rs"}),
+        ));
+        shell.apply(tool_result("2", "glob_files", true, ""));
+        shell.apply(tool_start(
+            "3",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "ls"}),
+        ));
+        shell.apply(tool_ended(
+            "3",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::Delta("All done.".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+
+        let written = shell.written();
+        assert_eq!(
+            written[..8],
+            [
+                "  I will look at the files first.",
+                "",
+                "\u{25cf} 3 tool calls \u{b7} 1 read \u{b7} 1 list \u{b7} 1 command",
+                "\u{251c} Read a.txt",
+                "\u{251c} Matched **/*.rs",
+                "\u{2514} Ran ls",
+                "",
+                "  All done.",
+            ],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_running_command_is_the_groups_last_row_until_its_result_rewrites_it() {
+        // `└ Running <command>` under the group while it runs
+        // (`fx-tools-single-40x120-s1`), and the same row -- not a new one --
+        // once it has: the block is rewritten where it stands.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running sleep 4",
+                ""
+            ]
+        );
+
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(3),
+        ));
+        let appends = shell.take_pending();
+        assert_eq!(appends.len(), 1, "{appends:?}");
+        assert_eq!(
+            appends[0].scroll, 0,
+            "the settled row was added rather than rewritten"
+        );
+        assert_eq!(
+            appends[0]
+                .rows
+                .iter()
+                .map(|row| colourless(row))
+                .collect::<Vec<_>>(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command \u{b7} 1 failed",
+                "\u{2514} Exited 3 sleep 4",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_change_has_no_row_while_its_approval_is_pending() {
+        // `fx-approvals-40x120-write-ask`: the change being reviewed is not in
+        // the group until it is decided, and then it is, with what it changed.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "a.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        assert!(shell.written().is_empty(), "a pending change was drawn");
+        shell.apply(UiEvent::ToolResult {
+            call_id: "1".to_string(),
+            tool: "edit_file".to_string(),
+            ok: true,
+            detail: "Edited a.txt".to_string(),
+            outcome: CallOutcome::Finished,
+            changes: Some(LineChanges {
+                added: 1,
+                removed: 1,
+            }),
+        });
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 edit",
+                "\u{2514} Edited a.txt +1 / -1",
+                ""
+            ]
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about() {
+        // `fx-approvals-cc-40x120-after-esc`: Esc at a question stops the
+        // turn (`app_input_runtime.zig:3139-3143`), and the call the panel was
+        // asking about never runs, so the row says `Cancelled`, the header
+        // counts it, and the call gets its own line under the group -- at the
+        // keystroke, above the sentence that answers it.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "notes.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let _ = shell.written();
+
+        // A lone Escape is a key only once nothing follows it.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
+        let written = shell.written();
+        assert_eq!(
+            written[..5],
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 edit \u{b7} 1 cancelled",
+                "\u{2514} Cancelled file",
+                "",
+                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "",
+            ],
+            "{written:#?}"
+        );
+        assert!(
+            written[5..]
+                .iter()
+                .any(|row| row.starts_with(INTERRUPTED_ROW)),
+            "{written:#?}"
+        );
+
+        // The panel answers the stop by refusing the call, and the runtime
+        // reports that refusal next: the same stop in the tool's words, about
+        // a row the screen has already settled, so it is not drawn again.
+        shell.apply(tool_ended(
+            "1",
+            "edit_file",
+            false,
+            "edit_file was not permitted: the user declined",
+            CallOutcome::Denied,
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let after = shell.written();
+        assert!(
+            !after.iter().any(|row| row.contains("Denied")),
+            "{after:#?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal() {
+        // Ctrl-C at a question refuses this call and the turn goes on
+        // (`src/ui/input/runtime.zig:61`, `3 => .deny`), so nothing is stopped
+        // at the keystroke: no `Cancelled` row and no `■` line. The refusal
+        // the runtime reports is what settles the row, as `Denied`, in the
+        // same group the turn's next call is counted in.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "notes.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        let written = shell.written();
+        assert!(
+            !written
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25a0}')),
+            "{written:#?}"
+        );
+
+        shell.apply(tool_ended(
+            "1",
+            "edit_file",
+            false,
+            "edit_file was not permitted: the user declined",
+            CallOutcome::Denied,
+        ));
+        shell.apply(tool_start(
+            "2",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo next"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 edit \u{b7} 1 command \u{b7} 1 denied",
+                "\u{251c} Denied file",
+                "\u{2514} Running echo next",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn stopping_the_turn_while_a_command_runs_leaves_its_row_to_its_result() {
+        // A running executor holds the runtime's thread until it returns, so
+        // the stop is read after the command has finished: a `Cancelled` row at
+        // the keystroke would claim a stop the command never had. The sentence
+        // that answers the key goes under the group, and the command's real
+        // result settles its row above it when it comes.
+        let mut shell = shell(24, 80);
+        let _ = turn_running(&mut shell, b"run it\r");
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+        ));
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let written = shell.written();
+        assert!(
+            !written.iter().any(|row| row.contains("Cancelled")),
+            "a stop the command never had was drawn: {written:#?}"
+        );
+        let notice = written
+            .iter()
+            .position(|row| row.starts_with(INTERRUPTED_ROW))
+            .expect("the interrupt notice");
+        assert_eq!(
+            written[notice - 3..notice],
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Ran sleep 30",
+                ""
+            ],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_call_its_turn_ended_under_is_shown_cancelled() {
+        // The runtime sends a result for every call that ran to its end; a
+        // turn that concludes without one stopped it.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "write_file",
+            serde_json::json!({"path": "c.txt", "content": "x"}),
+        ));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        let written = shell.written();
+        assert_eq!(
+            written,
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 write \u{b7} 1 cancelled",
+                "\u{2514} Cancelled file",
+                "",
+                "\u{25a0} Cancelled file \u{b7} What can xfx do differently?",
+                "",
+                "\u{2717} system: the turn was cancelled",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_written_while_a_call_runs_stays_under_the_group_its_result_updates() {
+        // One group per turn, broken by text and nothing else
+        // (`tool_presentation.zig:667-708`): a notice written while a call
+        // runs lands under the group, and the call's result settles its row
+        // above the notice rather than starting a second group under it.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "make"}),
+        ));
+        shell.apply(UiEvent::Notice(notice::Notice::neutral(
+            "",
+            "something worth saying",
+        )));
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Ran make",
+                "",
+                "* something worth saying",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn what_the_user_said_at_an_approval_does_not_split_the_group() {
+        // `fx-approvals-40x120-cmd2`: the amendment is read back under the
+        // group, and the next call of the same turn is counted in the same
+        // header and drawn above it. Text is what breaks a group.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo hi"}),
+        ));
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::ToolFeedback {
+            call_id: "1".to_string(),
+            text: "use capitals".to_string(),
+        });
+        shell.apply(tool_start(
+            "2",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo again"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Running echo again",
+                "",
+                &format!("{AMENDMENT_PREFIX} use capitals"),
+            ]
+        );
+        // And the answer closes it, under the line.
+        shell.apply(tool_ended(
+            "2",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::Delta("Done.\n\n".to_string()));
+        shell.flush_paced();
+        let written = shell.written();
+        assert_eq!(
+            written[..7],
+            [
+                "\u{25cf} 2 tool calls \u{b7} 2 commands",
+                "\u{251c} Ran echo hi",
+                "\u{2514} Ran echo again",
+                "",
+                &format!("{AMENDMENT_PREFIX} use capitals"),
+                "  Done.",
+                "",
+            ],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_question_the_model_asked_leaves_no_row_in_the_group() {
+        // `statusNamesAsk`: the question surface answers it, not a tool row.
+        let mut shell = shell(24, 80);
+        shell.apply(tool_start(
+            "q",
+            "ask_user_question",
+            serde_json::json!({"questions": []}),
+        ));
+        shell.apply(tool_result("q", "ask_user_question", true, "answered"));
+        assert!(shell.written().is_empty());
     }
 
     #[test]
@@ -11784,8 +13127,8 @@ mod tests {
             "the menu outlived the submission"
         );
         assert_eq!(
-            partial.picks_up(),
-            TurnWork::New,
+            partial.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "Enter ran the typed word instead of the marked command"
         );
         assert!(partial.editor.is_empty());
@@ -11797,8 +13140,8 @@ mod tests {
         moved.route_bytes(&[0x0d]);
         assert_eq!(moved.geometry.panel, 0);
         assert_eq!(
-            moved.picks_up(),
-            TurnWork::New,
+            moved.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "Enter did not take the row"
         );
         assert!(moved.editor.is_empty());
@@ -12306,7 +13649,7 @@ mod tests {
     fn escape_closes_the_catalog_and_its_search_without_arming_the_clear() {
         let mut shell = with_catalog(40, 120);
         shell.route_bytes(b"ses");
-        assert_eq!(menu(&shell).len(), 2 + 3, "/clear, /new and /copy");
+        assert_eq!(menu(&shell).len(), 2 + 4, "/clear, /new, /reset and /copy");
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.help_menu.is_none());
@@ -12919,7 +14262,7 @@ mod tests {
     #[test]
     fn a_new_session_clears_the_meter_it_measured_and_keeps_the_window() {
         // `/new` drops the conversation on the runtime thread
-        // (`super::worker`'s `TurnWork::New` arm), and the meter's numerator is
+        // (`super::worker`'s `drop_conversation`), and the meter's numerator is
         // a measurement **of that conversation**. Left standing it would report
         // the old conversation's tokens against the fresh one -- a number the
         // provider never said about the session on the screen, which is the one
@@ -12943,8 +14286,8 @@ mod tests {
 
         shell.route_bytes(b"/new\r");
         assert_eq!(
-            shell.picks_up(),
-            TurnWork::New,
+            shell.controlled(),
+            Some(TurnControl::Reset { through: 0 }),
             "the conversation drop never reached the thread that owns it"
         );
 
@@ -12961,49 +14304,14 @@ mod tests {
         );
         // Both halves again, and the row is a meter again -- which is what
         // proves the denominator really was kept rather than merely unread.
+        // After the runtime has said the conversation is gone: a measurement
+        // arriving before that is the old conversation's.
+        shell.shell.apply(UiEvent::Fresh { through: 0 });
         shell.shell.apply(UiEvent::Usage {
             input: Some(7),
             output: None,
         });
         assert_eq!(shell.shell.context_meter(), Some((7, 200_000)));
-    }
-
-    #[test]
-    fn a_new_session_the_runtime_refused_keeps_the_conversation_and_its_meter() {
-        // The other side of the same ordering `send` has: nothing is thrown
-        // away for a submission the runtime would not take. A refused `/new`
-        // means the conversation is still there, so its measurement is still
-        // about the session on the screen and clearing it would be a lie in the
-        // opposite direction.
-        let mut shell = shell(24, 80);
-        shell.shell.model = "fable".to_string();
-        shell.shell.apply(UiEvent::CatalogLoaded {
-            provider: ProviderId::Llmux,
-            entries: vec![entry("fable", Some(200_000), &[])],
-        });
-        shell.shell.apply(UiEvent::Usage {
-            input: Some(12_345),
-            output: None,
-        });
-
-        // Fill the queue: one in flight and one waiting is everything the
-        // session holds (`super::worker::WORK_LIMIT`).
-        shell.route_bytes(b"first\r");
-        let _first = shell.picks_up();
-        shell.route_bytes(b"second\r");
-        let _ = shell.document();
-
-        shell.route_bytes(b"/new\r");
-        assert_eq!(
-            shell.shell.notice,
-            Some(QUEUE_REJECTED),
-            "the refused /new did not say so on the hint row"
-        );
-        assert_eq!(
-            shell.shell.context_meter(),
-            Some((12_345, 200_000)),
-            "a /new the runtime refused cleared the meter of a conversation that is still there"
-        );
     }
 
     // -----------------------------------------------------------------------
@@ -13912,12 +15220,12 @@ mod tests {
         // is still holding.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"draft the plan\r");
-        shell.apply(UiEvent::ToolResult {
-            call_id: "c1".to_string(),
-            tool: "write_file".to_string(),
-            ok: true,
-            detail: "wrote plan.md".to_string(),
-        });
+        shell.apply(tool_start(
+            "c1",
+            "write_file",
+            serde_json::json!({"path": "plan.md", "content": "x"}),
+        ));
+        shell.apply(tool_result("c1", "write_file", true, "wrote plan.md"));
         shell.apply(UiEvent::ToolFeedback {
             call_id: "c1".to_string(),
             text: "keep the header comment".to_string(),
@@ -13936,7 +15244,7 @@ mod tests {
             "the sentence is not labelled as the user's: {said:?}"
         );
         assert!(
-            !said.contains("[tool] write_file ok keep the header"),
+            !said.contains("Wrote plan.md keep the header"),
             "the sentence was folded into the tool's own row: {said:?}"
         );
     }
@@ -14148,7 +15456,12 @@ mod tests {
         // gone -- but the band is only *told* when the next frame is built,
         // which is after the recolour would have been paid. So the arming
         // asks, and a report that arrives behind either owes nothing at all.
-        for damage in [b"/clear\r".to_vec(), vec![0x0c]] {
+        let ctrl_l: fn(&mut Fixture) = |shell| shell.damage_told();
+        let handed_off: fn(&mut Fixture) = |shell| shell.handed_off();
+        // A reset is the same question from the other side: the rows are
+        // still on the screen, but on their way into scrollback, which is
+        // never recoloured -- and the shadow the handoff leaves holds none.
+        for (damage, told) in [(vec![0x0c], ctrl_l), (b"/clear\r".to_vec(), handed_off)] {
             let mut shell = shell(24, 80);
             shell.route_bytes(&damage);
             shell.route_bytes(WENT_LIGHT);
@@ -14159,7 +15472,7 @@ mod tests {
             );
             // And once the band has been told, the next report is ordinary
             // again: what it would repaint is what the band really knows.
-            shell.damage_told();
+            told(&mut shell);
             shell.route_bytes(WENT_DARK);
             assert!(
                 shell.owes_retint(),

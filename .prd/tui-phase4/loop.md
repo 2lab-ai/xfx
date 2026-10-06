@@ -94,3 +94,14 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - Smoke harness ported (79c083c): one band reader from the hint row up, emulator accepts the product's text styles; 34/34 on the floating band before WU-B. Its two product findings fixed here (welcome retint, no summary under local commands).
 - WU-B merged (ede8707). Smoke row 16 reads the old menu shape and fails on the new popup — to be restated in the smoke pass after the C0/C1/F1/F2 wave, which reshapes notices, `/help` and tool rows the harness also reads.
 - `docs/parity.md` "full-screen TUI" row still says the prompt echo is not durable; true since fcc8e44/ca044a1 — fixed in the docs pass.
+
+### R5 — 2026-10-07
+
+- Merged into plan: C0, C1, C3, C4, C5, F2 (approvals); `build.rs` now follows a linked worktree's HEAD (b9c5591).
+- In flight, one unit per branch `feat/tui-phase4-<name>`: F1 `toolgroup`, C2 `reset`, F3 `question`, F4 `interrupt` (cancel line, Esc-Esc, Ctrl-C draft/exit hint, steer presentation, retry countdown row), F5 `fulltranscript`, E1 `filepicker` (`@` picker + composer keys; Shift-Tab moved to D4a), D2a `model` (menu, gateway catalog endpoint, fuzzy router form, settings persistence), D3 `provider`, D4a `permissions` (+ Shift-Tab cycle), D4b `statusline`, D4c `sound` (BEL; fx chimes are X).
+- Queued behind them: D1 `/resume` picker + replay and `/rename` (after C2), D2b `/model` inline columns + effort (after D2a), D4d `/settings` (after D4a–c), then Wave 4.
+- All D units share one settings writer API (`profile::write_preference(path, key_path, value)`), named in every brief so the merges are mechanical.
+- Merged: F1 tool group block (receipt `receipts/f1/`: 94/142 group rows byte-identical, the rest explained), C2 one reset for `/clear` `/new` `/reset` (receipt `receipts/c2/`: screens and full histories identical apart from the banner; divergences: landed rows of a cancelled answer go to scrollback, session opened lazily). Gates green at load 50 on c73c31c (lib 2050/2054, tui 90/102).
+- 79f2443: two load-fooled test waits fixed (status-row wait; thread CPU time for the markdown linear-time tests).
+- Opened T1 `fix/terminal-group-sweep`: `a_stopped_command_leaves_nothing_alive_in_its_process_group` escaped once at load 33 (pre-existing, `src/tools/terminal.rs` `stop` signals the group 3 times then only watches).
+- D1 `resume` dispatched on c73c31c.
