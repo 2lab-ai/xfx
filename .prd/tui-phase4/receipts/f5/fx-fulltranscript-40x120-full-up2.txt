@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+  2026-10-06 18:03:56.940 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 5900 bytes
+  tools: 15 advertised (read_file, glob_files, grep_files, edit_file, write_file, shell, subagent, capability_search, +7
+  more)
+  skills: loading
+  mcp: none
+
+  2026-10-06 18:03:59.177 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 27ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:03:59.210 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 21ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:04:02.644 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 67ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:04:05.551 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 223ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:04:06.081 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 379ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:03:59.135 UTC · Prompt
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

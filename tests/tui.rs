@@ -3602,7 +3602,7 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/setup`'s usage refusal, `/stats`'s first counter, `/status`'s turn
+    // `/provider`'s column, `/stats`'s first counter, `/status`'s turn
     // count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
     // (which say nothing), and a name the registry does not carry. Each needle
     // sits inside one run of colour: a notice's label and body are separate
@@ -3634,10 +3634,14 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // a lone ESC being the Escape key only after 50 ms of quiet.
     session.type_bytes(&[0x1b]);
     on_screen(&session, (24, 80), &["glm-5.2"], &["tab provider"]);
-    // Bare, so it refuses without switching anything -- which still proves the
-    // name is answered by the session, and still costs the provider nothing.
-    session.type_bytes(b"/setup\r");
-    session.wait_for("/setup takes a provider to set up");
+    // Bare, so it opens the provider column without switching anything --
+    // which still proves the name is answered by the session, and still costs
+    // the provider nothing. The column's second row is the needle: no answer
+    // before it names llmux. C-u then empties the reseeded `/provider `, which
+    // closes the column, so the next name is typed into an empty composer.
+    session.type_bytes(b"/provider\r");
+    session.wait_for("llmux");
+    session.type_bytes(b"\x15");
     session.type_bytes(b"/stats\r");
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
@@ -4748,6 +4752,86 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
         last_leave < restore,
         "the exit left the alternate screen after restoring the terminal: {settled:?}"
     );
+    drop(gateway);
+}
+
+/// The full transcript's footer (`src/tui/full_transcript.rs`, upstream's
+/// `paint_plan.zig:1003`).
+const FULL_FOOTER: &str = "full detail \u{b7} ctrl+o close";
+
+#[test]
+fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft() {
+    // Upstream's contract, on a real terminal: the full transcript is a screen
+    // of its own (`1049h`), it shows what the inline transcript never does --
+    // here the lines a read returned -- and closing it hands back the band the
+    // session had, the draft in it untouched (`tui-full-transcript-brutal.test.ts`,
+    // `DRAFT`).
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    const ONLY_IN_FULL: &str = "a-line-only-the-full-transcript-shows";
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    std::fs::write(
+        sandbox.workspace.join("notes.txt"),
+        format!("{ONLY_IN_FULL}\n"),
+    )
+    .expect("write the fixture");
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "read_file",
+                serde_json::json!({ "path": "notes.txt" }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(content_only(&["the read is done"])),
+    ]);
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"read the notes\r");
+    session.wait_for("the read is done");
+    assert!(
+        !session.text().contains(ONLY_IN_FULL),
+        "the inline transcript showed what a tool returned"
+    );
+    session.type_bytes(b"keep me");
+    session.wait_for("keep me");
+
+    session.type_bytes(&[0x0f]);
+    let text = session.wait_until("one complete frame of the full transcript", |text| {
+        text.contains(ENTERS_ALTERNATE)
+            && last_frame(text)
+                .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains(ONLY_IN_FULL))
+    });
+    let frame = last_frame(&text).expect("the wait returns on a complete frame");
+    assert!(
+        frame.contains("Read notes.txt"),
+        "the call's row: {frame:?}"
+    );
+    assert!(
+        frame.contains(" UTC \u{b7} Tool"),
+        "the call's header: {frame:?}"
+    );
+
+    // Escape closes it, and the band comes back with the draft in it.
+    session.type_bytes(&[0x1b]);
+    session.wait_until(
+        "the band back on the primary plane with its draft",
+        |text| {
+            text.rfind(LEAVES_ALTERNATE).is_some_and(|leave| {
+                let after = &text[leave..];
+                after.contains(FRAME_END) && after.contains("keep me")
+            })
+        },
+    );
+
+    session.type_bytes(&[0x15, 0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let settled = session.settled_text();
+    assert_eq!(settled.matches(ENTERS_ALTERNATE).count(), 1, "{settled:?}");
+    assert_eq!(settled.matches(LEAVES_ALTERNATE).count(), 1, "{settled:?}");
     drop(gateway);
 }
 
@@ -6543,10 +6627,11 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
     );
 
     session.type_bytes(b"/setup llmux\r");
-    // The line the switch is *finished* on (`* provider: llmux model=…`): it is
-    // sent after the file was written and the configuration re-read from it,
-    // so waiting for it is waiting for the reload rather than for the write.
-    session.wait_for("llmux model=");
+    // The line the switch is *finished* on (`* provider: Switched to llmux
+    // with …`): it is sent after the file was written and the configuration
+    // re-read from it, so waiting for it is waiting for the reload rather than
+    // for the write.
+    session.wait_for("Switched to llmux with");
 
     // The file, read rather than believed. A band that said `llmux`
     // over a profile that still said gateway would be the exact failure the
@@ -6649,6 +6734,17 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
     session.wait_for("Switched to plain-model (effort: default, speed: normal)");
+    // Choosing the provider already in force is no switch: upstream's
+    // `Already using …` (`app_auth_runtime.zig:1159-1167`), and the profile is
+    // not rewritten -- byte for byte -- nor the model the session holds reset.
+    let before = std::fs::read(sandbox.settings_path()).expect("a profile");
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Already using llmux.");
+    assert_eq!(
+        std::fs::read(sandbox.settings_path()).expect("a profile"),
+        before,
+        "choosing the current provider rewrote the profile"
+    );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
@@ -6676,11 +6772,13 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     // The restart, with a layer above the profile in force. `XFX_MODEL`
     // outranks the file, so the report has to *say so* -- a setup that wrote a
     // model the environment overrides and reported success would be a receipt
-    // for a change with no effect.
+    // for a change with no effect. It starts on the Gateway, so `/setup llmux`
+    // is a real switch rather than the no-op choosing the current provider is.
+    let unasked = FakeGateway::start(Vec::new());
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut restarted = Session::spawn_without_taking_the_terminal(&pty, {
-        let mut command = sandbox.command_with_llmux(&daemon);
+        let mut command = sandbox.command_with_both(&unasked, &daemon);
         command.env("XFX_TUI", "1");
         command.env("XFX_MODEL", "fable");
         command.env_remove("TMUX");
@@ -6692,7 +6790,7 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     // qualification of this switch rather than as news about the next thing.
     restarted.wait_for("XFX_MODEL");
     restarted.wait_for("outranks the profile");
-    restarted.wait_for("llmux model=");
+    restarted.wait_for("Switched to llmux with");
     restarted.type_bytes(&[0x04]);
     assert_eq!(restarted.wait_exit().code(), Some(0));
 

@@ -1,0 +1,26 @@
+x𝒇x v0.1.0-26bc0df [debug] · Run /help for commands
+
+┃ run the checks
+
+  Reading first.
+
+● 4 tool calls · 2 read · 1 edit · 1 command · 2 failed
+├ Read a.txt
+├ Exited 3 echo boom; echo err >&2; exit 3
+├ Edited a.txt +1 / -1
+└ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
+
+  All done.
+
+  6s (↑4 ↓40)
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+

@@ -1,0 +1,24 @@
+  tokens: 1200 in · 40 out
+
+  2026-10-06 18:10:29.796 UTC · Prompt
+┃ run the checks
+
+  2026-10-06 18:10:29.823 UTC · Response
+  Reading first.
+
+  2026-10-06 18:10:29.823 UTC · Tool
+● 4 tool calls · 2 read · 1 edit · 1 command · 2 failed
+├ Read a.txt
+│  1    alpha line 1
+│  2    alpha line 2
+│  3    alpha line 3
+
+  2026-10-06 18:10:29.846 UTC · Tool
+├ Exited 3 echo boom; echo err >&2; exit 3
+│  action: run
+│  yield_time_ms: 30000
+│ boom
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a
