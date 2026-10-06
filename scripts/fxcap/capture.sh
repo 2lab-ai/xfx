@@ -96,7 +96,10 @@ main() {
   root=$(cd "$here/../.." && pwd)
   out=${4:-$root/.prd/tui-phase4/receipts/cap}
   local rows=${size%x*} cols=${size#*x}
-  local file=$here/scenarios/$scenario.cap
+  # FXCAP_SCENARIOS points at another scenario directory (research keeps its
+  # scenarios out of the repo); the default is the one beside this script.
+  local scenarios=${FXCAP_SCENARIOS:-$here/scenarios}
+  local file=$scenarios/$scenario.cap
   [[ -f $file ]] || { echo "no scenario $file" >&2; exit 2; }
   mkdir -p "$out"
 
@@ -114,14 +117,14 @@ main() {
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
-    [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
+    [[ $line == gateway\ * ]] && turns=$(cat "$scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     # Owner-only, as each product keeps its own profile: xfx refuses to read
     # a profile directory anyone else can reach.
-    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$here/scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
-    [[ $line == models\ * ]] && models=$here/scenarios/${line#models }
+    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
+    [[ $line == models\ * ]] && models=$scenarios/${line#models }
     [[ $line == nomodel ]] && nomodel=1
-    [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
+    [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
