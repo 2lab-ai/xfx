@@ -15,6 +15,8 @@
 #   env K=V                extra environment for the binary
 #   seed <settings.json>   copied to ~/.fx/settings.json before launch
 #   work <dir>             copied into the workspace before launch
+#   githead <branch>       makes the workspace a checkout on <branch>: a
+#                          `.git/HEAD` naming it, and nothing else
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           bracketed paste (printf %b escapes)
@@ -31,6 +33,9 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
+#   home <label>           every settings file under the run's HOME -- each
+#                          binary's own profile and fx's backups of it -- to
+#                          <bin>-<scenario>-<size>-<label>.home
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` is xfx's
@@ -79,6 +84,7 @@ main() {
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     [[ $line == seed\ * ]] && { mkdir -p "$run/home/.fx"; cp "$here/scenarios/${line#seed }" "$run/home/.fx/settings.json"; }
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
+    [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -133,7 +139,7 @@ XFX_MODEL=fake/model-a $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work) ;;
+      ''|'#'*|gateway|env|seed|work|githead) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -167,6 +173,11 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         else
           echo "clip $rest: nothing was copied"
         fi
+        ;;
+      home)
+        local name=$out/$which-$scenario-$size-$rest.home
+        (cd "$run/home" && find . -type f \( -name settings.json -o -path '*/backups/*' \) | sort | while IFS= read -r f; do echo "== $f"; cat "$f"; echo; done) > "$name"
+        echo "$name"
         ;;
       clipfail)
         case $rest in

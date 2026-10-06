@@ -57,6 +57,9 @@ pub const PROVIDER_KEY: &str = "provider";
 pub const MODELS_KEY: &str = "models";
 /// The v0.1.0 key that selected a backend, still read and still written.
 pub const BACKEND_KEY: &str = "backend";
+/// The settings object holding which of the footer's optional segments are
+/// shown, upstream's spelling (`config_runtime.zig:1807-1826`, `c1db919`).
+pub const STATUS_LINE_KEY: &str = "statusLine";
 
 /// The environment override for the model.
 ///
@@ -93,8 +96,88 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "models",
     "permission_mode",
     "provider",
+    STATUS_LINE_KEY,
     "workspaces",
 ];
+
+/// Which of the footer's three optional segments are shown
+/// (`statusLine.{context,session,workspace}`).
+///
+/// **All three off unless a profile turns one on**, as upstream's are
+/// (`settings_catalog.zig:58-60`, `c1db919`): the session title, the context
+/// meter and the workspace path are things a user asks the footer for, not
+/// things it says by default. Profile-only ([`PROFILE_ONLY_KEYS`]), because
+/// what a person's footer shows is theirs and not a repository's to choose --
+/// upstream lists `statusLine` there too (`config_runtime.zig:853`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StatusLine {
+    /// How much of the context window the conversation has spent.
+    pub context: bool,
+    /// The session's title.
+    pub session: bool,
+    /// The workspace's path and its Git branch.
+    pub workspace: bool,
+}
+
+impl StatusLine {
+    /// Whether `item` is on.
+    pub fn get(self, item: StatusLineItem) -> bool {
+        match item {
+            StatusLineItem::Context => self.context,
+            StatusLineItem::Session => self.session,
+            StatusLineItem::Workspace => self.workspace,
+        }
+    }
+
+    /// Turns `item` on or off.
+    pub fn set(&mut self, item: StatusLineItem, on: bool) {
+        match item {
+            StatusLineItem::Context => self.context = on,
+            StatusLineItem::Session => self.session = on,
+            StatusLineItem::Workspace => self.workspace = on,
+        }
+    }
+}
+
+/// One of the footer's optional segments, by the name `/statusline` takes and
+/// the profile keeps it under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusLineItem {
+    Context,
+    Session,
+    Workspace,
+}
+
+impl StatusLineItem {
+    /// Every item, in upstream's order (`settings_catalog.zig:118-134`).
+    pub const ALL: [Self; 3] = [Self::Context, Self::Session, Self::Workspace];
+
+    /// The word `/statusline` takes, the notice says and the key is spelled
+    /// with (`@tagName(item)`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Context => "context",
+            Self::Session => "session",
+            Self::Workspace => "workspace",
+        }
+    }
+
+    /// The item an argument names, or `None`.
+    ///
+    /// **Exact and case-sensitive** once spaces and tabs are off its ends, as
+    /// upstream's is (`parseStatuslineItem`, `app_commands.zig:3863-3869`) --
+    /// unlike `/settings` and `/allowlist`, which fold case. `Context` and
+    /// `context please` are both a usage error.
+    pub fn parse(argument: &str) -> Option<Self> {
+        let word = argument.trim_matches([' ', '\t']);
+        Self::ALL.into_iter().find(|item| item.name() == word)
+    }
+
+    /// Where the profile keeps it: `statusLine.<name>`.
+    pub fn key_path(self) -> [&'static str; 2] {
+        [STATUS_LINE_KEY, self.name()]
+    }
+}
 
 /// How much authority the agent has before it must ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -530,6 +613,8 @@ pub struct RuntimeConfig {
     /// Model preferences by provider tag, as merged. Exposed so a writer can preserve the
     /// entries for providers this invocation is not using.
     pub models: BTreeMap<String, String>,
+    /// Which of the footer's optional segments the profile turned on.
+    pub statusline: StatusLine,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
@@ -826,6 +911,11 @@ impl RuntimeConfig {
             provider_rejected,
             llmux_url: settings.llmux_url,
             models: settings.models,
+            statusline: StatusLine {
+                context: settings.statusline_context.unwrap_or(false),
+                session: settings.statusline_session.unwrap_or(false),
+                workspace: settings.statusline_workspace.unwrap_or(false),
+            },
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -871,6 +961,11 @@ struct Settings {
     llmux_url: Option<String>,
     /// This layer wrote an `llmux_url` the endpoint policy refused.
     llmux_url_rejected: bool,
+    /// `statusLine.context`, `.session` and `.workspace`, each merged on its
+    /// own: a layer that sets one says nothing about the other two.
+    statusline_context: Option<bool>,
+    statusline_session: Option<bool>,
+    statusline_workspace: Option<bool>,
 }
 
 impl Settings {
@@ -882,6 +977,18 @@ impl Settings {
         if let Some(model) = incoming.model {
             self.model = Some(model);
             sources.model = source;
+        }
+        // Per item, as upstream merges them (`config_runtime.zig:1999-2001`).
+        // No provenance is kept: nothing reports which layer turned a segment
+        // on, and nothing decides anything by it.
+        if let Some(on) = incoming.statusline_context {
+            self.statusline_context = Some(on);
+        }
+        if let Some(on) = incoming.statusline_session {
+            self.statusline_session = Some(on);
+        }
+        if let Some(on) = incoming.statusline_workspace {
+            self.statusline_workspace = Some(on);
         }
         if let Some(mode) = incoming.permission_mode {
             self.permission_mode = Some(mode);
@@ -987,6 +1094,9 @@ fn parse_layer(
                 )),
             }
         }
+        if let Some(value) = object.get(STATUS_LINE_KEY) {
+            parse_statusline(value, layer, &mut settings, diagnostics);
+        }
         if let Some(value) = object.get("backend") {
             match value.as_str().and_then(ProviderId::parse) {
                 Some(backend) => settings.backend = Some(backend),
@@ -1080,6 +1190,48 @@ fn parse_layer(
     }
 
     settings
+}
+
+/// Reads one layer's `statusLine` object into `settings`.
+///
+/// Upstream's reading (`config_runtime.zig:1807-1826`): the value is an object,
+/// each of the three items in it is a `bool`, and a key inside it that names no
+/// item -- upstream's own retired `sandbox`, say -- is left alone rather than
+/// reported, because a profile a newer build wrote is not malformed. A value of
+/// the wrong type is a diagnostic naming the item, and the item keeps whatever
+/// an earlier layer said: a typo must not turn a segment the user can see into
+/// one they cannot.
+fn parse_statusline(
+    value: &Value,
+    layer: ConfigLayer,
+    settings: &mut Settings,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(items) = value.as_object() else {
+        diagnostics.push(Diagnostic::with_key(
+            layer,
+            DiagnosticCause::InvalidValue,
+            STATUS_LINE_KEY,
+        ));
+        return;
+    };
+    for (item, slot) in [
+        ("context", &mut settings.statusline_context),
+        ("session", &mut settings.statusline_session),
+        ("workspace", &mut settings.statusline_workspace),
+    ] {
+        let Some(on) = items.get(item) else {
+            continue;
+        };
+        match on.as_bool() {
+            Some(on) => *slot = Some(on),
+            None => diagnostics.push(Diagnostic::with_key(
+                layer,
+                DiagnosticCause::InvalidValue,
+                &format!("{STATUS_LINE_KEY}.{item}"),
+            )),
+        }
+    }
 }
 
 fn parse_environment(env: &Environment, diagnostics: &mut Vec<Diagnostic>) -> Settings {
@@ -1329,6 +1481,9 @@ mod tests {
             models_sources: BTreeMap::new(),
             llmux_url: Some("http://127.0.0.1:3456".to_string()),
             llmux_url_rejected: false,
+            statusline_context: Some(true),
+            statusline_session: None,
+            statusline_workspace: None,
         };
         let mut sources = Sources::default();
         settings.merge(
@@ -1348,6 +1503,7 @@ mod tests {
             Some("http://127.0.0.1:3456"),
             "a layer that says nothing about the backend leaves its url alone"
         );
+        assert_eq!(settings.statusline_context, Some(true));
         assert_eq!(sources.max_agent_steps, SettingSource::UserGlobal);
         assert_eq!(sources.model, SettingSource::CompiledDefault);
         assert_eq!(sources.provider, SettingSource::CompiledDefault);
@@ -1560,5 +1716,143 @@ mod tests {
         );
         assert_eq!(diagnostic.ignored_setting_key(), Some("model"));
         assert!(!diagnostic.is_too_large());
+    }
+
+    /// A configuration loaded from `home` with `profile` as its settings file,
+    /// for a workspace beside it.
+    fn loaded_with_profile(profile: &str) -> (tempfile::TempDir, RuntimeConfig) {
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        let config =
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load");
+        (root, config)
+    }
+
+    #[test]
+    fn every_statusline_segment_is_off_unless_the_profile_turns_it_on() {
+        // `settings_catalog.zig:58-60`: all three default to off, upstream's
+        // choice and therefore this one's.
+        let (_root, config) = loaded_with_profile("{}");
+        assert_eq!(config.statusline, StatusLine::default());
+        assert_eq!(
+            StatusLine::default(),
+            StatusLine {
+                context: false,
+                session: false,
+                workspace: false
+            }
+        );
+
+        let (_root, config) = loaded_with_profile(
+            r#"{"statusLine":{"session":false,"context":true,"workspace":true}}"#,
+        );
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: true,
+                session: false,
+                workspace: true
+            }
+        );
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_statusline_item_of_the_wrong_type_is_reported_and_an_unknown_one_is_left_alone() {
+        // Upstream's own retired `sandbox` item is in profiles it wrote
+        // (`tui-slash-menu.test.ts:1777`), and it is not a mistake.
+        let (_root, config) =
+            loaded_with_profile(r#"{"statusLine":{"sandbox":false,"context":1,"session":true}}"#);
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: false,
+                session: true,
+                workspace: false
+            }
+        );
+        assert_eq!(
+            config.diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::User,
+                DiagnosticCause::InvalidValue,
+                "statusLine.context"
+            )]
+        );
+
+        let (_root, config) = loaded_with_profile(r#"{"statusLine":7}"#);
+        assert_eq!(config.statusline, StatusLine::default());
+        assert_eq!(
+            config.diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::User,
+                DiagnosticCause::InvalidValue,
+                "statusLine"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_workspace_entry_overrides_one_statusline_item_and_leaves_the_others() {
+        // Merged per item, the way `permission_mode` is read: the exact
+        // workspace entry outranks the global object, key by key.
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let profile = serde_json::json!({
+            "statusLine": {"context": true, "session": true},
+            "workspaces": {canonical.to_string_lossy(): {"statusLine": {"session": false}}}
+        });
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile.to_string(),
+        )
+        .expect("a profile");
+        let config =
+            RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+                .expect("load");
+        assert_eq!(
+            config.statusline,
+            StatusLine {
+                context: true,
+                session: false,
+                workspace: false
+            }
+        );
+    }
+
+    #[test]
+    fn a_project_file_cannot_choose_what_a_users_footer_shows() {
+        let object = serde_json::from_str::<Value>(r#"{"statusLine":{"context":true}}"#).unwrap();
+        let object = object.as_object().unwrap();
+        let mut diagnostics = Vec::new();
+        report_ignored_profile_keys(object, &mut diagnostics);
+        let settings = parse_layer(
+            object,
+            LayerKind::Project,
+            ConfigLayer::Project,
+            &mut diagnostics,
+        );
+        assert_eq!(settings.statusline_context, None);
+        assert_eq!(
+            diagnostics,
+            vec![Diagnostic::with_key(
+                ConfigLayer::Project,
+                DiagnosticCause::IgnoredProjectProfileSetting,
+                "statusLine"
+            )]
+        );
     }
 }

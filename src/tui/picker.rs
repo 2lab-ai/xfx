@@ -828,7 +828,15 @@ mod tests {
         // Deterministic within a rank: registry order, which is `/help`'s.
         assert_eq!(
             labels(&live)[1..],
-            ["/help", "/clear", "/new", "/setup", "/model", "/version"]
+            [
+                "/help",
+                "/clear",
+                "/new",
+                "/setup",
+                "/model",
+                "/statusline",
+                "/version"
+            ]
         );
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//").is_none());
