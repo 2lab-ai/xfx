@@ -521,14 +521,29 @@ pub(crate) mod fake {
             .expect("write a fake osascript");
             std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
                 .expect("make it executable");
+            // Run once now: macOS assesses an executable the first time it
+            // runs, which took 0.5 to 2.4 s for a fresh script on an idle
+            // machine and more under the suite's load -- past a file copy's
+            // deadline, which would fail a case about something else.
+            std::process::Command::new(&osascript)
+                .arg("warm-up")
+                .status()
+                .expect("run the fake osascript once");
+            std::fs::remove_file(dir.path().join("copied-file")).expect("forget the warm-up");
             Self { dir }
         }
 
         /// The clipboard that finds this tool: its directory, then `/bin` for
         /// the `sh` and `cat` it runs -- and not `/usr/bin`, where macOS keeps
         /// the real `pbcopy`.
+        ///
+        /// A file copy gets a minute rather than five seconds: a deadline is
+        /// what a case about the deadline sets ([`Clipboard::waiting`]), and
+        /// every other case is about what the copy did, not how fast a loaded
+        /// machine ran it.
         pub(crate) fn clipboard(&self) -> Clipboard {
             Clipboard::searching(format!("{}:/bin", self.dir.path().display()))
+                .waiting(std::time::Duration::from_secs(60))
         }
 
         /// What the tool was last fed, or `None` when it has kept nothing.
