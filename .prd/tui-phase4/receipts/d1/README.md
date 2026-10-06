@@ -25,8 +25,10 @@ so what the first launch left on the screen is not above the second one in
 either binary's `relaunched`/`resumed` snaps; the history keeps the rows that
 had scrolled off before it.
 
-The xfx binary is `target/debug/xfx`, built from this branch's working tree; its
-banner shows `c73c31c`, the base. Sanitized: no scratch path appears in any
+The xfx binary is `target/debug/xfx`, built at `1482ec6` -- this branch with
+`plan/tui-phase4` (`e50a8f0`) merged into it -- and its banner shows that
+revision. The receipt was first taken on the branch before the merge; retaken
+here, every comparison below came out the same. Sanitized: no scratch path appears in any
 capture; the host name tmux restores as the window title after xfx's exit is
 written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 (`capture-pane -e`), not the programs' wire bytes.
@@ -34,7 +36,7 @@ written `<host>`. `.ansi` files are tmux's re-serialization of cell attributes
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
-row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-c73c31c
+row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-1482ec6
 [debug]`). Where row 1 is the resume notice the whole `.ansi` file is
 identical.
 
@@ -100,6 +102,13 @@ identical.
   not saved (…)`: `src/tui/worker.rs`
   `a_rename_the_store_refuses_says_why_and_the_session_keeps_its_old_title` and
   `src/tui/shell.rs` `rename_refuses_in_upstreams_words_and_titles_the_window_at_once`.
+- **Ctrl-O after a resume** shows the replayed session, because the replay is
+  written through the writes the full transcript records
+  (`src/tui/shell.rs`
+  `ctrl_o_after_a_resume_shows_the_replayed_session_and_not_the_one_it_replaced`).
+  A replayed call's expanded detail -- its arguments, a command's output --
+  is not there yet: the live screen gets it teed from the turn's journal
+  (`UiEvent::ToolDetail`), and the replay sends none.
 - **`title must be printable text`** cannot be typed through tmux's `send-keys
   -l` (a control byte is a key to the composer, not text); the shell case
   above drives it through the handler.
