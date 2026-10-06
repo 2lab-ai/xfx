@@ -1609,6 +1609,14 @@ impl Band {
     /// its own rows under the document, and scrolling those would put the
     /// erased band into history as blank rows.
     ///
+    /// `spacing` is how many of the rows the document ends on are blank, as
+    /// the shell knows them, and they are not carried either. Upstream hands
+    /// over the transcript's last *occupied* row (`anchor.occupied_last_row`,
+    /// `transcript/runtime.zig:4853-4875`): the blank row a turn's summary or
+    /// a notice leaves under itself is spacing above the footer, not history,
+    /// and carried it would sit between the last answer and the next welcome
+    /// line in scrollback. Erased with the band instead.
+    ///
     /// The erase runs from the row under the document to the bottom of the
     /// screen -- the band's rows, the activity row with them, and whatever is
     /// below a band that floated -- **before** anything scrolls, so no band row
@@ -1625,6 +1633,7 @@ impl Band {
         &mut self,
         out: &mut impl Sink,
         reach: u32,
+        spacing: u16,
         geometry: &Geometry,
     ) -> Result<(), Emit> {
         let rows = geometry.rows;
@@ -1633,10 +1642,14 @@ impl Band {
         let above_band = self.painted.map_or(rows, |top| {
             top.min(rows.saturating_add(1)).saturating_sub(1)
         });
+        // Less the blank rows the document ends on, which are the last ones
+        // above the band whether it floats under the document or sits under a
+        // full screen of it.
         let carried = u16::try_from(reach)
             .unwrap_or(u16::MAX)
             .min(above_band)
-            .min(rows);
+            .min(rows)
+            .saturating_sub(spacing);
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
@@ -5661,7 +5674,7 @@ mod tests {
         assert_eq!(band.painted_top(), Some(22));
         screen.written.clear();
 
-        band.hand_off(&mut screen, u32::MAX, &geometry())
+        band.hand_off(&mut screen, u32::MAX, 0, &geometry())
             .expect("the handoff");
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
@@ -5700,7 +5713,7 @@ mod tests {
             .expect("a floating band");
         screen.written.clear();
 
-        band.hand_off(&mut screen, 5, &floated)
+        band.hand_off(&mut screen, 5, 0, &floated)
             .expect("the handoff");
         assert_eq!(
             String::from_utf8(screen.written).expect("utf-8"),
@@ -5729,7 +5742,7 @@ mod tests {
             let writes = screen.writes;
             band.tamper_with(tamper);
             let refused = band
-                .hand_off(&mut screen, u32::MAX, &geometry())
+                .hand_off(&mut screen, u32::MAX, 0, &geometry())
                 .expect_err("a tampered handoff");
             assert!(
                 refused.to_string().contains(named),

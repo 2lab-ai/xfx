@@ -684,13 +684,24 @@ pub(crate) struct Shell {
     /// cannot disagree.
     activity_row: Option<String>,
     /// Whether the screen owes a reset's scrollback handoff
-    /// (`super::frame::Band::hand_off`).
+    /// (`super::frame::Band::hand_off`), and how many blank rows the document
+    /// it hands off ends on.
     ///
     /// Asked by the loop, which owns the writer, and settled only by a handoff
-    /// that landed ([`Self::handed_off`]). A `bool` rather than a queued write
-    /// because two resets before one tick are one handoff: the second has no
-    /// document of its own to hand off.
-    handoff: bool,
+    /// that landed ([`Self::handed_off`]). One value rather than a queue of
+    /// writes because two resets before one tick are one handoff: the second
+    /// has no document of its own to hand off.
+    handoff: Option<u16>,
+    /// Whether the rows above the band may no longer end the way the
+    /// transcript's own record of its tail says ([`Transcript::ends_blank`]).
+    ///
+    /// Raised by a resize, after which the terminal has reflowed them, and by
+    /// anything else that damaged the screen from outside -- a resume after
+    /// somebody else had the terminal above all. Cleared only by a handoff,
+    /// which leaves a screen this session wrote every row of. While it is up a
+    /// reset carries the blank row a document ends on into scrollback rather
+    /// than guess that it is there ([`Self::handoff`]).
+    tail_unknown: bool,
     /// Whether the work a reset cancelled is still reporting: the count the
     /// last reset quoted, until the runtime's fence for it arrives.
     ///
@@ -1026,7 +1037,8 @@ impl Shell {
             dismissed: Dismissed::default(),
             help_menu: None,
             activity_row: None,
-            handoff: false,
+            handoff: None,
+            tail_unknown: false,
             draining: None,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
                 markdown::theme::builtin(palette.mode == Mode::Light),
@@ -3188,7 +3200,7 @@ impl Shell {
         let theme = markdown::theme::builtin(mode == Mode::Light);
         self.markdown.apply_theme(&theme);
         self.markdown.activate_theme(theme);
-        if !self.damage_untold && !self.handoff {
+        if !self.damage_untold && self.handoff.is_none() {
             self.retint_debt = true;
         }
         self.render.request(Reason::Footer);
@@ -3231,6 +3243,7 @@ impl Shell {
     /// that matters most: a resume, where the terminal has been somebody
     /// else's in between (`super::event_loop`'s `adopt_resume`).
     pub(crate) fn external_damage(&mut self) {
+        self.tail_unknown = true;
         self.render.request(Reason::ExternalDamage);
         self.retint_debt = false;
         self.damage_untold = true;
@@ -3281,7 +3294,14 @@ impl Shell {
     /// ([`Self::handed_off`]), so a write the terminal refused leaves it owed
     /// without a second call that would have to remember to put it back.
     pub(crate) fn owes_handoff(&self) -> bool {
-        self.handoff
+        self.handoff.is_some()
+    }
+
+    /// How many of the rows the handed-off document ends on are blank -- the
+    /// spacing under its last summary or notice, which upstream does not carry
+    /// into scrollback (`super::frame::Band::hand_off`).
+    pub(crate) fn handoff_spacing(&self) -> u16 {
+        self.handoff.unwrap_or(0)
     }
 
     /// Records that the handoff landed: the screen is blank, the document has
@@ -3295,7 +3315,8 @@ impl Shell {
     /// be painted over them, and the handoff would then erase what it was
     /// supposed to carry into scrollback.
     pub(crate) fn handed_off(&mut self) {
-        self.handoff = false;
+        self.handoff = None;
+        self.tail_unknown = false;
         self.document_rows = 0;
         self.refloat();
         // Every row of the band is gone from the screen with the document, so
@@ -4354,11 +4375,11 @@ impl Shell {
         self.activity.end();
         self.gestures.turn_ended();
         self.context_used = None;
-        // The old screen's debts: the rows not yet written, the text the pacer
-        // holds, the lines placed behind it, and the answer block a cancelled
-        // turn left open. The stream is declared arrived, so nothing later is
-        // held behind a position no emission will reach.
-        self.transcript = Transcript::new(self.geometry.cols);
+        // The old screen's debts: the text the pacer holds, the lines placed
+        // behind it, the answer block a cancelled turn left open, and -- once
+        // its tail has been read below -- the rows not yet written. The stream
+        // is declared arrived, so nothing later is held behind a position no
+        // emission will reach.
         self.pacer.forget();
         self.marks.clear();
         self.emitted = self.enqueued;
@@ -4367,7 +4388,17 @@ impl Shell {
         // A recolour owed against the old rows is owed against rows on their
         // way into scrollback, which is never recoloured ([`Self::retint`]).
         self.retint_debt = false;
-        self.handoff = true;
+        // The blank row the document ends on, when this session can say so:
+        // everything it wrote has landed, so the transcript's own record of
+        // its tail is a record of the screen, and no resize has left the rows
+        // above the band to the terminal's reflow. Otherwise none is left out,
+        // and the worst that costs is a blank row in history. A second reset
+        // before the handoff has no document of its own and keeps the first's.
+        if self.handoff.is_none() {
+            let known = !self.transcript.owes() && !self.tail_unknown;
+            self.handoff = Some(u16::from(known && self.transcript.ends_blank()));
+        }
+        self.transcript = Transcript::new(self.geometry.cols);
         self.welcome();
         // What the runtime still sends about the old conversation is dropped
         // until it says the conversation is gone.
@@ -4786,6 +4817,7 @@ impl Shell {
         }
         self.screen = (rows, cols);
         self.document_rows = u32::MAX;
+        self.tail_unknown = true;
         let Some(geometry) = self.fit(rows, cols) else {
             return Resize::TooSmall;
         };
@@ -10585,6 +10617,65 @@ mod tests {
         assert_eq!(shell.geometry.panel, 0, "a question took the band");
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert_eq!(shell.take_pending(), welcomed());
+    }
+
+    #[test]
+    fn the_blank_row_a_document_ends_on_is_left_out_only_when_it_is_known() {
+        // Upstream's history ends on the turn's summary and the next welcome
+        // line follows it at once (`fx-reset-40x120-clear.full.txt`): the
+        // blank row under the summary is spacing above the footer, not part of
+        // the transcript it hands over. xfx leaves it out when its own record
+        // of the document's tail is a record of the screen -- and carries it
+        // when it is not, because erasing a row that turned out to hold text
+        // would lose it, while carrying a blank one costs a blank row.
+        let ends_blank = |shell: &mut Fixture| {
+            shell.write_transcript("a row");
+            shell.end_transcript_line();
+            shell.end_transcript_line();
+        };
+
+        let mut landed = shell(24, 80);
+        ends_blank(&mut landed);
+        let _ = landed.take_pending();
+        landed.route_bytes(b"/clear\r");
+        assert_eq!(landed.handoff_spacing(), 1);
+        // A second reset before the handoff landed has no document of its
+        // own: it hands off the first one's, spacing and all.
+        landed.route_bytes(b"/new\r");
+        assert_eq!(landed.handoff_spacing(), 1);
+
+        let mut text_last = shell(24, 80);
+        text_last.write_transcript("a row");
+        text_last.end_transcript_line();
+        let _ = text_last.take_pending();
+        text_last.route_bytes(b"/clear\r");
+        assert_eq!(text_last.handoff_spacing(), 0, "a row of text was left out");
+
+        let mut unwritten = shell(24, 80);
+        ends_blank(&mut unwritten);
+        unwritten.route_bytes(b"/clear\r");
+        assert_eq!(
+            unwritten.handoff_spacing(),
+            0,
+            "rows that never reached the screen were taken as its tail"
+        );
+
+        let mut reflowed = shell(24, 80);
+        ends_blank(&mut reflowed);
+        let _ = reflowed.take_pending();
+        assert!(matches!(reflowed.resize(30, 100), Resize::Repaint(_)));
+        reflowed.route_bytes(b"/clear\r");
+        assert_eq!(
+            reflowed.handoff_spacing(),
+            0,
+            "a tail the terminal reflowed was taken as known"
+        );
+        // A handoff leaves a screen this session wrote every row of.
+        reflowed.handed_off();
+        ends_blank(&mut reflowed);
+        let _ = reflowed.take_pending();
+        reflowed.route_bytes(b"/reset\r");
+        assert_eq!(reflowed.handoff_spacing(), 1);
     }
 
     #[test]

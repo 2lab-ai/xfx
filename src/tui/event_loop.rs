@@ -842,7 +842,12 @@ fn commit_frame(
     // here: the welcome must not be appended under the document it replaces.
     // `Partial` is fatal on the spot, like every other scroll.
     if !band.on_alternate() && !shell.blind() && shell.owes_handoff() {
-        if let Err(emit) = band.hand_off(out, shell.document_rows(), &shell.geometry) {
+        if let Err(emit) = band.hand_off(
+            out,
+            shell.document_rows(),
+            shell.handoff_spacing(),
+            &shell.geometry,
+        ) {
             return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(()),
@@ -2191,8 +2196,10 @@ mod tests {
         .expect("the frame after the clear");
         let text = String::from_utf8_lossy(&out.written);
         // The band was at the bottom of a full screen, rows 22 to 24: those
-        // are erased and the twenty-one rows above them handed to scrollback.
-        let handoff = format!("\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(21));
+        // are erased, and so is row 21 -- the fixture's document ends blank,
+        // and the blank row a document ends on is spacing, not history -- and
+        // the twenty rows above them are handed to scrollback.
+        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
         assert!(
             text.starts_with(&handoff),
             "the handoff never reached the screen: {text:?}"
@@ -3338,8 +3345,8 @@ mod tests {
 
         let text = String::from_utf8(screen.written).expect("utf-8");
         // A band that had painted nothing claims none of the screen, so the
-        // whole of it is handed off.
-        let handoff = format!("\u{1b}[24;1H{}", "\n".repeat(24));
+        // whole of it is handed off but the blank row the document ends on.
+        let handoff = format!("\u{1b}[24;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(23));
         assert!(text.starts_with(&handoff), "{text:?}");
         assert_eq!(
             text.matches(&handoff).count(),
@@ -4004,7 +4011,9 @@ mod tests {
         let given_back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
         assert!(given_back.contains(LEAVES_ALTERNATE), "{given_back:?}");
         let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
-        let handoff = format!("\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(21));
+        // The document ends on the blank row under its notice, which is
+        // erased with the band rather than carried.
+        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
         assert!(back.starts_with(&handoff), "{back:?}");
         assert!(back.contains("Run /help for commands"), "{back:?}");
         assert!(!shell.owes_handoff());
