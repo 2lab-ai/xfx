@@ -17,14 +17,14 @@
 //! upstream's sentence for a provider without credits.
 //!
 //! The answer is worked out here and nowhere else, so the full-screen shell
-//! (which asks it on the runtime thread, never the one holding the terminal)
-//! and the line shell say the same thing.
+//! (which asks it on a thread of its own, never the one holding the terminal
+//! and never behind a turn) and the line shell say the same thing.
 
 use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::config::RuntimeConfig;
+use crate::config::{Credential, RuntimeConfig};
 use crate::gateway::{read_bounded, Endpoint, USER_AGENT};
 use crate::provider::ProviderId;
 
@@ -61,7 +61,7 @@ const MAX_BODY_BYTES: usize = 64 * 1024;
 const MAX_ERROR_BYTES: usize = 1024;
 
 /// How long the question may take to connect, and to be answered. Bounded,
-/// because the thread that waits for it is the one a turn runs on.
+/// because somebody is waiting for the answer.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -129,41 +129,57 @@ impl Answer {
 /// to exactly the host a turn already sends the same credential to, so no new
 /// place is trusted with the key.
 pub fn credits_url(endpoint: &Endpoint) -> String {
-    let url = endpoint.url();
-    let authority = url.find("://").map_or(0, |at| at + 3);
-    let end = url[authority..]
-        .find(['/', '?', '#'])
-        .map_or(url.len(), |at| authority + at);
-    format!("{}{CREDITS_PATH}", &url[..end])
+    format!("{}{CREDITS_PATH}", endpoint.origin())
 }
 
-/// Asks the configured provider what the account has left.
+/// The question `/credits` asks: where, and with which key.
+#[derive(Debug, Clone)]
+pub struct Question {
+    url: String,
+    credential: Credential,
+}
+
+/// What `/credits` would ask with `config`, or the answer it has without
+/// asking anybody.
 ///
 /// The Gateway is asked only **with** a credential, and only at the endpoint a
 /// turn would use: xfx does not contact a remote host on its own initiative,
 /// and a Gateway with no credential could not run a turn either.
-pub async fn fetch(config: &RuntimeConfig) -> Answer {
+pub fn question(config: &RuntimeConfig) -> Result<Question, Answer> {
     match config.provider {
-        ProviderId::Llmux => Answer::Failed(UNAVAILABLE.to_string()),
+        ProviderId::Llmux => Err(Answer::Failed(UNAVAILABLE.to_string())),
         ProviderId::Gateway => {
             let Some(credential) = config.credential.as_ref() else {
-                return Answer::Failed(crate::output::MISSING_AUTH_HELP.to_string());
+                return Err(Answer::Failed(crate::output::MISSING_AUTH_HELP.to_string()));
             };
-            let endpoint = match Endpoint::from_process() {
-                Ok(endpoint) => endpoint,
-                Err(err) => return Answer::Failed(err.to_string()),
-            };
-            ask(&credits_url(&endpoint), credential.secret()).await
+            let endpoint =
+                Endpoint::from_process().map_err(|err| Answer::Failed(err.to_string()))?;
+            Ok(Question {
+                url: credits_url(&endpoint),
+                credential: credential.clone(),
+            })
         }
     }
 }
 
-/// One authenticated `GET`, bounded while it reads.
+/// Asks the configured provider what the account has left.
+pub async fn fetch(config: &RuntimeConfig) -> Answer {
+    match question(config) {
+        Ok(question) => ask(&question).await,
+        Err(answer) => answer,
+    }
+}
+
+/// Asks `question`: one authenticated `GET`, bounded while it reads.
 ///
 /// **No redirect is followed**: the URL was judged by the bearer rule and the
 /// key goes to it alone, so a `3xx` is an answer that is not a credits answer
 /// rather than a second host the key is replayed to.
-async fn ask(url: &str, secret: &str) -> Answer {
+pub async fn ask(question: &Question) -> Answer {
+    ask_at(&question.url, question.credential.secret()).await
+}
+
+async fn ask_at(url: &str, secret: &str) -> Answer {
     let failed = || Answer::Failed(FETCH_FAILED.to_string());
     let Ok(client) = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)

@@ -79,6 +79,12 @@ pub struct RecordedToolCall {
 /// existence is the fact that some spend is unknown, and counted nowhere:
 /// upstream's dashboard counts a generation only once its cost is known
 /// (`session_usage.zig:110-175`).
+///
+/// One with no `cost` and an `origin` is **pending**: the stream named its
+/// generation and not its bill, and the Gateway at `origin` is asked for it
+/// by id (upstream's deferred usage, `session_usage.zig:608-640`, reconciled
+/// by `reconcilePendingBlocking`, `:3322-3423`). Its answer arrives as a later
+/// frame's `settled` or `rejected` ([`SessionEvent::UsageRecorded`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestUsage {
     /// When the request was billed: the Gateway's own `response-metadata`
@@ -108,6 +114,19 @@ pub struct RequestUsage {
     /// request from being counted twice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation_id: Option<String>,
+    /// Where to ask what it cost, while that is still to be asked: the scheme
+    /// and authority of the endpoint the request went to (the `scope` of
+    /// upstream's deferred reference, `gateway.zig:668-686`). `None` once the
+    /// bill is known, or will never be.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+}
+
+impl RequestUsage {
+    /// Whether its bill is still to be asked for.
+    pub fn pending(&self) -> bool {
+        self.cost.is_none() && self.origin.is_some() && self.generation_id.is_some()
+    }
 }
 
 /// For `skip_serializing_if`: a flag that is off is a flag that is not written.
@@ -286,6 +305,18 @@ pub enum SessionEvent {
         lines_added: u64,
         #[serde(default, skip_serializing_if = "is_zero")]
         lines_removed: u64,
+        /// Bills the Gateway gave later for pending requests an earlier frame
+        /// recorded ([`RequestUsage::pending`]), each the request as it is now
+        /// known, under the same generation id (`applyGeneration`,
+        /// `session_usage.zig:1080-1126`). Written by the runtime between
+        /// turns, on a frame of its own: one with these carries nothing else.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        settled: Vec<RequestUsage>,
+        /// Generation ids of pending requests whose bill will never be known:
+        /// spend that stays missing (`rejectPendingGeneration`,
+        /// `session_usage.zig:2171-2187`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rejected: Vec<String>,
     },
     /// The turn ended. Exactly one per opened turn.
     TurnConcluded { outcome: TurnConclusion },
@@ -644,6 +675,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
             SessionEvent::TurnConcluded {
                 outcome: TurnConclusion::Interrupted {
@@ -737,6 +770,8 @@ mod tests {
                 unaccounted: false,
                 lines_added: 0,
                 lines_removed: 0,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             }
         );
         assert_eq!(frame.encode().expect("encodes").trim_end(), line);
@@ -760,10 +795,13 @@ mod tests {
                     reasoning_tokens: Some(900),
                     cost: Some(0.421),
                     generation_id: Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ1".to_string()),
+                    origin: None,
                 }],
                 unaccounted: true,
                 lines_added: 3,
                 lines_removed: 1,
+                settled: Vec::new(),
+                rejected: Vec::new(),
             },
         );
         let encoded = frame.encode().expect("encodes");
@@ -783,6 +821,7 @@ mod tests {
         let unbilled = RequestUsage {
             cost: None,
             generation_id: None,
+            origin: None,
             reasoning_tokens: None,
             ..match &frame.event {
                 SessionEvent::UsageRecorded { requests, .. } => requests[0].clone(),
