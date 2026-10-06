@@ -187,6 +187,7 @@ mod tests {
                 steps: 1,
             }),
             timing,
+            seqs: crate::session::TurnSeqs::default(),
         }
     }
 

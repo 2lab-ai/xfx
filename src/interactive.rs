@@ -72,6 +72,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/model",
     "/permissions",
     "/copy",
+    "/compact",
     "/statusline",
     "/sound",
     "/version",
@@ -248,6 +249,15 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Compact,
+        name: "/compact",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:487`).
+        summary: "summarize context into a fresh window",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Statusline,
         name: "/statusline",
         aliases: &[],
@@ -392,6 +402,17 @@ pub const PROMPT: &str = "> ";
 /// says where the numbers are instead.
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
+
+/// What `/compact` says on this surface.
+///
+/// Upstream's compaction is a piece of the full-screen shell's work: it
+/// shows on the band's activity row and nowhere else, waits behind a running
+/// turn, and is stopped by the keys that stop one
+/// (`compactionProjection`, `activity_status.zig:16-41`). This shell has no
+/// row to show it on, so it says where it is rather than compacting a
+/// conversation the user cannot watch being compacted.
+pub const COMPACT_ON_THE_LINE_SHELL: &str = "xfx: /compact runs in the full-screen shell, which \
+     shows its progress; without XFX_TUI=0, xfx opens the full-screen one";
 
 /// What `/resume` says on this surface.
 ///
@@ -543,6 +564,10 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Replace the older turns of the conversation with a compacted form the
+    /// model reads in their place (`commandCompactHistory`,
+    /// `app_commands.zig:2010-2020`; [`crate::agent::compact`]).
+    Compact,
     /// Upstream's sound switch, which here is the terminal bell
     /// ([`crate::sound`]).
     Sound,
@@ -1137,6 +1162,9 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Compact => {
+                        writeln!(io::stderr(), "{COMPACT_ON_THE_LINE_SHELL}")?;
+                    }
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut())?;
                     }
@@ -1787,10 +1815,11 @@ mod tests {
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
-        // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
-        // than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 16);
+        // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
+        // since `/resume` and `/rename`, and seventeen since `/compact`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 17);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();

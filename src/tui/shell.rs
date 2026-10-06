@@ -79,6 +79,7 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::compaction::{self, Compaction};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor, Lent, Step as EditorStep};
@@ -819,6 +820,13 @@ pub(crate) struct Shell {
     /// the moment the turn shows any sign of having got through -- an answer,
     /// a tool, a question -- or of being over.
     retry: Option<super::retry::Standing>,
+    /// The compaction the activity row is about, running or just ended
+    /// ([`super::compaction`]).
+    ///
+    /// It takes the row while it is visible, as upstream's projection wins
+    /// over the turn's (`frameOwnedActivityProjection`, `render_input.zig:
+    /// 699-719`), and it never writes into the document.
+    compaction: Option<Compaction>,
     /// How many submissions are waiting behind the one in flight, as of the
     /// last settle. Cached for the same reason [`Self::escape_armed`] is.
     queued: usize,
@@ -1611,6 +1619,7 @@ impl Shell {
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
+            compaction: None,
             queued: 0,
             activity: Activity::new(),
             phase: 0,
@@ -2968,6 +2977,8 @@ impl Shell {
                     self.render.request(Reason::Footer);
                 }
             }
+            // A compaction, on the row above the divider and nowhere else.
+            UiEvent::Compaction(update) => self.compaction_update(update),
             // The conversation a reset asked to drop is gone, and nothing the
             // runtime sends from here on is about it -- once this is the fence
             // of the last reset sent. An earlier reset's fence ends nothing:
@@ -5764,6 +5775,19 @@ impl Shell {
             self.cancel_owed = None;
             self.cancel_covers = 0;
         }
+        // The same for a compaction the user stopped before the runtime took it
+        // off the queue: it never began, so it never says how it ended. Once
+        // nothing is in hand it is over, cancelled -- and an ending the runtime
+        // did send, a moment late, still replaces this one
+        // ([`Self::compaction_update`]).
+        if self.work.outstanding() == 0 {
+            if let Some(compaction) = self.compaction.as_mut() {
+                if compaction.stopped() {
+                    compaction.settle(compaction::Feedback::Cancelled, now);
+                    self.render.request(Reason::Footer);
+                }
+            }
+        }
         let armed = self.gestures.escape_armed(now);
         if armed != self.escape_armed {
             self.escape_armed = armed;
@@ -5883,6 +5907,14 @@ impl Shell {
         if self.activity.working() && !self.activity.started() {
             self.activity.begin(now);
         }
+        // A manual compaction's clock starts on the same tick a turn's does,
+        // and a sentence whose time is up is gone.
+        if let Some(compaction) = self.compaction.as_mut() {
+            compaction.tick(now);
+            if !compaction.visible(now) {
+                self.compaction = None;
+            }
+        }
         // **The clock stops while the question is up**, because that interval
         // measures the person rather than the model: a turn that spent four
         // minutes waiting to be told whether it could edit a file did not spend
@@ -5896,7 +5928,10 @@ impl Shell {
         } else {
             self.activity.thaw(now);
         }
-        if self.render.animate(self.activity.working(), now) {
+        if self
+            .render
+            .animate(self.activity.working() || self.compacting(), now)
+        {
             self.phase = (self.phase + 1) % PHASES;
         }
         let output = self
@@ -5919,10 +5954,32 @@ impl Shell {
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
         // counting down on this clock.
-        let row = match self.retry.as_ref() {
+        //
+        // A compaction takes the row from the turn's own label while it shows
+        // anything (`frameOwnedActivityProjection`, `render_input.zig:699-719`):
+        // its phase and clock while it runs, its sentence once it has ended.
+        let compaction = self.compaction.as_ref().and_then(|compaction| {
+            compaction.row(
+                now,
+                self.phase,
+                self.geometry.cols,
+                self.activity.elapsed(now),
+                colours,
+            )
+        });
+        let row = match (self.retry.as_ref(), compaction) {
             _ if self.modal() => None,
-            Some(standing) if self.activity.working() => {
+            (Some(standing), _) if self.activity.working() => {
                 Some(self.painted(self.palette.warning(), standing.label(now)))
+            }
+            (_, Some(compaction::Row::Running(row))) => Some(row),
+            (_, Some(compaction::Row::Feedback(feedback))) => {
+                let colour = match feedback.tone() {
+                    compaction::Tone::Neutral => self.palette.dim(),
+                    compaction::Tone::Warning => self.palette.warning(),
+                    compaction::Tone::Danger => self.palette.danger(),
+                };
+                Some(self.painted(colour, feedback.label().to_string()))
             }
             _ => self.activity.row(
                 now,
@@ -5947,6 +6004,91 @@ impl Shell {
             self.refit();
         }
         self.render.request(Reason::Animation);
+    }
+
+    /// Whether a compaction is running.
+    fn compacting(&self) -> bool {
+        self.compaction.as_ref().is_some_and(Compaction::active)
+    }
+
+    /// Whether the row shows a compaction's sentence an Escape would take
+    /// away: one that has ended and is still on the row
+    /// (`dismissCompactionFeedback`, `input_interrupt_runtime.zig:57-65`).
+    fn compaction_dismissible(&self, now: Instant) -> bool {
+        self.compaction
+            .as_ref()
+            .is_some_and(|compaction| !compaction.active() && compaction.visible(now))
+    }
+
+    /// What the runtime says about a compaction.
+    fn compaction_update(&mut self, update: compaction::Update) {
+        match update {
+            // A manual one was put on the row at the keystroke; an automatic
+            // one begins here, inside its turn.
+            compaction::Update::Began { automatic } => {
+                if !self.compacting() {
+                    self.compaction = Some(Compaction::began(automatic));
+                }
+            }
+            compaction::Update::Summarizing => {
+                if let Some(compaction) = self.compaction.as_mut() {
+                    compaction.summarizing();
+                }
+            }
+            compaction::Update::Settled(feedback) => {
+                let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
+                self.compaction
+                    .get_or_insert_with(|| Compaction::began(automatic))
+                    .settle(feedback, Instant::now());
+                if feedback == compaction::Feedback::Succeeded {
+                    // The meter's number measured a request no request will
+                    // carry again: the next one carries the compacted
+                    // conversation. It goes until a turn measures that one,
+                    // because a number no provider said is not one this row
+                    // puts up ([`Self::context_used`]).
+                    self.context_used = None;
+                    self.render.request(Reason::Footer);
+                } else if automatic {
+                    // The turn it ran in did not run, and the row says why: its
+                    // conclusion adds nothing (`compactionErrorHandled`,
+                    // `app_process_runtime.zig:10-17`, `:55-56`).
+                    self.cancelling = true;
+                }
+            }
+        }
+    }
+
+    /// Stops the compaction in hand (`cancelActiveOperation`,
+    /// `input_interrupt_runtime.zig:77-90`, `:113-116`): the runtime is told,
+    /// the row says `Stopping compaction` until the runtime says it has, and
+    /// **nothing is written into the document** -- the sentence it ends with is
+    /// the row's. A compaction inside a turn stops that turn with it, and the
+    /// turn's conclusion says nothing either.
+    fn stop_compaction(&mut self) {
+        let waiting = self.work.queued() > 0;
+        self.work.control(TurnControl::Cancel {
+            through: self.work.accepted(),
+        });
+        self.forget_catalog_request();
+        let automatic = self.compaction.as_ref().is_some_and(Compaction::automatic);
+        if let Some(compaction) = self.compaction.as_mut() {
+            compaction.stopping();
+        }
+        if automatic {
+            // The turn ends with no bell, as an interrupted turn does; a
+            // manual compaction ends no turn, so it owes the next one nothing.
+            self.sound.interrupted();
+            self.cancelling = true;
+            self.retry = None;
+        }
+        if waiting {
+            self.prompts.clear();
+            self.refit();
+            // xfx's queue is its own, and so is the sentence that says it went
+            // with the keystroke ([`Self::cancel_turn_with`]).
+            self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
+        }
+        self.cancel_covers = self.prompts.len();
     }
 
     /// What a theme report says, applied to the palette.
@@ -6512,11 +6654,18 @@ impl Shell {
             // own `TurnStarted` to its conclusion or the keystroke that
             // stopped it. A prompt still waiting for the runtime to pick it up
             // is not yet an operation there is anything to interrupt in.
+            // A compaction's sentence goes first, and that is all this Escape
+            // does (`dismissCompactionFeedback`, `app_input_runtime.zig:3158`,
+            // `:3208`).
+            Action::Escape if self.compaction_dismissible(now) => {
+                self.compaction = None;
+                self.settle_band(now);
+            }
+            // A compaction running is work an Escape pair stops, as a turn is
+            // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`).
             Action::Escape => {
-                match self
-                    .gestures
-                    .escape(now, self.activity.working(), !self.editor.is_empty())
-                {
+                let running = self.activity.working() || self.compacting();
+                match self.gestures.escape(now, running, !self.editor.is_empty()) {
                     Escape::Nothing | Escape::Armed | Escape::InterruptArmed => {
                         self.settle_band(now)
                     }
@@ -6776,6 +6925,10 @@ impl Shell {
     /// written then only when no call's line was ([`Self::cancel_owed`]). The
     /// activity row stays while the command runs, because it does.
     fn cancel_turn_with(&mut self, written: bool) {
+        if self.compacting() {
+            self.stop_compaction();
+            return;
+        }
         // Read **before** the message goes out, because after it the runtime
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
@@ -6923,6 +7076,15 @@ impl Shell {
     fn submit(&mut self) {
         if self.editor.is_empty() {
             return;
+        }
+        // A compaction's sentence is answered by the next line sent, whatever
+        // it is (`submit`, `input_submit_runtime.zig:628-635`).
+        if self
+            .compaction
+            .as_ref()
+            .is_some_and(|compaction| !compaction.active())
+        {
+            self.compaction = None;
         }
         let text = self.editor.text().to_string();
         let submitted = router::classify(&text);
@@ -7493,6 +7655,40 @@ impl CommandHandlers for Shell {
         self.set_statusline(item, !self.statusline.get(item), true);
     }
 
+    /// `/compact` (`request_context_compaction`, `input_submit_runtime.zig:
+    /// 139-161`), in upstream's order: a compaction already running is
+    /// answered by nothing; a conversation with no turn in it is `No context
+    /// to compact.`; a turn running or a prompt waiting is the busy warning,
+    /// and the user is told to wait rather than having it queued; otherwise
+    /// the runtime is asked, and the row says `Preparing compaction` from this
+    /// keystroke on. Nothing is written into the document, in any case.
+    ///
+    /// The runtime decides the rest -- whether anything is older than the
+    /// turns a compaction keeps, which is a question about the conversation
+    /// it holds -- and answers on the row ([`UiEvent::Compaction`]).
+    fn compact(&mut self) {
+        let now = Instant::now();
+        if self.compacting() {
+            return;
+        }
+        if self.work.status().history_turns == 0 {
+            self.compaction = Some(Compaction::refused(compaction::Feedback::NoOp, now));
+            return;
+        }
+        // A turn, running or waiting: upstream's `isProcessing` and
+        // `queuedPromptCount` (`input_submit_runtime.zig:148-153`). Other work
+        // -- a catalog read, a listing -- is not a conversation a compaction
+        // would cut into, and it queues behind that as it would behind a turn.
+        if self.activity.working() || !self.prompts.is_empty() {
+            self.compaction = Some(Compaction::refused(compaction::Feedback::Busy, now));
+            return;
+        }
+        match self.work.submit(TurnWork::Compact) {
+            Ok(()) => self.compaction = Some(Compaction::began(false)),
+            Err(rejected) => self.refused(rejected),
+        }
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///
@@ -7969,6 +8165,9 @@ impl Shell {
         self.cancel_owed = None;
         self.cancel_covers = 0;
         self.retry = None;
+        // A compaction's sentence is about the conversation being dropped
+        // (`retireLiveSessionCompaction`, `app_session_runtime.zig:1958-1964`).
+        self.compaction = None;
         self.context_used = None;
         // The old screen's debts: the text the pacer holds, the lines placed
         // behind it, the answer block a cancelled turn left open, and -- once
@@ -8063,6 +8262,12 @@ impl Shell {
                 self.activity.end();
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                true
+            }
+            // A compaction the reset stopped: its sentence is about the
+            // conversation that was dropped.
+            UiEvent::Compaction(_) => {
+                self.compaction = None;
                 true
             }
             // The fence itself, the runtime's own state, and a runtime that is
@@ -14545,6 +14750,30 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/compact" {
+                // Upstream writes nothing of a compaction into the document;
+                // the row above the divider is its answer -- here, with no
+                // conversation, `No context to compact.`
+                // (`fx-compact-40x120-empty-0.3s`).
+                assert!(
+                    document.is_empty(),
+                    "/compact wrote to the document: {document:?}"
+                );
+                assert_eq!(
+                    shell.compaction.as_ref().map(|c| c.row(
+                        Instant::now(),
+                        0,
+                        80,
+                        Duration::ZERO,
+                        super::super::activity::Colours {
+                            label: "",
+                            dim: "",
+                            reset: ""
+                        }
+                    )),
+                    Some(Some(compaction::Row::Feedback(compaction::Feedback::NoOp)))
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
                 assert!(
                     document
@@ -20911,8 +21140,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 6,
-            "/clear, /new, /reset, /resume, /rename and /copy"
+            2 + 7,
+            "/clear, /new, /reset, /resume, /rename, /copy and /compact"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -24179,5 +24408,339 @@ mod tests {
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
+    }
+
+    // -----------------------------------------------------------------------
+    // `/compact`
+    // -----------------------------------------------------------------------
+
+    /// The activity row's text, colours off, or `None` when there is none.
+    fn compaction_row(shell: &mut Fixture, now: Instant) -> Option<String> {
+        shell.settle_band(now);
+        shell.activity_row.as_deref().map(uncoloured)
+    }
+
+    /// A shell whose conversation holds a turn, as `/status` reads it.
+    fn with_a_turn() -> Fixture {
+        let shell = shell(40, 120);
+        shell.work.publish_status(a_status(1, 0));
+        shell
+    }
+
+    #[test]
+    fn compact_asks_the_runtime_and_says_so_on_the_row_and_nowhere_else() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        let now = Instant::now();
+        assert_eq!(
+            compaction_row(&mut shell, now).as_deref(),
+            Some("\u{2022} Preparing compaction (0s)")
+        );
+        // The marker and the label in the activity grey, as the turn's row
+        // is painted (fx-probe2 `c-0.3s`: `ESC[38;5;252m• Compacting (0s)`).
+        assert!(shell
+            .activity_row
+            .as_deref()
+            .is_some_and(|row| row.contains(&format!("{}\u{2022}", PALETTE.activity()))));
+        shell.apply(UiEvent::Compaction(compaction::Update::Summarizing));
+        // The clock is the compaction's own, from the keystroke's tick.
+        let row = compaction_row(&mut shell, now + Duration::from_millis(2_100)).expect("a row");
+        assert!(row.ends_with("Compacting (2s)"), "{row:?}");
+        // Nothing in the document, before or after it ends.
+        assert!(shell.document().is_empty());
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        assert_eq!(
+            compaction_row(&mut shell, now + Duration::from_secs(3)),
+            None
+        );
+        assert!(shell.document().is_empty(), "a success wrote something");
+    }
+
+    #[test]
+    fn compact_with_no_conversation_says_there_is_nothing_for_a_second_and_a_half() {
+        // `cap/fx-compact-40x120-empty-0.3s`: `ESC[38;5;245mNo context to
+        // compact.ESC[39m`, gone by `-empty-2.3s`.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/compact\r");
+        assert!(shell.sent.try_recv().is_err(), "the runtime was asked");
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(format!("{}No context to compact.{}", PALETTE.dim(), PALETTE.reset()).as_str())
+        );
+        assert!(shell.document().is_empty());
+        assert_eq!(
+            compaction_row(&mut shell, now + Duration::from_millis(1_400)).as_deref(),
+            Some("No context to compact.")
+        );
+        assert_eq!(
+            compaction_row(
+                &mut shell,
+                now + compaction::TRANSIENT + Duration::from_millis(1)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn compact_while_a_turn_runs_or_waits_is_refused_with_upstreams_warning() {
+        let mut shell = with_a_turn();
+        turn_running(&mut shell, b"say something\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/compact\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "it was queued behind the turn"
+        );
+        let now = Instant::now();
+        shell.settle_band(now);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}Wait for the active work to finish before compacting context.{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        assert!(shell.document().is_empty());
+        // Gone after a second and a half, and the turn's own row is back.
+        let later =
+            compaction_row(&mut shell, now + compaction::TRANSIENT).expect("the turn's row");
+        assert!(later.contains("Thinking"), "{later:?}");
+
+        // A prompt that is waiting is the same refusal.
+        let mut waiting = with_a_turn();
+        waiting.route_bytes(b"first\r");
+        waiting.route_bytes(b"/compact\r");
+        assert_eq!(waiting.picks_up(), TurnWork::Submit("first".to_string()));
+        assert!(waiting.sent.try_recv().is_err());
+        assert_eq!(
+            compaction_row(&mut waiting, Instant::now()).as_deref(),
+            Some("Wait for the active work to finish before compacting context.")
+        );
+    }
+
+    #[test]
+    fn compact_takes_no_argument_and_a_second_one_while_running_is_ignored() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact now\r");
+        assert!(shell.sent.try_recv().is_err());
+        assert!(shell
+            .document()
+            .iter()
+            .any(|row| row.contains("Unknown command. Try /help.")));
+        shell.route_bytes(b"/compact\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        shell.route_bytes(b"/compact\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a second compaction was asked"
+        );
+        assert!(compaction_row(&mut shell, Instant::now())
+            .is_some_and(|row| row.contains("Preparing compaction")));
+    }
+
+    #[test]
+    fn a_prompt_typed_during_a_compaction_waits_behind_it() {
+        // e2e `tui-compaction-activity.test.ts:329-355`: neither its own turn
+        // nor a cancellation, until the compaction is over.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(b"after it\r");
+        assert_eq!(shell.picks_up(), TurnWork::Compact);
+        assert_eq!(shell.picks_up(), TurnWork::Submit("after it".to_string()));
+        assert_eq!(shell.controlled(), None, "the compaction was cancelled");
+        assert!(compaction_row(&mut shell, Instant::now())
+            .is_some_and(|row| row.contains("Preparing compaction")));
+    }
+
+    #[test]
+    fn a_failure_stays_until_escape_or_the_next_line_and_escape_does_nothing_else() {
+        for (tone, feedback) in [
+            (PALETTE.danger(), compaction::Feedback::Failed),
+            (PALETTE.dim(), compaction::Feedback::Cancelled),
+            (PALETTE.danger(), compaction::Feedback::NotStarted),
+        ] {
+            let mut shell = with_a_turn();
+            shell.route_bytes(b"/compact\r");
+            let _ = shell.picks_up();
+            shell.work.give_back();
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(feedback)));
+            let now = Instant::now();
+            shell.settle_band(now);
+            assert_eq!(
+                shell.activity_row.as_deref(),
+                Some(format!("{tone}{}{}", feedback.label(), PALETTE.reset()).as_str())
+            );
+            assert_eq!(
+                compaction_row(&mut shell, now + Duration::from_secs(600)).as_deref(),
+                Some(feedback.label()),
+                "{feedback:?} went by itself"
+            );
+            assert!(shell.document().is_empty());
+            shell.route_bytes(&[0x1b]);
+            shell.settle_input(now + Duration::from_secs(601));
+            assert_eq!(
+                compaction_row(&mut shell, now + Duration::from_secs(601)),
+                None
+            );
+            assert_eq!(shell.controlled(), None, "the Escape cancelled something");
+            assert!(
+                !shell.hint().contains("esc again"),
+                "the Escape armed a gesture"
+            );
+        }
+        // The next line sent takes it away too.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.route_bytes(b"/version\r");
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
+    }
+
+    #[test]
+    fn ctrl_c_or_the_escape_pair_stops_a_compaction_and_writes_nothing() {
+        for escape in [false, true] {
+            let mut shell = with_a_turn();
+            shell.route_bytes(b"/compact\r");
+            let _ = shell.picks_up();
+            let accepted = shell.work.accepted();
+            let now = Instant::now();
+            if escape {
+                // The first Escape arms, as over a running turn
+                // (`cancellationTarget`, `input_interrupt_runtime.zig:12-21`).
+                shell.consume(vec![Input::Action(Action::Escape)], now);
+                assert_eq!(shell.controlled(), None);
+                assert!(shell.gestures.interrupt_armed(now));
+                shell.consume(
+                    vec![Input::Action(Action::Escape)],
+                    now + super::super::gesture::INTERRUPT_WINDOW,
+                );
+            } else {
+                shell.route_bytes(&[0x03]);
+            }
+            assert_eq!(
+                shell.controlled(),
+                Some(TurnControl::Cancel { through: accepted })
+            );
+            assert_eq!(
+                compaction_row(&mut shell, now).as_deref(),
+                Some("\u{2022} Stopping compaction (0s)")
+            );
+            assert!(shell.document().is_empty(), "the stop wrote a line");
+            assert!(!shell.leaving());
+            shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+                compaction::Feedback::Cancelled,
+            )));
+            assert_eq!(
+                compaction_row(&mut shell, now).as_deref(),
+                Some("Compaction cancelled. Try /compact again when ready.")
+            );
+            assert!(shell.document().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_compaction_stopped_before_the_runtime_took_it_ends_cancelled() {
+        // Dropped from the queue by the cancel, it never says how it ended:
+        // once nothing is in hand, it is over.
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        shell.route_bytes(&[0x03]);
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction cancelled. Try /compact again when ready.")
+        );
+    }
+
+    #[test]
+    fn an_automatic_compaction_takes_the_turns_row_on_the_turns_clock() {
+        let mut shell = with_a_turn();
+        let started = turn_running(&mut shell, b"a long one\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Summarizing));
+        let row =
+            compaction_row(&mut shell, started + Duration::from_millis(3_200)).expect("a row");
+        assert!(row.ends_with("Compacting (3s)"), "{row:?}");
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        let row =
+            compaction_row(&mut shell, started + Duration::from_millis(3_300)).expect("a row");
+        assert!(row.contains("Thinking (3s)"), "the turn goes on: {row:?}");
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_failed_automatic_compaction_ends_its_turn_with_the_row_alone() {
+        let mut shell = with_a_turn();
+        turn_running(&mut shell, b"a long one\r");
+        shell.apply(UiEvent::Compaction(compaction::Update::Began {
+            automatic: true,
+        }));
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Failed,
+        )));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let document = shell.released();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains("system") || row.contains("ompact")),
+            "{document:?}"
+        );
+        assert_eq!(
+            compaction_row(&mut shell, Instant::now()).as_deref(),
+            Some("Compaction failed. Try /compact again.")
+        );
+    }
+
+    #[test]
+    fn a_compaction_clears_the_context_meter_until_a_turn_measures_again() {
+        let mut shell = with_a_turn();
+        shell.apply(UiEvent::Usage {
+            input: Some(90_000),
+            output: Some(10),
+        });
+        assert_eq!(shell.shell.context_used, Some(90_000));
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::NoOp,
+        )));
+        assert_eq!(shell.shell.context_used, Some(90_000), "nothing changed");
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Succeeded,
+        )));
+        assert_eq!(shell.shell.context_used, None);
+    }
+
+    #[test]
+    fn a_reset_takes_a_compactions_row_with_the_conversation() {
+        let mut shell = with_a_turn();
+        shell.route_bytes(b"/compact\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/new\r");
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
+        // What the cancelled compaction still says is about the old one.
+        shell.apply(UiEvent::Compaction(compaction::Update::Settled(
+            compaction::Feedback::Cancelled,
+        )));
+        assert_eq!(compaction_row(&mut shell, Instant::now()), None);
     }
 }

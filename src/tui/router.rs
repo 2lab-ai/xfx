@@ -54,6 +54,8 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/compact`. It takes nothing: `/compact now` never reaches it.
+    fn compact(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -164,6 +166,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Copy => handlers.copy(),
+        Slash::Compact => handlers.compact(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
@@ -229,6 +232,9 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn compact(&mut self) {
+            self.calls.push("compact".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -272,6 +278,7 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/compact", "compact"),
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/status", "status"),

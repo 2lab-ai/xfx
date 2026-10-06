@@ -770,20 +770,22 @@ mod tests {
         assert_eq!(found("general"), in_category("General"));
         assert_eq!(
             found("SESSION"),
-            ["/new", "/reset", "/resume", "/rename", "/copy"]
+            ["/new", "/reset", "/resume", "/rename", "/copy", "/compact"]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
-            ["/clear", "/new", "/reset", "/resume", "/rename", "/copy"]
+            ["/clear", "/new", "/reset", "/resume", "/rename", "/copy", "/compact"]
         );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
         assert_eq!(found("exit"), ["/quit"]);
-        // Every word must be found, each anywhere.
-        assert_eq!(found("session fresh"), ["/new"]);
-        assert_eq!(found("  fresh \t session "), ["/new"]);
+        // Every word must be found, each anywhere: `/compact`'s "fresh
+        // window" under Session finds it beside `/new`.
+        assert_eq!(found("session fresh"), ["/new", "/compact"]);
+        assert_eq!(found("  fresh \t session "), ["/new", "/compact"]);
+        assert_eq!(found("fresh session start"), ["/new"]);
         // `/provider`'s alias finds it as `/exit` finds `/quit`; its summary
         // is upstream's now and names no provider of xfx's.
         assert_eq!(found("setup"), ["/provider"]);

@@ -884,8 +884,10 @@ impl TurnMachine {
         wait_before_retry(delay, &self.request.cancel).await
     }
 
-    /// The request for the next model step.
-    fn completion_request(&self) -> CompletionRequest {
+    /// The request for the next model step -- before the first, the request
+    /// the turn would open with, which is what an automatic compaction
+    /// measures (`crate::agent::compact::Size::due`).
+    pub fn completion_request(&self) -> CompletionRequest {
         CompletionRequest {
             model: self.request.model.clone(),
             messages: self.messages(),

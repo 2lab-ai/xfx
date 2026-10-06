@@ -419,6 +419,25 @@ fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
 }
 
 #[test]
+fn slash_compact_says_where_compaction_runs_and_asks_nobody() {
+    // Upstream's compaction shows on the full-screen shell's activity row and
+    // nowhere else; this shell has no row, so it says where it is.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/compact");
+    let text = session.wait_for("shows its progress");
+    assert!(
+        text.contains("xfx: /compact runs in the full-screen shell"),
+        "{text}"
+    );
+    assert!(sandbox.session_ids().is_empty(), "a session was opened");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_sound_saves_the_switch_and_says_this_shell_rings_none() {
     // The same switch, saved to the same file the full-screen shell reads; and
     // the line that says so, because this shell's question is the shared stdin
