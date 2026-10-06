@@ -1,0 +1,20 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ ask me
+
+────────────────────────────────────────────────────────────────
+  What should happen first?
+
+    1) Inspect repo state    Look around the workspace
+    2) Run tests
+    3) line-one
+       xy
+       line-three
+
+────────────────────────────────────────────────────────────────
+shift+↑↓ options · tab questions · enter answer · esc cancel
+
+
+
+
+

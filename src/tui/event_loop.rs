@@ -1404,7 +1404,14 @@ fn commit_document(
         let reached = document.saturating_add(u32::try_from(append.scroll).unwrap_or(u32::MAX));
         let after = geometry.floated(reached);
         let room = after.band_top().saturating_sub(before.band_top());
-        match band.append_floating(out, append.scroll, &append.rows, &after, room) {
+        match band.append_floating(
+            out,
+            append.scroll,
+            &append.rows,
+            &append.kinds,
+            &after,
+            room,
+        ) {
             Ok(()) => {
                 document = reached;
                 Landed::All
@@ -4106,6 +4113,59 @@ mod tests {
                 && !written.contains("\u{1b}[3J")
                 && !written.contains("\u{1b}[?1049"),
             "the recolour erased a screen or moved a plane: {written:?}"
+        );
+    }
+
+    #[test]
+    fn a_theme_report_recolours_an_answered_questions_record_as_the_answer() {
+        // The answer under an answered question is the dark grey a turn's
+        // summary is (245) and a different light one (241 against 247), and
+        // its row opens with the same painted blank -- so only the kind the
+        // record was written with makes it come out right
+        // (`super::super::theme::DocumentRow::Answer`).
+        use crate::tools::question::{QuestionEntry, QuestionOption};
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"ask me\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Question(super::super::question::QuestionRequest {
+            id: super::super::question::QuestionId(1),
+            entries: vec![QuestionEntry {
+                question: "Proceed?".to_string(),
+                options: vec![
+                    QuestionOption {
+                        label: "Go ahead".to_string(),
+                        description: None,
+                    },
+                    QuestionOption {
+                        label: "Stop".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        }));
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.route_bytes(b"1");
+        shell.flush_paced();
+        let landed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            landed.contains("\u{1b}[38;5;245m     Go ahead"),
+            "the record never reached the screen: {landed:?}"
+        );
+
+        shell.route_bytes(WENT_LIGHT);
+        let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            written.contains("\u{1b}[38;5;241m     Go ahead"),
+            "the answer was repainted as something other than the answer: {written:?}"
+        );
+        assert!(
+            !written.contains("\u{1b}[38;5;247m     Go ahead"),
+            "the answer was taken for a turn's summary: {written:?}"
         );
     }
 

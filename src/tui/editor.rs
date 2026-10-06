@@ -339,11 +339,13 @@ impl Editor {
                 self.move_to(self.line_end());
                 None
             }
-            Action::Up => {
+            // Shift on the vertical arrows is a question field's to bind
+            // (`super::input::Action::SelectUp`); to an editor it is the arrow.
+            Action::Up | Action::SelectUp => {
                 self.move_by_row(Step::Up, cols);
                 None
             }
-            Action::Down => {
+            Action::Down | Action::SelectDown => {
                 self.move_by_row(Step::Down, cols);
                 None
             }

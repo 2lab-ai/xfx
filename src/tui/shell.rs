@@ -104,7 +104,7 @@ use super::router::{self, CommandHandlers};
 use super::session_picker::{self, SessionAction, SessionPicker};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
-use super::theme::{Mode, Palette};
+use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
@@ -1222,10 +1222,11 @@ enum Mark {
     /// ([`Shell::write_notice`]).
     Notice(notice::Notice),
     /// Rows laid out already -- wrapped at the screen they were composed for
-    /// and painted in the palette's own colours -- as one block of the
-    /// document, with a blank row above and below it ([`Shell::write_block`]).
-    /// What a question batch leaves behind ([`super::question`]).
-    Block(Vec<String>),
+    /// and painted in the palette's own colours -- each with what it is, as
+    /// one block of the document with a blank row above and below it
+    /// ([`Shell::write_block`]). What a question batch leaves behind
+    /// ([`super::question`]).
+    Block(Vec<(String, DocumentRow)>),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -3038,7 +3039,10 @@ impl Shell {
                 };
                 self.full.line(line, *role, kind);
             }
-            Mark::Block(rows) => self.full.block(rows),
+            Mark::Block(rows) => {
+                let rows: Vec<String> = rows.iter().map(|(row, _)| row.clone()).collect();
+                self.full.block(&rows);
+            }
             Mark::ToolStart { id, shown } => self.full.tool_started(id, shown),
             Mark::ToolResult {
                 id,
@@ -4165,24 +4169,26 @@ impl Shell {
     /// composer the caret has left, and a Ctrl-D at one does not end a session
     /// that is holding a turn open waiting to be answered.
     ///
-    /// **Escape and Ctrl-C both take the panel down and they mean different
-    /// things, so they send different messages -- one each.**
+    /// **Escape and Ctrl-C both cancel the turn the batch belongs to**, as
+    /// upstream's do (`vercel-labs/fx@c1db919`): Ctrl-C is the question's own
+    /// `cancel` byte (`src/ui/input/runtime.zig:138`, `3 => .cancel`, answered
+    /// `.cancelled` at `question_prompt.zig:327`), and Escape at a field with
+    /// nothing in it reaches the same function (`app_input_runtime.zig:3137`);
+    /// both are `cancelQuestionPrompt` (`input_question_runtime.zig:59-83`),
+    /// which stops the worker's turn and answers the batch with nothing. The
+    /// model is never told the user declined the question -- the call answers
+    /// `aborted by user` (`crate::tools::question::ABORTED_OUTPUT`) -- and
+    /// upstream's e2e pins exactly that (`tui-decision-prompts.test.ts:2454`).
+    /// Divergence 7 of `.prd/tui-phase4/ssot.md`, which reverses xfx's old
+    /// meaning (Escape declined the question and the turn went on).
     ///
-    /// Escape declines the *question*: `QuestionCancelled` under the batch's own
-    /// id, the model is told so with its own sentinel, and the turn carries on
-    /// with whatever it was doing. Ctrl-C stops the *turn*
-    /// ([`Self::interrupt`]), and sends only that: the requester parked on this
-    /// channel treats an interrupt as its question being over, answers the tool
-    /// with the same sentinel, and hands the interrupt **back** to the loop that
-    /// can stop the turn (`super::question::TuiQuestioner`).
-    ///
-    /// Sending both, as this once did, is what made a Ctrl-C at a question a
-    /// declined question that also stopped a turn *later*: the requester
-    /// answered on the first message and returned while the second was still in
-    /// the channel, so the calls behind the question ran before anything had
-    /// read the interrupt. One key, one message, and the turn's own stop is the
-    /// one the machine's boundary can see (`crate::agent::machine`'s
-    /// `execute_tool_calls`).
+    /// **One message, and it is the turn's** ([`Self::interrupt`]): the
+    /// requester parked on this channel reads the interrupt as its question
+    /// being over, answers the tool as interrupted, and hands the interrupt
+    /// **back** to the loop that can stop the turn
+    /// (`super::question::TuiQuestioner`). A `QuestionCancelled` in front of it
+    /// would be the question declined -- the sentinel, and the calls behind the
+    /// question run before anything had read the interrupt.
     ///
     /// **Whichever way the batch ends, the document keeps a record of it**,
     /// as upstream's does (`finalizeQuestionTranscript`,
@@ -4214,9 +4220,10 @@ impl Shell {
                 Some(act) => act,
                 None => return,
             },
-            // Content rather than keys, and there is nothing here for it to be
-            // content of: the composer is not what has the focus.
-            Input::PasteByte(_) => return,
+            // Content, to the question's own answer while it is open -- the
+            // panel drops it whole while a choice is marked -- and never to the
+            // composer, which is not what has the focus.
+            Input::PasteByte(byte) => question::Act::PasteByte(byte),
             // Not a key at all, and never routed here: [`Self::consume`]
             // answers a theme report before the focus is consulted, precisely
             // so that a question having the keyboard cannot swallow one. The
@@ -4266,28 +4273,22 @@ impl Shell {
                     .control(TurnControl::QuestionAnswer { id, answers });
                 self.settled_question();
             }
+            // Escape or Ctrl-C: the turn's own stop, and **only** it.
             question::Answered::Cancelled => {
                 self.ask = None;
-                self.mark(Mark::Block(vec![question::cancelled_row(&self.palette)]));
-                if matches!(act, question::Act::Cancel) {
-                    // The turn's own stop, and **only** it: the requester reads
-                    // this as its question being over and gives it back for the
-                    // loop to act on. A `QuestionCancelled` in front of it would
-                    // release the turn to run the rest of its step before the
-                    // interrupt had been read by anyone.
-                    self.settled_question();
-                    // **The question's `■ Cancelled` is the turn's line**, and
-                    // nothing follows it: upstream's `cancelQuestionPrompt`
-                    // records the question cancelled and stops the turn, with
-                    // no line of the turn's own after it and no exit armed --
-                    // the key was the question's (`input_question_runtime.zig:
-                    // 59-80`; `receipts/f3/fx-question-…-q2-esc`).
-                    self.cancel_turn_with(true);
-                    self.settle_band(now);
-                } else {
-                    self.work.control(TurnControl::QuestionCancelled { id });
-                    self.settled_question();
-                }
+                self.mark(Mark::Block(vec![(
+                    question::cancelled_row(&self.palette),
+                    DocumentRow::Plain,
+                )]));
+                self.settled_question();
+                // **The question's `■ Cancelled` is the turn's line**, and
+                // nothing follows it: upstream's `cancelQuestionPrompt` records
+                // the question cancelled and stops the turn, with no line of
+                // the turn's own after it and no exit armed -- the key was the
+                // question's (`input_question_runtime.zig:59-80`;
+                // `receipts/f3/fx-question-…-q2-esc`).
+                self.cancel_turn_with(true);
+                self.settle_band(now);
             }
         }
     }
@@ -4514,7 +4515,11 @@ impl Shell {
         let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
-        if self.transcript.queue_block(rows) {
+        // What each row is, recorded with it for a theme report: the group's
+        // own rows by the group, and the lines written under it plain.
+        let mut kinds = self.group.kinds();
+        kinds.resize(rows.len(), DocumentRow::Plain);
+        if self.transcript.queue_block(rows, kinds) {
             self.owed();
         }
     }
@@ -4710,8 +4715,10 @@ impl Shell {
     ///
     /// The rows are written as they are, with no gutter: their indents are
     /// part of them, because an answer's hangs five columns in, under the
-    /// question's text, and the document has no gutter that wide.
-    fn write_block(&mut self, rows: &[String]) {
+    /// question's text, and the document has no gutter that wide. Each is
+    /// recorded as what it is ([`Transcript::queue_kind`]), for a theme report
+    /// that later repaints it.
+    fn write_block(&mut self, rows: &[(String, DocumentRow)]) {
         self.close_answer();
         self.finish_document_line();
         if self.transcript.queue_gutter(Gutter::None) {
@@ -4720,9 +4727,19 @@ impl Shell {
         if !self.transcript.ends_blank() {
             self.end_transcript_line();
         }
-        for row in rows {
+        let mut current = DocumentRow::Plain;
+        for (row, kind) in rows {
+            if *kind != current {
+                current = *kind;
+                if self.transcript.queue_kind(current) {
+                    self.owed();
+                }
+            }
             self.write_transcript_as(row, Role::Plain);
             self.end_transcript_line();
+        }
+        if current != DocumentRow::Plain && self.transcript.queue_kind(DocumentRow::Plain) {
+            self.owed();
         }
         self.end_transcript_line();
     }
@@ -5267,6 +5284,9 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
+            // Shift on Up and Down means something only to a question's
+            // field; to every surface below it is the arrow it always was.
+            let event = unshifted(event);
             if self.asking() {
                 self.decide(event, now);
                 continue;
@@ -5458,6 +5478,12 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
+            // Never reaches here (`unshifted` folds them back before the
+            // composer sees an event); kept as the arrows they are, so a route
+            // that skipped the fold would still move the caret rather than drop
+            // the key.
+            Action::SelectUp => self.act(Action::Up, now),
+            Action::SelectDown => self.act(Action::Down, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -6196,6 +6222,22 @@ impl Shell {
         self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
+    }
+}
+
+/// `event` with Shift taken off Up and Down.
+///
+/// The decoder keeps Shift on the vertical arrows because a question's
+/// freeform field binds it -- the plain arrows walk the field's rows and the
+/// shifted ones choose (`super::input::Action::SelectUp`) -- and that is the
+/// only surface that does. Folded back here, once, before any other surface
+/// reads the event, so the composer, the approvals and the menus see exactly
+/// the keys they saw before Shift was kept.
+fn unshifted(event: Input) -> Input {
+    match event {
+        Input::Action(Action::SelectUp) => Input::Action(Action::Up),
+        Input::Action(Action::SelectDown) => Input::Action(Action::Down),
+        other => other,
     }
 }
 
@@ -7964,7 +8006,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 1,
-                rows: vec!["answered".to_string()]
+                rows: vec!["answered".to_string()],
+                kinds: Vec::new(),
             }]
         );
     }
@@ -7992,11 +8035,13 @@ mod tests {
             vec![
                 Append {
                     scroll: 2,
-                    rows: vec!["first".to_string(), String::new()]
+                    rows: vec!["first".to_string(), String::new()],
+                    kinds: Vec::new(),
                 },
                 Append {
                     scroll: 0,
-                    rows: vec!["second".to_string()]
+                    rows: vec!["second".to_string()],
+                    kinds: Vec::new(),
                 },
             ]
         );
@@ -8034,7 +8079,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["x".repeat(20), "x".repeat(5)]
+                rows: vec!["x".repeat(20), "x".repeat(5)],
+                kinds: Vec::new(),
             }]
         );
     }
@@ -8057,7 +8103,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["x".repeat(20), "x".repeat(5)]
+                rows: vec!["x".repeat(20), "x".repeat(5)],
+                kinds: Vec::new(),
             }],
             "the text was written as the one 25-column row the wider screen \
              would have given it"
@@ -8078,7 +8125,8 @@ mod tests {
             shell.take_pending(),
             vec![Append {
                 scroll: 2,
-                rows: vec!["abc".to_string(), String::new()]
+                rows: vec!["abc".to_string(), String::new()],
+                kinds: Vec::new(),
             }]
         );
         let _asked = shell.render.begin().expect("the frame the write asked for");
@@ -8223,11 +8271,13 @@ mod tests {
             vec![
                 Append {
                     scroll: 1,
-                    rows: vec![card_row("ask me")]
+                    rows: vec![card_row("ask me")],
+                    kinds: Vec::new(),
                 },
                 Append {
                     scroll: 1,
-                    rows: vec![String::new()]
+                    rows: vec![String::new()],
+                    kinds: Vec::new(),
                 },
             ]
         );
@@ -11758,22 +11808,20 @@ mod tests {
     fn escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document() {
         // `fx-question2-40x120-q2-esc` row 14, for either key: one row, and the
         // questions are not repeated (`writeCancelledResolution`). What the
-        // two keys tell the runtime is unchanged and asserted on its own
-        // (`escape_at_a_question_cancels_the_batch_and_arms_nothing_else`,
-        // `ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else`).
-        let mut fixture = shell(40, 120);
-        asking_question(&mut fixture, a_batch());
-        let _ = fixture.document();
-        fixture.route_bytes(&[0x1b]);
-        fixture.settle_input(Instant::now() + Duration::from_millis(100));
-        assert_eq!(fixture.document(), vec!["■ Cancelled", ""]);
-
-        let mut fixture = shell(40, 120);
-        asking_question(&mut fixture, a_batch());
-        let _ = fixture.document();
-        fixture.route_bytes(&[0x03]);
-        let document = fixture.document();
-        assert_eq!(document[..2], ["■ Cancelled", ""], "{document:?}");
+        // two keys tell the runtime is asserted on its own
+        // (`escape_at_a_question_cancels_the_turn_and_sends_nothing_else`,
+        // `ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else`). The
+        // interrupt's own notice that follows it is the interrupt unit's
+        // wording, so only the record's rows are pinned here.
+        for key in [&[0x1b][..], &[0x03][..]] {
+            let mut fixture = shell(40, 120);
+            asking_question(&mut fixture, a_batch());
+            let _ = fixture.document();
+            fixture.route_bytes(key);
+            fixture.settle_input(Instant::now() + Duration::from_millis(100));
+            let document = fixture.document();
+            assert_eq!(document[..2], ["■ Cancelled", ""], "{key:?}: {document:?}");
+        }
     }
 
     #[test]
@@ -11802,33 +11850,85 @@ mod tests {
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(now + Duration::from_millis(120));
         assert_eq!(fixture.controlled(), None, "the second Escape cancelled");
-        assert_eq!(fixture.marked(), "    3) ", "the draft was not emptied");
+        assert_eq!(fixture.marked(), "    3)  ", "the draft was not emptied");
 
-        // Past the window, at an empty draft: the batch is refused.
+        // Past the window, at an empty draft: the turn is cancelled.
+        let accepted = fixture.work.accepted();
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(now + Duration::from_secs(5));
-        assert!(matches!(
+        assert_eq!(
             fixture.controlled(),
-            Some(TurnControl::QuestionCancelled { id: QuestionId(1) })
-        ));
+            Some(TurnControl::Cancel { through: accepted })
+        );
     }
 
     #[test]
-    fn escape_at_a_question_cancels_the_batch_and_arms_nothing_else() {
+    fn a_bracketed_paste_at_an_open_answer_goes_into_it_and_shift_arrows_choose() {
+        // Through the real decoder: `ESC[200~ … ESC[201~` into the field (e2e
+        // `tui-decision-prompts.test.ts:2785`), the plain Up walks the answer
+        // and `ESC[1;2A` -- Shift+Up -- chooses (`:2825`).
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"\x1b[200~line-one\nxy\nline-three\x1b[201~");
+        fixture.route_bytes(b"\x1b[A");
+        fixture.route_bytes(b"!");
+        fixture.route_bytes(b"\x1b[1;2A");
+        assert_eq!(fixture.marked(), "    2) Quick");
+        fixture.route_bytes(b"\x1b[1;2B");
+        fixture.route_bytes(&[0x0d]);
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["line-one\nxy!\nline-three".to_string(), "Yes".to_string()],
+            })
+        );
+        assert!(
+            fixture.editor.is_empty(),
+            "the paste or the keys reached the composer"
+        );
+    }
+
+    #[test]
+    fn shift_on_the_arrows_is_the_arrow_everywhere_but_a_question() {
+        // The decoder keeps Shift on Up and Down for a question's field only;
+        // the composer's recall still answers `ESC[1;2A` as Up.
+        let mut fixture = shell(24, 80);
+        fixture.route_bytes(b"first\r");
+        let _ = fixture.picks_up();
+        fixture.route_bytes(b"\x1b[1;2A");
+        assert_eq!(fixture.editor.text(), "first", "Shift+Up did not recall");
+    }
+
+    #[test]
+    fn escape_at_a_question_cancels_the_turn_and_sends_nothing_else() {
+        // Upstream's Escape at a question (`app_input_runtime.zig:3137` ->
+        // `cancelQuestionPrompt`, `input_question_runtime.zig:59-83`): the
+        // turn is cancelled, with the one message Ctrl-C sends -- never a
+        // `QuestionCancelled`, which would tell the model the question was
+        // declined (fx e2e `tui-decision-prompts.test.ts:2454`). Divergence 7.
         let mut fixture = shell(24, 80);
         asking_question(&mut fixture, a_batch());
+        let accepted = fixture.work.accepted();
         // A lone `ESC` is the Escape key only once it has gone quiet, which is
-        // the decoder's own timeout and the settle is what resolves it
-        // (`escape_at_a_question_refuses_it_rather_than_arming_the_clear`).
+        // the decoder's own timeout and the settle is what resolves it.
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(Instant::now() + Duration::from_millis(100));
-        assert!(matches!(
-            fixture.control.try_recv(),
-            Ok(TurnControl::QuestionCancelled { id: QuestionId(1) })
-        ));
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "Escape at a question left the turn running"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "a second message: the batch was declined as well as interrupted"
+        );
         assert!(
-            fixture.control.try_recv().is_err(),
-            "Escape is not also a clear"
+            !fixture.band_rows().join("\n").contains("Which depth?"),
+            "the question stayed up"
         );
     }
 
@@ -15797,11 +15897,13 @@ mod tests {
                 vec![
                     Append {
                         scroll: 1,
-                        rows: vec!["  the next answer".to_string()]
+                        rows: vec!["  the next answer".to_string()],
+                        kinds: Vec::new(),
                     },
                     Append {
                         scroll: 1,
-                        rows: vec![String::new()]
+                        rows: vec![String::new()],
+                        kinds: Vec::new(),
                     },
                 ],
                 "{}",
