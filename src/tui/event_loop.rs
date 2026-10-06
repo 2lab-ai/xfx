@@ -826,16 +826,42 @@ fn commit_frame(
             };
         }
     }
-    // `/clear`, and before everything: the screen and its scrollback go, and
-    // what is written after this write is written onto a blank terminal. The
-    // shell has already dropped the appends it owed against the screen that is
-    // being erased, so the loop's only job is the bytes.
+    // `/clear`, `/new` and `/reset`, and before everything else on the primary
+    // plane: the document still on the screen goes into the terminal's own
+    // scrollback and the screen is left blank (`Band::hand_off`), so the
+    // welcome line the shell has already queued lands on row 1 and the band
+    // floats under it. The shell has dropped the appends it owed against the
+    // old screen, so nothing below can land under the document being handed
+    // off -- **provided this runs first**, which is why it is above the barrier
+    // that pays the primary plane before a question takes the other one.
     //
-    // A refused clear is handled the same way a refused append is
-    // (`commit_document` below): `Rejected` and `ZeroProgress` moved no bytes,
-    // so the intent is handed back (`Shell::restore_clearing`) and retried
-    // next tick, under the existing budget. `Partial` is fatal on the spot and
-    // is not re-armed -- there is no next tick for it to survive into.
+    // Held, not written, in two states. On the **alternate** plane the screen
+    // being handed off is the one `1049h` saved, and it is not on the terminal
+    // to scroll: the handoff waits for the plane to come back, as upstream's
+    // does (`SessionScrollbackHandoffUnavailable`,
+    // `app_session_runtime.zig:1784-1793`). On a screen **no band fits on** it
+    // waits for the reason every other write below does: it addresses rows by
+    // number, and a scroll cannot be taken back.
+    //
+    // Nothing is taken until the write lands (`Shell::handed_off`), so a
+    // `Rejected` or `ZeroProgress` -- neither of which moved a byte -- leaves
+    // it owed for the next tick under the existing budget, and the tick ends
+    // here: the welcome must not be appended under the document it replaces.
+    // `Partial` is fatal on the spot, like every other scroll.
+    if !band.on_alternate() && !shell.blind() && shell.owes_handoff() {
+        if let Err(emit) = band.hand_off(
+            out,
+            shell.document_rows(),
+            shell.handoff_spacing(),
+            &shell.geometry,
+        ) {
+            return match disposed(emit, failures, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(()),
+            };
+        }
+        shell.handed_off();
+    }
     // Whose screen it is, before anything is written onto it. A question the
     // band cannot show is reviewed on the terminal's other buffer, and both the
     // frames that live there and the one write that gives the plane back are
@@ -906,37 +932,6 @@ fn commit_frame(
         }
         return paint_alternate(shell, band, out, failures, now);
     }
-    if shell.take_clearing() {
-        // The one vector this loop writes itself, so the check sits here --
-        // ownership stays where it is: the shell decides that a clear is owed
-        // and what it means to its own state, and the loop writes it. What is
-        // declared is the whole of `/clear`: a blank screen, the caret at its
-        // origin, and the scrollback erased, which is the one place in the TUI
-        // that erases one.
-        let cleared = super::shell::CLEAR_SCREEN.as_bytes();
-        if let Err(emit) = check_cleared(cleared, &shell.geometry)
-            .map_err(Emit::rejected)
-            .and_then(|()| out.emit(cleared))
-        {
-            // `take_clearing` already consumed the intent above, so a
-            // `Rejected` or `ZeroProgress` -- neither of which moved a byte --
-            // has to hand it back or `/clear` is forgotten for good: nothing
-            // else ever sets the flag again. A `Partial` is not re-armed: it
-            // is fatal below on every path (`disposed`), so there is no next
-            // tick for it to survive into, and re-arming here would be a flag
-            // this session never reads again.
-            let rearm = matches!(emit, Emit::Rejected(_) | Emit::ZeroProgress(_));
-            return match disposed(emit, failures, now) {
-                Some(fatal) => Err(fatal),
-                None => {
-                    if rearm {
-                        shell.restore_clearing();
-                    }
-                    Ok(())
-                }
-            };
-        }
-    }
     // **And nothing at all on a screen no band fits on.** Every write below
     // addresses a row by number, out of a geometry that still describes the
     // screen the band was last solved for; the terminal has since reported one
@@ -950,9 +945,7 @@ fn commit_frame(
     // rows the document is owed stay owed and the reasons stay pending, and
     // both are answered by the frame `Shell::resize` asks for when the screen
     // can hold a band again -- which is also the only thing that clears this
-    // ([`Shell::blind`]). The `/clear` above is deliberately not held: it
-    // carries no coordinates, so it means the same thing on any screen, and the
-    // shell has already forgotten the rows it erases.
+    // ([`Shell::blind`]). The handoff above is held for the same reason.
     if shell.blind() {
         return Ok(());
     }
@@ -1029,29 +1022,6 @@ fn check_theme_query(bytes: &[u8], on_alternate: bool) -> io::Result<()> {
         &super::check::Declared::new(
             super::check::Intent::Queries(&[super::check::QueryId::ThemeMode]),
             super::check::Footprint::none(plane),
-        ),
-    )?;
-    Ok(())
-}
-
-/// What `/clear` says it does: a blank screen, a caret at its origin, and the
-/// scrollback erased.
-///
-/// The one vector this loop writes itself, so the declaration lives here --
-/// ownership stays where it is, with the shell deciding that a clear is owed and
-/// what it means to the shell's own state. The scrollback erase is asserted as a
-/// flag and nothing further: no grid models a terminal's scrollback, and this is
-/// the only emitter in the TUI that erases one.
-fn check_cleared(bytes: &[u8], geometry: &super::layout::Geometry) -> io::Result<()> {
-    super::check::preflight(
-        &super::check::TerminalModel::seed_foreign(geometry.rows, geometry.cols, None),
-        bytes,
-        &super::check::Declared::new(
-            super::check::Intent::Cleared,
-            super::check::Footprint::new(
-                super::check::PlaneKind::Primary,
-                vec![super::check::Seg::Erase(1..=geometry.rows)],
-            ),
         ),
     )?;
     Ok(())
@@ -2223,11 +2193,11 @@ mod tests {
     }
 
     #[test]
-    fn a_clear_makes_the_next_frame_a_whole_one() {
-        // `/clear` erases the screen behind the diff's back: the shadow still
-        // holds the band it last painted, so a frame that trusted it would find
-        // nothing changed and leave the user looking at an empty terminal for
-        // the rest of the session.
+    fn a_reset_makes_the_next_frame_a_whole_one() {
+        // A reset blanks the screen the band was painted on: a frame diffed
+        // against what the band last painted would find nothing changed and
+        // leave the user looking at an empty terminal for the rest of the
+        // session.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -2265,14 +2235,22 @@ mod tests {
         )
         .expect("the frame after the clear");
         let text = String::from_utf8_lossy(&out.written);
+        // The band was at the bottom of a full screen, rows 22 to 24: those
+        // are erased, and so is row 21 -- the fixture's document ends blank,
+        // and the blank row a document ends on is spacing, not history -- and
+        // the twenty rows above them are handed to scrollback.
+        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
         assert!(
-            text.contains(super::super::shell::CLEAR_SCREEN),
-            "the clear never reached the screen: {text:?}"
+            text.starts_with(&handoff),
+            "the handoff never reached the screen: {text:?}"
         );
+        let after = &text[handoff.len()..];
         assert!(
-            text.contains(COMPOSER_MARKER),
-            "the band was not repainted onto the screen the clear emptied: {text:?}"
+            after.contains(COMPOSER_MARKER),
+            "the band was not repainted onto the screen the reset emptied: {text:?}"
         );
+        assert!(!text.contains("\u{1b}[3J"), "the scrollback was erased");
+        assert!(!text.contains("\u{1b}[2J"), "the screen was erased whole");
     }
 
     #[test]
@@ -3062,7 +3040,7 @@ mod tests {
     }
 
     #[test]
-    fn a_clear_floats_the_band_back_to_the_top() {
+    fn a_reset_floats_the_band_back_up_under_the_welcome_line() {
         let mut shell = floating();
         let mut band = Band::new();
         let lines: Vec<String> = (1..=30).map(|n| format!("line {n}")).collect();
@@ -3073,15 +3051,68 @@ mod tests {
         shell.route_bytes(b"/clear\r");
         let text = committed(&mut shell, &mut band);
 
+        // The twenty-one document rows still on the screen go to scrollback;
+        // the nine that had already left it are there already.
         assert!(
-            text.contains(super::super::shell::CLEAR_SCREEN),
-            "the clear never reached the screen: {text:?}"
+            text.starts_with(&format!(
+                "\u{1b}[22;1H\u{1b}[J\u{1b}[24;1H{}",
+                "\n".repeat(21)
+            )),
+            "{text:?}"
         );
-        assert!(
-            shell.geometry.band_top() <= 3,
-            "a cleared screen kept its band at the bottom: {:?}",
+        // Upstream's fresh screen: the welcome line on row 1, a blank row,
+        // and the band from row 3 (`fx-sessions-40x120-new.txt`).
+        assert!(text.contains("\u{1b}[1;1H"), "{text:?}");
+        assert_eq!(shell.document_rows(), 2);
+        assert_eq!(
+            shell.geometry.band_top(),
+            3,
+            "the band did not float under the welcome line: {:?}",
             shell.geometry
         );
+    }
+
+    #[test]
+    fn the_reset_vector_for_a_ten_row_document_on_a_24_row_screen() {
+        // The report's own case, spelled out byte for byte. A floating band
+        // under ten document rows sits on rows 11 to 13; the reset erases from
+        // row 11 down, scrolls the ten rows off the top from the bottom row,
+        // and then the welcome line and its blank row land on rows 1 and 2,
+        // with the band painted from row 3.
+        let mut shell = floating();
+        let mut band = Band::new();
+        let lines: Vec<String> = (1..=10).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+        shell.end_transcript_line();
+        committed(&mut shell, &mut band);
+        assert_eq!(shell.document_rows(), 10);
+        assert_eq!(shell.geometry.band_top(), 11);
+
+        shell.route_bytes(b"/reset\r");
+        let text = committed(&mut shell, &mut band);
+
+        let handoff = format!("\u{1b}[11;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(10));
+        assert!(text.starts_with(&handoff), "{text:?}");
+        let rest = &text[handoff.len()..];
+        let welcome = super::super::shell::welcome_line(shell.palette());
+        let welcome_at = rest
+            .find(&format!("\u{1b}[1;1H{welcome}"))
+            .unwrap_or_else(|| panic!("the welcome line is not on row 1: {rest:?}"));
+        let blank_at = rest
+            .find("\u{1b}[2;1H\u{1b}[K")
+            .unwrap_or_else(|| panic!("the welcome line's blank row is not row 2: {rest:?}"));
+        let band_at = rest
+            .find("\u{1b}[?2026h")
+            .unwrap_or_else(|| panic!("no band frame followed: {rest:?}"));
+        assert!(welcome_at < blank_at && blank_at < band_at, "{rest:?}");
+        assert!(
+            rest[band_at..].contains(&format!("\u{1b}[3;1H\u{1b}[38;5;255m{COMPOSER_MARKER}")),
+            "the composer is not on row 3: {rest:?}"
+        );
+        // Nothing of the old document is written again, and nothing erases a
+        // screen or a scrollback.
+        assert!(!rest.contains("line "), "{rest:?}");
+        assert!(!text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"));
     }
 
     #[test]
@@ -3366,12 +3397,11 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_progress_clear_is_retried_next_tick_and_text_queued_meanwhile_survives() {
-        // `take_clearing` consumes the flag before the write is even
-        // attempted, so a `ZeroProgress` refusal -- which moved no bytes --
-        // has nowhere else to leave the intent but `restore_clearing`. Left
-        // unrearmed, `/clear` is silently forgotten: nothing else ever sets
-        // `clearing` again.
+    fn a_zero_progress_handoff_is_retried_next_tick_and_text_queued_meanwhile_survives() {
+        // A refused handoff moved no byte, so it is still owed -- it is never
+        // taken until one lands -- and the tick ends there: the welcome line
+        // the reset queued must not be appended under the document it was
+        // supposed to replace.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -3385,7 +3415,7 @@ mod tests {
         shell.route_bytes(b"/clear\r");
         assert!(
             shell.owes_document(),
-            "the clear's own notice was not queued as a document row"
+            "the reset's welcome line was not queued as a document row"
         );
 
         commit_frame(
@@ -3396,16 +3426,14 @@ mod tests {
             start,
             Reconciled,
         )
-        .expect("a zero-progress refusal of the clear is not fatal");
+        .expect("a zero-progress refusal of the handoff is not fatal");
         assert!(
             screen.written.is_empty(),
-            "the refused clear must not have reached the terminal"
+            "the refused handoff, or something behind it, reached the terminal"
         );
+        assert!(shell.owes_handoff(), "a refused handoff was forgotten");
 
-        // Text queued strictly between the refusal and the retry: the case
-        // `restore_clearing` exists to keep separate from `clear_screen`,
-        // which would drop this along with everything else `/clear` already
-        // discarded once.
+        // Text queued strictly between the refusal and the retry.
         shell.write_transcript("fresh text\n");
 
         commit_frame(
@@ -3416,36 +3444,37 @@ mod tests {
             at(start, 8),
             Reconciled,
         )
-        .expect("the retried clear");
+        .expect("the retried handoff");
+        assert!(!shell.owes_handoff());
 
         let text = String::from_utf8(screen.written).expect("utf-8");
+        // A band that had painted nothing claims none of the screen, so the
+        // whole of it is handed off but the blank row the document ends on.
+        let handoff = format!("\u{1b}[24;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(23));
+        assert!(text.starts_with(&handoff), "{text:?}");
         assert_eq!(
-            text.matches("\u{1b}[H\u{1b}[2J\u{1b}[3J").count(),
+            text.matches(&handoff).count(),
             1,
-            "the clear vector must land exactly once, not zero and not twice: {text:?}"
+            "the handoff must land exactly once, not zero and not twice: {text:?}"
         );
-        let clear_at = text
-            .find("\u{1b}[H\u{1b}[2J\u{1b}[3J")
-            .expect("the retried clear");
-        let notice_at = text
-            .find("cleared the screen")
-            .expect("the clear's own notice");
+        let welcome_at = text
+            .find("Run /help for commands")
+            .expect("the reset's welcome line");
         let fresh_at = text
             .find("fresh text")
-            .expect("text queued while the clear was still owed was dropped with it");
+            .expect("text queued while the handoff was still owed was dropped with it");
         assert!(
-            clear_at < notice_at && notice_at < fresh_at,
-            "the retried clear did not keep its order relative to what followed it: {text:?}"
+            welcome_at < fresh_at,
+            "the retried handoff did not keep its order relative to what followed it: {text:?}"
         );
     }
 
     #[test]
-    fn a_partial_clear_ends_the_session_and_the_intent_is_not_rearmed() {
-        // The sibling that does not resume: a `Partial` clear already put
-        // some of its vector on the terminal, so `disposed` ends the session
-        // on it rather than counting it against the budget -- and re-arming
-        // `clearing` would be a flag a session that is about to end never
-        // reads again.
+    fn a_partial_handoff_ends_the_session_and_nothing_follows_it() {
+        // The sibling that does not resume: a `Partial` handoff already put
+        // some of its scroll on the terminal, and a scroll cannot be taken
+        // back, so `disposed` ends the session on it rather than counting it
+        // against the budget -- and nothing queued behind it is written.
         let mut shell = shell();
         let mut band = Band::new();
         let mut failures = FrameFailures::default();
@@ -3461,11 +3490,14 @@ mod tests {
             Instant::now(),
             Reconciled,
         )
-        .expect_err("a clear the terminal took part of ends the session rather than being retried");
+        .expect_err(
+            "a handoff the terminal took part of ends the session rather than being retried",
+        );
         assert!(err.to_string().contains('3'), "{err}");
-        assert!(
-            !shell.take_clearing(),
-            "a partial clear left the intent armed as if nothing had reached the terminal"
+        assert_eq!(
+            screen.written.len(),
+            3,
+            "something was written after the torn handoff"
         );
     }
 
@@ -4041,13 +4073,66 @@ mod tests {
     }
 
     #[test]
-    fn a_clear_and_a_report_in_one_tick_never_bring_the_erased_document_back() {
-        // The ordering that makes this a real hazard: `/clear` erases the
-        // screen *before* the document writer runs, and the band is told what
-        // that means only when the frame is built, after it. A recolour paid in
-        // between would repaint the erased answer back onto a screen the user
-        // emptied -- and it must not matter which of the two the batch carried
-        // first.
+    fn a_reset_while_a_question_owns_the_other_plane_waits_for_the_plane_to_come_back() {
+        // The screen a reset hands to scrollback is the one `1049h` saved, and
+        // it is not on the terminal while the question is: scrolled there, it
+        // would be the question's buffer that moved and the document that
+        // stayed. Upstream defers the same way
+        // (`SessionScrollbackHandoffUnavailable`,
+        // `app_session_runtime.zig:1784-1793`).
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+        let now = Instant::now();
+        a_document_on_the_screen(&mut shell, &mut band, &mut out, &mut failures, now);
+
+        shell.apply(a_change_too_big_for_the_band());
+        assert_eq!(
+            shell.screen_owner(),
+            ScreenOwner::Approval,
+            "the question did not take the plane, so this case proves nothing"
+        );
+        tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        shell.reconcile_approval();
+
+        // The question has the keys, so the reset is reached the way the
+        // router reaches it.
+        crate::tui::router::CommandHandlers::reset(&mut shell.shell);
+        let borrowed = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(
+            !borrowed.contains("\u{1b}[24;1H\n") && !borrowed.contains("Run /help for commands"),
+            "the reset was written onto the buffer the question borrowed: {borrowed:?}"
+        );
+        assert!(
+            shell.owes_handoff(),
+            "the handoff was dropped while the question was up"
+        );
+
+        // Answered: the plane comes back, and then the document goes to
+        // scrollback and the welcome line lands on the screen it left.
+        shell.route_bytes(b"3");
+        let given_back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        assert!(given_back.contains(LEAVES_ALTERNATE), "{given_back:?}");
+        let back = tick(&mut shell, &mut band, &mut out, &mut failures, now);
+        // The document ends on the blank row under its notice, which is
+        // erased with the band rather than carried.
+        let handoff = format!("\u{1b}[21;1H\u{1b}[J\u{1b}[24;1H{}", "\n".repeat(20));
+        assert!(back.starts_with(&handoff), "{back:?}");
+        assert!(back.contains("Run /help for commands"), "{back:?}");
+        assert!(!shell.owes_handoff());
+    }
+
+    #[test]
+    fn a_reset_and_a_report_in_one_tick_never_repaint_the_document_handed_to_scrollback() {
+        // The ordering that makes this a real hazard: a reset hands the
+        // document to scrollback *before* the document writer runs, and the
+        // recolour a report owes is paid by that writer. Paid against rows
+        // the band still believed were on the screen, it would paint the
+        // answer back onto the screen the reset emptied -- and it must not
+        // matter which of the two the batch carried first. The handoff leaves
+        // the band knowing the screen holds no document row, so the recolour
+        // finds nothing to repaint.
         for report_first in [true, false] {
             let mut shell = shell();
             let mut band = Band::new();
@@ -4067,8 +4152,8 @@ mod tests {
                 let written = tick(&mut shell, &mut band, &mut out, &mut failures, now);
                 assert!(
                     !written.contains("a streamed answer") && !written.contains("read_file ok"),
-                    "tick {tick_number} with the report {} the clear brought \
-                     erased history back: {written:?}",
+                    "tick {tick_number} with the report {} the reset repainted \
+                     the document it handed to scrollback: {written:?}",
                     if report_first { "before" } else { "after" }
                 );
             }
@@ -8356,44 +8441,6 @@ mod tests {
             written.contains("ANSWER-TEXT-WHILE-DECIDING"),
             "the document rows a question held back were dropped: {written:?}"
         );
-    }
-
-    #[test]
-    fn a_clear_that_left_synchronized_output_open_is_refused() {
-        // `?2026h` with no close leaves a terminal that supports it presenting
-        // nothing at all until somebody else closes it -- a frozen screen, from
-        // a vector whose whole declared job is to blank one.
-        let geometry = super::super::layout::solve(24, 80, 1).expect("a band");
-        let opened = "\u{1b}[?2026h\u{1b}[H\u{1b}[2J\u{1b}[3J";
-        let refused =
-            check_cleared(opened.as_bytes(), &geometry).expect_err("a clear that froze the screen");
-        assert!(
-            refused.to_string().contains("synchronized"),
-            "the refusal did not name the synchronized output: {refused}"
-        );
-    }
-
-    #[test]
-    fn a_clear_that_kept_the_scrollback_or_a_cell_is_refused() {
-        // `/clear` is the one emitter in the TUI that erases a terminal's
-        // scrollback, and the only one whose declared intent is a blank screen:
-        // a vector missing either half is not the thing the shell asked for.
-        let geometry = super::super::layout::solve(24, 80, 1).expect("a band");
-        check_cleared(super::super::shell::CLEAR_SCREEN.as_bytes(), &geometry)
-            .expect("the clear as it stands");
-
-        let kept_scrollback = "\u{1b}[H\u{1b}[2J";
-        let refused =
-            check_cleared(kept_scrollback.as_bytes(), &geometry).expect_err("a kept scrollback");
-        assert!(
-            refused.to_string().contains("scrollback"),
-            "the refusal did not name the scrollback: {refused}"
-        );
-
-        // An erase of one row rather than the screen: the rows a clear promised
-        // to blank are still holding whatever was on them.
-        let one_row = "\u{1b}[H\u{1b}[K\u{1b}[3J";
-        assert!(check_cleared(one_row.as_bytes(), &geometry).is_err());
     }
 
     // --- P3-WRAP: the shipped painter, measured -----------------------------
