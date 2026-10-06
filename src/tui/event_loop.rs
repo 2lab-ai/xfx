@@ -1117,19 +1117,27 @@ fn commit_band(
             // to fix -- a fixed cleanup vector, then the same frame rebuilt
             // from an erased shadow, in this same call
             // (`Band::recover_primary`). Spent on the ORIGINAL failure exactly
-            // as a refused write is (`failures.failed`, never `succeeded`), so
-            // a screen that keeps tearing frames still runs the budget out
-            // even though each individual tear is recovered. The original's
-            // own text is kept before it moves, so a recovery failure below
-            // can still say what the *first* tear was, not only the second.
+            // as a refused write is (`failures.record`/`failed`, never
+            // `succeeded`), so a screen that keeps tearing frames still runs
+            // the budget out even though each individual tear is recovered.
+            // The original's own text is kept before it moves, so a recovery
+            // failure below can still say what the *first* tear was, not
+            // only the second.
             let original = emit.into_error();
             let original_text = original.to_string();
-            if let Some(fatal) = failures.failed(original, now) {
+            // A tear found already past the budget ends the session on ITS
+            // OWN error, not the run's possibly different, already-repaired
+            // `first` -- and gets no recovery attempt either, checked before
+            // `original` moves into `record` below.
+            if failures.expired(now) {
                 return Err(super::diagnostic::mark(
-                    super::diagnostic::Reason::Exhausted,
-                    fatal,
+                    super::diagnostic::Reason::Partial,
+                    original,
                 ));
             }
+            // Ordinary first-failure bookkeeping for a tear still inside the
+            // budget; `expired` above already rules out exhaustion here.
+            failures.record(original, now);
             match band.recover_primary(out, &rows, &shell.geometry, cursor) {
                 // Recovered: the screen holds a whole, correct band again,
                 // but this tick still reports `false` -- no
@@ -1448,7 +1456,7 @@ fn paint_alternate(
     }
 }
 
-/// Where a failed emit goes, and the **only** place that is decided.
+/// Failure disposition outside `commit_band`'s primary-plane Partial recovery arm.
 ///
 /// Two roads, and which one a failure takes is settled by one question: is any
 /// byte of that vector already on the terminal?
@@ -1472,10 +1480,10 @@ fn paint_alternate(
 /// budget is where the room for that is given ([`super::deliver`]).
 fn disposed(emit: Emit, failures: &mut FrameFailures, now: Instant) -> Option<io::Error> {
     match emit {
-        // P3-DIAGNOSTIC: marked here and nowhere else, because this is the
-        // one place that already knows which road a failure took -- a
-        // wrapper that guessed the reason from the error's own text later
-        // would have to reconstruct exactly this match.
+        // P3-DIAGNOSTIC: marked here for every `Partial` except the one
+        // `commit_band`'s own primary-plane recovery arm already marks
+        // itself, before this function is ever reached for it -- the two
+        // together are the whole match, neither guessed from an error's text.
         prefix @ Emit::Partial { .. } => Some(super::diagnostic::mark(
             super::diagnostic::Reason::Partial,
             prefix.into_error(),
@@ -1522,6 +1530,28 @@ impl FrameFailures {
         self.pending_recovery = false;
     }
 
+    /// True if a failure landing at `now` would already find the run's
+    /// [`FRAME_BUDGET`] spent. The one comparison against `FRAME_BUDGET`
+    /// this type makes; [`failed`](Self::failed) below defers to it rather
+    /// than repeating the threshold. Read-only: `began` is read, not
+    /// `get_or_insert`ed, so calling this never itself starts the clock.
+    fn expired(&self, now: Instant) -> bool {
+        self.began
+            .is_some_and(|began| now.saturating_duration_since(began) >= FRAME_BUDGET)
+    }
+
+    /// Starts the run's clock, and its `first` failure, if this is the first
+    /// one seen -- the bookkeeping half of [`failed`](Self::failed), split
+    /// out for a caller that has already checked [`expired`](Self::expired)
+    /// itself and so has no `Option` outcome left to handle: exhaustion is
+    /// impossible here by construction, not by an unreachable branch.
+    fn record(&mut self, err: io::Error, now: Instant) {
+        self.began.get_or_insert(now);
+        if self.first.is_none() {
+            self.first = Some(err);
+        }
+    }
+
     /// Records a failed frame. `Some` is the error the session must leave with.
     ///
     /// Every kind that reaches it counts, and there is no carve-out for
@@ -1541,14 +1571,12 @@ impl FrameFailures {
     /// The *first* failure of a run never ends a session, whatever the clock
     /// says: it starts the budget rather than spending it.
     fn failed(&mut self, err: io::Error, now: Instant) -> Option<io::Error> {
-        let began = *self.began.get_or_insert(now);
-        if self.first.is_none() {
-            self.first = Some(err);
+        self.record(err, now);
+        if self.expired(now) {
+            self.first.take()
+        } else {
+            None
         }
-        if now.saturating_duration_since(began) < FRAME_BUDGET {
-            return None;
-        }
-        self.first.take()
     }
 }
 
@@ -5340,6 +5368,25 @@ mod tests {
         }
     }
 
+    /// Refuses the very first byte of every vector, always with the same
+    /// `errno` -- one no other fixture in this file shares -- so a case that
+    /// needs a run's *first* failure and a later tear to be provably
+    /// different errors, not just different variants, can tell them apart by
+    /// more than luck.
+    struct RefusesFromTheFirstByte;
+
+    impl RawWrite for RefusesFromTheFirstByte {
+        fn write_once(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from_raw_os_error(libc::EACCES))
+        }
+    }
+
+    impl Sink for RefusesFromTheFirstByte {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            emit_counted(self, bytes)
+        }
+    }
+
     impl RawWrite for TornScreen {
         fn write_once(&mut self, bytes: &[u8]) -> io::Result<usize> {
             if self.failed {
@@ -5689,6 +5736,101 @@ mod tests {
             err.kind(),
             io::ErrorKind::BrokenPipe,
             "the third tear was not charged against the first tear's own clock: {err}"
+        );
+    }
+
+    // P3-DIAGNOSTIC RED, Trinity R2: `FrameFailures::failed` only ever hands
+    // back the run's *first* failure. When the budget expires on a tear
+    // (`Emit::Partial`) that arrives behind an earlier, unrelated first
+    // failure, the unmodified branch reported that first failure's own kind
+    // under `Reason::Exhausted` -- losing the tear that actually ended this
+    // tick, both in the returned `io::Error` and in the independent report
+    // `diagnostic::report` writes from it.
+    #[test]
+    fn a_budget_expired_by_an_earlier_failure_still_reports_the_current_tear_as_partial() {
+        let mut fixture = shell();
+        fixture.shell.apply(asked_inline());
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let t0 = Instant::now();
+
+        // The run's first failure: `ZeroProgress`, `EACCES`/`PermissionDenied`
+        // -- a kind and errno no other case in this test needs, so a report
+        // that leaked it back out could not be mistaken for the tear below.
+        commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut RefusesFromTheFirstByte,
+            &mut failures,
+            t0,
+        )
+        .expect("the first failure of a run never ends the session");
+        assert_eq!(
+            failures.first.as_ref().map(io::Error::kind),
+            Some(io::ErrorKind::PermissionDenied),
+            "the fixture this case depends on did not start the budget the way it expects"
+        );
+
+        // A torn primary-band frame, at the first failure's own clock plus
+        // the whole budget: the budget is already spent when this tear
+        // arrives, so no recovery may be attempted on it either.
+        let mut tear = TornScreen::taking(5);
+        let err = commit_band(
+            &mut fixture.shell,
+            &mut band,
+            &mut tear,
+            &mut failures,
+            t0 + FRAME_BUDGET,
+        )
+        .expect_err("a tear at the first failure's clock plus the whole budget did not exhaust it");
+
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::BrokenPipe,
+            "the exhausted budget reported the run's first, unrelated failure's kind instead \
+             of the current tear's own: {err}"
+        );
+        assert!(
+            err.to_string().contains("accepted 5 bytes"),
+            "the current tear's own accepted count was lost behind the run's first failure: {err}"
+        );
+        assert_eq!(
+            tear.written.len(),
+            5,
+            "a cleanup or rebuild vector was offered to an already-exhausted budget: {:?}",
+            String::from_utf8_lossy(&tear.written)
+        );
+
+        // The independent record this session's exit writes must agree: the
+        // *current* tear's kind, under `Reason::Partial` -- not the first
+        // failure's kind under `Reason::Exhausted` -- and still exactly the
+        // closed four-key schema, with none of the tear's own words in it.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load a configuration against a fresh home");
+        super::super::diagnostic::report(&config, &err).expect("the report was written");
+        let body = std::fs::read_to_string(home.path().join(".xfx").join("last-tui-error.json"))
+            .expect("read the report");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&body).unwrap_or_else(|err| panic!("not valid JSON: {err}"));
+        // The exact object, not a substring check: the current tear's own
+        // kind under `Reason::Partial`, a wrapped `Prefix` errno of `null`,
+        // and nothing else -- no schema key an incidental digit or word
+        // check could miss, and no room for the tear's own "accepted 5
+        // bytes" sentence to hide in an unchecked extra field.
+        assert_eq!(
+            parsed,
+            serde_json::json!({
+                "schema": 1,
+                "reason": "partial",
+                "error_kind": "BrokenPipe",
+                "errno": null,
+            }),
+            "the report is not exactly the expected object: {body:?}"
         );
     }
 
@@ -8091,5 +8233,499 @@ mod tests {
             "backspacing the whole draft did not shrink the composer back to one row"
         );
         rig.assert_idle("the shrunk draft");
+    }
+
+    // -----------------------------------------------------------------------
+    // P3-LAYOUT: the retained body is the committed source, and only that
+    // -----------------------------------------------------------------------
+    //
+    // The sibling of the acceptance slice above, for the question it says it
+    // cannot answer: that comment pins *no re-emission* and states outright
+    // that preservation needs a decode of the real screen. This case makes the
+    // narrow version of that decode -- of the bytes the sink **took**, in
+    // order, onto an in-memory screen -- and so can say what is on the rows
+    // rather than only what was written to them a second time.
+    //
+    // What it is about is one join the controller already makes and nothing
+    // here may loosen: the document's newest row is a function of the source
+    // the transcript has **committed**, and a refused append commits nothing
+    // (`transcript.rs:505-531` adopts only on `Landed::All`). So an append the
+    // terminal refused must leave the retained row reading exactly what the
+    // last accepted vector put there -- and the frame that would have followed
+    // it must not run at all (`event_loop.rs:959-962`). Nothing here caches a
+    // source anywhere: the freshness is read off the screen the accepted bytes
+    // make.
+    //
+    // It is **not** a claim about a real terminal. No pty, no process, no
+    // clock: one fixed instant and a modelled screen, which is the same
+    // instrument every other case in this module uses and carries the same
+    // limit -- what a terminal does with these bytes is `scripts/smoke-tui.sh`
+    // and the tracked pty scenario's question, not this one's.
+    //
+    // And the screen below is narrower than a terminal in three further ways,
+    // all of which the fixture stays inside rather than papering over: the
+    // text is fixed ASCII, so no width beyond one column per `char` is
+    // modelled; the rows arrive **already wrapped** by the transcript, so
+    // there is no autowrap at the right margin and none is implemented; and
+    // `CR` (and every other control this loop does not write) is unmodelled
+    // and refused loudly rather than ignored. A vector that needed any of the
+    // three would panic here instead of being scored wrong.
+
+    /// A [`Sink`] scripted like [`ScriptedSink`] that also keeps **what the
+    /// terminal took**.
+    ///
+    /// Neither seam above answers this on its own, and the difference is the
+    /// whole point of the case: [`ScriptedSink`] records every vector it was
+    /// *offered*, refused ones included, and [`CountingScreen`] keeps bytes it
+    /// has no way to refuse. What a screen is holding is neither of those --
+    /// it is the concatenation of the vectors that were **accepted**, in the
+    /// order they were accepted, and a refused vector is not in it. A case
+    /// that read `calls` would score a refused append as if it had landed.
+    #[derive(Default)]
+    struct TakenScreen {
+        answers: std::collections::VecDeque<Result<(), Emit>>,
+        /// Every vector offered, taken or not. Read only for *how many* and
+        /// what shape: whether a band frame followed a refused append is a
+        /// question about what was offered, not about what the screen holds.
+        offered: Vec<Vec<u8>>,
+        /// The vectors this sink answered `Ok` to, concatenated. The screen.
+        taken: Vec<u8>,
+    }
+
+    impl TakenScreen {
+        /// The bytes accepted since `mark` -- one tick's worth, when `mark` was
+        /// taken before it.
+        fn taken_since(&self, mark: usize) -> &[u8] {
+            &self.taken[mark..]
+        }
+    }
+
+    impl Sink for TakenScreen {
+        fn emit(&mut self, bytes: &[u8]) -> Result<(), Emit> {
+            self.offered.push(bytes.to_vec());
+            match self.answers.pop_front().unwrap_or(Ok(())) {
+                Ok(()) => {
+                    self.taken.extend_from_slice(bytes);
+                    Ok(())
+                }
+                Err(emit) => Err(emit),
+            }
+        }
+    }
+
+    /// An accepted byte stream, replayed onto an in-memory screen.
+    ///
+    /// `frame.rs`'s own `Screen` models four rules for *append* vectors alone,
+    /// is private to that module, and `frame.rs` is not this slice's to touch
+    /// -- so the loop's whole accepted stream, band frames and appends
+    /// together, has no decoder in this file. This is that decoder and no more
+    /// than that: exactly the sequences this loop really writes, each one
+    /// either modelled or refused loudly, so that a vector which grows a new
+    /// shape cannot be silently mis-scored into a passing assertion.
+    ///
+    /// * `CUP(row, column)` places the cursor, clamped to the screen.
+    /// * a linefeed on the bottom row scrolls, and the top row leaves into
+    ///   native scrollback; anywhere else it walks the cursor down.
+    /// * `ED` (no parameter) erases from the cursor to the end of the screen,
+    ///   `EL` (no parameter) to the end of its row.
+    /// * `SGR` and **the two private modes `?25` and `?2026`** -- those two by
+    ///   name, and no other private mode -- paint no cell and are ignored:
+    ///   this models **content**, not attributes.
+    /// * printable text overwrites from the cursor rightwards, and a control
+    ///   character inside it is refused rather than stored as a cell.
+    struct Wire {
+        rows: u16,
+        lines: Vec<Vec<char>>,
+        row: u16,
+        column: usize,
+        scrolled_off: Vec<String>,
+    }
+
+    impl Wire {
+        /// The screen a session opens on: blank, with the caret at its origin.
+        fn blank(geometry: &crate::tui::layout::Geometry) -> Self {
+            Self {
+                rows: geometry.rows,
+                lines: vec![Vec::new(); usize::from(geometry.rows)],
+                row: 1,
+                column: 0,
+                scrolled_off: Vec::new(),
+            }
+        }
+
+        fn feed(&mut self, bytes: &[u8]) {
+            let mut rest = std::str::from_utf8(bytes).expect("the loop writes text and escapes");
+            while !rest.is_empty() {
+                if let Some(tail) = rest.strip_prefix('\n') {
+                    self.linefeed();
+                    rest = tail;
+                } else if let Some(tail) = rest.strip_prefix('\u{1b}') {
+                    let tail = tail.strip_prefix('[').unwrap_or_else(|| {
+                        panic!("an escape this screen does not model: {tail:?}")
+                    });
+                    let end = tail
+                        .find(|glyph: char| !matches!(glyph, '0'..='9' | ';' | '?'))
+                        .unwrap_or_else(|| panic!("an unterminated control sequence: {tail:?}"));
+                    let (params, tail) = tail.split_at(end);
+                    let (ending, tail) = tail.split_at(1);
+                    self.control(params, ending);
+                    rest = tail;
+                } else {
+                    let end = rest.find(['\u{1b}', '\n']).unwrap_or(rest.len());
+                    let (text, tail) = rest.split_at(end);
+                    self.print(text);
+                    rest = tail;
+                }
+            }
+        }
+
+        fn control(&mut self, params: &str, ending: &str) {
+            match ending {
+                "H" => {
+                    let mut coordinates = params.split(';');
+                    let row = coordinates
+                        .next()
+                        .and_then(|at| at.parse().ok())
+                        .unwrap_or(1);
+                    let column: usize = coordinates
+                        .next()
+                        .and_then(|at| at.parse().ok())
+                        .unwrap_or(1);
+                    self.row = row.clamp(1, self.rows);
+                    self.column = column.max(1) - 1;
+                }
+                "J" => {
+                    assert!(
+                        params.is_empty() || params == "0",
+                        "an erase this screen does not model: CSI {params}J"
+                    );
+                    self.erase_below();
+                }
+                "K" => {
+                    assert!(
+                        params.is_empty() || params == "0",
+                        "an erase this screen does not model: CSI {params}K"
+                    );
+                    self.erase_to_end_of_row();
+                }
+                // Attributes paint no cell of their own, and neither does the
+                // caret (`?25`) or synchronized output (`?2026`): all three
+                // are read by the cases that are about them, and this one is
+                // about content.
+                //
+                // **Exactly those two modes, by name.** A mode is not
+                // ignorable for being private: `?1049` hands the terminal a
+                // different buffer, and a stream that switched planes and went
+                // on writing would have its cells scored onto the primary
+                // screen this models
+                // (`the_screen_takes_the_two_private_modes_it_models_and_refuses_every_other`).
+                "m" => {}
+                "h" | "l" => assert!(
+                    matches!(params, "?25" | "?2026"),
+                    "a mode this screen does not model: CSI {params}{ending}"
+                ),
+                _ => {
+                    panic!("the loop wrote CSI {params}{ending}, which this screen does not model")
+                }
+            }
+        }
+
+        fn print(&mut self, text: &str) {
+            // Before a cell is touched: `feed` splits on `LF` and `ESC` and
+            // gives everything else to this function, so every *other* control
+            // -- `CR`, `TAB`, `BEL`, `NUL` -- would arrive here and be stored
+            // as an ordinary glyph. A terminal moves the caret (or rings, or
+            // does nothing) for those, so a row holding one is a row this
+            // screen has scored wrong rather than one it has refused
+            // (`the_screen_refuses_a_control_character_inside_ordinary_text`).
+            assert!(
+                !text.chars().any(char::is_control),
+                "the loop wrote a control this screen does not model, inside \
+                 text it would otherwise store as cells: {text:?}"
+            );
+            let line = &mut self.lines[usize::from(self.row) - 1];
+            for (offset, glyph) in text.chars().enumerate() {
+                let at = self.column + offset;
+                while line.len() <= at {
+                    line.push(' ');
+                }
+                line[at] = glyph;
+            }
+            self.column += text.chars().count();
+        }
+
+        fn erase_to_end_of_row(&mut self) {
+            let column = self.column;
+            self.lines[usize::from(self.row) - 1].truncate(column);
+        }
+
+        fn erase_below(&mut self) {
+            self.erase_to_end_of_row();
+            for line in &mut self.lines[usize::from(self.row)..] {
+                line.clear();
+            }
+        }
+
+        fn linefeed(&mut self) {
+            if self.row < self.rows {
+                self.row += 1;
+                return;
+            }
+            let leaving: String = self.lines.remove(0).into_iter().collect();
+            self.scrolled_off.push(leaving);
+            self.lines.push(Vec::new());
+        }
+
+        /// What row `line` -- one-based, as the terminal counts -- says.
+        fn row(&self, line: u16) -> String {
+            self.lines[usize::from(line) - 1].iter().collect()
+        }
+
+        /// How many rows the session owns anywhere -- native scrollback
+        /// included -- mention `needle`.
+        ///
+        /// Scrollback is counted because an append is a scroll: a row written
+        /// twice could have had its first copy carried off the top of the
+        /// screen, where it is the user's for good and where a check that read
+        /// only the visible rows would not see it.
+        fn rows_mentioning(&self, needle: &str) -> usize {
+            self.scrolled_off
+                .iter()
+                .filter(|line| line.contains(needle))
+                .count()
+                + (1..=self.rows)
+                    .filter(|line| self.row(*line).contains(needle))
+                    .count()
+        }
+    }
+
+    /// The head of a band frame, and therefore the needle that says one
+    /// followed an append in the same accepted stream.
+    ///
+    /// Pinned as a literal here for the reason every needle in this module is:
+    /// a case that imported the constant it checks would pass for whatever the
+    /// emitter happened to declare.
+    const OPENS_A_FRAME: &str = "\u{1b}[?2026h";
+
+    #[test]
+    fn the_screen_refuses_a_control_character_inside_ordinary_text() {
+        // The clause above says every control this loop does not write is
+        // refused rather than ignored, and that has to be true of the *text*
+        // path too, not only of the parser's: `feed` splits on `LF` and `ESC`
+        // and hands everything else to `print`, so a `CR`, a `TAB`, a `BEL` or
+        // a `NUL` would otherwise be stored as an ordinary cell -- a row that
+        // reads `"a\rb"` where the terminal would read `"b"`, which is a wrong
+        // score rather than a loud one.
+        let geometry = crate::tui::layout::solve(24, 80, 1).expect("a band");
+        for text in ["a\rb", "a\tb", "a\u{7}b", "a\0b"] {
+            let mut wire = Wire::blank(&geometry);
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                wire.feed(text.as_bytes());
+            }));
+            assert!(
+                refused.is_err(),
+                "{text:?} was stored as ordinary cells by a screen that does \
+                 not model its control"
+            );
+        }
+        // And the ordinary ASCII this loop really writes still lands.
+        let mut wire = Wire::blank(&geometry);
+        wire.feed(b"ab");
+        assert_eq!(wire.row(1), "ab", "plain text stopped landing");
+    }
+
+    #[test]
+    fn the_screen_takes_the_two_private_modes_it_models_and_refuses_every_other() {
+        // **`?1049` is why this is an exact list rather than "anything
+        // private".** It hands the terminal a *different buffer*, so a stream
+        // that entered the alternate plane and went on writing would have
+        // those cells scored onto the primary screen [`Wire`] models -- and
+        // that is silence in the one direction this file's cases read as
+        // preservation: a row nobody touched and a row touched on a buffer
+        // nobody can see look identical. `?25` and `?2026` move no cell and no
+        // plane, which is the whole reason they are ignorable at all.
+        let geometry = crate::tui::layout::solve(24, 80, 1).expect("a band");
+        for vector in [
+            "\u{1b}[?25l",
+            "\u{1b}[?25h",
+            "\u{1b}[?2026h",
+            "\u{1b}[?2026l",
+        ] {
+            let mut wire = Wire::blank(&geometry);
+            wire.feed(vector.as_bytes());
+            assert_eq!(wire.row(1), "", "{vector:?} painted a cell");
+        }
+        for vector in ["\u{1b}[?1049h", "\u{1b}[?1049l", "\u{1b}[?7h", "\u{1b}[4h"] {
+            let mut wire = Wire::blank(&geometry);
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                wire.feed(vector.as_bytes());
+            }));
+            assert!(
+                refused.is_err(),
+                "{vector:?} was taken quietly by a screen that does not model it"
+            );
+        }
+    }
+
+    /// One refusal, made fresh for the run that uses it.
+    ///
+    /// A function rather than a value because an [`Emit`] carries an
+    /// `io::Error`, which is not `Clone`: the same refusal cannot be handed to
+    /// two runs of the sequence below, and a list of them would be consumed by
+    /// the first.
+    type Refusal = fn() -> Emit;
+
+    #[test]
+    fn retained_primary_body_tracks_only_successfully_committed_document_source() {
+        // Parameterised over the two refusals that provably moved **no bytes**
+        // -- the checker's own (`Rejected`) and the descriptor's
+        // (`ZeroProgress`). They reach `commit_document`'s batch loop by
+        // different routes and are required to leave the same screen behind,
+        // which is a statement neither one of them makes alone. `Partial` is
+        // deliberately not in this list: it put a prefix on the terminal, so
+        // the retained row is *not* what the last accepted vector wrote, and
+        // its own case above owns that.
+        let refusals: [(&str, Refusal); 2] = [
+            ("a rejected append", || {
+                Emit::Rejected(io::Error::other("the output check refused this vector"))
+            }),
+            ("a zero-progress append", || {
+                Emit::ZeroProgress(io::Error::new(io::ErrorKind::BrokenPipe, "not now"))
+            }),
+        ];
+
+        for (label, refusal) in refusals {
+            let mut shell = shell();
+            let mut band = Band::new();
+            let mut failures = FrameFailures::default();
+            // One instant for the whole sequence, as the acceptance rig above
+            // takes one: nothing below may be mistaken for the clock moving,
+            // and the retry has to be inside the frame budget rather than
+            // outside it.
+            let now = Instant::now();
+            let mut out = TakenScreen::default();
+            let mut land = |shell: &mut Fixture, band: &mut Band, out: &mut TakenScreen| {
+                shell.settle_input(now);
+                shell.settle_band(now);
+                commit_frame(shell, band, out, &mut failures, now, Reconciled)
+                    .unwrap_or_else(|err| panic!("{label}: a frame ended the session: {err}"))
+            };
+
+            // --- the band's own first frame, and the screen it leaves --------
+            land(&mut shell, &mut band, &mut out);
+            // Fixed for the whole case: nothing below resizes, so every row
+            // number read out of it means the same thing at every step.
+            let geometry = shell.geometry;
+            let mut wire = Wire::blank(&geometry);
+            wire.feed(&out.taken);
+            let mut mark = out.taken.len();
+
+            // --- land an unfinished answer -----------------------------------
+            // No `end_transcript_line`: the line stays open, which is what
+            // makes the continuation below a second delta of the same row
+            // rather than a new one.
+            shell.write_transcript("SOURCE-A");
+            land(&mut shell, &mut band, &mut out);
+            wire.feed(out.taken_since(mark));
+            mark = out.taken.len();
+            assert_eq!(
+                wire.row(geometry.content_bottom),
+                "SOURCE-A",
+                "{label}: the unfinished answer is not on the document's last row",
+            );
+
+            // --- queue the continuation and an edit the band has to repaint ---
+            shell.write_transcript("-B");
+            shell.route_bytes(b"z");
+            out.answers.push_back(Err(refusal()));
+            let offered = out.offered.len();
+            land(&mut shell, &mut band, &mut out);
+
+            // Nothing reached the screen, so nothing about it may have moved.
+            assert_eq!(
+                out.taken.len(),
+                mark,
+                "{label}: a refused append still put bytes on the screen: {:?}",
+                String::from_utf8_lossy(out.taken_since(mark)),
+            );
+            let refused: Vec<String> = out.offered[offered..]
+                .iter()
+                .map(|vector| String::from_utf8_lossy(vector).into_owned())
+                .collect();
+            assert_eq!(
+                refused.len(),
+                1,
+                "{label}: the tick did not stop at the refused append: {refused:?}",
+            );
+            assert!(
+                refused[0].contains("SOURCE-A-B") && !refused[0].contains(OPENS_A_FRAME),
+                "{label}: the one refused vector was not the append: {refused:?}",
+            );
+            // The continuation of an open line rewrites the row it is already
+            // on: no linefeed, so no scroll, so the row number below is the
+            // same one the first half landed on.
+            assert!(
+                !refused[0].contains('\n'),
+                "{label}: the continuation scrolled the screen instead of \
+                 rewriting the row it was already on: {refused:?}",
+            );
+            wire.feed(out.taken_since(mark));
+            assert_eq!(
+                wire.row(geometry.content_bottom),
+                "SOURCE-A",
+                "{label}: a refused append changed the retained row",
+            );
+
+            // --- the retry, inside the budget --------------------------------
+            land(&mut shell, &mut band, &mut out);
+            let retried = String::from_utf8_lossy(out.taken_since(mark)).into_owned();
+            wire.feed(out.taken_since(mark));
+            mark = out.taken.len();
+            let landed_at = retried
+                .find("SOURCE-A-B")
+                .unwrap_or_else(|| panic!("{label}: the refused append was never retried"));
+            let frame_at = retried
+                .find(OPENS_A_FRAME)
+                .unwrap_or_else(|| panic!("{label}: the scroll's own frame never followed"));
+            assert!(
+                landed_at < frame_at,
+                "{label}: the band was painted before the append it follows: {retried:?}",
+            );
+            assert_eq!(
+                wire.row(geometry.content_bottom),
+                "SOURCE-A-B",
+                "{label}: the retained row is not what the accepted append wrote",
+            );
+            assert_eq!(
+                wire.rows_mentioning("SOURCE"),
+                1,
+                "{label}: the answer is on more than one row of the session",
+            );
+
+            // --- a frame that changes only the band ---------------------------
+            shell.route_bytes(b"y");
+            land(&mut shell, &mut band, &mut out);
+            let footer = String::from_utf8_lossy(out.taken_since(mark)).into_owned();
+            wire.feed(out.taken_since(mark));
+            mark = out.taken.len();
+            assert!(
+                !footer.is_empty() && !footer.contains("SOURCE"),
+                "{label}: a band-only frame rewrote the document: {footer:?}",
+            );
+            assert_eq!(
+                wire.row(geometry.content_bottom),
+                "SOURCE-A-B",
+                "{label}: a band-only frame did not leave the document row alone",
+            );
+
+            // --- an idle replay of the very same state -------------------------
+            let offered = out.offered.len();
+            land(&mut shell, &mut band, &mut out);
+            assert_eq!(
+                (out.offered.len() - offered, out.taken.len() - mark),
+                (0, 0),
+                "{label}: an idle replay at the same instant wrote to the screen",
+            );
+        }
     }
 }

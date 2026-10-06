@@ -705,7 +705,8 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
 
 **Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part — its
 self-check, its counted-delivery containment, and now a primary-band recovery are locally
-implemented and uncommitted; retention is not, and the rest is not**, and every unmarked item below
+implemented and uncommitted; retention exists only as the bounded prefix adaptation item 21 names
+below and not as the upstream reuse, and the rest is not**, and every unmarked item below
 is a target that is advertised nowhere. The primary-band recovery is unqualified for shipment: see
 item 21 below for its exact boundary and for why it is not an acceptance claim.
 
@@ -769,7 +770,32 @@ item 21 below for its exact boundary and for why it is not an acceptance claim.
     part** — for the primary band's `Partial` case only, uncommitted, externally reviewed with no
     MUST-FIX and green on the controller's own gated suite, but not accepted or published in any
     release; independent real-terminal confirmation is still blocked (see below). **Frame retention
-    is not implemented at all.** What
+    exists locally as one bounded adaptation and not as the upstream reuse.** An ordinary primary
+    commit reuses the adopted shadow's own cells above the top the band released *before* this
+    frame's plan ran, and tells the diff to begin there rather than at row 1
+    (`src/tui/frame.rs`'s `first_row`/`Grid::diff_from`), so those rows are excluded from the
+    **traversal** only: the preflight is unchanged and still whole, the footprint is still measured
+    from the released top, and the zero-byte `NoChange` skip is still checked against the model
+    seeded from the shadow. What makes the reuse sound is the clone itself: `plan` copies the shadow
+    and touches only the rows at or below the released top, so the rows above it are equal by
+    construction. The damaged, alternate-plane and size-mismatch guards do not mark those rows
+    unprovable — they conservatively keep the **full** traversal anyway, so the skip is never the
+    only thing standing between a frame and a wrong screen. **Source freshness is a mapping, not an
+    all-paths proof**: it comes from the document's adoption being synchronous and successful in the
+    same call, plus the refusal barrier — a `Rejected` or `ZeroProgress` document write blocks the
+    band that would have followed it. On the ordinary primary document-before-band path the tests
+    cover, that is what keeps a stale prefix from becoming a later frame's base; no wider claim is
+    made for the paths they do not reach. That
+    is now regression-proved rather than argued, by in-module cases that feed **only the bytes the
+    scripted test sink accepted** — an in-memory `TakenScreen`, with no kernel, pty or real terminal
+    anywhere in it — into an independent ASCII decoder: a landed `SOURCE-A`, a same-row `-B` whose
+    refusal blocks the following band, a retry that yields `SOURCE-A-B` exactly once, and
+    footer-only and idle frames that preserve it (`src/tui/event_loop.rs`). No separate archive of
+    the original history is required for this shape: the inspected pin `580a0c5`
+    (`frame_retention.zig:35-55`, `:78-89`, `frame_builder.zig:158-168`) proposes retention out of
+    state the frame already holds. What this is **not** is upstream parity — no full retained-body
+    reuse, no claim that every path preserving source identity has been enumerated, and nothing
+    here is committed, published or released. What
     exists is a *stateless per-vector* preflight (`src/tui/check.rs`): every vector the TUI is about
     to write is decoded into a model of the terminal seeded from what its emitter already knows,
     compared against an intent that emitter declares **separately from the bytes**, and refused
@@ -824,8 +850,8 @@ item 21 below for its exact boundary and for why it is not an acceptance claim.
     recovery lands on. Every other `Partial` — document, carry, clear, query, and the alternate screen —
     is unchanged: its bytes are never replayed and nothing re-establishes a frame from a prefix. Whether
     a terminal's own parser actually resynced is not established by any of this, on the primary band or
-    elsewhere, and the upstream retained-body reuse this row does not attempt remains open independently
-    of that. Locally,
+    elsewhere, and the upstream retained-body reuse — which the bounded prefix adaptation above does
+    not amount to — remains open independently of that. Locally,
     and not yet published in any released or merged contract (`src/tui/event_loop.rs`'s
     `commit_document`/`commit_frame`, `src/tui/transcript.rs`'s queue, `Shell::restore_clearing`): a
     `Rejected` or `ZeroProgress` append or `/clear` — the kernel accepted no bytes for either —

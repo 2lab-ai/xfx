@@ -22,6 +22,14 @@ The requirement universe below is fixed by the user's goal. Detailed behavioral 
 
 > rules/DEV.md §4의 비가역 유저 게이트를 지켜라. 정규 릴리즈 태그와 stable 배포는 별도 승인 없이는 금지한다. 실제 자격증명은 자동 fixture와 공개 리포트에 넣지 마라.
 
+## Continuation instruction — 2026-09-17
+
+This is a later instruction about *how to proceed*, recorded separately so it cannot be read as an amendment to the universe above. The requirement universe stays exactly thirteen rows; nothing here adds, removes or reweights one.
+
+> /using-dotprd 사용해서 현재까지 작업이랑 앞으로 남은 작업 상세히 기술해주고 이어서 작업해줘
+
+Read as: produce a detailed current-state and remaining-work description, then continue execution. It authorizes the documentation refresh in `resume.md` and `loop.md` and continued work along the existing plan. It does not waive the stop boundary, the shipping gates or any user-gated irreversible action.
+
 ## Sources
 
 - `.prd/03-tui-port.md` at the base: Phase 3 ladder items 18–23; architectural constraints and upstream citations.

@@ -407,17 +407,58 @@ impl Grid {
     /// the overlap, and the caller repaints it whole
     /// ([`super::frame::Band::invalidate`]).
     pub(crate) fn diff(&self, target: &Grid, geometry: &Geometry, out: &mut Vec<u8>) -> usize {
+        self.diff_from(1, target, geometry, out)
+    }
+
+    /// The same diff, over the rows from `first_row` **down**.
+    ///
+    /// The rows above `first_row` are not compared and nothing is written for
+    /// them: this says "the caller already knows those rows are equal", not
+    /// "leave them alone". A caller that cannot prove the prefix equal calls
+    /// [`Self::diff`], because a difference above `first_row` here is silently
+    /// dropped -- the screen keeps what it is holding and no later frame has
+    /// anything to say about it.
+    ///
+    /// The one caller that can prove it is [`super::frame::Band::commit`], out
+    /// of how its target is built: [`super::frame::Band::plan`] clones the
+    /// shadow and then touches only the rows the band gave back and the band's
+    /// own ([`Grid::paint_band`]), so every row above the top of what the frame
+    /// is about to write is the shadow's own cell, cloned, and comparing a cell
+    /// with itself can neither find a difference nor emit a byte.
+    ///
+    /// What that buys is the whole of why it exists. A session whose answer is
+    /// settled and whose composer takes one row asks for a frame twice a second
+    /// while a turn runs, and the document above the band is most of the screen:
+    /// comparing every cell of it, every frame, to conclude what the clone
+    /// already proves is work that grows with the terminal rather than with what
+    /// changed.
+    ///
+    /// `first_row` below row one is read as row one, so a caller's saturating
+    /// arithmetic cannot turn a narrowing into a skipped row.
+    pub(crate) fn diff_from(
+        &self,
+        first_row: u16,
+        target: &Grid,
+        geometry: &Geometry,
+        out: &mut Vec<u8>,
+    ) -> usize {
         let rows = self.rows.min(target.rows).min(geometry.rows);
         let cols = usize::from(self.cols.min(target.cols).min(geometry.cols));
         let mut touched = 0usize;
-        // What the terminal has switched on, as this frame left it.
+        // What the terminal has switched on, as this frame left it. It starts
+        // closed whatever row the run begins on, and that is what the prefix
+        // being *equal* rather than merely unwritten buys: a row the full diff
+        // would have found nothing to say about opens nothing either, so the
+        // narrowed run meets the first row it does compare in the same state.
         let mut open = String::new();
-        for line in 1..=rows {
+        for line in first_row.max(1)..=rows {
             let (Some(before), Some(after)) = (self.span(line), target.span(line)) else {
                 continue;
             };
             let old = &self.cells[before.start..before.start + cols];
             let new = &target.cells[after.start..after.start + cols];
+            #[cfg(test)]
+            note_row_compared();
             let Some(first) = (0..cols).find(|&at| old[at] != new[at]) else {
                 continue;
             };
@@ -495,6 +536,39 @@ impl Grid {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many rows the diffs on **this thread** have compared cells on, since
+    /// [`rows_compared`] last reset it.
+    ///
+    /// Per-thread rather than a process-wide counter because the test binary
+    /// runs its cases in parallel: a shared count would be every other case's
+    /// diffs as well, and the measurement would pass or fail on the scheduler.
+    static ROWS_COMPARED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// One more row whose cells a diff really read.
+///
+/// Counted where the per-row work is -- the column scan below it -- rather than
+/// at the head of the loop, because that scan is what a narrowed diff exists to
+/// not do: it is `cols` comparisons per row, and everything above it is the loop
+/// variable.
+#[cfg(test)]
+fn note_row_compared() {
+    ROWS_COMPARED.with(|counted| counted.set(counted.get() + 1));
+}
+
+/// What `run` answered, and how many rows the diffs inside it compared cells on.
+///
+/// A test utility, and deliberately not a method on [`Grid`]: no released
+/// binary counts anything, and nothing in this crate reads the count.
+#[cfg(test)]
+pub(crate) fn rows_compared<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    ROWS_COMPARED.with(|counted| counted.set(0));
+    let answered = run();
+    (answered, ROWS_COMPARED.with(std::cell::Cell::get))
+}
+
 /// How many columns of `row` have been written on.
 fn filled(row: &[Cell]) -> usize {
     row.iter()
@@ -553,6 +627,16 @@ mod tests {
         let geometry = geometry();
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(line, text, &geometry);
+        grid
+    }
+
+    /// A blank grid with each `(line, text)` on it, and nothing else.
+    fn painted_rows(rows: &[(u16, &str)]) -> Grid {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        for (line, text) in rows {
+            grid.place_row(*line, text, &geometry);
+        }
         grid
     }
 
@@ -748,6 +832,101 @@ mod tests {
         expected.place_row(1, "the document", &geometry);
         expected.place_row(geometry.divider, "--", &geometry);
         assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    // -- Grid::diff_from (the rows a caller has already proved equal) --
+
+    #[test]
+    fn a_narrow_diff_reads_no_cell_on_a_row_above_the_one_it_starts_at() {
+        // The whole of what the narrowing is for, measured where the cost is:
+        // the per-row column scan. A `diff_from` that still walked every row --
+        // or one that walked them and filtered the *output* instead -- would
+        // leave a settled session paying for the whole screen twice a second,
+        // which is the work this exists to not do.
+        let geometry = geometry();
+        let before = painted(10, "abc");
+        let after = painted(10, "aXc");
+        let mut out = Vec::new();
+        let (touched, rows) = rows_compared(|| before.diff_from(10, &after, &geometry, &mut out));
+        assert_eq!(touched, 1, "the changed row was not written");
+        // Rows ten to twenty-four: fifteen, and never the nine above them.
+        assert_eq!(
+            rows, 15,
+            "the diff read cells on rows it was told begin equal"
+        );
+    }
+
+    #[test]
+    fn a_narrow_diff_writes_nothing_for_a_row_above_the_one_it_starts_at() {
+        // The other half of the same claim, in bytes rather than in a count: a
+        // row above the start is not compared, so a difference on one is not
+        // written. That is the contract the caller carries -- and the reason
+        // `diff` itself still starts at row one.
+        let geometry = geometry();
+        let before = painted_rows(&[(3, "a settled answer"), (10, "abc")]);
+        let after = painted_rows(&[(3, "rewritten"), (10, "aXc")]);
+        let mut out = Vec::new();
+        before.diff_from(10, &after, &geometry, &mut out);
+        assert_eq!(
+            String::from_utf8(out).expect("utf-8"),
+            "\u{1b}[10;2HX",
+            "the diff wrote a row it was told to leave to the caller"
+        );
+    }
+
+    #[test]
+    fn a_narrow_diff_writes_the_row_it_starts_at() {
+        // The boundary, off by one in the direction that loses a row silently:
+        // a start of `first_row + 1` drops the band's own top row -- the
+        // divider, or the activity line a turn puts above it -- and nothing
+        // downstream would ever write it again.
+        let geometry = geometry();
+        let before = painted(10, "abc");
+        let after = painted(10, "aXc");
+        let mut out = Vec::new();
+        assert_eq!(before.diff_from(10, &after, &geometry, &mut out), 1);
+        assert_eq!(String::from_utf8(out).expect("utf-8"), "\u{1b}[10;2HX");
+    }
+
+    #[test]
+    fn a_narrow_diff_writes_what_a_full_one_does_when_the_rows_above_it_are_equal() {
+        // The equivalence the caller's invariant buys, on the rows most likely
+        // to break it: a wide cluster and a colour on the row above the start,
+        // equal in both grids, and a colour that runs into the row below. The
+        // attribute state is threaded across the *whole* frame, so a prefix
+        // that emitted nothing is also a prefix that opened nothing -- and the
+        // narrowed run must begin in the same state the full one reaches it in.
+        let geometry = geometry();
+        let above = format!("{COLOUR}{FAMILY} settled{RESET}");
+        let before = painted_rows(&[
+            (9, &above),
+            (10, &format!("{COLOUR}{FAMILY}b{RESET}")),
+            (11, "tail"),
+        ]);
+        let after = painted_rows(&[
+            (9, &above),
+            (10, &format!("{COLOUR}{FAMILY}c{RESET}")),
+            (11, "tai"),
+        ]);
+
+        let mut full = Vec::new();
+        let full_touched = before.diff(&after, &geometry, &mut full);
+        let mut narrow = Vec::new();
+        let narrow_touched = before.diff_from(10, &after, &geometry, &mut narrow);
+
+        // Hand-derived: the family is two columns, so the letter behind it is
+        // at column three and is repainted under a re-opened colour; row eleven
+        // got one column shorter, so its run is empty and the pen is closed
+        // before the erase that says the tail.
+        assert_eq!(
+            String::from_utf8(narrow.clone()).expect("utf-8"),
+            format!("\u{1b}[10;3H{COLOUR}c\u{1b}[11;4H{RESET}\u{1b}[K")
+        );
+        assert_eq!(narrow, full, "the narrowed run wrote different bytes");
+        assert_eq!(
+            narrow_touched, full_touched,
+            "the narrowed run counted different rows"
+        );
     }
 
     // -- Grid::retint_document (P3-THEME, the document's visible cells) --

@@ -203,6 +203,22 @@ pub(crate) struct Band {
     /// is what a check that did nothing would also do.
     #[cfg(test)]
     tamper: Option<fn(&mut Vec<u8>)>,
+    /// A test's hand on the **target grid**, between the moment
+    /// [`Self::plan`] builds it and the moment the diff and the check read it.
+    ///
+    /// [`Self::tamper`]'s reason, one layer in. A frame writes bytes for the
+    /// rows its diff compares, and the check compares the *whole* screen
+    /// against this grid -- so "a target that disagrees with the terminal on a
+    /// row no byte of this frame addresses is refused" is a claim about a
+    /// target no emitter here can build: `plan` clones the shadow, and a clone
+    /// agrees with what it was cloned from everywhere. Without a way to make
+    /// one disagree, the only thing that could be asserted is that correct
+    /// frames pass, which is what a check of nothing would also do.
+    ///
+    /// Test builds only, like the hook above it, so no released binary has a
+    /// way to reach a grid the band did not plan.
+    #[cfg(test)]
+    taint: Option<fn(&mut Grid, &Geometry)>,
 }
 
 /// One frame, and the plane it belongs to.
@@ -285,6 +301,8 @@ impl Band {
             painted_on: None,
             #[cfg(test)]
             tamper: None,
+            #[cfg(test)]
+            taint: None,
         }
     }
 
@@ -293,6 +311,14 @@ impl Band {
     #[cfg(test)]
     fn tamper_with(&mut self, tamper: fn(&mut Vec<u8>)) {
         self.tamper = Some(tamper);
+    }
+
+    /// Damages the grid every frame from here on aims at, for the tests that
+    /// have to see the check catch a disagreement no byte of the frame is
+    /// near.
+    #[cfg(test)]
+    fn taint_target_with(&mut self, taint: fn(&mut Grid, &Geometry)) {
+        self.taint = Some(taint);
     }
 
     /// Whether the terminal is showing the alternate buffer this band took.
@@ -949,6 +975,10 @@ impl Band {
         }
 
         self.plan(rows, geometry);
+        #[cfg(test)]
+        if let Some(taint) = self.taint {
+            taint(&mut self.target, geometry);
+        }
         let retitled = self.title != self.shown_title;
         let moved = self.caret != Some(cursor);
 
@@ -968,7 +998,38 @@ impl Band {
             cup(&mut self.buffer, geometry.band_top(), 1);
             self.buffer.extend_from_slice(ERASE_BELOW.as_bytes());
         }
-        let touched = self.shadow.diff(&self.target, geometry, &mut self.buffer);
+        // The rows above `released` are the shadow's own cells, cloned: `plan`
+        // copies the shadow and then touches only the rows the band gave back
+        // and the band's own ([`Grid::paint_band`]), and `released` is the
+        // higher of those two tops -- captured above, before `plan` ran and
+        // before `painted` moved. So comparing them can neither find a
+        // difference nor emit a byte, and the diff is told to begin there
+        // ([`Grid::diff_from`]).
+        //
+        // The clone is the whole argument. The conditions below only decide
+        // whether it is being relied on, and they are two different kinds:
+        //
+        // * `damaged` is **reached**, on every tick behind a `/clear`, a
+        //   Ctrl-L, a resize or a [`Self::force_redraw`]. Such a frame is a
+        //   whole repaint, so it takes the full screen -- conservative rather
+        //   than necessary, since `plan` still touches nothing above
+        //   `released`.
+        // * The size and plane checks are redundant today: the invalidate above
+        //   makes the sizes agree and `commit` is the primary plane's emitter.
+        //   They are kept so that the day either stops holding, the diff falls
+        //   back instead of skipping rows whose equality nothing proves.
+        let first_row = if !self.damaged
+            && matches!(self.showing, super::shell::ScreenOwner::Primary)
+            && self.shadow.rows() == geometry.rows
+            && self.shadow.cols() == geometry.cols
+        {
+            released
+        } else {
+            1
+        };
+        let touched = self
+            .shadow
+            .diff_from(first_row, &self.target, geometry, &mut self.buffer);
         if touched == 0 && !retitled && !moved && !self.damaged {
             // **The skip is checked too, against no bytes at all.** "Nothing
             // needs to be written" is the claim that the screen already holds
@@ -3361,6 +3422,207 @@ mod tests {
             );
         }
         assert_eq!(band.painted_top(), Some(10));
+    }
+
+    // -- The rows a frame's diff reads (P3-RETENTION) --
+
+    /// The band with a turn running: the activity row moves the band's top row
+    /// up by one, and giving it back moves it down again.
+    fn running() -> Geometry {
+        crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn")
+    }
+
+    #[test]
+    fn a_frame_reads_no_cell_on_the_document_rows_above_the_band() {
+        // The cost of a settled session: the band asks for a frame twice a
+        // second while a turn runs, and the document above it is most of the
+        // screen. Those rows are the shadow's own cells, cloned into the target
+        // by `plan` and not touched again, so a frame that compared them is
+        // paying for the whole terminal to re-derive what the clone proves.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame");
+        // A real document row above the band, so the rows the frame skips hold
+        // something: a blank prefix would be skipped cheaply either way and the
+        // measurement would say nothing.
+        band.append_document(&mut screen, 0, &["a settled answer".to_string()], &geometry)
+            .expect("a document row settles above the band");
+
+        let typed = vec!["--".to_string(), "> hi".to_string(), "hint".to_string()];
+        let (commit, rows) = crate::tui::grid::rows_compared(|| {
+            band.commit(&mut screen, &typed, &geometry, (23, 4))
+        });
+        commit.expect("the frame that shows the keystroke");
+        // The band's own three rows -- divider, composer, hint -- and not one
+        // of the twenty-one above them.
+        assert_eq!(
+            rows, 3,
+            "the frame read cells on the terminal's own document rows"
+        );
+    }
+
+    #[test]
+    fn a_frame_reads_the_rows_a_shrinking_band_gave_back() {
+        // The boundary, in the direction that loses the user's screen: a turn
+        // that ends gives the activity row back to the document, and the only
+        // thing that ever erases it is this frame's diff. A window that began
+        // at the band's *new* top row would leave `Thinking` on the screen for
+        // the rest of the session -- and after the exit.
+        let running = running();
+        let idle = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &running_rows(), &running, (23, 2))
+            .expect("a frame while a turn runs");
+        assert_eq!(band.painted_top(), Some(21));
+
+        screen.written.clear();
+        let (commit, rows) = crate::tui::grid::rows_compared(|| {
+            band.commit(&mut screen, &band_rows(), &idle, (23, 2))
+        });
+        commit.expect("the frame that ends the turn");
+        assert_eq!(
+            rows, 4,
+            "the frame did not read exactly the row it gave back and the band's own three"
+        );
+        assert!(
+            String::from_utf8(screen.written)
+                .expect("utf-8")
+                .contains(&released(21)),
+            "the row the band gave back was never erased"
+        );
+    }
+
+    #[test]
+    fn a_frame_reads_the_rows_a_growing_band_took() {
+        // The same boundary the other way: a turn that starts takes the row
+        // above the divider, and a window that began at the row the *last*
+        // frame painted from would never write it. The activity row would be
+        // missing from a band that says it is thinking.
+        let idle = geometry();
+        let running = running();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &idle, (23, 2))
+            .expect("an idle frame");
+        assert_eq!(band.painted_top(), Some(22));
+
+        screen.written.clear();
+        let (commit, rows) = crate::tui::grid::rows_compared(|| {
+            band.commit(&mut screen, &running_rows(), &running, (23, 2))
+        });
+        commit.expect("the frame that starts the turn");
+        assert_eq!(
+            rows, 4,
+            "the frame did not read exactly the row it took and the band's own three"
+        );
+        assert!(
+            String::from_utf8(screen.written)
+                .expect("utf-8")
+                .contains("Thinking"),
+            "the row the band took was never painted"
+        );
+    }
+
+    #[test]
+    fn a_damaged_frame_reads_the_whole_screen() {
+        // The fallback is a branch a session really takes -- a `/clear`, a
+        // Ctrl-L, a resize, or the tick behind a recovered tear
+        // ([`Band::force_redraw`]) -- not a defensive `else` nothing reaches.
+        // A damaged frame knows nothing about the rows it is about to write
+        // over, so it pays for the whole screen rather than trusting a window.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a settled first frame");
+
+        band.force_redraw(&geometry);
+        let (commit, rows) = crate::tui::grid::rows_compared(|| {
+            band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+        });
+        commit.expect("the frame that answers the damage");
+        assert_eq!(
+            rows,
+            usize::from(geometry.rows),
+            "a damaged frame narrowed its diff to rows it has no claim about"
+        );
+    }
+
+    #[test]
+    fn a_target_that_disagrees_with_the_screen_above_the_diffs_window_is_refused() {
+        // The blind spot a narrowed diff would have if the check were narrowed
+        // with it. The diff no longer reads the document rows; the check still
+        // compares **every** cell of the screen against the grid the frame
+        // declares, so a target that claims a row no byte of this frame goes
+        // near is refused before the write rather than adopted as what the
+        // terminal holds -- the diff's window and the check's are two different
+        // things, and this is the one that says so.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame");
+        let writes = screen.writes;
+
+        band.taint_target_with(|target, geometry| target.place_row(2, "a ghost", geometry));
+        let typed = vec!["--".to_string(), "> hi".to_string(), "hint".to_string()];
+        let refused = band
+            .commit(&mut screen, &typed, &geometry, (23, 4))
+            .expect_err("a frame whose target claims a document row it never wrote");
+        assert!(
+            matches!(refused, Emit::Rejected(_)),
+            "the disagreement above the window was not reported as a rejection: {refused:?}"
+        );
+        assert_eq!(
+            screen.writes, writes,
+            "the frame reached the screen before the check caught it"
+        );
+    }
+
+    #[test]
+    fn a_skipped_frame_whose_target_disagrees_with_the_screen_is_refused() {
+        // The same blind spot on the path that writes **no bytes at all**.
+        // "The screen already holds this frame" is a claim about every cell,
+        // and zero bytes make it good only if the model seeded from the shadow
+        // already equals the target -- so the skip is checked too, and a target
+        // that disagrees anywhere fails it.
+        let geometry = geometry();
+        let mut band = Band::new();
+        let mut screen = Counted::default();
+        band.commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("a first frame");
+
+        // The untainted shape first, pinned rather than assumed: the same rows,
+        // the same cursor and the same title really do take the skip. Without
+        // this the rejection below could be a frame that was never a skip at
+        // all, and the case would be testing the ordinary write path.
+        let skipped = band
+            .commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect("an identical frame");
+        assert_eq!(
+            skipped,
+            Commit::NoChange,
+            "the identical frame was not the skip this case is about"
+        );
+        let writes = screen.writes;
+
+        band.taint_target_with(|target, geometry| target.place_row(2, "a ghost", geometry));
+        // The same frame again, and now the target claims a row the screen
+        // never got.
+        let refused = band
+            .commit(&mut screen, &band_rows(), &geometry, (23, 2))
+            .expect_err("a skip whose target claims a document row the screen never got");
+        assert!(
+            matches!(refused, Emit::Rejected(_)),
+            "the skipped frame's disagreement was not reported as a rejection: {refused:?}"
+        );
+        assert_eq!(
+            screen.writes, writes,
+            "a skip that should have been refused wrote to the screen"
+        );
     }
 
     #[test]

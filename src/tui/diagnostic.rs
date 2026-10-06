@@ -28,17 +28,21 @@ use std::io;
 use crate::config::RuntimeConfig;
 use crate::provider::profile;
 
-/// Why `event_loop::disposed` ended a session on this error -- the one fact
+/// Why the session ended on this error -- marked by `event_loop::disposed`
+/// for most emits, and by `event_loop::commit_band`'s own primary-plane
+/// recovery arm for the one kind it handles itself -- the one fact
 /// [`report`] is allowed to add to what the original error already says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reason {
-    /// The frame budget ran out on a screen that kept refusing whole vectors:
-    /// nothing was ever incomplete, there was just nowhere left to spend the
-    /// time offering it again.
+    /// The deadline ended the run with no *currently* unrepaired torn frame
+    /// -- the screen may have refused every vector outright, or an earlier
+    /// tear in this same run may already have been repaired
+    /// (`Band::recover_primary`); either way, nothing torn is still open.
     Exhausted,
-    /// A vector went out to the terminal in part and stopped: what reached it
-    /// may be incomplete, and no vector this session could write is known to
-    /// fix that.
+    /// A vector went out to the terminal in part and the session ended
+    /// before any repair of it completed -- none attempted, one attempted
+    /// and itself refused, or the deadline reached before one could be
+    /// tried at all.
     Partial,
 }
 
