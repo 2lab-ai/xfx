@@ -1,0 +1,28 @@
+# The full transcript after a notice mid-answer (`.prd/tui-phase4` F5, T2's
+# `notice-midstream`): a refusal and `/version` typed while the answer's
+# second paragraph streams, then Ctrl-O at the end, paged to the top where
+# the session's and the stream's full-detail records sit under the welcome.
+gateway notice-midstream-turn.json
+wait 2
+type stream a long answer please
+key Enter
+wait 2
+type /notacommand
+wait 0.3
+key Enter
+wait 0.7
+type /version
+wait 0.3
+key Enter
+wait 0.7
+wait 5
+snap end
+key C-o
+wait 1
+snap full
+key PPage
+wait 0.6
+snap full-pgup
+key PPage
+wait 0.6
+snap full-top

@@ -1,23 +1,23 @@
-x𝒇x v0.1.0-26bc0df [debug] · Run /help for commands
+  2026-10-06 20:19:00.078 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 1ms
+  finish: tool_calls
+  tokens: 1200 in · 40 out
 
-  2026-10-06 18:10:08.226 UTC · Prompt
+  2026-10-06 20:19:00.319 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 206ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:18:54.156 UTC · Prompt
 ┃ run the checks
 
-  2026-10-06 18:10:08.630 UTC · Response
+  2026-10-06 20:18:54.396 UTC · Response
   Reading first.
 
-  2026-10-06 18:10:08.743 UTC · Tool
+  2026-10-06 20:18:54.396 UTC · Tool
 ● 4 tool calls · 2 read · 1 edit · 1 command · 2 failed
 ├ Read a.txt
 │  1    alpha line 1
-│  2    alpha line 2
-│  3    alpha line 3
-
-  2026-10-06 18:10:08.979 UTC · Tool
-├ Exited 3 echo boom; echo err >&2; exit 3
-│ boom
-│ err
-│ exit code 3
 
 ┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
 

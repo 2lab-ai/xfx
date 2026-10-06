@@ -368,6 +368,19 @@ fn last_frame(text: &str) -> Option<&str> {
     Some(&text[begins..ends])
 }
 
+/// The end of a frame that leaves the cursor off: the full transcript's,
+/// whose screen has no caret (`paint_plan.zig:1047`).
+const FRAME_END_HIDDEN: &str = "\u{1b}[?2026l";
+
+/// The last complete frame, if it ended with the cursor left off -- `None`
+/// while it is still open or when it showed the cursor.
+fn last_hidden_frame(text: &str) -> Option<&str> {
+    let begins = text.rfind(FRAME_BEGIN)?;
+    let ends = text[begins..].find(FRAME_END_HIDDEN)? + begins;
+    let shown = text[ends..].starts_with(FRAME_END);
+    (!shown).then_some(&text[begins..ends])
+}
+
 /// The whole interactive mode sequence, in order (`terminal.zig:4-13`).
 ///
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
@@ -4813,12 +4826,13 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
     session.wait_for("keep me");
 
     session.type_bytes(&[0x0f]);
+    // A frame that ends with the cursor still off: the screen has no caret.
     let text = session.wait_until("one complete frame of the full transcript", |text| {
         text.contains(ENTERS_ALTERNATE)
-            && last_frame(text)
+            && last_hidden_frame(text)
                 .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains(ONLY_IN_FULL))
     });
-    let frame = last_frame(&text).expect("the wait returns on a complete frame");
+    let frame = last_hidden_frame(&text).expect("the wait returns on a complete frame");
     assert!(
         frame.contains("Read notes.txt"),
         "the call's row: {frame:?}"

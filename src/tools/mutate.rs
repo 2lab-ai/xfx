@@ -667,6 +667,7 @@ fn commit(
             let summary = describe(plan);
             ToolResult::success(summary.clone(), summary)
                 .with_changes(changes)
+                .with_change(plan.diff().cloned())
                 .with_feedback(feedback)
         }
         Err(namespace::ApplyError::Stale(reason)) => ToolResult::revoked(format!(
@@ -1676,5 +1677,56 @@ mod tests {
             created.output
         );
         assert!(recorder.last().diff.is_none(), "a create_folder had a diff");
+    }
+
+    #[test]
+    fn a_change_that_was_made_carries_its_diff_whether_or_not_anyone_reviewed_it() {
+        // The full transcript shows the diff of every change, as upstream's
+        // does (`full_transcript_screen.zig:5731-5760`), and most changes are
+        // never reviewed: `yolo` asks nothing. The pair is the one the plan
+        // was judged on -- built from the preimage the tool read -- and only
+        // the change that was made carries it.
+        let dir = tempfile::tempdir().expect("temporary workspace");
+        std::fs::write(dir.path().join("notes.txt"), "alpha\n").expect("the fixture file");
+        let scope = crate::workspace::AccessScope::primary_only(dir.path()).expect("scope");
+        let path = scope.primary().join("notes.txt");
+        let context = ToolContext::new(scope).with_permissions(
+            crate::permission::PermissionSession::new(crate::permission::PermissionMode::Yolo),
+        );
+        let metadata = std::fs::metadata(&path).expect("the fixture's metadata");
+        record_read(&context, &path, &metadata, b"alpha\n", true);
+
+        let edit = decode_edit_file(&json!({
+            "path": "notes.txt",
+            "old_string": "alpha",
+            "new_string": "beta",
+        }))
+        .expect("decodes");
+        let edited = execute_edit_file(&edit, &context);
+        assert!(edited.ok, "{}", edited.output);
+        let change = edited.change.expect("a made edit carries its change");
+        assert_eq!(change.before, "alpha\n");
+        assert_eq!(change.after, "beta\n");
+
+        let write = decode_write_file(&json!({ "path": "fresh.txt", "content": "new\n" }))
+            .expect("decodes");
+        let written = execute_write_file(&write, &context);
+        assert!(written.ok, "{}", written.output);
+        let change = written.change.expect("a made write carries its change");
+        assert_eq!(
+            (change.before.as_str(), change.after.as_str()),
+            ("", "new\n")
+        );
+
+        let create = decode_create_folder(&json!({ "path": "made" })).expect("decodes");
+        let created = execute_create_folder(&create, &context);
+        assert!(created.ok, "{}", created.output);
+        assert!(created.change.is_none(), "a folder has no content to diff");
+
+        // Asked and refused: nothing was changed, so there is no change.
+        let (_dir, context, _recorder) = asking("alpha\n");
+        let refused = execute_edit_file(&edit, &context);
+        assert!(!refused.ok);
+        assert!(refused.change.is_none(), "a refused edit carried a change");
     }
 }
