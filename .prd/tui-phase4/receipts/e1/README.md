@@ -28,7 +28,7 @@ The three scenarios are added in this unit. `filepicker` and `filepicker-keys` w
 | `filepicker-narrow` | 24x80 | `at-alpha`, `at-alpha-down`, `at-deep` | 10/10 each |
 | `filepicker-narrow` | 40x120 | the same three | 10/10 each |
 
-**Re-run after merging `plan/tui-phase4` (835f389) into this branch** (merge `26fd238`, `target/debug/xfx` rebuilt from it): the same 33 snaps, again identical beyond row 1. The first 40x120 `filepicker` attempt at load average ~95 typed its `@` before the xfx session had taken the terminal, so the keystrokes were lost and three snaps came out empty; it was retaken. The files in this directory are the pre-merge captures.
+**Re-run after merging `plan/tui-phase4` (835f389) into this branch** (merge `26fd238`, `target/debug/xfx` rebuilt from it): the same 33 snaps, again identical beyond row 1. The first 40x120 `filepicker` attempt at load average ~95 typed its `@` before the xfx session had taken the terminal, so the keystrokes were lost and three snaps came out empty; it was retaken. The files in this directory are the pre-merge captures. Re-run again on the branch's final merge (`dea972a`, plan at `dc0c137`): `filepicker` and `filepicker-keys` at 40x120 and `filepicker-narrow` at 24x80, 20 snaps, every band row identical; beyond row 1 the only difference is the turn summary's elapsed time in `submitted` and `at-claim` (`0s` against `1s`, a debug build at load average ~70), which is the document's row above the band, not the picker's.
 
 ## What each snap shows (the same on both sides)
 
