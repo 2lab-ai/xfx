@@ -26,9 +26,11 @@ capture names a scratch directory, a key or a home.
 
 Each `.txt` and `.ansi` pair, row by row, after two normalisations and nothing
 else: row 1 (the welcome line, `𝒇x v0.0.13` against `x𝒇x v0.1.0-41cf01d
-[debug]`) is dropped, and trailing blanks are trimmed. 22 of the 27 snaps are
-identical in text **and** SGR under that; the five that are not are explained
-per snap below, and none of them is a row this unit draws.
+[debug]`) is dropped, and trailing blanks are trimmed. 20 of the 25 snaps are
+identical in text **and** SGR under that (10 + 2 + 1 + 0 + 7 across the five
+scenarios); the five that are not are explained per snap below, and none of
+them is a row this unit draws. One README for all of them, with a row per
+snap, as the earlier receipts of this workstream have.
 
 ## Per snap
 
