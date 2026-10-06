@@ -1,0 +1,39 @@
+# The freeform field as fx's e2e drives it (tui-decision-prompts.test.ts:2825),
+# at its size: open `Other`, paste three lines, Up onto the middle one and type
+# there, Shift+Up chooses the option above, Shift+Down comes back to the field,
+# Enter answers. Then a second question is cancelled with Ctrl-C.
+gateway question-field.json
+wait 3
+type ask me
+key Enter
+wait 2.5
+snap q
+key 3
+wait 0.4
+snap open
+paste line-one\nxy\nline-three
+wait 0.5
+snap pasted
+key Up
+wait 0.4
+type !
+wait 0.4
+snap edited
+key S-Up
+wait 0.4
+snap shift-up
+key S-Down
+wait 0.4
+snap shift-down
+key Enter
+wait 2.5
+snap answered
+type ask again
+key Enter
+wait 2.5
+snap q2
+key C-c
+wait 2
+snap q2-cc
+snapfull end
+gwlog

@@ -1218,6 +1218,7 @@ impl Band {
     /// band's old rows are where the new ones go, and only the rows past the
     /// bottom of the screen scroll. The settled block is where the band's top
     /// *was*, `room` rows above where it is now.
+    #[cfg(test)]
     fn render_append<'rows>(
         &mut self,
         scroll: usize,
@@ -1225,6 +1226,22 @@ impl Band {
         geometry: &'rows Geometry,
         room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        self.render_append_recorded(scroll, rows, &[], geometry, room)
+    }
+
+    /// [`Self::render_append`], with what each row is recorded on the target
+    /// grid as it is placed (`super::transcript::Append::kinds`; empty is every
+    /// row plain): what a later theme report repaints its cells as
+    /// ([`Grid::retint_document`]).
+    fn render_append_recorded<'rows>(
+        &mut self,
+        scroll: usize,
+        rows: &'rows [String],
+        kinds: &[super::theme::DocumentRow],
+        geometry: &'rows Geometry,
+        room: u16,
+    ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
+        let kind = |index: usize| kinds.get(index).copied().unwrap_or_default();
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
         // written side by side rather than in two functions: an append that
@@ -1340,6 +1357,7 @@ impl Band {
             .iter()
             .enumerate()
         {
+            let index = settled - usize::from(shown) + offset;
             // A row number too, bounded by `shown` a line above it.
             let offset = u16::try_from(offset).unwrap_or(shown);
             let line = first.saturating_add(offset);
@@ -1351,6 +1369,8 @@ impl Band {
                 place(&mut self.buffer, line, row, geometry);
                 self.target.place_row(line, row, geometry);
             }
+            // A reused row is still the row this append says it is.
+            self.target.set_kind(line, kind(index));
         }
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
@@ -1366,6 +1386,7 @@ impl Band {
             };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
+            self.target.set_kind(line, kind(settled + index));
         }
         // Every row these bytes may reach, and every scroll they may make,
         // named from the counts above rather than from what was emitted.
@@ -2184,24 +2205,29 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
-        self.append_floating(out, scroll, rows, geometry, 0)
+        self.append_floating(out, scroll, rows, &[], geometry, 0)
     }
 
     /// [`Self::append_document`] onto a band that moved `room` rows down for
     /// it: the first `room` new rows take the rows the band gave back, and
     /// only the rest scroll ([`Self::render_append`]).
+    ///
+    /// `kinds` is what each row is (`super::transcript::Append::kinds`,
+    /// empty for every row plain), recorded on the grid with the row.
     pub(crate) fn append_floating(
         &mut self,
         out: &mut impl Sink,
         scroll: usize,
         rows: &[String],
+        kinds: &[super::theme::DocumentRow],
         geometry: &Geometry,
         room: u16,
     ) -> Result<(), Emit> {
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
-        let (appended, footprint, script) = self.render_append(scroll, rows, geometry, room);
+        let (appended, footprint, script) =
+            self.render_append_recorded(scroll, rows, kinds, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }

@@ -13,9 +13,9 @@
 
 [38;5;252m■[39m Cancelled
 
-  after cancel.
+[38;5;245m⊘ turn:[38;5;250m interrupted -- stopping the turn; another Ctrl-C before it stops exits.[39m
 
-[38;5;245m  2s (↑3 ↓40)[39m
+[38;5;252m✗ system:[38;5;250m the turn was cancelled[39m
 
 [38;5;255m┃[39m
 

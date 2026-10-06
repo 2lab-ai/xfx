@@ -4,8 +4,8 @@
 //! `ask_user_question` is not an approval and mints no authority
 //! ([`crate::tools::question`]): what arrives is a batch of 1 to 4 questions,
 //! each with 2 to 6 labelled choices plus a synthetic freeform slot, and what
-//! goes back is one answer per question in **entry order** -- or nothing at all,
-//! which the tool turns into its own cancellation sentinel. So none of
+//! goes back is one answer per question in **entry order** -- or nothing at all
+//! (`crate::tools::question::Reply`). So none of
 //! `super::approval`'s vocabulary is reused here: no [`ApprovalRequest`], no
 //! `ApprovalAnswer`, no `Panel`. What is shared is the *shape* of a band
 //! occupant -- `rows`, `painted`, `height`, `hint`, `apply` -- because the band
@@ -22,7 +22,9 @@
 //! on a wide screen (`questionDescriptionColumn`, `:401-405`) or on rows of its
 //! own under the label on a narrow one -- and a blank row above the bottom rule.
 //! No marker glyph: the marked choice is the one in the bold hint grey and every
-//! other is dim (`:110-112`). Batch progress is not in the panel at all but on
+//! other is dim (`:110-112`). The `Other` slot, marked, is a field: the answer
+//! wrapped by cell onto rows under its first character, the caret one reversed
+//! cell (`super::freeform`). Batch progress is not in the panel at all but on
 //! the hint row, right-aligned, and only for a batch of more than one
 //! (`questionInteractionHint`, `src/ui/footer/input_presentation.zig:192-249`).
 //! Once the batch is over the document keeps a summary of it -- each question
@@ -53,16 +55,16 @@
 //! * An ordinal for a choice the window is not showing does nothing. A digit is
 //!   a shorthand for what is on the screen, and a screen too short to list every
 //!   choice would otherwise let a user take one they cannot read.
-//! * A draft at [`MAX_FREEFORM_ENCODED_BYTES`] refuses the next character
-//!   silently, measured **after** encoding, because that is the bound the
-//!   executor re-checks and a panel that let the draft past it would build an
-//!   answer the tool then refuses whole.
-//! * Escape and Ctrl-C both cancel the **batch**, not the question: there is one
-//!   tool call and it is answered once. Which of the two keys it was is the
-//!   shell's to tell apart ([`Answered::Cancelled`] says only that the batch is
-//!   over), and so is the Escape at a draft with text in it, which upstream
-//!   arms a clear with rather than cancelling (`app_input_runtime.zig:3120-3135`;
-//!   [`QuestionPanel::holds_draft`]).
+//! * A draft at [`MAX_FREEFORM_ENCODED_BYTES`] refuses the next character --
+//!   or the whole paste -- silently, measured **after** encoding, because that
+//!   is the bound the executor re-checks and a panel that let the draft past it
+//!   would build an answer the tool then refuses whole.
+//! * Escape and Ctrl-C both end the **batch**, not the question: there is one
+//!   tool call and it is answered once. What that does to the turn -- both stop
+//!   it, as upstream's do -- is the shell's ([`Answered::Cancelled`] says only
+//!   that the batch is over), and so is the Escape at a draft with text in it,
+//!   which upstream arms a clear with rather than cancelling
+//!   (`app_input_runtime.zig:3120-3135`; [`QuestionPanel::holds_draft`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -70,20 +72,20 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 use crate::tools::question::{
-    terminal_safe, QuestionEntry, QuestionOption, FREEFORM_LABEL, MAX_FREEFORM_ENCODED_BYTES,
+    answer_safe, QuestionEntry, QuestionOption, FREEFORM_LABEL, MAX_FREEFORM_ENCODED_BYTES,
 };
-use crate::tools::QuestionRequester;
+use crate::tools::{QuestionReply, QuestionRequester};
 
 use super::approval::ControlChannel;
 use super::approval_view::safe_rows;
 use super::bridge::{park_on, send_ui, Cancellation, TurnControl, UiEvent};
-use super::editor::Editor;
+use super::freeform::{Direction, Freeform};
 use super::input::Action;
 // What the hint row's right side says while an Escape at a freeform draft has
 // armed the clear (`input_presentation.zig:530-537`): the composer's own
 // words, because it is the composer's own gesture.
 use super::shell::ESCAPE_ARMED;
-use super::theme::Palette;
+use super::theme::{DocumentRow, Palette};
 use super::wrap::width;
 
 /// What the question is written into (`question_ui.zig:78`).
@@ -111,23 +113,17 @@ const CHOICE_HINTS: [&str; 3] = [
     "enter answer · esc cancel",
 ];
 
-/// The hint row while the freeform slot is marked.
-///
-/// **Not upstream's words, on purpose.** Upstream's says
-/// `↑↓←→ cursor    shift+↑↓ options` (`input_presentation.zig:212-214`)
-/// because its draft wraps onto rows of its own and the plain arrows walk
-/// them, while the shifted arrows choose. xfx's decoder reads a shifted arrow
-/// as the arrow (`super::input`'s `cursor`), and its draft is one row, so here
-/// `↑↓` choose and only `←→` move the caret -- and a hint is a promise about
-/// what the next key does.
+/// The hint row while the freeform slot is marked
+/// (`input_presentation.zig:212-214`): the plain arrows walk the answer's rows
+/// and the shifted ones choose ([`Act::SelectUp`]).
 const FREEFORM_HINT: &str =
-    "type answer    ←→ cursor    ↑↓ options    tab questions    enter answer    esc cancel";
+    "type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel";
 
 /// The same, widest first, every one keeping Enter and Escape
-/// (`input_presentation.zig:179-184`, in xfx's words for the reason above).
+/// (`input_presentation.zig:179-184`).
 const FREEFORM_HINTS: [&str; 4] = [
-    "←→ cursor · ↑↓ options · tab questions · enter answer · esc cancel",
-    "↑↓ options · tab questions · enter answer · esc cancel",
+    "↑↓ cursor · shift+↑↓ options · tab questions · enter answer · esc cancel",
+    "shift+↑↓ options · tab questions · enter answer · esc cancel",
     "tab questions · enter answer · esc cancel",
     "enter answer · esc cancel",
 ];
@@ -165,10 +161,16 @@ pub(crate) struct QuestionRequest {
 pub(crate) enum Act {
     /// A character the user typed.
     Text(char),
-    /// The previous choice.
+    /// The previous choice -- or, while the freeform answer has a row above
+    /// the caret's, that row (`input_question_runtime.zig:155-163`).
     Up,
-    /// The next one.
+    /// The next choice, or the answer's next row.
     Down,
+    /// The previous choice, wherever the caret is: Shift+Up
+    /// (`src/ui/input/runtime.zig:180-185`, `.move_choice`).
+    SelectUp,
+    /// The next one: Shift+Down.
+    SelectDown,
     /// The next **question**, wrapping. Not the next choice: the batch is what
     /// Tab walks (`question_prompt.zig:603-634`).
     Tab,
@@ -188,8 +190,25 @@ pub(crate) enum Act {
     /// and a key that skipped a question would skip an answer
     /// (`input_question_runtime.zig:193-195`).
     Right,
+    /// The start and the end of the whole answer (`question_prompt.zig:455-466`).
     Home,
     End,
+    /// The grapheme after the caret (`freeformDeleteNext`).
+    Delete,
+    /// The answer's word moves and kill keys, as upstream's field binds them
+    /// (`question_prompt.zig:361-378`): word left and right, `C-w`, `C-u`,
+    /// `C-k`.
+    WordLeft,
+    WordRight,
+    DeleteWordLeft,
+    KillToStart,
+    KillToEnd,
+    /// A bracketed paste begins, ends, and the bytes between: into the
+    /// answer while it is open, and dropped while a choice is marked
+    /// (`paste_framing.zig:111-135`, `input_paste_runtime.zig:226-283`).
+    PasteStart,
+    PasteEnd,
+    PasteByte(u8),
 }
 
 impl Act {
@@ -203,6 +222,16 @@ impl Act {
         match action {
             Action::Up => Some(Self::Up),
             Action::Down => Some(Self::Down),
+            Action::SelectUp => Some(Self::SelectUp),
+            Action::SelectDown => Some(Self::SelectDown),
+            Action::Delete => Some(Self::Delete),
+            Action::WordLeft => Some(Self::WordLeft),
+            Action::WordRight => Some(Self::WordRight),
+            Action::DeleteWordLeft => Some(Self::DeleteWordLeft),
+            Action::KillToStart => Some(Self::KillToStart),
+            Action::KillToEnd => Some(Self::KillToEnd),
+            Action::PasteStart => Some(Self::PasteStart),
+            Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
             Action::Submit => Some(Self::Submit),
             Action::Escape => Some(Self::Escape),
@@ -248,14 +277,10 @@ struct Entry {
     top: usize,
     /// What this question has been answered with, once it has been.
     answer: Option<String>,
-    /// The freeform text, whether or not the slot is marked right now.
-    ///
-    /// An [`Editor`] rather than a `String` because the caret is the point: a
-    /// draft with no caret cannot be edited anywhere but at its end, and the
-    /// arrows, Home, End and Backspace are exactly what a user reaches for in a
-    /// sentence they have just typed. Kept per entry so that Tab cycles without
-    /// losing what was typed.
-    draft: Editor,
+    /// The freeform answer, whether or not the slot is marked right now: its
+    /// text, its caret and its rows ([`Freeform`], upstream's field). Kept per
+    /// entry so that Tab cycles without losing what was typed.
+    draft: Freeform,
 }
 
 impl Entry {
@@ -274,7 +299,7 @@ impl Entry {
             selected: 0,
             top: 0,
             answer: None,
-            draft: Editor::new(),
+            draft: Freeform::default(),
         }
     }
 
@@ -299,21 +324,6 @@ impl Entry {
             .map(|option| option.label.clone())
             .unwrap_or_default()
     }
-
-    /// The row of the draft the caret is on, wrapped to `cols`.
-    ///
-    /// The wrap is the editor's own, so the row shown and the caret reported are
-    /// measured by one thing: the caret's row is the window, which is what keeps
-    /// a draft longer than the screen showing the end the user is typing at
-    /// rather than the beginning they have scrolled past.
-    fn draft_row(&self, cols: u16) -> String {
-        let (row, _) = self.draft.point(cols);
-        self.draft
-            .rows(cols)
-            .get(row)
-            .cloned()
-            .unwrap_or_else(String::new)
-    }
 }
 
 /// The sequences a panel row is painted with, or none at all.
@@ -330,6 +340,8 @@ struct Pens {
     marked: &'static str,
     /// Every other choice, a description, and the hint row (`dim_style`).
     dim: &'static str,
+    /// The answer's one-cell caret (`ESC[7m`, `question_ui.zig:328`).
+    reverse: &'static str,
     /// What ends a run.
     reset: &'static str,
 }
@@ -340,6 +352,7 @@ impl Pens {
         bold: "",
         marked: "",
         dim: "",
+        reverse: "",
         reset: "",
     };
 
@@ -348,6 +361,7 @@ impl Pens {
             bold: palette.bold(),
             marked: palette.subtitle(),
             dim: palette.dim(),
+            reverse: palette.reverse(),
             reset: palette.reset(),
         }
     }
@@ -379,10 +393,15 @@ pub(crate) struct QuestionPanel {
     entries: Vec<Entry>,
     /// An index into [`Self::entries`]: the one question that is shown.
     current: usize,
+    /// The bytes of a bracketed paste, while one is arriving into an open
+    /// answer. `None` between pastes, and for a paste that began while a
+    /// choice was marked -- which is dropped whole.
+    paste: Option<Vec<u8>>,
 }
 
-/// A manual `Debug`, because [`Editor`] has none and the band's slot is a
-/// `Debug` enum (`super::shell::Slot`). What is printed is what a failure would
+/// A manual `Debug`, because the band's slot is a `Debug` enum
+/// (`super::shell::Slot`) and a derived one would print the field's caret
+/// bookkeeping. What is printed is what a failure would
 /// be about -- which question, which choice, what was typed -- rather than the
 /// composer machinery behind the draft.
 impl std::fmt::Debug for QuestionPanel {
@@ -428,6 +447,7 @@ impl QuestionPanel {
             id: request.id,
             entries: request.entries.into_iter().map(Entry::new).collect(),
             current: 0,
+            paste: None,
         }
     }
 
@@ -473,7 +493,7 @@ impl QuestionPanel {
             let top = window(entry.top, entry.selected, visible, count);
             let height = fixed
                 + (top..top + visible)
-                    .map(|index| option_height(entry, index, cols))
+                    .map(|index| option_height(entry, index, cols, terminal_rows))
                     .sum::<usize>();
             let height = u16::try_from(height).unwrap_or(u16::MAX);
             if super::layout::fits_approval(terminal_rows, cols, height) {
@@ -525,7 +545,7 @@ impl QuestionPanel {
         let mut rows = title_rows(&entry.question, cols, pens);
         rows.push(String::new());
         for index in shape.top..(shape.top + shape.visible).min(entry.options.len()) {
-            rows.extend(option_rows(entry, index, cols, pens));
+            rows.extend(option_rows(entry, index, cols, terminal_rows, pens));
         }
         rows.push(String::new());
         rows.into_iter()
@@ -559,7 +579,7 @@ impl QuestionPanel {
         let above = title_rows(&entry.question, cols, Pens::PLAIN).len()
             + 1
             + (shape.top..entry.selected.max(shape.top))
-                .map(|index| option_height(entry, index, cols))
+                .map(|index| option_height(entry, index, cols, terminal_rows))
                 .sum::<usize>();
         // Inside the block whatever the arithmetic above was handed: a caret
         // reported below the panel's last row would be a caret on the divider.
@@ -567,8 +587,9 @@ impl QuestionPanel {
         u16::try_from(above.min(last)).unwrap_or(0)
     }
 
-    /// Where the caret goes **while the freeform slot is open**: the slot's own
-    /// row, and the cells to the left of the draft's caret there.
+    /// Where the caret goes **while the freeform slot is open**: the answer's
+    /// row the caret is on, within the panel, and the cells to the left of it
+    /// there.
     ///
     /// `None` the rest of the time, which is what says the caret belongs on the
     /// marked choice instead ([`Self::caret_row`]). Two answers rather than one,
@@ -576,20 +597,23 @@ impl QuestionPanel {
     /// a caret in a draft says typing goes into it, and a caret on a choice says
     /// a digit takes one.
     ///
-    /// The terminal's own caret rather than upstream's reverse-video cell
-    /// (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`), as at an
-    /// approval's amendment draft: reverse video is outside the painter's
-    /// vocabulary (`super::pacer`'s `is_palette_sgr`), and the real caret is the
-    /// one a terminal's own cursor shape and blink follow.
+    /// The cell there is painted as upstream paints it -- reverse video
+    /// (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`) -- and
+    /// the terminal's own caret is placed on it as well.
     pub(crate) fn caret(&self, cols: u16, terminal_rows: u16) -> Option<(u16, u16)> {
         let entry = self.entry()?;
         if !entry.drafting() {
             return None;
         }
-        let row = self.caret_row(cols, terminal_rows);
         let slot = entry.freeform();
+        let (row, column) = entry.draft.caret(draft_cols(slot, cols));
+        let shown = field_window(&entry.draft, cols, slot, terminal_rows);
+        let row = usize::from(self.caret_row(cols, terminal_rows))
+            .saturating_add(row.saturating_sub(shown.start));
+        let last = usize::from(self.height(cols, terminal_rows).saturating_sub(1));
+        let row = u16::try_from(row.min(last)).unwrap_or(0);
         let column = prefix_width(slot)
-            .saturating_add(entry.draft.point(draft_cols(slot, cols)).1)
+            .saturating_add(column)
             // On the screen, always: a column past the last one is a cursor the
             // terminal clamps silently onto a row it was not placed on.
             .min(cols.saturating_sub(1));
@@ -682,7 +706,7 @@ impl QuestionPanel {
         if !self.holds_draft() {
             return false;
         }
-        self.entry_mut().draft.take();
+        self.entry_mut().draft.clear();
         true
     }
 
@@ -693,18 +717,29 @@ impl QuestionPanel {
     /// Wrapped here, at this width, with every continuation hung under the
     /// field's first column -- the document does not re-wrap a finished row,
     /// and a hanging indent is not a gutter it has. The answer is shown as the
-    /// tool encodes it for the model (`terminal_safe`), so what the user reads
+    /// tool encodes it for the model (`answer_safe`), so what the user reads
     /// back is what was sent.
+    ///
+    /// Each row comes with what it is (`super::theme::DocumentRow`): an
+    /// answer's rows are recorded as answers, so a theme report repaints their
+    /// grey as the answer's and not as a turn summary's, which is the same
+    /// number on a dark screen.
     pub(crate) fn answered_rows(
         &self,
         answers: &[String],
         cols: u16,
         palette: &Palette,
-    ) -> Vec<String> {
+    ) -> Vec<(String, DocumentRow)> {
         self.answered_with(answers, cols, palette.answer(), palette.reset())
     }
 
-    fn answered_with(&self, answers: &[String], cols: u16, pen: &str, reset: &str) -> Vec<String> {
+    fn answered_with(
+        &self,
+        answers: &[String],
+        cols: u16,
+        pen: &str,
+        reset: &str,
+    ) -> Vec<(String, DocumentRow)> {
         let mut rows = Vec::new();
         for (index, (entry, answer)) in self.entries.iter().zip(answers).enumerate() {
             let prefix = format!("  {}) ", index + 1);
@@ -712,14 +747,17 @@ impl QuestionPanel {
             let budget = cols.saturating_sub(width(&prefix)).max(1);
             for (row, segment) in safe_rows(&entry.question, budget).into_iter().enumerate() {
                 let lead = if row == 0 { &prefix } else { &indent };
-                rows.push(format!("{lead}{segment}"));
+                rows.push((format!("{lead}{segment}"), DocumentRow::Plain));
             }
-            for segment in safe_rows(&terminal_safe(answer), budget) {
-                rows.push(if pen.is_empty() {
-                    format!("{indent}{segment}")
-                } else {
-                    format!("{pen}{indent}{segment}{reset}")
-                });
+            for segment in safe_rows(&answer_safe(answer), budget) {
+                rows.push((
+                    if pen.is_empty() {
+                        format!("{indent}{segment}")
+                    } else {
+                        format!("{pen}{indent}{segment}{reset}")
+                    },
+                    DocumentRow::Answer,
+                ));
             }
         }
         rows
@@ -727,68 +765,141 @@ impl QuestionPanel {
 
     /// What one keystroke does.
     pub(crate) fn apply(&mut self, act: Act, cols: u16, terminal_rows: u16) -> Answered {
-        // The window this keystroke is answered against, taken before anything
-        // moves: an ordinal is about the block the user is looking at.
-        let shape = self.shape(cols, terminal_rows);
         if self.entries.get(self.current).is_none() {
             // A batch with no questions cannot be answered, and inventing an
             // empty submission would hand the model an answer document nobody
             // wrote. It is refused instead.
             return Answered::Cancelled;
         }
+        let drafting = self.entry_mut().drafting();
+        let content = draft_cols(self.entry_mut().freeform(), cols);
         match act {
             // Both cancel the **batch**. Which key it was is the shell's to
             // tell apart: Ctrl-C stops the turn as well.
             Act::Escape | Act::Cancel => Answered::Cancelled,
             Act::Tab => {
+                self.paste = None;
                 self.current = (self.current + 1) % self.entries.len();
                 Answered::Redraw
             }
-            Act::Up | Act::Down => {
-                let count = self.entry_mut().options.len();
-                let entry = self.entry_mut();
-                entry.selected = if matches!(act, Act::Up) {
-                    (entry.selected + count - 1) % count
+            // The plain arrows walk the answer's rows while it is open, and
+            // choose only where it has no row that way
+            // (`input_question_runtime.zig:150-170`).
+            Act::Up | Act::Down if drafting => {
+                let direction = if act == Act::Up {
+                    Direction::Up
                 } else {
-                    (entry.selected + 1) % count
+                    Direction::Down
                 };
-                entry.top = window(entry.top, entry.selected, shape.visible, count);
-                Answered::Redraw
+                if self.entry_mut().draft.move_vertical(content, direction) {
+                    return Answered::Redraw;
+                }
+                self.choose(act == Act::Up, cols, terminal_rows)
             }
-            Act::Text(character) => self.typed(character, shape),
+            Act::Up | Act::SelectUp => self.choose(true, cols, terminal_rows),
+            Act::Down | Act::SelectDown => self.choose(false, cols, terminal_rows),
+            Act::Text(character) if drafting => {
+                let mut encoded = [0u8; 4];
+                self.insert(character.encode_utf8(&mut encoded))
+            }
+            Act::Text(character) => {
+                // The window this keystroke is answered against: an ordinal
+                // is about the block the user is looking at.
+                let shape = self.shape(cols, terminal_rows);
+                self.typed(character, shape)
+            }
             Act::Submit => {
+                self.paste = None;
                 let taken = self.entry_mut().choice();
                 self.record(taken)
             }
             // At a choice, Left is the previous question and stops at the
             // first; nothing about the one it leaves changes, its answer
             // included (`retreatToPrevious`, `question_prompt.zig:605-615`).
-            Act::Left if !self.entry().is_some_and(Entry::drafting) => {
+            Act::Left if !drafting => {
                 if self.current == 0 {
                     return Answered::Nothing;
                 }
                 self.current -= 1;
                 Answered::Redraw
             }
-            Act::Backspace | Act::Left | Act::Right | Act::Home | Act::End => {
-                if !self.entry_mut().drafting() {
+            // A paste while a choice is marked is dropped whole, its bytes
+            // included (`paste_framing.zig:113`, `.decision_prompt`).
+            Act::PasteStart => {
+                self.paste = drafting.then(Vec::new);
+                Answered::Nothing
+            }
+            Act::PasteByte(byte) => {
+                if let Some(held) = self.paste.as_mut() {
+                    held.push(byte);
+                }
+                Answered::Nothing
+            }
+            Act::PasteEnd => match self.paste.take() {
+                Some(bytes) if drafting => self.insert(&pasted(&bytes)),
+                _ => Answered::Nothing,
+            },
+            Act::Backspace
+            | Act::Delete
+            | Act::Left
+            | Act::Right
+            | Act::Home
+            | Act::End
+            | Act::WordLeft
+            | Act::WordRight
+            | Act::DeleteWordLeft
+            | Act::KillToStart
+            | Act::KillToEnd => {
+                if !drafting {
                     // A key that means something only to a draft, with no draft
                     // open. Swallowed rather than passed on -- the question has
                     // the focus -- and it changed nothing, so it owes no frame.
                     return Answered::Nothing;
                 }
-                let action = match act {
-                    Act::Backspace => Action::Backspace,
-                    Act::Left => Action::Left,
-                    Act::Right => Action::Right,
-                    Act::Home => Action::Home,
-                    _ => Action::End,
-                };
-                let slot = self.entry_mut().freeform();
-                self.entry_mut().draft.apply(action, draft_cols(slot, cols));
+                let draft = &mut self.entry_mut().draft;
+                match act {
+                    Act::Backspace => {
+                        draft.backspace();
+                    }
+                    Act::Delete => {
+                        draft.delete();
+                    }
+                    Act::DeleteWordLeft => {
+                        draft.delete_token_left();
+                    }
+                    Act::KillToStart => {
+                        draft.kill_to_start();
+                    }
+                    Act::KillToEnd => {
+                        draft.kill_to_end();
+                    }
+                    Act::Left => draft.left(),
+                    Act::Right => draft.right(),
+                    Act::WordLeft => draft.word_left(),
+                    Act::WordRight => draft.word_right(),
+                    Act::Home => draft.home(),
+                    _ => draft.end(),
+                }
                 Answered::Redraw
             }
         }
+    }
+
+    /// The choice above (`up`) or below the marked one, wrapping
+    /// (`moveChoice`, `question_prompt.zig:677-687`), with the window moved to
+    /// keep it on the screen.
+    fn choose(&mut self, up: bool, cols: u16, terminal_rows: u16) -> Answered {
+        let visible = self.shape(cols, terminal_rows).visible;
+        let entry = self.entry_mut();
+        let count = entry.options.len();
+        entry.selected = if up {
+            (entry.selected + count - 1) % count
+        } else {
+            (entry.selected + 1) % count
+        };
+        entry.top = window(entry.top, entry.selected, visible, count);
+        self.paste = None;
+        Answered::Redraw
     }
 
     /// The question that is shown, for the paths that have already established
@@ -805,11 +916,9 @@ impl QuestionPanel {
             .expect("apply refuses a batch with no questions before it reaches here")
     }
 
-    /// One typed character: a choice, an editing keystroke, or nothing.
+    /// One typed character at a marked choice: an ordinal, or nothing. (In an
+    /// open answer it is text, and [`Self::apply`] inserts it.)
     fn typed(&mut self, character: char, shape: Shape) -> Answered {
-        if self.entry_mut().drafting() {
-            return self.insert(character);
-        }
         let Some(ordinal) = character.to_digit(10).filter(|digit| *digit > 0) else {
             // Every other character. A question that has the focus swallows
             // them rather than letting them fall into a composer whose caret is
@@ -839,26 +948,28 @@ impl QuestionPanel {
         self.record(taken)
     }
 
-    /// One character into the current draft, or a silent refusal.
-    fn insert(&mut self, character: char) -> Answered {
-        let mut encoded = [0u8; 4];
-        let typed = character.encode_utf8(&mut encoded);
+    /// `typed` into the open answer at its caret, or a silent refusal of all
+    /// of it.
+    fn insert(&mut self, typed: &str) -> Answered {
+        if typed.is_empty() {
+            return Answered::Nothing;
+        }
         let entry = self.entry_mut();
         // **Measured after encoding**, because that is the bound the executor
-        // re-checks on the way out (`crate::tools::question`'s `bounded`): a
-        // draft that passed a byte count here and failed the encoded one there
-        // would be a refusal the user gets after they have finished typing.
-        let held = terminal_safe(entry.draft.text()).len();
-        let adding = terminal_safe(typed).len();
+        // re-checks on the way out (`crate::tools::question`'s
+        // `bounded_answer`): a draft that passed a byte count here and failed
+        // the encoded one there would be a refusal the user gets after they
+        // have finished typing. Whole or not at all, so a paste is never half
+        // taken (`canInsert`, `input_paste_runtime.zig:270-274`).
+        let held = answer_safe(entry.draft.text()).len();
+        let adding = answer_safe(typed).len();
         if held.saturating_add(adding) > MAX_FREEFORM_ENCODED_BYTES {
             // Silently, like every other keystroke a budget refuses on this
             // surface (`super::shell::Shell::type_character`).
             return Answered::Nothing;
         }
-        match entry.draft.insert(typed) {
-            Some(_) => Answered::Redraw,
-            None => Answered::Nothing,
-        }
+        entry.draft.insert(typed);
+        Answered::Redraw
     }
 
     /// Records `answer` for the question that is shown, and moves on.
@@ -906,6 +1017,27 @@ pub(crate) fn cancelled_row(palette: &Palette) -> String {
         palette.notice_label(),
         palette.reset()
     )
+}
+
+/// What a bracketed paste puts into an answer: its text with every line
+/// ending a line feed, a tab a space, and nothing else a terminal would obey
+/// (`paste_framing.zig:119-127` keeps CR, LF and printables and turns a tab
+/// into a space for this owner; `normalizeLineEndingsInPlace` at
+/// `input_paste_runtime.zig:227-229`). Bytes that are not UTF-8 become the
+/// replacement character rather than being dropped.
+fn pasted(bytes: &[u8]) -> String {
+    let kept: Vec<u8> = bytes
+        .iter()
+        .filter_map(|&byte| match byte {
+            b'\t' => Some(b' '),
+            b'\r' | b'\n' => Some(byte),
+            0x00..=0x1f | 0x7f => None,
+            _ => Some(byte),
+        })
+        .collect();
+    String::from_utf8_lossy(&kept)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
 }
 
 /// The full choice hint, with the count of choices on this question
@@ -972,8 +1104,8 @@ fn description_column(cols: u16) -> u16 {
 /// The rows of the choice at `index` (`writeQuestionPanelOptionLine`,
 /// `question_ui.zig:96-220`).
 ///
-/// * The open draft -- the freeform slot while it is marked -- is one row: the
-///   ordinal and the row of the draft the caret is on.
+/// * The open answer -- the freeform slot while it is marked -- is as many
+///   rows as it wraps to, by cell, with its caret's cell reversed.
 /// * A choice with a description on a screen wide enough for a description
 ///   column: the label wrapped short of the column, the description wrapped in
 ///   it, side by side, as many rows as the longer of the two.
@@ -982,7 +1114,13 @@ fn description_column(cols: u16) -> u16 {
 ///
 /// The freeform slot, unmarked, reads as what was typed into it, once
 /// something has been (`questionOptionLabel`, `question_ui.zig:242-251`).
-fn option_rows(entry: &Entry, index: usize, cols: u16, pens: Pens) -> Vec<String> {
+fn option_rows(
+    entry: &Entry,
+    index: usize,
+    cols: u16,
+    terminal_rows: u16,
+    pens: Pens,
+) -> Vec<String> {
     let Some(option) = entry.options.get(index) else {
         return Vec::new();
     };
@@ -993,8 +1131,33 @@ fn option_rows(entry: &Entry, index: usize, cols: u16, pens: Pens) -> Vec<String
     let hang = " ".repeat(usize::from(prefix));
     let slot = index == entry.freeform();
     if marked && slot {
-        let text = entry.draft_row(draft_cols(index, cols));
-        return vec![pens.run(pen, &format!("{lead}{text}"))];
+        // The open answer, every row of it: the ordinal on the first, the
+        // prefix's width of blank on the rest, the text in the marked grey and
+        // the caret's cell reversed (`writeSelectedFreeformOptionLines`,
+        // `question_ui.zig:323-399`).
+        let field = entry.draft.rows(draft_cols(index, cols));
+        let shown = field_window(&entry.draft, cols, index, terminal_rows);
+        return field[shown]
+            .iter()
+            .enumerate()
+            .map(|(row, field)| {
+                let head = if row == 0 { lead.as_str() } else { "" };
+                let mut line = if row == 0 {
+                    String::new()
+                } else {
+                    hang.clone()
+                };
+                line.push_str(&pens.run(pen, &format!("{head}{}", field.before)));
+                if let Some(unit) = field.caret {
+                    let unit = if unit.is_empty() { " " } else { unit };
+                    line.push_str(pens.reverse);
+                    line.push_str(unit);
+                    line.push_str(pens.reset);
+                }
+                line.push_str(&pens.run(pen, field.after));
+                line
+            })
+            .collect();
     }
     let label = if slot && !entry.draft.is_empty() {
         entry.draft.text()
@@ -1052,17 +1215,38 @@ fn option_rows(entry: &Entry, index: usize, cols: u16, pens: Pens) -> Vec<String
 }
 
 /// How many rows the choice at `index` takes: [`option_rows`]'s count, without
-/// the draft.
-///
-/// The open field is one row whatever it holds, and saying so here rather than
-/// wrapping the draft to count it is what keeps a keystroke from costing the
-/// length of the draft every time the window is asked about -- which is several
-/// times a keystroke ([`QuestionPanel::shape`], [`QuestionPanel::caret_row`]).
-fn option_height(entry: &Entry, index: usize, cols: u16) -> usize {
+/// painting them. The open answer's rows are counted by the field itself, which
+/// is one pass over the text and no row strings.
+fn option_height(entry: &Entry, index: usize, cols: u16, terminal_rows: u16) -> usize {
     if index == entry.selected && index == entry.freeform() {
-        return 1;
+        return field_window(&entry.draft, cols, index, terminal_rows).len();
     }
-    option_rows(entry, index, cols, Pens::PLAIN).len()
+    option_rows(entry, index, cols, terminal_rows, Pens::PLAIN).len()
+}
+
+/// The open answer's rows that are shown on a screen `terminal_rows` tall.
+///
+/// All of them, as upstream shows them, until there are more than a third of
+/// the screen (the share the choices get, [`QuestionPanel::shape`]); past that,
+/// the third that ends at the caret's row, so the row being typed on is always
+/// on the screen. Upstream lets a field that tall push its rows past the band
+/// and clips them (`question footer clips composed rows to solved footer
+/// band`, `question_ui.zig:600-630`), which can clip the caret's row away.
+fn field_window(
+    draft: &Freeform,
+    cols: u16,
+    slot: usize,
+    terminal_rows: u16,
+) -> std::ops::Range<usize> {
+    let content = draft_cols(slot, cols);
+    let total = draft.rows(content).len();
+    let cap = usize::from(terminal_rows / 3).max(1);
+    if total <= cap {
+        return 0..total;
+    }
+    let (row, _) = draft.caret(content);
+    let start = row.saturating_add(1).saturating_sub(cap);
+    start..start + cap
 }
 
 /// The first choice a `visible`-choice window shows, given where the mark is.
@@ -1156,18 +1340,32 @@ impl QuestionRequester for TuiQuestioner {
     /// that did not put it back would leave the loop parked on a channel it is
     /// no longer registered on -- and the next control message, the Ctrl-C that
     /// would end the turn included, would wake nobody.
-    fn request(&self, entries: &[QuestionEntry]) -> Option<Vec<String>> {
-        let id = self.mint()?;
+    ///
+    /// **Declined and interrupted are two answers.** A batch the band could
+    /// not show, or that no UI was there to show, is declined: the model is
+    /// told so and the turn goes on. A batch the turn was stopped at -- the
+    /// interrupt the band sends for Escape and for Ctrl-C alike, a shutdown, the
+    /// session ending -- is interrupted, and the model is never told the user
+    /// declined it (`crate::tools::question::ABORTED_OUTPUT`).
+    fn request(&self, entries: &[QuestionEntry]) -> QuestionReply {
+        let Some(id) = self.mint() else {
+            return QuestionReply::Declined;
+        };
         let token = self.cancel.token();
         let request = QuestionRequest {
             id,
             entries: entries.to_vec(),
         };
         if park_on(send_ui(&self.events, &token, UiEvent::Question(request))).is_err() {
-            // No UI to ask, or no session to ask in. The honest result is the
-            // cancellation sentinel, which the turn can still carry
-            // (`crate::tools::question::CANCEL_SENTINEL`).
-            return None;
+            // No UI to ask, or no session to ask in -- and which of the two is
+            // what the session's root says: a root that was cancelled while the
+            // question waited for room is a stop, and anything else is a
+            // question nobody could be asked.
+            return if token.is_cancelled() {
+                QuestionReply::Interrupted
+            } else {
+                QuestionReply::Declined
+            };
         }
         park_on(async {
             loop {
@@ -1178,15 +1376,17 @@ impl QuestionRequester for TuiQuestioner {
                     // and waiting on `answered()` alone would never return.
                     () = token.cancelled() => {
                         self.control.rearm();
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
                     message = self.control.answered() => message,
                 };
                 match message {
                     Some(TurnControl::QuestionAnswer { id: seen, answers }) if seen == id => {
-                        return Some(answers)
+                        return QuestionReply::Answered(answers)
                     }
-                    Some(TurnControl::QuestionCancelled { id: seen }) if seen == id => return None,
+                    Some(TurnControl::QuestionCancelled { id: seen }) if seen == id => {
+                        return QuestionReply::Declined
+                    }
                     // A keystroke on a panel that has already gone, or an
                     // approval answer nobody is waiting for: consumed, so the
                     // next question does not inherit it -- the turn loop's rule
@@ -1201,14 +1401,15 @@ impl QuestionRequester for TuiQuestioner {
                     // `give_back` rearms.
                     Some(stop) => {
                         self.control.give_back(stop);
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
-                    // The UI dropped its sender. `answered` rearmed on the ready
-                    // poll; rearming again is spurious and harmless, and keeps
-                    // "every exit rearms" true without a reader having to check.
+                    // The UI dropped its sender, which is the session ending.
+                    // `answered` rearmed on the ready poll; rearming again is
+                    // spurious and harmless, and keeps "every exit rearms" true
+                    // without a reader having to check.
                     None => {
                         self.control.rearm();
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
                 }
             }
@@ -1293,6 +1494,20 @@ mod tests {
                 ],
             }],
         }
+    }
+
+    /// The record's rows as text, without what each is.
+    fn texts(rows: Vec<(String, DocumentRow)>) -> Vec<String> {
+        rows.into_iter().map(|(row, _)| row).collect()
+    }
+
+    /// One bracketed paste of `text`, byte by byte, as the decoder hands it on.
+    fn paste(panel: &mut QuestionPanel, text: &str, cols: u16, rows: u16) {
+        panel.apply(Act::PasteStart, cols, rows);
+        for byte in text.bytes() {
+            panel.apply(Act::PasteByte(byte), cols, rows);
+        }
+        panel.apply(Act::PasteEnd, cols, rows);
     }
 
     /// The cells in front of a `two()` question's freeform slot: `    3) `.
@@ -1446,7 +1661,7 @@ mod tests {
         let mut panel = two();
         panel.apply(Act::Text('3'), 60, 40);
         let zero_width = '\u{200b}'; // encodes to `\u{200b}`: eight bytes
-        let encoded = terminal_safe("\u{200b}").len();
+        let encoded = answer_safe("\u{200b}").len();
         assert_eq!(encoded, 8, "the encoder no longer expands this character");
         for _ in 0..MAX_FREEFORM_ENCODED_BYTES / encoded {
             panel.apply(Act::Text(zero_width), 60, 40);
@@ -1460,9 +1675,9 @@ mod tests {
         );
         let answer = submitted(&mut panel, &[Act::Submit, Act::Text('1')], 60, 40)[0].clone();
         assert!(
-            terminal_safe(&answer).len() <= MAX_FREEFORM_ENCODED_BYTES,
+            answer_safe(&answer).len() <= MAX_FREEFORM_ENCODED_BYTES,
             "the answer encodes to {} bytes",
-            terminal_safe(&answer).len()
+            answer_safe(&answer).len()
         );
     }
 
@@ -2017,28 +2232,190 @@ mod tests {
     }
 
     #[test]
-    fn the_freeform_hint_names_the_keys_xfx_binds_there() {
-        // Upstream's row says `↑↓←→ cursor    shift+↑↓ options`; xfx's arrows
-        // choose and only Left and Right walk the draft, so the row says that
-        // (`FREEFORM_HINT`).
+    fn the_freeform_hint_is_upstreams_and_its_keys_do_what_it_says() {
+        // `fx-question-40x120-q1-down3` row 14 and, at 80 columns,
+        // `fx-question-24x80-q1-down3` (`input_presentation.zig:179-184`,
+        // `:212-214`). Claim changed: xfx used to say `←→ cursor    ↑↓
+        // options`, because its draft was one row and Shift was dropped.
         let mut panel = captured();
         panel.apply(Act::Text('4'), 120, 40);
-        let hint = panel.hint_text(120, false);
-        assert!(
-            hint.starts_with(
-                "type answer    ←→ cursor    ↑↓ options    tab questions    enter answer    esc cancel"
-            ),
-            "{hint}"
-        );
-        assert!(hint.ends_with("Question 1 of 2"), "{hint}");
         assert_eq!(
-            panel.hint_text(70, false),
-            "←→ cursor · ↑↓ options · tab questions · enter answer · esc cancel"
+            panel.hint_text(120, false),
+            format!(
+                "type answer    ↑↓←→ cursor    shift+↑↓ options    tab questions    enter answer    esc cancel{}Question 1 of 2",
+                " ".repeat(12)
+            )
         );
-        // The arrows really do choose while the draft is open.
+        assert_eq!(
+            panel.hint_text(80, false),
+            "↑↓ cursor · shift+↑↓ options · tab questions · enter answer · esc cancel"
+        );
+        // A one-row answer has no row above or below, so the plain arrows
+        // choose -- upstream's fallback (`input_question_runtime.zig:155-170`).
         panel.apply(Act::Text('x'), 120, 40);
         panel.apply(Act::Down, 120, 40);
-        assert_eq!(panel.draft(), None, "Down did not leave the slot");
+        assert_eq!(panel.draft(), None, "Down did not leave a one-row answer");
+    }
+
+    #[test]
+    fn plain_arrows_walk_a_multi_row_answer_and_shifted_ones_choose() {
+        // e2e `tui-decision-prompts.test.ts:2825`: a pasted three-line answer,
+        // Up onto `xy`, `!` typed there; Shift+Up chooses `2)`, Shift+Down
+        // comes back to the answer, which kept its text and its caret.
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 64, 20);
+        paste(&mut panel, "line-one\nxy\nline-three", 64, 20);
+        assert_eq!(panel.draft(), Some("line-one\nxy\nline-three"));
+        assert_eq!(panel.apply(Act::Up, 64, 20), Answered::Redraw);
+        panel.apply(Act::Text('!'), 64, 20);
+        assert_eq!(panel.draft(), Some("line-one\nxy!\nline-three"));
+        // The rows hang under the answer's first column.
+        let rows = panel.rows(64, 20);
+        let at = |needle: &str| {
+            rows.iter()
+                .find_map(|row| row.find(needle))
+                .unwrap_or_else(|| panic!("{needle:?} is not on the panel: {rows:?}"))
+        };
+        assert_eq!(at("line-one"), 7);
+        assert_eq!(at("xy!"), 7);
+        assert_eq!(at("line-three"), 7);
+        assert_eq!(panel.apply(Act::SelectUp, 64, 20), Answered::Redraw);
+        assert_eq!(panel.draft(), None, "Shift+Up did not choose");
+        assert!(panel
+            .rows(64, 20)
+            .iter()
+            .any(|row| row == "    4) line-one"));
+        panel.apply(Act::SelectDown, 64, 20);
+        assert_eq!(panel.draft(), Some("line-one\nxy!\nline-three"));
+        // And the answer goes back whole, line breaks and all.
+        assert_eq!(
+            submitted(&mut panel, &[Act::Submit, Act::Text('1')], 64, 20),
+            vec!["line-one\nxy!\nline-three".to_string(), "Yes".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_long_answer_wraps_onto_rows_under_its_first_column() {
+        // e2e `tui-decision-prompts.test.ts:2701`: one word longer than the
+        // field, cut by cell (`prefixByWidth`) onto continuation rows that
+        // hang under the answer's first character; the caret's reversed
+        // space on the last.
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 48, 20);
+        let answer =
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789wraps-below";
+        for character in answer.chars() {
+            panel.apply(Act::Text(character), 48, 20);
+        }
+        let rows = panel.rows(48, 20);
+        let first = rows
+            .iter()
+            .position(|row| row.starts_with("    4) "))
+            .expect("the field's first row");
+        let field: Vec<&String> = rows.iter().skip(first).take(3).collect();
+        assert_eq!(field[0], &format!("    4) {}", &answer[..41]));
+        assert_eq!(field[1], &format!("       {}", &answer[41..82]));
+        assert_eq!(field[2], &format!("       {} ", &answer[82..]));
+        let last = u16::try_from(first + 2).expect("a row");
+        assert_eq!(panel.caret(48, 20), Some((last, 7 + 1)));
+        assert!(rows.iter().all(|row| width(row) <= 48), "{rows:?}");
+    }
+
+    #[test]
+    fn a_paste_goes_into_an_open_answer_and_nowhere_else() {
+        // e2e `tui-decision-prompts.test.ts:2785` and `:2968`: into the field,
+        // line breaks kept, CR/LF folded and a tab made a space
+        // (`paste_framing.zig:119-127`); at a marked choice the paste is
+        // dropped whole and selects nothing.
+        let mut panel = captured();
+        paste(&mut panel, "1\x1b[2Jdrop me", 120, 40);
+        assert!(panel.hint_text(120, false).ends_with("Question 1 of 2"));
+        assert_eq!(panel.draft(), None);
+        panel.apply(Act::Text('4'), 120, 40);
+        paste(&mut panel, "pasted with cmd-v\r\nand\tthis\x03", 120, 40);
+        assert_eq!(panel.draft(), Some("pasted with cmd-v\nand this"));
+        let rows = panel.rows(120, 40);
+        assert!(
+            rows.contains(&"    4) pasted with cmd-v".to_string()),
+            "{rows:?}"
+        );
+        assert!(rows.contains(&"       and this ".to_string()), "{rows:?}");
+        // A paste past the answer's budget is refused whole.
+        paste(&mut panel, &"x".repeat(MAX_FREEFORM_ENCODED_BYTES), 120, 40);
+        assert_eq!(panel.draft(), Some("pasted with cmd-v\nand this"));
+    }
+
+    #[test]
+    fn an_answer_taller_than_its_share_of_the_screen_keeps_the_caret_row_shown() {
+        // A third of the screen, ending at the caret's row (`field_window`):
+        // upstream clips a field that tall at the band, which can take the
+        // row being typed on with it.
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 40, 24);
+        paste(
+            &mut panel,
+            &(0..20)
+                .map(|n| format!("row{n}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            40,
+            24,
+        );
+        let rows = panel.rows(40, 24);
+        assert!(
+            rows.iter().any(|row| row.trim_end() == "       row19"),
+            "{rows:?}"
+        );
+        assert!(!rows.iter().any(|row| row.contains("row0")), "{rows:?}");
+        assert!(panel.presents_choices(40, 24));
+        let (row, _) = panel.caret(40, 24).expect("drafting");
+        assert!(rows[usize::from(row)].contains("row19"), "{rows:?}");
+        // Walking up moves the window with the caret.
+        for _ in 0..19 {
+            panel.apply(Act::Up, 40, 24);
+        }
+        let rows = panel.rows(40, 24);
+        let (row, _) = panel.caret(40, 24).expect("drafting");
+        assert!(rows[usize::from(row)].contains("row0"), "{rows:?}");
+        assert_eq!(panel.rows(40, 24).len(), usize::from(panel.height(40, 24)));
+    }
+
+    #[test]
+    fn the_answers_word_and_kill_keys_reach_it_and_nothing_at_a_choice() {
+        let mut panel = captured();
+        for act in [Act::WordLeft, Act::KillToEnd, Act::DeleteWordLeft] {
+            assert_eq!(panel.apply(act, 120, 40), Answered::Nothing, "{act:?}");
+        }
+        panel.apply(Act::Text('4'), 120, 40);
+        for character in "keep the last".chars() {
+            panel.apply(Act::Text(character), 120, 40);
+        }
+        panel.apply(Act::DeleteWordLeft, 120, 40);
+        assert_eq!(panel.draft(), Some("keep the "));
+        panel.apply(Act::WordLeft, 120, 40);
+        panel.apply(Act::KillToEnd, 120, 40);
+        assert_eq!(panel.draft(), Some("keep "));
+        panel.apply(Act::KillToStart, 120, 40);
+        assert_eq!(panel.draft(), Some(""));
+    }
+
+    #[test]
+    fn delete_takes_the_grapheme_after_the_caret() {
+        let mut panel = captured();
+        panel.apply(Act::Text('4'), 120, 40);
+        for character in "ab네c".chars() {
+            panel.apply(Act::Text(character), 120, 40);
+        }
+        panel.apply(Act::Home, 120, 40);
+        panel.apply(Act::Right, 120, 40);
+        panel.apply(Act::Right, 120, 40);
+        panel.apply(Act::Delete, 120, 40);
+        assert_eq!(panel.draft(), Some("abc"));
+        assert_eq!(
+            panel.apply(Act::Delete, 120, 40),
+            Answered::Redraw,
+            "a key the open answer binds owes a frame"
+        );
     }
 
     #[test]
@@ -2125,26 +2502,33 @@ mod tests {
     #[test]
     fn the_open_slot_is_its_ordinal_and_the_draft_in_the_marked_grey() {
         // `q1-down3` and `fx-question2-40x120-q-typed`: the slot's own row
-        // becomes the field; the caret is the terminal's (no reverse-video
-        // cell).
+        // becomes the field, and the caret is a reversed cell after the text
+        // (`ESC[1mESC[38;5;255m    4) ESC[0;7m ESC[0m`; claim changed: it was
+        // the terminal's caret alone).
         let mut panel = captured();
         panel.apply(Act::Text('4'), 120, 40);
-        assert_eq!(panel.rows(120, 40)[5], "    4) ");
+        assert_eq!(panel.rows(120, 40)[5], "    4)  ");
         assert_eq!(
             panel.painted(120, 40, &DARK)[5],
-            "\u{1b}[1;38;5;255m    4) \u{1b}[0m"
+            "\u{1b}[1;38;5;255m    4) \u{1b}[0m\u{1b}[7m \u{1b}[0m"
         );
         assert_eq!(panel.caret(120, 40), Some((5, 7)));
         for character in "MariaDB please".chars() {
             panel.apply(Act::Text(character), 120, 40);
         }
-        assert_eq!(panel.rows(120, 40)[5], "    4) MariaDB please");
+        assert_eq!(panel.rows(120, 40)[5], "    4) MariaDB please ");
         assert_eq!(
             panel.painted(120, 40, &DARK)[5],
-            "\u{1b}[1;38;5;255m    4) MariaDB please\u{1b}[0m"
+            "\u{1b}[1;38;5;255m    4) MariaDB please\u{1b}[0m\u{1b}[7m \u{1b}[0m"
         );
         assert_eq!(panel.caret(120, 40), Some((5, 7 + 14)));
         assert_eq!(panel.height(120, 40), 7, "the field is one row");
+        // A caret inside the text reverses the character under it.
+        panel.apply(Act::Home, 120, 40);
+        assert_eq!(
+            panel.painted(120, 40, &DARK)[5],
+            "\u{1b}[1;38;5;255m    4) \u{1b}[0m\u{1b}[7mM\u{1b}[0m\u{1b}[1;38;5;255mariaDB please\u{1b}[0m"
+        );
     }
 
     #[test]
@@ -2153,7 +2537,7 @@ mod tests {
         // something is typed, the draft after.
         let mut panel = captured();
         panel.apply(Act::Text('4'), 120, 40);
-        assert!(panel.rows(120, 40)[5].ends_with("4) "));
+        assert!(panel.rows(120, 40)[5].ends_with("4)  "));
         panel.apply(Act::Up, 120, 40);
         assert_eq!(panel.rows(120, 40)[5], "    4) Other");
         panel.apply(Act::Down, 120, 40);
@@ -2225,7 +2609,7 @@ mod tests {
         let panel = captured();
         let answers = vec!["SQLite".to_string(), "Yes".to_string()];
         assert_eq!(
-            panel.answered_with(&answers, 120, "", ""),
+            texts(panel.answered_with(&answers, 120, "", "")),
             vec![
                 "  1) Which database should I use?",
                 "     SQLite",
@@ -2233,13 +2617,24 @@ mod tests {
                 "     Yes",
             ]
         );
+        // And each row says what it is, so a theme report repaints the
+        // answer's grey as the answer's (`DocumentRow::Answer`).
         assert_eq!(
             panel.answered_rows(&answers, 120, &DARK),
             vec![
-                "  1) Which database should I use?".to_string(),
-                "\u{1b}[38;5;245m     SQLite\u{1b}[0m".to_string(),
-                "  2) Deploy now?".to_string(),
-                "\u{1b}[38;5;245m     Yes\u{1b}[0m".to_string(),
+                (
+                    "  1) Which database should I use?".to_string(),
+                    DocumentRow::Plain
+                ),
+                (
+                    "\u{1b}[38;5;245m     SQLite\u{1b}[0m".to_string(),
+                    DocumentRow::Answer
+                ),
+                ("  2) Deploy now?".to_string(), DocumentRow::Plain),
+                (
+                    "\u{1b}[38;5;245m     Yes\u{1b}[0m".to_string(),
+                    DocumentRow::Answer
+                ),
             ]
         );
     }
@@ -2251,12 +2646,12 @@ mod tests {
         let panel = QuestionPanel::new(one_entry(
             "When you ask fx to ask a question the question text must remain fully visible",
         ));
-        let rows = panel.answered_with(
+        let rows = texts(panel.answered_with(
             &["a freeform answer that is much too long for one row".to_string()],
             40,
             "",
             "",
-        );
+        ));
         assert_eq!(
             rows,
             vec![
@@ -2276,13 +2671,19 @@ mod tests {
         // encoding rather than an invisible character the model was told about.
         let panel = QuestionPanel::new(one_entry("Proceed?"));
         assert_eq!(
-            panel.answered_with(&["a\u{200b}b".to_string()], 80, "", "")[1],
+            texts(panel.answered_with(&["a\u{200b}b".to_string()], 80, "", ""))[1],
             "     a\\u{200b}b"
         );
         // An empty freeform answer is still a row.
         assert_eq!(
-            panel.answered_with(&[String::new()], 80, "", ""),
+            texts(panel.answered_with(&[String::new()], 80, "", "")),
             vec!["  1) Proceed?", "     "]
+        );
+        // A line break in an answer is a row break in the record, hung like
+        // the rest (`writeResolutionField`, `question_ui.zig:478-496`).
+        assert_eq!(
+            texts(panel.answered_with(&["one\ntwo".to_string()], 80, "", "")),
+            vec!["  1) Proceed?", "     one", "     two"]
         );
     }
 
@@ -2299,7 +2700,7 @@ mod tests {
             title_rows(&entry.question, cols, Pens::PLAIN).len()
                 + 2
                 + (shape.top..shape.top + shape.visible)
-                    .map(|index| option_height(entry, index, cols))
+                    .map(|index| option_height(entry, index, cols, rows))
                     .sum::<usize>()
         };
         for cols in [20, 40, 51, 60, 80, 120] {
@@ -2422,7 +2823,7 @@ mod tests {
         fn request_while(
             &mut self,
             drive: impl FnOnce(&mut Receiver<UiEvent>, &UnboundedSender<TurnControl>, &Cancellation),
-        ) -> Option<Vec<String>> {
+        ) -> QuestionReply {
             let Harness {
                 questioner,
                 events_rx,
@@ -2520,7 +2921,10 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["Thorough".to_string()]));
+        assert_eq!(
+            answers,
+            QuestionReply::Answered(vec!["Thorough".to_string()])
+        );
     }
 
     #[test]
@@ -2552,7 +2956,7 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["fresh".to_string()]));
+        assert_eq!(answers, QuestionReply::Answered(vec!["fresh".to_string()]));
     }
 
     #[test]
@@ -2563,7 +2967,11 @@ mod tests {
                 .send(TurnControl::QuestionCancelled { id: QuestionId(1) })
                 .unwrap();
         });
-        assert_eq!(answers, None, "no answer is the cancellation sentinel");
+        assert_eq!(
+            answers,
+            QuestionReply::Declined,
+            "the panel's own refusal is the cancellation sentinel"
+        );
     }
 
     #[test]
@@ -2575,7 +2983,11 @@ mod tests {
                 shown(events_rx);
                 control_tx.send(stop).unwrap();
             });
-            assert_eq!(answers, None);
+            assert_eq!(
+                answers,
+                QuestionReply::Interrupted,
+                "a stopped turn's question is aborted, never declined"
+            );
             assert_eq!(
                 format!("{:?}", harness.control.waiting().expect("handed back")),
                 expected,
@@ -2596,7 +3008,7 @@ mod tests {
             );
             cancel.cancel();
         });
-        assert_eq!(answers, None);
+        assert_eq!(answers, QuestionReply::Interrupted);
     }
 
     #[test]
@@ -2622,7 +3034,7 @@ mod tests {
             shown(events_rx);
             cancel.cancel();
         });
-        assert_eq!(answers, None);
+        assert_eq!(answers, QuestionReply::Interrupted);
         assert_eq!(
             woken.load(Ordering::SeqCst),
             1,
@@ -2637,7 +3049,11 @@ mod tests {
             &mut harness.events_rx,
             tokio::sync::mpsc::channel(1).1,
         ));
-        assert_eq!(harness.questioner.request(&entries()), None);
+        assert_eq!(
+            harness.questioner.request(&entries()),
+            QuestionReply::Declined,
+            "with no UI to ask, nobody declined and nobody stopped anything"
+        );
     }
 
     #[test]
@@ -2669,7 +3085,7 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["ok".to_string()]));
+        assert_eq!(answers, QuestionReply::Answered(vec!["ok".to_string()]));
     }
 
     #[test]
@@ -2696,8 +3112,9 @@ mod tests {
             cancel.cancel();
         });
         assert_eq!(
-            answers, None,
-            "a question that could not even be shown is a cancelled one"
+            answers,
+            QuestionReply::Interrupted,
+            "a question the session ended under before it could be shown is an aborted one"
         );
     }
 
@@ -2710,7 +3127,7 @@ mod tests {
         harness.questioner.next.store(u64::MAX, Ordering::Relaxed);
         assert_eq!(
             harness.questioner.request(&entries()),
-            None,
+            QuestionReply::Declined,
             "an id that cannot be minted is a cancelled question, not a reused one"
         );
         assert_eq!(
