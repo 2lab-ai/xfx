@@ -68,8 +68,6 @@ pub(crate) enum Role {
     /// since a provider's escapes are already spaced at the channel
     /// (`super::bridge`'s `inert`).
     Plain,
-    /// The model's answer.
-    Body,
     /// One of xfx's own lines about the session.
     Notice,
     /// Upstream's quiet rows: the turn summary under an answer, in the
@@ -87,7 +85,6 @@ impl Role {
     fn paint(self, palette: Palette) -> Option<&'static str> {
         match self {
             Role::Plain => None,
-            Role::Body => Some(palette.body()),
             Role::Notice => Some(palette.notice()),
             Role::Dim => Some(palette.dim()),
         }
@@ -1115,14 +1112,14 @@ mod tests {
     // roles
     // -----------------------------------------------------------------------
 
-    /// The dark palette's answer-text sequence, written out rather than asked
-    /// for: a case that read it off the palette would pass whatever the palette
-    /// said, including nothing at all.
-    const BODY_DARK: &str = "\u{1b}[38;5;255m";
-    /// The light one's.
-    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
-    /// What xfx's own lines are painted in, dark.
+    /// What xfx's own lines are painted in, dark -- written out rather than
+    /// asked for: a case that read it off the palette would pass whatever the
+    /// palette said, including nothing at all.
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
+    /// The light one's.
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    /// The quiet rows' grey (a turn's summary), dark.
+    const DIM_DARK: &str = "\u{1b}[38;5;245m";
     /// What ends every one of them.
     const RESET: &str = "\u{1b}[0m";
 
@@ -1142,13 +1139,13 @@ mod tests {
     fn unpainted(row: &str) -> String {
         let mut text = row.to_string();
         for sequence in [
-            BODY_DARK,
-            BODY_LIGHT,
             NOTICE_DARK,
-            // The same two shades said the way a direct-colour terminal reads
-            // them.
-            "\u{1b}[38;2;238;238;238m",
-            "\u{1b}[38;2;38;38;38m",
+            NOTICE_LIGHT,
+            DIM_DARK,
+            // The dark notice and the dark dim said the way a direct-colour
+            // terminal reads them.
+            "\u{1b}[38;2;188;188;188m",
+            "\u{1b}[38;2;138;138;138m",
             RESET,
         ] {
             text = text.replace(sequence, "");
@@ -1157,19 +1154,21 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_carries_the_palette_onto_every_row_it_wraps_onto() {
-        // The break this catches: a body row that arrives unpainted, or one
+    fn a_summary_carries_the_palette_onto_every_row_it_wraps_onto() {
+        // The break this catches: a dim row that arrives unpainted, or one
         // whose continuation row loses the colour the row above opened --
-        // which is the whole of the answer after the first line reading as the
-        // terminal's default foreground.
+        // which is the whole of a turn's summary after the first row reading
+        // as the terminal's default foreground. (The answer itself carries no
+        // palette colour; xfx's own lines have this case as
+        // `a_notice_that_wraps_carries_its_colour_onto_every_row`.)
         let mut transcript = Transcript::new(4);
-        let append = transcript.push_as("abcdefgh", Role::Body, DARK_256);
+        let append = transcript.push_as("abcdefgh", Role::Dim, DARK_256);
 
         assert_eq!(
             append.rows,
             vec![
-                format!("{BODY_DARK}abcd{RESET}"),
-                format!("{BODY_DARK}efgh{RESET}"),
+                format!("{DIM_DARK}abcd{RESET}"),
+                format!("{DIM_DARK}efgh{RESET}"),
             ]
         );
         // and the colour cost the row no cell: the text is wrapped at four
@@ -1225,14 +1224,14 @@ mod tests {
         // colour.
         const COLS: u16 = 20;
         let mut transcript = Transcript::new(COLS);
-        transcript.queue_push(&format!("{}   \n", "x".repeat(20)), Role::Body);
+        transcript.queue_push(&format!("{}   \n", "x".repeat(20)), Role::Dim);
         transcript.queue_push("a plain row after it", Role::Plain);
         let wire = on_the_wire(drain(&mut transcript, DARK_256), COLS);
 
         assert_eq!(
             wire[0],
-            format!("{BODY_DARK}{}{RESET}", "x".repeat(20)),
-            "the answer's colour was not closed inside the cut"
+            format!("{DIM_DARK}{}{RESET}", "x".repeat(20)),
+            "the dim row's colour was not closed inside the cut"
         );
         assert_eq!(
             wire.last().expect("the plain row"),
@@ -1242,7 +1241,7 @@ mod tests {
         assert_eq!(
             foreground(&wire),
             super::super::check::Color::Default,
-            "the terminal was left painting in the answer's colour"
+            "the terminal was left painting in the dim row's colour"
         );
     }
 
@@ -1296,15 +1295,15 @@ mod tests {
         // The mixed-role version of the cut: the run that would be opened for
         // the hanging spaces is entirely past the point the painter stops, so
         // opening it would put a sequence on the wire whose reset is not. What
-        // the terminal is given ends with the answer's own reset.
+        // the terminal is given ends with the first role's own reset.
         const COLS: u16 = 20;
         let mut transcript = Transcript::new(COLS);
-        transcript.queue_push(&"x".repeat(20), Role::Body);
-        transcript.queue_push("   ", Role::Notice);
+        transcript.queue_push(&"x".repeat(20), Role::Notice);
+        transcript.queue_push("   ", Role::Dim);
         let appends = drain(&mut transcript, DARK_256);
         let held = appends
             .last()
-            .expect("the notice's append")
+            .expect("the dim push's append")
             .rows
             .last()
             .expect("one row")
@@ -1318,7 +1317,7 @@ mod tests {
         );
         assert_eq!(
             wire.last().expect("the row"),
-            &format!("{BODY_DARK}{}{RESET}", "x".repeat(20))
+            &format!("{NOTICE_DARK}{}{RESET}", "x".repeat(20))
         );
         assert_eq!(foreground(&wire), super::super::check::Color::Default);
     }
@@ -1335,12 +1334,12 @@ mod tests {
         // and U-B owns whatever repaints rows already on the screen.
         let mut transcript = Transcript::new(80);
         assert_eq!(
-            transcript.push_as("half ", Role::Body, DARK_256).rows,
-            vec![format!("{BODY_DARK}half {RESET}")]
+            transcript.push_as("half ", Role::Notice, DARK_256).rows,
+            vec![format!("{NOTICE_DARK}half {RESET}")]
         );
         assert_eq!(
-            transcript.push_as("and half", Role::Body, LIGHT_256).rows,
-            vec![format!("{BODY_LIGHT}half and half{RESET}")],
+            transcript.push_as("and half", Role::Notice, LIGHT_256).rows,
+            vec![format!("{NOTICE_LIGHT}half and half{RESET}")],
             "the rewritten tail kept the palette the first half landed in"
         );
     }
@@ -1352,12 +1351,12 @@ mod tests {
         // hundred of them on one row -- and would make the document a session
         // holds depend on how the socket cut the stream.
         let mut whole = Transcript::new(8);
-        let at_once = whole.push_as("one answer", Role::Body, DARK_256);
+        let at_once = whole.push_as("one answer", Role::Notice, DARK_256);
 
         let mut chunked = Transcript::new(8);
         let mut rows = Vec::new();
         for chunk in ["on", "e ans", "w", "er"] {
-            chunked.queue_push(chunk, Role::Body);
+            chunked.queue_push(chunk, Role::Notice);
         }
         for append in drain(&mut chunked, DARK_256) {
             rows = append.rows;
@@ -1367,13 +1366,13 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                format!("{BODY_DARK}one {RESET}"),
-                format!("{BODY_DARK}answer{RESET}"),
+                format!("{NOTICE_DARK}one {RESET}"),
+                format!("{NOTICE_DARK}answer{RESET}"),
             ]
         );
         for row in &rows {
             assert_eq!(
-                row.matches(BODY_DARK).count(),
+                row.matches(NOTICE_DARK).count(),
                 1,
                 "{row:?} was opened twice"
             );
@@ -1386,7 +1385,7 @@ mod tests {
         // The bound that keeps the metadata a property of the retained text.
         let mut transcript = Transcript::new(80);
         for _ in 0..1000 {
-            transcript.queue_push("x", Role::Body);
+            transcript.queue_push("x", Role::Plain);
         }
         drain(&mut transcript, DARK_256);
         assert_eq!(transcript.role_runs(), 1);
@@ -1399,12 +1398,12 @@ mod tests {
         // must not repaint the one that is already on the screen.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("you said", Role::Plain);
-        transcript.queue_push(" and xfx answered", Role::Body);
+        transcript.queue_push(" and xfx answered", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
 
         assert_eq!(
             appends.last().expect("the answer's own append").rows,
-            vec![format!("you said{BODY_DARK} and xfx answered{RESET}")]
+            vec![format!("you said{NOTICE_DARK} and xfx answered{RESET}")]
         );
     }
 
@@ -1414,7 +1413,7 @@ mod tests {
         // on a row of its own -- a line the provider never wrote, and a row
         // the next append would measure its scroll against.
         let mut transcript = Transcript::new(80);
-        transcript.queue_push("answer", Role::Body);
+        transcript.queue_push("answer", Role::Dim);
         transcript.queue_push("[notice]", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let rows = appends.last().expect("the notice's append").rows.clone();
@@ -1422,7 +1421,7 @@ mod tests {
         assert_eq!(
             rows,
             vec![format!(
-                "{BODY_DARK}answer{RESET}{NOTICE_DARK}[notice]{RESET}"
+                "{DIM_DARK}answer{RESET}{NOTICE_DARK}[notice]{RESET}"
             )]
         );
         assert_eq!(unpainted(&rows[0]), "answer[notice]");
@@ -1436,7 +1435,7 @@ mod tests {
         // line by the old line's runs.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("said", Role::Plain);
-        transcript.queue_push(" first\r\nanswer", Role::Body);
+        transcript.queue_push(" first\r\nanswer", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let rows: Vec<String> = appends.into_iter().flat_map(|append| append.rows).collect();
 
@@ -1444,8 +1443,8 @@ mod tests {
             rows,
             vec![
                 "said".to_string(),
-                format!("said{BODY_DARK} first{RESET}"),
-                format!("{BODY_DARK}answer{RESET}"),
+                format!("said{NOTICE_DARK} first{RESET}"),
+                format!("{NOTICE_DARK}answer{RESET}"),
             ]
         );
         assert_eq!(transcript.role_runs(), 1, "the finished line's runs stayed");
@@ -1460,7 +1459,7 @@ mod tests {
         // cell. The cluster takes the role of the byte it starts at.
         let mut transcript = Transcript::new(80);
         transcript.queue_push("e", Role::Plain);
-        transcript.queue_push("\u{301}rror", Role::Body);
+        transcript.queue_push("\u{301}rror", Role::Notice);
         let appends = drain(&mut transcript, DARK_256);
         let row = appends
             .last()
@@ -1470,7 +1469,7 @@ mod tests {
             .expect("one row")
             .clone();
 
-        assert_eq!(row, format!("e\u{301}{BODY_DARK}rror{RESET}"));
+        assert_eq!(row, format!("e\u{301}{NOTICE_DARK}rror{RESET}"));
         assert_eq!(unpainted(&row), "e\u{301}rror");
         assert_eq!(
             wrap::width(&unpainted(&row)),
@@ -1487,12 +1486,12 @@ mod tests {
         // offsets describes bytes that are the terminal's now, so the row that
         // was kept would be painted in the role of the rows that were dropped.
         let mut transcript = Transcript::new(4);
-        // Exactly the cap, none of it the answer.
+        // Exactly the cap, none of it painted.
         transcript.push_as(&"x".repeat(4 * MAX_TAIL_ROWS), Role::Plain, DARK_256);
         assert_eq!(transcript.tail_rows(), MAX_TAIL_ROWS);
 
-        // One row more, and it is the answer's. The freeze keeps this row.
-        transcript.push_as("yyyy", Role::Body, DARK_256);
+        // One row more, and it is a notice's. The freeze keeps this row.
+        transcript.push_as("yyyy", Role::Notice, DARK_256);
         assert_eq!(transcript.tail_rows(), 1, "the tail was not frozen");
         assert_eq!(
             transcript.role_runs(),
@@ -1500,10 +1499,10 @@ mod tests {
             "the dropped rows' runs are still held"
         );
         assert_eq!(
-            transcript.push_as("z", Role::Body, DARK_256).rows,
+            transcript.push_as("z", Role::Notice, DARK_256).rows,
             vec![
-                format!("{BODY_DARK}yyyy{RESET}"),
-                format!("{BODY_DARK}z{RESET}")
+                format!("{NOTICE_DARK}yyyy{RESET}"),
+                format!("{NOTICE_DARK}z{RESET}")
             ],
             "the kept row lost the role of the text still in it"
         );
@@ -1517,9 +1516,9 @@ mod tests {
         // background it lands on -- and nothing of what is queued is rewritten
         // to make that true.
         let mut transcript = Transcript::new(80);
-        transcript.queue_push("an answer", Role::Body);
+        transcript.queue_push("a notice", Role::Notice);
         let refused = transcript.emit_front(DARK_256, |append| {
-            assert_eq!(append.rows, vec![format!("{BODY_DARK}an answer{RESET}")]);
+            assert_eq!(append.rows, vec![format!("{NOTICE_DARK}a notice{RESET}")]);
             Landed::None("the screen said no")
         });
         assert!(matches!(refused, Some(Err("the screen said no"))));
@@ -1530,7 +1529,7 @@ mod tests {
                 .into_iter()
                 .flat_map(|append| append.rows)
                 .collect::<Vec<_>>(),
-            vec![format!("{BODY_LIGHT}an answer{RESET}")],
+            vec![format!("{NOTICE_LIGHT}a notice{RESET}")],
             "the retry was painted for the palette the refusal happened in"
         );
     }
@@ -1546,13 +1545,13 @@ mod tests {
             depth: super::super::theme::Depth::TrueColor,
         };
         let mut transcript = Transcript::new(4);
-        let rows = transcript.push_as("abcdefgh", Role::Body, direct).rows;
+        let rows = transcript.push_as("abcdefgh", Role::Notice, direct).rows;
 
         assert_eq!(
             rows,
             vec![
-                format!("\u{1b}[38;2;238;238;238mabcd{RESET}"),
-                format!("\u{1b}[38;2;238;238;238mefgh{RESET}"),
+                format!("\u{1b}[38;2;188;188;188mabcd{RESET}"),
+                format!("\u{1b}[38;2;188;188;188mefgh{RESET}"),
             ]
         );
         assert_eq!(
@@ -1575,12 +1574,12 @@ mod tests {
         // rows this module hands over, and nowhere downstream.
         let mut transcript = Transcript::new(80);
         let rows = transcript
-            .push_as("plain \u{1b}[1mbold\u{1b}[0m", Role::Body, DARK_256)
+            .push_as("plain \u{1b}[1mbold\u{1b}[0m", Role::Notice, DARK_256)
             .rows;
 
         assert_eq!(
             rows,
-            vec![format!("{BODY_DARK}plain \u{1b}[1mbold\u{1b}[0m{RESET}")]
+            vec![format!("{NOTICE_DARK}plain \u{1b}[1mbold\u{1b}[0m{RESET}")]
         );
     }
 
@@ -1600,8 +1599,8 @@ mod tests {
             rows,
             vec!["what the user typed \u{1b}[31m\u{1b}[0m".to_string()]
         );
-        assert!(!rows[0].contains(DARK_256.body()));
         assert!(!rows[0].contains(DARK_256.notice()));
+        assert!(!rows[0].contains(DARK_256.dim()));
     }
 
     #[test]

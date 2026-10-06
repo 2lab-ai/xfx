@@ -2270,10 +2270,13 @@ fn the_composer_stops_growing_at_half_the_content_area() {
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
-    // And what was submitted is in the terminal's own document, above the band.
+    // And what was submitted is in the terminal's own document, above the band:
+    // upstream's card, the text in bold behind the rail -- so eighteen of the
+    // twenty columns, and a bold the composer never paints, which is what
+    // tells the document's row from the composer rows that held the draft.
     let text = session.settled_text();
     assert!(
-        text.contains("0123456789012345678"),
+        text.contains("\u{1b}[1m012345678901234567"),
         "the submitted draft never reached the document: {text:?}"
     );
 }
@@ -2641,7 +2644,11 @@ fn a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "d",
-            "FIRST-TURN-RUNNING",
+            // A paragraph of its own, so the presenter writes it while the turn
+            // is still running: a line reaches the screen once the presenter
+            // has seen what follows it (`Shell::write_answer`), and a turn that
+            // hangs never closes.
+            "FIRST-TURN-RUNNING\n\n",
         )]),
     ])]);
     let sandbox = Sandbox::new();
@@ -2888,7 +2895,8 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
-            "MARKER-STREAMING",
+            // A paragraph of its own: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
+            "MARKER-STREAMING\n\n",
         )]),
     ])]);
     let sandbox = Sandbox::new();
@@ -2935,7 +2943,8 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
     // a second reply nobody should ever see.
     let gateway = FakeGateway::start(vec![
         support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
-            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING"),
+            // A paragraph of its own: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
         ])]),
         support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
             "MARKER-THE-QUEUE-RAN-ANYWAY",
@@ -3026,7 +3035,9 @@ fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
             support::fake_gateway::text_delta("d", text),
         ])])
     };
-    let gateway = FakeGateway::start(vec![hanging("MARKER-ONE"), hanging("MARKER-TWO")]);
+    // Each marker a paragraph of its own, so it is on the screen while its turn
+    // still hangs: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
+    let gateway = FakeGateway::start(vec![hanging("MARKER-ONE\n\n"), hanging("MARKER-TWO\n\n")]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
@@ -3060,14 +3071,17 @@ fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
 /// a second of stream whatever the backlog rule computes -- a margin the
 /// assertions below are made inside, rather than a race run against.
 ///
-/// **Words rather than one long run of characters**, and that is a property of
-/// the instrument rather than decoration: an answer is wrapped into rows and
-/// each row is placed with its own `CUP`, so a needle that straddled a row
-/// boundary would never appear on the wire whole and a `wait_for` on it could
-/// only ever time out. Wrapping moves a word down whole, so a marker that is
-/// one word is on one row whatever the answer's length works out to be.
+/// **Lines rather than one long run of text**, and that is a property of the
+/// instrument rather than decoration. The answer is presented as upstream
+/// presents it: a line reaches the screen once the presenter has seen what
+/// follows it (`Shell::write_answer`; a prose line may yet be a setext
+/// heading's text), so a single line would be shown whole at the answer's
+/// close and never mid-stream. Each marker is therefore a paragraph of its
+/// own -- one word, so it is on one row and its needle is on the wire whole --
+/// and the body between them is ten short lines released one after another.
 fn long_answer(head: &str, tail: &str) -> String {
-    format!("{head} {} {tail}", "xx ".repeat(100))
+    let body = format!("{}xx\n", "xx ".repeat(9)).repeat(10);
+    format!("{head}\n\n{body}\n{tail}\n\n")
 }
 
 #[test]
@@ -3081,7 +3095,8 @@ fn a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one() {
     // **head of a single delta is on the screen while its tail is not**. There
     // is no arrangement of buffers in which that is true of text appended
     // whole, and the gap it is asserted inside is three quarters of a second
-    // of pacing rather than a scheduling accident.
+    // of pacing rather than a scheduling accident. The delta is several lines
+    // ([`long_answer`]), because a line is what the presenter releases.
     //
     // `SseThenHang` keeps the turn running, so the 200 ms drain deadline is not
     // what is being measured here.
@@ -3272,10 +3287,13 @@ fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
     // tail is *not* on the terminal yet is that argument made into a check, so
     // a UI that had somehow kept up would fail here rather than pass while
     // asking the drain nothing.
-    let block = "answer ".repeat(1170);
+    // In lines, and the head marker a paragraph of its own, because a line is
+    // what the presenter releases: see [`long_answer`]. Each block is still
+    // eight kilobytes.
+    let block = format!("{}answer\n", "answer ".repeat(9)).repeat(117);
     let mut deltas: Vec<Value> = vec![support::fake_gateway::text_delta(
         "a",
-        &format!("MARKER-BEGAN {block}"),
+        &format!("MARKER-BEGAN\n\n{block}"),
     )];
     deltas.extend((0..18).map(|_| support::fake_gateway::text_delta("a", &block)));
     deltas.push(support::fake_gateway::text_delta("a", "MARKER-ENDED"));
@@ -4751,8 +4769,18 @@ mod faults {
         // says so, is proven deterministically in
         // `worker::tests::the_drain_keeps_receiving_until_the_turn_says_it_is_over`;
         // a pty cannot be made to interleave those two threads on demand.
+        // The first chunk a paragraph of its own, so it is on the screen while
+        // the turn is still running: see [`long_answer`]. The rest stay one
+        // line, so what the exit has to write is the size it always was.
         let mut deltas: Vec<Value> = (0..2000)
-            .map(|n| support::fake_gateway::text_delta("d", &format!("chunk-{n} ")))
+            .map(|n| {
+                let chunk = if n == 0 {
+                    "chunk-0\n\n".to_string()
+                } else {
+                    format!("chunk-{n} ")
+                };
+                support::fake_gateway::text_delta("d", &chunk)
+            })
             .collect();
         deltas.push(support::fake_gateway::finish("stop"));
         let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
@@ -5001,8 +5029,12 @@ mod faults {
         // fatal fixture has exactly one.
         session.wait_for_count(FRAME_BEGIN, 2);
         let recovered = session.wait_for(FRAME_END);
-        assert!(
-            recovered.contains(HINT),
+        // Read off the rebuilt screen rather than the wire: the hint row lifts
+        // the permission mode out of its grey, so the row's text is never one
+        // contiguous needle on the wire.
+        assert_eq!(
+            Screen::painted(&recovered, 24, 80).map(|screen| screen.above_hint(0)),
+            Some(HINT_WITHOUT_A_CREDENTIAL.to_string()),
             "the recovered band did not carry a hint row: {recovered:?}"
         );
 
@@ -5982,7 +6014,12 @@ fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really
         // the bottom and its row says which height it was solved for.
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
-            &format!("MARKER-DRAG-BEGAN {} MARKER-DRAG-ENDED", "xx ".repeat(1200)),
+            // The head marker a paragraph of its own, so it is on the screen
+            // mid-stream: see [`long_answer`].
+            &format!(
+                "MARKER-DRAG-BEGAN\n\n{} MARKER-DRAG-ENDED",
+                "xx ".repeat(1200)
+            ),
         )]),
     ])]);
     let sandbox = Sandbox::new();

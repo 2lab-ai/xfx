@@ -772,7 +772,7 @@ impl Estimator {
 }
 
 fn span_tokens(span: u64) -> u64 {
-    span / 4 + u64::from(span % 4 != 0)
+    span / 4 + u64::from(!span.is_multiple_of(4))
 }
 
 /// What the summary under a turn's answer says: how long the turn took and the
@@ -4419,17 +4419,41 @@ mod tests {
         format!("{}{accented}{}", PALETTE.statusline(), PALETTE.reset())
     }
 
-    /// A document row with the sequences a **role** put on it taken off, and
-    /// nothing else touched.
+    /// A document row with the sequences a **role** or a **gutter** put on it
+    /// taken off, and nothing else touched.
     ///
-    /// Exactly the three the fixture's palette can add to a transcript row --
-    /// the answer's, xfx's own lines', and the reset that closes either.
+    /// Exactly the four the fixture's palette can add to a transcript row --
+    /// the hint grey of a card's rail (`transcript::Gutter::Rail`), xfx's own
+    /// lines', a turn summary's dim, and the reset that closes any of them.
     /// Anything else a row carries is part of its text and is left where it
-    /// is.
+    /// is -- with two collisions to know about: a card's bold is closed by
+    /// a reset spelled the same as the palette's, so that reset goes too; and
+    /// the dark dim is spelled the same as the markdown presenter's dark
+    /// inline code (`markdown::theme::FX_DARK`), so a case that streams inline
+    /// code has to read [`Fixture::take_pending`] instead.
     fn unpainted(row: &str) -> String {
-        row.replace(PALETTE.body(), "")
+        row.replace(PALETTE.hint(), "")
             .replace(PALETTE.notice(), "")
+            .replace(PALETTE.dim(), "")
             .replace(PALETTE.reset(), "")
+    }
+
+    /// What the echo of a submitted `text` leaves in [`Fixture::document`]:
+    /// upstream's card -- the rail, then the text in bold -- and the blank row
+    /// under it ([`Mark::Card`]). The rail's grey and the resets are taken off
+    /// by [`unpainted`]; the bold is the card's text and stays.
+    fn card(text: &str) -> Vec<String> {
+        vec![format!("{RAIL} {BOLD}{text}"), String::new()]
+    }
+
+    /// The card's row as it is handed to the terminal: the rail in the hint
+    /// grey, a space, and the submitted text in bold.
+    fn card_row(text: &str) -> String {
+        format!(
+            "{}{RAIL}{} {BOLD}{text}{RESET}",
+            PALETTE.hint(),
+            PALETTE.reset()
+        )
     }
 
     /// The palette every fixture paints in.
@@ -4901,10 +4925,16 @@ mod tests {
         );
         assert_eq!(
             shell.take_pending(),
-            vec![Append {
-                scroll: 1,
-                rows: vec!["ask me".to_string()]
-            }]
+            vec![
+                Append {
+                    scroll: 1,
+                    rows: vec![card_row("ask me")]
+                },
+                Append {
+                    scroll: 1,
+                    rows: vec![String::new()]
+                },
+            ]
         );
         assert!(
             shell.render.begin().is_some(),
@@ -5050,7 +5080,7 @@ mod tests {
         );
         assert_eq!(
             shell.document(),
-            vec!["[Pasted text #1, 2 lines]".to_string()],
+            card("[Pasted text #1, 2 lines]"),
             "the document echoed the whole block back at the user"
         );
     }
@@ -6442,7 +6472,7 @@ mod tests {
             Ok(TurnWork::Submit("say the marker".to_string())),
             "the composer's text never reached the runtime"
         );
-        assert_eq!(shell.document(), vec!["say the marker".to_string()]);
+        assert_eq!(shell.document(), card("say the marker"));
         assert!(shell.editor.is_empty(), "the composer kept a sent draft");
     }
 
@@ -8718,15 +8748,18 @@ mod tests {
                 continue;
             }
             assert!(
-                document.first().map(String::as_str) == Some(*name),
+                document.starts_with(&card(name)),
                 "{name} was not echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row; every other one says something.
+            // a row; every other one says something under its card.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
             } else {
-                assert!(document.len() > 1, "{name} answered with nothing");
+                assert!(
+                    document.len() > card(name).len(),
+                    "{name} answered with nothing"
+                );
                 assert!(!shell.leaving(), "{name} ended the session");
             }
             assert!(
@@ -8746,7 +8779,7 @@ mod tests {
         shell.route_bytes(b"/notacommand\r");
 
         let document = shell.document();
-        assert_eq!(document.first().map(String::as_str), Some("/notacommand"));
+        assert!(document.starts_with(&card("/notacommand")), "{document:?}");
         assert!(
             document
                 .iter()
@@ -8998,13 +9031,21 @@ mod tests {
         shell.shell.flush_paced();
         assert_eq!(
             shell.take_pending(),
-            vec![Append {
-                scroll: 1,
-                // The answer's own colour, spelled out: this case reads the
-                // rows as they are handed over rather than through
-                // [`Fixture::document`].
-                rows: vec!["\u{1b}[38;5;255mthe next answer\u{1b}[0m".to_string()]
-            }],
+            vec![
+                Append {
+                    scroll: 1,
+                    // The answer as it is handed over, spelled out: this case
+                    // reads the rows as they are handed over rather than
+                    // through [`Fixture::document`] -- in its two-column
+                    // gutter, with no palette colour of xfx's on it.
+                    rows: vec!["  the next answer".to_string()]
+                },
+                // and the blank row its block ends on
+                Append {
+                    scroll: 1,
+                    rows: vec![String::new()]
+                },
+            ],
             "the first delta after a clear was written onto a row the clear erased"
         );
     }
@@ -9049,12 +9090,17 @@ mod tests {
         shell.apply(UiEvent::Delta("ONE".to_string()));
         shell.apply(UiEvent::TurnEnded { failure: None });
 
-        // The last row is rewritten in place as it lengthens, so the row the
-        // document keeps is the whole answer rather than its first fragment.
-        assert_eq!(
-            shell.released().last().map(String::as_str),
-            Some("MARKER-TURN-ONE")
-        );
+        // The presenter writes a line once it has the whole of it, so the row
+        // the document keeps is the whole answer rather than its first
+        // fragment -- in the answer's two-column gutter, its block ended on a
+        // blank row, and the clean end's summary and its own blank row under
+        // that. The summary's wording is deliberately not pinned here: its
+        // output count is taken when the turn ends, before the pacer has
+        // released this answer, and that is an open question about the
+        // summary rather than about where the answer lands.
+        let document = shell.released();
+        assert_eq!(document[..2], ["  MARKER-TURN-ONE", ""], "{document:?}");
+        assert_eq!(document.len(), 4, "{document:?}");
     }
 
     #[test]
@@ -9063,9 +9109,21 @@ mod tests {
         // it whole shows the answer as a jump, and this one shows it as a
         // stream -- `pacer::MIN_CPS` at the slowest, so a fragment this size
         // takes a tenth of a second and not one frame.
+        //
+        // In paragraphs, because the presenter writes a line once it has seen
+        // what comes after it (`Shell::write_answer`; a prose line waits for
+        // the next one, which may make it a setext heading): each paragraph
+        // here -- its one-letter line and the blank line that ends it -- is
+        // exactly what one tick of the floor rate pays for, so the first tick
+        // shows the first paragraph and nothing after it.
         let mut shell = shell(24, 80);
         let start = Instant::now();
-        shell.apply(UiEvent::Delta("x".repeat(60)));
+        let per_tick = usize::try_from(MIN_CPS).expect("a rate") * 8 / 1000;
+        let lines: Vec<String> = (b'a'..b'u')
+            .map(|letter| char::from(letter).to_string().repeat(per_tick - 2))
+            .collect();
+        let answer: String = lines.iter().map(|line| format!("{line}\n\n")).collect();
+        shell.apply(UiEvent::Delta(answer));
         // The clock's first reading. Nothing is owed for it, which is the
         // difference between a pacer and a queue.
         shell.settle_band(start);
@@ -9075,16 +9133,13 @@ mod tests {
         );
         let first = shell.paced(start, TICK_MILLIS);
         assert_eq!(
-            first.last().map(String::len),
-            Some(usize::try_from(MIN_CPS).expect("a rate") * 8 / 1000),
+            first,
+            vec![format!("  {}", lines[0])],
             "one tick released more than the floor rate pays for"
         );
         // and the rest of it arrives, over the ticks that pay for it
         let rows = shell.paced(start + Duration::from_millis(TICK_MILLIS), 200);
-        assert_eq!(
-            rows.last().map(String::as_str),
-            Some("x".repeat(60).as_str())
-        );
+        assert_eq!(rows.last(), Some(&format!("  {}", lines[19])));
     }
 
     #[test]
@@ -9180,7 +9235,8 @@ mod tests {
         assert_eq!(
             shell.released(),
             vec![
-                "half a sentence".to_string(),
+                "  half a sentence".to_string(),
+                String::new(),
                 "[tool] read_file ok".to_string()
             ],
             "a notice was written into the middle of the answer's row"
@@ -9198,7 +9254,10 @@ mod tests {
         let start = Instant::now();
         shell.apply(UiEvent::Delta("the first half ".to_string()));
         shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
-        shell.apply(UiEvent::Delta("and the second".to_string()));
+        // A whole paragraph -- its line and the blank line that ends it -- so
+        // the presenter writes it as soon as the pacer has released that end
+        // rather than at the answer's close.
+        shell.apply(UiEvent::Delta("and the second\n\n".to_string()));
         shell.settle_band(start);
         assert!(
             shell.document().is_empty(),
@@ -9210,14 +9269,17 @@ mod tests {
             .iter()
             .position(|row| row == "[tool] read_file ok")
             .expect("the notice");
+        // The notice ends the answer's block where the stream had reached, so
+        // what is above it is the first half and the blank row that block
+        // ends on, and nothing else.
         assert_eq!(
-            rows[notice - 1],
-            "the first half ",
+            rows[..notice],
+            ["  the first half ", ""],
             "the notice landed before the text it came after: {rows:?}"
         );
         assert_eq!(
             rows.last().map(String::as_str),
-            Some("and the second"),
+            Some("  and the second"),
             "the text after the notice was lost or joined to it: {rows:?}"
         );
     }
@@ -9244,7 +9306,8 @@ mod tests {
         assert_eq!(
             shell.released(),
             vec![
-                "part of an answer".to_string(),
+                "  part of an answer".to_string(),
+                String::new(),
                 "the turn was cancelled".to_string()
             ]
         );
@@ -9681,8 +9744,8 @@ mod tests {
         assert_eq!(exact.geometry.panel, 0);
         exact.route_bytes(&[0x0d]);
         let document = exact.document();
-        assert_eq!(document.first().map(String::as_str), Some("/version"));
-        assert!(document.len() > 1, "{document:?}");
+        assert!(document.starts_with(&card("/version")), "{document:?}");
+        assert!(document.len() > card("/version").len(), "{document:?}");
     }
 
     #[test]
@@ -11563,13 +11626,14 @@ mod tests {
     // an expectation built from the accessor passes whatever the accessor
     // says, including nothing.
 
-    /// The dark palette's answer text, `theme::DARK`'s `255`.
-    const BODY_DARK: &str = "\u{1b}[38;5;255m";
-    /// The light palette's, `theme::LIGHT`'s `235`.
-    const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
+    /// The dark palette's hint grey, which a card's rail is painted in:
+    /// `theme::DARK`'s `255`.
+    const HINT_DARK: &str = "\u{1b}[38;5;255m";
     /// What xfx's own lines are painted in, dark: `theme::DARK`'s `250`.
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
-    /// What closes either.
+    /// And light: `theme::LIGHT`'s `241`.
+    const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    /// What closes any of them.
     const ENDED: &str = "\u{1b}[0m";
 
     /// Every row the document is owed, as it is handed to the terminal.
@@ -11583,17 +11647,23 @@ mod tests {
 
     #[test]
     fn the_answer_a_turn_streams_is_painted_as_the_answer() {
-        // The model's text reads as the model's text. The break this catches
-        // is the answer arriving in the terminal's default foreground -- which
-        // on a light terminal is the one thing this phase's palette exists to
-        // avoid.
+        // The model's text reads as the model's text, as upstream presents
+        // it: through the markdown presenter, in the two-column gutter, in the
+        // terminal's own foreground with only the markdown's attributes on it,
+        // and closed by the blank row every block ends on. The breaks this
+        // catches are the answer bypassing the presenter (the asterisks on the
+        // screen) and the answer painted in one of xfx's greys, which would be
+        // this surface claiming the model's words as its own lines.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Delta("a streamed answer".to_string()));
+        shell.apply(UiEvent::Delta("a **streamed** answer".to_string()));
         shell.shell.flush_paced();
 
         assert_eq!(
             painted_rows(&mut shell),
-            vec![format!("{BODY_DARK}a streamed answer{ENDED}")]
+            vec![
+                "  a \u{1b}[1mstreamed\u{1b}[22m answer".to_string(),
+                String::new()
+            ]
         );
     }
 
@@ -11607,10 +11677,13 @@ mod tests {
         shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
         shell.shell.flush_paced();
 
+        // The echo is upstream's card: the rail is the band's hint grey, and
+        // the text behind it is bold in the terminal's own foreground.
         assert_eq!(
             painted_rows(&mut shell),
             vec![
-                "hello".to_string(),
+                format!("{HINT_DARK}{RAIL}{ENDED} {BOLD}hello{ENDED}"),
+                String::new(),
                 format!("{NOTICE_DARK}[tool] read_file ok{ENDED}"),
             ],
             "the echo and the notice were not told apart"
@@ -11631,22 +11704,27 @@ mod tests {
         assert_eq!(
             painted_rows(&mut shell),
             vec![
-                format!("{BODY_DARK}before{ENDED}"),
+                "  before".to_string(),
+                String::new(),
                 format!("{NOTICE_DARK}[tool] ran{ENDED}"),
-                format!("{BODY_DARK}after{ENDED}"),
+                "  after".to_string(),
+                String::new(),
             ]
         );
     }
 
     #[test]
     fn an_answer_the_pacer_was_still_holding_lands_in_the_palette_it_lands_in() {
-        // The palette is read at the write and not at the delta, so text that
-        // was queued while the terminal was dark is written for the terminal
-        // the user has now. Nothing of the stream is rewritten to make that
-        // true -- there is nothing to rewrite, because no colour was ever put
-        // into it.
+        // The palette is read at the write and not at the delta, so what was
+        // queued while the terminal was dark is written for the terminal the
+        // user has now. Nothing of the stream is rewritten to make that true
+        // -- there is nothing to rewrite, because no colour was ever put into
+        // it. The answer carries no palette colour of its own, so the subject
+        // is xfx's own line held behind it: a notice waits at the place the
+        // stream had reached (`Shell::mark`) with its role beside it.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("held while it was dark".to_string()));
+        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
         let holding = shell.shell.paced_backlog();
         assert!(holding > 0, "the pacer released the delta immediately");
 
@@ -11660,7 +11738,11 @@ mod tests {
         shell.shell.flush_paced();
         assert_eq!(
             painted_rows(&mut shell),
-            vec![format!("{BODY_LIGHT}held while it was dark{ENDED}")]
+            vec![
+                "  held while it was dark".to_string(),
+                String::new(),
+                format!("{NOTICE_LIGHT}[tool] read_file ok{ENDED}"),
+            ]
         );
     }
 
@@ -11675,15 +11757,11 @@ mod tests {
         shell.apply(UiEvent::Delta("second half".to_string()));
         shell.shell.flush_paced();
 
-        let rows = painted_rows(&mut shell);
-        let said: String = rows
-            .iter()
-            .map(|row| {
-                row.replace(BODY_DARK, "")
-                    .replace(BODY_LIGHT, "")
-                    .replace(ENDED, "")
-            })
-            .collect();
-        assert_eq!(said, "first half second half");
+        // Spelled whole rather than stripped: the answer carries no palette
+        // sequence for a report to change, so the rows are exactly the text.
+        assert_eq!(
+            painted_rows(&mut shell),
+            vec!["  first half second half".to_string(), String::new()]
+        );
     }
 }

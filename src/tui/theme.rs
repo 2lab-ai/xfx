@@ -159,7 +159,7 @@ pub(crate) enum Depth {
 /// adds above the rule. The composer's own rows carry none, which is upstream's
 /// choice too -- `input_bar_style` is empty in both themes
 /// (`render.zig:69,88`). The fifth is the **document's**: the answer text a
-/// transcript row is made of ([`Self::body`]).
+/// transcript row is made of (`BODY`).
 ///
 /// Every accessor answers with a whole SGR sequence rather than with a colour
 /// number, so a painter concatenates and never formats, and
@@ -243,15 +243,6 @@ impl Palette {
         self.paint(ACTIVITY)
     }
 
-    /// The answer text a document row carries.
-    ///
-    /// Not a band role: the rows this paints are the terminal's own document
-    /// ([`super::transcript`]), and they are painted at the moment they are
-    /// handed over rather than repainted with the band.
-    pub(crate) fn body(&self) -> &'static str {
-        self.paint(BODY)
-    }
-
     /// The hint row's own text (`statusline_style`).
     pub(crate) fn statusline(&self) -> &'static str {
         self.paint(STATUSLINE)
@@ -281,7 +272,7 @@ impl Palette {
     /// `None` for a cell it has nothing to say about.
     ///
     /// Two of the five roles reach the document -- the answer text
-    /// ([`Self::body`]) and xfx's own lines ([`Self::notice`]) -- and a cell is
+    /// (`BODY`) and xfx's own lines ([`Self::notice`]) -- and a cell is
     /// recognised by the colour it is *holding*, in **either** mode, at this
     /// palette's own depth. Both sides map onto the mode in force rather than
     /// old-to-new, and that is what makes a run of reports converge: a chained
@@ -804,8 +795,9 @@ mod tests {
     fn the_document_body_reads_against_the_background_the_session_is_on() {
         // What a transcript row is painted with, and the one thing about it
         // this module decides: the two modes must not paint it the same, or a
-        // light terminal gets the dark palette's near-white answer text on
-        // white.
+        // light terminal gets the dark palette's pale greys on white. The
+        // answer itself carries no palette colour; the rows this palette
+        // paints in the document are xfx's own lines and a turn's summary.
         let dark = Palette {
             mode: Mode::Dark,
             depth: Depth::Ansi256,
@@ -814,8 +806,11 @@ mod tests {
             mode: Mode::Light,
             depth: Depth::Ansi256,
         };
-        assert_eq!(dark.body(), "\u{1b}[38;5;255m");
-        assert_eq!(light.body(), "\u{1b}[38;5;235m");
-        assert_ne!(dark.body(), light.body());
+        assert_eq!(dark.notice(), "\u{1b}[38;5;250m");
+        assert_eq!(light.notice(), "\u{1b}[38;5;241m");
+        assert_ne!(dark.notice(), light.notice());
+        assert_eq!(dark.dim(), "\u{1b}[38;5;245m");
+        assert_eq!(light.dim(), "\u{1b}[38;5;247m");
+        assert_ne!(dark.dim(), light.dim());
     }
 }
