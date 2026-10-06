@@ -797,7 +797,9 @@ mod tests {
     #[test]
     fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
         let menu = HelpMenu::open("");
-        let count = SLASH_REGISTRY.len();
+        // As tall as what it lists, up to upstream's twenty commands in view
+        // ([`MOST_ITEMS`]); more than that scroll.
+        let count = SLASH_REGISTRY.len().min(MOST_ITEMS);
         assert_eq!(
             usize::from(menu.height(40, 0)),
             2 + count,
@@ -826,7 +828,7 @@ mod tests {
                 SLASH_REGISTRY[1].summary
             )
         );
-        assert_eq!(shown(&rows), by_category());
+        assert_eq!(shown(&rows), by_category()[..count]);
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
             assert_eq!(summary_column(row), column, "{row:?}");
