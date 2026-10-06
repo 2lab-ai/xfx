@@ -816,6 +816,9 @@ pub(crate) struct Shell {
     /// except for the state the runtime really changed and the questions a
     /// parked turn is waiting on ([`Self::drained`]).
     draining: Option<usize>,
+    /// A `/rename` typed while [`Self::draining`]: the title of the session
+    /// the reset starts, held until the old one has gone.
+    held_rename: Option<String>,
     /// The answer as upstream presents it: the model's markdown rendered as it
     /// streams (`assistant_stream.zig:435-457`), its prose in the two-column
     /// gutter and its code, tables and rules as blocks of their own.
@@ -1359,6 +1362,7 @@ impl Shell {
             handoff: None,
             tail_unknown: false,
             draining: None,
+            held_rename: None,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
                 markdown::theme::builtin(palette.mode == Mode::Light),
             )),
@@ -2451,6 +2455,13 @@ impl Shell {
             UiEvent::Fresh { through } => {
                 if self.draining.is_some_and(|last| through >= last) {
                     self.draining = None;
+                    // A title typed after the reset is the new session's,
+                    // and the old one has gone now.
+                    if let Some(title) = self.held_rename.take() {
+                        if let Err(rejected) = self.work.rename(title) {
+                            self.refused(rejected);
+                        }
+                    }
                 }
             }
             // The picker's listing, if the picker is still up to take it.
@@ -2469,16 +2480,14 @@ impl Shell {
             }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
-            UiEvent::Renamed { title, unsaved } => {
-                self.session_title = Some(title.clone());
-                self.retitle();
-                self.announce(match unsaved {
-                    None => notice::Notice::neutral("session", format!("renamed to \"{title}\"")),
-                    Some(problem) => notice::Notice::warning(
-                        "session",
-                        format!("renamed for this process but not saved ({problem})"),
-                    ),
-                });
+            // A title already applied that the log would not take: the
+            // title stays this process's, and the warning says so
+            // (`app_commands.zig:3833-3846`).
+            UiEvent::RenameUnsaved(problem) => {
+                self.announce(notice::Notice::warning(
+                    "session",
+                    format!("renamed for this process but not saved ({problem})"),
+                ));
             }
             UiEvent::ResumeFailed { id, failure } => {
                 if let Some(sessions) = self.sessions.as_mut() {
@@ -5920,11 +5929,16 @@ impl CommandHandlers for Shell {
     /// ([`crate::session::validate_title`]), and refused at once in upstream's
     /// words: `✗ usage: /rename <title>` with no topic for an empty one,
     /// `✗ session: title is too long` and `✗ session: title must be printable
-    /// text` for the other two. An accepted one goes to the runtime, which
-    /// writes it into the conversation's session and answers with
-    /// [`UiEvent::Renamed`]: the window takes the title then, and the notice
-    /// says whether the log has it. A rename a Ctrl-C drops from the queue
-    /// before it runs titles nothing.
+    /// text` for the other two.
+    ///
+    /// An accepted one **applies at once**, as upstream's does whether or not
+    /// a response is streaming: the window takes the title and the notice
+    /// says `renamed to "…"`. The runtime writes it into the conversation's
+    /// session on its own channel ([`WorkHandle::rename`]) -- at once when
+    /// idle, the moment the running turn ends when not -- and says so only
+    /// when the log would not take it ([`UiEvent::RenameUnsaved`]). A title
+    /// typed while a reset is still dropping the old conversation is the new
+    /// one's, and is held until the drop is done ([`UiEvent::Fresh`]).
     fn rename(&mut self, argument: &str) {
         let title = match crate::session::validate_title(argument) {
             Ok(title) => title.to_string(),
@@ -5941,9 +5955,20 @@ impl CommandHandlers for Shell {
                 return;
             }
         };
-        if let Err(rejected) = self.work.submit(TurnWork::Rename(title)) {
+        if self.draining.is_some() {
+            // The reset is still dropping the conversation it left: the
+            // title is the next one's, written once the drop is done.
+            self.held_rename = Some(title.clone());
+        } else if let Err(rejected) = self.work.rename(title.clone()) {
             self.refused(rejected);
+            return;
         }
+        self.session_title = Some(title.clone());
+        self.retitle();
+        self.announce(notice::Notice::neutral(
+            "session",
+            format!("renamed to \"{title}\""),
+        ));
     }
 
     fn model(&mut self, argument: &str) {
@@ -6428,6 +6453,9 @@ impl Shell {
         // What the runtime still sends about the old conversation is dropped
         // until it says the conversation is gone.
         self.draining = Some(through);
+        // A title held for the session an earlier reset started names one
+        // that never opened: this reset drops it before it could.
+        self.held_rename = None;
         self.render.request(Reason::Footer);
     }
 
@@ -6487,7 +6515,7 @@ impl Shell {
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
-            | UiEvent::Renamed { .. }
+            | UiEvent::RenameUnsaved(_)
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
@@ -14530,6 +14558,10 @@ mod tests {
     fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once() {
         // `fx-basic-40x120-rename-empty.txt` and `-rename-title.txt`.
         let mut shell = shell(24, 120);
+        let (work, sent, control, mut renamed) = WorkHandle::detached_with_renames();
+        shell.shell.work = work;
+        shell.sent = sent;
+        shell.control = control;
         let _ = shell.take_title();
         shell.route_bytes(b"/rename\r");
         assert_eq!(
@@ -14538,7 +14570,7 @@ mod tests {
         );
         assert_eq!(shell.document(), Vec::<String>::new());
         assert!(
-            shell.sent.try_recv().is_err(),
+            renamed.try_recv().is_err(),
             "an empty title reached the runtime"
         );
         shell.route_bytes(format!("/rename {}\r", "x".repeat(241)).as_bytes());
@@ -14560,30 +14592,21 @@ mod tests {
             "a refused title titled the window"
         );
 
+        // Accepted: titled and said at once (`app_commands.zig:3852-3857`),
+        // and handed to the runtime to write.
         shell.route_bytes(b"/rename   My Title  \r");
-        assert_eq!(shell.picks_up(), TurnWork::Rename("My Title".to_string()));
-        shell.work.give_back();
-        assert_eq!(
-            shell.take_title(),
-            None,
-            "titled before the runtime renamed it"
-        );
-        shell.apply(UiEvent::Renamed {
-            title: "My Title".to_string(),
-            unsaved: None,
-        });
+        assert_eq!(renamed.try_recv().as_deref(), Ok("My Title"));
         assert_eq!(shell.take_title().as_deref(), Some("My Title"));
         assert_eq!(
             visible_text(&shell.document()[0]),
             "* session: renamed to \"My Title\""
         );
-        // A store that refused: the title is this process's, and the warning
-        // says so (`app_commands.zig:3833-3846`).
-        shell.apply(UiEvent::Renamed {
-            title: "Kept here".to_string(),
-            unsaved: Some("cannot record the `session_renamed` session event".to_string()),
-        });
-        assert_eq!(shell.take_title().as_deref(), Some("Kept here"));
+        // A store that refused: the title stays this process's, and the
+        // warning says so (`app_commands.zig:3833-3846`).
+        shell.apply(UiEvent::RenameUnsaved(
+            "cannot record the `session_renamed` session event".to_string(),
+        ));
+        assert_eq!(shell.take_title(), None, "the warning retitled the window");
         assert_eq!(
             visible_text(&shell.document()[0]),
             "! session: renamed for this process but not saved \
@@ -14595,6 +14618,60 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title(), None);
+    }
+
+    /// While a turn runs the title applies at once, as upstream's does --
+    /// it renames whether or not a response streams
+    /// (`handleRenameCommand`, `app_commands.zig:3815-3858`) -- and the
+    /// runtime writes it the moment the turn is over. While a reset is still
+    /// dropping the conversation it left, a title is the next session's and
+    /// is held until the reset's fence.
+    #[test]
+    fn rename_while_a_turn_runs_applies_at_once_and_one_after_a_reset_waits_for_its_fence() {
+        let mut shell = shell(24, 120);
+        let (work, sent, control, mut renamed) = WorkHandle::detached_with_renames();
+        shell.shell.work = work;
+        shell.sent = sent;
+        shell.control = control;
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.take_title();
+        let _ = shell.document();
+        shell.route_bytes(b"/rename Mid Turn\r");
+        assert_eq!(renamed.try_recv().as_deref(), Ok("Mid Turn"));
+        assert_eq!(shell.take_title().as_deref(), Some("Mid Turn"));
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| visible_text(row) == "* session: renamed to \"Mid Turn\""),
+            "the notice waited for the turn"
+        );
+        assert_eq!(shell.controlled(), None, "a rename stopped the turn");
+
+        // A reset while the turn still unwinds: a title typed now names the
+        // session the reset starts, so it is not sent until the old one has
+        // gone -- and a second reset drops it, as it drops that session.
+        shell.route_bytes(b"/new\r");
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Reset { .. })
+        ));
+        shell.route_bytes(b"/rename Next One\r");
+        assert!(renamed.try_recv().is_err(), "sent before the drop");
+        assert_eq!(shell.take_title().as_deref(), Some("Next One"));
+        shell.apply(UiEvent::Fresh { through: 1 });
+        assert_eq!(renamed.try_recv().as_deref(), Ok("Next One"));
+
+        shell.route_bytes(b"/new\r");
+        let _ = shell.controlled();
+        shell.route_bytes(b"/rename Never Opened\r");
+        shell.route_bytes(b"/new\r");
+        let _ = shell.controlled();
+        shell.apply(UiEvent::Fresh { through: 1 });
+        assert!(
+            renamed.try_recv().is_err(),
+            "a dropped session's title was sent"
+        );
     }
 
     #[test]

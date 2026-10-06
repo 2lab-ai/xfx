@@ -218,6 +218,16 @@ pub(crate) struct WorkHandle {
     /// runtime reads it only between pieces of work (`turn_loop`), which is
     /// what keeps a change from landing under a running turn.
     permissions: UnboundedSender<Change>,
+    /// Where `/rename`'s title goes ([`Self::rename`]).
+    ///
+    /// A channel of its own for the reasons [`Self::permissions`] is one --
+    /// never refused, never queued behind a prompt, never dropped by a Ctrl-C
+    /// -- and **not** a [`TurnControl`]: a prompter parked at an approval or a
+    /// question reads that channel itself and takes anything it does not know
+    /// as a stop (`super::approval`'s `answered` loop), so a rename typed just
+    /// before an approval came up would refuse the call. Read between pieces
+    /// of work, which is when the conversation's log is free to write to.
+    renames: UnboundedSender<String>,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
 }
@@ -394,6 +404,14 @@ impl WorkHandle {
         self.permissions.send(change).map_err(|_| Rejected::Gone)
     }
 
+    /// Hands the runtime a title for the conversation's session, already
+    /// validated, to write before the next piece of work it starts -- at once
+    /// when it is idle, when the running turn ends when it is not. Never
+    /// blocks, never full. `Err` means the runtime thread is gone.
+    pub(crate) fn rename(&self, title: String) -> Result<(), Rejected> {
+        self.renames.send(title).map_err(|_| Rejected::Gone)
+    }
+
     /// The conversation's grants, as a bare `/permissions` lists them, from
     /// the runtime's last publication. Never waits for the runtime.
     pub(crate) fn grants(&self) -> Vec<String> {
@@ -434,9 +452,38 @@ impl WorkHandle {
         mpsc::UnboundedReceiver<TurnControl>,
         UnboundedReceiver<Change>,
     ) {
+        let (handle, work_rx, control_rx, changes, renames) = Self::detached_whole();
+        // Open for the handle's life, as [`Self::detached`] keeps `changes`.
+        std::mem::forget(renames);
+        (handle, work_rx, control_rx, changes)
+    }
+
+    /// [`Self::detached`], with the receiving end of the rename channel
+    /// handed back too, for the cases that ask what `/rename` sent.
+    #[cfg(test)]
+    pub(crate) fn detached_with_renames() -> (
+        Self,
+        Receiver<TurnWork>,
+        mpsc::UnboundedReceiver<TurnControl>,
+        UnboundedReceiver<String>,
+    ) {
+        let (handle, work_rx, control_rx, changes, renames) = Self::detached_whole();
+        std::mem::forget(changes);
+        (handle, work_rx, control_rx, renames)
+    }
+
+    #[cfg(test)]
+    fn detached_whole() -> (
+        Self,
+        Receiver<TurnWork>,
+        mpsc::UnboundedReceiver<TurnControl>,
+        UnboundedReceiver<Change>,
+        UnboundedReceiver<String>,
+    ) {
         let (work, work_rx) = mpsc::channel(WORK_LIMIT);
         let (control, control_rx) = mpsc::unbounded_channel();
         let (permissions, changes) = mpsc::unbounded_channel();
+        let (renames, renamed) = mpsc::unbounded_channel();
         (
             Self {
                 work,
@@ -446,11 +493,13 @@ impl WorkHandle {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions,
+                renames,
                 grants: Grants::default(),
             },
             work_rx,
             control_rx,
             changes,
+            renamed,
         )
     }
 
@@ -669,6 +718,7 @@ pub(crate) fn spawn(
     let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
     let (control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
     let (permissions_tx, mut permissions_rx) = mpsc::unbounded_channel::<Change>();
+    let (renames_tx, mut renames_rx) = mpsc::unbounded_channel::<String>();
     // One receiver, read by the turn loop and -- while it is parked in an
     // approval -- by the prompter. See `super::approval::ControlChannel` for
     // why that is sound and what it costs.
@@ -733,6 +783,7 @@ pub(crate) fn spawn(
                 &events_tx,
                 &mut work_rx,
                 &mut permissions_rx,
+                &mut renames_rx,
                 control,
                 session_cancel,
                 &loops_outstanding,
@@ -751,6 +802,7 @@ pub(crate) fn spawn(
                 reply,
                 status,
                 permissions: permissions_tx,
+                renames: renames_tx,
                 grants,
             },
             resumable: None,
@@ -1520,11 +1572,15 @@ fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
 /// **Control first, then at most one piece of work**, which is what `biased`
 /// buys: a shutdown that arrived while this was waiting for a prompt is
 /// answered rather than made to wait behind one.
+// Each argument is a channel end or a count this loop is the one reader of;
+// bundling them would only rename the list.
+#[allow(clippy::too_many_arguments)]
 async fn turn_loop(
     mut state: Runtime,
     events: &Sender<UiEvent>,
     work: &mut Receiver<TurnWork>,
     changes: &mut UnboundedReceiver<Change>,
+    renames: &mut UnboundedReceiver<String>,
     control: Arc<ControlChannel>,
     cancel: Cancellation,
     outstanding: &AtomicUsize,
@@ -1537,6 +1593,8 @@ async fn turn_loop(
     // Whether the UI can still send a change. A closed channel answers `recv`
     // at once, every time, so an arm left on it would spin this loop.
     let mut changes_open = true;
+    // The same, for the rename channel.
+    let mut renames_open = true;
     loop {
         // The select borrows `work` for its own branch, so the cancellation arm
         // cannot drain the queue where it is decided; it says so and the drain
@@ -1576,6 +1634,10 @@ async fn turn_loop(
             // syncs its queued prompts to a new mode the same way
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
+            // A `/rename` typed while a turn ran is written the moment it
+            // ends, as a change is applied; one typed while nothing runs, at
+            // once.
+            title = renames.recv(), if renames_open => Taken::Rename(title),
             item = queue.work.recv() => Taken::Work(item),
         };
         let item = match next {
@@ -1585,11 +1647,12 @@ async fn turn_loop(
             }
             Taken::Reset(through) => {
                 queue.abandon(through);
+                write_renames(&mut state, renames, events, &cancel).await;
                 drop_conversation(&mut state, events, through).await;
                 continue;
             }
             Taken::Nothing => continue,
-            Taken::Shutdown => return settled(state, changes),
+            Taken::Shutdown => return settled(state, changes, renames),
             Taken::Change(Some(change)) => {
                 // Not a terminal event -- nothing is waiting on one for a
                 // change -- but `send_terminal` is the send that makes the
@@ -1603,10 +1666,18 @@ async fn turn_loop(
                 changes_open = false;
                 continue;
             }
+            Taken::Rename(Some(title)) => {
+                write_rename(&mut state, &title, events, &cancel).await;
+                continue;
+            }
+            Taken::Rename(None) => {
+                renames_open = false;
+                continue;
+            }
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
             // one.
-            Taken::Work(None) => return settled(state, changes),
+            Taken::Work(None) => return settled(state, changes, renames),
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
@@ -1638,15 +1709,14 @@ async fn turn_loop(
                 Ended::Turn
             }
             TurnWork::Resume(id) => {
+                // A title typed for the conversation being left is that
+                // conversation's.
+                write_renames(&mut state, renames, events, &cancel).await;
                 let answer = match state.resume_by_id(&id, &cancel.mirror()) {
                     Ok(replay) => UiEvent::Resumed(replay),
                     Err(failure) => UiEvent::ResumeFailed { id, failure },
                 };
                 bridge::send_terminal(events, answer).await;
-                Ended::Turn
-            }
-            TurnWork::Rename(title) => {
-                run_rename(&mut state, &title, events, &cancel.mirror()).await;
                 Ended::Turn
             }
         };
@@ -1665,11 +1735,16 @@ async fn turn_loop(
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
         match ended {
-            Ended::Session => return settled(state, changes),
+            Ended::Session => return settled(state, changes, renames),
             // A reset reached this work while it ran: the work has said its
             // last word, and the conversation goes before anything else is
-            // taken.
-            Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+            // taken -- once the titles typed for it are written. A title
+            // typed after the reset is not in the channel yet: the shell
+            // holds it until the reset's fence (`UiEvent::Fresh`).
+            Ended::Reset(through) => {
+                write_renames(&mut state, renames, events, &cancel).await;
+                drop_conversation(&mut state, events, through).await;
+            }
             Ended::Turn => {}
         }
     }
@@ -1713,9 +1788,18 @@ async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, throug
 /// key is pressed (`selectMode`), so a session that left without this would be
 /// the one place the two disagree about what the next launch starts in. What
 /// the UI is owed for a failed write here is not sent: it is leaving.
-fn settled(mut state: Runtime, changes: &mut UnboundedReceiver<Change>) -> Option<SessionId> {
+fn settled(
+    mut state: Runtime,
+    changes: &mut UnboundedReceiver<Change>,
+    renames: &mut UnboundedReceiver<String>,
+) -> Option<SessionId> {
     while let Ok(change) = changes.try_recv() {
         let _ = state.change_permissions(change);
+    }
+    // And a `/rename` typed just before `/quit`, which the user was told had
+    // happened.
+    while let Ok(title) = renames.try_recv() {
+        let _ = state.rename(&title, &CancelToken::new());
     }
     state.resumable()
 }
@@ -1740,6 +1824,8 @@ enum Taken {
     /// A change to the session's authority, or the channel that carries them
     /// closing.
     Change(Option<Change>),
+    /// A `/rename`'s title, or the channel that carries them closing.
+    Rename(Option<String>),
     /// The session is over.
     Shutdown,
 }
@@ -2086,27 +2172,36 @@ async fn run_model(
     ended
 }
 
-/// `/rename`, and whether it was written down (`handleRenameCommand`,
-/// `app_commands.zig:3815-3858`). The session is called `title` either way --
-/// upstream sets its cached title before it writes the manifest
-/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`) -- and the
-/// shell says which ([`UiEvent::Renamed`]).
-async fn run_rename(
+/// Writes `/rename`'s title into the conversation's session
+/// (`handleRenameCommand`, `app_commands.zig:3815-3858`). The shell has
+/// already called the session that and said so, as upstream does at once
+/// (`renameActiveSession`, `app_session_runtime.zig:3802-3822`); a log that
+/// would not take it is said now, in upstream's words
+/// ([`UiEvent::RenameUnsaved`]).
+async fn write_rename(
     state: &mut Runtime,
     title: &str,
     events: &Sender<UiEvent>,
-    mirror: &CancelToken,
+    cancel: &Cancellation,
 ) {
-    let unsaved = state.rename(title, mirror).err();
+    let unsaved = state.rename(title, &cancel.mirror()).err();
     state.publish();
-    bridge::send_terminal(
-        events,
-        UiEvent::Renamed {
-            title: title.to_string(),
-            unsaved,
-        },
-    )
-    .await;
+    if let Some(problem) = unsaved {
+        bridge::send_terminal(events, UiEvent::RenameUnsaved(problem)).await;
+    }
+}
+
+/// Writes every title waiting, before the conversation they were typed for
+/// is dropped or replaced.
+async fn write_renames(
+    state: &mut Runtime,
+    renames: &mut UnboundedReceiver<String>,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+) {
+    while let Ok(title) = renames.try_recv() {
+        write_rename(state, &title, events, cancel).await;
+    }
 }
 
 /// Loads the catalog once and sends **exactly one** terminal event for it.
@@ -2542,6 +2637,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                renames: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2600,6 +2696,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                renames: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2637,6 +2734,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                renames: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
             },
             resumable: None,
@@ -2992,6 +3090,7 @@ mod tests {
             reply: LastReply::default(),
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
+            renames: mpsc::unbounded_channel().0,
             grants: Grants::default(),
         };
         drop(work_rx);
@@ -3294,6 +3393,7 @@ mod tests {
             &events,
             &mut work_rx,
             &mut changes,
+            &mut mpsc::unbounded_channel::<String>().1,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3332,11 +3432,13 @@ mod tests {
             changes_tx.send(Change::Acknowledge).expect("open");
             control_tx.send(TurnControl::Shutdown).expect("open");
         };
+        let (_renames_tx, mut renames) = mpsc::unbounded_channel::<String>();
         let looped = turn_loop(
             state,
             &events,
             &mut work_rx,
             &mut changes,
+            &mut renames,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3486,6 +3588,7 @@ mod tests {
             &events_tx,
             &mut work_rx,
             &mut changes,
+            &mut mpsc::unbounded_channel::<String>().1,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -3773,6 +3876,7 @@ mod tests {
                     &events,
                     &mut work_rx,
                     &mut changes,
+                    &mut mpsc::unbounded_channel::<String>().1,
                     ControlChannel::new(control_rx),
                     Cancellation::new(CancelToken::new()),
                     &outstanding,
@@ -4362,6 +4466,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                renames: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
             },
             resumable: None,
@@ -4497,6 +4602,7 @@ mod tests {
             &events_tx,
             &mut work_rx,
             &mut changes,
+            &mut mpsc::unbounded_channel::<String>().1,
             ControlChannel::new(control_rx),
             Cancellation::new(CancelToken::new()),
             &outstanding,
@@ -4507,6 +4613,92 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the reset sent more than its fence"
         );
+    }
+
+    /// A `/rename` typed before a `/new` is the conversation the reset drops:
+    /// written into its log before the drop, never into a session opened for
+    /// it afterwards. One typed before `/quit` is written on the way out.
+    #[test]
+    fn a_rename_is_written_into_the_conversation_it_was_typed_for() {
+        let (_home, _workspace, state) = recording();
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let sessions = state.store.sessions_dir().to_path_buf();
+        let log = |id: &str| {
+            std::fs::read_to_string(sessions.join(id).join(crate::session::store::EVENTS_FILE))
+                .expect("the log")
+        };
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let (renames_tx, mut renames) = mpsc::unbounded_channel::<String>();
+        // Both waiting when the loop looks: the reset is read first, and the
+        // title it was typed before goes with the conversation it drops.
+        renames_tx.send("Before New".to_string()).expect("alive");
+        control_tx
+            .send(TurnControl::Reset { through: 0 })
+            .expect("alive");
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        let (_changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
+        let outstanding = AtomicUsize::new(0);
+        let left = on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut changes,
+            &mut renames,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        assert!(
+            log(id.as_str()).contains(r#""kind":"session_renamed","title":"Before New""#),
+            "{}",
+            log(id.as_str())
+        );
+        assert_eq!(left, None, "the rename opened a session after the reset");
+        assert_eq!(sessions_in(_home.path()), vec![id.to_string()]);
+        assert_eq!(events_rx.try_recv(), Ok(UiEvent::Fresh { through: 0 }));
+
+        // Typed and followed at once by `/quit`.
+        let (_home, _workspace, state) = recording();
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .recorder
+            .id()
+            .clone();
+        let sessions = state.store.sessions_dir().to_path_buf();
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let (renames_tx, mut renames) = mpsc::unbounded_channel::<String>();
+        control_tx.send(TurnControl::Shutdown).expect("alive");
+        renames_tx.send("Then Quit".to_string()).expect("alive");
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            &mut changes,
+            &mut renames,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(work_tx);
+        let written = std::fs::read_to_string(
+            sessions
+                .join(id.as_str())
+                .join(crate::session::store::EVENTS_FILE),
+        )
+        .expect("the log");
+        assert!(written.contains(r#""title":"Then Quit""#), "{written}");
     }
 
     #[test]

@@ -309,17 +309,14 @@ pub(crate) enum UiEvent {
         id: String,
         failure: super::session_picker::ResumeFailure,
     },
-    /// `/rename` reached the conversation: the session is called `title` from
-    /// here on, and `unsaved` is why the log does not say so, when it does not
-    /// (`renamed for this process but not saved`).
+    /// A `/rename` the shell had already applied could not be written into
+    /// the session's log, for this reason (`renamed for this process but not
+    /// saved`, `app_commands.zig:3833-3846`).
     ///
-    /// Structured rather than a notice alone, because the window's title is
-    /// the shell's to change and it changes only for a rename that happened: a
-    /// rename a Ctrl-C dropped from the queue before it ran is not one.
-    Renamed {
-        title: String,
-        unsaved: Option<String>,
-    },
+    /// Its own event rather than a notice, because a reset's drain drops the
+    /// notices of the conversation it handed to scrollback, and a title typed
+    /// for that conversation is written just before it goes.
+    RenameUnsaved(String),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -585,13 +582,9 @@ impl UiEvent {
                 id: inert_owned(id),
                 failure,
             },
-            // The title passed `validate_title` and holds no control
-            // character; the reason quotes a path and an I/O error, which are
-            // the filesystem's words. Neither is exempt.
-            Self::Renamed { title, unsaved } => Self::Renamed {
-                title: inert_owned(title),
-                unsaved: unsaved.map(inert_owned),
-            },
+            // The reason quotes a path and an I/O error, which are the
+            // filesystem's words.
+            Self::RenameUnsaved(problem) => Self::RenameUnsaved(inert_owned(problem)),
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
     }
@@ -796,11 +789,6 @@ pub(crate) enum TurnWork {
     /// for it is refused while one runs, and the conversation it replaces is
     /// one a turn would be writing into.
     Resume(String),
-    /// Give the conversation's session this title, already validated
-    /// (`crate::session::validate_title`), opening the session first when no
-    /// prompt has. Answered with a notice: renamed, or renamed here and not
-    /// saved.
-    Rename(String),
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport
