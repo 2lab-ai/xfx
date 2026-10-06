@@ -67,6 +67,14 @@ pub enum ContentPart {
         call_id: String,
         tool: String,
         output: String,
+        /// Whether the call failed -- refused, broken, or stopped under its
+        /// turn (`aborted by user`, `vercel-labs/fx@c1db9191
+        /// src/core/session/session.zig:64`). Each wire has its own word for
+        /// it: the Gateway's output type `error-text`, which upstream gives
+        /// every result whose status is a failure
+        /// (`src/gateway/vercel_protocol.zig:742-747`), and Anthropic's
+        /// `is_error`.
+        error: bool,
     },
     /// The provider's own content blocks, kept exactly as they arrived.
     ///
@@ -223,6 +231,25 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
+                error: false,
+            }],
+        }
+    }
+
+    /// The answer to a call that failed, said as a failure on the wire
+    /// ([`ContentPart::ToolResult::error`]).
+    pub fn tool_error(
+        call_id: impl Into<String>,
+        tool: impl Into<String>,
+        output: impl Into<String>,
+    ) -> Self {
+        Self {
+            role: Role::Tool,
+            content: vec![ContentPart::ToolResult {
+                call_id: call_id.into(),
+                tool: tool.into(),
+                output: output.into(),
+                error: true,
             }],
         }
     }
@@ -541,12 +568,13 @@ impl Serialize for WireParts<'_> {
                     call_id,
                     tool,
                     output,
+                    error,
                 } => seq.serialize_element(&ToolResultPart {
                     r#type: "tool-result",
                     tool_call_id: call_id,
                     tool_name: tool,
                     output: TextOutput {
-                        r#type: "text",
+                        r#type: if *error { "error-text" } else { "text" },
                         value: output,
                     },
                 })?,
@@ -695,6 +723,31 @@ pub struct Completion {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_call_that_never_produced_a_result_is_answered_with_error_text() {
+        // fx's request after a cancelled command
+        // (`fx-interrupt-40x120-bodies/006-completion.json`):
+        // `{"type":"tool-result",...,"output":{"type":"error-text","value":"aborted by user"}}`.
+        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        assert_eq!(
+            parts(&Message::tool_error(
+                "call_1",
+                "terminal",
+                "aborted by user"
+            )),
+            json!([{
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "terminal",
+                "output": { "type": "error-text", "value": "aborted by user" }
+            }])
+        );
+        assert_eq!(
+            parts(&Message::tool_result("call_1", "terminal", "ok"))[0]["output"]["type"],
+            json!("text")
+        );
+    }
 
     #[test]
     fn role_labels_are_the_wire_names() {
@@ -879,6 +932,7 @@ mod tests {
             call_id: "c".to_string(),
             tool: "t".to_string(),
             output: "o".to_string(),
+            error: false,
         };
         assert!(text.allowed_on(Role::System) && text.allowed_on(Role::User));
         assert!(!text.allowed_on(Role::Tool));

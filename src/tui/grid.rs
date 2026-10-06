@@ -613,9 +613,9 @@ impl Grid {
                 //
                 // With the attributes closed first, because an erase paints the
                 // *background* of what it clears on a terminal that has one
-                // switched on. This palette only ever opens a foreground, so
-                // today it costs nothing and prevents a class of defect that
-                // would otherwise arrive with the first background colour.
+                // switched on -- and the file picker's marked row is one
+                // (`super::theme::Palette::selected`), so a row that ended on
+                // it would otherwise have the bar painted to the right edge.
                 reopen(out, &mut open, "");
                 out.extend_from_slice(ERASE_LINE.as_bytes());
             }

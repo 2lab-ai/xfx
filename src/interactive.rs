@@ -73,6 +73,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/images",
     "/model",
     "/permissions",
+    "/undo",
     "/copy",
     "/paste",
     "/statusline",
@@ -259,6 +260,16 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "choose what xfx is allowed to do",
         category: "Security",
         has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Undo,
+        name: "/undo",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:481`): a Session command that
+        // takes nothing.
+        summary: "undo the latest tracked file operation",
+        category: "Session",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Copy,
@@ -580,6 +591,9 @@ pub enum Slash {
     /// `ask`, `auto`, `full-access` or `reset`
     /// ([`crate::permission::slash`]).
     Permissions,
+    /// Put the file the conversation's tools changed last back as it was
+    /// before ([`crate::tools::undo`]).
+    Undo,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
@@ -1187,6 +1201,7 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Undo => undo_on_the_line(conversation.as_ref())?,
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut())?;
                     }
@@ -1732,6 +1747,22 @@ fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -
     }
 }
 
+/// `/undo` on this shell: the conversation's newest change taken back, and
+/// upstream's sentence for what became of it, on this loop's thread like
+/// everything else it does. No conversation yet is no change yet.
+fn undo_on_the_line(conversation: Option<&Conversation>) -> io::Result<()> {
+    let undone = match conversation {
+        Some(conversation) => crate::tools::mutate::undo_last(&conversation.tools),
+        None => crate::tools::undo::Undone::Nothing,
+    };
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}",
+        crate::tools::undo::TOPIC,
+        undone.sentence()
+    )
+}
+
 /// What this shell adds to `/sound`'s answer: that the switch it just moved is
 /// the full-screen shell's to ring.
 ///
@@ -1838,11 +1869,11 @@ mod tests {
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
-        // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`, and nineteen since `/image`, `/images`
-        // and `/paste`; `/provider` took `/setup`'s place rather than adding
-        // one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 19);
+        // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
+        // since `/resume` and `/rename`, seventeen since `/undo`, and twenty
+        // since `/image`, `/images` and `/paste`; `/provider` took `/setup`'s
+        // place rather than adding one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 20);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1990,7 +2021,6 @@ mod tests {
             "/logout",
             "/models",
             "/mcp",
-            "/undo",
             "/usage",
             "/background",
         ] {

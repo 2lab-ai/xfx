@@ -1,0 +1,8 @@
+[fakegw] listening 56795
+[fakegw] title /v4/ai/language-model
+[fakegw] completion /v4/ai/language-model -> status 500
+[fakegw] completion /v4/ai/language-model -> status 500
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> EMPTY
+[fakegw] completion /v4/ai/language-model -> EMPTY
+[fakegw] completion /v4/ai/language-model -> EMPTY

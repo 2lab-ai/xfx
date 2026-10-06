@@ -289,11 +289,23 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 call_id,
                 tool: _,
                 output,
-            } => wire.results.push(json_block([
-                ("type", Value::from("tool_result")),
-                ("tool_use_id", Value::from(call_id.as_str())),
-                ("content", Value::from(output.as_str())),
-            ])),
+                error,
+            } => {
+                let mut block = json_block([
+                    ("type", Value::from("tool_result")),
+                    ("tool_use_id", Value::from(call_id.as_str())),
+                    ("content", Value::from(output.as_str())),
+                ]);
+                // Anthropic's own flag for a result that is an error
+                // (`tool_result.is_error`), written only when it is one, so
+                // every other result is the bytes it always was.
+                if *error {
+                    if let Value::Object(map) = &mut block {
+                        map.insert("is_error".to_string(), Value::Bool(true));
+                    }
+                }
+                wire.results.push(block);
+            }
             // Anthropic's base64 image block, which llmux reads on a user
             // message and nowhere else (`2lab-ai/llmux@4b3d4a4
             // src/provider/responses_request.rs:44`, `:109-135`, `:736-830`):
@@ -433,6 +445,26 @@ mod tests {
             }],
         };
         assert!(map_message(&message).is_empty());
+    }
+
+    #[test]
+    fn a_call_that_never_produced_a_result_is_answered_as_an_error() {
+        let message =
+            crate::gateway::protocol::Message::tool_error("toolu_1", "terminal", "aborted by user");
+        let wire = map_message(&message);
+        assert_eq!(
+            wire.results,
+            vec![json!({
+                "type": "tool_result",
+                "tool_use_id": "toolu_1",
+                "content": "aborted by user",
+                "is_error": true
+            })]
+        );
+        let ordinary = map_message(&crate::gateway::protocol::Message::tool_result(
+            "toolu_1", "terminal", "ok",
+        ));
+        assert!(ordinary.results[0].get("is_error").is_none());
     }
 
     #[test]

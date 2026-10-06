@@ -92,6 +92,14 @@ pub(crate) struct Editor {
     /// set of spans kept anywhere else would be a set that had to be told about
     /// each of them by a caller that could forget (`super::entity`).
     entities: Entities,
+    /// The other end of a selection, while there is one: the selection is the
+    /// text between this and the caret (`selection_anchor`,
+    /// `editor_state.zig:33`, `:87-94`).
+    ///
+    /// Only Super-A makes one here ([`Self::select_all`]); every move, every
+    /// edit and every whole-draft replacement ends it, as upstream's
+    /// `setCursor` and its insertions do (`:121-139`, `:163-176`).
+    anchor: Option<usize>,
 }
 
 impl Editor {
@@ -101,7 +109,35 @@ impl Editor {
             cursor: 0,
             sticky: None,
             entities: Entities::new(),
+            anchor: None,
         }
+    }
+
+    /// The selected range, while there is one (`selectionRange`,
+    /// `editor_state.zig:87-94`).
+    pub(crate) fn selection(&self) -> Option<std::ops::Range<usize>> {
+        let anchor = self.anchor?;
+        (anchor != self.cursor).then(|| anchor.min(self.cursor)..anchor.max(self.cursor))
+    }
+
+    /// The selected text, as the draft holds it -- a collapsed paste's summary
+    /// and all (`selectedText`, `editor_state.zig:96-99`).
+    pub(crate) fn selected_text(&self) -> Option<&str> {
+        self.selection().map(|range| &self.text[range])
+    }
+
+    /// Selects the whole draft, the caret at its end, and says whether that
+    /// changed anything (`selectAll`, `editor_state.zig:140-146`). An empty
+    /// draft has nothing to select and ends any selection instead.
+    pub(crate) fn select_all(&mut self) -> bool {
+        if self.text.is_empty() {
+            return self.anchor.take().is_some();
+        }
+        let changed = self.anchor != Some(0) || self.cursor != self.text.len();
+        self.anchor = Some(0);
+        self.cursor = self.text.len();
+        self.sticky = None;
+        changed
     }
 
     /// The collapsed pastes the text stands on.
@@ -187,9 +223,31 @@ impl Editor {
         if text.is_empty() {
             return None;
         }
-        if self.text.len().saturating_add(text.len()) > MAX_COMPOSER_BYTES {
+        // What is selected is replaced by what is inserted, in the same edit
+        // (`insertComposerSliceBounded` at `selection.start`,
+        // `app_input_runtime.zig:1628-1660`) -- a block in it whole.
+        let selected = self.selection().map(|range| {
+            let held: Vec<Span> = self.entities.spans().to_vec();
+            (range, held)
+        });
+        let freed = selected.as_ref().map_or(0, |(range, _)| range.len());
+        if (self.text.len() - freed).saturating_add(text.len()) > MAX_COMPOSER_BYTES {
             return None;
         }
+        let caret_before = self.cursor;
+        let mut removed = String::new();
+        let mut lost: Vec<Span> = Vec::new();
+        if let Some((range, held)) = selected {
+            let taken = self.entities.delete_touching(range);
+            removed = self.text[taken.clone()].to_string();
+            lost = held
+                .into_iter()
+                .filter(|span| span.start < taken.end && taken.start < span.end)
+                .collect();
+            self.text.replace_range(taken.clone(), "");
+            self.cursor = taken.start;
+        }
+        self.anchor = None;
         let at = self.cursor;
         self.text.insert_str(at, text);
         // The blocks after the insertion are that many bytes further along, and
@@ -219,11 +277,11 @@ impl Editor {
         }
         Some(Delta::new(
             at,
-            String::new(),
+            removed,
             text.to_string(),
-            Vec::new(),
+            lost,
             placed,
-            at,
+            caret_before,
             self.cursor,
             DeltaKind::Ordinary,
         ))
@@ -242,7 +300,9 @@ impl Editor {
     /// instead of two: a paste is one recorded transaction, and the entity in it
     /// is the one that was really registered.
     pub(crate) fn insert_entity(&mut self, summary: &str, kind: EntityKind) -> Option<Delta> {
-        let at = self.cursor;
+        // Where the summary goes: the caret, or the start of what it replaces
+        // -- whose ends are carets, so never inside a block.
+        let at = self.selection().map_or(self.cursor, |range| range.start);
         let span = Span {
             start: 0,
             end: summary.len(),
@@ -252,9 +312,9 @@ impl Editor {
         debug_assert_eq!(delta.at(), at);
         Some(Delta::new(
             delta.at(),
-            String::new(),
+            delta.removed().to_string(),
             delta.inserted().to_string(),
-            Vec::new(),
+            delta.removed_entities().to_vec(),
             delta.inserted_entities().to_vec(),
             delta.caret_before(),
             delta.caret_after(),
@@ -297,6 +357,7 @@ impl Editor {
         // (`super::shell::Shell::recall`).
         self.entities = entities;
         self.cursor = self.text.len();
+        self.anchor = None;
         // The text under the caret is a different text, so a column remembered
         // from a run of vertical motion over the old one would aim the next
         // `Up` at a place nobody chose.
@@ -316,6 +377,38 @@ impl Editor {
     /// A `None` records nothing, which is what keeps a keystroke that changed
     /// nothing from clearing the redo stack.
     pub(crate) fn apply(&mut self, action: Action, cols: u16) -> Option<Delta> {
+        // A selection first: a deletion takes it (`deleteSelection`,
+        // `composer_deletion.zig:30-35`), a kill kills it
+        // (`composer_kill_ring.zig:123-137`), and a left or right move
+        // collapses it to that edge and goes no further
+        // (`moveCharacterLeft`/`Right`, `moveWordLeft`/`Right`,
+        // `horizontal_navigation.zig:53-141`). Everything else moves the caret
+        // from where it is and ends it on the way ([`Self::move_to`]).
+        if let Some(range) = self.selection() {
+            match action {
+                Action::Backspace
+                | Action::Delete
+                | Action::DeleteWordBackward
+                | Action::DeleteWordRight => {
+                    return self.delete(range.start, range.end, DeltaKind::Ordinary);
+                }
+                Action::DeleteWordLeft
+                | Action::KillToEnd
+                | Action::KillToStart
+                | Action::ControlK => {
+                    return self.delete(range.start, range.end, DeltaKind::Kill);
+                }
+                Action::Left | Action::WordLeft => {
+                    self.move_to(range.start);
+                    return None;
+                }
+                Action::Right | Action::WordRight => {
+                    self.move_to(range.end);
+                    return None;
+                }
+                _ => {}
+            }
+        }
         match action {
             Action::Left => {
                 self.move_to(self.left());
@@ -325,12 +418,16 @@ impl Editor {
                 self.move_to(self.right());
                 None
             }
+            // Upstream's word moves (`moveWordLeft`/`moveWordRight`,
+            // `horizontal_navigation.zig:85-141`): by word characters, not by
+            // whitespace -- so `foo.bar` is two words to a move and one to
+            // `C-w` -- and over a block whole.
             Action::WordLeft => {
-                self.move_to(self.outside(self.word_left(), Direction::Backward));
+                self.move_to(self.outside(self.word_move_left(), Direction::Backward));
                 None
             }
             Action::WordRight => {
-                self.move_to(self.outside(self.word_right(), Direction::Forward));
+                self.move_to(self.outside(self.word_move_right(), Direction::Forward));
                 None
             }
             Action::Home => {
@@ -361,9 +458,31 @@ impl Editor {
                 self.cursor,
                 DeltaKind::Kill,
             ),
-            Action::KillToEnd => self.delete(self.cursor, self.line_end(), DeltaKind::Kill),
+            // Upstream's `delete_word_right` is a deletion through
+            // `deletionState`, not the kill ring (`app_input_runtime.zig:475-485`),
+            // so what it takes is not what `C-y` yanks.
+            Action::DeleteWordRight => self.delete(
+                self.cursor,
+                self.word_right_delete_end(),
+                DeltaKind::Ordinary,
+            ),
+            // Alt-Backspace: a deletion by word characters, not `C-w`'s kill
+            // (`delete_word_left` through `deletionState`,
+            // `app_input_runtime.zig:454-465`).
+            Action::DeleteWordBackward => self.delete(
+                self.word_left_delete_start(),
+                self.cursor,
+                DeltaKind::Ordinary,
+            ),
+            // `C-k` is the kill everywhere a menu is not up, and a menu is the
+            // session's to know about (`super::shell`).
+            Action::KillToEnd | Action::ControlK => {
+                self.delete(self.cursor, self.line_end(), DeltaKind::Kill)
+            }
             Action::KillToStart => self.delete(self.line_start(), self.cursor, DeltaKind::Kill),
-            Action::InsertNewline => self.insert("\n"),
+            // `C-j` likewise: a newline, here.
+            Action::InsertNewline | Action::ControlJ => self.insert("\n"),
+
             // Not the composer's: submitting, leaving and cancelling are the
             // session's (`super::shell`), a paste is Task 18's, and an
             // `Ignore` is a keystroke this session has no binding for.
@@ -377,6 +496,11 @@ impl Editor {
             // drive. What never happens on any of those paths is a literal tab
             // reaching the composer's text: this arm inserts nothing, so a
             // draft cannot acquire a `\t` from a keystroke.
+            //
+            // The page keys are the session's too: how many rows a page is,
+            // is the screen's, and while a menu is up a page moves the menu
+            // rather than the caret -- so `super::shell` decides, and moves
+            // the caret with [`Self::move_rows`] when it is the caret's.
             //
             // They are named rather than caught by a wildcard so that an action
             // added later has to be routed on purpose.
@@ -393,7 +517,7 @@ impl Editor {
             // inserted -- neither is a keystroke the composer can answer out of
             // its own buffer (`super::shell::Shell::act`).
             Action::Submit
-            | Action::HistoryPrevious
+            | Action::ControlP
             | Action::HistoryNext
             | Action::Escape
             | Action::Cancel
@@ -410,6 +534,9 @@ impl Editor {
             | Action::ToggleTranscript
             | Action::PageUp
             | Action::PageDown
+            | Action::SelectAll
+            | Action::CopySelection
+            | Action::CutSelection
             | Action::Ignore => None,
         }
     }
@@ -431,6 +558,7 @@ impl Editor {
         );
         self.cursor = delta.caret_before();
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Does `delta` again, after a [`Self::revert`] took it back.
@@ -443,6 +571,7 @@ impl Editor {
         );
         self.cursor = delta.caret_after();
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Replaces `remove` bytes at `at` with `insert`, and puts `entities` back
@@ -470,10 +599,40 @@ impl Editor {
         }
     }
 
+    /// Lends the whole composer out -- its text, its blocks and its caret --
+    /// and leaves it empty, for [`Self::give_back`] to restore verbatim.
+    ///
+    /// What `C-p` does to a draft before the model catalog borrows the
+    /// composer for its search (`composer_stash.State.capture`,
+    /// `app_input_runtime.zig:2356-2375`). Not [`Self::take`]: that one ends
+    /// the blocks, and a stashed draft's blocks are still its own.
+    pub(crate) fn lend(&mut self) -> Lent {
+        let lent = Lent {
+            text: std::mem::take(&mut self.text),
+            entities: std::mem::take(&mut self.entities),
+            caret: self.cursor,
+        };
+        self.cursor = 0;
+        self.sticky = None;
+        self.anchor = None;
+        lent
+    }
+
+    /// Puts a lent draft back exactly as it was, whatever the composer held
+    /// meanwhile (`restoreModelPickerDraft`, `app_input_runtime.zig:2377-2386`).
+    pub(crate) fn give_back(&mut self, lent: Lent) {
+        self.text = lent.text;
+        self.entities = lent.entities;
+        self.cursor = lent.caret.min(self.text.len());
+        self.sticky = None;
+        self.anchor = None;
+    }
+
     /// Takes the composer's text, leaving it empty.
     pub(crate) fn take(&mut self) -> String {
         self.cursor = 0;
         self.sticky = None;
+        self.anchor = None;
         // The blocks die with the draft they were pasted into. One that
         // outlived it would be a span into a buffer that has been emptied.
         self.entities.clear();
@@ -501,6 +660,37 @@ impl Editor {
             .collect()
     }
 
+    /// The same rows with the selection marked: `open` before each run of
+    /// selected text on a row and `close` after it (`appendLayoutUnit`,
+    /// `input_presentation.zig:995-1021`, which wraps selected units in
+    /// reverse video and a reset). Exactly [`Self::rows`] with no selection.
+    pub(crate) fn painted_rows(&self, cols: u16, open: &str, close: &str) -> Vec<String> {
+        let Some(selected) = self.selection() else {
+            return self.rows(cols);
+        };
+        wrap::wrap(&self.text, cols.max(1))
+            .into_iter()
+            .map(|row| {
+                let body = body(&self.text[row.start..row.end]);
+                let mut out = String::with_capacity(body.len() + open.len() + close.len());
+                let mut inside = false;
+                for (offset, cluster) in body.grapheme_indices(true) {
+                    let at = row.start + offset;
+                    let wanted = selected.contains(&at);
+                    if wanted != inside {
+                        out.push_str(if wanted { open } else { close });
+                        inside = wanted;
+                    }
+                    out.push_str(&wrap::expand_tabs(cluster));
+                }
+                if inside {
+                    out.push_str(close);
+                }
+                out
+            })
+            .collect()
+    }
+
     /// Where the caret is: the row of [`rows`](Self::rows) it is on, and the
     /// cells to the left of it there.
     ///
@@ -522,6 +712,7 @@ impl Editor {
     fn move_to(&mut self, offset: usize) {
         self.cursor = offset;
         self.sticky = None;
+        self.anchor = None;
     }
 
     /// Removes `start..end`, and puts the caret where the text used to be.
@@ -553,6 +744,7 @@ impl Editor {
         self.text.replace_range(taken.clone(), "");
         self.cursor = taken.start;
         self.sticky = None;
+        self.anchor = None;
         Some(Delta::new(
             taken.start,
             removed,
@@ -637,6 +829,126 @@ impl Editor {
         let last = wanted + 1 == rows.len();
         let landed = self.offset_on(&rows[wanted], last, target);
         self.cursor = self.beside(landed);
+        self.anchor = None;
+    }
+
+    /// `count` rows up or down at once, stopping at the first or the last row:
+    /// a page move (`scanRowDelta`, `visual_layout.zig:598-622`).
+    ///
+    /// The same column rule as a single row's ([`Self::move_by_row`]), and the
+    /// same refusal to land inside a block. `false` is a caret already on the
+    /// row the page would reach -- the first row for a page up, the last for a
+    /// page down -- and a page never turns into a history step there, which is
+    /// the difference from the arrows.
+    pub(crate) fn move_rows(&mut self, step: Step, count: usize, cols: u16) -> bool {
+        let rows = wrap::wrap(&self.text, cols.max(1));
+        let (row, column) = wrap::cursor_point(&self.text, &rows, self.cursor);
+        let target = self.sticky.unwrap_or(column);
+        self.sticky = Some(target);
+        let wanted = match step {
+            Step::Up => row.saturating_sub(count),
+            Step::Down => row.saturating_add(count).min(rows.len().saturating_sub(1)),
+        };
+        if wanted == row || wanted >= rows.len() {
+            return false;
+        }
+        let last = wanted + 1 == rows.len();
+        let landed = self.offset_on(&rows[wanted], last, target);
+        self.cursor = self.beside(landed);
+        self.anchor = None;
+        true
+    }
+
+    /// Where the composer's text puts `offset` on a screen `cols` wide: the
+    /// row and the cells to the left of it there, as [`Self::point`] says for
+    /// the caret.
+    ///
+    /// What the `@` file picker is placed by: its rows start under the `@`
+    /// (`picker_start_col`, `input_presentation.zig:377-380`).
+    pub(crate) fn point_of(&self, offset: usize, cols: u16) -> (usize, u16) {
+        let rows = wrap::wrap(&self.text, cols.max(1));
+        wrap::cursor_point(&self.text, &rows, offset.min(self.text.len()))
+    }
+
+    /// Where the caret is, as a byte offset into [`Self::text`].
+    ///
+    /// Read-only: the offset is this module's invariant, so a caller that
+    /// wants it moved asks for an edit rather than doing arithmetic on it.
+    /// The `@` file picker reads it to find the token the caret is in.
+    pub(crate) fn caret(&self) -> usize {
+        self.cursor
+    }
+
+    /// `start..end` replaced with `text`, the caret left at `caret` -- an
+    /// offset into the text **after** the replacement -- as one edit, or a
+    /// refusal that changes nothing.
+    ///
+    /// What accepting a file picker row is (`replaceRangeBounded`,
+    /// `input_completion_runtime.zig:932-938`): the `@` token becomes the
+    /// path, and the caret goes after the separator. **Refused** when the range
+    /// touches a block -- a path is not something a summary can be part of --
+    /// or when the result would pass the byte budget; and the caret is snapped
+    /// to a grapheme boundary as every insertion's is.
+    pub(crate) fn replace(
+        &mut self,
+        start: usize,
+        end: usize,
+        text: &str,
+        caret: usize,
+    ) -> Option<Delta> {
+        if start > end
+            || end > self.text.len()
+            || !self.text.is_char_boundary(start)
+            || !self.text.is_char_boundary(end)
+            || (start == end && text.is_empty())
+        {
+            return None;
+        }
+        if self
+            .entities
+            .spans()
+            .iter()
+            .any(|span| span.start < end.max(start + 1) && start < span.end)
+        {
+            return None;
+        }
+        let grown = self.text.len() - (end - start) + text.len();
+        if grown > MAX_COMPOSER_BYTES {
+            return None;
+        }
+        let caret_before = self.cursor;
+        let removed = self.text[start..end].to_string();
+        self.splice(start, end - start, text, &[]);
+        self.cursor = boundary_at_or_after(&self.text, caret.min(self.text.len()));
+        self.sticky = None;
+        self.anchor = None;
+        Some(Delta::new(
+            start,
+            removed,
+            text.to_string(),
+            Vec::new(),
+            Vec::new(),
+            caret_before,
+            self.cursor,
+            DeltaKind::Ordinary,
+        ))
+    }
+
+    /// A `\` right before the caret turned into a line break, as one edit --
+    /// or `None` when the character before the caret is not one
+    /// (`replaceBackslashBeforeCursorWithNewline`,
+    /// `composer_line_continuation.zig:11-50`).
+    ///
+    /// What Return does in front of a trailing backslash: the line continues
+    /// rather than being sent (`app_input_runtime.zig:1612`).
+    pub(crate) fn continue_line(&mut self) -> Option<Delta> {
+        let at = self.cursor.checked_sub(1)?;
+        if self.text.as_bytes().get(at) != Some(&b'\\')
+            || self.entities.inside(self.cursor).is_some()
+        {
+            return None;
+        }
+        self.replace(at, self.cursor, "\n", at + 1)
     }
 
     /// The offset on `row` at `target` cells from its left edge, or as close to
@@ -681,9 +993,102 @@ impl Editor {
             .map_or(self.text.len(), |break_at| self.cursor + break_at)
     }
 
+    /// Where a word move to the left lands (`moveWordLeft`,
+    /// `horizontal_navigation.zig:85-114`): back over what is not a word
+    /// character, then over the word characters before it -- and to the start
+    /// of a block that ends where the walk is.
+    fn word_move_left(&self) -> usize {
+        let ends_block = |at: usize| self.entities.spans().iter().find(|span| span.end == at);
+        let mut at = self.cursor;
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if !is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        at
+    }
+
+    /// Where Alt-Backspace starts deleting (`wordLeftRange`,
+    /// `composer_deletion.zig:103-136`): a block the caret is at the end of is
+    /// taken whole; otherwise back over what is not a word character, then
+    /// over the word characters before it -- and a block met on the way is
+    /// taken whole and ends the walk.
+    fn word_left_delete_start(&self) -> usize {
+        if let Some(start) = self.entities.step_over(self.cursor, Direction::Backward) {
+            return start;
+        }
+        let ends_block = |at: usize| self.entities.spans().iter().find(|span| span.end == at);
+        let mut at = self.cursor;
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if !is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        at
+    }
+
+    /// Where a word move to the right lands (`moveWordRight`,
+    /// `horizontal_navigation.zig:116-141`): over what is not a word character,
+    /// then to the end of the word after it -- the far side of a block met on
+    /// the way, and short of one that starts where the word ends.
+    fn word_move_right(&self) -> usize {
+        let end = self.text.len();
+        let starting = |at: usize| self.entities.spans().iter().find(|span| span.start == at);
+        let mut at = self.cursor;
+        while at < end {
+            if let Some(span) = starting(at) {
+                return span.end;
+            }
+            let next = after(&self.text, at);
+            if is_word(&self.text[at..next]) {
+                break;
+            }
+            at = next;
+        }
+        while at < end && starting(at).is_none() {
+            let next = after(&self.text, at);
+            if !is_word(&self.text[at..next]) {
+                break;
+            }
+            at = next;
+        }
+        at
+    }
+
     /// The start of the word to the left: the whitespace before the caret is
     /// stepped over, and then the run of non-whitespace before that
-    /// (`whitespace_word_left`, `composer_kill_ring.zig:14-18`).
+    /// (`whitespace_word_left`, `composer_kill_ring.zig:14-18`) -- what `C-w`
+    /// and Alt-Backspace take.
     fn word_left(&self) -> usize {
         let mut at = self.cursor;
         while at > 0 && is_space(&self.text[before(&self.text, at)..at]) {
@@ -695,24 +1100,45 @@ impl Editor {
         at
     }
 
-    /// The mirror of [`word_left`](Self::word_left): over the word the caret is
-    /// in, and then over the whitespace after it.
-    fn word_right(&self) -> usize {
+    /// Where a forward word delete stops (`wordRightRange`,
+    /// `composer_deletion.zig:138-164`): over the word characters the caret is
+    /// in front of, then over what separates them from the next word -- and
+    /// the far side of a block that starts at the caret, which is deleted
+    /// whole. The run of separators stops at a block rather than taking it.
+    ///
+    /// Upstream's word characters (`isWordCharacter`,
+    /// `text_boundaries.zig:71-77`): ASCII letters and digits, `_`, and
+    /// everything from `U+00C0` up. Not the whitespace words the moves use --
+    /// this key's own rule.
+    fn word_right_delete_end(&self) -> usize {
+        if let Some(end) = self.entities.step_over(self.cursor, Direction::Forward) {
+            return end;
+        }
         let end = self.text.len();
+        let starts_block = |at: usize| self.entities.spans().iter().any(|span| span.start == at);
         let mut at = self.cursor;
-        while at < end && !is_space(&self.text[at..after(&self.text, at)]) {
+        while at < end && !starts_block(at) && is_word(&self.text[at..after(&self.text, at)]) {
             at = after(&self.text, at);
         }
-        while at < end && is_space(&self.text[at..after(&self.text, at)]) {
+        while at < end && !starts_block(at) && !is_word(&self.text[at..after(&self.text, at)]) {
             at = after(&self.text, at);
         }
         at
     }
 }
 
+/// A draft lent out of the composer ([`Editor::lend`]): every byte, every
+/// block under its own number, and where the caret was.
+#[derive(Debug)]
+pub(crate) struct Lent {
+    text: String,
+    entities: Entities,
+    caret: usize,
+}
+
 /// Which way [`Editor::move_by_row`] is going.
 #[derive(Debug, Clone, Copy)]
-enum Step {
+pub(crate) enum Step {
     Up,
     Down,
 }
@@ -767,9 +1193,20 @@ fn body(row: &str) -> &str {
         .map_or(row, |body| body.strip_suffix('\r').unwrap_or(body))
 }
 
-/// Whether a grapheme cluster is whitespace, for the word moves.
+/// Whether a grapheme cluster is whitespace, for the whitespace word `C-w`
+/// takes.
 fn is_space(cluster: &str) -> bool {
     cluster.chars().all(char::is_whitespace)
+}
+
+/// Whether a grapheme cluster is a word character for the forward word delete
+/// (`isWordCharacter`, `text_boundaries.zig:71-77`), judged by its first
+/// scalar as upstream judges a rune.
+fn is_word(cluster: &str) -> bool {
+    cluster
+        .chars()
+        .next()
+        .is_some_and(|scalar| scalar == '_' || scalar.is_ascii_alphanumeric() || scalar >= '\u{c0}')
 }
 
 /// The grapheme boundary before `at`, or `at` when it is the start of the text.
@@ -994,6 +1431,177 @@ mod tests {
     /// module keeps as an invariant.
     fn caret(editor: &Editor) -> usize {
         editor.before_caret().len()
+    }
+
+    #[test]
+    fn a_word_move_goes_by_word_characters_and_over_a_block_whole() {
+        // `horizontal_navigation.zig`'s own case (:190-216): `h\u{e9}llo.a_b`
+        // is two words to a move, and a block is one stop.
+        let (mut blocked, span) = with_block("h\u{e9}llo.a_b ", "y", "");
+        blocked.apply(Action::Home, 80);
+        blocked.apply(Action::WordRight, 80);
+        assert_eq!(caret(&blocked), "h\u{e9}llo".len());
+        blocked.apply(Action::WordRight, 80);
+        assert_eq!(caret(&blocked), "h\u{e9}llo.a_b".len());
+        blocked.apply(Action::WordRight, 80);
+        assert_eq!(caret(&blocked), span.end);
+        blocked.apply(Action::WordLeft, 80);
+        assert_eq!(caret(&blocked), span.start);
+        // `fx-composer-40x120-alt-f`'s shape: to the end of the word, not to
+        // the start of the next one.
+        let mut draft = editor("Yfoo bar");
+        draft.apply(Action::Home, 80);
+        draft.apply(Action::Right, 80);
+        draft.apply(Action::WordRight, 80);
+        assert_eq!(caret(&draft), "Yfoo".len());
+    }
+
+    #[test]
+    fn a_forward_word_delete_takes_the_word_and_what_separates_it_from_the_next() {
+        // `wordRightRange` (`composer_deletion.zig:138-164`): word characters
+        // are letters, digits, `_` and everything from U+00C0 up.
+        let mut words = editor("foo_bar, baz");
+        words.apply(Action::Home, 80);
+        let delta = words.apply(Action::DeleteWordRight, 80).expect("an edit");
+        assert_eq!(words.text(), "baz");
+        assert_eq!(delta.kind(), DeltaKind::Ordinary, "a deletion, not a kill");
+        // In front of punctuation, the punctuation and the gap go.
+        let mut dots = editor("a ... b");
+        dots.apply(Action::Home, 80);
+        dots.apply(Action::Right, 80);
+        dots.apply(Action::DeleteWordRight, 80);
+        assert_eq!(dots.text(), "ab");
+        // Non-ASCII letters are word characters.
+        let mut accented = editor("caf\u{e9} x");
+        accented.apply(Action::Home, 80);
+        accented.apply(Action::DeleteWordRight, 80);
+        assert_eq!(accented.text(), "x");
+        // At the end there is nothing to do, and nothing is recorded.
+        let mut end = editor("x");
+        assert!(end.apply(Action::DeleteWordRight, 80).is_none());
+    }
+
+    #[test]
+    fn a_selection_is_painted_where_it_is_and_replaced_whole_with_its_blocks() {
+        // `editor_state.zig:87-146`: select all, then an insertion replaces
+        // the selection -- a block in it included -- as one edit.
+        let (mut draft, _span) = with_block("a\tb ", "x\ny", " c");
+        assert!(draft.select_all());
+        assert!(!draft.select_all(), "selecting all twice changed something");
+        let rows = draft.painted_rows(80, "<", ">");
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].starts_with("<a    b "), "{rows:?}");
+        assert!(rows[0].ends_with(" c>"), "{rows:?}");
+        let delta = draft.insert("z").expect("an edit");
+        assert_eq!(draft.text(), "z");
+        assert!(draft.entities().is_empty());
+        draft.revert(&delta);
+        assert_eq!(draft.entities().len(), 1, "the undo lost the block");
+        assert_eq!(draft.selection(), None);
+        // With nothing selected the painted rows are the rows.
+        assert_eq!(draft.painted_rows(80, "<", ">"), draft.rows(80));
+        // A selection on part of a wrapped draft is marked on each row it
+        // reaches.
+        let mut wrapped = editor("abcdefgh");
+        wrapped.select_all();
+        assert_eq!(wrapped.painted_rows(4, "<", ">"), ["<abcd>", "<efgh>"]);
+    }
+
+    #[test]
+    fn alt_backspace_deletes_by_word_characters_and_a_block_whole() {
+        // `wordLeftRange` (`composer_deletion.zig:103-136`).
+        let mut words = editor("see foo.bar  ");
+        let delta = words
+            .apply(Action::DeleteWordBackward, 80)
+            .expect("an edit");
+        assert_eq!(words.text(), "see foo.");
+        assert_eq!(delta.kind(), DeltaKind::Ordinary, "a deletion, not a kill");
+        words.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(words.text(), "see ");
+        assert!(Editor::new()
+            .apply(Action::DeleteWordBackward, 80)
+            .is_none());
+        // A block the caret is after goes whole, and so does one the walk meets.
+        let (mut blocked, _span) = with_block("ab ", "x\ny", "");
+        blocked.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(blocked.text(), "ab ");
+        assert!(blocked.entities().is_empty());
+        let (mut met, _span) = with_block("ab ", "x\ny", "  ");
+        met.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(met.text(), "ab ");
+    }
+
+    #[test]
+    fn a_forward_word_delete_takes_a_block_whole_and_stops_in_front_of_one() {
+        let (mut editor, span) = with_block("ab ", "x\ny", " cd");
+        // From the block's left edge: the whole block.
+        editor.apply(Action::Home, 80);
+        for _ in 0..3 {
+            editor.apply(Action::Right, 80);
+        }
+        assert_eq!(caret(&editor), span.start);
+        editor.apply(Action::DeleteWordRight, 80);
+        assert_eq!(editor.text(), "ab  cd");
+        assert!(editor.entities().is_empty());
+        // From in front of the gap before a block: the gap, not the block.
+        let (mut editor, span) = with_block("ab ", "x\ny", " cd");
+        editor.apply(Action::Home, 80);
+        editor.apply(Action::Right, 80);
+        editor.apply(Action::Right, 80);
+        editor.apply(Action::DeleteWordRight, 80);
+        assert_eq!(editor.entities().len(), 1);
+        assert_eq!(
+            editor.text().len(),
+            "ab ".len() + span.len() + " cd".len() - 1
+        );
+    }
+
+    #[test]
+    fn a_page_move_goes_as_far_as_the_draft_and_no_further() {
+        let mut draft = editor("one\ntwo\nthree\nfour");
+        assert!(draft.move_rows(Step::Up, 2, 80));
+        assert_eq!(draft.point(80), (1, 3));
+        assert!(draft.move_rows(Step::Up, 9, 80), "a short page still moves");
+        assert_eq!(draft.point(80).0, 0);
+        assert!(
+            !draft.move_rows(Step::Up, 9, 80),
+            "on the first row a page is nothing"
+        );
+        // The column the run began at is the one it goes back to.
+        assert!(draft.move_rows(Step::Down, 9, 80));
+        assert_eq!(draft.point(80), (3, 4));
+        assert!(!draft.move_rows(Step::Down, 1, 80));
+    }
+
+    #[test]
+    fn a_replacement_is_one_edit_and_never_touches_a_block() {
+        let mut draft = editor("see @gui");
+        let delta = draft.replace(4, 8, "@docs/guide.md ", 19).expect("an edit");
+        assert_eq!(draft.text(), "see @docs/guide.md ");
+        assert_eq!(caret(&draft), 19);
+        draft.revert(&delta);
+        assert_eq!(draft.text(), "see @gui");
+        assert_eq!(caret(&draft), 8);
+        let (mut editor, span) = with_block("@", "x\ny", "");
+        assert!(editor.replace(0, span.start + 1, "@a", 2).is_none());
+        assert!(
+            editor.replace(0, 1, "@a", 2).is_some(),
+            "beside a block is fine"
+        );
+    }
+
+    #[test]
+    fn a_backslash_before_the_caret_becomes_the_line_break() {
+        let mut draft = editor("line3\\");
+        let delta = draft.continue_line().expect("a continuation");
+        assert_eq!(draft.text(), "line3\n");
+        assert_eq!(caret(&draft), 6);
+        draft.revert(&delta);
+        assert_eq!(draft.text(), "line3\\");
+        // Not right before the caret: nothing.
+        draft.apply(Action::Left, 80);
+        assert!(draft.continue_line().is_none());
+        assert!(Editor::new().continue_line().is_none());
     }
 
     #[test]

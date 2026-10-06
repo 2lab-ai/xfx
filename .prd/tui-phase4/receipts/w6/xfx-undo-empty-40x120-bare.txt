@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ba90ad2 [debug] · Run /help for commands
+
+* undo: Nothing to undo.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
