@@ -2,12 +2,13 @@
 
 Captured on the branch **after** merging `plan/tui-phase4` at `2870b42` (F1 tool
 groups, C2 reset, F3 questions, D4b statusline), so every row below is the
-merged product. Re-checked on the branch head after the later merges (D2a, T1,
-F5, D3; xfx only, every scenario at 40x120): every interrupt, hint, question and
-retry row is the same as here; the only changes are blink/count, stream
-position and retry timing (as below), and one catalog row that is D3's
-(`/provider` in place of `/setup`). Scenarios under `scripts/fxcap/scenarios/`,
-each run on both binaries:
+merged product. Re-checked on the branch head `ab08b05` after the later merges
+(D2a, T1, F5, D3, T2, D4a, D4c, D1; xfx only, every scenario at 40x120): every
+interrupt, hint, question and retry row is the same as here; the only changes
+are blink/count, stream position and retry timing (as below), the catalog's
+rows (the registry grew), and xfx's no-questions mode now named `full access`
+as fx's is (D4a). `interrupt-steer` was captured on that head. Scenarios under
+`scripts/fxcap/scenarios/`, each run on both binaries:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> <size> <dir>
@@ -22,6 +23,7 @@ XFX_BIN=<this branch's target/debug/xfx> scripts/fxcap/capture.sh xfx <scenario>
 | `interrupt-question.cap` | `interrupt-question.json` | 40x120 | Ctrl-C at a model's question |
 | `interrupt-retry.cap` | `interrupt-retry.json` | 40x120, 24x80 | two HTTP 500s with the Gateway's error shape then an answer; then a prompt the fake has no turn for (every request a plain-text 500) |
 | `interrupt-help.cap` | none | 40x120 | a first Ctrl-C at the `/help` catalog, and the window closing |
+| `interrupt-steer.cap` | `interrupt-steer-fx.json` / `interrupt-steer-xfx.json` | 40x120 | a prompt submitted while an answer streams, and while a command runs |
 
 The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and
 `FX_NO_OPEN_BROWSER=1` are the harness's own, unchanged. Sanitized: the scratch
@@ -48,6 +50,7 @@ timing: both are "blink/count" below and are not a difference in the row.
 | retry row | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request in 1sESC[39m` | the same |
 | retry row, plain-text body | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1sESC[39m` | the same |
 | question cancelled by Ctrl-C | `ESC[38;5;252m■ESC[39m Cancelled`, nothing after it | the same |
+| a prompt waiting for its turn | `ESC[38;5;245m┋ change toneESC[39m`, between the activity row's blank and a blank of its own, above the composer | the same row, same SGR, same place |
 
 (`ESC[39m` is tmux's re-serialization of the reset; xfx writes `ESC[0m`.)
 
@@ -103,6 +106,15 @@ question both show the question's `■ Cancelled` and then the composer and the
 session's hint row -- no second cancelled line and no exit hint
 (`cancelQuestionPrompt`, `input_question_runtime.zig:59-80`).
 
+### `interrupt-steer` 40x120
+
+| snap | matches | differs, and why |
+|---|---|---|
+| `steer-tool` | the waiting prompt's row: `┋ change tone` in `ESC[38;5;245m`, the activity row, a blank, the row, a blank, the composer -- byte for byte | the hint row's `queued 1 ·` (xfx's queue is said there as well); everything above it by the stream difference below |
+| `steer-stream` | -- | **fx steers a tool-free answer**: Enter interrupts it, keeps what was flushed, and answers the new prompt at once (`steered answer.`, e2e `tui-interrupt-recovery.test.ts:291`). **xfx keeps its queue**: the first answer streams on and the prompt waits as `┋ what are you doing` above the composer |
+| `steer-stream-done` | -- | xfx's first answer whole, then the prompt's card and its answer as the next turn; fx's was cut where the steer landed |
+| `steer-done` | the card is written when the waiting prompt is delivered, not at the keystroke, on both | fx delivers it after the tool **inside the same turn** (`┃ change tone` under `└ Ran …`, then `after steer.`); xfx runs the turn to its end (`after steer.`) and then the prompt as the next turn (`┃ change tone`, `spare.`) |
+
 ### `interrupt-retry` 40x120 and 24x80
 
 xfx's retry policy is unchanged: three attempts a step, 250 ms then 500 ms
@@ -153,12 +165,14 @@ row byte for byte in all three. Every other row differs by the two registries
 - **Escape pausing a retry** (`app_input_runtime.zig:3163-3167`) and the
   `waiting for connection` / `recovery paused` labels: xfx has no pausable
   recovery.
-- **Submitting while busy (§4.2)** is unchanged: xfx's queue (one prompt,
-  printed as a card at once, `queued 1` on the hint row) stands. fx's steer
-  needs what xfx lacks -- interrupt-and-continue of a tool-free answer with a
-  `<user_steering>` message (`tui-interrupt-recovery.test.ts:291`), a steer
-  delivered at a tool boundary inside the same turn, and Up withdrawing a
-  queued item (the runtime takes the queued prompt at the top of `turn_loop`
-  the moment a turn ends, so a withdraw needs a control round-trip the runtime
-  acknowledges) -- and its `┋` row needs a band row the layout solver does not
-  have.
+- **Submitting while busy (§4.2)**: the presentation is fx's -- the waiting
+  prompt is the band's `┋` row (at most two rows, `…`), and its card is written
+  when its turn starts -- over xfx's own queue (one prompt waiting, a second
+  refused, `queued 1` still on the hint row; the prompt runs as the next turn).
+  fx's semantics need what xfx lacks: interrupt-and-continue of a tool-free
+  answer with a `<user_steering>` message (`tui-interrupt-recovery.test.ts:291`),
+  delivery at a tool boundary inside the same turn, several steers at once, and
+  Up withdrawing a waiting prompt into the composer (the runtime takes the
+  queued prompt at the top of `turn_loop` the moment a turn ends, so a withdraw
+  needs a control round-trip the runtime acknowledges). Up is still the
+  history recall.
