@@ -2112,6 +2112,59 @@ fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal() {
 }
 
 #[test]
+fn herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal() {
+    // The bytes herdr 0.9.3 (libghostty-vt's encoder, kitty flag 1) was
+    // captured sending for Ctrl-U and Ctrl-D
+    // (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`), on which the
+    // release binary did nothing at all. Replayed literal-for-literal: what
+    // this proves is what xfx makes of the encoding, not which terminal sends
+    // it.
+    //
+    // The exit half mirrors `a_normal_exit_gives_the_terminal_back_byte_for_byte`
+    // -- the same size, the same wait for a whole frame before the key, the
+    // same status and the same `termios` comparison -- so a `u`-form Ctrl-D is
+    // held to exactly what the bare `0x04` is held to.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let before = modes(&pty);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
+    session.wait_for(READY);
+    session.wait_for(FRAME_END);
+
+    let composer = |text: &str| {
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(23))
+    };
+
+    // Ctrl-U (`ESC[117;5u`): kill to start, the same key the bare `0x15` is.
+    session.type_bytes(b"one two");
+    session.wait_until("the composer to hold what was typed", |text| {
+        composer(text) == "> one two"
+    });
+    session.type_bytes(b"\x1b[117;5u");
+    session.wait_until("the u-form Ctrl-U to kill the line", |text| {
+        composer(text) == ">"
+    });
+    assert!(matches!(session.state(), Wait::Running));
+
+    // Ctrl-D (`ESC[100;5u`) on the empty composer it left: the end of the
+    // session, by the same door the bare `0x04` leaves through.
+    session.type_bytes(b"\x1b[100;5u");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(before, modes(&pty), "the terminal was left changed");
+    let text = session.settled_text();
+    assert!(
+        text.contains(RESTORE),
+        "the restore sequence is not on the terminal, in order: {text:?}"
+    );
+    assert!(
+        text.contains(&format!("{RESTORE}{BAND_TOP}\u{1b}[J")),
+        "the exit did not clear from the band's top row, after the restore: {text:?}"
+    );
+}
+
+#[test]
 fn the_composer_stops_growing_at_half_the_content_area() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();

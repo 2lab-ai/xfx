@@ -21,13 +21,15 @@
 //!   byte** (`terminal_action_decoder.zig:105-114`). No escape sequence carries
 //!   a C0 in that position, so the ESC was the user's Escape key and the byte
 //!   after it is its own keystroke; swallowing either loses a keystroke the
-//!   user really typed. **`ESC 0x7f` is the one exception**: that is how a
-//!   terminal spells Alt-Backspace, and it decodes as the single
-//!   [`Action::DeleteWordLeft`] the same key has as Ctrl-W. Replayed, one
-//!   Alt-Backspace would be an `Escape` as well -- so two of them would be two
+//!   user really typed. **`ESC 0x7f`, `ESC CR` and `ESC LF` are the
+//!   exceptions**: they are how a terminal spells Alt-Backspace and Alt-Enter,
+//!   and they decode as the single [`Action::DeleteWordLeft`] the same key has
+//!   as Ctrl-W and the single [`Action::InsertNewline`] Alt-Enter has in its
+//!   `CSI u` spelling (`escape_parser.zig` at `c1db919`, :515-519). Replayed,
+//!   either key would be an `Escape` as well -- so two of them would be two
 //!   Escapes inside the double-Esc window and would clear the whole composer
-//!   ([`super::gesture`]), which is the opposite of what a delete-one-word key
-//!   can have meant.
+//!   ([`super::gesture`]), which is the opposite of what a delete-one-word or a
+//!   newline key can have meant -- and the Alt-Enter would submit besides.
 //! * **An unknown sequence resolves to [`Action::Ignore`], never to a phantom
 //!   `Escape`.** A decoder that gives up on `CSI > 4 ; 2 m` by emitting the ESC
 //!   it swallowed cancels whatever `Escape` cancels, on input the user did not
@@ -85,7 +87,9 @@
 //! and `CSI 200 ; 1 ~` parse as 200 and open a paste that only the exact
 //! `CSI 201 ~` closes, which latches the session into paste mode on a stream
 //! the terminal never framed. `csi` therefore compares raw parameter bytes, and
-//! the same strictness covers every other sequence it reads.
+//! the same strictness covers every other sequence it reads: the numbers in a
+//! key report are read only from their one canonical spelling, so no two
+//! spellings ever reach the same key.
 //!
 //! The end marker is matched byte by byte, so its prefix has to be held back:
 //! typing `ESC`, `[`, `2` into the composer as they arrive would be wrong when
@@ -441,6 +445,16 @@ impl Decoder {
                 self.stage = Stage::Ground;
                 out.push(Input::Action(Action::DeleteWordLeft));
             }
+            // Alt-Enter, in the spelling a terminal without a key protocol
+            // uses (`escape_parser.zig` at `c1db919`, :515-519), and the second
+            // exception for the same reason as the first: replayed it would be
+            // `Escape` + `Submit`, a prompt sent on the key that means "a new
+            // line, not yet" -- and two of them the double-Esc gesture as well.
+            // One keystroke, the action its `CSI 13 ; 3 u` spelling has.
+            b'\r' | b'\n' => {
+                self.stage = Stage::Ground;
+                out.push(Input::Action(Action::InsertNewline));
+            }
             // No sequence carries a C0 in this position, so the ESC was the
             // Escape key and this byte is its own keystroke. Both of them, in
             // that order.
@@ -493,12 +507,12 @@ impl Decoder {
                         return;
                     }
                 }
-                let action = csi(&self.params, byte);
-                if action == Action::PasteStart {
+                let input = csi(&self.params, byte);
+                if input == Input::Action(Action::PasteStart) {
                     self.pasting = true;
                     self.matched = 0;
                 }
-                out.push(Input::Action(action));
+                out.push(input);
             }
         }
     }
@@ -707,14 +721,18 @@ fn control(byte: u8) -> Action {
 /// What a completed `ESC [ <params> <final>` means.
 ///
 /// The parameters are matched **as bytes, in the exact shapes a terminal sends
-/// a key in**, and never parsed into numbers that are then compared. A numeric
-/// comparison accepts spellings no terminal emits -- `CSI 0200 ~` and
+/// a key in**, and -- outside a key report -- never parsed into numbers that
+/// are then compared. A numeric comparison accepts spellings no terminal
+/// emits -- `CSI 0200 ~` and
 /// `CSI 200 ; 1 ~` both *parse* as 200 -- and the paste markers are where that
 /// stops being cosmetic: [`Decoder::pasted`] matches the end marker byte for
 /// byte, so a decoder that opened a paste on `CSI 0200 ~` could never be closed
 /// by the same spelling. A stream that opens one is latched into paste mode,
 /// and every keystroke after it is content. Exact both ways, or the two halves
-/// disagree.
+/// disagree. The one place numbers are read is a key report, whose key is any
+/// Unicode scalar and cannot be a table of spellings; there each field is
+/// accepted only in its canonical spelling first ([`decimal`]), which makes the
+/// reading one-to-one and keeps the same property.
 ///
 /// Everything that is not one of these shapes is [`Action::Ignore`], which is
 /// the same answer the bounded discard gives and for the same reason: an input
@@ -722,184 +740,355 @@ fn control(byte: u8) -> Action {
 /// an arrow key, and a private-parameter sequence (`?`, `>`, `<`, `=`) is a
 /// terminal talking about itself rather than a key at all -- both fail the
 /// shape check without needing a case of their own.
-fn csi(params: &[u8], final_byte: u8) -> Action {
+///
+/// An [`Input`] rather than an [`Action`] because a key report can be a
+/// character: a keypad digit, or Shift+Space ([`replayed`]).
+fn csi(params: &[u8], final_byte: u8) -> Input {
     match final_byte {
         // The tilde keys, each one exactly one spelling.
         b'~' => match params {
-            b"1" => Action::Home,
-            b"3" => Action::Delete,
-            b"4" => Action::End,
-            b"200" => Action::PasteStart,
-            b"201" => Action::PasteEnd,
-            // The second of the two pinned Super+Z spellings
-            // (`runtime.zig:3025`'s `[27;10;122~`), and also the shape a
-            // captured Ctrl-letter chord takes (`[27;5;99~` for Ctrl-C,
-            // `.prd/tui-phase3/loop.md:416`'s R125) -- both a **params shape**
-            // under a final byte that already carries five literal ones.
-            _ => tilde_chord(params),
+            b"1" => Input::Action(Action::Home),
+            b"3" => Input::Action(Action::Delete),
+            b"4" => Input::Action(Action::End),
+            b"200" => Input::Action(Action::PasteStart),
+            b"201" => Input::Action(Action::PasteEnd),
+            // xterm's `modifyOtherKeys` spelling of a key report -- a
+            // **params shape** under a final byte that already carries five
+            // literal ones.
+            _ => tilde_report(params),
         },
         // The cursor keys, bare or with one modifier.
         b'A' | b'B' | b'C' | b'D' | b'H' | b'F' => {
             let Some(modifier) = modifier(params) else {
-                return Action::Ignore;
+                return Input::Action(Action::Ignore);
             };
-            // The modifier is one more than a bitmask: 1 shift, 2 alt, 4 ctrl.
-            // Shift is dropped along with the selection it would have extended,
-            // so what is left is "ctrl or alt means by word".
-            let word = (modifier - 1) & 0b110 != 0;
-            match final_byte {
-                b'A' => Action::Up,
-                b'B' => Action::Down,
-                b'C' if word => Action::WordRight,
-                b'C' => Action::Right,
-                b'D' if word => Action::WordLeft,
-                b'D' => Action::Left,
-                b'H' => Action::Home,
-                _ => Action::End,
-            }
+            // The modifier is one more than a bitmask.
+            Input::Action(cursor(final_byte, modifier - 1))
         }
-        // `CSI <code> ; <modifier> u`, the first pinned spelling
-        // (`runtime.zig:3018`'s `[122;10u`). A new final byte for this decoder,
-        // and the only one this slice adds: the two families below are the
-        // promoted CSI-u surface, not a claim to the whole matrix.
-        b'u' => {
-            let mut fields = params.split(|byte| *byte == b';');
-            let (Some(code), Some(modifier), None) = (fields.next(), fields.next(), fields.next())
-            else {
-                return Action::Ignore;
-            };
-            chord(code, modifier)
-        }
-        _ => Action::Ignore,
+        // Kitty's spelling of a key report.
+        b'u' => report(params),
+        _ => Input::Action(Action::Ignore),
     }
 }
 
-/// `CSI 27 ; <modifier> ; <code> ~`, the other spelling of the same key.
-fn tilde_chord(params: &[u8]) -> Action {
+/// What a cursor key means under a modifier mask: this decoder's main-row
+/// arrow table, and the one a keypad arrow is resolved through as well
+/// ([`kitty_key`]).
+///
+/// Shift is dropped along with the selection it would have extended, so what
+/// is left is "ctrl or alt means by word".
+fn cursor(letter: u8, mask: u8) -> Action {
+    let word = mask & (ALT | CTRL) != 0;
+    match letter {
+        b'A' => Action::Up,
+        b'B' => Action::Down,
+        b'C' if word => Action::WordRight,
+        b'C' => Action::Right,
+        b'D' if word => Action::WordLeft,
+        b'D' => Action::Left,
+        b'H' => Action::Home,
+        _ => Action::End,
+    }
+}
+
+/// `CSI <code> u`, `CSI <code> ; <modifier> u` or
+/// `CSI <code> ; <modifier> : <event> u` -- kitty's key report
+/// (`escape_parser.zig` at `c1db919`, :613-619, :686-692 and :756-780).
+///
+/// The event type is the one rule here that is not [`kitty_key`]'s: a press
+/// (`1`) or a repeat (`2`) is the key, and a release (`3`) -- or anything else
+/// -- is not a keystroke at all, because a release that acted would close a
+/// panel or move the caret a second time for one key. Upstream reads it on
+/// every report (`c1db919`; `ef1d0d0` read it on keycode 27 alone, :570).
+///
+/// Stricter than upstream in the grammar only, never in what a well-formed
+/// report means: a field upstream would fold into a number from a spelling no
+/// terminal emits -- a leading zero, a modifier of `0`, a third `;` field --
+/// is [`Action::Ignore`] here, for the reason [`csi`] gives.
+fn report(params: &[u8]) -> Input {
+    let ignore = Input::Action(Action::Ignore);
     let mut fields = params.split(|byte| *byte == b';');
-    let (Some(b"27"), Some(modifier), Some(code), None) =
+    let (Some(code), modifier, None) = (fields.next(), fields.next(), fields.next()) else {
+        return ignore;
+    };
+    let Some(code) = decimal(code, KEYCODE_DIGITS) else {
+        return ignore;
+    };
+    let Some(modifier) = modifier else {
+        return kitty_key(code, 0);
+    };
+    let mut parts = modifier.split(|byte| *byte == b':');
+    let (Some(mask), event, None) = (parts.next(), parts.next(), parts.next()) else {
+        return ignore;
+    };
+    let Some(mask) = key_modifiers(mask) else {
+        return ignore;
+    };
+    match event {
+        None | Some(b"1" | b"2") => kitty_key(code, mask),
+        Some(_) => ignore,
+    }
+}
+
+/// `CSI 27 ; <modifier> ; <code> ~`, the other spelling of the same report,
+/// resolved by the same function (`escape_parser.zig` at `c1db919`, :746-752).
+///
+/// Upstream discards the first field (:606-611 and :668-674 overwrite it), so
+/// it would read `CSI 28 ; 10 ; 122 ~` as this key too; `27` is the only value
+/// a terminal sends there, and the only one this decoder accepts.
+fn tilde_report(params: &[u8]) -> Input {
+    let ignore = Input::Action(Action::Ignore);
+    let mut fields = params.split(|byte| *byte == b';');
+    let (Some(b"27"), Some(mask), Some(code), None) =
         (fields.next(), fields.next(), fields.next(), fields.next())
     else {
-        return Action::Ignore;
+        return ignore;
     };
-    if let Some(action) = ctrl_letter(modifier, code) {
-        return action;
+    match (key_modifiers(mask), decimal(code, KEYCODE_DIGITS)) {
+        (Some(mask), Some(code)) => kitty_key(code, mask),
+        _ => ignore,
     }
-    chord(code, modifier)
 }
 
-/// A Ctrl-letter, in the one shape a real terminal (WezTerm, with
-/// `enable_kitty_keyboard` on) was captured sending three of these keys in:
-/// `ESC[27;5;<ascii-code>~`, driven through the terminal's own `SendKey`
-/// action rather than a physical keypress, and logged raw in
-/// `.prd/tui-phase3/loop.md:416` (R125). Modifier `5` is ctrl alone. Only
-/// **Ctrl-C, Ctrl-D and Ctrl-U** (codes `99`, `100`, `117`) were themselves
-/// captured this way; the other fourteen arms below are extended to the same
-/// shape by protocol consistency -- the same modifier-5 tilde-chord family,
-/// the same letters `control` already binds a keystroke to -- rather than by
-/// an independent capture of each one. Only under this final byte, too --
-/// `chord`'s `CSI <code> ; <modifier> u` sibling is a different, unproven
-/// spelling and is not widened here.
+/// The longest keycode field: seven digits hold every Unicode scalar.
+const KEYCODE_DIGITS: usize = 7;
+
+/// A decimal field in the one spelling a terminal emits it in, or `None`:
+/// digits only, no leading zero, and at most `most` of them.
 ///
-/// Both parameters are matched **as bytes, in the exact shape the capture
-/// used**, the same discipline `csi`'s own doc comment states, and for a
-/// narrower reason than it first looks: a numeric parse of `code` would
-/// accept `065` for `65` and `0099` for `99` -- a leading zero does not
-/// change the value a parse folds digits into -- so those two stay refused
-/// under byte matching specifically because a parse would not have refused
-/// them. `990`, by contrast, is not a parse leniency at all: parsed as a
-/// number it is 990, not 99, so a numeric-then-compare would refuse it on
-/// its own merits too. It is tested here for a different property -- that
-/// the match is exact-length as well as exact-value, so a real code with one
-/// digit appended is not mistaken for a byte-string prefix of it. Folding
-/// the modifier into xterm's bitmask the way [`chord_modifier`] does for
-/// Super+Z would likewise accept combinations the capture never showed:
-/// `13` is Ctrl+Super under that arithmetic (mask `12` = ctrl's `4` plus
-/// super's `8`), not Ctrl+Shift, which is `6` (mask `5` = ctrl's `4` plus
-/// shift's `1`); neither was captured, which is the only reason either is
-/// refused, not which one it happens to decode as under the general scheme.
-///
-/// The table only has an arm for the letters `control` already binds a
-/// keystroke to (`a`-`f`, `h`-`n`, `p`, `u`, `w`, `y`); a letter `control`
-/// answers `Ignore` for -- `g`, `o`, `q`-`t`, `v`, `x`, `z` -- has none. That
-/// is a fact about how this table was written, not a guarantee about how it
-/// stays correct: it is a handwritten list, manually kept in step with
-/// `control`'s own `match` rather than derived from it, so a change to what
-/// `control` binds does not by itself change what this table answers -- the
-/// two have to be edited together. `Ctrl-_` is left out for the same reason
-/// `z` is bounded rather than assumed: its `27;5;95~` spelling was never
-/// captured.
-fn ctrl_letter(modifier: &[u8], code: &[u8]) -> Option<Action> {
-    if modifier != b"5" {
+/// The leading-zero refusal is what makes the reading one-to-one -- `099` and
+/// `99` would otherwise be two spellings of one key -- and it refuses `0`
+/// itself, which is no key and no modifier.
+fn decimal(field: &[u8], most: usize) -> Option<u32> {
+    if field.is_empty()
+        || field.len() > most
+        || field.first() == Some(&b'0')
+        || !field.iter().all(u8::is_ascii_digit)
+    {
         return None;
     }
-    let byte = match code {
-        b"97" => b'a',
-        b"98" => b'b',
-        b"99" => b'c',
-        b"100" => b'd',
-        b"101" => b'e',
-        b"102" => b'f',
-        b"104" => b'h',
-        b"105" => b'i',
-        b"106" => b'j',
-        b"107" => b'k',
-        b"108" => b'l',
-        b"109" => b'm',
-        b"110" => b'n',
-        b"112" => b'p',
-        b"117" => b'u',
-        b"119" => b'w',
-        b"121" => b'y',
-        _ => return None,
-    };
-    Some(control(byte & 0x1f))
+    Some(
+        field
+            .iter()
+            .fold(0, |value, digit| value * 10 + u32::from(digit - b'0')),
+    )
 }
 
-/// What a `z` with modifiers means (`escape_parser.zig:122-123`).
-///
-/// Super is the bit that makes it an editing key at all
-/// (`escape_parser.zig:42`'s `super_modifier = 0x08`); shift beside it makes it
-/// the redo. Everything else -- another keycode, no super bit, a modifier
-/// spelled in a way no terminal emits -- is [`Action::Ignore`], because an input
-/// this session cannot name is not one it should guess at.
-fn chord(code: &[u8], modifier: &[u8]) -> Action {
-    let Some(mask) = chord_modifier(modifier) else {
-        return Action::Ignore;
-    };
-    if mask & 0x08 == 0 {
-        return Action::Ignore;
+/// A key report's modifier field, undone: kitty's `1 + mask` over eight bits --
+/// shift, alt, ctrl, super, hyper, meta, caps lock, num lock -- so `1` to
+/// `256`, and nothing past it.
+fn key_modifiers(field: &[u8]) -> Option<u8> {
+    let value = decimal(field, 3)?;
+    u8::try_from(value.checked_sub(1)?).ok()
+}
+
+// The modifier bits (`escape_parser.zig` at `c1db919`, :61-64).
+const SHIFT: u8 = 0x01;
+const ALT: u8 = 0x02;
+const CTRL: u8 = 0x04;
+const SUPER: u8 = 0x08;
+
+// Kitty's functional-key codes this port names (`escape_parser.zig` at
+// `c1db919`, :38-60). KP_SEPARATOR, KP_INSERT and KP_BEGIN are absent there
+// too: they have no main-row key to behave as.
+const KITTY_UP: u32 = 57352;
+const KITTY_DOWN: u32 = 57353;
+const KP_0: u32 = 57399;
+const KP_9: u32 = 57408;
+const KP_ENTER: u32 = 57414;
+const KP_PAGE_UP: u32 = 57421;
+const KP_PAGE_DOWN: u32 = 57422;
+const KP_DELETE: u32 = 57426;
+
+/// The character a keypad key types (`escape_parser.zig` at `c1db919`,
+/// :121-132).
+fn keypad_character(code: u32) -> Option<u8> {
+    if (KP_0..=KP_9).contains(&code) {
+        return u8::try_from(code - KP_0).ok().map(|digit| b'0' + digit);
     }
-    // `z` and `Z`: upstream matches the keycode, and a shifted chord reports the
-    // capital on some terminals.
-    if !matches!(code, b"122" | b"90") {
-        return Action::Ignore;
-    }
-    if mask & 0x01 == 0 {
-        Action::Undo
-    } else {
-        Action::Redo
+    match code {
+        57409 => Some(b'.'), // KP_DECIMAL
+        57410 => Some(b'/'), // KP_DIVIDE
+        57411 => Some(b'*'), // KP_MULTIPLY
+        57412 => Some(b'-'), // KP_SUBTRACT
+        57413 => Some(b'+'), // KP_ADD
+        57415 => Some(b'='), // KP_EQUAL
+        _ => None,
     }
 }
 
-/// The mask a chord's modifier parameter carries: xterm's `1 + mask`, undone.
-///
-/// A sibling of [`modifier`] rather than a loosening of it: that one accepts the
-/// **cursor-key** shape (the empty params, or a literal `1;` prefix), which
-/// `122;10` is not. Both match digits as bytes and bound the length, so
-/// `122;010` stays [`Action::Ignore`] -- a spelling no terminal emits is not a
-/// keystroke this session invents a meaning for.
-fn chord_modifier(digits: &[u8]) -> Option<u8> {
-    if digits.is_empty() || digits.len() > 2 || !digits.iter().all(u8::is_ascii_digit) {
-        return None;
+/// The cursor-key letter a keypad navigation key is (:134-144).
+fn keypad_navigation(code: u32) -> Option<u8> {
+    match code {
+        57419 => Some(b'A'), // KP_UP
+        57420 => Some(b'B'), // KP_DOWN
+        57418 => Some(b'C'), // KP_RIGHT
+        57417 => Some(b'D'), // KP_LEFT
+        57423 => Some(b'H'), // KP_HOME
+        57424 => Some(b'F'), // KP_END
+        _ => None,
     }
-    let value = digits
-        .iter()
-        .fold(0u8, |value, digit| value * 10 + (digit - b'0'));
-    // `then` rather than `then_some`: the argument of the latter is
-    // evaluated whichever way the condition goes, and `0 - 1` on a `u8` is a
-    // panic rather than a refusal.
-    (1..=16).contains(&value).then(|| value - 1)
+}
+
+/// What one key report means: upstream's `kittyUnicodeKeyAction`
+/// (`escape_parser.zig` at `c1db919`, :185-266), branch for branch and in its
+/// order, because the order is part of the meaning -- Ctrl+Alt+D is
+/// `delete_word_right` before Ctrl could turn it into `0x04`, and Ctrl+Super+C
+/// is `copy_selection` before Ctrl could turn it into a cancel.
+///
+/// Every upstream result lands on an action this session already has:
+///
+/// * a **remapped byte** goes through [`replayed`] -- Ctrl+letter is the
+///   letter's control byte and therefore [`control`]'s row for it, and a
+///   keypad digit is the digit typed;
+/// * a **keypad navigation key** is resolved through [`cursor`], which is this
+///   decoder's main-row arrow table -- upstream's own rule that a keypad key
+///   behaves as its main-row key (:116-118), read against xfx's main row;
+/// * `escape`, `insert_newline`, `undo`/`redo`, `word_left`/`word_right`,
+///   `delete_word_left`, `delete_to_line_start`/`delete_to_line_end` and
+///   `delete_next` are [`Action::Escape`], [`Action::InsertNewline`],
+///   [`Action::Undo`]/[`Action::Redo`], [`Action::WordLeft`]/[`Action::WordRight`],
+///   [`Action::DeleteWordLeft`], [`Action::KillToStart`]/[`Action::KillToEnd`]
+///   and [`Action::Delete`].
+///
+/// What has no action here is [`Action::Ignore`], each named where it falls:
+/// `select_all` (:223-225), `copy_selection` (:226-228), `cut_selection`
+/// (:229-231), every `composerMove` that extends a selection (:238-241, :244,
+/// :248), `delete_word_right` (:178, :251), `toggle_full_transcript`
+/// (:111-114, :252), `open_all_sessions` (:253), `toggle_permission_mode`
+/// (:254), and the page keys with or without a modifier (:169-173). Upstream's
+/// `meta_prefixed` -- a key report behind a second `ESC` -- has no counterpart:
+/// this decoder reads `ESC ESC` as the Escape key and then whatever follows,
+/// so it is always `false` here and its branches are not carried.
+fn kitty_key(code: u32, modifiers: u8) -> Input {
+    let ignore = Input::Action(Action::Ignore);
+    // Caps Lock and Num Lock are states, not modifiers (:186-187).
+    let mods = modifiers & 0x3f;
+    if code == 27 && mods == 0 {
+        return Input::Action(Action::Escape);
+    }
+    // Hyper and Meta survive the mask, and a keypad key held with either one
+    // is not resolved as the keypad at all (:189-191).
+    if mods & !(SHIFT | ALT | CTRL | SUPER) == 0 {
+        if let Some(byte) = keypad_character(code) {
+            // Only a bare or shifted keypad press types (:193-195); anything
+            // else falls through to the rest of the table.
+            if mods & !SHIFT == 0 {
+                return replayed(byte);
+            }
+        } else if let Some(letter) = keypad_navigation(code) {
+            return Input::Action(cursor(letter, mods));
+        } else if code == KP_PAGE_UP || code == KP_PAGE_DOWN {
+            // `page_up`/`page_down`, or a `composerMove` to them with a
+            // modifier (:169-173): this session has no page key.
+            return ignore;
+        } else if code == KP_ENTER {
+            return kitty_key(13, modifiers);
+        } else if code == KP_DELETE {
+            // The main-row `ESC[3~` family (:175-180): Super kills to the end
+            // of the line, Alt or Ctrl is `delete_word_right` -- which this
+            // session does not have -- and Shift alone is nothing.
+            return Input::Action(if mods & SUPER != 0 {
+                Action::KillToEnd
+            } else if mods == 0 {
+                Action::Delete
+            } else {
+                Action::Ignore
+            });
+        }
+    }
+    if code == KITTY_UP || code == KITTY_DOWN {
+        let letter = if code == KITTY_UP { b'A' } else { b'B' };
+        // Upstream's modified arrow table answers every modifier but Hyper and
+        // Meta alone, which are `.ignore` (:208-217).
+        if mods != 0 && mods & (SHIFT | ALT | CTRL | SUPER) == 0 {
+            return ignore;
+        }
+        return Input::Action(cursor(letter, mods));
+    }
+    if code == 13 && mods == CTRL {
+        return replayed(b'\r');
+    }
+    if code == 13 && mods & (SHIFT | ALT) != 0 {
+        return Input::Action(Action::InsertNewline);
+    }
+    if code == 32 && mods == SHIFT {
+        return replayed(b' ');
+    }
+    // A letter, either case: the branches below compare the keycode against
+    // ASCII, and only `b` and `f` under Alt (:243, :247) are lowercase alone.
+    let ascii = u8::try_from(code).ok().filter(u8::is_ascii);
+    let is = |wanted: u8| ascii.is_some_and(|byte| byte.to_ascii_lowercase() == wanted);
+    if mods & SUPER != 0 {
+        // `select_all`, `copy_selection`, `cut_selection` (:223-231).
+        if is(b'a') || is(b'c') || is(b'x') {
+            return ignore;
+        }
+        if is(b'z') {
+            return Input::Action(if mods & SHIFT == 0 {
+                Action::Undo
+            } else {
+                Action::Redo
+            });
+        }
+    }
+    // A `composerMove` that extends a selection (:235-242).
+    if mods & (SHIFT | CTRL) == (SHIFT | CTRL) && (is(b'a') || is(b'b') || is(b'e') || is(b'f')) {
+        return ignore;
+    }
+    if mods & ALT != 0 && matches!(ascii, Some(b'b' | b'f')) {
+        // With Shift, the same move extending a selection (:244, :248).
+        if mods & SHIFT != 0 {
+            return ignore;
+        }
+        return Input::Action(if ascii == Some(b'b') {
+            Action::WordLeft
+        } else {
+            Action::WordRight
+        });
+    }
+    // `delete_word_right` (:251), `toggle_full_transcript` or nothing (:252),
+    // `open_all_sessions` (:253), `toggle_permission_mode` (:254).
+    if (is(b'd') && mods & ALT != 0)
+        || is(b'o')
+        || (is(b'r') && mods & SUPER != 0)
+        || (code == 9 && mods & SHIFT != 0)
+    {
+        return ignore;
+    }
+    // Ctrl and a letter or `_` is that key's control byte (:255-259); the
+    // low five bits are the arithmetic upstream spells as `- 96` and `- 64`.
+    if mods & CTRL != 0 {
+        if let Some(byte @ (b'a'..=b'z' | b'A'..=b'Z' | b'_')) = ascii {
+            return replayed(byte & 0x1f);
+        }
+    }
+    if code == 127 && mods & SUPER != 0 {
+        return Input::Action(Action::KillToStart);
+    }
+    if code == 127 && mods & ALT != 0 {
+        return Input::Action(Action::DeleteWordLeft);
+    }
+    match code {
+        13 => replayed(b'\r'),
+        9 => replayed(b'\t'),
+        127 => replayed(0x7f),
+        _ => ignore,
+    }
+}
+
+/// A byte a key report stands for, decoded as though it had been typed:
+/// upstream's `remapped_byte`.
+///
+/// The same closed table [`Decoder::ground`] uses, so the control policy holds
+/// here too -- a control byte is [`control`]'s binding or [`Action::Ignore`],
+/// and only printable ASCII is ever text.
+fn replayed(byte: u8) -> Input {
+    match byte {
+        0x00..=0x1f | 0x7f => Input::Action(control(byte)),
+        0x20..=0x7e => Input::Text(char::from(byte)),
+        _ => Input::Action(Action::Ignore),
+    }
 }
 
 /// The modifier a cursor-key sequence carries, or `None` when its parameters
@@ -952,6 +1141,20 @@ mod tests {
         out
     }
 
+    /// What `csi` decodes a sequence to, for the cases that are an action.
+    ///
+    /// Shadows the module's own `csi` on purpose: that one returns an
+    /// [`Input`] because a key report can be a character, and every case
+    /// written against it here is about an action -- so a sequence that typed
+    /// a character instead fails loudly rather than comparing unequal to some
+    /// action by accident.
+    fn csi(params: &[u8], final_byte: u8) -> Action {
+        match super::csi(params, final_byte) {
+            Input::Action(action) => action,
+            other => panic!("{params:?} {final_byte:?} decoded to {other:?}, not an action"),
+        }
+    }
+
     #[test]
     fn the_two_editing_control_bytes_are_bound_and_ctrl_z_is_not() {
         // `0x1f` undo and `0x19` yank (`shortcuts.zig:23-24,84-85`). Redo has
@@ -1001,7 +1204,11 @@ mod tests {
             Action::Ignore,
             "no super bit is not a redo"
         );
-        assert_eq!(csi(b"122;5", b'u'), Action::Ignore, "ctrl is not super");
+        assert_eq!(
+            csi(b"122;5", b'u'),
+            Action::Ignore,
+            "ctrl is not super: Ctrl-Z, which binds nothing"
+        );
         assert_eq!(
             csi(b"122;010", b'u'),
             Action::Ignore,
@@ -1011,6 +1218,11 @@ mod tests {
         assert_eq!(
             csi(b"122;17", b'u'),
             Action::Ignore,
+            "hyper alone is not super"
+        );
+        assert_eq!(
+            csi(b"122;257", b'u'),
+            Action::Ignore,
             "past the modifier range"
         );
         assert_eq!(
@@ -1019,7 +1231,7 @@ mod tests {
             "a modifier is 1 + a mask"
         );
         assert_eq!(csi(b"121;10", b'u'), Action::Ignore, "y is not z");
-        assert_eq!(csi(b"122", b'u'), Action::Ignore, "no modifier at all");
+        assert_eq!(csi(b"122", b'u'), Action::Ignore, "a bare z binds nothing");
         assert_eq!(csi(b"122;10;3", b'u'), Action::Ignore, "a third parameter");
         assert_eq!(csi(b"", b'u'), Action::Ignore);
         assert_eq!(csi(b"27;10;121", b'~'), Action::Ignore, "y is not z");
@@ -1058,23 +1270,22 @@ mod tests {
     }
 
     #[test]
-    fn only_the_exact_captured_shape_reaches_a_ctrl_letter() {
+    fn a_ctrl_letter_is_upstreams_table_in_a_strict_spelling() {
         // Bounded on every axis, not just the three captured letters.
 
-        // A modifier other than the captured `5` (ctrl alone) is not
-        // decoded, even for a letter `control` binds. The modifier parameter
-        // is xterm's `1 + mask` (`csi`'s cursor-key arm above spells out the
-        // bits): `2` is shift alone, `3` is alt alone, and `13` is ctrl
-        // *and* super (mask `12` = ctrl's `4` plus super's `8`) -- Ctrl+Shift
-        // is a different value, `6` (mask `5` = ctrl's `4` plus shift's
-        // `1`), not exercised here. Neither `13` nor `6` was captured; `13`
-        // stands in for "some other combination the capture never showed".
+        // The modifier parameter is `1 + mask` (shift 1, alt 2, ctrl 4,
+        // super 8), and what a combination means is upstream's
+        // `kittyUnicodeKeyAction` (`escape_parser.zig` at `c1db919`,
+        // :185-266): `2` is shift alone and `3` alt alone, neither of which
+        // makes `c` anything; `13` is ctrl *and* super, which upstream reads
+        // as `copy_selection` before Ctrl is consulted (:226-228) -- a key
+        // this session does not have.
         assert_eq!(csi(b"27;2;99", b'~'), Action::Ignore, "shift is not ctrl");
         assert_eq!(csi(b"27;3;99", b'~'), Action::Ignore, "alt is not ctrl");
         assert_eq!(
             csi(b"27;13;99", b'~'),
             Action::Ignore,
-            "ctrl+super is unverified"
+            "ctrl+super+c is copy_selection, which xfx has no key for"
         );
         assert_eq!(csi(b"27;1;99", b'~'), Action::Ignore, "no modifier at all");
 
@@ -1092,22 +1303,20 @@ mod tests {
             "Ctrl-Z is still not undo"
         );
 
-        // `Ctrl-_` folds to the same control byte as `z`'s Undo arm, but this
-        // shape (`27;5;95~`) was never captured against the live encoder, so
-        // it stays refused rather than assumed.
-        assert_eq!(
-            csi(b"27;5;95", b'~'),
-            Action::Ignore,
-            "Ctrl-_ is unverified here"
-        );
+        // `Ctrl-_` is Undo in both spellings: herdr was captured sending its
+        // `u` spelling (`ESC[95;5u`), and upstream resolves the two spellings
+        // with the one function (`escape_parser.zig` at `c1db919`, :256), so
+        // the tilde spelling cannot stay refused while the other is bound.
+        assert_eq!(csi(b"27;5;95", b'~'), Action::Undo, "Ctrl-_ is undo");
 
         // Every spelling of Ctrl-C's code that is not the exact captured
         // bytes `99`, refused for two different reasons. A leading zero
         // (`099`) and an oversized leading zero (`0099`) are the genuine
         // numeric-parse-leniency case: a numeric parse folds digits into a
         // value and does not care how many leading zeros came first, so
-        // both would parse to `99` and be wrongly accepted -- byte-exact
-        // matching is what refuses them here. A trailing digit (`990`), no
+        // both would parse to `99` and be wrongly accepted -- the canonical-
+        // spelling check (`decimal`) is what refuses them here. A trailing
+        // digit (`990`), no
         // code at all, and Kitty's colon-separated event-qualifier suffix
         // for a release or a repeat (`99:2`) are not that: `990` parses to
         // a different number than `99`, and an empty or suffixed field
@@ -1140,15 +1349,313 @@ mod tests {
 
         // A fourth field is refused the same way it already is for Super+Z
         // (`everything_else_under_the_two_families_is_ignored`), because the
-        // shape check is `tilde_chord`'s, upstream of the letter lookup.
+        // shape check is `tilde_report`'s, ahead of the key lookup.
         assert_eq!(csi(b"27;5;99;1", b'~'), Action::Ignore, "a fourth field");
 
-        // The `u` final byte is not given the same widening: only the tilde
-        // shape that was actually captured decodes a Ctrl letter.
+        // The `u` spelling of the same key is the same key: herdr's
+        // libghostty encoder sends Ctrl-C as exactly these bytes
+        // (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`), and
+        // upstream routes both spellings through one function
+        // (`escape_parser.zig` at `c1db919`, :686-692 and :746-752).
         assert_eq!(
             csi(b"99;5", b'u'),
-            Action::Ignore,
-            "the u final byte stays Super+Z only"
+            Action::Cancel,
+            "the u spelling of Ctrl-C is Ctrl-C"
+        );
+        // And the grammar is as strict under `u` as under `~`.
+        assert_eq!(csi(b"099;5", b'u'), Action::Ignore, "a leading zero");
+        assert_eq!(csi(b"99;05", b'u'), Action::Ignore, "a leading zero");
+        assert_eq!(csi(b"99;5;1", b'u'), Action::Ignore, "a third field");
+        assert_eq!(csi(b"99;", b'u'), Action::Ignore, "an empty modifier");
+    }
+
+    /// The herdr receipt, row for row: the key that was sent, the bytes that
+    /// arrived, and the action they have to decode to.
+    ///
+    /// The bytes are the receipt's, literal for literal
+    /// (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`: herdr 0.9.3,
+    /// libghostty-vt's key encoder, kitty flag 1 negotiated). The action is what
+    /// upstream's `kittyUnicodeKeyAction` (`escape_parser.zig` at `c1db919`,
+    /// :185-266) resolves the key to, carried onto the action xfx already has
+    /// for it. The receipt's last row -- Home, End and Delete -- has no bytes:
+    /// herdr refused those key names, so nothing was captured for them.
+    const HERDR_RECEIPT: &[(&str, &[u8], Action)] = &[
+        ("ctrl+c", b"\x1b[99;5u", Action::Cancel),
+        ("ctrl+d", b"\x1b[100;5u", Action::Eof),
+        ("ctrl+u", b"\x1b[117;5u", Action::KillToStart),
+        ("esc", b"\x1b[27u", Action::Escape),
+        ("enter", b"\x0d", Action::Submit),
+        ("tab", b"\x09", Action::Tab),
+        ("backspace", b"\x7f", Action::Backspace),
+        ("alt+enter", b"\x1b[13;3u", Action::InsertNewline),
+        ("ctrl+a", b"\x1b[97;5u", Action::Home),
+        ("ctrl+e", b"\x1b[101;5u", Action::End),
+        ("ctrl+k", b"\x1b[107;5u", Action::KillToEnd),
+        ("ctrl+w", b"\x1b[119;5u", Action::DeleteWordLeft),
+        ("ctrl+y", b"\x1b[121;5u", Action::Yank),
+        ("ctrl+p", b"\x1b[112;5u", Action::HistoryPrevious),
+        ("ctrl+n", b"\x1b[110;5u", Action::HistoryNext),
+        ("up", b"\x1b[A", Action::Up),
+        ("down", b"\x1b[B", Action::Down),
+        ("left", b"\x1b[D", Action::Left),
+        ("right", b"\x1b[C", Action::Right),
+        // `toggle_permission_mode` (:254), which xfx has no key for.
+        ("shift+tab", b"\x1b[9;2u", Action::Ignore),
+        ("super+z", b"\x1b[122;9u", Action::Undo),
+        ("super+shift+z", b"\x1b[122;10u", Action::Redo),
+        ("ctrl+b", b"\x1b[98;5u", Action::Left),
+        ("ctrl+f", b"\x1b[102;5u", Action::Right),
+        ("ctrl+h", b"\x1b[104;5u", Action::Backspace),
+        ("ctrl+i", b"\x1b[105;5u", Action::Tab),
+        ("ctrl+j", b"\x1b[106;5u", Action::InsertNewline),
+        ("ctrl+l", b"\x1b[108;5u", Action::Redraw),
+        ("ctrl+m", b"\x1b[109;5u", Action::Submit),
+        ("ctrl+_", b"\x1b[95;5u", Action::Undo),
+        // Upstream remaps only `_` and the letters under Ctrl (:255-259), so
+        // these two fall through to its final `.ignore` (:265).
+        ("ctrl+/", b"\x1b[47;5u", Action::Ignore),
+        ("ctrl+-", b"\x1b[45;5u", Action::Ignore),
+        ("alt+backspace", b"\x1b[127;3u", Action::DeleteWordLeft),
+        ("alt+left", b"\x1b[1;3D", Action::WordLeft),
+        ("alt+right", b"\x1b[1;3C", Action::WordRight),
+        ("ctrl+left", b"\x1b[1;5D", Action::WordLeft),
+        ("ctrl+right", b"\x1b[1;5C", Action::WordRight),
+        ("shift+enter", b"\x1b[13;2u", Action::InsertNewline),
+        ("ctrl+enter", b"\x1b[13;5u", Action::Submit),
+        ("alt+b", b"\x1b[98;3u", Action::WordLeft),
+        ("alt+f", b"\x1b[102;3u", Action::WordRight),
+    ];
+
+    #[test]
+    fn every_key_the_herdr_receipt_captured_decodes_to_its_binding() {
+        // Every row is checked before anything is asserted, so a failure names
+        // all the keys that are wrong rather than the first one.
+        let wrong: Vec<String> = HERDR_RECEIPT
+            .iter()
+            .filter_map(|(key, bytes, action)| {
+                let got = decode(bytes);
+                (got != vec![Input::Action(*action)])
+                    .then(|| format!("{key} {bytes:?}: wanted {action:?}, got {got:?}"))
+            })
+            .collect();
+        assert!(
+            wrong.is_empty(),
+            "{} of {} receipt rows decode wrongly:\n{}",
+            wrong.len(),
+            HERDR_RECEIPT.len(),
+            wrong.join("\n")
+        );
+    }
+
+    #[test]
+    fn a_kitty_event_type_acts_on_press_and_repeat_and_never_on_release() {
+        // `escape_parser.zig` at `c1db919`, :676-684 and :756-780: a colon
+        // after the modifier carries the event type, and only a press (1) or
+        // a repeat (2) is a keystroke -- a release must not close a panel or
+        // move the caret. `ef1d0d0` took the colon on keycode 27 alone (:570);
+        // `c1db919` takes it on every `u` report, which is what is ported.
+        assert_eq!(
+            decode(b"\x1b[27;1:1u"),
+            vec![Input::Action(Action::Escape)],
+            "an Escape press"
+        );
+        assert_eq!(
+            decode(b"\x1b[27;1:2u"),
+            vec![Input::Action(Action::Escape)],
+            "an Escape repeat"
+        );
+        assert_eq!(
+            decode(b"\x1b[27;1:3u"),
+            vec![Input::Action(Action::Ignore)],
+            "an Escape release"
+        );
+        assert_eq!(
+            decode(b"\x1b[99;5:1u"),
+            vec![Input::Action(Action::Cancel)],
+            "a Ctrl-C press"
+        );
+        assert_eq!(
+            decode(b"\x1b[99;5:3u"),
+            vec![Input::Action(Action::Ignore)],
+            "a Ctrl-C release"
+        );
+        // The same strict grammar as every other field: one canonical
+        // spelling, under `u` only, and nothing after it.
+        for stream in [
+            &b"\x1b[27;1:01u"[..],
+            b"\x1b[27;1:u",
+            b"\x1b[27;1:1:1u",
+            b"\x1b[27;1:1;1u",
+            b"\x1b[27;:1u",
+            b"\x1b[27:1;1u",
+            b"\x1b[27;1:1~",
+            b"\x1b[27;1;27:1~",
+        ] {
+            assert_eq!(
+                decode(stream),
+                vec![Input::Action(Action::Ignore)],
+                "{stream:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lock_bits_are_not_modifiers() {
+        // `escape_parser.zig` at `c1db919`, :186-187: Caps Lock (64) and Num
+        // Lock (128) are states, not modifiers, so Ctrl-C with either lit is
+        // still Ctrl-C and a bare Escape with Caps Lock on is still Escape.
+        assert_eq!(
+            decode(b"\x1b[99;69u"),
+            vec![Input::Action(Action::Cancel)],
+            "ctrl + caps lock"
+        );
+        assert_eq!(
+            decode(b"\x1b[99;133u"),
+            vec![Input::Action(Action::Cancel)],
+            "ctrl + num lock"
+        );
+        assert_eq!(
+            decode(b"\x1b[27;65u"),
+            vec![Input::Action(Action::Escape)],
+            "caps lock alone"
+        );
+        assert_eq!(
+            decode(b"\x1b[27;5;99~"),
+            decode(b"\x1b[27;69;99~"),
+            "the tilde spelling strips them too"
+        );
+        // Eight modifier bits and no more: `1 + 255` is the largest modifier
+        // field a terminal can send.
+        assert_eq!(
+            decode(b"\x1b[99;257u"),
+            vec![Input::Action(Action::Ignore)],
+            "past eight bits"
+        );
+        assert_eq!(
+            decode(b"\x1b[99;0u"),
+            vec![Input::Action(Action::Ignore)],
+            "a modifier is 1 + a mask"
+        );
+    }
+
+    #[test]
+    fn a_u_form_key_split_across_reads_decodes_once() {
+        // One byte per feed, with the loop's tick between them: the shape a
+        // terminal under load really delivers a key report in.
+        let mut decoder = Decoder::new();
+        let now = Instant::now();
+        let mut out = Vec::new();
+        for byte in b"\x1b[100;5u" {
+            decoder.feed(*byte, now, &mut out);
+            decoder.flush(now, &mut out);
+        }
+        assert_eq!(out, vec![Input::Action(Action::Eof)]);
+    }
+
+    #[test]
+    fn the_keypad_decodes_as_the_main_row_it_mirrors() {
+        // `escape_parser.zig` at `c1db919`, :116-118 and :185-207: a keypad key
+        // behaves as its main-row equivalent. The main row here is this
+        // decoder's own cursor-key table, so a keypad arrow with Shift is the
+        // plain move the main-row arrow is (`csi`'s cursor-key arm) rather
+        // than a selection this session does not have.
+        for (bytes, expected) in [
+            (&b"\x1b[57399u"[..], Input::Text('0')),
+            (b"\x1b[57408u", Input::Text('9')),
+            (b"\x1b[57409u", Input::Text('.')),
+            (b"\x1b[57413;2u", Input::Text('+')),
+            (b"\x1b[57415u", Input::Text('=')),
+            // Only a bare or shifted keypad press types (:193-195).
+            (b"\x1b[57399;5u", Input::Action(Action::Ignore)),
+            (b"\x1b[57417u", Input::Action(Action::Left)),
+            (b"\x1b[57418;5u", Input::Action(Action::WordRight)),
+            (b"\x1b[57419;2u", Input::Action(Action::Up)),
+            (b"\x1b[57423u", Input::Action(Action::Home)),
+            (b"\x1b[57424u", Input::Action(Action::End)),
+            (b"\x1b[57414u", Input::Action(Action::Submit)),
+            (b"\x1b[57414;2u", Input::Action(Action::InsertNewline)),
+            (b"\x1b[57414;5u", Input::Action(Action::Submit)),
+            (b"\x1b[57426u", Input::Action(Action::Delete)),
+            (b"\x1b[57426;9u", Input::Action(Action::KillToEnd)),
+            (b"\x1b[57352u", Input::Action(Action::Up)),
+            (b"\x1b[57353;5u", Input::Action(Action::Down)),
+            // Shift+Space types the space (:222).
+            (b"\x1b[32;2u", Input::Text(' ')),
+            // Hyper (16) is not a keypad modifier (:189-191), so it falls
+            // through to `.ignore`.
+            (b"\x1b[57399;17u", Input::Action(Action::Ignore)),
+        ] {
+            assert_eq!(decode(bytes), vec![expected], "{bytes:?}");
+        }
+    }
+
+    #[test]
+    fn what_upstream_resolves_to_a_key_xfx_does_not_have_is_ignored() {
+        // Each of these is a real upstream result (`escape_parser.zig` at
+        // `c1db919`) with no action in this session's vocabulary, and none is
+        // invented for it.
+        for (bytes, upstream) in [
+            (&b"\x1b[97;9u"[..], "select_all :223-225"),
+            (b"\x1b[99;9u", "copy_selection :226-228"),
+            (b"\x1b[120;9u", "cut_selection :229-231"),
+            (b"\x1b[97;6u", "composerMove line_start + selection :238"),
+            (
+                b"\x1b[98;6u",
+                "composerMove character_left + selection :239",
+            ),
+            (b"\x1b[101;6u", "composerMove line_end + selection :240"),
+            (
+                b"\x1b[102;6u",
+                "composerMove character_right + selection :241",
+            ),
+            (b"\x1b[98;4u", "composerMove word_left + selection :244"),
+            (b"\x1b[102;4u", "composerMove word_right + selection :248"),
+            (b"\x1b[100;3u", "delete_word_right :251"),
+            (b"\x1b[100;7u", "delete_word_right ahead of Ctrl-D :251"),
+            (b"\x1b[111;5u", "toggle_full_transcript :252,:111-114"),
+            (b"\x1b[114;9u", "open_all_sessions :253"),
+            (b"\x1b[9;2u", "toggle_permission_mode :254"),
+            (b"\x1b[57421u", "page_up :169-173"),
+            (b"\x1b[57422;5u", "composerMove page_down :171"),
+            (b"\x1b[57426;5u", "delete_word_right :178"),
+            (b"\x1b[57426;2u", "forward delete with Shift :179"),
+            (b"\x1b[57352;17u", "kitty Up with Hyper alone :214"),
+        ] {
+            assert_eq!(
+                decode(bytes),
+                vec![Input::Action(Action::Ignore)],
+                "{bytes:?} ({upstream})"
+            );
+        }
+    }
+
+    #[test]
+    fn alt_enter_in_its_legacy_spelling_inserts_a_newline_rather_than_submitting() {
+        // `escape_parser.zig` at `c1db919`, :515-519: `ESC CR` and `ESC LF`
+        // are Alt-Enter, and Alt-Enter is a newline -- the same key the `u`
+        // spelling (`ESC[13;3u`) is. Replayed, it would be an Escape and then
+        // a Submit: a prompt sent on a key that means "not yet", and two of
+        // them inside the double-Esc window would clear the draft as well.
+        assert_eq!(
+            decode(b"\x1b\r"),
+            vec![Input::Action(Action::InsertNewline)]
+        );
+        assert_eq!(
+            decode(b"\x1b\n"),
+            vec![Input::Action(Action::InsertNewline)]
+        );
+        assert_eq!(
+            decode(b"\x1b\r\x1b\r"),
+            vec![
+                Input::Action(Action::InsertNewline),
+                Input::Action(Action::InsertNewline)
+            ],
+            "two Alt-Enters armed the composer-clearing gesture"
+        );
+        // Alt-Backspace keeps its own carve-out.
+        assert_eq!(
+            decode(&[0x1b, 0x7f]),
+            vec![Input::Action(Action::DeleteWordLeft)]
         );
     }
 

@@ -689,19 +689,33 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     the mode set pushes the terminal's own onto its stack and every restore path pops it back -- and
     the model label is stripped of controls before it goes in, so a configured name cannot close the
     sequence. The kitty push is written on the way in and popped on the way out, and it is **omitted
-    entirely under tmux**, where sending it breaks key input; both halves have pty receipts. What is
-    *not* here is the **full CSI-u matrix**, which stays deferred with the rest of the breadth below.
-    What the binary has is one push flag (`CSI > 1 u`) and its pop (`CSI < u`), and a decoder that
-    names the xterm shapes -- the tilde keys and the cursor keys with xterm's single modifier -- and
-    answers every `CSI ... u` with a keystroke that binds nothing (`src/tui/input.rs`'s `csi`).
-    Owner: the input layer. It is promoted when a binding needs a key those shapes cannot express,
-    which is upstream's own reason for the matrix, or when a receipt from a terminal that speaks the
-    protocol shows a key this session already claims to support arriving in the `u` form. Either way
-    the falsification is one pty case: drive the affected keys and read what the decoder made of
-    them, rather than reasoning about what a terminal would send. A WezTerm-specific case is fixed
-    (`6c42131`): Ctrl-C/D/U arrived via `modifyOtherKeys` in a tilde-suffixed CSI form rather than the
-    canonical CSI-u receipt, and the decoder now names that shape too; the full-matrix conditional this
-    implies stays open, tracked with the rest of the breadth above rather than reconciled here.
+    entirely under tmux**, where sending it breaks key input; both halves have pty receipts. **The
+    CSI-u key matrix is promoted** (2026-10-06), by the second of the two conditions this item set
+    for it: a receipt from a terminal that speaks the protocol -- herdr 0.9.3, libghostty-vt's key
+    encoder, kitty flag 1 negotiated (`.prd/tui-phase3/receipts/2026-10-06-herdr-csi-u-keys.md`) --
+    shows Ctrl-C, Ctrl-D, Ctrl-U, Escape, Alt-Enter and every bound Ctrl letter arriving in the `u`
+    form, all of which the release binary dropped. The push flag (`CSI > 1 u`) and its pop
+    (`CSI < u`) are unchanged. The decoder now resolves a key report in **both** of its spellings --
+    kitty's `CSI <key> [; <mods>[:<event>]] u` and `modifyOtherKeys`' `CSI 27 ; <mods> ; <key> ~` --
+    through one port of upstream's `kittyUnicodeKeyAction` at `c1db919` (`escape_parser.zig:185-266`),
+    branch for branch and in its order (`src/tui/input.rs`'s `kitty_key`): a Ctrl letter or `_` is
+    that key's control byte and therefore the binding the bare byte already has; Escape, Enter (Ctrl
+    submits, Shift or Alt inserts a newline), Alt- and Super-Backspace, Alt-b/f, Super+Z and
+    Super+Shift+Z, and Shift+Space are the actions those keys already have; a keypad key is its
+    main-row key (`:116-118`), resolved against xfx's own cursor-key table; Caps Lock and Num Lock are
+    not modifiers (`:186-187`); and a colon event type acts on a press or a repeat and never on a
+    release (`:676-684`, `:756-780`). `ESC CR`/`ESC LF` is Alt-Enter too, and inserts a newline
+    (`:515-519`) instead of replaying as Escape and then Submit. An upstream result with no xfx action
+    -- select-all, copy, cut, every selection-extending move, delete-word-right, the full-transcript,
+    all-sessions and permission-mode toggles, the page keys -- is a keystroke that binds nothing, and
+    no action is invented for one. The grammar stays stricter than upstream's: canonical decimal only
+    (no leading zero, a bounded length, no extra field), a modifier from `1` to `256`, and `27` as
+    the tilde spelling's first field, which upstream discards. The falsification is the one this item
+    asked for: every row of the receipt replayed into the decoder (`src/tui/input.rs`'s
+    `HERDR_RECEIPT`), and `ESC[117;5u` then `ESC[100;5u` driven on a real pty to the same exit and the
+    same `termios` a bare `0x04` leaves (`tests/tui.rs`'s
+    `herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal`). The WezTerm tilde case
+    (`6c42131`) is now that same function's other spelling rather than a hand-kept letter table.
 
 **Phase 3 — depth. Items 18, 19, 20 and 20b are implemented locally and item 21 only in part — its
 self-check, its counted-delivery containment, and now a primary-band recovery are locally
@@ -977,7 +991,9 @@ item 21 below for its exact boundary and for why it is not an acceptance claim.
 
 **Deferred, explicitly** (upstream has them as defense or breadth, and a port earns them later):
 full-transcript / subagent-manager / terminal-session alt screens and the owner-handoff transitions;
-catalog alt screens; mouse beyond wheel; the full kitty CSI-u matrix; skill `$` tokens and image
+catalog alt screens; mouse beyond wheel; the meta-prefixed key report and the legacy Alt letters
+(`ESC ESC [ ...`, `ESC b`/`f`/`d`, `ESC BS`; `escape_parser.zig` at `c1db919`, :528-554 -- the CSI-u
+matrix itself is promoted, item 17); skill `$` tokens and image
 tokens/badges; subagent input routing; compact command menus; the model 3-stage picker; queued-prompt
 banner cards; tmux `clear-history` and the Apple Terminal RIS path; record tape / ui_observer; WASM.
 
