@@ -84,6 +84,81 @@ impl fmt::Display for UnadvertisedTool {
 
 impl std::error::Error for UnadvertisedTool {}
 
+/// One exact action, prepared and not run, as a saved-session rule names it:
+/// the key the rule is kept under and the line that shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleAction {
+    pub key: crate::permission::session_rules::RuleKey,
+    pub display: String,
+}
+
+/// Prepares the call `name(arguments)` exactly as a model's call would be
+/// prepared, and runs nothing: what `/permissions remember` keys a rule on
+/// (`preparePermissionStateAction`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:2257-2302`).
+///
+/// The tools a rule can be about are the ones a decision is made for: the
+/// three changes and the command. A change is refused when a configured rule
+/// denies it (upstream's `PermissionStatePreparationDenied`) -- which the
+/// caller's session must be in `ask` to see, as upstream's preflight is, since
+/// full access consults no table -- and a change
+/// that would do nothing -- a folder already there -- has nothing to prepare.
+/// Every refusal is a sentence for the log; the person is told upstream's one
+/// line ([`crate::permission::slash::NOT_PREPARED`]).
+pub fn prepare_rule_action(
+    name: &str,
+    arguments: &Value,
+    context: &ToolContext,
+) -> Result<RuleAction, String> {
+    use crate::permission::{PolicyDecision, ProposedAction};
+    let spec = Registry::builtin()
+        .spec(name)
+        .ok_or_else(|| format!("`{name}` is not a tool"))?;
+    let input = spec.decode(arguments)?;
+    let prepared_change = match &input {
+        ToolInput::WriteFile(input) => {
+            mutate::prepare_write_file(input, context, mutate::Proof::NotRequired)
+        }
+        ToolInput::EditFile(input) => {
+            mutate::prepare_edit_file(input, context, mutate::Proof::NotRequired)
+        }
+        ToolInput::CreateFolder(input) => mutate::prepare_create_folder(input, context),
+        ToolInput::Terminal(input) => {
+            let plan = crate::permission::CommandPlan::prepare(
+                &input.command,
+                context.scope(),
+                input.cwd.as_deref(),
+                context.limits(),
+            )?;
+            let action = ProposedAction::Command(&plan);
+            let key = action
+                .state_key()
+                .ok_or_else(|| "the command has no key".to_string())?;
+            return Ok(RuleAction {
+                key,
+                display: action.state_display(),
+            });
+        }
+        _ => return Err(format!("`{name}` asks for no permission")),
+    };
+    let prepared = prepared_change.map_err(|result| result.output)?;
+    let action = ProposedAction::Mutation(&prepared.plan);
+    if let PolicyDecision::Deny {
+        cause: crate::permission::DenyCause::ConfiguredRule,
+        reason,
+    } = context.permissions().evaluate(action)
+    {
+        return Err(reason);
+    }
+    let key = action
+        .state_key()
+        .ok_or_else(|| "the change has no key".to_string())?;
+    Ok(RuleAction {
+        key,
+        display: action.state_display(),
+    })
+}
+
 /// The closed set of tools a turn may run.
 #[derive(Debug, Clone, Copy)]
 pub struct Registry {

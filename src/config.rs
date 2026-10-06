@@ -90,6 +90,43 @@ pub const ULTRAFAST_MODE_KEY: &str = "ultrafast_mode";
 /// not marked.
 pub const FAST_MODE_MODEL_BOUND_KEY: &str = "fast_mode_model_bound";
 
+/// The configured permission table (`config_runtime.zig:1845-1850`): an
+/// action for everything, or categories to actions or to patterns to actions
+/// (`crate::permission::rules::RuleSet::parse`). Profile-only, as upstream's is
+/// (`isProfileOnlySettingKey`, `:834-866`): a repository that could allowlist
+/// commands for whoever clones it would be choosing what runs on their machine.
+pub const PERMISSION_KEY: &str = "permission";
+
+/// The two places a permission table can live, and which one is in force.
+///
+/// Upstream keeps the same three facts (`PermissionSourceViews`,
+/// `config_runtime.zig:994-1005`): the profile's own table (`user`), this
+/// workspace's entry in the same file (`local`), and whether the second exists
+/// at all. **Whole-table replacement, not a merge**: a workspace entry with a
+/// `permission` key -- even `{}` -- puts every user rule out of force here, and
+/// `/allowlist` says so.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PermissionTables {
+    /// `permission` at the top of `~/.xfx/settings.json`.
+    pub user: crate::permission::rules::RuleSet,
+    /// `workspaces["<this workspace>"].permission`.
+    pub local: crate::permission::rules::RuleSet,
+    /// This workspace's entry carries a readable `permission` key, so `local`
+    /// is the table in force and `user` is not consulted.
+    pub user_shadowed_by_local: bool,
+}
+
+impl PermissionTables {
+    /// The table every decision in this workspace reads.
+    pub fn effective(&self) -> &crate::permission::rules::RuleSet {
+        if self.user_shadowed_by_local {
+            &self.local
+        } else {
+            &self.user
+        }
+    }
+}
+
 /// The environment override for the model.
 ///
 /// Public so `xfx setup llmux` can *name* it: setup writes the profile, and an
@@ -139,6 +176,7 @@ const PROFILE_ONLY_KEYS: &[&str] = &[
     "model",
     "models",
     "notifications",
+    PERMISSION_KEY,
     "permission_mode",
     PROMPT_HISTORY_KEY,
     "provider",
@@ -769,6 +807,9 @@ pub struct RuntimeConfig {
     pub fast_mode_model_bound: bool,
     /// Ultra mode as the profile left it ([`ULTRAFAST_MODE_KEY`]).
     pub ultrafast_mode: bool,
+    /// The configured permission tables ([`PERMISSION_KEY`]), user and this
+    /// workspace's, and which one is in force.
+    pub permission: PermissionTables,
     pub sources: Sources,
     pub diagnostics: Vec<Diagnostic>,
     pub credential: Option<Credential>,
@@ -819,6 +860,7 @@ impl RuntimeConfig {
         };
         let user_settings_present = user.present;
         let user_settings_loaded = user.object.is_some();
+        let mut permission = PermissionTables::default();
         if let Some(object) = &user.object {
             let layer = parse_layer(
                 object,
@@ -827,6 +869,9 @@ impl RuntimeConfig {
                 &mut diagnostics,
             );
             settings.merge(layer, SettingSource::UserGlobal, &mut sources);
+            if let Some(table) = permission_table(object, &mut diagnostics) {
+                permission.user = table;
+            }
 
             if let Some(entry) = exact_workspace_entry(object, &workspace_root, &mut diagnostics) {
                 let layer = parse_layer(
@@ -836,6 +881,10 @@ impl RuntimeConfig {
                     &mut diagnostics,
                 );
                 settings.merge(layer, SettingSource::UserWorkspace, &mut sources);
+                if let Some(table) = permission_table(entry, &mut diagnostics) {
+                    permission.local = table;
+                    permission.user_shadowed_by_local = true;
+                }
             }
         }
 
@@ -1089,6 +1138,7 @@ impl RuntimeConfig {
             fast_mode_model_bound: settings.fast_mode.unwrap_or(false)
                 && settings.fast_mode_model_bound.unwrap_or(false),
             ultrafast_mode: settings.ultrafast_mode.unwrap_or(false),
+            permission,
             sources,
             diagnostics,
             credential: resolve_credential(env),
@@ -1636,6 +1686,78 @@ fn parse_notifications(
                 DiagnosticCause::InvalidValue,
                 NOTIFICATIONS_KEY,
             )),
+        }
+    }
+}
+
+/// The permission tables the profile at `settings` holds for the workspace
+/// at `workspace_root`, read afresh -- what `/allowlist` puts in force after
+/// it has written the file (`loadDetailedSettingsForNotice`,
+/// `session_commands.zig:137-142`).
+///
+/// No file is no tables. A file that cannot be read, or a table in it that
+/// does not parse, is an error naming why: upstream's post-commit resolution
+/// treats both as a reload that failed (`postCommitResolutionError`,
+/// `:144-165`), and the caller says so rather than putting half a table in
+/// force.
+pub fn read_permission_tables(
+    settings: &Path,
+    workspace_root: &Path,
+) -> Result<PermissionTables, String> {
+    let (tables, diagnostics) = read_permission_tables_as_loaded(settings, workspace_root);
+    match diagnostics.first() {
+        Some(diagnostic) => Err(diagnostic.detail()),
+        None => Ok(tables),
+    }
+}
+
+/// The tables a launch would load from the profile at `settings` -- a file or
+/// a table that does not read contributes nothing, as at launch -- and the
+/// diagnostics that say what was dropped.
+pub fn read_permission_tables_as_loaded(
+    settings: &Path,
+    workspace_root: &Path,
+) -> (PermissionTables, Vec<Diagnostic>) {
+    let mut diagnostics = Vec::new();
+    let read = read_layer(settings, ConfigLayer::User, &mut diagnostics);
+    let mut tables = PermissionTables::default();
+    if let Some(object) = &read.object {
+        if let Some(table) = permission_table(object, &mut diagnostics) {
+            tables.user = table;
+        }
+        if let Some(entry) = exact_workspace_entry(object, workspace_root, &mut diagnostics) {
+            if let Some(table) = permission_table(entry, &mut diagnostics) {
+                tables.local = table;
+                tables.user_shadowed_by_local = true;
+            }
+        }
+    }
+    (tables, diagnostics)
+}
+
+/// One profile layer's permission table, when it has a readable one.
+///
+/// A table that does not parse is a diagnostic naming the key, and the layer
+/// contributes **no** table -- which is what upstream's atomic layer parse
+/// makes of it too (`mergeDetailedSettingsLayer`, `config_runtime.zig:966-1027`:
+/// a layer that fails to parse sets no `permission_sources` entry). In
+/// particular a broken workspace table does not shadow the user's: the rules
+/// in force are the ones a file that reads cleanly says.
+fn permission_table(
+    object: &serde_json::Map<String, Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<crate::permission::rules::RuleSet> {
+    let value = object.get(PERMISSION_KEY)?;
+    match crate::permission::rules::RuleSet::parse(value) {
+        Ok(table) => Some(table),
+        Err(err) => {
+            diagnostics.push(Diagnostic::with_note(
+                ConfigLayer::User,
+                DiagnosticCause::InvalidValue,
+                PERMISSION_KEY,
+                err.to_string(),
+            ));
+            None
         }
     }
 }
@@ -2730,6 +2852,157 @@ mod tests {
                 DiagnosticCause::IgnoredProjectProfileSetting,
                 EFFORT_KEY
             )]
+        );
+    }
+
+    /// A home with `profile` written into it (the workspace path substituted
+    /// for `{ROOT}`, canonical, as the loader keys the entry), a workspace with
+    /// `project` as its `.xfx.json` when given, and what loading made of them.
+    fn loaded_tables(profile: &str, project: Option<&str>) -> RuntimeConfig {
+        let root = tempfile::tempdir().expect("a root");
+        let home = root.path().join("home");
+        let workspace = root.path().join("workspace");
+        fs::create_dir_all(home.join(PROFILE_DIR_NAME)).expect("a profile home");
+        fs::create_dir_all(&workspace).expect("a workspace");
+        let canonical = workspace.canonicalize().expect("canonical");
+        let profile = profile.replace("{ROOT}", canonical.to_str().expect("utf-8"));
+        fs::write(
+            home.join(PROFILE_DIR_NAME).join(USER_SETTINGS_FILE),
+            profile,
+        )
+        .expect("a profile");
+        if let Some(project) = project {
+            fs::write(workspace.join(PROJECT_SETTINGS_FILE), project).expect("a project file");
+        }
+        RuntimeConfig::load_with(&Environment::new(Some(home), BTreeMap::new()), &workspace)
+            .expect("load")
+    }
+
+    fn table(
+        rules: &[(&str, &str, crate::permission::rules::RuleAction)],
+    ) -> crate::permission::rules::RuleSet {
+        crate::permission::rules::RuleSet::new(
+            rules
+                .iter()
+                .map(|(permission, pattern, action)| {
+                    crate::permission::rules::ConfiguredRule::new(*permission, *pattern, *action)
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_user_table_is_in_force_until_this_workspace_names_one() {
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"bash":{"git *":"allow"},"edit":"deny"}}"#,
+            None,
+        );
+        let user = table(&[("bash", "git *", Allow), ("edit", "*", Deny)]);
+        assert_eq!(config.permission.user, user);
+        assert!(!config.permission.user_shadowed_by_local);
+        assert_eq!(config.permission.effective(), &user);
+        assert!(config.diagnostics.is_empty(), "{:?}", config.diagnostics);
+    }
+
+    #[test]
+    fn a_workspace_table_replaces_the_user_table_whole() {
+        // `later permission layers replace earlier rules`
+        // (`config_runtime.zig:3092-3117`): not a merge.
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"{ROOT}":{"permission":{"bash":"deny"}}}}"#,
+            None,
+        );
+        assert_eq!(config.permission.user, table(&[("edit", "*", Allow)]));
+        assert_eq!(config.permission.local, table(&[("bash", "*", Deny)]));
+        assert!(config.permission.user_shadowed_by_local);
+        assert_eq!(
+            config.permission.effective(),
+            &table(&[("bash", "*", Deny)])
+        );
+    }
+
+    #[test]
+    fn an_empty_workspace_table_still_shadows_the_user_table() {
+        // `empty workspace override permission clears earlier rules`
+        // (`config_runtime.zig:3119-3140`).
+        let config = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"{ROOT}":{"permission":{}}}}"#,
+            None,
+        );
+        assert!(config.permission.user_shadowed_by_local);
+        assert!(config.permission.effective().is_empty());
+        // Another workspace's entry is not this one's.
+        let other = loaded_tables(
+            r#"{"permission":{"edit":"allow"},"workspaces":{"/elsewhere":{"permission":{}}}}"#,
+            None,
+        );
+        assert!(!other.permission.user_shadowed_by_local);
+        assert!(!other.permission.effective().is_empty());
+    }
+
+    #[test]
+    fn a_table_keeps_the_order_the_file_wrote_it_in() {
+        // Last match wins, so the order is the verdict; a sorted reading would
+        // turn this deny-everything table into one that allows `rm`.
+        use crate::permission::rules::RuleAction::{Allow, Deny};
+        let config = loaded_tables(
+            r#"{"permission":{"bash":{"rm*":"allow","*":"deny"}}}"#,
+            None,
+        );
+        assert_eq!(
+            config.permission.effective(),
+            &table(&[("bash", "rm*", Allow), ("bash", "*", Deny)])
+        );
+        assert_eq!(
+            config
+                .permission
+                .effective()
+                .decide(crate::permission::rules::BASH, None, "rm x"),
+            Some(Deny)
+        );
+    }
+
+    #[test]
+    fn a_repository_cannot_write_a_permission_table() {
+        // Trap (a) of the research: "local" is the profile's entry for this
+        // workspace, never a file in it.
+        let config = loaded_tables("{}", Some(r#"{"permission":{"bash":"allow"}}"#));
+        assert!(config.permission.effective().is_empty());
+        assert!(config
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.ignored_setting_key() == Some(PERMISSION_KEY)));
+    }
+
+    #[test]
+    fn a_table_that_does_not_read_is_reported_and_contributes_nothing() {
+        use crate::permission::rules::RuleAction::Allow;
+        // A broken user table: no rules at all, and a diagnostic that says why.
+        let broken = loaded_tables(
+            r#"{"permission":{"bash":{"ls":"allow","rm":"sure"}}}"#,
+            None,
+        );
+        assert!(broken.permission.effective().is_empty());
+        let diagnostic = broken
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.setting_key.as_deref() == Some(PERMISSION_KEY))
+            .expect("a permission diagnostic");
+        assert_eq!(diagnostic.cause, DiagnosticCause::InvalidValue);
+        assert!(diagnostic
+            .detail()
+            .contains("`sure` is not a permission action"));
+        // A broken workspace table does not shadow a readable user table.
+        let shadow = loaded_tables(
+            r#"{"permission":{"read":"allow"},"workspaces":{"{ROOT}":{"permission":["x"]}}}"#,
+            None,
+        );
+        assert!(!shadow.permission.user_shadowed_by_local);
+        assert_eq!(
+            shadow.permission.effective(),
+            &table(&[("read", "*", Allow)])
         );
     }
 }

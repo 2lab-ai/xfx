@@ -1,0 +1,40 @@
+
+* allowlist: added tool read: "*" (scope=local)
+
+* allowlist: added tool edit: "*" (scope=local)
+
+✗ usage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>
+
+* allowlist: added web-fetch-domain: "domain:example.com" (scope=local)
+
+* allowlist: added command: "git *" (scope=local)
+
+* allowlist: added command: "git *" (scope=local)
+
+* allowlist: no matching rule for command: "nope" (scope=local)
+
+* allowlist: local persistent allow rules:
+    tools:
+      read: workspace
+      edit: workspace
+    commands:
+      git *
+    web-fetch domains:
+      domain:example.com
+
+* allowlist: reset tools: removed 2 rules (scope=local)
+
+* allowlist: reset all: removed 2 rules (scope=local)
+
+* allowlist: added url: "https://example.com/*" (scope=user)
+
+* allowlist: effective persistent allow rules:
+    urls:
+      https://example.com/*
+
+┃
+
+auto · model-a
+
+
+
