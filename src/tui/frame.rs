@@ -1205,11 +1205,19 @@ impl Band {
     /// exactly the amount the count lost, and those rows would never be
     /// painted at all. Same silent, permanent loss as a batch scroll that
     /// outruns the document area, one order of magnitude further out.
+    ///
+    /// **`room` is how far the band moved down for this append**, and that many
+    /// new rows need no scroll at all. A band floating under a short document
+    /// ([`Geometry::floated`]) follows it down rather than scrolling it up: the
+    /// band's old rows are where the new ones go, and only the rows past the
+    /// bottom of the screen scroll. The settled block is where the band's top
+    /// *was*, `room` rows above where it is now.
     fn render_append<'rows>(
         &mut self,
         scroll: usize,
         rows: &'rows [String],
         geometry: &'rows Geometry,
+        room: u16,
     ) -> (Vec<u8>, check::Footprint, check::Script<'rows>) {
         self.buffer.clear();
         // The shadow moves with the screen, step for step, and the two are
@@ -1235,11 +1243,15 @@ impl Band {
                 check::Script::new(geometry),
             );
         }
+        // Never more rows than this append adds: `room` is a promise about
+        // new rows, and a settled row is never placed by it.
+        let room = room.min(u16::try_from(scroll.min(rows.len())).unwrap_or(u16::MAX));
+        let anchor = geometry.band_top().saturating_sub(room);
         // Everything above the band's top row is the document; the band's own
         // rows belong to `render`, and nothing here may write at or below it --
         // the activity row included, which is why this is the band's top rather
         // than its divider.
-        let area = geometry.band_top().saturating_sub(1);
+        let area = anchor.saturating_sub(1);
         // The rows a previous append already put on the screen, and the ones
         // this append adds. `scroll` past the end of `rows` is not something
         // `Transcript` produces -- an append's rows are its whole tail -- but a
@@ -1257,7 +1269,7 @@ impl Band {
         // fallback is the clamp itself rather than a return that would drop the
         // whole append.
         let shown = u16::try_from(settled.min(usize::from(area))).unwrap_or(area);
-        let first = geometry.band_top().saturating_sub(shown);
+        let first = anchor.saturating_sub(shown);
         // The rows the settled block **vacated**, erased before anything
         // scrolls -- the same window, and for the same reason, as
         // [`Self::release`] above.
@@ -1277,9 +1289,7 @@ impl Band {
         // Nothing when the band grew or held still (`saturating_sub` is zero),
         // and nothing when there is no settled block to have vacated anything,
         // since those rows are `release`'s and it has already written them.
-        let vacated = self
-            .painted
-            .map_or(0, |top| geometry.band_top().saturating_sub(top));
+        let vacated = self.painted.map_or(0, |top| anchor.saturating_sub(top));
         if shown > 0 {
             for line in first.saturating_sub(vacated)..first {
                 cup(&mut self.buffer, line, 1);
@@ -1304,7 +1314,7 @@ impl Band {
         // this particular one is.
         let reuse_eligible = !self.damaged
             && self.painted_on == Some((geometry.rows, geometry.cols))
-            && self.painted == Some(geometry.band_top())
+            && self.painted == Some(anchor)
             && scroll == fresh;
         for (offset, row) in rows[settled - usize::from(shown)..settled]
             .iter()
@@ -1325,10 +1335,15 @@ impl Band {
         // Each new row: one scroll, and the row painted on the row the scroll
         // freed -- so it is on the screen, and stays there until a later
         // append carries it off the top and into the terminal's own scrollback.
-        for row in &rows[settled..] {
-            scroll_one(&mut self.buffer, geometry);
-            self.target.scroll_up(1);
-            let line = geometry.band_top().saturating_sub(1);
+        for (index, row) in rows[settled..].iter().enumerate() {
+            let line = match u16::try_from(index) {
+                Ok(index) if index < room => anchor.saturating_add(index),
+                _ => {
+                    scroll_one(&mut self.buffer, geometry);
+                    self.target.scroll_up(1);
+                    geometry.band_top().saturating_sub(1)
+                }
+            };
             place(&mut self.buffer, line, row, geometry);
             self.target.place_row(line, row, geometry);
         }
@@ -1350,7 +1365,7 @@ impl Band {
                 check::Seg::Erase(erase_top..=bottom),
                 check::Seg::Place(first.min(bottom)..=bottom),
                 check::Seg::Scroll {
-                    rows: u32::try_from(scroll).unwrap_or(u32::MAX),
+                    rows: u32::try_from(scroll - usize::from(room)).unwrap_or(u32::MAX),
                 },
             ],
         );
@@ -1387,9 +1402,14 @@ impl Band {
             let offset = u16::try_from(offset).unwrap_or(shown);
             script.place(first.saturating_add(offset), row);
         }
-        for row in &rows[settled..] {
-            script.scroll();
-            script.place(geometry.band_top().saturating_sub(1), row);
+        for (index, row) in rows[settled..].iter().enumerate() {
+            match u16::try_from(index) {
+                Ok(index) if index < room => script.place(anchor.saturating_add(index), row),
+                _ => {
+                    script.scroll();
+                    script.place(geometry.band_top().saturating_sub(1), row);
+                }
+            }
         }
         (self.buffer.clone(), footprint, script)
     }
@@ -1496,10 +1516,10 @@ impl Band {
         &mut self,
         out: &mut impl Sink,
         geometry: &Geometry,
-    ) -> Result<(), Emit> {
+    ) -> Result<u16, Emit> {
         let grown = self.grown(geometry);
         if grown == 0 {
-            return Ok(());
+            return Ok(0);
         }
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
@@ -1566,7 +1586,7 @@ impl Band {
         // The scroll left the caret on the bottom row, which is not where the
         // last frame left it: the next frame owes a `CUP`.
         self.caret = None;
-        Ok(())
+        Ok(grown)
     }
 
     /// Erases the rows a band that shrank no longer owns.
@@ -1950,6 +1970,7 @@ impl Band {
         Ok(Retint::Settled(Commit::Painted))
     }
 
+    #[cfg(test)]
     pub(crate) fn append_document(
         &mut self,
         out: &mut impl Sink,
@@ -1957,10 +1978,24 @@ impl Band {
         rows: &[String],
         geometry: &Geometry,
     ) -> Result<(), Emit> {
+        self.append_floating(out, scroll, rows, geometry, 0)
+    }
+
+    /// [`Self::append_document`] onto a band that moved `room` rows down for
+    /// it: the first `room` new rows take the rows the band gave back, and
+    /// only the rest scroll ([`Self::render_append`]).
+    pub(crate) fn append_floating(
+        &mut self,
+        out: &mut impl Sink,
+        scroll: usize,
+        rows: &[String],
+        geometry: &Geometry,
+        room: u16,
+    ) -> Result<(), Emit> {
         let seed = self
             .seed(check::PlaneKind::Primary, geometry)
             .map_err(Emit::rejected)?;
-        let (appended, footprint, script) = self.render_append(scroll, rows, geometry);
+        let (appended, footprint, script) = self.render_append(scroll, rows, geometry, room);
         if appended.is_empty() {
             return Ok(());
         }
@@ -2401,7 +2436,7 @@ mod tests {
     fn a_document_append_scrolls_the_screen_so_the_row_enters_native_scrollback() {
         let mut band = Band::new();
         let bytes = band
-            .render_append(1, &["answered".to_string()], &geometry())
+            .render_append(1, &["answered".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         // CUP to the last row, then a literal newline: the terminal really
@@ -2494,7 +2529,7 @@ mod tests {
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         let rows: Vec<String> = (0..40).map(|row| format!("row {row}")).collect();
-        let text = String::from_utf8(band.render_append(0, &rows, &geometry).0).expect("utf-8");
+        let text = String::from_utf8(band.render_append(0, &rows, &geometry, 0).0).expect("utf-8");
         assert!(
             !text.contains("\u{1b}[0;1H"),
             "the append aimed a row at the row above the screen: {text:?}"
@@ -2517,8 +2552,11 @@ mod tests {
         let mut band = Band::new();
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
-        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry).0)
-            .expect("utf-8");
+        let text = String::from_utf8(
+            band.render_append(1, &["fresh".to_string()], &geometry, 0)
+                .0,
+        )
+        .expect("utf-8");
         assert!(
             text.contains("\u{1b}[18;1Hfresh"),
             "the new row is not on the bottom row of the document: {text:?}"
@@ -2582,8 +2620,11 @@ mod tests {
         )
         .expect("a frame the screen took");
 
-        let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry).0)
-            .expect("utf-8");
+        let text = String::from_utf8(
+            band.render_append(1, &["fresh".to_string()], &geometry, 0)
+                .0,
+        )
+        .expect("utf-8");
         assert!(
             !text.contains(&format!("\u{1b}[{};1H{ERASE_LINE}", geometry.band_top())),
             "the append erased the row the turn is using: {text:?}"
@@ -2639,6 +2680,7 @@ mod tests {
                 2,
                 &["first\r\nsecond".to_string(), "third\n".to_string()],
                 &geometry(),
+                0,
             )
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
@@ -2781,7 +2823,7 @@ mod tests {
     #[test]
     fn an_append_of_nothing_writes_nothing() {
         let mut band = Band::new();
-        assert!(band.render_append(0, &[], &geometry()).0.is_empty());
+        assert!(band.render_append(0, &[], &geometry(), 0).0.is_empty());
     }
 
     #[test]
@@ -2792,7 +2834,7 @@ mod tests {
         // double-spaced.
         let mut band = Band::new();
         let bytes = band
-            .render_append(0, &["answered".to_string()], &geometry())
+            .render_append(0, &["answered".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         assert_eq!(
@@ -2808,7 +2850,7 @@ mod tests {
         // costs a scroll.
         let mut band = Band::new();
         let bytes = band
-            .render_append(1, &["abcd".to_string(), "efgh".to_string()], &geometry())
+            .render_append(1, &["abcd".to_string(), "efgh".to_string()], &geometry(), 0)
             .0;
         let text = String::from_utf8(bytes).expect("utf-8");
         assert_eq!(
@@ -2832,7 +2874,7 @@ mod tests {
 
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
-        screen.feed(&band.render_append(5, &rows, &geometry).0);
+        screen.feed(&band.render_append(5, &rows, &geometry, 0).0);
 
         assert_eq!(
             screen.document(),
@@ -2891,7 +2933,7 @@ mod tests {
         ] {
             let rows = vec!["x".to_string(); count];
             let mut band = Band::new();
-            let bytes = band.render_append(count, &rows, &geometry).0;
+            let bytes = band.render_append(count, &rows, &geometry, 0).0;
             assert_eq!(
                 scrolls_and_placements(&bytes, &geometry),
                 (count, count),
@@ -2911,7 +2953,7 @@ mod tests {
         let count = usize::from(u16::MAX) + 10;
         let rows = vec!["x".to_string(); count];
         let mut band = Band::new();
-        let bytes = band.render_append(3, &rows, &geometry).0;
+        let bytes = band.render_append(3, &rows, &geometry, 0).0;
         // Three scrolls for the three new rows, and one placement per row the
         // screen still holds: the whole document area, plus the three that
         // scrolled in under it.
@@ -2941,7 +2983,7 @@ mod tests {
         let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
-        screen.feed(&band.render_append(1, &["ok".to_string()], &geometry).0);
+        screen.feed(&band.render_append(1, &["ok".to_string()], &geometry, 0).0);
         assert_eq!(
             screen.visible_document(),
             vec!["", "", "", "ok"],
@@ -2968,7 +3010,11 @@ mod tests {
             "rested",
         ] {
             let append = transcript.push(chunk);
-            screen.feed(&band.render_append(append.scroll, &append.rows, &geometry).0);
+            screen.feed(
+                &band
+                    .render_append(append.scroll, &append.rows, &geometry, 0)
+                    .0,
+            );
         }
         assert_eq!(
             screen.document().join("\n"),
@@ -3941,7 +3987,7 @@ mod tests {
         // problem now, and this append is the next thing written.
         screen.divider = short.band_top();
 
-        screen.feed(&band.render_append(1, &["ok".to_string()], &short).0);
+        screen.feed(&band.render_append(1, &["ok".to_string()], &short, 0).0);
         assert_eq!(
             screen.visible_document(),
             vec!["", "", "", "", "", "", "", "", "ok"],
@@ -6551,7 +6597,7 @@ mod tests {
                 let seed_elapsed = t.elapsed();
 
                 let t = Instant::now();
-                let (appended, footprint, script) = band.render_append(scroll, &rows, &geometry);
+                let (appended, footprint, script) = band.render_append(scroll, &rows, &geometry, 0);
                 let render_elapsed = t.elapsed();
 
                 // Cloned rather than borrowed from `band`: `declared` must

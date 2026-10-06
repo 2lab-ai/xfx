@@ -106,6 +106,36 @@ impl Geometry {
     pub(crate) fn input_rows(&self) -> u16 {
         self.input_last - self.input_first + 1
     }
+
+    /// The same band, sitting directly under a document `document` rows tall
+    /// -- or at the bottom of the screen once the two no longer fit above it.
+    ///
+    /// Upstream's frame is only as tall as what it holds: the transcript's
+    /// rows, then the footer, from the row the session started on, and the
+    /// footer is the frame's last rows (`frame_layout.zig:255-296`). So on a
+    /// screen the transcript has not filled yet the footer floats under its
+    /// last row with blank rows below the hint, and follows the transcript
+    /// down until it reaches the bottom row. Every row of the band moves by
+    /// the same amount; the screen's size does not move at all, and a
+    /// document of no rows puts the band's top on the first row.
+    pub(crate) fn floated(&self, document: u32) -> Geometry {
+        let document = u16::try_from(document).unwrap_or(u16::MAX);
+        let floor = self.rows.min(document.saturating_add(self.band_rows()));
+        // Measured from wherever the band is now, so floating a floated band
+        // is the same as floating an anchored one.
+        let lift = i32::from(self.rows) - i32::from(floor);
+        let shift = lift - (i32::from(self.rows) - i32::from(self.hint));
+        let moved = |row: u16| u16::try_from(i32::from(row) - shift).unwrap_or(row);
+        Geometry {
+            content_bottom: moved(self.content_bottom),
+            activity: self.activity.map(moved),
+            divider: moved(self.divider),
+            input_first: moved(self.input_first),
+            input_last: moved(self.input_last),
+            hint: moved(self.hint),
+            ..*self
+        }
+    }
 }
 
 /// The band's rows for a screen of `rows` x `cols` holding an `input_rows`-tall
@@ -406,6 +436,63 @@ mod tests {
             four.content_bottom + four.band_rows(),
             four.rows,
             "the document and the band do not tile the screen"
+        );
+    }
+
+    #[test]
+    fn a_band_floats_under_a_short_document_and_reaches_the_bottom_with_a_long_one() {
+        let anchored = solve(24, 80, 1).expect("24x80 fits a band");
+        let empty = anchored.floated(0);
+        assert_eq!(
+            (
+                empty.band_top(),
+                empty.divider,
+                empty.hint,
+                empty.content_bottom
+            ),
+            (1, 2, 3, 0),
+            "no document: the composer is the first row"
+        );
+        let header = anchored.floated(2);
+        assert_eq!((header.band_top(), header.hint), (3, 5));
+        assert_eq!(
+            header.content_bottom, 2,
+            "the document ends on the row above"
+        );
+        assert_eq!(header.rows, 24, "the screen does not move");
+        assert_eq!(
+            anchored.floated(21),
+            anchored,
+            "21 + 3 rows tile the screen"
+        );
+        assert_eq!(anchored.floated(400), anchored);
+        assert_eq!(
+            header.floated(21),
+            anchored,
+            "floating is from wherever it is"
+        );
+        assert_eq!(anchored.floated(2).floated(2), header);
+    }
+
+    #[test]
+    fn a_floating_band_keeps_its_top_and_moves_its_bottom_as_it_grows() {
+        let working = solve_band(24, 80, 1, true, 0)
+            .expect("a turn fits")
+            .floated(4);
+        assert_eq!(working.band_top(), 5);
+        assert_eq!(working.activity, Some(6));
+        assert_eq!((working.input_first, working.hint), (8, 10));
+        let menu = solve_band(24, 80, 1, false, 6)
+            .expect("a menu fits")
+            .floated(4);
+        assert_eq!(menu.band_top(), 5);
+        assert_eq!(menu.panel_first(), 7);
+        assert_eq!((menu.divider, menu.hint), (13, 14));
+        let tall = solve_band(24, 80, 1, false, 18).expect("a tall menu fits");
+        assert_eq!(
+            tall.floated(4),
+            tall,
+            "a band too tall to float stays at the bottom"
         );
     }
 }

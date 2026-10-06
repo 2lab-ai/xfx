@@ -652,7 +652,12 @@ impl Transcript {
         rows.append(&mut last);
         // After the append is built, because what is frozen is what the *next*
         // push may no longer rewrite; this one has already said what it owes.
-        freeze(&mut tail, &mut roles, &mut open_rows, inner(self.cols, self.gutter));
+        freeze(
+            &mut tail,
+            &mut roles,
+            &mut open_rows,
+            inner(self.cols, self.gutter),
+        );
 
         Prepared {
             roles,
@@ -803,7 +808,9 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
         return rows;
     }
     let prefix = gutter.prefix(palette);
-    rows.into_iter().map(|row| format!("{prefix}{row}")).collect()
+    rows.into_iter()
+        .map(|row| format!("{prefix}{row}"))
+        .collect()
 }
 
 /// The text's own rows at `cols`, before any gutter.

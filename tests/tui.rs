@@ -81,14 +81,15 @@ const FRAME_BEGIN: &str = "\u{1b}[?2026h\u{1b}[?25l";
 /// a needle that matched a row's `CUP` would be satisfied by half a frame.
 const FRAME_END: &str = "\u{1b}[?2026l\u{1b}[?25h";
 
-/// The band's top row on a 24-row screen: the divider, and therefore the row
-/// the exit clears from.
+/// The band's top row on a fresh 24-row screen, and therefore the row the exit
+/// clears from: under the welcome line and the blank row after it, because the
+/// band floats under a document that has not reached the bottom yet.
 ///
 /// Spelled out rather than imported, for the same reason [`MODE_SET`] is:
 /// `src/tui/layout.rs` is not visible to an integration test, and a test that
 /// read the number it is checking would pass for any layout the module happened
 /// to solve.
-const BAND_TOP: &str = "\u{1b}[22;1H";
+const BAND_TOP: &str = "\u{1b}[3;1H";
 
 /// What the hint row of a fresh session says: the permission mode a turn will
 /// run under and the model it will run against.
@@ -111,7 +112,7 @@ const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
 /// The reset is the palette's only machine-independent sequence, which is what
 /// makes this needle frame-local without being colour-dependent: it can only
 /// match where a hint row ended and the frame closed.
-const HINT_END: &str = "\u{1b}[0m\u{1b}[22;3H";
+const HINT_END: &str = "\u{1b}[0m\u{1b}[3;3H";
 
 /// A terminal, to the extent this suite has to model one.
 ///
@@ -209,6 +210,22 @@ impl Screen {
     /// The one-based row the band's rule is on, if the band has painted one.
     fn divider(&self) -> Option<usize> {
         (1..=self.lines.len()).find(|row| self.row_text(*row).starts_with('\u{2500}'))
+    }
+
+    /// The one-based row the hint is on: the band's last row, and the last row
+    /// anything is painted on -- the band floats under a short document, so
+    /// every row below it is blank until the document reaches the bottom.
+    fn hint_row(&self) -> usize {
+        (1..=self.lines.len())
+            .rev()
+            .find(|row| !self.row_text(*row).is_empty())
+            .unwrap_or(self.lines.len())
+    }
+
+    /// What the row `up` rows above the hint says: `0` is the hint itself, `2`
+    /// a one-row composer with no panel open.
+    fn above_hint(&self, up: usize) -> String {
+        self.row_text(self.hint_row().saturating_sub(up))
     }
 
     /// What row `line` -- one-based, as the terminal counts -- says.
@@ -606,9 +623,12 @@ fn a_normal_exit_gives_the_terminal_back_byte_for_byte() {
         text.contains(&format!("{RESTORE}{BAND_TOP}\u{1b}[J")),
         "the exit did not clear from the band's top row, after the restore: {text:?}"
     );
+    // The welcome is placed on row 1 by the session itself; what follows the
+    // restore is the exit's alone, and it never goes above the band.
+    let exit = &text[text.rfind(RESTORE).expect("the restore")..];
     assert!(
-        !text.contains("\u{1b}[1;1H"),
-        "the exit moved the cursor over the user's screen: {text:?}"
+        !exit.contains("\u{1b}[1;1H"),
+        "the exit moved the cursor over the user's screen: {exit:?}"
     );
 }
 
@@ -1207,7 +1227,9 @@ fn a_keystroke_that_arrived_with_the_answer_is_typed_rather_than_scanned() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(PROBE);
     session.type_bytes(b"\x1b[7;1Rhi");
-    session.wait_for("\u{2503}\u{1b}[0m hi\u{1b}[24;1H");
+    // The composer, then the hint row two rows under it: the band floats
+    // under the welcome, on rows 3 to 5.
+    session.wait_for("\u{2503}\u{1b}[0m hi\u{1b}[5;1H");
 
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -1753,7 +1775,7 @@ fn a_notification_that_answers_the_launch_decides_the_palette_the_first_frame_pa
 // screen that cannot hold one is refused by name rather than painted over.
 
 #[test]
-fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
+fn the_band_is_painted_under_the_welcome_inside_one_synchronized_frame() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
@@ -1785,7 +1807,7 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
     // this asserted on it; the diff writes the cells instead, so what is
     // asserted on is the composer's rail on its own row.
     assert!(
-        frame.contains("\u{1b}[22;1H\u{1b}[38;"),
+        frame.contains("\u{1b}[3;1H\u{1b}[38;"),
         "the frame did not paint the composer's rail: {frame:?}"
     );
     assert!(frame.contains('\u{2503}'), "no rail: {frame:?}");
@@ -1796,24 +1818,24 @@ fn the_band_is_painted_at_the_bottom_inside_one_synchronized_frame() {
         "the frame did not set the window title: {frame:?}"
     );
     for (row, what) in [
-        ("\u{1b}[22;1H", "the composer"),
-        ("\u{1b}[24;1H", "the hint row"),
+        ("\u{1b}[3;1H", "the composer"),
+        ("\u{1b}[5;1H", "the hint row"),
     ] {
         assert!(
             frame.contains(row),
             "{what} was never placed at {row:?}: {frame:?}"
         );
     }
-    // The caret, after the composer's two-cell rail on row 22. It is
+    // The caret, after the composer's two-cell rail on row 3. It is
     // the last thing the frame places, which is what leaves the terminal's own
     // cursor where the user is typing rather than where the paint ended.
     assert!(
-        frame.ends_with("\u{1b}[22;3H"),
+        frame.ends_with("\u{1b}[3;3H"),
         "the frame did not end by placing the caret in the composer: {frame:?}"
     );
-    // The band is the bottom of the screen and nothing above it: a row placed
-    // in the document would be painting over the terminal's own scrollback.
-    for row in 1..=21 {
+    // The band starts under the welcome and nothing above it is the frame's: a
+    // row placed in the document would be painting over the transcript.
+    for row in 1..=2 {
         assert!(
             !frame.contains(&format!("\u{1b}[{row};1H")),
             "the band painted on document row {row}: {frame:?}"
@@ -1883,7 +1905,7 @@ fn a_session_with_no_credential_is_told_so_before_it_spends_a_prompt() {
     session.wait_for(READY);
     session.wait_until("the hint row to say there is no credential", |text| {
         Screen::painted(text, 24, 80)
-            .is_some_and(|screen| screen.row_text(24) == HINT_WITHOUT_A_CREDENTIAL)
+            .is_some_and(|screen| screen.above_hint(0) == HINT_WITHOUT_A_CREDENTIAL)
     });
 
     session.type_bytes(&[0x04]);
@@ -1916,7 +1938,7 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
     // keystroke writes the cell it changed and the row it changed is never on
     // the wire in one piece. What the row *says* is the property either way.
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
     session.type_bytes("hello \u{d55c}\u{ae00}".as_bytes());
     session.wait_until("the composer to hold what was typed", |text| {
@@ -1939,7 +1961,7 @@ fn typing_appears_in_the_composer_and_the_cursor_follows_it() {
         "the caret to go home in the frame that painted the row",
         |text| {
             composer(text) == "\u{2503} hello \u{d55c}"
-                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[22;3H"))
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[3;3H"))
         },
     );
     // C-d with text under the caret: a forward delete, and the session stays.
@@ -1979,7 +2001,7 @@ fn edit_history_undo_and_yank_on_a_real_terminal() {
     session.wait_for(READY);
 
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
     session.type_bytes(b"one two");
     session.wait_until("the composer to hold what was typed", |text| {
@@ -2000,7 +2022,7 @@ fn edit_history_undo_and_yank_on_a_real_terminal() {
     session.type_bytes(&[0x19]);
     session.wait_until("the yank to put the killed word back", |text| {
         composer(text) == "\u{2503} one two"
-            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[22;10H"))
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[3;10H"))
     });
 
     // C-_: the undo takes back the **yank**, not the kill. The caret goes back
@@ -2009,7 +2031,7 @@ fn edit_history_undo_and_yank_on_a_real_terminal() {
     session.type_bytes(&[0x1f]);
     session.wait_until("the undo to take back the yank", |text| {
         composer(text) == "\u{2503} one"
-            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[22;7H"))
+            && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[3;7H"))
     });
 
     // Each redo encoding is proved on its own round trip: redo, assert the text
@@ -2019,12 +2041,12 @@ fn edit_history_undo_and_yank_on_a_real_terminal() {
         session.type_bytes(spelling);
         session.wait_until("the redo to put the yank back", |text| {
             composer(text) == "\u{2503} one two"
-                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[22;10H"))
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[3;10H"))
         });
         session.type_bytes(&[0x1f]);
         session.wait_until("the undo after the redo to take it back again", |text| {
             composer(text) == "\u{2503} one"
-                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[22;7H"))
+                && last_frame(text).is_some_and(|frame| frame.ends_with("\u{1b}[3;7H"))
         });
     }
 
@@ -2099,7 +2121,7 @@ fn captured_ctrl_c_d_u_tilde_chords_replay_on_a_real_terminal() {
     session.wait_for(READY);
 
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
 
     // Ctrl-U (`ESC[27;5;117~`): kill to start, the same key the bare `0x15`
@@ -2159,7 +2181,7 @@ fn herdr_captured_u_form_ctrl_u_and_ctrl_d_replay_on_a_real_terminal() {
     session.wait_for(FRAME_END);
 
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
 
     // Ctrl-U (`ESC[117;5u`): kill to start, the same key the bare `0x15` is.
@@ -2204,22 +2226,24 @@ fn the_composer_stops_growing_at_half_the_content_area() {
         session.type_bytes(b"0123456789012345678");
         session.type_bytes(&[0x0a]); // C-j: a newline in the composer
     }
-    // The band at its cap: the composer from row 6 to row 10, the first of
-    // them marked as having rows scrolled above it, and the rows above the band
-    // left to the terminal's own document. Sixteen rows of draft are in the
-    // composer and it is showing five of them.
-    session.wait_until(
-        "the band to reach its cap with the composer from row 6",
-        |text| {
-            Screen::painted(text, 12, 20).is_some_and(|screen| {
-                screen.row_text(6).starts_with("\u{2503}\u{2191}")
-                    && screen.row_text(10).starts_with('\u{2503}')
-                    && screen.row_text(11).is_empty()
-            })
-        },
-    );
-    session.wait_for("\u{1b}[12;1H"); // the hint row is still the last row
-    let text = session.text();
+    // The band at its cap: five composer rows, the first of them marked as
+    // having rows scrolled above it, then the blank rule and the hint -- and
+    // the rows above the band left to the document. Sixteen rows of draft are
+    // in the composer and it is showing five of them. The band floats under
+    // the welcome, so its top is wherever the welcome ends; it is found rather
+    // than assumed, and everything else is counted from it.
+    let capped = |screen: &Screen| {
+        screen.find("\u{2503}\u{2191}").filter(|top| {
+            (*top..*top + 5).all(|row| screen.row_text(row).starts_with('\u{2503}'))
+                && screen.row_text(*top + 5).is_empty()
+                && screen.row_text(*top + 6).starts_with("run `xfx setup`")
+        })
+    };
+    let text = session.wait_until("the band to reach its cap", |text| {
+        Screen::painted(text, 12, 20).is_some_and(|screen| capped(&screen).is_some())
+    });
+    let top = capped(&Screen::painted(&text, 12, 20).expect("a frame")).expect("the cap");
+    assert!(top > 1, "the band left no row for the welcome above it");
     // The band's own frames, and only those: the welcome line is a document
     // write above the band and lands on those rows legitimately.
     let frames: Vec<&str> = text
@@ -2230,7 +2254,7 @@ fn the_composer_stops_growing_at_half_the_content_area() {
                 .map(|end| &text[at..at + end + FRAME_END.len()])
         })
         .collect();
-    for row in 1..=5 {
+    for row in 1..top {
         assert!(
             frames
                 .iter()
@@ -2369,7 +2393,7 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
     session.wait_for(READY);
 
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
     let paste = |session: &mut Session, block: &str| {
         session.type_bytes(b"\x1b[200~");
@@ -2466,7 +2490,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     // case reads it that way: a frame is a difference, so the row it changed
     // was never on the wire in one piece.
     let composer = |text: &str| {
-        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.row_text(22))
+        Screen::painted(text, 24, 80).map_or_else(String::new, |screen| screen.above_hint(2))
     };
 
     session.type_bytes(b"alpha prompt");
@@ -2711,7 +2735,7 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer() {
         "a completed frame carrying the activity row and the composer below it",
         |text| {
             last_frame(text).is_some_and(|frame| {
-                frame.contains("\u{1b}[20;1H\u{1b}[38;5;252m\u{2022} Thinking")
+                frame.contains(";1H\u{1b}[38;5;252m\u{2022} Thinking")
                     && frame.contains("\u{1b}[38;5;255m\u{2503}")
             })
         },
@@ -2727,7 +2751,7 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer() {
     // the first dash, whatever byte carried the transition there.
     let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
     assert!(
-        frame.contains("\u{1b}[20;1H\u{1b}[38;5;252m\u{2022} Thinking"),
+        frame.contains(";1H\u{1b}[38;5;252m\u{2022} Thinking"),
         "the completed frame lost the activity row's own literal foreground: {frame:?}"
     );
     assert!(
@@ -2739,7 +2763,7 @@ fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer() {
     // wire: a frame is a difference, so a second that ticked over writes the
     // one digit that changed and the wire never carries `2s` in one piece.
     session.wait_until("the activity row's clock to reach two seconds", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(20).contains("2s"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.above_hint(4).contains("2s"))
     });
 
     session.type_bytes(&[0x03, 0x03]);
@@ -2773,14 +2797,13 @@ fn the_activity_rows_literal_foreground_is_the_light_palettes_too_on_a_real_term
     let activated = session.wait_until(
         "a completed frame carrying the activity row in the light palette",
         |text| {
-            last_frame(text).is_some_and(|frame| {
-                frame.contains("\u{1b}[20;1H\u{1b}[38;5;238m\u{2022} Thinking")
-            })
+            last_frame(text)
+                .is_some_and(|frame| frame.contains(";1H\u{1b}[38;5;238m\u{2022} Thinking"))
         },
     );
     let frame = last_frame(&activated).expect("a completed frame carrying the activity row");
     assert!(
-        frame.contains("\u{1b}[20;1H\u{1b}[38;5;238m\u{2022} Thinking"),
+        frame.contains(";1H\u{1b}[38;5;238m\u{2022} Thinking"),
         "the completed frame lost the activity row's own literal foreground: {frame:?}"
     );
 
@@ -2946,11 +2969,19 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
     let queued = text.rfind("queued 1").expect("the queue was announced");
+    // The model segment's own bytes and the row's end: the permission mode in
+    // front of it is painted in its accent, so the row is not one contiguous
+    // needle on the wire. Wherever the band is by then -- the document has
+    // grown under it -- the caret goes back to the composer's third column.
     let cleared = text
-        // The model segment's own bytes and the row's end: the permission mode
-        // in front of it is painted in its accent, so the row is not one
-        // contiguous needle on the wire.
-        .rfind(&format!(" \u{b7} glm-5.2{HINT_END}"))
+        .match_indices(" \u{b7} glm-5.2\u{1b}[0m\u{1b}[")
+        .map(|(at, needle)| (at, &text[at + needle.len()..]))
+        .filter(|(_, rest)| {
+            rest.split_once(";3H")
+                .is_some_and(|(row, _)| !row.is_empty() && row.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .map(|(at, _)| at)
+        .last()
         .expect("a frame whose hint row says nothing about a queue");
     assert!(
         queued < cleared,
@@ -2959,7 +2990,7 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
     assert_eq!(
         Screen::painted(&text, 24, 80)
             .expect("a complete frame")
-            .row_text(24),
+            .above_hint(0),
         HINT,
         "the last hint row the band painted is not the session's own"
     );
@@ -3312,7 +3343,7 @@ fn a_double_escape_clears_the_composer_and_warns_before_it_does() {
     // empty composer says and what a composer holding a draft cannot. Read off
     // the row, because clearing a draft writes an erase rather than a repaint.
     session.wait_until("the composer to be emptied", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| screen.row_text(22) == "\u{2503}")
+        Screen::painted(text, 24, 80).is_some_and(|screen| screen.above_hint(2) == "\u{2503}")
     });
 
     session.type_bytes(&[0x04]);
@@ -3852,7 +3883,7 @@ fn ctrl_c_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // wait through while the place is still held -- which is exactly the
     // refusal it exists to avoid.
     session.wait_until("the runtime to give the queued place back", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.row_text(24).contains("queued"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.above_hint(0).contains("queued"))
     });
 
     // A prompt typed *after* the interrupt is a new intention and still runs.
@@ -4233,7 +4264,7 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
         "the band to be painted on the primary plane again",
         |text| {
             Screen::painted(text, 24, 80).is_some_and(|screen| {
-                screen.row_text(22).starts_with('\u{2503}') && screen.divider().is_none()
+                screen.above_hint(2).starts_with('\u{2503}') && screen.divider().is_none()
             })
         },
     );
@@ -5129,7 +5160,7 @@ mod faults {
             "the band to be painted on the primary plane again",
             |text| {
                 Screen::painted(text, 24, 80).is_some_and(|screen| {
-                    screen.row_text(22).starts_with('\u{2503}') && screen.divider().is_none()
+                    screen.above_hint(2).starts_with('\u{2503}') && screen.divider().is_none()
                 })
             },
         );
@@ -5475,15 +5506,15 @@ fn a_resize_moves_the_band_to_the_foot_of_the_new_screen() {
     session.wait_for(READY);
     session.wait_for(FRAME_END);
 
-    // Where the launch put it: the composer on row 22, the blank rule under it
-    // on 23, and the hint row on 24.
+    // Where the launch put it: under the welcome, the composer on row 3, the
+    // blank rule under it on 4, and the hint row on 5.
     let before = Screen::painted(&session.text(), 24, 80).expect("a first frame");
-    assert_eq!(before.row_text(22), "\u{2503}");
-    assert_eq!(before.row_text(23), "");
+    assert_eq!(before.row_text(3), "\u{2503}");
+    assert_eq!(before.row_text(4), "");
     assert!(
-        before.row_text(24).contains(HINT_WITHOUT_A_CREDENTIAL),
+        before.row_text(5).contains(HINT_WITHOUT_A_CREDENTIAL),
         "the launch band is not where this case starts from: {:?}",
-        before.row_text(24)
+        before.row_text(5)
     );
 
     resize(&pty, &session, 30, 100);
@@ -5576,12 +5607,18 @@ fn a_wider_screen_unwraps_the_draft_and_gives_the_document_its_row_back() {
     // one row on a screen twice as wide.
     let draft = "x".repeat(50);
     session.type_bytes(draft.as_bytes());
+    // Under the welcome, wherever it ended: the band floats until a resize.
+    let first = format!("\u{2503} {}", "x".repeat(38));
     let narrow = band_on(&session, 24, 40, "a draft on two composer rows", |screen| {
-        screen.row_text(21) == format!("\u{2503} {}", "x".repeat(38))
+        screen.find(&first).is_some()
     });
+    let top = narrow.find(&first).expect("the composer's first row");
     // Behind its own rail, which is why the second row is twelve cells rather
     // than the ten a naive `cols - PROMPT` would leave.
-    assert_eq!(narrow.row_text(22), format!("\u{2503} {}", "x".repeat(12)));
+    assert_eq!(
+        narrow.row_text(top + 1),
+        format!("\u{2503} {}", "x".repeat(12))
+    );
 
     resize(&pty, &session, 24, 100);
 
@@ -5763,8 +5800,9 @@ fn a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, tui(&sandbox));
     session.wait_for(READY);
     session.wait_for(FRAME_END);
+    // Under the welcome: the band floats until the document reaches it.
     let before = Screen::painted(&session.text(), 30, 100).expect("a first frame");
-    assert_eq!(before.row_text(28), "\u{2503}");
+    assert_eq!(before.row_text(3), "\u{2503}");
 
     resize(&pty, &session, 0, 0);
     // **And the debounce is waited out before anything is typed**, which is the
@@ -5788,16 +5826,15 @@ fn a_zero_by_zero_winsize_after_launch_leaves_the_band_where_it_is() {
         .find(|row| after.row_text(*row) == "\u{2503} z")
         .expect("the keystroke is on some row");
     assert_eq!(
-        composer, 28,
-        "the band was re-solved from the 24x80 startup fallback for a screen \
-         the terminal refused to describe"
+        composer, 3,
+        "the band was re-solved for a screen the terminal refused to describe"
     );
     assert_eq!(
-        after.row_text(29),
+        after.row_text(4),
         "",
         "the band moved for a measurement that said nothing"
     );
-    assert!(after.row_text(30).contains(HINT_WITHOUT_A_CREDENTIAL));
+    assert!(after.row_text(5).contains(HINT_WITHOUT_A_CREDENTIAL));
 
     session.type_bytes(&[0x15, 0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -5941,9 +5978,11 @@ fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really
     // Either way it is a real reading of a `0x0` pty, and either way a band
     // re-solved through the launch fallback shows up on the wrong rows.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
+        // Long enough to fill a thirty-row screen, so the band has reached
+        // the bottom and its row says which height it was solved for.
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
-            &long_answer("MARKER-DRAG-BEGAN", "MARKER-DRAG-ENDED"),
+            &format!("MARKER-DRAG-BEGAN {} MARKER-DRAG-ENDED", "xx ".repeat(1200)),
         )]),
     ])]);
     let sandbox = Sandbox::new();

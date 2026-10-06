@@ -642,6 +642,17 @@ pub(crate) struct Shell {
     /// Taken by the loop, which owns the writer. A `bool` rather than a queued
     /// write because two clears in one turn are one clear.
     clearing: bool,
+    /// How far down the screen the document reaches, for the band that floats
+    /// under it ([`Geometry::floated`]).
+    ///
+    /// Every row an append added, less every row a growing band carried off
+    /// the top: so while the screen is not full it is the document's last row,
+    /// and once the screen has filled it is at least the rows above the band
+    /// and the band stays at the bottom. A `/clear` starts it again at none. A
+    /// resize sets it past any screen, because where a terminal reflows the
+    /// rows already on it is the terminal's own business and a band floated
+    /// under a guess would be painted over them.
+    document_rows: u32,
     /// Why the session is ending, when it is ending because the runtime cannot
     /// go on. Printed by the caller **after** the terminal has been restored.
     fatal: Option<String>,
@@ -743,7 +754,9 @@ impl Shell {
         work: WorkHandle,
     ) -> Self {
         Self {
-            geometry,
+            // Under a document of no rows: the launch pushed the shell's output
+            // into scrollback, so the screen this session opens on is empty.
+            geometry: geometry.floated(0),
             screen: (geometry.rows, geometry.cols),
             palette,
             theme_locked,
@@ -801,6 +814,7 @@ impl Shell {
             dismissed: Dismissed::default(),
             activity_row: None,
             clearing: false,
+            document_rows: 0,
             fatal: None,
             leaving: None,
         }
@@ -3511,12 +3525,52 @@ impl Shell {
         self.marks.clear();
         self.emitted = self.enqueued;
         self.clearing = true;
+        // The band starts again under nothing, as it did at launch.
+        self.document_rows = 0;
+        self.refloat();
         // Every row of the band is gone from the screen too, so the next frame
         // is a repaint of the whole thing rather than an optional one -- and
         // the document's rows are gone with it, which is what takes any
         // visible recolour owed against them down ([`Self::external_damage`]).
         self.external_damage();
         self.say(CLEARED_NOTICE.to_string());
+    }
+
+    /// How far down the screen the document reaches ([`Self::document_rows`]).
+    pub(crate) fn document_rows(&self) -> u32 {
+        self.document_rows
+    }
+
+    /// Records what the appends that landed brought the document to, and
+    /// moves the band under it.
+    pub(crate) fn document_landed(&mut self, rows: u32) {
+        self.document_rows = rows;
+        self.refloat();
+    }
+
+    /// Records the rows a growing band scrolled off the top of the screen.
+    pub(crate) fn document_carried(&mut self, rows: u16) {
+        self.document_rows = self.document_rows.saturating_sub(u32::from(rows));
+        self.refloat();
+    }
+
+    /// This session as it stands once the document has filled the screen: the
+    /// band at the bottom, where every case written before the band floated
+    /// still expects it.
+    #[cfg(test)]
+    pub(crate) fn anchored(mut self) -> Self {
+        self.document_rows = u32::MAX;
+        self.geometry = self.geometry.floated(self.document_rows);
+        self
+    }
+
+    /// The band, moved to sit under the document as it now stands.
+    fn refloat(&mut self) {
+        let geometry = self.geometry.floated(self.document_rows);
+        if geometry != self.geometry {
+            self.geometry = geometry;
+            self.render.request(Reason::Resize);
+        }
     }
 
     /// One step of a walk back through what has been submitted.
@@ -3699,6 +3753,7 @@ impl Shell {
         (1..=wanted)
             .rev()
             .find_map(|input_rows| layout::solve_band(rows, cols, input_rows, activity, panel))
+            .map(|geometry| geometry.floated(self.document_rows))
     }
 
     /// Whether this session's row numbers are claims about a screen that may
@@ -3769,6 +3824,7 @@ impl Shell {
             return Resize::Unchanged;
         }
         self.screen = (rows, cols);
+        self.document_rows = u32::MAX;
         let Some(geometry) = self.fit(rows, cols) else {
             return Resize::TooSmall;
         };
@@ -4141,7 +4197,8 @@ mod tests {
                 palette,
                 theme_locked,
                 work,
-            ),
+            )
+            .anchored(),
             sent,
             control,
         }
@@ -4282,7 +4339,8 @@ mod tests {
             PALETTE,
             false,
             work,
-        );
+        )
+        .anchored();
         let rows = shell.band_rows();
         assert_eq!(rows.len(), 6, "four composer rows, the rule, hint");
         assert_eq!(rows[0], composer_row(""));

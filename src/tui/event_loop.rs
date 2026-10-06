@@ -1248,11 +1248,14 @@ fn commit_document(
             }
         }
     }
-    if let Err(emit) = band.carry_document(out, &shell.geometry) {
-        return match disposed(emit, failures, now) {
-            Some(fatal) => Err(fatal),
-            None => Ok(false),
-        };
+    match band.carry_document(out, &shell.geometry) {
+        Ok(carried) => shell.document_carried(carried),
+        Err(emit) => {
+            return match disposed(emit, failures, now) {
+                Some(fatal) => Err(fatal),
+                None => Ok(false),
+            }
+        }
     }
     // Before the frame, and before the `begin` below, for two reasons. An
     // append scrolls the screen, so a band painted first ends up a row above
@@ -1283,10 +1286,25 @@ fn commit_document(
     // The geometry is copied once, before the loop: the shell is borrowed for
     // each call, and nothing between the measurement and the write may change
     // the screen it is about -- which is exactly the promise being kept here.
+    //
+    // **The band floats down with each append** while the document is shorter
+    // than the screen ([`super::layout::Geometry::floated`]): the rows it moves
+    // down by are the rows the append's first new rows take, without a
+    // scroll. Counted only for appends that landed, and handed back to the
+    // shell on every way out of the loop, so the band's next frame is painted
+    // under exactly the rows the screen holds.
     let geometry = shell.geometry;
+    let mut document = shell.document_rows();
     while let Some(landed) = shell.emit_document_front(|append| {
-        match band.append_document(out, append.scroll, &append.rows, &geometry) {
-            Ok(()) => Landed::All,
+        let before = geometry.floated(document);
+        let reached = document.saturating_add(u32::try_from(append.scroll).unwrap_or(u32::MAX));
+        let after = geometry.floated(reached);
+        let room = after.band_top().saturating_sub(before.band_top());
+        match band.append_floating(out, append.scroll, &append.rows, &after, room) {
+            Ok(()) => {
+                document = reached;
+                Landed::All
+            }
             Err(emit) => {
                 if matches!(emit, Emit::Partial { .. }) {
                     Landed::Prefix(emit)
@@ -1297,12 +1315,14 @@ fn commit_document(
         }
     }) {
         if let Err(emit) = landed {
+            shell.document_landed(document);
             return match disposed(emit, failures, now) {
                 Some(fatal) => Err(fatal),
                 None => Ok(false),
             };
         }
     }
+    shell.document_landed(document);
     // **A scroll is a reason for a frame.** The rows that just landed moved the
     // band's own out from under the coordinates the last frame put them at, so
     // the band is a row above where it belongs until one repaints it. Nothing
@@ -1779,7 +1799,8 @@ mod tests {
                 },
                 false,
                 work,
-            ),
+            )
+            .anchored(),
             _work,
             _control,
         }
@@ -2834,6 +2855,111 @@ mod tests {
         assert!(
             text[frame..].contains("\u{1b}[22;1H"),
             "the band was never repainted onto the rows the scroll left it: {text:?}"
+        );
+    }
+
+    /// The session as it opens: nothing on the screen yet, so the band
+    /// floats on its first rows.
+    fn floating() -> Fixture {
+        let mut fixture = shell();
+        fixture.shell.document_landed(0);
+        fixture
+    }
+
+    fn committed(shell: &mut Shell, band: &mut Band) -> String {
+        let mut failures = FrameFailures::default();
+        let mut screen = FlakyScreen {
+            refusals: 0,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        commit_frame(
+            shell,
+            band,
+            &mut screen,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the append and the frame");
+        String::from_utf8(screen.written).expect("utf-8")
+    }
+
+    #[test]
+    fn a_band_under_a_short_document_follows_it_down_instead_of_scrolling_it() {
+        let mut shell = floating();
+        let mut band = Band::new();
+        assert_eq!(shell.geometry.band_top(), 1, "nothing above the band yet");
+        shell.write_transcript("answered");
+
+        let text = committed(&mut shell, &mut band);
+
+        assert!(
+            !text.contains("\u{1b}[24;1H\n"),
+            "a document shorter than the screen scrolled it: {text:?}"
+        );
+        assert!(
+            text.starts_with("\u{1b}[1;1Hanswered"),
+            "the row was not placed on the screen's first row: {text:?}"
+        );
+        assert_eq!(shell.document_rows(), 1);
+        assert_eq!(
+            (shell.geometry.band_top(), shell.geometry.hint),
+            (2, 4),
+            "the band did not follow the document down"
+        );
+        let frame = text.find("\u{1b}[?2026h").expect("the frame");
+        assert!(
+            text[frame..].contains("\u{1b}[2;1H"),
+            "the band was not painted under the row: {text:?}"
+        );
+    }
+
+    #[test]
+    fn a_document_that_outgrows_the_screen_scrolls_only_the_rows_past_its_bottom() {
+        let mut shell = floating();
+        let mut band = Band::new();
+        let lines: Vec<String> = (1..=30).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+
+        let text = committed(&mut shell, &mut band);
+
+        // 24 rows hold 21 document rows above a three-row band: the other 9
+        // scroll, each after the row it carries off was on the screen.
+        assert_eq!(
+            text.matches("\u{1b}[24;1H\n").count(),
+            9,
+            "the wrong number of rows scrolled: {text:?}"
+        );
+        assert!(text.contains("\u{1b}[1;1Hline 1"), "{text:?}");
+        assert!(text.contains("\u{1b}[21;1Hline 30"), "{text:?}");
+        assert_eq!(
+            (shell.geometry.band_top(), shell.geometry.hint),
+            (22, 24),
+            "a full screen leaves the band at the bottom"
+        );
+    }
+
+    #[test]
+    fn a_clear_floats_the_band_back_to_the_top() {
+        let mut shell = floating();
+        let mut band = Band::new();
+        let lines: Vec<String> = (1..=30).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+        committed(&mut shell, &mut band);
+        assert_eq!(shell.geometry.band_top(), 22);
+
+        shell.route_bytes(b"/clear\r");
+        let text = committed(&mut shell, &mut band);
+
+        assert!(
+            text.contains(super::super::shell::CLEAR_SCREEN),
+            "the clear never reached the screen: {text:?}"
+        );
+        assert!(
+            shell.geometry.band_top() <= 3,
+            "a cleared screen kept its band at the bottom: {:?}",
+            shell.geometry
         );
     }
 
