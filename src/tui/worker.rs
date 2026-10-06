@@ -1055,7 +1055,7 @@ impl Runtime {
         // is: the UI holds a bool rather than a configuration, so this is the
         // only place the question can be answered after a switch.
         let missing_credential =
-            crate::provider::resolve_credential_for(self.config.provider, &self.config).is_none();
+            !crate::provider::credential_ready(self.config.provider, &self.config);
         Selected {
             provider: self.config.provider,
             model: self.model().to_string(),

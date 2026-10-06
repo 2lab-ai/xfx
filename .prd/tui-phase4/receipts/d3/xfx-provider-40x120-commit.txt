@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-5c371f8 [debug] · Run /help for commands
+
+✗ command: Unknown command. Try /help.
+
+* provider: Already using Vercel AI Gateway.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
