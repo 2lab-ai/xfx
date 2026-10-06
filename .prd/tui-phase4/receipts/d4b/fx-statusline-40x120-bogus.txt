@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: context: on
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: session: off
+
+* statusline: saved to user settings (scope=user)
+
+* statusline: workspace: on
+
+✗ usage: /statusline [context|session|workspace]
+
+┃
+
+auto · model-a · <scratch>/work
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

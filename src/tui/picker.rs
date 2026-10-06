@@ -837,6 +837,7 @@ mod tests {
                 "/reset",
                 "/provider",
                 "/model",
+                "/statusline",
                 "/version"
             ]
         );

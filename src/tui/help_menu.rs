@@ -781,26 +781,26 @@ mod tests {
         assert_eq!(rows.len(), 2 + count);
         assert_eq!(rows[1], "", "the blank row under the header");
         // The marked row: name and summary bright, each closed, the spaces
-        // between them uncoloured; the summary at 2 + `/provider` + 4.
+        // between them uncoloured; the summary at 2 + `/statusline` + 4.
         assert_eq!(
             rows[2],
             format!(
                 "  {BRIGHT}/help{RESET}{}{BRIGHT}show available slash commands{RESET}",
-                " ".repeat(15 - 7)
+                " ".repeat(17 - 7)
             )
         );
         assert_eq!(
             rows[3],
             format!(
                 "  {DIM}/clear{RESET}{}{DIM}{}{RESET}",
-                " ".repeat(15 - 8),
+                " ".repeat(17 - 8),
                 SLASH_REGISTRY[1].summary
             )
         );
         assert_eq!(shown(&rows), by_category());
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
-            assert_eq!(summary_column(row), 15, "{row:?}");
+            assert_eq!(summary_column(row), 17, "{row:?}");
         }
     }
 
@@ -852,7 +852,8 @@ mod tests {
         // The live registry wraps the same way.
         let mut live = HelpMenu::open("");
         assert!(live.step(false, 20));
-        assert_eq!(live.selected().map(|spec| spec.name), Some("/model"));
+        // The last by category: `/statusline` is the one Appearance command.
+        assert_eq!(live.selected().map(|spec| spec.name), Some("/statusline"));
         assert!(live.step(true, 20));
         assert_eq!(live.selected().map(|spec| spec.name), Some("/help"));
     }

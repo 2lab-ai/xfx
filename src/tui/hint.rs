@@ -12,10 +12,14 @@
 //! * **The order is upstream's, and the order is a priority.** A missing
 //!   credential leads, because nothing else on the row matters on a machine
 //!   where every turn will refuse; then what is already queued, then the
-//!   permission mode, the model, and the context meter. Left is more important
+//!   permission mode, the model, the session title, the context meter and the
+//!   workspace (`buildHintLine`, `render.zig:440-470`). Left is more important
 //!   than right, which is what makes "drop from the right" the right rule for a
 //!   screen too narrow to hold everything -- the segments that survive are the
-//!   ones the user needed most.
+//!   ones the user needed most. The workspace is the one exception, as it is
+//!   upstream's: it is placed last and **cut** to the room the others left
+//!   rather than dropped whole, because the end of a path still says where the
+//!   session is (`appendWorkspaceIdentity`, `render.zig:360-379`).
 //! * **A row is budgeted here rather than clipped by the painter.** The painter
 //!   cuts a row that overruns the screen (`super::frame::clip`) at the first
 //!   cell that will not fit, which on this row would leave half a number and the
@@ -37,14 +41,15 @@
 //!   warning about a destructive key that vanished on a narrow terminal would be
 //!   the one row of this band that costs the user something.
 //!
-//! # What is not here
+//! # What is opt-in, and what is not here
 //!
-//! Upstream's statusline carries three more items -- the session title, the
-//! workspace identity and the git branch -- and all three are opt-in and off by
-//! default (`settings_catalog.zig:53-55`). xfx has no settings surface to turn
-//! them on with, so they are absent rather than defaulted. The reasoning-effort
-//! and fast-mode markers (`render.zig:430-435`) belong to model capabilities xfx
-//! does not model.
+//! The session title, the context meter and the workspace with its Git branch
+//! are upstream's three optional items, each off until the profile turns it on
+//! (`settings_catalog.zig:58-60`; `/statusline`, `super::statusline`). This
+//! module draws whichever of them it is handed and decides none of that: a
+//! `None` here is an item that is off or has nothing to say yet. The
+//! reasoning-effort and fast-mode markers (`render.zig:430-435`) belong to
+//! model capabilities xfx does not model.
 
 use crate::config::PermissionMode;
 
@@ -85,20 +90,27 @@ pub(crate) struct Hint<'a> {
     /// The model a turn will talk to, as configured -- provider prefix and all.
     /// [`compact_model`] is what shortens it.
     pub(crate) model: &'a str,
+    /// The session's title, when the title segment is on and the session has
+    /// one ([`super::statusline::session_label`] is what makes it safe to
+    /// paint).
+    pub(crate) session_title: Option<&'a str>,
     /// How much of the model's context window the conversation has spent, as
-    /// `(used, total)` in tokens.
+    /// `(used, total)` in tokens, when the context segment is on.
     ///
-    /// `None` when nobody has measured it, and **both halves have to be there**
-    /// for anybody to have. The numerator is a completed turn's `input_tokens`
-    /// ([`super::bridge::UiEvent::Usage`]) and the denominator is the catalog's
-    /// `max_context` for the model in force
-    /// (`provider::model::CatalogEntry::max_context`) -- and either can
-    /// legitimately be absent: a provider need not publish usage, and the
-    /// Gateway publishes no catalog to hold a window at all. So a missing half
-    /// removes the segment rather than defaulting it: a row that filled one in
-    /// with a zero would report a measurement nobody took. `super::shell`'s
-    /// `context_meter` is where the two are put together.
-    pub(crate) context_used: Option<(u64, u64)>,
+    /// `None` when nobody has measured it. The numerator is a completed turn's
+    /// `input_tokens` ([`super::bridge::UiEvent::Usage`]) and the denominator
+    /// is the catalog's `max_context` for the model in force
+    /// (`provider::model::CatalogEntry::max_context`), and the denominator can
+    /// legitimately be absent -- the Gateway publishes no catalog to hold a
+    /// window at all. Upstream says the numerator alone then (`12k`,
+    /// `render.zig:441-452`), which reports exactly the measurement that was
+    /// taken; a row that invented the missing window as a zero would report one
+    /// nobody took. `super::shell`'s `context_meter` is where the two are put
+    /// together.
+    pub(crate) context_used: Option<(u64, Option<u64>)>,
+    /// The workspace's path and its Git branch, when the workspace segment is
+    /// on: both already terminal-safe (`super::statusline::Workspace`).
+    pub(crate) workspace: Option<(&'a str, Option<&'a str>)>,
     /// A refusal to show instead of the left-hand segments, if one has just
     /// happened.
     pub(crate) notice: Option<Notice<'a>>,
@@ -188,6 +200,24 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
     while segments.len() > 1 && cells(&segments.join(SEPARATOR)) > limit {
         segments.pop();
     }
+    // The workspace last, in whatever room the others left, and not at all
+    // when there is none (`appendWorkspaceIdentity`, `render.zig:360-379`).
+    // Never beside a refusal: that row is about the keystroke.
+    if let (None, Some((label, branch))) = (hint.notice, hint.workspace) {
+        let used = cells(&segments.join(SEPARATOR));
+        let separator = if segments.is_empty() {
+            0
+        } else {
+            cells(SEPARATOR)
+        };
+        if used + separator < limit {
+            if let Some(segment) =
+                super::statusline::workspace_segment(label, branch, limit - used - separator)
+            {
+                segments.push(segment);
+            }
+        }
+    }
     // Here is where a count becomes a terminal width, and the clamp is what
     // makes the conversion exact rather than merely infallible: `limit` is at
     // most `budget`, which came from a `u16`.
@@ -246,6 +276,9 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
         }
     }
     push(&mut segments, model);
+    if let Some(title) = hint.session_title {
+        push(&mut segments, title.to_string());
+    }
     if let Some((used, total)) = hint.context_used {
         push(&mut segments, context(used, total));
     }
@@ -279,12 +312,17 @@ fn leading_permission_mode_fits(limit: usize, mode: &str, model: &str) -> bool {
 }
 
 /// How much of the context window the conversation has spent
-/// (`render.zig:419-427`, `c1db919`: `{used}k/{total}k {pct}%`).
+/// (`render.zig:441-452`, `c1db919`: `{used}k/{total}k {pct}%`, or `{used}k`
+/// when the window is unknown).
 ///
 /// Thousands, because the row has no room for six digits and nobody reads them:
 /// what the number is for is "how close am I to the end of it", and the
-/// percentage beside it is that question answered directly.
-fn context(used: u64, total: u64) -> String {
+/// percentage beside it is that question answered directly -- when there is a
+/// window to answer it against.
+fn context(used: u64, total: Option<u64>) -> String {
+    let Some(total) = total else {
+        return format!("{}k", used / 1000);
+    };
     // Saturating rather than wrapping: the product is only near the edge for a
     // token count no conversation can reach, and a percentage that wrapped
     // would be a small number where a large one belongs. A window of zero is a
@@ -317,7 +355,9 @@ mod tests {
             queued: 0,
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
+            session_title: None,
             context_used: None,
+            workspace: None,
             notice: None,
             right: None,
             accent: ("", ""),
@@ -346,7 +386,7 @@ mod tests {
     fn the_segments_are_in_upstreams_order() {
         let mut hint = hint();
         hint.queued = 1;
-        hint.context_used = Some((12_000, 200_000));
+        hint.context_used = Some((12_000, Some(200_000)));
         let row = row(&hint, 200);
         let queued = row.find("queued 1").expect("queued");
         let mode = row.find("ask").expect("the permission mode");
@@ -374,7 +414,7 @@ mod tests {
     #[test]
     fn a_narrow_terminal_drops_segments_from_the_right_and_never_overflows() {
         let mut hint = hint();
-        hint.context_used = Some((12_000, 200_000));
+        hint.context_used = Some((12_000, Some(200_000)));
         for cols in [12u16, 20, 40, 80] {
             let row = row(&hint, cols);
             assert!(
@@ -578,7 +618,7 @@ mod tests {
         // it for the same reason: a catalog that published `0` would divide by
         // it.
         let mut hint = hint();
-        hint.context_used = Some((12_000, 0));
+        hint.context_used = Some((12_000, Some(0)));
         assert!(row(&hint, 80).contains("12k/0k 0%"), "{hint:?}");
     }
 
@@ -598,13 +638,13 @@ mod tests {
         // digits and nobody reads them: the question the segment answers is how
         // close the conversation is to the end of the window.
         let mut hint = hint();
-        hint.context_used = Some((12_345, 200_000));
+        hint.context_used = Some((12_345, Some(200_000)));
         let painted = row(&hint, 80);
         assert!(painted.contains("12k/200k 6%"), "{painted}");
 
         // A window of zero is a number a provider can publish, and it reads as
         // nought per cent rather than as a division.
-        hint.context_used = Some((10, 0));
+        hint.context_used = Some((10, Some(0)));
         let painted = row(&hint, 80);
         assert!(painted.contains("0k/0k 0%"), "{painted}");
     }
@@ -629,7 +669,7 @@ mod tests {
         // needed most -- the model above all, because it is what they check
         // before pressing Return.
         let mut hint = hint();
-        hint.context_used = Some((12_345, 200_000));
+        hint.context_used = Some((12_345, Some(200_000)));
         let wide = row(&hint, 80);
         assert!(wide.contains("12k/200k"), "{wide}");
         assert!(wide.contains("opus 4-7"), "{wide}");
@@ -643,5 +683,79 @@ mod tests {
             narrow.contains("opus 4-7"),
             "the model was dropped before the meter: {narrow}"
         );
+    }
+
+    #[test]
+    fn the_optional_segments_follow_the_model_in_upstreams_order() {
+        // `buildHintLine` (`render.zig:440-470`): mode, model, session title,
+        // context, workspace -- and the capture after a turn with all three on
+        // (`.prd/tui-phase4/receipts/d4b/fx-statusline-turn-40x120-after-turn`):
+        // `auto · model-a · say the marker · 1k · <path>`.
+        let mut hint = hint();
+        hint.session_title = Some("say the marker");
+        hint.context_used = Some((1_200, None));
+        hint.workspace = Some(("/private/tmp/fxcap.X/work", Some("main")));
+        assert_eq!(
+            row(&hint, 120),
+            "ask \u{b7} opus 4-7 \u{b7} say the marker \u{b7} 1k \u{b7} /private/tmp/fxcap.X/work (main)"
+        );
+        // Each is its own: none of them on is the row it always was.
+        assert_eq!(row(&self::hint(), 120), "ask \u{b7} opus 4-7");
+        let mut only = self::hint();
+        only.workspace = Some(("/w", None));
+        assert_eq!(row(&only, 120), "ask \u{b7} opus 4-7 \u{b7} /w");
+    }
+
+    #[test]
+    fn a_window_nobody_published_leaves_the_numerator_on_its_own() {
+        // `render.zig:448-451`: `{used}k` when the window is unknown -- the
+        // Gateway's case, which publishes no catalog -- and no percentage of a
+        // window nobody stated.
+        let mut hint = hint();
+        hint.context_used = Some((12_345, None));
+        let painted = row(&hint, 80);
+        assert!(painted.ends_with(" \u{b7} 12k"), "{painted}");
+        assert!(!painted.contains('%'), "{painted}");
+    }
+
+    #[test]
+    fn the_workspace_is_cut_to_the_room_the_others_left_rather_than_dropped() {
+        let mut hint = hint();
+        hint.workspace = Some((
+            "/a/long/workspace/path/status-root",
+            Some("detached:0123456789ab"),
+        ));
+        for cols in [20u16, 24, 30, 40, 60] {
+            let painted = row(&hint, cols);
+            assert!(
+                crate::tui::wrap::width(&painted) <= cols,
+                "{cols} columns overflowed: {painted:?}"
+            );
+            assert!(
+                painted.starts_with("ask \u{b7} opus 4-7"),
+                "the workspace took room from a segment before it: {painted:?}"
+            );
+        }
+        // Thirty columns leave thirteen after the separator: six for the
+        // branch's start, three for ` ()`, four for the path's end.
+        assert_eq!(
+            row(&hint, 30),
+            "ask \u{b7} opus 4-7 \u{b7} \u{2026}oot (detac\u{2026})"
+        );
+        // No room after the separator: no segment, and no separator for it.
+        assert_eq!(row(&hint, 17), "ask \u{b7} opus 4-7");
+    }
+
+    #[test]
+    fn a_refusal_takes_the_row_without_the_workspace_beside_it() {
+        let mut hint = hint();
+        hint.workspace = Some(("/w", Some("main")));
+        hint.session_title = Some("title");
+        hint.notice = Some(Notice {
+            text: "refused",
+            style: "",
+            resume: "",
+        });
+        assert_eq!(row(&hint, 80), "refused");
     }
 }
