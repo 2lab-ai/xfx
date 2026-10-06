@@ -52,7 +52,7 @@ use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use crate::gateway::protocol::{
-    Completion, CompletionRequest, ContentPart, FinishReason, Message, ToolChoice,
+    Completion, CompletionRequest, ContentPart, FinishReason, Message, ResultStatus, ToolChoice,
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
@@ -633,14 +633,23 @@ impl TurnMachine {
             if let Some(change) = &result.change {
                 journal.change_made(&call.id, change);
             }
-            // A call that failed is said as one on the wire, as upstream says
-            // every result whose status is a failure (`error-text`,
-            // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).
-            self.suffix.push(if result.ok {
-                Message::tool_result(&call.id, &call.name, result.output)
+            // A call that failed is said as one on the wire, and one that was
+            // refused as a refusal, as upstream says each (`error-text`,
+            // `execution-denied`; `vercel-labs/fx@c1db9191
+            // src/gateway/vercel_protocol.zig:742-747`).
+            let status = if result.ok {
+                ResultStatus::Success
+            } else if result.outcome == crate::tools::Outcome::Denied {
+                ResultStatus::Denied
             } else {
-                Message::tool_error(&call.id, &call.name, result.output)
-            });
+                ResultStatus::Failure
+            };
+            self.suffix.push(Message::tool_ended(
+                &call.id,
+                &call.name,
+                result.output,
+                status,
+            ));
 
             // Buffered here, delivered after the loop. Directly after the
             // result push, so only a call that actually ran and was answered

@@ -49,7 +49,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::TurnJournal;
 use crate::config::PermissionMode;
-use crate::gateway::protocol::{Message, ToolCall};
+use crate::gateway::protocol::{Message, ResultStatus, ToolCall};
 use crate::permission::Grant;
 use crate::provider::Wire;
 
@@ -640,12 +640,16 @@ impl DurableState {
                         ok,
                         output,
                     } => {
-                        // Replayed as it was sent: a failure as a failure.
-                        pending.push(if *ok {
-                            Message::tool_result(call_id, tool, output.clone())
+                        // Replayed as it was sent: a failure as a failure, a
+                        // refusal as a refusal.
+                        let status = if *ok {
+                            ResultStatus::Success
+                        } else if crate::tools::is_refusal(tool, output) {
+                            ResultStatus::Denied
                         } else {
-                            Message::tool_error(call_id, tool, output.clone())
-                        });
+                            ResultStatus::Failure
+                        };
+                        pending.push(Message::tool_ended(call_id, tool, output.clone(), status));
                         awaiting.retain(|id| id != call_id);
                         // A call that answered `aborted by user` did not
                         // finish: its turn was stopped under it (a question the
@@ -2936,9 +2940,15 @@ mod tests {
                         ContentPart::ToolResult {
                             call_id,
                             output,
-                            error,
+                            status,
                             ..
-                        } => format!("result {call_id} {output} error={error}"),
+                        } => match status {
+                            ResultStatus::Denied => format!("result {call_id} {output} denied"),
+                            _ => format!(
+                                "result {call_id} {output} error={}",
+                                *status != ResultStatus::Success
+                            ),
+                        },
                         ContentPart::RawBlocks(_) => "raw".to_string(),
                     })
                     .collect::<Vec<_>>()

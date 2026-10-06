@@ -429,6 +429,18 @@ pub struct ToolResult {
     pub change: Option<Box<ApprovalDiff>>,
 }
 
+/// What follows the tool's name in every refusal ([`ToolResult::refused`]).
+const REFUSED: &str = " was not permitted:";
+
+/// Whether `output`, a failed result of `tool`, is a refusal
+/// ([`ToolResult::refused`]) -- read back from a session log, which keeps the
+/// result's words and not its [`Outcome`].
+pub fn is_refusal(tool: &str, output: &str) -> bool {
+    output
+        .strip_prefix(tool)
+        .is_some_and(|rest| rest.starts_with(REFUSED))
+}
+
 impl ToolResult {
     /// A completed call. The summary is bounded like a refusal's, so no result
     /// can flood the event stream a human is watching.
@@ -478,6 +490,15 @@ impl ToolResult {
             changes: None,
             change: None,
         }
+    }
+
+    /// A call the permission policy or the person refused: `{tool} was not
+    /// permitted: {reason}`, ending [`Outcome::Denied`] -- the one shape every
+    /// refusal is written in, so a replayed log can tell it from any other
+    /// failure ([`is_refusal`]) and say it as upstream says one
+    /// (`execution-denied`, `crate::gateway::protocol::ResultStatus::Denied`).
+    pub fn refused(tool: &str, reason: &str) -> Self {
+        Self::failure(format!("{tool}{REFUSED} {reason}")).ending(Outcome::Denied)
     }
 
     /// A refusal that ends the turn: the authority for this call stopped being
@@ -1007,6 +1028,21 @@ mod tests {
         ],
         required: &["path"],
     };
+
+    #[test]
+    fn a_refusal_is_told_from_any_other_failure_by_its_own_shape() {
+        let refused = ToolResult::refused("write_file", "you declined");
+        assert_eq!(refused.output, "write_file was not permitted: you declined");
+        assert_eq!(refused.outcome, Outcome::Denied);
+        assert!(!refused.ok);
+        assert!(is_refusal("write_file", &refused.output));
+        assert!(
+            !is_refusal("edit_file", &refused.output),
+            "another tool's refusal"
+        );
+        assert!(!is_refusal("write_file", "write_file failed: disk full"));
+        assert!(!is_refusal("terminal", "aborted by user"));
+    }
 
     #[test]
     fn a_schema_is_always_closed() {

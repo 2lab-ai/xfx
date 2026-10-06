@@ -28,8 +28,8 @@ use tempfile::TempDir;
 use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
-    Completion, CompletionRequest, ContentPart, FinishReason, Message, Role, ToolCall, ToolChoice,
-    Usage,
+    Completion, CompletionRequest, ContentPart, FinishReason, Message, ResultStatus, Role,
+    ToolCall, ToolChoice, Usage,
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
@@ -2394,12 +2394,15 @@ fn replay_shape(messages: &[Message]) -> Vec<String> {
                     ContentPart::ToolResult {
                         call_id,
                         output,
-                        error,
+                        status,
                         ..
-                    } => match (*error, output.as_str()) {
-                        (true, "aborted by user") => format!("{call_id} error aborted by user"),
-                        (true, _) => format!("{call_id} error"),
-                        (false, _) => call_id.clone(),
+                    } => match (status, output.as_str()) {
+                        (ResultStatus::Success, _) => call_id.clone(),
+                        (ResultStatus::Denied, _) => format!("{call_id} denied"),
+                        (ResultStatus::Failure, "aborted by user") => {
+                            format!("{call_id} error aborted by user")
+                        }
+                        (ResultStatus::Failure, _) => format!("{call_id} error"),
                     },
                     ContentPart::RawBlocks(_) => "raw".to_string(),
                 })
@@ -2888,6 +2891,66 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
         ],
         "{:#?}",
         replay.messages
+    );
+}
+
+#[tokio::test]
+async fn a_refused_call_goes_back_as_a_refusal_live_and_on_resume() {
+    // Upstream says a refused call as `execution-denied` with the refusal as
+    // its reason (`vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:
+    // 742-744`), and a call that failed on its own as `error-text`. Both the
+    // next request of the turn and a resumed session's replay say it so.
+    let tree = Tree::new();
+    let cancel = CancelToken::new();
+    let prompter = ScriptedAmender::new(
+        vec![Amendment {
+            answer: ApprovalAnswer::Deny,
+            feedback: None,
+            then_cancel: false,
+        }],
+        cancel.clone(),
+    );
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![write_call("c1", "notes.md", "alpha\n")]),
+        final_step("not written"),
+    ]);
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        asking_turn(
+            "write it",
+            asking_context(&tree, ToolLimits::default(), prompter),
+            cancel,
+        ),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    let refusal = |messages: &[Message]| {
+        messages.iter().find_map(|message| {
+            message.content.iter().find_map(|part| match part {
+                ContentPart::ToolResult { status, output, .. } => Some((*status, output.clone())),
+                _ => None,
+            })
+        })
+    };
+    let (status, output) = refusal(&provider.requests()[1].messages).expect("the result");
+    assert_eq!(status, ResultStatus::Denied, "{output}");
+    assert!(
+        output.starts_with("write_file was not permitted: "),
+        "{output}"
+    );
+
+    let state = replayed(&journal.events, tree.root());
+    let replay = state.history_messages(Wire::VercelGateway);
+    assert_eq!(
+        refusal(&replay.messages),
+        Some((ResultStatus::Denied, output)),
+        "the replay said the refusal as something else"
     );
 }
 

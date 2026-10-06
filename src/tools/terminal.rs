@@ -203,16 +203,11 @@ fn execute_terminal(input: &ToolInput, context: &ToolContext) -> ToolResult {
     let source = match decision {
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
-            return ToolResult::failure(format!("terminal did not run the command: {reason}"))
-                .ending(CallOutcome::Denied)
-                .with_feedback(feedback)
+            return ToolResult::refused("terminal", &reason).with_feedback(feedback)
         }
         PolicyDecision::Prompt => {
-            return ToolResult::failure(
-                "terminal did not run the command: the approval was never resolved",
-            )
-            .ending(CallOutcome::Denied)
-            .with_feedback(feedback)
+            return ToolResult::refused("terminal", "the approval was never resolved")
+                .with_feedback(feedback)
         }
     };
 

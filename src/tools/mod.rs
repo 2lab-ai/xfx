@@ -28,6 +28,7 @@ use serde_json::Value;
 use crate::gateway::protocol::ToolCall;
 
 pub use question::{QuestionRequester, Reply as QuestionReply};
+pub use spec::is_refusal;
 pub use spec::{
     Activity, InputSchema, LineChanges, Outcome, PermissionKind, Presentation, Property,
     PropertyKind, RaceInterlude, Shown, ToolContext, ToolDecoder, ToolExecutor, ToolInput,
