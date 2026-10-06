@@ -1,0 +1,24 @@
+x𝒇x v0.1.0-3894210 [debug] · Run /help for commands
+
+┃ stream a long answer please
+
+  Opening line of the answer.
+
+  MARKER-A word10 word11 word12 word13 word14 word15 word16 word17 word18 word1
+  word100 word101 word102 word103 word104 word105 word106 word107 word108
+  word109 word110
+
+✗ command: Unknown command. Try /help.
+
+  Generating (3s) (↑8 ↓65)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
