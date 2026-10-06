@@ -107,6 +107,9 @@ enum RuleVerdict {
     Allowed { by_grant: bool },
     /// Some target no rule decides.
     Undecided,
+    /// A table is configured and the change carries no resolved targets to
+    /// judge it against.
+    Unresolved,
 }
 
 // ---------------------------------------------------------------------------
@@ -143,13 +146,21 @@ impl ProposedAction<'_> {
     /// rule is about what runs, wherever it runs. A change to a file is judged
     /// at every path it touches -- the file, its parent, every directory it
     /// creates -- and a deny on any of them stops it.
-    fn rule_subject(&self) -> (&'static str, &'static str, Vec<Vec<u8>>) {
+    ///
+    /// The first candidate is the action's own target, the one an exact
+    /// session grant is about. `None` for a change whose executor did not
+    /// resolve its targets ([`MutationPlan::rule_targets`]).
+    fn rule_subject(&self) -> (&'static str, &'static str, Option<Vec<Vec<u8>>>) {
         match self {
-            Self::Mutation(plan) => (super::rules::EDIT, plan.kind().tool(), plan.rule_targets()),
+            Self::Mutation(plan) => (
+                super::rules::EDIT,
+                plan.kind().tool(),
+                plan.rule_targets().map(<[Vec<u8>]>::to_vec),
+            ),
             Self::Command(plan) => (
                 super::rules::BASH,
                 super::rules::COMMAND_TOOL,
-                vec![plan.command().as_bytes().to_vec()],
+                Some(vec![plan.command().as_bytes().to_vec()]),
             ),
         }
     }
@@ -868,6 +879,16 @@ impl PermissionSession {
                     },
                 }
             }
+            // Fail closed: a plan built without the targets its executor
+            // resolves would otherwise be judged by a spelling of them.
+            RuleVerdict::Unresolved => {
+                return PolicyDecision::Deny {
+                    cause: DenyCause::ConfiguredRule,
+                    reason: format!(
+                        "`{tool}` for `{target}` cannot be judged against the configured permission rules: its targets were not resolved"
+                    ),
+                }
+            }
             RuleVerdict::Undecided => {}
         }
         if granted {
@@ -896,19 +917,30 @@ impl PermissionSession {
     /// What the configured table says about every target of `action`, with
     /// `granted` -- an exact session grant for it -- covering a target a rule
     /// asks about, as upstream's grants cover an `ask` (`:1393-1400`).
+    ///
+    /// **The grant covers the action's own target and nothing else**: an
+    /// exact "always" for `/w/a.txt` is not an answer about `.` or about a
+    /// directory the write creates, as upstream checks each target's grant
+    /// on its own (`decideFileTargetPolicy`, `permissions.zig:803-830`).
     fn rule_verdict(&self, action: ProposedAction<'_>, granted: bool) -> RuleVerdict {
-        let (permission, rule_tool, candidates) = action.rule_subject();
         let rules = self.rules.current();
+        if rules.is_empty() {
+            return RuleVerdict::Undecided;
+        }
+        let (permission, rule_tool, candidates) = action.rule_subject();
+        let Some(candidates) = candidates else {
+            return RuleVerdict::Unresolved;
+        };
         let mut ask = false;
         let mut by_grant = false;
         let mut decided = !candidates.is_empty();
-        for candidate in &candidates {
+        for (index, candidate) in candidates.iter().enumerate() {
             match rules.decide(permission, Some(rule_tool), candidate) {
                 Some(RuleAction::Deny) => {
                     return RuleVerdict::Denied(String::from_utf8_lossy(candidate).into_owned())
                 }
                 Some(RuleAction::Allow) => {}
-                Some(RuleAction::Ask) if granted => by_grant = true,
+                Some(RuleAction::Ask) if granted && index == 0 => by_grant = true,
                 Some(RuleAction::Ask) => ask = true,
                 None => decided = false,
             }
@@ -1111,6 +1143,7 @@ mod tests {
             Preimage::Absent,
             b"hello".to_vec(),
         )
+        .with_rule_targets(vec![b"a.txt".to_vec(), b".".to_vec()])
     }
 
     #[test]
@@ -1312,7 +1345,12 @@ mod tests {
         )
     }
 
+    /// A write to `display` under `/w`, judged at it and at its parent.
     fn plan_at(display: &str) -> MutationPlan {
+        let parent = match std::path::Path::new(display).parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent.to_string_lossy().into_owned(),
+            _ => ".".to_string(),
+        };
         MutationPlan::new(
             MutationKind::Write,
             PathBuf::from("/w").join(display),
@@ -1321,6 +1359,7 @@ mod tests {
             Preimage::Absent,
             b"hello".to_vec(),
         )
+        .with_rule_targets(vec![display.as_bytes().to_vec(), parent.into_bytes()])
     }
 
     #[test]
@@ -1422,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rule_that_asks_is_asked_in_auto_mode_and_a_grant_answers_it() {
+    fn a_rule_that_asks_is_asked_in_auto_mode_and_an_exact_grant_does_not_silence_it_everywhere() {
         let plan = write_plan(TargetScope::PrimaryWorkspace);
         let mut session = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
             "edit",
@@ -1433,11 +1472,72 @@ mod tests {
             session.evaluate(ProposedAction::Mutation(&plan)),
             PolicyDecision::Prompt
         );
+        // The rule also asks about `.`, which an "always" for the file is not
+        // an answer about: the question is put again.
         session.grant(Grant::new("write_file", "/w/a.txt"));
         assert_eq!(
             session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+    }
+
+    #[test]
+    fn an_exact_grant_answers_an_ask_about_its_own_target_and_not_about_the_directory() {
+        // A grant for `/w/a.txt` is not an answer about `.`: upstream checks
+        // each target's grant on its own, and an exact file grant never
+        // matches the parent (`decideFileTargetPolicy`).
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let mut parent_asks = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            ".",
+            RuleAction::Ask,
+        )]));
+        parent_asks.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            parent_asks.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt
+        );
+        let mut file_asks = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[
+            ("edit", "a.txt", RuleAction::Ask),
+            ("edit", ".", RuleAction::Allow),
+        ]));
+        file_asks.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(
+            file_asks.evaluate(ProposedAction::Mutation(&plan)),
             PolicyDecision::Allow {
                 source: AllowSource::SessionGrant
+            }
+        );
+    }
+
+    #[test]
+    fn a_change_with_no_resolved_targets_is_refused_rather_than_judged_by_its_name() {
+        let unresolved = MutationPlan::new(
+            MutationKind::Write,
+            PathBuf::from("/w/a.txt"),
+            "a.txt".to_string(),
+            TargetScope::PrimaryWorkspace,
+            Preimage::Absent,
+            b"hello".to_vec(),
+        );
+        let ruled = PermissionSession::new(PermissionMode::Auto).with_rules(table(&[(
+            "edit",
+            "*",
+            RuleAction::Allow,
+        )]));
+        assert!(matches!(
+            ruled.evaluate(ProposedAction::Mutation(&unresolved)),
+            PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                ref reason,
+            } if reason.ends_with("its targets were not resolved")
+        ));
+        // With no table there is nothing to judge, and the mode decides.
+        assert_eq!(
+            PermissionSession::new(PermissionMode::Auto)
+                .evaluate(ProposedAction::Mutation(&unresolved)),
+            PolicyDecision::Allow {
+                source: AllowSource::AutoMode
             }
         );
     }

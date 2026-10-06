@@ -732,9 +732,8 @@ pub struct MutationPlan {
     /// each canonical and workspace-relative ([`super::rules::rule_path`]).
     ///
     /// Set by the executor that resolved the path, because only it knows which
-    /// directories exist and how the filesystem spells them; a plan built
-    /// without it judges the target and the parent its display names. Not part
-    /// of the fingerprint: it is a reading of the same target, for policy.
+    /// directories exist and how the filesystem spells them. Not part of the
+    /// fingerprint: it is a reading of the same target, for policy.
     rule_targets: Option<Vec<Vec<u8>>>,
     fingerprint: ContentHash,
 }
@@ -786,21 +785,12 @@ impl MutationPlan {
         self
     }
 
-    /// Every path a configured rule is matched against for this change: what
-    /// the executor resolved, or -- for a plan built without one -- the
-    /// target and its parent as [`Self::display`] names them (`.` for the
-    /// workspace root).
-    pub fn rule_targets(&self) -> Vec<Vec<u8>> {
-        if let Some(targets) = &self.rule_targets {
-            return targets.clone();
-        }
-        let shown = Path::new(&self.display);
-        let parent = match shown.parent() {
-            Some(parent) if parent.as_os_str().is_empty() => ".".to_string(),
-            Some(parent) => parent.to_string_lossy().into_owned(),
-            None => ".".to_string(),
-        };
-        vec![self.display.as_bytes().to_vec(), parent.into_bytes()]
+    /// Every path a configured rule is matched against for this change, as
+    /// the executor resolved them -- or `None` for a plan built without them,
+    /// which policy refuses to judge against a table rather than guess at
+    /// from the display name: a spelling is not a file.
+    pub fn rule_targets(&self) -> Option<&[Vec<u8>]> {
+        self.rule_targets.as_deref()
     }
 
     /// The same plan, carrying the before/after a prompt will show.
