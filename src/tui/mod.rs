@@ -724,6 +724,7 @@ mod question;
 mod render_request;
 mod router;
 mod session_picker;
+mod settings;
 mod shell;
 mod signals;
 mod sound;

@@ -1,0 +1,1139 @@
+//! `/settings`: every preference this session can change, by category, in the
+//! band under the composer, each changed in place with the arrow keys.
+//!
+//! Upstream's settings menu (`vercel-labs/fx@c1db9191`, the catalog in
+//! `src/core/config/settings_catalog.zig`, the rows in
+//! `src/ui/footer/settings_menu_presentation.zig`), and it lives in the slot the
+//! `/help` catalog does ([`super::help_menu`]): between the rule under the
+//! composer and the bottom rule, with its own key help where the hint row was.
+//! Like the catalog it is a **view of the composer** rather than a focus -- the
+//! composer row stays and what is typed is its search -- but unlike the
+//! catalog its Enter runs nothing and its Left and Right are its own: they
+//! change the marked row's value, and the caret never moves
+//! (`app_input_runtime.zig:1113-1120`, ahead of every composer binding).
+//!
+//! # What a change does
+//!
+//! **The same thing the row's slash command does, and it says so the same
+//! way** (`applySettingsCatalogChange`, `app_commands.zig:4110-4210`): a status
+//! line row is `/statusline <item>` with both of its notices, the permission
+//! row is `/permissions <mode>`, the sound row is `/sound <level>`. The three
+//! preferences that have no command of their own are written to the profile
+//! and announce the write (`persistUserPreferences`, `app_commands.zig:167-192`).
+//! This module only decides *which* value a keystroke means
+//! ([`SettingsMenu::change`]); the shell applies it, so a row can never do
+//! something its command does not. Enter does nothing except on `Model`
+//! (`submitSettingsMenuSelection`, `app_input_runtime.zig:2531-2552`) -- the
+//! statusline picker is the one whose Enter flips a value, not this one.
+//!
+//! # What it lists
+//!
+//! Upstream's fourteen rows, in its order, **less the ones xfx has nothing
+//! behind**: `Reasoning effort`, `Fast mode` and `Ultra mode` (no model
+//! capability metadata or speed tier is sent), `Session titles` (xfx has no
+//! title generator: a session's title is its first prompt), and `Startup
+//! scrollback` (upstream restores the terminal's earlier output at launch, and
+//! xfx has no such restore). A row with nothing behind it would be a switch
+//! that switches nothing, which `scripts/check-no-stubs.sh` exists to keep out
+//! of the binary; `.prd/tui-phase4/ssot.md` records each one. `Sound level` is
+//! `off  on`: upstream's `max` drives chimes xfx does not play
+//! (`crate::sound`).
+//!
+//! # What it looks like
+//!
+//! A header -- `Settings N`, then `All` and the four categories, the active one
+//! in brackets -- a blank row, then one row per setting in view: two columns of
+//! indent, the label, and at a column four past the widest label **in the
+//! filtered list** the setting's choices with the one in force bold, or its
+//! value alone in bold when it has no choices to cycle (`Model`). The marked
+//! row's label is the bold hint grey and every other label is dim; there is no
+//! caret glyph.
+
+use crate::config::{Notifications, PermissionMode, StatusLine, StatusLineItem};
+
+use super::input::Action;
+use super::picker::{cells, edge_start, ellipsized, pad_to};
+use super::theme::Palette;
+
+/// The header and the blank row under it (`roomy_header_rows`,
+/// `settings_menu_presentation.zig:12`).
+const HEADER_ROWS: u16 = 2;
+
+/// The band's rows the menu cannot have, before the composer's extra rows are
+/// added to them (`inlinePickerRowBudgetCapped`'s `fixed_rows`,
+/// `picker_presentation.zig:766`).
+const FIXED_ROWS: u16 = 5;
+
+/// The document rows left on any screen tall enough to have them
+/// (`minimum_transcript_rows`, `picker_presentation.zig:767`).
+const MINIMUM_TRANSCRIPT_ROWS: u16 = 5;
+
+/// The most rows the menu is given: the header, its blank row and one row per
+/// setting (`max_inline_rows`, `settings_menu_presentation.zig:13`), which is
+/// upstream's cap counted over the settings this menu really has.
+const MOST_ROWS: u16 = HEADER_ROWS + SPECS.len() as u16;
+
+/// What every setting row starts with.
+const INDENT: usize = 2;
+
+/// The columns between the widest label and the values
+/// (`inline_picker_column_gap_width`, `picker_presentation.zig:17`).
+const COLUMN_GAP: usize = 4;
+
+/// What separates the title and the tabs from each other, and one choice from
+/// the next.
+const GAP: &str = "  ";
+
+/// What a list with nothing in it says (`composeEmptyRow`, `:322-324`).
+const EMPTY: &str = "No settings found.";
+
+/// What the hint row says while the menu is up, widest first
+/// (`composeSettingsMenuHintRow`, `src/ui/footer/input_presentation.zig:729-765`).
+///
+/// The first one that fits the screen is the one shown, and the last is shown
+/// -- cut by the painter -- when none does.
+const KEY_HELP: [&str; 5] = [
+    "\u{2191}\u{2193} navigate     tab category     \u{2190}\u{2192} change     esc close",
+    "\u{2191}\u{2193} navigate  tab category  \u{2190}\u{2192} change  esc close",
+    "\u{2191}\u{2193} move  tab category  \u{2190}\u{2192} change  esc",
+    "tab category  \u{2190}\u{2192} change  esc",
+    "tab \u{2190}\u{2192} esc",
+];
+
+/// The topic a `Slash menu categories` change is announced under: upstream's
+/// label for it (`persistUserPreferences(app, "slash menu categories", ...)`,
+/// `app_commands.zig:4135-4148`).
+pub(crate) const SLASH_MENU_CATEGORIES_TOPIC: &str = "slash menu categories";
+
+/// The topic a `Collapse tool calls` change is announced under (`:4120-4134`).
+pub(crate) const COLLAPSE_TOOL_CALLS_TOPIC: &str = "collapse tool calls";
+
+/// The topic a `Prompt history` change, and a history file that could not be
+/// written, are announced under (`handleHistory`, `session_commands.zig:443-509`;
+/// `recordAcceptedInput`, `input_submit_runtime.zig:1270-1274`).
+pub(crate) const HISTORY_TOPIC: &str = "history";
+
+/// The two words every on/off setting cycles through, in the order drawn.
+const ON_OFF: [&str; 2] = ["off", "on"];
+
+/// The permission modes, as the row draws them (`permission_options`,
+/// `settings_catalog.zig:279`): the person's words, not the wire's.
+const PERMISSION_MODES: [&str; 3] = ["ask", "auto", "full access"];
+
+/// A tab of the menu (`Category`, `settings_catalog.zig:5-21`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Category {
+    All,
+    Interface,
+    Agent,
+    Notifications,
+    Advanced,
+}
+
+impl Category {
+    /// Every tab, in the order Tab walks them.
+    const ALL: [Self; 5] = [
+        Self::All,
+        Self::Interface,
+        Self::Agent,
+        Self::Notifications,
+        Self::Advanced,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Interface => "Interface",
+            Self::Agent => "Agent",
+            Self::Notifications => "Notifications",
+            Self::Advanced => "Advanced",
+        }
+    }
+
+    fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|category| *category == self)
+            .unwrap_or(0)
+    }
+}
+
+/// One setting the menu lists (`SettingId`, `settings_catalog.zig:25-40`, the
+/// rows xfx has something behind).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Setting {
+    /// One of the footer's three optional segments: `/statusline <item>`.
+    Statusline(StatusLineItem),
+    /// Whether the slash popup shows each command's category.
+    SlashMenuCategories,
+    /// Whether a tool group is drawn as its header alone.
+    CollapseToolCalls,
+    /// The model a turn talks to: `/model`'s menu.
+    Model,
+    /// `/permissions <mode>`.
+    PermissionMode,
+    /// `/sound <level>`.
+    SoundLevel,
+    /// Whether submitted lines are kept for the composer's recall, here and in
+    /// the next session.
+    PromptHistory,
+}
+
+impl Setting {
+    /// Upstream's name for it (`@tagName`), which the search also reads
+    /// (`tokenMatches`, `settings_catalog.zig:391-396`).
+    fn tag(self) -> &'static str {
+        match self {
+            Self::Statusline(StatusLineItem::Context) => "statusline_context",
+            Self::Statusline(StatusLineItem::Session) => "statusline_session",
+            Self::Statusline(StatusLineItem::Workspace) => "statusline_workspace",
+            Self::SlashMenuCategories => "slash_menu_categories",
+            Self::CollapseToolCalls => "collapse_tool_calls",
+            Self::Model => "model",
+            Self::PermissionMode => "permission_mode",
+            Self::SoundLevel => "sound_level",
+            Self::PromptHistory => "prompt_history",
+        }
+    }
+}
+
+/// A setting's row in the catalog.
+#[derive(Debug, Clone, Copy)]
+struct Spec {
+    id: Setting,
+    category: Category,
+    label: &'static str,
+    /// Never drawn: what the search reads besides the label.
+    description: &'static str,
+}
+
+/// The settings, in upstream's order (`specs`, `settings_catalog.zig:261-276`)
+/// and upstream's words, with this product's name where upstream says its own
+/// and without `max` in the sound row's, which xfx's switch does not have.
+const SPECS: [Spec; 9] = [
+    Spec {
+        id: Setting::Statusline(StatusLineItem::Context),
+        category: Category::Interface,
+        label: "Status line context",
+        description: "Show context usage in the status line",
+    },
+    Spec {
+        id: Setting::Statusline(StatusLineItem::Session),
+        category: Category::Interface,
+        label: "Status line session",
+        description: "Show the session title in the status line",
+    },
+    Spec {
+        id: Setting::Statusline(StatusLineItem::Workspace),
+        category: Category::Interface,
+        label: "Status line workspace",
+        description: "Show the workspace path and Git branch in the status line",
+    },
+    Spec {
+        id: Setting::SlashMenuCategories,
+        category: Category::Interface,
+        label: "Slash menu categories",
+        description: "Show categories and skill sources in slash-command results",
+    },
+    Spec {
+        id: Setting::CollapseToolCalls,
+        category: Category::Interface,
+        label: "Collapse tool calls",
+        description: "Show only a summary for each group of tool calls",
+    },
+    Spec {
+        id: Setting::Model,
+        category: Category::Agent,
+        label: "Model",
+        description: "Choose the model used for new turns",
+    },
+    Spec {
+        id: Setting::PermissionMode,
+        category: Category::Agent,
+        label: "Permission mode",
+        description: "Choose when xfx asks before taking actions",
+    },
+    Spec {
+        id: Setting::SoundLevel,
+        category: Category::Notifications,
+        label: "Sound level",
+        description: "Choose off or on for sounds and terminal bells",
+    },
+    Spec {
+        id: Setting::PromptHistory,
+        category: Category::Advanced,
+        label: "Prompt history",
+        description: "Save accepted prompts and slash commands for composer history",
+    },
+];
+
+/// What is in force for each setting, as the shell holds it: the values a row
+/// shows and a change starts from (`Snapshot`, `settings_catalog.zig:49-86`).
+///
+/// Handed in to paint and to change rather than held here, so a row can never
+/// show a value the session is not using -- the same reason
+/// [`super::statusline::Menu`] holds none.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Snapshot<'a> {
+    pub(crate) statusline: StatusLine,
+    pub(crate) slash_menu_categories: bool,
+    pub(crate) collapse_tool_calls: bool,
+    /// The model id in force, provider prefix and all.
+    pub(crate) model: &'a str,
+    pub(crate) permission_mode: PermissionMode,
+    pub(crate) sound: Notifications,
+    pub(crate) prompt_history: bool,
+}
+
+impl Snapshot<'_> {
+    /// The setting's value as its row spells it (`Snapshot.value`).
+    ///
+    /// Sound is `custom` when a profile set its two switches apart -- the one
+    /// value no choice on the row is (`notificationLevel`,
+    /// `settings_catalog.zig:402-406`), so no choice is bold and a change
+    /// starts from the first.
+    fn value(&self, id: Setting) -> &str {
+        match id {
+            Setting::Statusline(item) => on_off(self.statusline.get(item)),
+            Setting::SlashMenuCategories => on_off(self.slash_menu_categories),
+            Setting::CollapseToolCalls => on_off(self.collapse_tool_calls),
+            Setting::Model => self.model,
+            Setting::PermissionMode => self.permission_mode.display_label(),
+            Setting::SoundLevel => match (self.sound.turn_end, self.sound.attention_required) {
+                (false, false) => "off",
+                (true, true) => "on",
+                _ => "custom",
+            },
+            Setting::PromptHistory => on_off(self.prompt_history),
+        }
+    }
+}
+
+/// `on` or `off`.
+fn on_off(on: bool) -> &'static str {
+    ON_OFF[usize::from(on)]
+}
+
+/// The choices a setting's row cycles through, in the order drawn
+/// (`staticOptionsFor`, `settings_catalog.zig:360-377`). None for the model,
+/// whose row is its value and whose Enter is `/model`'s menu.
+fn options(id: Setting) -> &'static [&'static str] {
+    match id {
+        Setting::Model => &[],
+        Setting::PermissionMode => &PERMISSION_MODES,
+        Setting::Statusline(_)
+        | Setting::SlashMenuCategories
+        | Setting::CollapseToolCalls
+        | Setting::SoundLevel
+        | Setting::PromptHistory => &ON_OFF,
+    }
+}
+
+/// One change a keystroke asked for: the setting, and the choice it is to have
+/// -- a word of [`options`], which is what the setting's own command reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Change {
+    pub(crate) setting: Setting,
+    pub(crate) value: &'static str,
+}
+
+/// What one keystroke means to the menu.
+///
+/// Its own vocabulary rather than [`Action`], for the reason
+/// [`super::picker::PickerAction`] is one: the shell translates, so a key the
+/// menu does not bind goes on to the composer -- which is what makes typing a
+/// search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettingsAction {
+    /// The previous setting, wrapping to the last. Up.
+    Up,
+    /// The next one, wrapping to the first. Down.
+    Down,
+    /// The next tab, wrapping to `All`. Tab.
+    NextCategory,
+    /// The previous one. Shift-Tab (`toggle_permission_mode`'s first claimant,
+    /// `app_input_runtime.zig:1175-1185`).
+    PreviousCategory,
+    /// The marked setting's previous choice, wrapping. Left.
+    Previous,
+    /// Its next choice, wrapping. Right.
+    Next,
+    /// Enter: `/model`'s menu on the `Model` row, nothing on any other.
+    Open,
+    /// Close it and empty the search (`cancelSettingsMenu`, `:3292-3294`).
+    /// Escape.
+    Close,
+}
+
+impl SettingsAction {
+    /// What an ordinary decoded action means to the menu, and `None` for the
+    /// keystrokes that go on to the composer.
+    pub(crate) fn of(action: Action) -> Option<Self> {
+        match action {
+            Action::Up => Some(Self::Up),
+            Action::Down => Some(Self::Down),
+            Action::Tab => Some(Self::NextCategory),
+            Action::BackTab => Some(Self::PreviousCategory),
+            Action::Left => Some(Self::Previous),
+            Action::Right => Some(Self::Next),
+            Action::Submit => Some(Self::Open),
+            Action::Escape => Some(Self::Close),
+            _ => None,
+        }
+    }
+}
+
+/// The menu's shape for one row budget (`Layout`,
+/// `settings_menu_presentation.zig:30-38`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Layout {
+    /// Every row it takes, header included.
+    rows: u16,
+    /// Whether the header and its blank row are drawn.
+    header: bool,
+    /// The first setting in view, as an index into the filtered list.
+    first: usize,
+    /// How many settings are in view.
+    visible: usize,
+    /// The marked setting, as an index into the filtered list.
+    selected: usize,
+}
+
+/// The menu: which tab is up, which setting is marked, and what the search is.
+///
+/// The search is the composer's text, held here as of the last edit
+/// ([`Self::set_query`]), so that the rows and the height are a function of
+/// this value and a [`Snapshot`] alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SettingsMenu {
+    category: Category,
+    /// An index into the filtered list, kept in range by the readers rather
+    /// than by every writer, as upstream's is (`selected_index % count`).
+    selected: usize,
+    /// The first setting in view, as the last move left it.
+    window_start: usize,
+    /// The composer's text.
+    query: String,
+}
+
+impl SettingsMenu {
+    /// A menu on `All`, the first setting marked, searching for `query`
+    /// (`Menu.open`, `settings_catalog.zig:196-202`).
+    pub(crate) fn open(query: &str) -> Self {
+        Self {
+            category: Category::All,
+            selected: 0,
+            window_start: 0,
+            query: query.to_string(),
+        }
+    }
+
+    /// Takes the composer's text as the search.
+    ///
+    /// A search that changed puts the mark back on the first setting and the
+    /// window back at the top (`resetForQuery`, `:208-211`, called for every
+    /// edit at `app_input_runtime.zig:2930-2933`); a keystroke that left the
+    /// text alone leaves both where they were.
+    pub(crate) fn set_query(&mut self, query: &str) {
+        if self.query != query {
+            self.query = query.to_string();
+            self.reset();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.selected = 0;
+        self.window_start = 0;
+    }
+
+    /// The next tab, or the previous one, wrapping through `All`
+    /// (`cycleCategory`, `:213-223`). The mark goes back to the top.
+    pub(crate) fn cycle(&mut self, forward: bool) {
+        let count = Category::ALL.len();
+        let current = self.category.index();
+        let next = if forward {
+            (current + 1) % count
+        } else {
+            (current + count - 1) % count
+        };
+        self.category = Category::ALL[next];
+        self.reset();
+    }
+
+    /// Moves the mark one setting, wrapping at both ends, and scrolls a window
+    /// of `visible` settings only as far as keeps it in view (`move`,
+    /// `:225-241`). `false`, and nothing moved, when nothing is listed.
+    pub(crate) fn step(&mut self, down: bool, visible: u16, snapshot: &Snapshot<'_>) -> bool {
+        let count = self.items(snapshot).len();
+        if count == 0 {
+            return false;
+        }
+        let current = self.selected % count;
+        self.selected = if down {
+            (current + 1) % count
+        } else {
+            (current + count - 1) % count
+        };
+        self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
+        true
+    }
+
+    /// The marked setting, or `None` when nothing is listed
+    /// (`selectedItem`, `:243-247`).
+    pub(crate) fn selected(&self, snapshot: &Snapshot<'_>) -> Option<Setting> {
+        let items = self.items(snapshot);
+        let count = items.len();
+        (count > 0).then(|| items[self.selected % count].id)
+    }
+
+    /// The choice one step from the marked setting's, wrapping
+    /// (`changeSelectedOption` and `cycleChange`, `:249-258`, `:332-341`).
+    ///
+    /// `None` when nothing is listed or the marked setting has no choices --
+    /// the model, whose Right opens `/model`'s menu instead, which is the
+    /// shell's to do. A value that is none of the choices (sound's `custom`)
+    /// counts as the first.
+    pub(crate) fn change(&self, forward: bool, snapshot: &Snapshot<'_>) -> Option<Change> {
+        let setting = self.selected(snapshot)?;
+        let choices = options(setting);
+        if choices.is_empty() {
+            return None;
+        }
+        let value = snapshot.value(setting);
+        let current = choices
+            .iter()
+            .position(|choice| choice.eq_ignore_ascii_case(value))
+            .unwrap_or(0);
+        let next = if forward {
+            (current + 1) % choices.len()
+        } else {
+            (current + choices.len() - 1) % choices.len()
+        };
+        Some(Change {
+            setting,
+            value: choices[next],
+        })
+    }
+
+    /// What the menu lists: the active tab's settings the search finds, in
+    /// catalog order (`itemAt`, `:290-306`).
+    fn items(&self, snapshot: &Snapshot<'_>) -> Vec<&'static Spec> {
+        let words: Vec<String> = self
+            .query
+            .split([' ', '\t', '\r', '\n'])
+            .filter(|word| !word.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect();
+        SPECS
+            .iter()
+            .filter(|spec| self.category == Category::All || spec.category == self.category)
+            .filter(|spec| found(spec, snapshot, &words))
+            .collect()
+    }
+
+    /// The menu's shape in `max_rows` rows (`buildBrowseLayout`, `:97-134`):
+    /// the header only when there are more than two rows, an empty list as
+    /// one row under it, otherwise the window where the last move left it,
+    /// pulled back to the mark and walked down until the mark is in it.
+    fn layout(&self, count: usize, max_rows: u16) -> Layout {
+        if max_rows == 0 {
+            return Layout::default();
+        }
+        let header = max_rows > HEADER_ROWS;
+        let body_start = if header { HEADER_ROWS } else { 0 };
+        if count == 0 {
+            return Layout {
+                rows: max_rows.min(body_start + 1),
+                header,
+                ..Layout::default()
+            };
+        }
+        let selected = self.selected % count;
+        let budget = usize::from(max_rows - body_start);
+        let measure = |first: usize| (count - first).min(budget);
+        let mut first = self.window_start.min(count - 1).min(selected);
+        let mut visible = measure(first);
+        while selected >= first + visible && first < selected {
+            first += 1;
+            visible = measure(first);
+        }
+        if visible == 0 {
+            first = selected;
+            visible = measure(first);
+        }
+        // At most the catalog's nine settings.
+        let shown = u16::try_from(visible).unwrap_or(u16::MAX);
+        Layout {
+            rows: body_start + shown,
+            header,
+            first,
+            visible,
+            selected,
+        }
+    }
+
+    /// How many rows the band has to give it on a screen `terminal_rows` tall
+    /// whose composer is `input_extra` rows taller than one (`menuRowCount`
+    /// under `inlinePickerRowBudgetCapped`, `surface_frame.zig:556-560`,
+    /// `:601-606`).
+    pub(crate) fn height(
+        &self,
+        snapshot: &Snapshot<'_>,
+        terminal_rows: u16,
+        input_extra: u16,
+    ) -> u16 {
+        self.layout(
+            self.items(snapshot).len(),
+            row_budget(terminal_rows, input_extra),
+        )
+        .rows
+    }
+
+    /// How many settings are in view in `max_rows` rows, and never fewer than
+    /// one: the window a move scrolls against
+    /// (`visibleNavigationItemsForBudget`, `:44-50`).
+    pub(crate) fn visible_items(&self, snapshot: &Snapshot<'_>, max_rows: u16) -> u16 {
+        let visible = self.layout(self.items(snapshot).len(), max_rows).visible;
+        u16::try_from(visible.max(1)).unwrap_or(u16::MAX)
+    }
+
+    /// The menu's rows in `max_rows` rows of a `cols`-wide screen, top first:
+    /// exactly as many as [`Self::height`] gave the band when `max_rows` is
+    /// that height (`composeSettingsMenuRow`, `:73-95`).
+    pub(crate) fn rows(
+        &self,
+        snapshot: &Snapshot<'_>,
+        cols: u16,
+        max_rows: u16,
+        palette: Palette,
+    ) -> Vec<String> {
+        let items = self.items(snapshot);
+        let layout = self.layout(items.len(), max_rows);
+        let mut rows = Vec::with_capacity(usize::from(layout.rows));
+        if layout.rows == 0 {
+            return rows;
+        }
+        if layout.header {
+            rows.push(self.header(items.len(), cols, palette));
+            rows.push(String::new());
+        }
+        if items.is_empty() {
+            rows.push(format!(
+                "{}{}{}",
+                palette.dim(),
+                ellipsized(EMPTY, usize::from(cols)),
+                palette.reset()
+            ));
+            return rows;
+        }
+        let column = value_column(&items, cols);
+        for (offset, spec) in items[layout.first..layout.first + layout.visible]
+            .iter()
+            .enumerate()
+        {
+            let marked = layout.first + offset == layout.selected;
+            rows.push(item_row(spec, snapshot, marked, column, cols, palette));
+        }
+        rows
+    }
+
+    /// `Settings N` and the tabs (`composeBrowseHeader`, `:185-210`): every
+    /// tab when they fit; narrower, the title and the active tab; narrower
+    /// still, the active tab alone, cut at the screen's edge.
+    fn header(&self, count: usize, cols: u16, palette: Palette) -> String {
+        let width = usize::from(cols);
+        let title = format!("{}Settings {count}{}", palette.subtitle(), palette.reset());
+        let mut wide = title.clone();
+        for category in Category::ALL {
+            wide.push_str(GAP);
+            wide.push_str(&painted_tab(category, category == self.category, palette));
+        }
+        if cells(&wide) <= width {
+            return wide;
+        }
+        let active = painted_tab(self.category, true, palette);
+        let compact = format!("{title}{GAP}{active}");
+        if cells(&compact) <= width {
+            return compact;
+        }
+        // Cut inside its colour, so the reset is never what the cut drops.
+        format!(
+            "{}{}{}",
+            palette.subtitle(),
+            super::frame::clip(&format!("[{}]", self.category.label()), cols),
+            palette.reset()
+        )
+    }
+}
+
+/// One tab: the active one bold in brackets, the rest dim
+/// (`appendCategoryTab`, `:220-231`).
+fn painted_tab(category: Category, active: bool, palette: Palette) -> String {
+    if active {
+        format!(
+            "{}[{}]{}",
+            palette.subtitle(),
+            category.label(),
+            palette.reset()
+        )
+    } else {
+        format!("{}{}{}", palette.dim(), category.label(), palette.reset())
+    }
+}
+
+/// One setting's row (`composeItemRow`, `:233-275`).
+///
+/// The indent, the label in the row's style and closed, uncoloured spaces out
+/// to the value column; then each choice, two spaces apart, the one in force
+/// bold and the rest dim -- or, for a setting with no choices, its value in
+/// bold. A choice that would run past the screen is cut there and ends the
+/// row.
+fn item_row(
+    spec: &Spec,
+    snapshot: &Snapshot<'_>,
+    marked: bool,
+    column: usize,
+    cols: u16,
+    palette: Palette,
+) -> String {
+    let width = usize::from(cols);
+    let indent = if width <= INDENT { 0 } else { INDENT };
+    let mut row = " ".repeat(indent);
+    row.push_str(if marked {
+        palette.subtitle()
+    } else {
+        palette.dim()
+    });
+    row.push_str(&ellipsized(spec.label, column.saturating_sub(indent)));
+    row.push_str(palette.reset());
+    pad_to(&mut row, column);
+    let value = snapshot.value(spec.id);
+    let choices = options(spec.id);
+    if choices.is_empty() {
+        row.push_str(palette.subtitle());
+        row.push_str(&ellipsized(value, width.saturating_sub(column)));
+        row.push_str(palette.reset());
+        return row;
+    }
+    for (index, choice) in choices.iter().enumerate() {
+        let used = cells(&row);
+        if used >= width {
+            break;
+        }
+        if index > 0 {
+            row.push_str(&" ".repeat(GAP.len().min(width - used)));
+        }
+        row.push_str(if choice.eq_ignore_ascii_case(value) {
+            palette.subtitle()
+        } else {
+            palette.dim()
+        });
+        row.push_str(&ellipsized(choice, width.saturating_sub(cells(&row))));
+        row.push_str(palette.reset());
+    }
+    row
+}
+
+/// Where the values start: past the indent, the widest label **in the
+/// filtered list** -- not the window -- and the gap (`valueColumn`,
+/// `:312-320`). So the column moves as the search or the tab narrows the list.
+fn value_column(items: &[&Spec], cols: u16) -> usize {
+    let width = usize::from(cols);
+    let indent = if width <= INDENT { 0 } else { INDENT };
+    let widest = items
+        .iter()
+        .map(|spec| cells(spec.label))
+        .max()
+        .unwrap_or(0);
+    (indent + widest + COLUMN_GAP).min(width)
+}
+
+/// Whether every word of the search is somewhere in the setting's label,
+/// description, value or name, case aside (`matchesQuery`, `:383-396`).
+fn found(spec: &Spec, snapshot: &Snapshot<'_>, words: &[String]) -> bool {
+    words.iter().all(|word| {
+        [
+            spec.label,
+            spec.description,
+            snapshot.value(spec.id),
+            spec.id.tag(),
+        ]
+        .into_iter()
+        .any(|text| text.to_ascii_lowercase().contains(word.as_str()))
+    })
+}
+
+/// The rows a screen `terminal_rows` tall gives the menu when its composer is
+/// `input_extra` rows taller than one (`inlinePickerRowBudgetCapped`,
+/// `picker_presentation.zig:760-770`): what is left after the band's fixed
+/// rows and five rows of document, at most [`MOST_ROWS`] and never none.
+fn row_budget(terminal_rows: u16, input_extra: u16) -> u16 {
+    terminal_rows
+        .saturating_sub(FIXED_ROWS.saturating_add(input_extra))
+        .saturating_sub(MINIMUM_TRANSCRIPT_ROWS)
+        .clamp(1, MOST_ROWS)
+}
+
+/// What the hint row says while the menu is up, on a screen `cols` wide.
+///
+/// The widest of [`KEY_HELP`] that fits, and the narrowest when none does.
+pub(crate) fn key_help(cols: u16) -> &'static str {
+    KEY_HELP
+        .iter()
+        .copied()
+        .find(|candidate| cells(candidate) <= usize::from(cols))
+        .unwrap_or(KEY_HELP[KEY_HELP.len() - 1])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use super::super::theme::{Depth, Mode};
+
+    const PALETTE: Palette = Palette {
+        mode: Mode::Dark,
+        depth: Depth::Ansi256,
+    };
+
+    /// Upstream's `selected_completion_style`: the title, the active tab, the
+    /// marked label and the value in force.
+    const BRIGHT: &str = "\u{1b}[1;38;5;255m";
+
+    /// Upstream's `dim_style`.
+    const DIM: &str = "\u{1b}[38;5;245m";
+
+    const RESET: &str = "\u{1b}[0m";
+
+    /// What a session launched by the capture harness holds: every segment
+    /// off, the categories shown, groups expanded, `auto`, sound off, history
+    /// kept.
+    fn launched() -> Snapshot<'static> {
+        Snapshot {
+            statusline: StatusLine::default(),
+            slash_menu_categories: true,
+            collapse_tool_calls: false,
+            model: "fake/model-a",
+            permission_mode: PermissionMode::Auto,
+            sound: Notifications::both(false),
+            prompt_history: true,
+        }
+    }
+
+    /// The text of a row with its colours taken out.
+    fn plain(row: &str) -> String {
+        let mut out = String::new();
+        let mut rest = row;
+        while !rest.is_empty() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            let mut characters = rest.chars();
+            out.extend(characters.next());
+            rest = characters.as_str();
+        }
+        out
+    }
+
+    fn labels(menu: &SettingsMenu, snapshot: &Snapshot<'_>) -> Vec<&'static str> {
+        menu.items(snapshot).iter().map(|spec| spec.label).collect()
+    }
+
+    fn on_tab(tabs: usize) -> SettingsMenu {
+        let mut menu = SettingsMenu::open("");
+        for _ in 0..tabs {
+            menu.cycle(true);
+        }
+        menu
+    }
+
+    /// A choice row as upstream paints it: the label at the indent and padded
+    /// to column 27 (2 + `Status line workspace` + 4), then each choice with
+    /// the one in force bright.
+    fn choice_row(label: &str, marked: bool, choices: &[&str], current: &str) -> String {
+        let style = if marked { BRIGHT } else { DIM };
+        let mut row = format!("  {style}{label}{RESET}{}", " ".repeat(25 - label.len()));
+        for (index, choice) in choices.iter().enumerate() {
+            if index > 0 {
+                row.push_str("  ");
+            }
+            let style = if *choice == current { BRIGHT } else { DIM };
+            row.push_str(&format!("{style}{choice}{RESET}"));
+        }
+        row
+    }
+
+    #[test]
+    fn the_bare_menu_is_upstreams_rows_less_the_settings_xfx_has_nothing_behind() {
+        // `cap/fx-settings-40x120-bare.ansi` rows 5-20, without `Reasoning
+        // effort`, `Fast mode`, `Ultra mode`, `Session titles` and `Startup
+        // scrollback`, and with `Sound level` cycling `off  on`.
+        let rows = SettingsMenu::open("").rows(&launched(), 120, 40, PALETTE);
+        let tab = |label: &str| format!("  {DIM}{label}{RESET}");
+        let mut expected = vec![
+            format!(
+                "{BRIGHT}Settings 9{RESET}  {BRIGHT}[All]{RESET}{}{}{}{}",
+                tab("Interface"),
+                tab("Agent"),
+                tab("Notifications"),
+                tab("Advanced")
+            ),
+            String::new(),
+        ];
+        expected.push(choice_row("Status line context", true, &ON_OFF, "off"));
+        expected.push(choice_row("Status line session", false, &ON_OFF, "off"));
+        expected.push(choice_row("Status line workspace", false, &ON_OFF, "off"));
+        expected.push(choice_row("Slash menu categories", false, &ON_OFF, "on"));
+        expected.push(choice_row("Collapse tool calls", false, &ON_OFF, "off"));
+        expected.push(format!(
+            "  {DIM}Model{RESET}{}{BRIGHT}fake/model-a{RESET}",
+            " ".repeat(20)
+        ));
+        expected.push(choice_row(
+            "Permission mode",
+            false,
+            &PERMISSION_MODES,
+            "auto",
+        ));
+        expected.push(choice_row("Sound level", false, &ON_OFF, "off"));
+        expected.push(choice_row("Prompt history", false, &ON_OFF, "on"));
+        assert_eq!(rows, expected);
+        assert_eq!(SettingsMenu::open("").height(&launched(), 40, 0), 11);
+    }
+
+    #[test]
+    fn tab_walks_all_and_upstreams_four_categories_and_wraps() {
+        // `fx-settings2-40x120-tab1..5`: Interface, Agent, Notifications,
+        // Advanced, All -- with xfx's settings on each.
+        let snapshot = launched();
+        assert_eq!(labels(&on_tab(0), &snapshot).len(), 9);
+        assert_eq!(
+            labels(&on_tab(1), &snapshot),
+            [
+                "Status line context",
+                "Status line session",
+                "Status line workspace",
+                "Slash menu categories",
+                "Collapse tool calls"
+            ]
+        );
+        assert_eq!(labels(&on_tab(2), &snapshot), ["Model", "Permission mode"]);
+        assert_eq!(labels(&on_tab(3), &snapshot), ["Sound level"]);
+        assert_eq!(labels(&on_tab(4), &snapshot), ["Prompt history"]);
+        assert_eq!(on_tab(5), SettingsMenu::open(""));
+        // Shift-Tab is the other way round.
+        let mut back = SettingsMenu::open("");
+        back.cycle(false);
+        assert_eq!(back.category, Category::Advanced);
+        // The header counts the tab's settings and brackets the tab.
+        let rows = on_tab(3).rows(&snapshot, 120, 40, PALETTE);
+        assert!(plain(&rows[0]).starts_with("Settings 1  All  Interface  Agent  [Notifications]"));
+    }
+
+    #[test]
+    fn the_value_column_follows_the_widest_label_on_the_tab() {
+        // `fx-settings2-40x120-tab3`: Notifications alone, so its column is
+        // 2 + `Sound level` + 4.
+        let rows = on_tab(3).rows(&launched(), 120, 40, PALETTE);
+        assert_eq!(plain(&rows[2]), "  Sound level    off  on");
+        let rows = on_tab(2).rows(&launched(), 120, 40, PALETTE);
+        assert_eq!(plain(&rows[2]), "  Model              fake/model-a");
+    }
+
+    #[test]
+    fn a_tab_change_and_a_new_search_put_the_mark_back_on_top() {
+        let snapshot = launched();
+        let mut menu = SettingsMenu::open("");
+        assert!(menu.step(true, 9, &snapshot));
+        assert!(menu.step(true, 9, &snapshot));
+        assert_eq!(
+            menu.selected(&snapshot),
+            Some(Setting::Statusline(StatusLineItem::Workspace))
+        );
+        menu.cycle(true);
+        assert_eq!(menu.selected, 0);
+        menu.step(true, 9, &snapshot);
+        menu.set_query("s");
+        assert_eq!(menu.selected, 0);
+        // The same text again is not a new search.
+        menu.step(true, 9, &snapshot);
+        menu.set_query("s");
+        assert_eq!(menu.selected, 1);
+    }
+
+    #[test]
+    fn up_and_down_wrap_at_both_ends() {
+        let snapshot = launched();
+        let mut menu = SettingsMenu::open("");
+        assert!(menu.step(false, 9, &snapshot));
+        assert_eq!(menu.selected(&snapshot), Some(Setting::PromptHistory));
+        assert!(menu.step(true, 9, &snapshot));
+        assert_eq!(
+            menu.selected(&snapshot),
+            Some(Setting::Statusline(StatusLineItem::Context))
+        );
+    }
+
+    #[test]
+    fn the_search_reads_labels_descriptions_values_and_upstreams_names() {
+        // `fx-settings2-40x120-filter-sou`: `sou` finds `Sound level` and, by
+        // its description's "skill sources", `Slash menu categories`.
+        let snapshot = launched();
+        assert_eq!(
+            labels(&SettingsMenu::open("sou"), &snapshot),
+            ["Slash menu categories", "Sound level"]
+        );
+        // A value: the model's id.
+        assert_eq!(labels(&SettingsMenu::open("MODEL-A"), &snapshot), ["Model"]);
+        // Upstream's tag, and every word has to be found.
+        assert_eq!(
+            labels(&SettingsMenu::open("prompt_history"), &snapshot),
+            ["Prompt history"]
+        );
+        assert_eq!(
+            labels(&SettingsMenu::open("status workspace"), &snapshot),
+            ["Status line workspace"]
+        );
+        // `fx-settings2-40x120-filter-none`: one dim row and the header.
+        let rows = SettingsMenu::open("souzzz").rows(&snapshot, 120, 40, PALETTE);
+        assert_eq!(
+            rows,
+            [
+                format!(
+                    "{BRIGHT}Settings 0{RESET}  {BRIGHT}[All]{RESET}  {DIM}Interface{RESET}  \
+                     {DIM}Agent{RESET}  {DIM}Notifications{RESET}  {DIM}Advanced{RESET}"
+                ),
+                String::new(),
+                format!("{DIM}No settings found.{RESET}"),
+            ]
+        );
+        assert_eq!(SettingsMenu::open("souzzz").height(&snapshot, 40, 0), 3);
+    }
+
+    #[test]
+    fn a_change_is_the_next_or_previous_choice_wrapping() {
+        let snapshot = launched();
+        let menu = SettingsMenu::open("");
+        assert_eq!(
+            menu.change(true, &snapshot),
+            Some(Change {
+                setting: Setting::Statusline(StatusLineItem::Context),
+                value: "on"
+            })
+        );
+        // Two choices: either way is a flip.
+        assert_eq!(menu.change(false, &snapshot).map(|c| c.value), Some("on"));
+        let permission = SettingsMenu::open("permission");
+        assert_eq!(
+            permission.change(true, &snapshot).map(|c| c.value),
+            Some("full access")
+        );
+        assert_eq!(
+            permission.change(false, &snapshot).map(|c| c.value),
+            Some("ask")
+        );
+        let full = Snapshot {
+            permission_mode: PermissionMode::Yolo,
+            ..launched()
+        };
+        assert_eq!(permission.change(true, &full).map(|c| c.value), Some("ask"));
+        // The model has no choices: its Right is the shell's.
+        assert_eq!(SettingsMenu::open("model").change(true, &snapshot), None);
+        // Nothing listed, nothing changed.
+        assert_eq!(SettingsMenu::open("zzz").change(true, &snapshot), None);
+    }
+
+    #[test]
+    fn sound_set_apart_by_a_profile_is_custom_and_starts_from_the_first_choice() {
+        // `notificationLevel`: one switch on and the other off is neither.
+        let custom = Snapshot {
+            sound: Notifications {
+                turn_end: true,
+                attention_required: false,
+            },
+            ..launched()
+        };
+        let menu = SettingsMenu::open("sound");
+        let rows = menu.rows(&custom, 120, 40, PALETTE);
+        assert!(
+            rows[2].ends_with(&format!("{DIM}off{RESET}  {DIM}on{RESET}")),
+            "{:?}",
+            rows[2]
+        );
+        assert_eq!(menu.change(true, &custom).map(|c| c.value), Some("on"));
+        assert_eq!(menu.change(false, &custom).map(|c| c.value), Some("on"));
+    }
+
+    #[test]
+    fn a_narrow_screen_keeps_the_title_and_the_active_tab_then_the_tab_alone() {
+        let snapshot = launched();
+        let menu = on_tab(2);
+        assert_eq!(
+            plain(&menu.rows(&snapshot, 40, 40, PALETTE)[0]),
+            "Settings 2  [Agent]"
+        );
+        assert_eq!(plain(&menu.rows(&snapshot, 12, 40, PALETTE)[0]), "[Agent]");
+        assert_eq!(plain(&menu.rows(&snapshot, 5, 40, PALETTE)[0]), "[Agen");
+    }
+
+    #[test]
+    fn a_short_screen_drops_the_header_then_shows_the_marked_row_alone() {
+        let snapshot = launched();
+        let mut menu = SettingsMenu::open("");
+        for _ in 0..5 {
+            menu.step(true, 1, &snapshot);
+        }
+        // Two rows: no header, the mark kept in view -- at the top of the
+        // window its last move left (`buildBrowseLayout`'s `window_start`).
+        let rows = menu.rows(&snapshot, 120, 2, PALETTE);
+        assert_eq!(rows.len(), 2);
+        assert!(plain(&rows[0]).starts_with("  Model"), "{rows:?}");
+        assert!(plain(&rows[1]).starts_with("  Permission mode"), "{rows:?}");
+        let rows = menu.rows(&snapshot, 120, 1, PALETTE);
+        assert_eq!(rows.len(), 1);
+        assert!(plain(&rows[0]).starts_with("  Model"), "{rows:?}");
+        // Eleven rows of screen leave the menu one row: five for the band's
+        // own and five of document (`row_budget`).
+        assert_eq!(menu.height(&snapshot, 11, 0), 1);
+        assert_eq!(menu.height(&snapshot, 12, 0), 2);
+        assert_eq!(menu.height(&snapshot, 13, 0), 3);
+        // A taller composer takes its rows from the menu.
+        assert_eq!(menu.height(&snapshot, 13, 1), 2);
+    }
+
+    #[test]
+    fn the_hint_row_is_upstreams_widest_key_help_that_fits() {
+        assert_eq!(
+            key_help(120),
+            "\u{2191}\u{2193} navigate     tab category     \u{2190}\u{2192} change     esc close"
+        );
+        assert_eq!(
+            key_help(50),
+            "\u{2191}\u{2193} navigate  tab category  \u{2190}\u{2192} change  esc close"
+        );
+        assert_eq!(key_help(30), "tab category  \u{2190}\u{2192} change  esc");
+        assert_eq!(key_help(5), "tab \u{2190}\u{2192} esc");
+    }
+
+    #[test]
+    fn enter_left_and_right_are_the_menus_and_letters_go_to_the_search() {
+        assert_eq!(
+            SettingsAction::of(Action::Left),
+            Some(SettingsAction::Previous)
+        );
+        assert_eq!(
+            SettingsAction::of(Action::Right),
+            Some(SettingsAction::Next)
+        );
+        assert_eq!(
+            SettingsAction::of(Action::Submit),
+            Some(SettingsAction::Open)
+        );
+        assert_eq!(
+            SettingsAction::of(Action::BackTab),
+            Some(SettingsAction::PreviousCategory)
+        );
+        assert_eq!(SettingsAction::of(Action::Backspace), None);
+    }
+}

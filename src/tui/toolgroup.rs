@@ -76,6 +76,9 @@ pub(crate) struct ToolGroup {
     /// block on the screen. A rebuild that comes out the same is not queued
     /// again.
     drawn: Vec<String>,
+    /// Whether the block is its header alone: `/settings`' `Collapse tool
+    /// calls`, as the shell last set it ([`Self::set_collapsed`]).
+    collapsed: bool,
 }
 
 #[derive(Debug)]
@@ -280,6 +283,20 @@ impl ToolGroup {
             .collect()
     }
 
+    /// Draws the block as its header alone, or as the header and its calls
+    /// (`formatGroupBlock`'s `collapse_tool_calls`,
+    /// `tool_group_projection.zig:561-565`): collapsed, the calls' rows go --
+    /// the running one too (`fx-settings-collapse-40x120-running`: the header,
+    /// a blank row and the activity row) -- and so does a cancelled call's own
+    /// line, which upstream builds after that early return. The header still
+    /// counts every call.
+    ///
+    /// Read by the next [`Self::redraw`], so a change is drawn the next time
+    /// the block is: the shell redraws an open group at once.
+    pub(crate) fn set_collapsed(&mut self, collapsed: bool) {
+        self.collapsed = collapsed;
+    }
+
     /// Whether the group's block is on the screen (or on its way there).
     pub(crate) fn drawn(&self) -> bool {
         !self.drawn.is_empty()
@@ -321,6 +338,7 @@ impl ToolGroup {
                 .filter(|call| !call.settled())
                 .collect(),
             drawn: Vec::new(),
+            collapsed: self.collapsed,
         }
     }
 
@@ -335,6 +353,9 @@ impl ToolGroup {
         let shown = self.calls.iter().filter(|call| call.visible()).count();
         if shown == 0 {
             return Vec::new();
+        }
+        if self.collapsed {
+            return vec![DocumentRow::ToolGroup, DocumentRow::Plain];
         }
         let mut kinds = vec![DocumentRow::ToolGroup; shown + 1];
         kinds.push(DocumentRow::Plain);
@@ -361,6 +382,11 @@ impl ToolGroup {
         let shown: Vec<&Call> = self.calls.iter().filter(|call| call.visible()).collect();
         let mut rows = self.header_and_calls(palette, palette.statusline());
         if rows.is_empty() {
+            return rows;
+        }
+        if self.collapsed {
+            rows.truncate(1);
+            rows.push(String::new());
             return rows;
         }
         rows.push(String::new());
@@ -751,6 +777,45 @@ mod tests {
                 "\u{2514} Signaled 9 yes",
             ]
         );
+    }
+
+    #[test]
+    fn collapsed_the_block_is_its_header_and_a_blank_row_and_still_counts_every_call() {
+        // `/settings`' `Collapse tool calls` (`formatGroupBlock`'s early
+        // return, `tool_group_projection.zig:561-565`): the running command's
+        // row goes too (`fx-settings-collapse-40x120-running`).
+        let mut group = five_calls_one_running();
+        group.set_collapsed(true);
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 5 tool calls \u{b7} 3 read \u{b7} 1 list \u{b7} 1 command",
+                "",
+            ]
+        );
+        assert_eq!(
+            group.kinds(),
+            [DocumentRow::ToolGroup, DocumentRow::Plain],
+            "a kind per row, or a theme report recolours the wrong rows"
+        );
+        // A stopped call keeps its count and loses its own line.
+        assert_eq!(group.cancel_running(), ["5".to_string()]);
+        assert_eq!(
+            plain(&group),
+            [
+                "\u{25cf} 5 tool calls \u{b7} 3 read \u{b7} 1 list \u{b7} 1 command \u{b7} 1 cancelled",
+                "",
+            ]
+        );
+        // Drawn again expanded once it is turned off, and the full transcript
+        // never collapses.
+        assert!(group.redraw(DARK, &[]).is_some());
+        group.set_collapsed(false);
+        assert_eq!(group.redraw(DARK, &[]).map(|rows| rows.len()), Some(9));
+        group.set_collapsed(true);
+        assert_eq!(group.expanded(DARK).len(), 6);
+        // What is left of a closed group stays collapsed.
+        assert!(group.unsettled().collapsed);
     }
 
     #[test]

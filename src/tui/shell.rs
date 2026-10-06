@@ -103,6 +103,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::session_picker::{self, SessionAction, SessionPicker};
+use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
@@ -755,6 +756,22 @@ pub(crate) struct Shell {
     /// Where a `/statusline` change is kept: `~/.xfx/settings.json`, or `None`
     /// for a session with no home to keep it in.
     settings_path: Option<std::path::PathBuf>,
+    /// The `/settings` menu, while it is up ([`super::settings`]).
+    ///
+    /// Another occupant of the slot, and a view of the composer like the
+    /// catalog: what is typed is its search. Unlike the catalog it binds Left,
+    /// Right and Enter, so it is offered every keystroke before the editor
+    /// sees it. It opens with the other menus closed and none of them can open
+    /// while it is up: Enter, which is how a command would, is its own.
+    settings_menu: Option<SettingsMenu>,
+    /// Whether the slash popup shows each command's category: the profile's
+    /// `slash_menu_categories` at launch, and `/settings` since.
+    slash_menu_categories: bool,
+    /// Whether a tool group is drawn as its header alone: the profile's
+    /// `collapse_tool_calls` at launch, and `/settings` since.
+    collapse_tool_calls: bool,
+    /// Whether submitted lines are kept, and where ([`Recall`]).
+    recall: Recall,
     /// The `/provider` picker, while the draft is its argument
     /// ([`super::provider_picker`]).
     ///
@@ -1217,6 +1234,9 @@ enum Slot<'a> {
     Ask(&'a QuestionPanel),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// The `/settings` menu. Rows, and the composer as its search; it binds
+    /// more keys than the catalog does, and owns nothing else.
+    Settings(&'a SettingsMenu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1230,6 +1250,43 @@ enum Slot<'a> {
     Provider(&'a ProviderPicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
+}
+
+/// The prompt history's facts this shell holds: whether submitted lines are
+/// kept at all, and the file they are kept in
+/// (`PromptHistoryRuntime`, `prompt_history_runtime.zig:24-31`).
+#[derive(Debug)]
+struct Recall {
+    /// `/settings`' `Prompt history`: the profile's `prompt_history.enabled`
+    /// at launch, and every change since. Off, a submitted line is kept
+    /// nowhere -- not in the file and not in this session's recall either
+    /// (`recordComposerHistory`'s guard, `input_submit_runtime.zig:1327-1329`).
+    enabled: bool,
+    /// `~/.xfx/history.jsonl`, or `None` for a session with no profile -- and
+    /// for a shell a test built, unless the test hands it one.
+    store: Option<crate::session::prompt_history::PromptHistory>,
+    /// The workspace a line is filed under, as a record spells it, or `None`
+    /// when its path is not UTF-8 and so cannot be one (`validateWorkspaceRoot`,
+    /// `prompt_history_store.zig:570-579`).
+    workspace: Option<String>,
+    /// Whether a failed save has been said since the last one that worked:
+    /// one warning per run of failures (`append_warning_active`,
+    /// `prompt_history_runtime.zig:133-140`).
+    warned: bool,
+}
+
+impl Recall {
+    fn new(
+        config: &RuntimeConfig,
+        store: Option<crate::session::prompt_history::PromptHistory>,
+    ) -> Self {
+        Self {
+            enabled: config.prompt_history,
+            store,
+            workspace: config.workspace_root.to_str().map(str::to_string),
+            warned: false,
+        }
+    }
 }
 
 /// How a session ended, which is the same question as what it exits with.
@@ -1268,7 +1325,16 @@ impl Shell {
         let settings = config.user_settings_path.clone();
         #[cfg(test)]
         let settings = None;
-        Self {
+        // The prompt history, on the same terms: a shell a test built keeps
+        // none unless the test hands it one ([`Recall::store`]).
+        #[cfg(not(test))]
+        let history_store = config
+            .profile_dir
+            .as_deref()
+            .map(crate::session::prompt_history::PromptHistory::in_profile);
+        #[cfg(test)]
+        let history_store = None;
+        let mut shell = Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
             geometry: geometry.floated(0),
@@ -1353,6 +1419,10 @@ impl Shell {
                 identity
             },
             settings_path: config.user_settings_path.clone(),
+            settings_menu: None,
+            slash_menu_categories: config.slash_menu_categories,
+            collapse_tool_calls: config.collapse_tool_calls,
+            recall: Recall::new(config, history_store),
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
@@ -1379,7 +1449,9 @@ impl Shell {
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
-        }
+        };
+        shell.recall_saved_lines();
+        shell
     }
 
     /// The band's rows, top first, starting at the band's own top row -- the
@@ -1465,6 +1537,13 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same, with the values in force.
+                Some(Slot::Settings(menu)) => menu.rows(
+                    &self.settings_snapshot(),
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    self.palette,
+                ),
                 Some(Slot::Sessions(sessions)) => {
                     sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
@@ -1480,9 +1559,12 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
-                Some(Slot::Menu(picker)) => {
-                    picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
-                }
+                Some(Slot::Menu(picker)) => picker.rows(
+                    self.geometry.cols,
+                    self.geometry.rows,
+                    self.palette,
+                    self.slash_menu_categories,
+                ),
                 // In the rows the geometry gave it, under the argument it is
                 // the column of.
                 Some(Slot::Provider(column)) => column.rows(
@@ -1540,6 +1622,13 @@ impl Shell {
             Some(Slot::Catalog(_)) => self.painted(
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // The settings menu's, `←→ change` where the catalog's says
+            // `enter open` (`composeSettingsMenuHintRow`,
+            // `input_presentation.zig:729-765`).
+            Some(Slot::Settings(_)) => self.painted(
+                self.palette.dim(),
+                settings::key_help(self.geometry.cols).to_string(),
             ),
             // The picker's, in the same grey (`input_presentation.zig:834-840`).
             Some(Slot::Sessions(_)) => self.painted(
@@ -1745,6 +1834,13 @@ impl Shell {
         }
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
+        }
+        // Ahead of the catalog and the pickers, as upstream ranks it
+        // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
+        // ranking never decides anything: it opens with them closed and none
+        // of them can open while it is up.
+        if let Some(menu) = self.settings_menu.as_ref() {
+            return Some(Slot::Settings(menu));
         }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
@@ -3041,6 +3137,296 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// What each `/settings` row is set to now ([`settings::Snapshot`]): the
+    /// session's own fields, read at the moment they are painted or changed.
+    fn settings_snapshot(&self) -> settings::Snapshot<'_> {
+        settings::Snapshot {
+            statusline: self.statusline,
+            slash_menu_categories: self.slash_menu_categories,
+            collapse_tool_calls: self.collapse_tool_calls,
+            model: &self.model,
+            permission_mode: self.mode,
+            sound: self.sound.notifications(),
+            prompt_history: self.recall.enabled,
+        }
+    }
+
+    /// Offers one keystroke to the `/settings` menu, and says whether it was
+    /// taken.
+    ///
+    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// a Backspace or a C-u edits the search and goes on to the composer with
+    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// and with it the menu's height, so the band is re-solved; Left and Right
+    /// change the marked setting at once (`changeSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
+    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
+    /// is spent on every other row; Escape closes the menu and empties its
+    /// search.
+    fn offer_to_settings(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = SettingsAction::of(*action) else {
+            return false;
+        };
+        // Taken out and put back, so the menu can be moved against a snapshot
+        // that borrows the rest of the shell.
+        let Some(mut menu) = self.settings_menu.take() else {
+            return false;
+        };
+        let snapshot = self.settings_snapshot();
+        let mut change = None;
+        let mut models = false;
+        let mut close = false;
+        let mut refit = false;
+        let mut repaint = false;
+        match request {
+            SettingsAction::Up | SettingsAction::Down => {
+                let visible = menu.visible_items(&snapshot, self.geometry.panel);
+                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+            }
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
+                menu.cycle(request == SettingsAction::NextCategory);
+                refit = true;
+            }
+            SettingsAction::Previous | SettingsAction::Next => {
+                let forward = request == SettingsAction::Next;
+                if menu.selected(&snapshot) == Some(Setting::Model) {
+                    models = forward;
+                } else {
+                    change = menu.change(forward, &snapshot);
+                }
+            }
+            SettingsAction::Open => {
+                models = menu.selected(&snapshot) == Some(Setting::Model);
+            }
+            SettingsAction::Close => close = true,
+        }
+        self.settings_menu = Some(menu);
+        if close {
+            self.close_settings();
+            return true;
+        }
+        if models {
+            self.open_models_from_settings();
+            return true;
+        }
+        if let Some(change) = change {
+            self.apply_setting(change);
+            // A change can narrow or widen what the search finds -- the search
+            // reads values too -- so the height is asked again.
+            refit = true;
+        }
+        if refit {
+            self.refit();
+            repaint = true;
+        }
+        if repaint {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Takes the settings menu down and empties its search
+    /// (`cancelSettingsMenu` -> `closeSettingsMenu(app, true)`,
+    /// `app_input_runtime.zig:2324-2333`, `:3292-3294`).
+    fn close_settings(&mut self) {
+        if self.settings_menu.take().is_none() {
+            return;
+        }
+        if !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the menu gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
+    /// opens it -- the settings menu closed and its search emptied first, so
+    /// what was typed to find the row is not taken for a model's name.
+    ///
+    /// Upstream opens an inline list of models **under the row**, inside the
+    /// settings menu, and Left in it applies the marked one
+    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
+    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
+    /// which lists the same catalog and applies a model the same way.
+    fn open_models_from_settings(&mut self) {
+        self.close_settings();
+        self.open_models();
+    }
+
+    /// Applies one `/settings` change through the code path the setting's own
+    /// command takes, and says so in its words (`applySettingsCatalogChange`,
+    /// `app_commands.zig:4110-4210`).
+    fn apply_setting(&mut self, change: settings::Change) {
+        let on = change.value == "on";
+        match change.setting {
+            // `applyStatuslineItem(.announce)`: both of `/statusline <item>`'s
+            // notices.
+            Setting::Statusline(item) => {
+                if on != self.statusline.get(item) {
+                    self.set_statusline(item, on, true);
+                }
+            }
+            // `handlePermissions(app, value)`: `/permissions <mode>` itself.
+            Setting::PermissionMode => CommandHandlers::permissions(self, change.value),
+            // `handleNotificationsCommand(app, value)`: `/sound <level>`.
+            Setting::SoundLevel => CommandHandlers::sound(self, change.value),
+            Setting::SlashMenuCategories => {
+                let changed = on != self.slash_menu_categories;
+                self.slash_menu_categories = on;
+                self.save_preference(
+                    settings::SLASH_MENU_CATEGORIES_TOPIC,
+                    &[crate::config::SLASH_MENU_CATEGORIES_KEY],
+                    on,
+                    changed,
+                );
+            }
+            Setting::CollapseToolCalls => {
+                let changed = on != self.collapse_tool_calls;
+                self.collapse_tool_calls = on;
+                // The open group is the document's last thing and is drawn
+                // again at once; a group the document has already moved past
+                // keeps the rows it was written with.
+                if changed {
+                    self.redraw_group();
+                }
+                self.save_preference(
+                    settings::COLLAPSE_TOOL_CALLS_TOPIC,
+                    &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    on,
+                    changed,
+                );
+            }
+            Setting::PromptHistory => self.set_prompt_history(on),
+            // The menu offers no change for the model: its row opens `/model`'s
+            // menu instead ([`settings::SettingsMenu::change`]).
+            Setting::Model => {}
+        }
+        self.render.request(Reason::Footer);
+    }
+
+    /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
+    /// off is in force at once and then saved; on is saved first and in force
+    /// only once it was, so a history that could not be kept on stays off and
+    /// says so.
+    fn set_prompt_history(&mut self, on: bool) {
+        let key: &[&str] = &[crate::config::PROMPT_HISTORY_KEY, "enabled"];
+        if !on {
+            let changed = self.recall.enabled;
+            self.recall.enabled = false;
+            self.save_preference(settings::HISTORY_TOPIC, key, false, changed);
+            return;
+        }
+        if self.save_preference(settings::HISTORY_TOPIC, key, true, false) {
+            self.recall.enabled = true;
+        }
+    }
+
+    /// Writes one `/settings` preference to the profile and announces it
+    /// (`persistUserPreferences`, `app_commands.zig:167-192`): `* <topic>:
+    /// saved to user settings (scope=user)`, or, when the write failed,
+    /// `✗ <topic>: [active for this process but ]not saved to user settings
+    /// (<reason>)` (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+    /// Answers whether it was written.
+    ///
+    /// On this thread, for the reason [`Self::set_statusline`]'s write is.
+    fn save_preference(&mut self, topic: &str, key: &[&str], on: bool, changed: bool) -> bool {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => {
+                crate::provider::profile::write_preference(path, key, serde_json::Value::Bool(on))
+                    .map_err(|err| err.to_string())
+            }
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.announce(notice::Notice::neutral(
+                    topic,
+                    interactive::STATUSLINE_SAVED,
+                ));
+                true
+            }
+            Err(reason) => {
+                let body = if changed {
+                    interactive::statusline_not_saved(&reason)
+                } else {
+                    format!("not saved to user settings ({reason})")
+                };
+                self.announce(notice::Notice::error(topic, body));
+                false
+            }
+        }
+    }
+
+    /// Puts the workspace's saved lines into this session's recall, oldest
+    /// first, at launch (`loadAndInstallPromptHistory`,
+    /// `input_history_runtime.zig:20-28`): none while the history is off, and
+    /// none -- said nowhere -- when the file cannot be read, because a recall
+    /// that starts empty is still a session that works.
+    fn recall_saved_lines(&mut self) {
+        if !self.recall.enabled {
+            return;
+        }
+        let (Some(store), Some(workspace)) =
+            (self.recall.store.as_ref(), self.recall.workspace.as_deref())
+        else {
+            return;
+        };
+        let Ok(lines) = store.load_recent(workspace, crate::session::prompt_history::LOAD_LIMIT)
+        else {
+            return;
+        };
+        for line in lines {
+            self.history.record(HistoryEntry::new(line, Vec::new()));
+        }
+    }
+
+    /// The text a submitted line is saved as: the line with its collapsed
+    /// pastes put back, trimmed -- what upstream records, which is the
+    /// expanded submission (`recordAcceptedInput(app, visual_text.text)`,
+    /// `input_submit_runtime.zig:884-886`), since a file cannot hold the
+    /// in-memory blocks a summary stands for.
+    fn saved_line(&self, text: &str) -> String {
+        if self.editor.entities().is_empty() {
+            return text.trim().to_string();
+        }
+        self.editor.expanded().trim().to_string()
+    }
+
+    /// Writes one submitted line to the history file (`recordAcceptedInput`,
+    /// `input_submit_runtime.zig:1246-1281`), when the history is on and has a
+    /// file. A write that fails is said once, as a warning, until one works
+    /// again; the submission goes on either way.
+    fn save_line(&mut self, saved: &str) {
+        if !self.recall.enabled {
+            return;
+        }
+        let (Some(store), Some(workspace)) =
+            (self.recall.store.as_ref(), self.recall.workspace.as_deref())
+        else {
+            return;
+        };
+        let now = u64::try_from(crate::session::event::system_now_ms()).unwrap_or(0);
+        match store.append(now, workspace, saved) {
+            Ok(_) => self.recall.warned = false,
+            Err(err) => {
+                if !self.recall.warned {
+                    self.recall.warned = true;
+                    self.announce(notice::Notice::warning(
+                        settings::HISTORY_TOPIC,
+                        format!("failed to save input history ({err}); submission continued"),
+                    ));
+                }
+            }
+        }
+    }
+
     /// Offers one keystroke to the `/resume` picker, and says whether it was
     /// taken.
     ///
@@ -3385,6 +3771,14 @@ impl Shell {
         // (`app_input_runtime.zig:2935-2938`, `syncHelpMenu`) -- and the
         // dismissal is left exactly as it was for when the catalog closes.
         if let Some(menu) = self.help_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            self.provider_picker = None;
+            return;
+        }
+        // The same for the settings menu (`syncSettingsMenu`,
+        // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
+        if let Some(menu) = self.settings_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
@@ -4264,6 +4658,7 @@ impl Shell {
     /// every other write closes it first ([`Self::close_group`]).
     fn redraw_group(&mut self) {
         let trailer = self.trailer_rows();
+        self.group.set_collapsed(self.collapse_tool_calls);
         let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
@@ -4995,6 +5390,9 @@ impl Shell {
             // them. Everything else falls through with it still up, because
             // each is a view of the draft and typing is what the draft is made
             // of.
+            if self.offer_to_settings(&event) {
+                continue;
+            }
             if self.offer_to_sessions(&event) {
                 continue;
             }
@@ -5523,7 +5921,13 @@ impl Shell {
         //
         // `Blank` still ends the walk, for the same reason recording one does:
         // the draft the walk was standing beside has been consumed.
-        if matches!(submitted, Submitted::Blank) {
+        //
+        // **Neither while the prompt history is off** (`/settings`): the line
+        // is kept nowhere, and the walk still ends, because the draft it stood
+        // beside has been consumed either way.
+        let saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
+            .then(|| self.saved_line(&text));
+        if saved.is_none() {
             self.history.leave();
         } else {
             // **With the blocks its summaries name.** An entry is the line as
@@ -5582,6 +5986,13 @@ impl Shell {
             Submitted::Prompt(prompt) => {
                 self.send(self.expanded_prompt(&text, prompt), &text);
             }
+        }
+        // To the file after the line has been acted on, as upstream appends
+        // once the submission is through (`input_submit_runtime.zig:884-886`,
+        // `:1048-1053`): a warning that the save failed reads under what was
+        // sent, not above it.
+        if let Some(saved) = saved {
+            self.save_line(&saved);
         }
     }
 
@@ -6037,6 +6448,32 @@ impl CommandHandlers for Shell {
             return;
         };
         self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
+    /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
+    /// bare, the menu opens on `All` with its first row marked, the composer
+    /// -- emptied by the submit that got here -- as its search, and the menus
+    /// that share its slot closed. With anything after it, the usage line as
+    /// an error with no topic, as upstream answers a word its argument form
+    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
+    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
+    /// not have, so the usage does not offer it.
+    fn settings(&mut self, argument: &str) {
+        if !argument.is_empty() {
+            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            return;
+        }
+        self.picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.statusline_menu = None;
+        self.provider_picker = None;
+        self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // [`Self::run_command`] re-solved the band before routing here, for a
+        // band with no menu in it.
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
@@ -6742,13 +7179,18 @@ impl Shell {
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
             Some(Slot::Catalog(_))
+            | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
             | Some(Slot::Provider(_))
             | None => 0,
         };
+        let snapshot = self.settings_snapshot();
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Settings(menu)) => {
+                menu.height(&snapshot, rows, input_rows.saturating_sub(1))
+            }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
@@ -12107,6 +12549,13 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/settings" {
+                assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+                assert!(
+                    document.is_empty(),
+                    "/settings wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
@@ -20183,5 +20632,606 @@ mod tests {
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
+    }
+
+    // -----------------------------------------------------------------------
+    // `/settings`: the menu, its keys, and each row's change
+    // -----------------------------------------------------------------------
+
+    /// The settings menu's key help as the hint row paints it at 120 columns.
+    fn settings_key_help() -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.dim(),
+            settings::key_help(120),
+            PALETTE.reset()
+        )
+    }
+
+    /// The menu's rows with their colours taken out.
+    fn settings_text(shell: &Shell) -> Vec<String> {
+        menu(shell).iter().map(|row| visible_text(row)).collect()
+    }
+
+    /// A `shell_at_home` with `/settings` up.
+    fn with_settings(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+        shell
+    }
+
+    /// `n` presses of Down.
+    fn down(shell: &mut Fixture, n: usize) {
+        for _ in 0..n {
+            shell.route_bytes(b"\x1b[B");
+        }
+    }
+
+    const RIGHT: &[u8] = b"\x1b[C";
+    const LEFT: &[u8] = b"\x1b[D";
+
+    /// The saved line a `/settings` preference announces under `topic`.
+    fn settings_saved(topic: &str) -> Vec<String> {
+        said(notice::Notice::neutral(
+            topic,
+            interactive::STATUSLINE_SAVED,
+        ))
+    }
+
+    #[test]
+    fn a_bare_settings_opens_upstreams_menu_under_the_composer() {
+        // `cap/fx-settings-40x120-bare`: the composer row stays, the rule, the
+        // header and a blank, a row per setting with the first marked, the
+        // rule and the key help -- and nothing written anywhere.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.document().is_empty(), "the menu wrote a notice");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(shell.geometry.panel, 11);
+        let model = format!("  Model                    {}", shell.model);
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 9  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Status line context      off  on",
+                "  Status line session      off  on",
+                "  Status line workspace    off  on",
+                "  Slash menu categories    off  on",
+                "  Collapse tool calls      off  on",
+                model.as_str(),
+                "  Permission mode          ask  auto  full access",
+                "  Sound level              off  on",
+                "  Prompt history           off  on",
+            ]
+        );
+        let rows = menu(&shell);
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            rows[2],
+            format!("  {bright}Status line context{reset}      {bright}off{reset}  {dim}on{reset}")
+        );
+        assert_eq!(
+            rows[5],
+            format!("  {dim}Slash menu categories{reset}    {dim}off{reset}  {bright}on{reset}")
+        );
+        assert_eq!(shell.band_rows().last(), Some(&settings_key_help()));
+        // A view of the composer: the caret stays in it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the menu took the caret"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/settings reached the runtime"
+        );
+    }
+
+    #[test]
+    fn typing_is_the_search_and_escape_closes_the_menu_and_empties_it() {
+        // `fx-settings2-40x120-filter-sou`, `-filter-none`, `-esc`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"sou");
+        assert_eq!(shell.editor.text(), "sou");
+        assert!(shell.picker.is_none());
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 2  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Slash menu categories    off  on",
+                "  Sound level              off  on",
+            ]
+        );
+        assert_eq!(shell.geometry.panel, 4, "the band follows the search");
+        shell.route_bytes(b"zzz");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["No settings found.".to_string()]
+        );
+        // A slash word typed into it is its search, not a command.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/");
+        assert!(shell.picker.is_none(), "the completion menu opened over it");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn tab_and_shift_tab_walk_the_categories_and_the_band_follows() {
+        // `fx-settings2-40x120-tab1..5`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[0],
+            "Settings 5  All  [Interface]  Agent  Notifications  Advanced"
+        );
+        assert_eq!(shell.geometry.panel, 7);
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model              {}", shell.model),
+                "  Permission mode    ask  auto  full access".to_string(),
+            ]
+        );
+        // Shift-Tab is the category back, and not the permission mode.
+        shell.route_bytes(b"\x1b[Z");
+        assert!(settings_text(&shell)[0].contains("[Interface]"));
+        assert_eq!(shell.mode, PermissionMode::Auto);
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "",
+                "  Prompt history    off  on",
+            ]
+        );
+        assert_eq!(shell.mode, PermissionMode::Auto);
+    }
+
+    #[test]
+    fn up_and_down_wrap_and_enter_changes_nothing_on_a_setting() {
+        // `fx-settings2-40x120-enter` is `-sound-right` again: Enter is inert
+        // everywhere but on `Model` (trap b: the statusline picker is the one
+        // whose Enter flips).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\x1b[A");
+        assert!(visible_text(&menu(&shell)[10]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[10].matches(PALETTE.subtitle()).count(), 2);
+        let before = shell.band_rows();
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.band_rows(), before);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.recall.enabled);
+        assert!(shell.document().is_empty());
+        assert_eq!(profile_at(root.path()), "");
+        down(&mut shell, 1);
+        assert_eq!(menu(&shell)[2].matches(PALETTE.subtitle()).count(), 2);
+    }
+
+    #[test]
+    fn right_on_a_status_line_row_is_statusline_item_and_says_both_notices() {
+        // `fx-settings2-40x120-right-context`: the two notices above the
+        // still-open menu, the row's `on` bold, and the profile written.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("context", true));
+        assert!(shell.statusline.context);
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+        assert_eq!(
+            settings_text(&shell)[2],
+            "  Status line context      off  on"
+        );
+        assert!(menu(&shell)[2].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"statusLine\": {\n    \"context\": true\n  }\n}\n"
+        );
+        // Left wraps back to off, and says so the same way.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), flipped("context", false));
+        assert!(!shell.statusline.context);
+        // The workspace segment shows on the hint row at once.
+        down(&mut shell, 2);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("workspace", true));
+        escape(&mut shell);
+        assert!(
+            shell
+                .hint()
+                .ends_with(&shell.workspace.display().to_string()),
+            "{}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn right_on_permission_mode_is_permissions_with_the_mode_its_notice_and_the_runtime_told() {
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert!(visible_text(&menu(&shell)[8]).starts_with("  Permission mode"));
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions full-access\r");
+        assert_eq!(shell.mode, PermissionMode::Yolo);
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
+        assert!(settings_text(&shell)[8].ends_with("ask  auto  full access"));
+        assert_eq!(
+            menu(&shell)[8].matches(PALETTE.subtitle()).count(),
+            2,
+            "the marked label and `full access`"
+        );
+        // Right again wraps to ask.
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions ask\r");
+        assert_eq!(shell.mode, PermissionMode::Ask);
+        assert_eq!(shell.document(), typed.document());
+    }
+
+    #[test]
+    fn right_on_sound_level_is_sound_on_and_saves_both_switches() {
+        // `fx-settings2-40x120-sound-right`: `* sound: on`.
+        let (_home, path) = profile();
+        let mut shell = sounding(40, false, Some(path.clone()));
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        assert_eq!(
+            shell.sound.notifications(),
+            crate::config::Notifications::both(true)
+        );
+        saved_as(
+            &path,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
+        );
+        assert!(settings_text(&shell)[9].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn slash_menu_categories_off_hides_the_popups_column_and_is_read_back_at_launch() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 3);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("slash menu categories"));
+        assert!(!shell.slash_menu_categories);
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"slash_menu_categories\": false\n}\n"
+        );
+        escape(&mut shell);
+        shell.route_bytes(b"/");
+        let popup = menu(&shell);
+        assert!(
+            popup[2..]
+                .iter()
+                .all(|row| !visible_text(row).trim_end().ends_with("General")),
+            "{popup:?}"
+        );
+        // The next launch reads it back.
+        let config = config(&root.path().join("home"), &root.path().join("work"));
+        assert!(!config.slash_menu_categories);
+        let relaunched = shell_at_home(root.path(), 40, 120);
+        assert!(!relaunched.slash_menu_categories);
+    }
+
+    #[test]
+    fn collapse_tool_calls_draws_the_open_group_as_its_header_and_the_next_one_too() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running sleep 4",
+                ""
+            ]
+        );
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        // The open block is rewritten as its header, and the notice is written
+        // under it as every line under an open group is.
+        let written = shell.written();
+        assert_eq!(
+            written[..2],
+            ["\u{25cf} 1 tool call \u{b7} 1 command", ""],
+            "{written:#?}"
+        );
+        assert!(
+            written.contains(
+                &"* collapse tool calls: saved to user settings (scope=user)".to_string()
+            ),
+            "{written:#?}"
+        );
+        assert!(
+            !written.iter().any(|row| row.contains("Running")),
+            "{written:#?}"
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"collapse_tool_calls\": true\n}\n"
+        );
+        // The group's result and the next group are drawn collapsed as well.
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.written();
+        shell.apply(tool_start(
+            "2",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        let written = shell.written();
+        assert_eq!(
+            written,
+            ["\u{25cf} 1 tool call \u{b7} 1 read", ""],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_preference_that_could_not_be_saved_is_in_force_and_says_so_in_error() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.settings_path = None;
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "collapse tool calls",
+                "active for this process but not saved to user settings (no home directory is set)"
+            ))
+        );
+        // History on is saved first and only then in force: a failed save
+        // leaves it as it was, and says it was not saved -- with nothing
+        // "active" about it.
+        shell.recall.enabled = false;
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
+        assert!(visible_text(&menu(&shell)[10]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[10].matches(PALETTE.subtitle()).count(), 2);
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "history",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+    }
+
+    #[test]
+    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"model");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [format!("  Model    {}", shell.model)]
+        );
+        // Left does nothing on it.
+        shell.route_bytes(LEFT);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.model_menu.is_none());
+        shell.route_bytes(b"\r");
+        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
+        assert!(shell.model_menu.is_some(), "no model menu");
+        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert!(shell.document().is_empty());
+
+        let mut right = with_settings(root.path());
+        down(&mut right, 5);
+        right.route_bytes(RIGHT);
+        assert!(right.settings_menu.is_none());
+        assert!(right.model_menu.is_some());
+    }
+
+    #[test]
+    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
+        // `fx-settings-40x120-bogus`, with this product's grammar.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("", "usage: /settings")),
+                "{argument}"
+            );
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+        assert_eq!(profile_at(root.path()), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // the prompt history
+    // -----------------------------------------------------------------------
+
+    /// A [`shell_at_home`] that keeps its prompt history in its own profile.
+    fn remembering(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.recall.store = Some(crate::session::prompt_history::PromptHistory::in_profile(
+            &root.join("home").join(".xfx"),
+        ));
+        shell
+    }
+
+    /// The texts the history file under `root` holds, oldest first.
+    fn saved_texts(root: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(root.join("home").join(".xfx").join("history.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let record: serde_json::Value = serde_json::from_str(line).expect("a record");
+                assert_eq!(record["schema_version"], 1, "{line}");
+                assert!(record["timestamp_ms"].as_u64().is_some(), "{line}");
+                record["text"].as_str().expect("a text").to_string()
+            })
+            .collect()
+    }
+
+    /// What Up puts in the composer.
+    fn recalled(shell: &mut Fixture) -> String {
+        shell.route_bytes(b"\x1b[A");
+        shell.editor.text().to_string()
+    }
+
+    #[test]
+    fn a_submitted_line_is_kept_in_the_file_under_its_workspace() {
+        // `fx-settings-history-40x120-*.files`: commands and prompts alike,
+        // one record each, the workspace's latest not twice.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"  a prompt  \r");
+        assert_eq!(saved_texts(root.path()), ["/version", "a prompt"]);
+        let line =
+            std::fs::read_to_string(root.path().join("home/.xfx/history.jsonl")).expect("the file");
+        let workspace = shell.workspace.display().to_string();
+        assert!(
+            line.contains(&format!(
+                "\"workspace_root\":{}",
+                serde_json::json!(workspace)
+            )),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        let document = shell.document();
+        assert!(
+            document.ends_with(&settings_saved("history")),
+            "{document:?}"
+        );
+        assert!(profile_at(root.path()).contains("\"enabled\": false"));
+        escape(&mut shell);
+        shell.route_bytes(b"secret\r");
+        // Not in the file, and not in this session's recall either.
+        assert_eq!(saved_texts(root.path()), ["first", "/settings"]);
+        let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
+        assert_eq!(walked[0], "/settings");
+        assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
+        shell.route_bytes(&[0x15]);
+
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(shell.recall.enabled);
+        assert!(profile_at(root.path()).contains("\"enabled\": true"));
+        escape(&mut shell);
+        shell.route_bytes(b"public\r");
+        assert_eq!(saved_texts(root.path()), ["first", "/settings", "public"]);
+    }
+
+    #[test]
+    fn a_launch_recalls_its_workspaces_saved_lines_unless_the_history_is_off() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut first = remembering(root.path());
+        first.route_bytes(b"alpha\r");
+        first.route_bytes(b"beta\r");
+        let workspace = first.recall.workspace.clone().expect("a UTF-8 workspace");
+        crate::session::prompt_history::PromptHistory::in_profile(&root.path().join("home/.xfx"))
+            .append(1, "/another/workspace", "theirs")
+            .expect("append");
+
+        let mut next = remembering(root.path());
+        next.recall_saved_lines();
+        // Up recalls, and the next Up first takes the caret to the start of the
+        // recalled line, as upstream's does (`fx-settings-history-40x120-relaunch-up1..4`).
+        let walked: Vec<String> = (0..6).map(|_| recalled(&mut next)).collect();
+        assert_eq!(walked[0], "beta");
+        assert!(walked.contains(&"alpha".to_string()), "{walked:?}");
+        assert!(
+            !walked.contains(&"theirs".to_string()),
+            "another workspace's line was recalled: {walked:?}"
+        );
+        assert_eq!(next.recall.workspace.as_deref(), Some(workspace.as_str()));
+
+        let mut off = remembering(root.path());
+        off.recall.enabled = false;
+        off.recall_saved_lines();
+        assert_eq!(recalled(&mut off), "");
+    }
+
+    #[test]
+    fn a_saved_line_is_the_text_a_collapsed_paste_stands_for() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        let pasted = "p".repeat(2000);
+        shell.route_bytes(format!("\x1b[200~{pasted}\x1b[201~").as_bytes());
+        assert!(
+            shell.editor.text().starts_with("[Pasted text #1"),
+            "{}",
+            shell.editor.text()
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(saved_texts(root.path()), [pasted]);
+    }
+
+    #[test]
+    fn a_history_that_cannot_be_written_warns_once_and_the_line_still_goes() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        // A directory where the file goes: every append fails.
+        std::fs::create_dir_all(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
+        shell.route_bytes(b"/version\r");
+        let document = shell.document();
+        assert!(
+            document.iter().any(
+                |row| row.starts_with("! history: failed to save input history (")
+                    && row.ends_with("); submission continued")
+            ),
+            "{document:?}"
+        );
+        shell.route_bytes(b"/version\r");
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.contains("history:")),
+            "warned twice: {document:?}"
+        );
+        assert_eq!(recalled(&mut shell), "/version", "the recall lost the line");
     }
 }

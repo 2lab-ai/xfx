@@ -1,0 +1,42 @@
+# /settings' Collapse tool calls row: a tool group on the screen, collapse on,
+# then a second group, a command approved, running, and stopped with Ctrl-C.
+# Both in ask mode, so the command is decided by key (as `toolgroup.cap`).
+fx: gateway settings-collapse-fx.json
+xfx: gateway settings-collapse-xfx.json
+work toolgroup-ws
+fx: seed toolgroup-ask-settings.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type look
+key Enter
+wait 3
+snap group
+type /settings
+key Enter
+wait 1
+key Down Down Down Down
+wait 0.3
+key Right
+wait 0.8
+snap collapse-on
+home collapse-on
+key Escape
+wait 0.5
+snap after-esc
+type again
+key Enter
+wait 3
+snap group2
+type run it
+key Enter
+wait 2.5
+snap cmd-ask
+key 1
+wait 1.5
+snap running
+key C-c
+wait 1.5
+snap stopped
+wait 4
+snap later

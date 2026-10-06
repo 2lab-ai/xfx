@@ -1,0 +1,67 @@
+# /settings' Prompt history row and the history file: a prompt kept, history
+# off (a prompt kept nowhere), on again (a prompt kept), then a fresh launch
+# on the same HOME and what Up recalls there. Each step's file by `home`.
+gateway settings-history-turns.json
+wait 2
+type first prompt
+key Enter
+wait 2
+home first
+type /settings
+key Enter
+wait 1
+key Up
+wait 0.3
+snap marked
+key Right
+wait 0.8
+snap off
+home off
+key Escape
+wait 0.5
+type secret prompt
+key Enter
+wait 2
+home secret
+key Up
+wait 0.4
+snap up-after-secret
+key C-u
+wait 0.3
+type /settings
+key Enter
+wait 1
+key Up
+wait 0.3
+key Right
+wait 0.8
+snap on
+home on
+key Escape
+wait 0.5
+type public prompt
+key Enter
+wait 2
+home public
+keep
+key C-c
+wait 0.3
+key C-c
+wait 1.5
+fx: relaunch --model=fake/model-a
+xfx: relaunch
+wait 2.5
+snap relaunch
+key Up
+wait 0.4
+snap relaunch-up1
+key Up
+wait 0.4
+snap relaunch-up2
+key Up
+wait 0.4
+snap relaunch-up3
+key Up
+wait 0.4
+snap relaunch-up4
+home end

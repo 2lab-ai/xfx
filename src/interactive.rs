@@ -72,6 +72,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/model",
     "/permissions",
     "/copy",
+    "/settings",
     "/statusline",
     "/sound",
     "/version",
@@ -246,6 +247,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "copy the last assistant response",
         category: "Session",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Settings,
+        name: "/settings",
+        aliases: &[],
+        // Upstream's words (`commands.zig:488`). It takes an argument there
+        // (`startup-scrollback`) and is filed so here too, so completing it
+        // leaves the caret past a space as upstream's popup does; xfx answers
+        // any argument with `SETTINGS_USAGE`.
+        summary: "browse and update settings",
+        category: "Appearance",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Statusline,
@@ -435,6 +448,21 @@ pub(crate) fn rename_conversation(
     }
 }
 
+/// What `/settings` says to anything after its name (`writeSettingsUsage`,
+/// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
+/// form: that setting restores a terminal's earlier output at launch, which
+/// xfx does not do.
+pub const SETTINGS_USAGE: &str = "usage: /settings";
+
+/// What `/settings` says on this surface.
+///
+/// Upstream's `/settings` is a menu in its footer (`commandHandleSettings`,
+/// `app_commands.zig:2022-2041`), and this shell has no footer to put one in.
+/// It says where the menu is, as `/resume` says where its picker is.
+pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes settings in \
+     the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -556,6 +584,10 @@ pub enum Slash {
     /// TUI, one item flipped by name on either surface, and the choice kept in
     /// the profile (`statusLine.{context,session,workspace}`).
     Statusline,
+    /// Every preference the session can change, by category, in one menu
+    /// that changes each in place: the TUI's settings menu
+    /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
+    Settings,
     Version,
     Quit,
 }
@@ -1051,6 +1083,9 @@ pub async fn run(
                     }
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Settings => {
+                        writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
                     }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
@@ -1757,10 +1792,11 @@ mod tests {
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
-        // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
-        // than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 16);
+        // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
+        // since `/resume` and `/rename`, and seventeen since `/settings`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 17);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2052,12 +2088,21 @@ mod tests {
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
         // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // `/rename <title>` names the session. `/settings` is declared to take
+        // one as upstream's row is (`commands.zig:488`), so completing it
+        // leaves the caret past a space; every argument it is given is its
+        // usage line, since upstream's only form names a setting xfx does not
+        // have. Every other name is the whole command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/settings"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
