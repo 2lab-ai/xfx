@@ -6414,3 +6414,55 @@ fn a_bare_model_on_a_provider_with_no_catalog_is_informational_not_a_failure() {
         "a bare /model reached the provider"
     );
 }
+
+// ---------------------------------------------------------------------------
+// /copy
+// ---------------------------------------------------------------------------
+
+#[test]
+fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
+    // Upstream's three answers (`app_commands.zig:1974-2001`) through the real
+    // binary, with a fake `pbcopy` first on the child's `PATH`. The reply has
+    // a tab in it: the screen shows it as a space (`bridge::inert`), and the
+    // clipboard is owed the tab, which is why the copy is read from the
+    // session's log rather than from what was painted.
+    let reply = "ALPHA answer line one.\n\nSecond paragraph with `code`.\tTAB-END";
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&[
+            "ALPHA answer line one.\n\n",
+            "Second paragraph with `code`.\tTAB-END",
+        ]),
+    )]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"/copy\r");
+    session.wait_for("No assistant reply to copy.");
+    assert_eq!(clipboard.copied(), None, "a copy ran with nothing to copy");
+
+    session.type_bytes(b"copy this answer\r");
+    // The turn is over once the session is titled by its first prompt, which
+    // happens on the turn's conclusion -- and the reply is published before
+    // the conclusion is sent (`worker::run_turn`).
+    session.wait_for("\u{1b}]2;copy this answer\u{7}");
+    session.type_bytes(b"/copy\r");
+    session.wait_for("Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        reply.as_bytes(),
+        "not the reply as the model wrote it"
+    );
+
+    clipboard.fail();
+    session.type_bytes(b"/copy\r");
+    session.wait_for("Failed to copy to clipboard.");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}

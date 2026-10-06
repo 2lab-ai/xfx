@@ -68,7 +68,7 @@ use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -82,6 +82,7 @@ use super::bridge::{
 };
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
+use crate::clipboard::last_reply;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{open_conversation, Conversation};
@@ -194,6 +195,9 @@ pub(crate) struct WorkHandle {
     /// user was interrupting from the work they typed after deciding to
     /// interrupt it ([`TurnControl::Cancel`]).
     accepted: Arc<AtomicUsize>,
+    /// What `/copy` copies: the conversation's last reply, as the runtime
+    /// last published it ([`LastReply`]).
+    reply: LastReply,
 }
 
 impl WorkHandle {
@@ -279,6 +283,23 @@ impl WorkHandle {
         let _ = self.control.send(message);
     }
 
+    /// The conversation's last reply, exactly as the model wrote it, or `None`
+    /// when it has none.
+    ///
+    /// Answered at once, whatever the runtime is doing: it is a copy the
+    /// runtime keeps current ([`LastReply`]), not a question put to a thread
+    /// that may be in the middle of a turn.
+    pub(crate) fn last_reply(&self) -> Option<Arc<str>> {
+        self.reply.get()
+    }
+
+    /// Makes `reply` the conversation's last reply, as the runtime would after
+    /// a turn that said it.
+    #[cfg(test)]
+    pub(crate) fn replied(&self, reply: &str) {
+        self.reply.publish(Some(reply));
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -302,10 +323,45 @@ impl WorkHandle {
                 control,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
             },
             work_rx,
             control_rx,
         )
+    }
+}
+
+/// The conversation's last reply, kept where the UI can read it without
+/// asking the runtime.
+///
+/// Upstream's `/copy` reads the session's history on its UI thread
+/// (`commandCopyLast`, `app_commands.zig:1974-2001`). Here the history is the
+/// runtime thread's, and asking that thread would mean waiting behind whatever
+/// turn it is running -- or spending a place in the queue ([`WORK_LIMIT`]) and
+/// being dropped with the queue by the next Ctrl-C. So the runtime **publishes**
+/// it instead: once just before a turn's conclusion is sent, and once after
+/// every piece of work (`turn_loop`). The UI reads the newest one.
+///
+/// An `Arc<str>` behind the lock, so a read is a reference count rather than a
+/// copy of the reply -- the copy that matters is the one the clipboard gets.
+#[derive(Debug, Clone, Default)]
+struct LastReply(Arc<Mutex<Option<Arc<str>>>>);
+
+impl LastReply {
+    fn publish(&self, reply: Option<&str>) {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        // The same reply published again -- every `/model`, every catalog --
+        // is not worth a second allocation of it.
+        if held.as_deref() != reply {
+            *held = reply.map(Arc::from);
+        }
+    }
+
+    fn get(&self) -> Option<Arc<str>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -460,6 +516,8 @@ pub(crate) fn spawn(
     let done = Arc::clone(&finished);
     let outstanding = Arc::new(AtomicUsize::new(0));
     let loops_outstanding = Arc::clone(&outstanding);
+    let reply = LastReply::default();
+    let loops_reply = reply.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -478,8 +536,10 @@ pub(crate) fn spawn(
                 fatal_before_the_runtime(&events_tx, NO_RUNTIME);
                 return;
             };
+            let mut state = Runtime::new(config, store, prompter, questioner);
+            state.reply = loops_reply;
             runtime.block_on(turn_loop(
-                Runtime::new(config, store, prompter, questioner),
+                state,
                 &events_tx,
                 &mut work_rx,
                 control,
@@ -497,6 +557,7 @@ pub(crate) fn spawn(
                 control: control_tx,
                 outstanding,
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply,
             },
         },
         events_rx,
@@ -580,6 +641,9 @@ struct Runtime {
     /// because its fetcher is that provider's endpoint and its model is that
     /// provider's model.
     selector: ModelSelector,
+    /// Where the conversation's last reply is published for `/copy`
+    /// ([`Runtime::publish_reply`]).
+    reply: LastReply,
 }
 
 impl Runtime {
@@ -620,7 +684,22 @@ impl Runtime {
             prompter,
             questioner,
             selector,
+            reply: LastReply::default(),
         }
+    }
+
+    /// Publishes what `/copy` would copy from the conversation as it stands.
+    ///
+    /// Read out of the session log's own state ([`last_reply`]) rather than
+    /// out of the stream the UI was shown, because that stream has been made
+    /// inert on its way over (`bridge::inert`): a tab in a code block reached
+    /// the screen as a space, and the clipboard is owed the tab.
+    fn publish_reply(&self) {
+        self.reply.publish(
+            self.conversation
+                .as_ref()
+                .and_then(|conversation| last_reply(conversation.recorder.state())),
+        );
     }
 
     /// Builds whatever this turn needs and does not have yet.
@@ -933,6 +1012,11 @@ async fn turn_loop(
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
         };
+        // After **every** piece of work rather than in the arms that change
+        // the conversation: `/new` drops it, a provider switch replaces it, and
+        // a piece of work added later that does either is covered without
+        // remembering to be.
+        state.publish_reply();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -1094,6 +1178,11 @@ async fn run_turn(
         queue.abandon(through);
     })
     .await;
+    // **Before the conclusion goes**, so that a `/copy` typed once the UI has
+    // shown this turn ending copies this turn's reply. Published again after
+    // the work is over ([`turn_loop`]), which is the copy that covers every
+    // other kind of work; this is the one that is ordered against the event.
+    state.publish_reply();
     match caught {
         Ok(failure) => {
             bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
@@ -1680,6 +1769,7 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
             },
         };
 
@@ -1733,6 +1823,7 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
             },
         };
         let mut seen = Vec::new();
@@ -1765,6 +1856,7 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
             },
         };
         let started = Instant::now();
@@ -2115,6 +2207,7 @@ mod tests {
             control,
             outstanding: Arc::new(AtomicUsize::new(0)),
             accepted: Arc::new(AtomicUsize::new(0)),
+            reply: LastReply::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -2379,6 +2472,124 @@ mod tests {
             "the conclusion outlived the deadline the UI drains under: {:?}",
             started.elapsed()
         );
+    }
+
+    /// A turn that answered `text`, written into `state`'s conversation the
+    /// way a real one is: the user's message, then the assistant step.
+    fn answered(state: &mut Runtime, text: &str) {
+        let recorder = &mut state
+            .conversation
+            .as_mut()
+            .expect("the fixture opened a conversation")
+            .recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        });
+        assert_eq!(recorder.failure(), None, "the log refused the turn");
+    }
+
+    #[test]
+    fn a_turn_publishes_the_reply_before_its_conclusion_is_sent() {
+        // A `/copy` typed the moment the UI shows a turn ending must copy that
+        // turn's reply. So the reply is published before `TurnEnded` can
+        // enter the channel -- observed here with the conclusion parked on a
+        // full channel, which is a moment the UI has not yet been told.
+        let (_home, _workspace, mut state) = recording();
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint"
+        );
+        let reply = LastReply::default();
+        state.reply = reply.clone();
+        answered(&mut state, "the reply,\twith its tab");
+        assert_eq!(reply.get(), None, "published before any work ran");
+
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(1);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let outstanding = AtomicUsize::new(1);
+        let cancel = Cancellation::new(CancelToken::new());
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 1,
+        };
+        let (published, concluded) = on_a_runtime(async {
+            let mut turn = std::pin::pin!(run_turn(
+                &mut state,
+                "anything".to_string(),
+                &events,
+                &cancel,
+                &control,
+                &mut queue,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(turn.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the conclusion was not parked");
+            }
+            // `TurnStarted` holds the one permit: the conclusion is not sent.
+            let published = reply.get();
+            assert_eq!(seen.recv().await, Some(UiEvent::TurnStarted));
+            turn.await;
+            (published, seen.try_recv())
+        });
+        assert_eq!(published.as_deref(), Some("the reply,\twith its tab"));
+        assert!(
+            matches!(concluded, Ok(UiEvent::TurnEnded { .. })),
+            "{concluded:?}"
+        );
+    }
+
+    #[test]
+    fn work_that_drops_the_conversation_takes_its_reply_with_it() {
+        // `/new` drops the conversation (the `TurnWork::New` arm), and the
+        // publish after every piece of work is what tells `/copy` so -- the
+        // arm itself says nothing about replies.
+        let (_home, _workspace, mut state) = recording();
+        let reply = LastReply::default();
+        state.reply = reply.clone();
+        answered(&mut state, "an answer");
+        state.publish_reply();
+        assert_eq!(reply.get().as_deref(), Some("an answer"));
+
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        work_tx.try_send(TurnWork::New).expect("room for the work");
+        // Closed behind it, which ends the loop once `/new` is done.
+        drop(work_tx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(1);
+        on_a_runtime(turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        assert_eq!(reply.get(), None, "/new left the old conversation's reply");
+    }
+
+    #[test]
+    fn the_handle_reads_the_reply_the_runtime_published() {
+        let (handle, _work, _control) = WorkHandle::detached();
+        assert_eq!(handle.last_reply(), None);
+        handle.reply.publish(Some("first"));
+        handle.reply.publish(Some("second"));
+        assert_eq!(handle.last_reply().as_deref(), Some("second"));
+        handle.reply.publish(None);
+        assert_eq!(handle.last_reply(), None);
     }
 
     #[test]

@@ -79,6 +79,7 @@ use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface}
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
@@ -97,6 +98,7 @@ use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
+use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
@@ -714,6 +716,9 @@ pub(crate) struct Shell {
     fatal: Option<String>,
     /// How the session is ending, once it is.
     leaving: Option<Leaving>,
+    /// The `/copy`s still running on their own threads, and how each went
+    /// ([`super::copy`]).
+    copies: Copies,
 }
 
 /// Which plane the session is composing frames for.
@@ -913,6 +918,14 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The user's clipboard -- except in a shell a test built, which
+        // reaches none unless the test hands it a fake one: typing `/copy`
+        // in a case about something else must not be able to write the
+        // clipboard of whoever is running the suite.
+        #[cfg(not(test))]
+        let clipboard = Clipboard::system();
+        #[cfg(test)]
+        let clipboard = Clipboard::searching(super::copy::NOWHERE);
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -987,6 +1000,7 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            copies: Copies::new(clipboard),
         }
     }
 
@@ -2810,6 +2824,8 @@ impl Shell {
     /// keystroke, and a row painted from a fresher read than the one that
     /// triggered it would show a number no frame was owed for.
     pub(crate) fn settle_band(&mut self, now: Instant) {
+        // A copy finishing is another answer only the other thread produces.
+        self.settle_copies();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -2828,6 +2844,22 @@ impl Shell {
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+    }
+
+    /// Says how each `/copy` that has finished went, in the order they
+    /// finished.
+    ///
+    /// Once a turn, from [`Self::settle_band`]: a copy runs on its own thread
+    /// ([`super::copy`]), so its outcome is a fact that arrives rather than one
+    /// this thread waits for.
+    fn settle_copies(&mut self) {
+        while let Some(copied) = self.copies.finished() {
+            self.announce(if copied {
+                notice::Notice::neutral(clipboard::TOPIC, clipboard::COPIED)
+            } else {
+                notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
+            });
+        }
     }
 
     /// Settles the row that says what the turn is doing.
@@ -3915,6 +3947,30 @@ impl CommandHandlers for Shell {
 
     fn setup(&mut self, argument: &str) {
         self.use_provider(argument);
+    }
+
+    /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
+    /// conversation's last reply onto the clipboard, raw.
+    ///
+    /// The reply is the one the runtime last published
+    /// ([`WorkHandle::last_reply`]) -- read at once, so a `/copy` typed while a
+    /// turn is running copies the reply before it, as upstream's does, rather
+    /// than waiting for that turn. "Nothing to copy" is said here; how the
+    /// copy went is said when its thread says so ([`Self::settle_copies`]).
+    fn copy(&mut self) {
+        let Some(reply) = self.work.last_reply() else {
+            self.announce(notice::Notice::neutral(
+                clipboard::TOPIC,
+                clipboard::NO_REPLY,
+            ));
+            return;
+        };
+        if !self.copies.start(reply) {
+            self.announce(notice::Notice::error(
+                clipboard::TOPIC,
+                clipboard::COPY_FAILED,
+            ));
+        }
     }
 }
 
@@ -9197,6 +9253,148 @@ mod tests {
             !crate::VERSION.starts_with('v'),
             "upstream's body is the bare version"
         );
+    }
+
+    /// Turns the loop until a `/copy` that is running on its own thread has
+    /// said how it went, and hands back what the document gained.
+    fn copy_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            assert!(Instant::now() < deadline, "the copy never said how it went");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn copy_with_no_reply_says_so_and_copies_nothing() {
+        // `fx-basic-40x120-copy-empty.txt`: `* clipboard: No assistant reply
+        // to copy.`, and no echo of `/copy` above it.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "clipboard",
+                "No assistant reply to copy."
+            ))
+        );
+        assert_eq!(tool.copied(), None, "a copy ran with nothing to copy");
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_puts_the_raw_reply_on_the_clipboard_and_then_says_so() {
+        // `fx-sessions-40x120-copy.txt` and its `od -c`: the markdown exactly
+        // as the model wrote it, backticks kept, no line break added -- and a
+        // tab the screen showed as a space (`bridge::inert`) is a tab here.
+        let reply = "ALPHA answer line one.\n\nSecond paragraph with `code`.\tTAB";
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied(reply);
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            reply.as_bytes()
+        );
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_that_the_clipboard_refused_is_an_error_notice() {
+        // `fx-sessions-40x120-copy-fail.txt`: the fake `pbcopy` exited 1.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_with_nowhere_to_copy_to_is_an_error_notice() {
+        // A test's shell reaches no clipboard at all (`super::copy::NOWHERE`),
+        // which is also what a machine without the tool looks like.
+        let mut shell = shell(24, 80);
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_takes_no_argument() {
+        // `registry.zig:59-68`: `/copy` matches exactly, so `/copy now` is a
+        // command nobody has -- and nothing is copied.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy now\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        shell.settle_band(Instant::now());
+        assert_eq!(tool.copied(), None, "`/copy now` copied");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "`/copy now` reached the runtime"
+        );
+    }
+
+    #[test]
+    fn copy_does_not_wait_behind_the_work_the_runtime_has_in_hand() {
+        // Upstream answers `/copy` at once, mid-turn included, from the
+        // history it already has. Here every place in the queue is taken, and
+        // the copy still runs: it is not work, so it neither queues behind a
+        // turn nor is refused for want of a place.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        assert_eq!(shell.work.outstanding(), super::super::worker::WORK_LIMIT);
+        let _ = shell.document();
+        shell.work.replied("the answer before these two");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().as_deref(),
+            Some("the answer before these two".as_bytes())
+        );
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
     }
 
     #[test]

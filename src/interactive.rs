@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
 use crate::config::{Environment, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
@@ -58,6 +59,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/new",
     "/setup",
     "/model",
+    "/copy",
     "/version",
     "/quit",
 ];
@@ -161,6 +163,14 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "show the model, or `/model <id>` to use another one from now on",
         category: "Model",
         has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Copy,
+        name: "/copy",
+        aliases: &[],
+        summary: "copy the last assistant response",
+        category: "Session",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Version,
@@ -280,6 +290,9 @@ pub enum Slash {
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
     Setup,
+    /// Put the last thing the model said on the system clipboard
+    /// ([`crate::clipboard`]).
+    Copy,
     Version,
     Quit,
 }
@@ -676,6 +689,7 @@ pub async fn run(
                             "[shell] new session; the next prompt starts a fresh conversation"
                         )?;
                     }
+                    Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                 }
                 io::stdout().flush()?;
             }
@@ -1073,6 +1087,21 @@ fn kept_line(conversation: Option<&Conversation>) -> String {
     }
 }
 
+/// `/copy` on this shell: the conversation's last reply onto the clipboard,
+/// and one line saying how that went ([`crate::clipboard`]).
+///
+/// The copy waits for the clipboard tool to exit, as upstream's does. This
+/// loop is waiting for the next line anyway; it is the TUI, whose thread holds
+/// a terminal that has to keep being painted, that hands the wait to a thread.
+fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -> io::Result<()> {
+    let reply = conversation.and_then(|conversation| last_reply(conversation.recorder.state()));
+    match reply {
+        None => writeln!(io::stdout(), "[shell] {NO_REPLY}"),
+        Some(reply) if clipboard.copy(reply) => writeln!(io::stdout(), "[shell] {COPIED}"),
+        Some(_) => writeln!(io::stderr(), "xfx: {COPY_FAILED}"),
+    }
+}
+
 /// The version line `/version` prints.
 ///
 /// Visible to the crate because the TUI answers the same commands from the
@@ -1123,12 +1152,12 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_seven_commands() {
+    fn the_shell_advertises_exactly_eight_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Seven since `/setup`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 7);
+        // Eight since `/copy`; `/models` and `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 8);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
