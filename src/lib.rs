@@ -7,6 +7,7 @@
 //! - [`config`]: settings discovery, precedence, credentials, and diagnostics
 //! - [`output`]: immutable snapshots and the text/JSON/JSONL renderers
 //! - [`gateway`]: the provider contract, the Gateway wire shape, and bounded SSE
+//! - [`image`]: an attached image -- its format, its bytes, and the path rule
 //! - [`workspace`]: the roots a turn may read, canonical path proofs, and the
 //!   bounded project instructions a turn carries
 //! - [`permission`]: modes, policies, and one-use execution authorities
@@ -28,6 +29,7 @@ pub mod cli;
 pub mod clipboard;
 pub mod config;
 pub mod gateway;
+pub mod image;
 pub mod interactive;
 pub mod llmux;
 pub mod markdown;

@@ -282,7 +282,17 @@ pub struct TurnMachine {
 impl TurnMachine {
     pub fn new(request: TurnRequest) -> Self {
         let history = request.history.clone();
-        let user = Message::user(request.prompt.clone());
+        let user = if request.images.is_empty() {
+            Message::user(request.prompt.clone())
+        } else {
+            Message::user_with_images(
+                request.prompt.clone(),
+                request
+                    .images
+                    .iter()
+                    .map(|image| (image.media_type, &image.bytes)),
+            )
+        };
         Self {
             request,
             context: ProjectContext::none(),
@@ -355,6 +365,7 @@ impl TurnMachine {
         journal.record(SessionEvent::UserMessage {
             text: self.request.prompt.clone(),
         });
+        journal.attach_images(&self.request.images);
 
         let result = self.drive(provider, events, journal).await;
 
@@ -905,6 +916,7 @@ mod tests {
     fn a_new_machine_starts_from_history_plus_the_user_prompt() {
         let (_dir, tools) = tools();
         let machine = TurnMachine::new(TurnRequest {
+            images: Vec::new(),
             model: "m".to_string(),
             prompt: "now".to_string(),
             history: vec![Message::user("before")],
@@ -922,6 +934,7 @@ mod tests {
     fn a_step_request_advertises_the_whole_registry_and_lets_the_model_choose() {
         let (_dir, tools) = tools();
         let machine = TurnMachine::new(TurnRequest {
+            images: Vec::new(),
             model: "m".to_string(),
             prompt: "hi".to_string(),
             history: Vec::new(),
@@ -940,6 +953,7 @@ mod tests {
         use crate::gateway::protocol::ToolCall;
         let (_dir, tools) = tools();
         let mut machine = TurnMachine::new(TurnRequest {
+            images: Vec::new(),
             model: "m".to_string(),
             prompt: "hi".to_string(),
             history: Vec::new(),
@@ -968,6 +982,7 @@ mod tests {
         use crate::gateway::protocol::Role;
         let (_dir, tools) = tools();
         let mut machine = TurnMachine::new(TurnRequest {
+            images: Vec::new(),
             model: "m".to_string(),
             prompt: "now".to_string(),
             history: vec![
@@ -1006,6 +1021,7 @@ mod tests {
     fn a_machine_without_project_context_sends_no_system_message() {
         let (_dir, tools) = tools();
         let machine = TurnMachine::new(TurnRequest {
+            images: Vec::new(),
             model: "m".to_string(),
             prompt: "now".to_string(),
             history: Vec::new(),

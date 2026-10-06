@@ -1380,6 +1380,7 @@ fn final_step(text: &str) -> ScriptedStep {
 
 fn turn(prompt: &str, tools: ToolContext) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),
@@ -1869,6 +1870,7 @@ fn asking_context(tree: &Tree, limits: ToolLimits, prompter: ScriptedAmender) ->
 /// A turn that carries `tools` and can be stopped through `cancel`.
 fn asking_turn(prompt: &str, tools: ToolContext, cancel: CancelToken) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),

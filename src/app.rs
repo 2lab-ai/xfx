@@ -454,6 +454,7 @@ async fn run_ask(
         .with_cancel(cancel.clone());
 
     let turn = TurnRequest {
+        images: Vec::new(),
         model,
         prompt: request.prompt,
         history: opened.history,

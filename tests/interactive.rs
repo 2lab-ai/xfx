@@ -356,10 +356,14 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // may appear. `/setup` left this list when it stopped being deferred, and
     // `/stats`, `/status` and `/permissions` after it, `/provider` when it
     // became the canonical name of the same command with `/setup` as its
-    // alias, and `/resume` and `/rename` after those; `/models` did not,
-    // because the catalog browser is reached by a bare `/model` rather than by
-    // a command of its own.
-    for absent in ["/login", "/models", "/mcp", "/undo", "/usage", "/image"] {
+    // alias, `/resume` and `/rename` after those, and `/image`, `/images` and
+    // `/paste` after them; `/models` did not, because the catalog browser is
+    // reached by a bare `/model` rather than by a command of its own.
+    assert!(
+        text.contains("(also /img)"),
+        "the image command's alias is not advertised: {text}"
+    );
+    for absent in ["/login", "/models", "/mcp", "/undo", "/usage"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 

@@ -34,6 +34,11 @@ pub(crate) struct Hydration {
     /// where the caller already shows the right one -- the launch, whose band
     /// is built from the configuration the session's model was restored into.
     pub(crate) model: Option<String>,
+    /// The number the next attached image takes: one past the highest the
+    /// session's prompts already name, so `[Image #N]` never means two images
+    /// in one conversation (upstream rebases a resumed session's ids the same
+    /// way, `vision-route-fake-gateway.test.ts:1871`).
+    pub(crate) next_image: u32,
 }
 
 /// One turn of it.
@@ -96,6 +101,13 @@ impl Hydration {
             title: state.title(),
             turns: state.turns.iter().map(turn).collect(),
             model,
+            next_image: state
+                .turns
+                .iter()
+                .flat_map(|turn| turn.images.iter())
+                .map(|image| image.recorded.id.saturating_add(1))
+                .max()
+                .unwrap_or(1),
         }
     }
 }
@@ -161,8 +173,17 @@ fn turn(turn: &HistoryTurn) -> HydratedTurn {
         }
         None => Ending::Unconcluded,
     };
+    // The card says what the composer said: each image's badge, `[Image N]`,
+    // where the prompt the model was sent says `[Image #N]`.
+    let mut user = turn.user.clone();
+    for image in &turn.images {
+        user = user.replace(
+            &crate::image::token(image.recorded.id),
+            &crate::image::badge(image.recorded.id),
+        );
+    }
     HydratedTurn {
-        user: turn.user.clone(),
+        user,
         steps,
         ending,
         started_at_ms: turn.timing.started_at_ms,
@@ -181,6 +202,7 @@ mod tests {
     fn concluded(user: &str, steps: Vec<TurnStep>, timing: TurnTiming) -> HistoryTurn {
         HistoryTurn {
             user: user.to_string(),
+            images: Vec::new(),
             steps,
             outcome: Some(TurnConclusion::Final {
                 finish_reason: "stop".to_string(),
