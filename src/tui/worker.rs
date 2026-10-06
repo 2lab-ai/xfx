@@ -220,6 +220,8 @@ pub(crate) struct WorkHandle {
     permissions: UnboundedSender<Change>,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// What `/usage`'s session scope reads, as the runtime last published it.
+    spend: SessionSpend,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -400,6 +402,18 @@ impl WorkHandle {
         self.grants.read()
     }
 
+    /// The live conversation's recorded spend, for `/usage`'s session scope,
+    /// from the runtime's last publication. Never waits for the runtime.
+    pub(crate) fn spent(&self) -> Spent {
+        self.spend.read()
+    }
+
+    /// Stands in for the runtime's publication of the conversation's spend.
+    #[cfg(test)]
+    pub(crate) fn publish_spent(&self, spent: Spent) {
+        self.spend.publish(spent);
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -447,6 +461,7 @@ impl WorkHandle {
                 status: StatusBoard::unpublished(),
                 permissions,
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             work_rx,
             control_rx,
@@ -503,6 +518,40 @@ impl LastReply {
     }
 
     fn get(&self) -> Option<Arc<str>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// What `/usage`'s session scope reads, as the runtime last published it:
+/// the live conversation's recorded spend and when its session began.
+///
+/// Upstream reads its session scope synchronously, from the session it holds
+/// (`loadUsageSnapshot(.session)`, `app_commands.zig:1207-1212`). Here the
+/// conversation is the runtime thread's, which may be a minute into a turn or
+/// parked at an approval; so the runtime **publishes** it beside `/status`'s
+/// snapshot ([`Runtime::publish`]) and the UI reads the newest one -- as of the
+/// last turn's end, mid-turn, as `/status`'s counts are.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionSpend(Arc<Mutex<Spent>>);
+
+/// One publication of [`SessionSpend`].
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Spent {
+    pub(crate) usage: crate::session::RecordedUsage,
+    /// When the session began, for the wall clock; `None` before a prompt has
+    /// opened one.
+    pub(crate) started_at_ms: Option<i64>,
+}
+
+impl SessionSpend {
+    fn publish(&self, spent: Spent) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = spent;
+    }
+
+    pub(crate) fn read(&self) -> Spent {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -698,6 +747,8 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    let spend = SessionSpend::default();
+    let publishes_spend = spend.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -719,6 +770,7 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.spend = publishes_spend;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -752,6 +804,7 @@ pub(crate) fn spawn(
                 status,
                 permissions: permissions_tx,
                 grants,
+                spend,
             },
             resumable: None,
         },
@@ -890,6 +943,9 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// Where `/usage`'s session scope reads the conversation's spend from,
+    /// written by [`Runtime::publish`] beside the other two.
+    spend: SessionSpend,
 }
 
 impl Runtime {
@@ -934,6 +990,7 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            spend: SessionSpend::default(),
         }
     }
 
@@ -958,6 +1015,16 @@ impl Runtime {
             self.conversation.as_ref(),
         ));
         self.grants.publish(self.grant_lines());
+        self.spend.publish(match self.conversation.as_ref() {
+            Some(conversation) => {
+                let state = conversation.recorder.state();
+                Spent {
+                    usage: state.usage.clone(),
+                    started_at_ms: Some(state.created_at_ms),
+                }
+            }
+            None => Spent::default(),
+        });
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1625,6 +1692,9 @@ async fn turn_loop(
             TurnWork::Catalog => {
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
+            TurnWork::Credits => {
+                run_credits(&mut state, events, &cancel, &control, &mut queue).await
+            }
             // Three answers that read or write the store and nothing else, so
             // like `/model` they need no race against the control channel:
             // there is no socket to stop and nothing a Ctrl-C would shorten.
@@ -2144,6 +2214,34 @@ async fn run_catalog(
     ended
 }
 
+/// `/credits`: asks the configured provider what its account has left, and
+/// answers with the notice ([`UiEvent::Credits`]).
+///
+/// **Here, never on the thread that holds the terminal**: the Gateway's
+/// answer is a socket, and upstream's blocking wait for it on its UI thread
+/// (`commandShowCredits`, `app_commands.zig:2052-2082`) is the one part of
+/// its behaviour this does not copy. Raced against the control channel like a
+/// catalog load, so a Ctrl-C stops a question nobody wants answered any more;
+/// a cancelled one says nothing.
+async fn run_credits(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    let turn = cancel.turn();
+    let (answer, ended) =
+        raced_against_control(crate::credits::fetch(&state.config), control, |through| {
+            turn.cancel();
+            queue.abandon(through);
+        })
+        .await;
+    let _ = bridge::send_ui(events, &turn.token, UiEvent::Credits(answer)).await;
+    bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
+    ended
+}
+
 /// Runs `body` while still listening to the UI, and says what ended.
 ///
 /// `stop` is what a cancellation *does*: in production it stops the turn and
@@ -2531,6 +2629,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -2589,6 +2688,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -2626,6 +2726,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -2981,6 +3082,7 @@ mod tests {
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
             grants: Grants::default(),
+            spend: SessionSpend::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4224,6 +4326,7 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 grants: Grants::default(),
+                spend: SessionSpend::default(),
             },
             resumable: None,
         };
@@ -5204,6 +5307,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 
@@ -5217,6 +5321,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         }
     }
 

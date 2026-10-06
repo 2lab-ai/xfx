@@ -315,6 +315,8 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
+    /// What `/credits` found: the account's fields, or why there are none.
+    Credits(crate::credits::Answer),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -478,6 +480,26 @@ impl UiEvent {
             Self::Usage { input, output } => Self::Usage { input, output },
             // A count. There is nothing here a terminal can be made to obey.
             Self::Fresh { through } => Self::Fresh { through },
+            // What a Gateway answered, and the one string a remote end chose
+            // that reaches the screen verbatim. `\n` survives, and it is
+            // the field separator only xfx writes: `crate::credits` quotes an
+            // error body on one line and reads each field as one value, but a
+            // field the Gateway wrote with a line break in it is still its
+            // text, and painted as the notice's own continuation row.
+            Self::Credits(answer) => Self::Credits(match answer {
+                crate::credits::Answer::Failed(reason) => {
+                    crate::credits::Answer::Failed(inert_owned(reason))
+                }
+                crate::credits::Answer::Credits {
+                    balance,
+                    used,
+                    plan,
+                } => crate::credits::Answer::Credits {
+                    balance: balance.map(inert_owned),
+                    used: used.map(inert_owned),
+                    plan: plan.map(inert_owned),
+                },
+            }),
             // `tool` is a `&'static str` this crate wrote. The rest quotes a
             // path and a bounded excerpt of the content a call would change --
             // a file, in other words, which is the most likely place in the
@@ -772,6 +794,12 @@ pub(crate) enum TurnWork {
     /// prompt has. Answered with a notice: renamed, or renamed here and not
     /// saved.
     Rename(String),
+    /// Ask the configured provider what its account has left
+    /// ([`crate::credits`]), answered with [`UiEvent::Credits`].
+    ///
+    /// Work rather than a control message because it opens a socket, which
+    /// the thread holding the terminal may not wait on.
+    Credits,
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

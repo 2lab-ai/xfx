@@ -107,6 +107,7 @@ use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
+use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
@@ -906,6 +907,21 @@ pub(crate) struct Shell {
     /// arguments and its whole result -- by the runtime's journal
     /// ([`UiEvent::ToolDetail`]).
     full: FullTranscript,
+    /// `/usage`'s dashboard, while it is up ([`super::usage_menu`]).
+    ///
+    /// A focus like the `/statusline` picker, not a view of the draft: the
+    /// composer row is not shown while it is up and every keystroke is its
+    /// (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`). A
+    /// question outranks it in [`Self::slot`] and takes the keys while it is
+    /// up; the dashboard is back when it has been answered.
+    usage_menu: Option<Dashboard>,
+    /// The thread that reads the session logs for the rolling windows, and
+    /// what it has read ([`usage_menu::Reader`]).
+    usage_reader: usage_menu::Reader,
+    /// The last read that came back, kept for the rolling windows Tab walks
+    /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
+    /// when it was read, and what. A newer read replaces it.
+    usage_read: Option<(i64, crate::usage::Ledger)>,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -1218,6 +1234,8 @@ enum Slot<'a> {
     Ask(&'a QuestionPanel),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// `/usage`'s dashboard. The same: the focus and the composer's rows.
+    Usage(&'a Dashboard),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1269,6 +1287,13 @@ impl Shell {
         let settings = config.user_settings_path.clone();
         #[cfg(test)]
         let settings = None;
+        // The profile `/usage` reads its sessions from -- the same exception
+        // for a shell a test built, which reads none unless the test says
+        // where ([`Self::read_usage_from`]).
+        #[cfg(not(test))]
+        let profile = config.profile_dir.clone();
+        #[cfg(test)]
+        let profile = None;
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -1380,6 +1405,9 @@ impl Shell {
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
+            usage_menu: None,
+            usage_reader: usage_menu::Reader::new(profile),
+            usage_read: None,
         }
     }
 
@@ -1481,6 +1509,11 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
+                // In the rows the geometry gave it, which are the rows its own
+                // height asked for (`composeUsageRow` is handed them).
+                Some(Slot::Usage(dashboard)) => {
+                    dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
@@ -1559,6 +1592,12 @@ impl Shell {
             Some(Slot::Statusline(_)) => self.painted(
                 self.palette.dim(),
                 statusline::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the dashboard's (`composeCompactCommandMenuHintRow`, the
+            // `.usage` variants).
+            Some(Slot::Usage(_)) => self.painted(
+                self.palette.dim(),
+                usage_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -1747,6 +1786,9 @@ impl Shell {
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
+        if let Some(dashboard) = self.usage_menu.as_ref() {
+            return Some(Slot::Usage(dashboard));
+        }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
@@ -1822,6 +1864,13 @@ impl Shell {
             // which is what Enter and the arrows act on.
             if let Some(menu) = self.statusline_menu.as_ref() {
                 let row = menu.marked_row(self.geometry.panel);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The dashboard has the focus the same way: the start of the
+            // marked model's row, which Enter and the arrows act on, or of the
+            // header when no model is in view.
+            if let Some(dashboard) = self.usage_menu.as_ref() {
+                let row = dashboard.marked_row(self.geometry.panel, self.geometry.cols);
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
         }
@@ -2443,6 +2492,17 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
+            }
+            // What `/credits` found, under its topic: neutral for the fields
+            // or the word that there were none, an error for a failure
+            // (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
+            UiEvent::Credits(answer) => {
+                let body = answer.body();
+                self.announce(if answer.is_error() {
+                    notice::Notice::error(crate::credits::TOPIC, body)
+                } else {
+                    notice::Notice::neutral(crate::credits::TOPIC, body)
+                });
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -3165,6 +3225,140 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
         }
+    }
+
+    /// One keystroke, while `/usage`'s dashboard has the focus
+    /// (`routeActiveModalInput` and `routeCompactCommandMenuEscapeAction`,
+    /// `app_input_runtime.zig:1366-1395`, `:2640-2690`): Tab and Shift-Tab
+    /// walk the header, Left and Right walk the windows the other way and
+    /// stop at the ends, the arrows and Ctrl-J/Ctrl-K move the mark, Enter
+    /// opens the marked model, `r` reads the window again, Escape closes it.
+    /// Everything else is swallowed.
+    fn offer_to_usage(&mut self, event: Input) {
+        let request = match event {
+            Input::Action(action) => UsageAction::of_action(action),
+            Input::Text(character) => UsageAction::of_text(character),
+            Input::PasteByte(_) | Input::Report(_) => None,
+        };
+        let Some(request) = request else {
+            return;
+        };
+        let Some(dashboard) = self.usage_menu.as_mut() else {
+            return;
+        };
+        let scope = dashboard.scope();
+        let visible = dashboard.visible_models(self.geometry.panel, self.geometry.cols);
+        match request {
+            UsageAction::Cycle(forward) => self.show_usage(scope.cycled(forward)),
+            // A step that stays put asks nothing (`if (next != current)`).
+            UsageAction::Previous if scope.previous() != scope => self.show_usage(scope.previous()),
+            UsageAction::Next if scope.next() != scope => self.show_usage(scope.next()),
+            UsageAction::Previous | UsageAction::Next => {}
+            UsageAction::Move(down) => {
+                if dashboard.step(down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            UsageAction::Expand => {
+                if dashboard.toggle(visible) {
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            // The session is read where it is; a window is asked of the
+            // reader again, and what is shown stays until it answers
+            // (`reloadUsageMenu`, `app_commands.zig:1094-1112`).
+            UsageAction::Reload if scope == crate::usage::Scope::Session => self.show_usage(scope),
+            UsageAction::Reload => self.read_usage(scope),
+            UsageAction::Close => {
+                self.usage_menu = None;
+                // The composer's row comes back with the dashboard's going.
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
+    /// Puts `scope` on the dashboard (`refreshUsageMenu`,
+    /// `app_commands.zig:1064-1092`): the session at once, from what the
+    /// runtime last published; a rolling window from the last read when there
+    /// is one, else `Loading usage` and a read.
+    fn show_usage(&mut self, scope: crate::usage::Scope) {
+        let snapshot = if scope == crate::usage::Scope::Session {
+            let spent = self.work.spent();
+            Some(crate::usage::session_snapshot(
+                &spent.usage,
+                spent.started_at_ms,
+                crate::session::event::system_now_ms(),
+            ))
+        } else {
+            self.usage_read
+                .as_ref()
+                .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms))
+        };
+        let Some(dashboard) = self.usage_menu.as_mut() else {
+            return;
+        };
+        match snapshot {
+            Some(snapshot) => dashboard.show(snapshot),
+            None => {
+                dashboard.loading(scope);
+                self.read_usage(scope);
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Asks the reader for the session logs again, for `scope`. A read that
+    /// could not even be asked for is a failed one.
+    fn read_usage(&mut self, scope: crate::usage::Scope) {
+        if self
+            .usage_reader
+            .request(crate::session::event::system_now_ms())
+            .is_err()
+        {
+            if let Some(dashboard) = self.usage_menu.as_mut() {
+                dashboard.failed(scope);
+            }
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Takes every read of the session logs that has finished, keeps the
+    /// newest, and shows it when a rolling window is up to show it on
+    /// (`collectUsageDashboardFacts`, `app_commands.zig:1114-1139`).
+    fn settle_usage(&mut self) {
+        while let Some(read) = self.usage_reader.finished() {
+            let Some(dashboard) = self.usage_menu.as_mut() else {
+                if let Ok(ledger) = read.ledger {
+                    self.usage_read = Some((read.at_ms, ledger));
+                }
+                continue;
+            };
+            let scope = dashboard.scope();
+            match read.ledger {
+                Ok(ledger) => {
+                    if scope != crate::usage::Scope::Session {
+                        dashboard.show(ledger.snapshot(scope, read.at_ms));
+                    }
+                    self.usage_read = Some((read.at_ms, ledger));
+                }
+                // The session scope is not the reader's, and is not made old
+                // by a read it did not ask for.
+                Err(_) if scope != crate::usage::Scope::Session => dashboard.failed(scope),
+                Err(_) => {}
+            }
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Points `/usage`'s reader at `profile`, for a case about what it reads.
+    #[cfg(test)]
+    pub(crate) fn read_usage_from(&mut self, profile: std::path::PathBuf) {
+        self.usage_reader = usage_menu::Reader::new(Some(profile));
     }
 
     /// Turns one footer segment on or off, keeps it in the profile, and --
@@ -4538,6 +4732,8 @@ impl Shell {
         self.settle_copies();
         // And so is a `/sound` save.
         self.settle_saves();
+        // And a read of the session logs for `/usage`.
+        self.settle_usage();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -4929,6 +5125,11 @@ impl Shell {
             // Escape is the way out, and then the keys mean what they mean.
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
+                continue;
+            }
+            // `/usage`'s dashboard, the same way.
+            if self.usage_menu.is_some() {
+                self.offer_to_usage(event);
                 continue;
             }
             // And the catalog or the completion menu -- never both -- takes
@@ -5880,6 +6081,41 @@ impl CommandHandlers for Shell {
         self.announce(notice::Notice::neutral("stats", self.metrics.body()));
     }
 
+    /// Upstream's `commandShowUsage` (`app_commands.zig:1024-1062`): the
+    /// menus that share the slot close and the dashboard opens on `30 days`
+    /// -- on the last read when there is one, else `Loading usage` -- and the
+    /// session logs are read again either way (`openUsageDashboard`,
+    /// `:1141-1155`). Nothing is written to the document.
+    fn usage(&mut self) {
+        self.picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.provider_picker = None;
+        self.statusline_menu = None;
+        let scope = crate::usage::Scope::Days30;
+        let cached = self
+            .usage_read
+            .as_ref()
+            .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
+        self.usage_menu = Some(Dashboard::open(scope, cached));
+        self.read_usage(scope);
+        // [`Self::run_command`] re-solved the band before routing here, for a
+        // band with a composer in it.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
+    /// on the runtime thread: the question opens a socket, and the thread that
+    /// holds the terminal waits on none. The answer is a notice when it comes
+    /// ([`UiEvent::Credits`]).
+    fn credits(&mut self) {
+        if let Err(rejected) = self.work.submit(TurnWork::Credits) {
+            self.refused(rejected);
+        }
+    }
+
     /// Upstream's `* status: model=…` with one `key=value` row per fact under
     /// it (`showStatus`, `session_commands.zig:278-310`), from the snapshot
     /// the runtime last published ([`super::worker::StatusBoard`]) -- so the
@@ -6405,6 +6641,7 @@ impl Shell {
             // gone: shown as usual. A provider switch or a model change that
             // completed before the cancellation reached it really did happen.
             UiEvent::Fresh { .. }
+            | UiEvent::Credits(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
@@ -6681,6 +6918,7 @@ impl Shell {
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
+            Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
@@ -6720,7 +6958,10 @@ impl Shell {
         // screen too short for all five -- with a turn's row above it, say --
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
-        if matches!(slot, Some(Slot::Statusline(_))) {
+        //
+        // `/usage`'s dashboard is the same kind of occupant, and gives up rows
+        // the same way (`composeConstrainedUsageRow`).
+        if matches!(slot, Some(Slot::Statusline(_)) | Some(Slot::Usage(_))) {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
@@ -12039,6 +12280,24 @@ mod tests {
                     "/resume wrote to the document: {document:?}"
                 );
                 assert_eq!(shell.picks_up(), TurnWork::Sessions);
+            } else if *name == "/usage" {
+                // The dashboard, in the band, in place of the composer
+                // (`fx-usage-40x120-empty`).
+                assert!(shell.usage_menu.is_some(), "/usage opened no dashboard");
+                assert!(
+                    document.is_empty(),
+                    "/usage wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/credits" {
+                // Asked of the runtime, which answers with the notice; the
+                // UI thread waits on no socket.
+                assert_eq!(shell.picks_up(), TurnWork::Credits);
+                assert!(
+                    document.is_empty(),
+                    "/credits answered before it was asked: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/statusline" {
                 assert!(
                     shell.statusline_menu.is_some(),
@@ -19851,5 +20110,302 @@ mod tests {
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
+    }
+
+    // -----------------------------------------------------------------------
+    // `/usage` and `/credits`
+    // -----------------------------------------------------------------------
+
+    /// The band's rows with every colour taken off.
+    fn usage_band(shell: &Fixture) -> Vec<String> {
+        shell
+            .band_rows()
+            .iter()
+            .map(|row| colourless(row))
+            .collect()
+    }
+
+    /// What the reader would have read: the fx capture's two billed turns.
+    fn billed_ledger(at_ms: i64) -> crate::usage::Ledger {
+        let request =
+            |model: &str, input, output, cache, reasoning, cost| crate::session::RequestUsage {
+                at_ms: at_ms - 60_000,
+                duration_ms: 300,
+                model: model.to_string(),
+                input_tokens: input,
+                output_tokens: output,
+                cache_read_tokens: cache,
+                cache_write_tokens: 0,
+                reasoning_tokens: Some(reasoning),
+                cost: Some(cost),
+                generation_id: None,
+            };
+        let usage = crate::session::RecordedUsage {
+            requests: vec![
+                request("fake/model-a", 12000, 800, 4000, 0, 0.0125),
+                request("anthropic/claude-opus-5", 52000, 3100, 30000, 900, 0.421),
+            ],
+            ..crate::session::RecordedUsage::default()
+        };
+        crate::usage::Ledger::from_sessions([&usage], &[], Some(at_ms - 120_000))
+    }
+
+    fn deliver(shell: &mut Fixture, ledger: Result<crate::usage::Ledger, String>) {
+        let at_ms = crate::session::event::system_now_ms();
+        shell
+            .usage_reader
+            .deliver(super::super::usage_menu::Read { at_ms, ledger });
+        shell.settle_band(Instant::now());
+    }
+
+    #[test]
+    fn usage_opens_the_dashboard_in_place_of_the_composer_and_writes_nothing() {
+        // `fx-usage-40x120-empty`: no composer row, the dashboard between two
+        // rules, its key help on the hint row.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/usage\r");
+        assert!(shell.document().is_empty(), "/usage wrote to the document");
+        assert!(shell.usage_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        // Nothing read yet: the test shell has no profile to read, so the
+        // read failed where it was asked.
+        assert_eq!(
+            usage_band(&shell)[1..3],
+            [
+                "Usage  [30 days]  7 days  24 hours  Session",
+                "Usage unavailable \u{b7} press r to retry"
+            ]
+        );
+        assert_eq!(
+            usage_band(&shell).last().map(String::as_str),
+            Some(
+                "tab scope     \u{2191}\u{2193} model     enter expand     r refresh     esc close"
+            )
+        );
+        assert!(shell.band_rows().last().unwrap().starts_with(PALETTE.dim()));
+        assert!(shell.sent.try_recv().is_err(), "/usage reached the runtime");
+    }
+
+    #[test]
+    fn a_read_fills_the_window_and_the_keys_walk_it() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell(40, 120);
+        shell.read_usage_from(root.path().to_path_buf());
+        shell.route_bytes(b"/usage\r");
+        // Asked, and not answered yet: `Loading usage`.
+        assert_eq!(usage_band(&shell)[2], "Loading usage");
+        let now = crate::session::event::system_now_ms();
+        deliver(&mut shell, Ok(billed_ledger(now)));
+        let band = usage_band(&shell);
+        assert_eq!(shell.geometry.panel, 11);
+        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
+        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
+        assert_eq!(
+            band[10],
+            "\u{276f} anthropic/claude-opus-5    55.1K     81.1%    $0.42"
+        );
+        // The caret is on the marked model, at its start.
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 9, 0));
+
+        // Enter opens it, and the band grows by its detail line.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.geometry.panel, 12);
+        assert!(
+            usage_band(&shell)[11].starts_with("Input 52K"),
+            "{:?}",
+            usage_band(&shell)
+        );
+        // Down moves the mark under it (`fx-usage3-40x120-d30-down`).
+        shell.route_bytes(b"\x1b[B");
+        assert!(usage_band(&shell)[12].starts_with("\u{276f} fake/model-a"));
+
+        // Tab: 7 days, from the read already in hand -- no second read.
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  [7 days]  24 hours  Session"
+        );
+        // Shift-Tab back, then Left: one step towards the session, which the
+        // header prints to the right (`fx-usage-40x120-left`).
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  [30 days]  7 days  24 hours  Session"
+        );
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  [7 days]  24 hours  Session"
+        );
+        // Right twice: back to 30 days, and then nowhere further
+        // (`fx-usage-40x120-right1`).
+        shell.route_bytes(b"\x1b[C\x1b[C");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  [30 days]  7 days  24 hours  Session"
+        );
+
+        // Everything else is swallowed: no letter reaches the hidden
+        // composer, Ctrl-D does not leave, Ctrl-C does not reach the runtime.
+        shell.route_bytes(b"abc\x7f\x04\x03");
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert!(!shell.leaving(), "Ctrl-D left from behind the dashboard");
+        assert_eq!(shell.controlled(), None);
+        assert!(shell.document().is_empty());
+
+        // Escape: gone, and the composer is back.
+        escape(&mut shell);
+        assert!(shell.usage_menu.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn the_session_scope_is_the_runtimes_last_publication() {
+        // `fx-usage2-40x120-session`: what the session has recorded, its
+        // clock and its edits -- read at once, never from the reader.
+        let mut shell = shell(40, 120);
+        let now = crate::session::event::system_now_ms();
+        let mut usage = crate::session::RecordedUsage::default();
+        usage.requests.push(crate::session::RequestUsage {
+            at_ms: now,
+            duration_ms: 1_200,
+            model: "fake/model-a".to_string(),
+            input_tokens: 1200,
+            output_tokens: 40,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: None,
+        });
+        usage.lines_added = 2;
+        shell.work.publish_spent(super::super::worker::Spent {
+            usage,
+            started_at_ms: Some(now - 12_400),
+        });
+        shell.route_bytes(b"/cost\r");
+        assert!(shell.usage_menu.is_some(), "/cost is /usage");
+        shell.route_bytes(b"\x1b[Z");
+        let band = usage_band(&shell);
+        assert_eq!(band[1], "Usage  30 days  7 days  24 hours  [Session]");
+        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
+        assert_eq!(band[4], "  0 tokens        $0.00 spent      0 requests");
+        assert_eq!(band[5], "  0 input         0 output         0 reasoning");
+        assert_eq!(band[8], "Session activity");
+        assert_eq!(band[9], "API 1s \u{b7} Wall 12s");
+        assert_eq!(band[10], "Code +2 \u{b7} -0");
+        assert_eq!(band[14], "  No model usage in this scope.");
+        // `r` reads it again, and it is still the session.
+        shell.route_bytes(b"r");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  7 days  24 hours  [Session]"
+        );
+    }
+
+    #[test]
+    fn a_failed_read_keeps_what_is_shown_and_says_it_is_old() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell(40, 120);
+        shell.read_usage_from(root.path().to_path_buf());
+        shell.route_bytes(b"/usage\r");
+        let now = crate::session::event::system_now_ms();
+        deliver(&mut shell, Ok(billed_ledger(now)));
+        shell.route_bytes(b"r");
+        deliver(&mut shell, Err("unreadable".to_string()));
+        let band = usage_band(&shell);
+        assert_eq!(band[2], "Refresh failed \u{b7} showing previous data");
+        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
+        // The next `/usage` opens on the read in hand rather than on nothing.
+        escape(&mut shell);
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(
+            usage_band(&shell)[4],
+            "  67.9K tokens      $0.43 spent      2 requests"
+        );
+    }
+
+    #[test]
+    fn usage_and_credits_take_nothing_after_them() {
+        // `fx-credits-404-40x120-arg`: `/credits now` is a command nobody has.
+        for line in ["/usage 7d", "/cost now", "/credits now", "/balance x"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(format!("{line}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "command",
+                    "Unknown command. Try /help."
+                )),
+                "{line}"
+            );
+            assert!(shell.usage_menu.is_none(), "{line}");
+            assert!(shell.sent.try_recv().is_err(), "{line}");
+        }
+    }
+
+    #[test]
+    fn credits_is_asked_of_the_runtime_and_answered_as_upstreams_notice() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/balance\r");
+        assert_eq!(shell.picks_up(), TurnWork::Credits);
+        assert!(shell.document().is_empty(), "answered before it was asked");
+
+        // `fx-credits-ok-40x120-after`: three fields, one per row, the later
+        // two under the first's gutter.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+            balance: Some("42.17".to_string()),
+            used: Some("7.83".to_string()),
+            plan: Some("pro".to_string()),
+        }));
+        assert_eq!(
+            shell.document(),
+            ["* credits: balance=42.17", "  used=7.83", "  plan=pro", ""]
+        );
+        // `credits-empty`: neutral, and says there was nothing.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+            balance: None,
+            used: None,
+            plan: None,
+        }));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "credits",
+                "no data returned by gateway"
+            ))
+        );
+        // `credits-404`: an error, in the error tone.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Failed(
+            "HTTP 404: not found".to_string(),
+        )));
+        let rows = shell.take_pending();
+        let row = &rows[0].rows[0];
+        assert_eq!(colourless(row), "\u{2717} credits: HTTP 404: not found");
+        // The glyph and topic in the outcome label's grey, the body in the
+        // notice grey (`\e[38;5;252m✗ credits:\e[38;5;250m HTTP 404…`).
+        assert!(row.starts_with(PALETTE.notice_label()), "{row:?}");
+        assert!(
+            row.contains(&format!("{} HTTP 404: not found", PALETTE.notice())),
+            "{row:?}"
+        );
+    }
+
+    #[test]
+    fn credits_with_the_queue_full_is_refused_where_the_user_reads_it() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/credits joined a full queue"
+        );
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
     }
 }

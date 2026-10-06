@@ -988,6 +988,7 @@ fn stopped(text: &str) -> Completion {
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
     }
 }
 
@@ -1300,6 +1301,7 @@ async fn a_call_for_a_tool_that_is_not_advertised_is_rejected_rather_than_simula
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();
@@ -1324,6 +1326,7 @@ async fn a_provider_error_finish_fails_the_turn_with_its_detail() {
         provider_detail: Some("model overloaded".to_string()),
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(
         vec!["half".to_string()],
@@ -1350,6 +1353,7 @@ async fn a_tool_call_finish_that_names_no_tool_is_rejected() {
         provider_detail: None,
         raw_content: Vec::new(),
         wire: Wire::VercelGateway,
+        billing: None,
     };
     let provider = ScriptedProvider::new(vec![ScriptedResult::Streamed(Vec::new(), completion)]);
     let mut sink = RecordingSink::new();

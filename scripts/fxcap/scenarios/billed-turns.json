@@ -1,0 +1,4 @@
+[
+ {"chunks":["First billed answer."],"billing":{"gen":"gen_01JABCDEFGHJKMNPQRSTVWXYZ0","slug":"fake/model-a","cost":"0.0125","input":12000,"output":800,"cacheRead":4000,"reasoning":0}},
+ {"chunks":["Second billed answer."],"billing":{"gen":"gen_01JABCDEFGHJKMNPQRSTVWXYZ1","slug":"anthropic/claude-opus-5","cost":"0.4210","input":52000,"output":3100,"cacheRead":30000,"reasoning":900}}
+]

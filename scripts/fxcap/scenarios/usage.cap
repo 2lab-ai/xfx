@@ -1,0 +1,52 @@
+# /usage on a fresh home: the menu row, the dashboard before anything was
+# counted, then after one turn the fake gateway did not bill (no billing
+# metadata in markdown-turn.json), the keys on the 30-day window, and /cost.
+models models.json
+gateway markdown-turn.json
+wait 2.5
+type /usage
+wait 0.5
+snap typed
+key Enter
+wait 2
+snap empty
+key Escape
+wait 0.5
+type explain the plan please
+key Enter
+wait 5
+snap answered
+type /usage
+key Enter
+wait 2.5
+snap open
+key Right
+wait 1.5
+snap right1
+key Left
+wait 1
+snap left
+key Down
+wait 0.5
+snap down
+key Tab
+wait 1
+snap tab
+key BTab
+wait 1
+snap btab
+key Escape
+wait 0.5
+snap esc
+type /cost
+wait 0.5
+snap cost-typed
+key Enter
+wait 2
+snap cost-open
+key Escape
+wait 0.3
+type /usage 7d
+key Enter
+wait 1
+snap arg
