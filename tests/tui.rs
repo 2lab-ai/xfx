@@ -6605,9 +6605,20 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     // rather than only the happy one.
     session.wait_for("plain-model context=unknown efforts=none");
 
-    // Select one of them, and leave.
+    // Select one of them.
     session.type_bytes(b"/model plain-model\r");
     session.wait_for("Switched to plain-model");
+    // Choosing the provider already in force is no switch: upstream's
+    // `Already using …` (`app_auth_runtime.zig:1159-1167`), and the profile is
+    // not rewritten -- byte for byte -- nor the model the session holds reset.
+    let before = std::fs::read(sandbox.settings_path()).expect("a profile");
+    session.type_bytes(b"/setup llmux\r");
+    session.wait_for("Already using llmux.");
+    assert_eq!(
+        std::fs::read(sandbox.settings_path()).expect("a profile"),
+        before,
+        "choosing the current provider rewrote the profile"
+    );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
 
@@ -6622,11 +6633,13 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     // The restart, with a layer above the profile in force. `XFX_MODEL`
     // outranks the file, so the report has to *say so* -- a setup that wrote a
     // model the environment overrides and reported success would be a receipt
-    // for a change with no effect.
+    // for a change with no effect. It starts on the Gateway, so `/setup llmux`
+    // is a real switch rather than the no-op choosing the current provider is.
+    let unasked = FakeGateway::start(Vec::new());
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut restarted = Session::spawn_without_taking_the_terminal(&pty, {
-        let mut command = sandbox.command_with_llmux(&daemon);
+        let mut command = sandbox.command_with_both(&unasked, &daemon);
         command.env("XFX_TUI", "1");
         command.env("XFX_MODEL", "fable");
         command.env_remove("TMUX");

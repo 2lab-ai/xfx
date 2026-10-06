@@ -333,15 +333,10 @@ const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are word
 /// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
 const UNKNOWN_COMMAND: &str = "Unknown command. Try /help.";
 
-/// What `/provider` says while the runtime has work in hand, under the topic
-/// `provider`: upstream's own sentence (`provider_busy_message`,
-/// `app_auth_runtime.zig:30`, written at `:430-439`).
-///
-/// "Active and queued" is the runtime's whole queue here
-/// ([`super::worker::WorkHandle::outstanding`]), which is upstream's two facts
-/// -- a stream running, a prompt waiting -- counted as one: a provider switch
-/// is itself a piece of that work, and one queued behind a turn would replay
-/// nothing of the conversation the turn was in.
+/// What `/provider` says while a turn is running or a prompt is waiting for
+/// one, under the topic `provider`: upstream's own sentence
+/// (`provider_busy_message`, `app_auth_runtime.zig:30`, written at
+/// `:430-439`). When that is is [`Shell::provider_work_busy`].
 const PROVIDER_BUSY: &str =
     "Provider switching is unavailable until active and queued work finishes.";
 
@@ -2859,8 +2854,8 @@ impl Shell {
     ///   starts a sign-in. Upstream's Right on a subscription row starts an
     ///   OAuth flow in the user's browser (`app_auth_runtime.zig:1060-1118`);
     ///   a sign-in row here would have to take Right off before it shipped.
-    ///   While the runtime has work Right is only a caret move, as upstream's
-    ///   is while a stream runs (`app_input_runtime.zig:288-293`).
+    ///   While a turn runs or a prompt waits Right is only a caret move, as
+    ///   upstream's is while a stream runs (`app_input_runtime.zig:288-293`).
     /// * **Escape** closes the column and leaves the text.
     /// * **Left** is not taken: there is no column before this one to step
     ///   back into, so it moves the caret, as upstream's does in its first
@@ -2886,7 +2881,7 @@ impl Shell {
                 true
             }
             Action::Submit => self.commit_provider(),
-            Action::Right if self.editor.caret_at_end() && self.work.outstanding() == 0 => {
+            Action::Right if self.editor.caret_at_end() && !self.provider_work_busy() => {
                 self.commit_provider()
             }
             Action::Escape => {
@@ -2904,8 +2899,9 @@ impl Shell {
     /// Enter (or Right) on the `/provider` column, and whether the keystroke
     /// was spent.
     ///
-    /// No row: not spent, and the line goes on to the router. Work in hand:
-    /// spent on upstream's refusal, and the text stays where it is so the same
+    /// No row: not spent, and the line goes on to the router. A turn running
+    /// or a prompt waiting ([`Self::provider_work_busy`]): spent on upstream's
+    /// refusal, and the text stays where it is so the same
     /// Return works once the work is done (`reject_provider_picker_if_busy`,
     /// `app_input_runtime.zig:1593-1596`). Otherwise the switch.
     ///
@@ -2921,12 +2917,30 @@ impl Shell {
         else {
             return false;
         };
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("provider", PROVIDER_BUSY));
             return true;
         }
         self.switch_provider(provider);
         true
+    }
+
+    /// Whether a provider switch has to wait: a turn is running, or a prompt
+    /// is waiting for one -- upstream's `provider_work_busy(stream.active,
+    /// queuedPromptCount())` (`auth_transition.zig:25-27`, asked at
+    /// `app_auth_runtime.zig:430-439`).
+    ///
+    /// **Turns and prompts only, not the runtime's whole queue**
+    /// ([`super::worker::WorkHandle::outstanding`]). That queue also holds a
+    /// catalog load, a `/model` change and a provider switch, and none of
+    /// them is a conversation a switch would cut in two: each runs to its end
+    /// before the next piece of work starts, so a switch taken behind one is
+    /// simply the next thing the runtime does. The two facts are read where
+    /// the band already keeps them: the activity row's work, which a turn sets
+    /// at `TurnStarted` and clears at its end, and the prompts sent whose turn
+    /// has not started.
+    fn provider_work_busy(&self) -> bool {
+        self.activity.working() || !self.prompts.is_empty()
     }
 
     /// Hands a provider switch to the runtime, and says it is under way.
@@ -2935,7 +2949,24 @@ impl Shell {
     /// `/setup llmux` typed out with the column dismissed. The composer is
     /// emptied only once the runtime has taken the work, so a refusal leaves
     /// the text for the next Return.
+    ///
+    /// **The provider already in force is no switch**: while a credential it
+    /// accepts is configured -- the row's `current` -- choosing it again says
+    /// upstream's `Already using <name>.` and hands the runtime nothing, so the
+    /// profile is not rewritten and the conversation is not dropped
+    /// (`decideProviderSwitch`'s `.no_change`, `auth_transition.zig:29-32`,
+    /// said at `app_auth_runtime.zig:1159-1167`). Without such a credential
+    /// it is a switch like any other: setup is what records one.
     fn switch_provider(&mut self, provider: ProviderId) {
+        if provider == self.provider && !self.missing_credential {
+            self.provider_picker = None;
+            self.clear_composer();
+            self.announce(notice::Notice::neutral(
+                "provider",
+                format!("Already using {}.", provider.entry().name),
+            ));
+            return;
+        }
         if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
@@ -5230,8 +5261,8 @@ impl Shell {
     /// **Bare**, it is upstream's `commandProvider` (`app_commands.zig:734-745`,
     /// `app_auth_runtime.zig:441-470`): the composer is reseeded with the
     /// canonical `/provider ` -- whichever spelling was typed -- and the column
-    /// opens under its argument. Refused, with nothing reseeded, while the
-    /// runtime has work in hand.
+    /// opens under its argument. Refused, with nothing reseeded, while a turn
+    /// runs or a prompt waits for one ([`Self::provider_work_busy`]).
     ///
     /// **With an argument** it reaches here only when the column did not take
     /// the Return: Escape had closed it, or the argument names no provider.
@@ -5257,7 +5288,7 @@ impl Shell {
             };
             Some(provider)
         };
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("provider", PROVIDER_BUSY));
             return;
         }
@@ -14537,6 +14568,104 @@ mod tests {
         assert!(shell.provider_picker.is_some());
         assert!(shell.sent.try_recv().is_err(), "a switch was queued");
         assert_eq!(shell.document(), vec![busy.to_string(), String::new()]);
+    }
+
+    #[test]
+    fn a_prompt_waiting_for_its_turn_is_busy_too_and_the_turns_end_frees_the_column() {
+        // Upstream's rule has two facts (`provider_work_busy(stream.active,
+        // queuedPromptCount())`): the second is a prompt sent whose turn has
+        // not started -- no `TurnStarted` yet -- and it refuses as the first.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"ask something\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/provider\r");
+        assert!(
+            shell.provider_picker.is_none(),
+            "a waiting prompt let it open"
+        );
+        assert!(shell
+            .document()
+            .iter()
+            .any(|row| row.starts_with("* provider: Provider switching is unavailable")));
+
+        // The turn starts and ends: nothing is running or waiting any more.
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.released();
+        shell.route_bytes(b"/provider\r");
+        assert!(
+            shell.provider_picker.is_some(),
+            "the ended turn still blocked it"
+        );
+    }
+
+    #[test]
+    fn a_catalog_load_or_a_model_change_in_the_queue_does_not_block_the_column() {
+        // **Changed claim.** The runtime's whole queue used to be the busy
+        // rule; upstream's is a turn or a prompt only. A bare `/model` puts a
+        // catalog load on the runtime's queue and starts no turn, so the column
+        // opens behind it, and the switch it commits is queued after the load.
+        for model in [b"/model\r".as_slice(), b"/model other\r".as_slice()] {
+            let mut shell = shell(40, 120);
+            shell.route_bytes(model);
+            assert!(shell.work.outstanding() > 0, "nothing was queued");
+            let _ = shell.document();
+            shell.route_bytes(b"/provider\r");
+            assert!(
+                shell.provider_picker.is_some(),
+                "{model:?} blocked the column"
+            );
+            shell.route_bytes(b"\x1b[B\r");
+            let _ = shell.picks_up();
+            assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+            assert!(!shell
+                .document()
+                .iter()
+                .any(|row| row.contains("Provider switching is unavailable")));
+        }
+    }
+
+    #[test]
+    fn choosing_the_provider_in_force_is_already_using_and_hands_the_runtime_nothing() {
+        // `app_auth_runtime.zig:1159-1167`: the current provider with a
+        // credential it accepts is no switch. Nothing reaches the runtime, so
+        // the profile is not rewritten and the conversation is not dropped.
+        for typed in [
+            b"/provider\r\r".as_slice(),
+            b"/setup gateway\r".as_slice(),
+            b"/provider ga\x1b[C".as_slice(),
+        ] {
+            let mut shell = shell(40, 120);
+            shell.shell.missing_credential = false;
+            shell.route_bytes(typed);
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{typed:?} reached the runtime"
+            );
+            assert!(shell.editor.is_empty(), "{typed:?}");
+            assert!(shell.provider_picker.is_none(), "{typed:?}");
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "* provider: Already using Vercel AI Gateway.".to_string(),
+                    String::new()
+                ],
+                "{typed:?}"
+            );
+        }
+        // The same command typed past a dismissed column says the same.
+        let mut dismissed = self::shell(40, 120);
+        dismissed.shell.missing_credential = false;
+        dismissed.route_bytes(b"/setup gateway");
+        escape(&mut dismissed);
+        dismissed.route_bytes(b"\r");
+        assert!(dismissed.sent.try_recv().is_err());
+        // And with no credential the active provider is not `current`, so
+        // choosing it is setup's to record, as before.
+        let mut keyless = self::shell(40, 120);
+        keyless.route_bytes(b"/provider\r\r");
+        assert_eq!(keyless.picks_up(), TurnWork::Setup(ProviderId::Gateway));
     }
 
     #[test]
