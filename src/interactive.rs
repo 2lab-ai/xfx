@@ -1880,7 +1880,13 @@ fn trace_on_the_line(
         screen: None,
     }
     .render();
-    let disposition = crate::trace::deliver(&report, &target.dir, &target.clipboard, now);
+    let disposition = crate::trace::deliver(
+        &report,
+        &target.dir,
+        &target.clipboard,
+        now,
+        &crate::clipboard::Stop::default(),
+    );
     if disposition.failed() {
         writeln!(err, "xfx: {}", disposition.sentence())
     } else {

@@ -10,11 +10,22 @@
 //! So each copy runs on a thread of its own and says how it went on a channel
 //! the UI reads once a turn of its loop ([`Copies::finished`]), the way it reads
 //! the clock.
+//!
+//! **And none of those threads outlives the session** ([`Errands`]): when the
+//! shell is dropped -- inside `super::hold`, ahead of `super::signals::release`
+//! and the restore's last steps -- a copy still running is given a moment to
+//! land, then its tool is killed, and its thread is joined. The thread is
+//! spawned from the UI thread outside a wait, so the death signals are
+//! deliverable to it while it lives, and `release`'s safety argument is that
+//! no handler is running anywhere but on the UI thread when the dispositions go
+//! back (the reason `super::sound`'s writer is joined there too).
 
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
-use crate::clipboard::Clipboard;
+use crate::clipboard::{Clipboard, Stop};
 
 /// The name each copy's thread is given, for a debugger or a panic message.
 const THREAD_NAME: &str = "xfx-clipboard";
@@ -27,10 +38,76 @@ const THREAD_NAME: &str = "xfx-clipboard";
 #[cfg(test)]
 pub(crate) const NOWHERE: &str = "/nonexistent/xfx-test-has-no-clipboard";
 
+/// How long a session that is ending lets clipboard work still running finish
+/// on its own before its tool is killed.
+///
+/// Long enough for a tool that answers -- `pbcopy` takes milliseconds, a
+/// warmed `osascript` a few hundred -- and short enough that a tool that never
+/// will costs the exit one second rather than its whole deadline. Upstream's
+/// exit cannot be waiting on one: it copies on the thread the keystroke
+/// arrived on, so a copy is over before the next key is read.
+pub(crate) const GRACE: Duration = Duration::from_secs(1);
+
+/// The threads clipboard work runs on, and the end the session gives them.
+///
+/// Each piece of work is handed a [`Stop`] of its own. Dropping this waits up
+/// to [`GRACE`] for every thread still running, then stops what is left -- a
+/// tool still running is killed, one not started is never started -- and
+/// joins every thread. What a thread does besides waiting on a tool (a
+/// report's write, `super::trace`) is not stopped: it is joined whole.
+#[derive(Debug, Default)]
+pub(crate) struct Errands {
+    running: Mutex<Vec<(JoinHandle<()>, Stop)>>,
+}
+
+impl Errands {
+    /// Runs `work` on a thread named `name`, handing it the [`Stop`] the end
+    /// of the session will give it up with. `false` when no thread could be
+    /// started.
+    pub(crate) fn spawn(&self, name: &str, work: impl FnOnce(&Stop) + Send + 'static) -> bool {
+        let stop = Stop::default();
+        let theirs = stop.clone();
+        let Ok(thread) = std::thread::Builder::new()
+            .name(name.to_string())
+            .spawn(move || work(&theirs))
+        else {
+            return false;
+        };
+        let mut running = self.lock();
+        // A thread that has finished is joined by being forgotten: there is
+        // nothing left of it to wait for.
+        running.retain(|(thread, _)| !thread.is_finished());
+        running.push((thread, stop));
+        true
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Vec<(JoinHandle<()>, Stop)>> {
+        self.running.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Drop for Errands {
+    fn drop(&mut self) {
+        let running = std::mem::take(&mut *self.lock());
+        let deadline = Instant::now() + GRACE;
+        while running.iter().any(|(thread, _)| !thread.is_finished()) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        for (_, stop) in &running {
+            stop.stop();
+        }
+        for (thread, _) in running {
+            let _ = thread.join();
+        }
+    }
+}
+
 /// The copies this session has started, and how each of them went.
 #[derive(Debug)]
 pub(crate) struct Copies {
     clipboard: Clipboard,
+    /// The threads they run on ([`Errands`]).
+    errands: Errands,
     /// Cloned into each copy's thread, which sends one outcome and ends.
     done: Sender<bool>,
     outcomes: Receiver<bool>,
@@ -59,6 +136,7 @@ impl Copies {
         let (selection_done, selections) = mpsc::channel();
         Self {
             clipboard,
+            errands: Errands::default(),
             done,
             outcomes,
             selection_done,
@@ -72,12 +150,9 @@ impl Copies {
     pub(crate) fn start_selection(&self, text: Arc<str>, purpose: Selection) -> bool {
         let clipboard = self.clipboard.clone();
         let done = self.selection_done.clone();
-        std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || {
-                let _ = done.send((purpose, clipboard.copy(&text)));
-            })
-            .is_ok()
+        self.errands.spawn(THREAD_NAME, move |stop| {
+            let _ = done.send((purpose, clipboard.copy_until(&text, stop)));
+        })
     }
 
     /// How one selection copy that has finished went, or `None` when none has
@@ -93,14 +168,11 @@ impl Copies {
     pub(crate) fn start(&self, reply: Arc<str>) -> bool {
         let clipboard = self.clipboard.clone();
         let done = self.done.clone();
-        std::thread::Builder::new()
-            .name(THREAD_NAME.to_string())
-            .spawn(move || {
-                // Nobody left to tell is a session that has ended, and the
-                // clipboard was written for it all the same.
-                let _ = done.send(clipboard.copy(&reply));
-            })
-            .is_ok()
+        self.errands.spawn(THREAD_NAME, move |stop| {
+            // Nobody left to tell is a session that has ended, and the
+            // clipboard was written for it all the same.
+            let _ = done.send(clipboard.copy_until(&reply, stop));
+        })
     }
 
     /// How one copy that has finished went -- `true` when the clipboard has
@@ -118,6 +190,11 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// How long a case waits for a fake tool: a fresh script's first run is
+    /// assessed by macOS, which took 8 to 12 s on a machine at load 35 -- and
+    /// no case here is about how fast a tool starts.
+    const LOADED: Duration = Duration::from_secs(60);
+
     /// Waits for one copy to finish, or fails the case after `limit`.
     fn outcome(copies: &Copies, limit: Duration) -> bool {
         let deadline = Instant::now() + limit;
@@ -128,6 +205,51 @@ mod tests {
             assert!(Instant::now() < deadline, "the copy never finished");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn an_ending_session_kills_a_copy_whose_tool_never_exits_and_joins_its_thread() {
+        // D4c's finding: the copy's thread is spawned from the UI thread and
+        // must not outlive the restore. Dropped, the copies wait out the
+        // grace, kill the tool and join -- seconds before the tool would have
+        // ended on its own.
+        let tool = crate::clipboard::fake::FakeTool::running(
+            "cat >/dev/null\necho $$ > \"${0%/*}/hung\"\nexec sleep 30",
+        );
+        let copies = Copies::new(tool.clipboard());
+        assert!(copies.start(Arc::from("reply")));
+        let deadline = Instant::now() + LOADED;
+        while tool.hung().is_none() {
+            assert!(Instant::now() < deadline, "the tool never started");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let pid = tool.hung().expect("the tool started");
+        let ending = Instant::now();
+        drop(copies);
+        let took = ending.elapsed();
+        assert!(took >= GRACE, "the copy was not given its grace: {took:?}");
+        assert!(
+            took < GRACE + Duration::from_secs(10),
+            "the end waited on the tool: {took:?}"
+        );
+        assert!(
+            !crate::clipboard::fake::FakeTool::alive(pid),
+            "the tool outlived the session"
+        );
+    }
+
+    #[test]
+    fn an_ending_session_lets_a_copy_that_answers_land() {
+        let tool = crate::clipboard::fake::FakeTool::running("sleep 0.2\ncat > \"${0%/*}/copied\"");
+        let copies = Copies::new(tool.clipboard());
+        // Once to its end first: macOS assesses a fresh script the first time
+        // it runs, which can take longer than the grace, and the claim here
+        // is about a tool that answers.
+        assert!(copies.start(Arc::from("a first reply")));
+        assert!(outcome(&copies, Duration::from_secs(30)));
+        assert!(copies.start(Arc::from("the reply")));
+        drop(copies);
+        assert_eq!(tool.copied().as_deref(), Some("the reply".as_bytes()));
     }
 
     #[test]
@@ -143,7 +265,7 @@ mod tests {
             "starting a copy waited for the tool"
         );
         assert_eq!(copies.finished(), None, "a copy still running was answered");
-        assert!(outcome(&copies, Duration::from_secs(10)));
+        assert!(outcome(&copies, LOADED));
     }
 
     #[test]
@@ -151,7 +273,7 @@ mod tests {
         let tool = crate::clipboard::fake::FakeTool::keeping();
         let copies = Copies::new(tool.clipboard());
         assert!(copies.start_selection(Arc::from("picked"), Selection::Cut(7)));
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + LOADED;
         let answer = loop {
             if let Some(answer) = copies.selection_finished() {
                 break answer;
@@ -172,6 +294,6 @@ mod tests {
     fn a_copy_that_cannot_reach_a_tool_says_so_rather_than_nothing() {
         let copies = Copies::new(Clipboard::searching(NOWHERE));
         assert!(copies.start(Arc::from("reply")));
-        assert!(!outcome(&copies, Duration::from_secs(10)));
+        assert!(!outcome(&copies, LOADED));
     }
 }
