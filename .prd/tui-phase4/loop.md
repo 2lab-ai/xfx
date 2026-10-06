@@ -105,3 +105,8 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - 79f2443: two load-fooled test waits fixed (status-row wait; thread CPU time for the markdown linear-time tests).
 - Opened T1 `fix/terminal-group-sweep`: `a_stopped_command_leaves_nothing_alive_in_its_process_group` escaped once at load 33 (pre-existing, `src/tools/terminal.rs` `stop` signals the group 3 times then only watches).
 - D1 `resume` dispatched on c73c31c.
+- Merged: F3 question panel (receipt `receipts/f3/`, cell-identical apart from five listed gaps — sent back to F3 to close: fx's Esc/Ctrl-C at a question, multi-row freeform draft with Shift arrows and paste, reverse-video caret cell, answer-row retint), D4b `/statusline` (rows 2-40 byte-identical in 11 snaps; context segment now off by default as fx; workspace segment shows fx's full path). Gates green on 2870b42 (lib 2113/2117, tui 90/102).
+- 3894210: `build.rs` also follows a branch whose ref starts packed (banner revision was stale in D3/D4b worktrees).
+- D3 `/provider` returned; its merge conflicted with D4b, sent back with two fx follow-ups (`Already using <name>.`, fx's busy predicate).
+- Opened T2 `fix/tui-notice-midstream`: a notice written while an answer streams splits the answer and the continuation rows lose their last cell (D3 finding, reproduced on b9c5591).
+- Docs pass owed after the wave: `README.md` command list, `docs/parity.md` intro counts.
