@@ -72,6 +72,9 @@ pub(crate) enum Role {
     Body,
     /// One of xfx's own lines about the session.
     Notice,
+    /// Upstream's quiet rows: the turn summary under an answer, in the
+    /// palette's dim foreground (`theme.zig`, `dim`).
+    Dim,
 }
 
 impl Role {
@@ -86,6 +89,7 @@ impl Role {
             Role::Plain => None,
             Role::Body => Some(palette.body()),
             Role::Notice => Some(palette.notice()),
+            Role::Dim => Some(palette.dim()),
         }
     }
 }
@@ -809,7 +813,16 @@ fn texts(text: &str, roles: &Roles, cols: u16, gutter: Gutter, palette: Palette)
     }
     let prefix = gutter.prefix(palette);
     rows.into_iter()
-        .map(|row| format!("{prefix}{row}"))
+        // The indent goes only where there is something to indent, as
+        // upstream's does (`assistant_wrap.zig:390-407`); the rail is on every
+        // row of the card, blank ones included.
+        .map(|row| {
+            if gutter == Gutter::Indent && row.is_empty() {
+                row
+            } else {
+                format!("{prefix}{row}")
+            }
+        })
         .collect()
 }
 

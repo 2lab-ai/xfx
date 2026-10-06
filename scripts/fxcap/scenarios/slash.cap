@@ -1,0 +1,7 @@
+wait 2
+type /
+wait 1
+snap slash
+key Down Down Down
+wait 0.5
+snap slash-down

@@ -77,6 +77,7 @@ use super::activity::{Activity, Work, PHASES};
 use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
+use super::blocks;
 use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
@@ -93,10 +94,11 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::theme::{Mode, Palette};
-use super::transcript::{Append, Landed, Role, Transcript};
+use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
+use crate::markdown::{self, MarkdownProcessor};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
@@ -642,6 +644,18 @@ pub(crate) struct Shell {
     /// Taken by the loop, which owns the writer. A `bool` rather than a queued
     /// write because two clears in one turn are one clear.
     clearing: bool,
+    /// The answer as upstream presents it: the model's markdown rendered as it
+    /// streams (`assistant_stream.zig:435-457`), its prose in the two-column
+    /// gutter and its code, tables and rules as blocks of their own.
+    markdown: MarkdownProcessor,
+    /// Where the answer being written stands ([`Answer`]).
+    answer: Answer,
+    /// What the summary under the turn's answer will say ([`Tally`]).
+    tally: Tally,
+    /// The token estimate of every prompt that was sent and whose turn has
+    /// not started yet, oldest first: a prompt may wait behind another turn,
+    /// and the summary counts the prompt of the turn it is under.
+    prompts: VecDeque<u64>,
     /// How far down the screen the document reaches, for the band that floats
     /// under it ([`Geometry::floated`]).
     ///
@@ -703,6 +717,12 @@ enum Asked {
 /// One of xfx's own document writes, waiting for its place in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mark {
+    /// The line the user submitted, as upstream's card: the rail, the text in
+    /// bold, and a blank row under it (`user_message_card.zig:319-325`).
+    Card(String),
+    /// The turn's summary under its answer, and a blank row under it
+    /// (`transcript/runtime.zig:540-547`).
+    Summary(String),
     /// A whole line, on rows of its own, and what it is.
     ///
     /// The role is carried rather than decided where the mark is run, because
@@ -716,6 +736,112 @@ enum Mark {
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
 }
+
+/// The answer being written: whether its prose block is open, and the line
+/// breaks that block ended on so far, held back until something follows them.
+#[derive(Debug, Default)]
+struct Answer {
+    open: bool,
+    held: usize,
+}
+
+/// Upstream's streaming token estimate (`token_estimate.zig:5-31`): a
+/// whitespace-separated span of `n` bytes is `ceil(n / 4)` tokens, and the
+/// count is the same however the text was cut into chunks.
+#[derive(Debug, Default, Clone, Copy)]
+struct Estimator {
+    settled: u64,
+    span: u64,
+}
+
+impl Estimator {
+    fn consume(&mut self, text: &str) {
+        for byte in text.bytes() {
+            if byte.is_ascii_whitespace() {
+                self.settled = self.settled.saturating_add(span_tokens(self.span));
+                self.span = 0;
+            } else {
+                self.span = self.span.saturating_add(1);
+            }
+        }
+    }
+
+    fn estimate(&self) -> u64 {
+        self.settled.saturating_add(span_tokens(self.span))
+    }
+}
+
+fn span_tokens(span: u64) -> u64 {
+    span / 4 + u64::from(span % 4 != 0)
+}
+
+/// What the summary under a turn's answer says: how long the turn took and the
+/// tokens it moved (`transcript/runtime.zig:540-547`). In is the prompt's
+/// estimate, as upstream counts it (`telemetry.zig:87-96`); out is what the
+/// provider reported, or the estimate of what streamed when it reported
+/// nothing.
+#[derive(Debug, Default)]
+struct Tally {
+    started: Option<Instant>,
+    input: u64,
+    output: Option<u64>,
+    streamed: Estimator,
+}
+
+impl Tally {
+    fn begin(&mut self, now: Instant, input: u64) {
+        *self = Tally {
+            started: Some(now),
+            input,
+            ..Tally::default()
+        };
+    }
+
+    fn line(&self, now: Instant) -> String {
+        let seconds = self.started.map_or(0, |started| {
+            now.saturating_duration_since(started).as_secs()
+        });
+        let mut line = format!("  {}", compact_duration(seconds));
+        let output = self.output.unwrap_or_else(|| self.streamed.estimate());
+        if self.input != 0 || output != 0 {
+            line.push_str(&format!(
+                " (\u{2191}{} \u{2193}{})",
+                compact_tokens(self.input),
+                compact_tokens(output)
+            ));
+        }
+        line
+    }
+}
+
+/// `formatDurationCompact` (`transcript/runtime.zig:524-537`).
+fn compact_duration(seconds: u64) -> String {
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 60 * 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h {:02}m", seconds / 3600, (seconds % 3600) / 60)
+    }
+}
+
+/// `formatTokenCountCompact` (`activity_status.zig:259-268`).
+fn compact_tokens(tokens: u64) -> String {
+    if tokens < 1000 {
+        return tokens.to_string();
+    }
+    let (whole, tenths) = (tokens / 1000, (tokens % 1000) / 100);
+    if whole < 10 && tenths > 0 {
+        format!("{whole}.{tenths}k")
+    } else {
+        format!("{whole}k")
+    }
+}
+
+/// Bold on, and every attribute off: what upstream's card puts around the
+/// submitted text (`user_message_card.zig:319-325`).
+const BOLD: &str = "\u{1b}[1m";
+const RESET: &str = "\u{1b}[0m";
 
 /// What the band's elastic slot is holding.
 ///
@@ -814,6 +940,12 @@ impl Shell {
             dismissed: Dismissed::default(),
             activity_row: None,
             clearing: false,
+            markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
+                markdown::theme::builtin(palette.mode == Mode::Light),
+            )),
+            answer: Answer::default(),
+            tally: Tally::default(),
+            prompts: VecDeque::new(),
             document_rows: 0,
             fatal: None,
             leaving: None,
@@ -1225,7 +1357,11 @@ impl Shell {
             // and the *moment* is the next settle's, so the row is timed by the
             // same clock every other row of the band is settled against
             // ([`Self::tick_activity`]).
-            UiEvent::TurnStarted => self.activity.set(Work::Thinking),
+            UiEvent::TurnStarted => {
+                self.activity.set(Work::Thinking);
+                let input = self.prompts.pop_front().unwrap_or(0);
+                self.tally.begin(Instant::now(), input);
+            }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
             // nothing in the next is still read at one speed.
@@ -1359,8 +1495,11 @@ impl Shell {
             // The numerator, and only the numerator: see [`Self::context_used`]
             // for why the output half is deliberately dropped here rather than
             // added to it.
-            UiEvent::Usage { input, .. } => {
+            UiEvent::Usage { input, output } => {
                 self.context_used = input;
+                if let Some(output) = output {
+                    self.tally.output = Some(self.tally.output.unwrap_or(0).saturating_add(output));
+                }
                 self.render.request(Reason::Footer);
             }
             // The turn has stopped and is waiting for a person. Everything
@@ -1379,7 +1518,7 @@ impl Shell {
                 // in the middle of the answer.
                 match failure {
                     Some(failure) => self.say(failure),
-                    None => self.mark(Mark::EndOfLine),
+                    None => self.mark(Mark::Summary(self.tally.line(Instant::now()))),
                 }
                 // The gesture is **not** deferred with it. What the last Ctrl-C
                 // was about ended when the turn did, whatever is left to paint,
@@ -2296,10 +2435,10 @@ impl Shell {
             let mut text = std::mem::take(&mut reopen);
             text.push_str(piece);
             self.emitted = self.emitted.saturating_add(piece.len());
-            // The answer, and what makes it the answer's colour is this call
-            // and nothing about the bytes: the queue, the marks and the
-            // offsets above are the raw stream, untouched.
-            self.write_transcript_as(&text, Role::Body);
+            // The answer, presented: the queue, the marks and the offsets above
+            // are the raw stream, untouched, and what the screen gets is what
+            // the markdown presenter makes of it.
+            self.write_answer(&text);
             body = tail;
         }
     }
@@ -2323,6 +2462,9 @@ impl Shell {
             self.release(chunk, before);
         }
         self.run_due_marks();
+        // And the presenter's own hold: the line it has not seen the end of yet
+        // is the end of the answer when there is no more stream to come.
+        self.close_answer();
     }
 
     /// Runs the marks the stream has now reached.
@@ -2341,7 +2483,14 @@ impl Shell {
 
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
+        // Anything that is not the answer ends the answer's block.
+        self.close_answer();
         match mark {
+            Mark::Card(text) => self.write_card(&text),
+            Mark::Summary(line) => {
+                self.write_document_line(&line, Role::Dim);
+                self.end_transcript_line();
+            }
             Mark::Line(line, role) => self.write_document_line(&line, role),
             Mark::EndOfLine => self.finish_document_line(),
         }
@@ -2368,6 +2517,7 @@ impl Shell {
     /// A notice must not land in the middle of a sentence, so whatever the
     /// answer had open is closed first.
     fn write_document_line(&mut self, line: &str, role: Role) {
+        self.close_answer();
         self.finish_document_line();
         self.write_transcript_as(line, role);
         self.end_transcript_line();
@@ -3109,6 +3259,7 @@ impl Shell {
                     // Held back, it would arrive detached from the notice it
                     // belongs to and after text the user asked to stop.
                     self.write_document_line(QUEUE_DROPPED, Role::Notice);
+                    self.prompts.clear();
                 }
             }
             Interrupt::Clear => self.clear_composer(),
@@ -3286,6 +3437,9 @@ impl Shell {
                 // that this one is (`UiEvent::TurnStarted`).
                 self.take_draft();
                 self.edited(None);
+                let mut estimate = Estimator::default();
+                estimate.consume(text);
+                self.prompts.push_back(estimate.estimate());
                 self.echo(text);
                 self.gestures.submitted();
             }
@@ -3317,10 +3471,118 @@ impl Shell {
     /// was submitted is finished, and a tail left open would be continued by
     /// the answer.
     fn echo(&mut self, text: &str) {
-        // The user's own line, so xfx paints nothing onto it: what is written
-        // here is what they typed, in whatever the terminal's own foreground
-        // is.
-        self.say_as(text.to_string(), Role::Plain);
+        // The user's own line, so xfx paints no colour onto it: what is written
+        // here is what they typed, in bold behind the rail, as upstream's card.
+        self.mark(Mark::Card(text.to_string()));
+    }
+
+    /// The card [`Mark::Card`] asks for.
+    fn write_card(&mut self, text: &str) {
+        self.finish_document_line();
+        if self.transcript.queue_gutter(Gutter::Rail) {
+            self.owed();
+        }
+        self.write_transcript_as(&format!("{BOLD}{text}{RESET}"), Role::Plain);
+        self.end_transcript_line();
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
+        self.end_transcript_line();
+    }
+
+    /// Released answer text, through the presenter.
+    fn write_answer(&mut self, text: &str) {
+        self.tally.streamed.consume(text);
+        for event in self.markdown.feed(text) {
+            self.present(event);
+        }
+    }
+
+    /// One thing the presenter completed, in the shape upstream gives it.
+    fn present(&mut self, event: markdown::Event) {
+        let cols = self.geometry.cols;
+        match event {
+            markdown::Event::Text(text) => self.write_prose(&text),
+            markdown::Event::CodeBlock(block) => {
+                let theme = markdown::theme::builtin(self.palette.mode == Mode::Light);
+                let rows = blocks::code_block_row_bytes(&block, cols, &theme);
+                self.write_structure(&rows);
+            }
+            markdown::Event::Table(table) => {
+                let rows = blocks::table_row_bytes(&table, cols);
+                self.write_structure(&rows);
+            }
+            markdown::Event::ThematicRule => {
+                let rule = blocks::render_thematic_rule(cols);
+                self.write_structure(&rule);
+            }
+        }
+    }
+
+    /// Rendered prose, in the answer's two-column gutter.
+    ///
+    /// A block's head is trimmed of blank lines and its tail is held back
+    /// rather than written, so every block ends on exactly one blank row however
+    /// many line breaks it arrived with -- upstream trims and normalizes each
+    /// rendered block the same way (`transcript_blocks.zig`,
+    /// `trimAssistantBlockHead` and `normalizeOwnedRenderedBlock`).
+    fn write_prose(&mut self, text: &str) {
+        let mut text = text;
+        if !self.answer.open {
+            text = text.trim_start_matches('\n');
+            if text.is_empty() {
+                return;
+            }
+            self.finish_document_line();
+            if self.transcript.queue_gutter(Gutter::Indent) {
+                self.owed();
+            }
+            self.answer.open = true;
+        }
+        let body = text.trim_end_matches('\n');
+        if !body.is_empty() {
+            if self.answer.held > 0 {
+                let breaks = "\n".repeat(self.answer.held);
+                self.answer.held = 0;
+                self.write_transcript_as(&breaks, Role::Plain);
+            }
+            self.write_transcript_as(body, Role::Plain);
+        }
+        self.answer.held += text.len() - body.len();
+    }
+
+    /// Ends an open prose block on one blank row.
+    fn close_prose(&mut self) {
+        if !self.answer.open {
+            return;
+        }
+        self.answer = Answer::default();
+        self.finish_document_line();
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
+        self.end_transcript_line();
+    }
+
+    /// A code panel, a table or a rule: rows already laid out at the screen's
+    /// width, gutter included, and a blank row under them.
+    fn write_structure(&mut self, rows: &str) {
+        self.close_prose();
+        self.finish_document_line();
+        for row in rows.trim_end_matches('\n').split('\n') {
+            self.write_transcript_as(row, Role::Plain);
+            self.end_transcript_line();
+        }
+        self.end_transcript_line();
+    }
+
+    /// Whatever the presenter is still holding, and the answer's block closed.
+    fn close_answer(&mut self) {
+        for event in self.markdown.finish() {
+            self.present(event);
+        }
+        self.markdown.reset();
+        self.close_prose();
     }
 
     /// One canonical command, with the rest of the line as its argument.

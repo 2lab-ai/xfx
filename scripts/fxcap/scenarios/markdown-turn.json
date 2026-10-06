@@ -1,0 +1,1 @@
+[{"delayMs":250,"chunks":["Here is a short answer.\n\n","It has **bold** text, `inline code`, and a list:\n\n","- first item\n","- second item\n\n","```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n\n","Done."]}]
