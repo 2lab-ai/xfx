@@ -1,0 +1,24 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ pick a database
+
+[tool] ask_user_question running
+
+  1) Which database should I use?
+     SQLite
+  2) Deploy now?
+     Yes
+
+[tool] ask_user_question ok
+  Got it.
+
+  6s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
