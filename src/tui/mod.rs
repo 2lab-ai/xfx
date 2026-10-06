@@ -332,8 +332,9 @@ fn hold(
     // Nothing has been spawned yet when it fires.
     let cancel = bridge::Cancellation::new(crate::gateway::CancelToken::new());
     // Read before the session goes to the runtime thread, which is the only
-    // place it lives from then on.
-    let resumed_title = resumed.as_ref().map(worker::Resumption::title);
+    // place it lives from then on: what the saved session replays as, built
+    // from the state the open already read, with no read of its own.
+    let replay = resumed.as_ref().map(worker::Resumption::hydration);
     let (mut worker, mut events) = worker::spawn(config.clone(), cancel.clone(), resumed)?;
 
     // The block lifts inside `install`, so anything held across the transition
@@ -447,9 +448,12 @@ fn hold(
     band.invalidate(geometry.rows, geometry.cols);
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
-    shell.welcome();
-    if let Some(title) = resumed_title {
-        shell.resumed(title);
+    // A resumed launch writes no welcome line, as upstream's does not
+    // (`app_bootstrap_runtime.zig:619`): the session's own notice and turns
+    // are the document, on the screen the launch's push left.
+    match replay {
+        Some(replay) => shell.hydrate(replay, false),
+        None => shell.welcome(),
     }
     let code = event_loop::run(
         &mut shell,
@@ -700,6 +704,7 @@ mod grid;
 mod help_menu;
 mod hint;
 mod history;
+mod hydration;
 mod input;
 mod layout;
 mod model_menu;
@@ -715,6 +720,7 @@ mod question;
 mod render_request;
 mod retry;
 mod router;
+mod session_picker;
 mod shell;
 mod signals;
 mod sound;

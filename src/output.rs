@@ -1443,6 +1443,7 @@ mod tests {
                 finish_reason: "stop".to_string(),
                 steps: 1,
             }),
+            timing: crate::session::TurnTiming::default(),
         }
     }
 
@@ -1461,6 +1462,7 @@ mod tests {
             grants: Vec::new(),
             context_sources: vec!["/w/AGENTS.md".to_string()],
             turns,
+            renamed: None,
         }
     }
 

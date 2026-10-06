@@ -3,7 +3,7 @@
 Captured on the branch **after** merging `plan/tui-phase4` at `2870b42` (F1 tool
 groups, C2 reset, F3 questions, D4b statusline), so every row below is the
 merged product. Re-checked on the branch head `ab08b05` after the later merges
-(D2a, T1, F5, D3, T2, D4a, D4c, D1; xfx only, every scenario at 40x120): every
+(D2a, T1, F5, D3, T2, D4a, D4c; xfx only, every scenario at 40x120): every
 interrupt, hint, question and retry row is the same as here; the only changes
 are blink/count, stream position and retry timing (as below), the catalog's
 rows (the registry grew), and xfx's no-questions mode now named `full access`

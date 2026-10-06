@@ -46,6 +46,11 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
+#   relaunch <args>...     starts the binary again in the same pane, with the
+#                          same HOME and environment and these arguments --
+#                          after `keep` and an exit, so a second launch sees
+#                          what the first one saved (`fx: relaunch
+#                          --resume-last`, `xfx: relaunch --resume last`)
 #   bells <label>          writes how many terminal bells the pane has rung so
 #                          far (tmux's alert-bell hook, one line per bell; an
 #                          OSC's BEL terminator is not one) and the clients
@@ -246,6 +251,9 @@ $xfx_model $extra_env $bin"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
         } > "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
+        ;;
+      relaunch)
+        tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
         ;;
       clipfail)
         case $rest in
