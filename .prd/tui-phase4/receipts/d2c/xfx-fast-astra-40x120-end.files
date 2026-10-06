@@ -1,0 +1,12 @@
+=== ~/.xfx/settings.json (159 bytes)
+{
+  "fast_mode": false,
+  "fast_mode_model_bound": true,
+  "models": {
+    "gateway": "xai/grok-4.7"
+  },
+  "provider": "gateway",
+  "ultrafast_mode": false
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

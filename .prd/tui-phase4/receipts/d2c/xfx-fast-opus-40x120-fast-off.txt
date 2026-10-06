@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+
+* fast: on
+
+* fast: off
+
+┃
+
+auto · opus 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

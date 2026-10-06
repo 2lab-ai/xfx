@@ -1,0 +1,12 @@
+=== ~/.xfx/settings.json (169 bytes)
+{
+  "fast_mode": true,
+  "fast_mode_model_bound": true,
+  "models": {
+    "gateway": "anthropic/claude-opus-5"
+  },
+  "provider": "gateway",
+  "ultrafast_mode": false
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

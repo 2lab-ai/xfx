@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-901471d [debug] · Run /help for commands
+
+* fast: on
+
+* fast: off
+
+! ultrafast: Ultra mode is unavailable for this model and may increase cost.
+
+┃
+
+auto · opus 5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
