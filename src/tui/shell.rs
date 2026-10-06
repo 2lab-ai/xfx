@@ -87,6 +87,7 @@ use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
+use super::notice::{self, unattributed};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
@@ -104,6 +105,7 @@ use crate::permission::{ApprovalAnswer, ApprovalRequest};
 use crate::provider::model::model_id_problem;
 use crate::provider::model::CatalogEntry;
 use crate::provider::ProviderId;
+use crate::session::store::title_of;
 
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
@@ -176,7 +178,10 @@ pub(crate) const QUEUE_REJECTED: &str = "one prompt is already queued; this one 
 /// and a notice that waited for the cancelled turn to unwind would never arrive
 /// at all for the turn most worth interrupting, the one whose provider has gone
 /// quiet without hanging up.
-const QUEUE_DROPPED: &str = "xfx: dropping what was queued behind it as well.";
+///
+/// The body of a cancelled notice under the topic `queue`: the glyph says the
+/// sentence is xfx's, so the words do not.
+const QUEUE_DROPPED: &str = "dropping what was queued behind it as well.";
 
 /// What the hint row says while a second Escape would clear the composer.
 ///
@@ -193,8 +198,11 @@ pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 /// session waiting for an answer the user has no way to give, which is worse
 /// than a change that did not happen. In the document rather than on the hint
 /// row, because it is about a turn rather than about a keystroke.
+///
+/// An error under the topic `permissions`, upstream's topic for the permission
+/// engine's own notices.
 const PANEL_TOO_SMALL: &str =
-    "xfx: this screen is too small to ask for permission, so the change was refused";
+    "this screen is too small to ask for permission, so the change was refused";
 
 /// What the user is told when they granted a question the screen has not shown
 /// them yet.
@@ -227,8 +235,11 @@ pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
 /// nothing, and leaves the model to ask in freeform instead. Borrowing the
 /// permission panel's wording would tell the user that a change they never made
 /// was refused, which is the one kind of sentence a refusal must not contain.
+///
+/// A cancelled notice under the topic `question`: what happened to the batch is
+/// exactly that it was cancelled, which is the tone's own meaning.
 const QUESTION_TOO_SMALL: &str =
-    "xfx: this screen is too small to show the question, so the question was cancelled";
+    "this screen is too small to show the question, so the question was cancelled";
 
 /// What the user is told when the runtime thread is not there to take work.
 ///
@@ -236,7 +247,10 @@ const QUESTION_TOO_SMALL: &str =
 /// a runtime with a queue, and a fatal event is already on its way to say so.
 /// In the document rather than on the hint row, because unlike a full queue it
 /// is not a condition that clears.
-const GONE_NOTICE: &str = "xfx: the runtime is gone; that line was not sent";
+///
+/// An error under upstream's topic for the session's own machinery, `system`
+/// (`app_process_runtime.zig:61`, where a request that failed is reported).
+const GONE_NOTICE: &str = "the runtime is gone; that line was not sent";
 
 /// The hint row's refusal for a paste larger than the byte budget.
 ///
@@ -281,11 +295,18 @@ const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are word
 /// command's own summary makes -- that clearing the screen is not clearing the
 /// conversation -- said where a user who just watched their transcript vanish
 /// is looking.
-const CLEARED_NOTICE: &str = "xfx: cleared the screen; the conversation is kept";
+///
+/// A neutral notice under the topic `screen`.
+const CLEARED_NOTICE: &str = "cleared the screen; the conversation is kept";
 
 /// What `/new` says, in the words the line-oriented shell says them in
-/// (`interactive.rs:461-463`).
-const NEW_SESSION_NOTICE: &str = "[shell] new session; the next prompt starts a fresh conversation";
+/// (`interactive.rs:461-463`), as a neutral notice under the topic `session`.
+const NEW_SESSION_NOTICE: &str = "new session; the next prompt starts a fresh conversation";
+
+/// What a line that names no command -- or names one with something after it
+/// that the command does not take -- is answered with: upstream's own
+/// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
+const UNKNOWN_COMMAND: &str = "Unknown command. Try /help.";
 
 /// What labels the sentence a user attached to a permission decision.
 ///
@@ -655,7 +676,28 @@ pub(crate) struct Shell {
     /// The token estimate of every prompt that was sent and whose turn has
     /// not started yet, oldest first: a prompt may wait behind another turn,
     /// and the summary counts the prompt of the turn it is under.
-    prompts: VecDeque<u64>,
+    ///
+    /// Beside each, the title that prompt would give a session it opened
+    /// ([`title_of`], the store's own rule, so the window says what a listing
+    /// of the session says): which prompt opens the session is only known
+    /// when its turn starts.
+    prompts: VecDeque<(u64, Option<String>)>,
+    /// The title of the session this conversation is recorded in, once its
+    /// first turn has finished -- upstream's cached session title
+    /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
+    /// is what the window title shows once there is one
+    /// ([`super::frame::title`]).
+    session_title: Option<String>,
+    /// The title the running turn's prompt would give its session, held from
+    /// the turn's start to its end ([`Self::title_session`]).
+    turn_title: Option<String>,
+    /// Whether the band has not yet been told the window title the session
+    /// wants now ([`Self::take_title`]). `true` at launch, so the first frame
+    /// carries one.
+    title_owed: bool,
+    /// The directory the session works in, whose last component the window
+    /// title names until the session has a title of its own.
+    workspace: std::path::PathBuf,
     /// How far down the screen the document reaches, for the band that floats
     /// under it ([`Geometry::floated`]).
     ///
@@ -732,6 +774,9 @@ enum Mark {
     /// and colouring it as xfx's words would be this surface claiming to have
     /// said it.
     Line(String, Role),
+    /// One of xfx's own notices, with a blank row above and below it
+    /// ([`Shell::write_notice`]).
+    Notice(notice::Notice),
     /// The end of the answer's line, and nothing else. What a turn that ended
     /// without a failure owes: the next thing written starts on a new row.
     EndOfLine,
@@ -935,6 +980,10 @@ impl Shell {
             answer: Answer::default(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
+            session_title: None,
+            turn_title: None,
+            title_owed: true,
+            workspace: config.workspace_root.clone(),
             document_rows: 0,
             fatal: None,
             leaving: None,
@@ -1363,8 +1412,9 @@ impl Shell {
             // ([`Self::tick_activity`]).
             UiEvent::TurnStarted => {
                 self.activity.set(Work::Thinking);
-                let input = self.prompts.pop_front().unwrap_or(0);
+                let (input, title) = self.prompts.pop_front().unwrap_or_default();
                 self.tally.begin(Instant::now(), input);
+                self.turn_title = title;
             }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
@@ -1422,7 +1472,7 @@ impl Shell {
                     safe_one_line(&text, AMENDMENT_BYTES)
                 ));
             }
-            UiEvent::Notice(text) => self.say(text),
+            UiEvent::Notice(notice) => self.announce(notice),
             // The switch is **done** by the time this arrives: the file is
             // written, the configuration has been re-read from it, and the
             // runtime has swapped. So every field here is adopted rather than
@@ -1442,10 +1492,16 @@ impl Shell {
                 // or a dead conversation's tokens -- on the hint row.
                 self.catalog.clear();
                 self.context_used = None;
-                self.say(format!(
-                    "[shell] provider={} model={}; the next prompt starts a fresh conversation",
-                    provider.label(),
-                    self.model
+                // The conversation went with the bundle, and the session its
+                // title named with it.
+                self.forget_session_title();
+                self.announce(notice::Notice::neutral(
+                    "provider",
+                    format!(
+                        "{} model={}; the next prompt starts a fresh conversation",
+                        provider.label(),
+                        self.model
+                    ),
                 ));
                 self.render.request(Reason::Footer);
             }
@@ -1458,7 +1514,15 @@ impl Shell {
                 self.model = model;
                 match outcome {
                     ModelAnswer::Applied { unverified } => {
-                        self.say(format!("[shell] model={}", self.model));
+                        // Upstream's announcement, with no topic
+                        // (`announceModelSelection`,
+                        // `session_commands.zig:1266-1279`) -- without the
+                        // `(effort: …, speed: …)` it ends with, which are
+                        // two settings xfx does not send.
+                        self.announce(notice::Notice::neutral(
+                            "",
+                            format!("Switched to {}", self.model),
+                        ));
                         // The caveat *after* the change, because it is a caveat
                         // on it: the selection stands, and what could not be
                         // done is check it. One sentence for both front ends
@@ -1466,18 +1530,24 @@ impl Shell {
                         // that is down reads the same wherever `/model` was
                         // typed.
                         if let Some(reason) = unverified {
-                            self.say(crate::provider::model::unverified_notice(&reason));
+                            self.announce(notice::Notice::warning(
+                                "model",
+                                unattributed(&crate::provider::model::unverified_notice(&reason)),
+                            ));
                         }
                     }
                     ModelAnswer::Unchanged => {
-                        self.say(format!("[shell] model={} unchanged", self.model));
+                        self.announce(notice::Notice::neutral(
+                            "model",
+                            format!("{} unchanged", self.model),
+                        ));
                     }
                     // xfx's own words, from the selector. Nothing of the id is
                     // quoted back by this surface: the reason already carries
                     // whatever of it belongs in the document, and it crossed
                     // the channel inert like every other string on it.
                     ModelAnswer::Refused { reason } => {
-                        self.say(format!("xfx: {reason}"));
+                        self.announce(notice::Notice::error("model", reason));
                     }
                 }
                 // The hint row's model label follows the model in force,
@@ -1490,10 +1560,15 @@ impl Shell {
             UiEvent::CatalogLoaded { provider, entries } => {
                 self.catalog = entries;
                 self.provider = provider;
-                self.say(format!("[shell] catalog={} shown", self.catalog.len()));
+                // One notice, its rows under the head: a catalog is one thing
+                // said, and a notice per row would put a blank row between
+                // every model.
+                let mut body = format!("{} shown", self.catalog.len());
                 for line in self.catalog_rows() {
-                    self.say(line);
+                    body.push('\n');
+                    body.push_str(&line);
                 }
+                self.announce(notice::Notice::neutral("catalog", body));
                 // The denominator may have arrived with it.
                 self.render.request(Reason::Footer);
             }
@@ -1531,10 +1606,20 @@ impl Shell {
                     .then(|| self.tally.line(Instant::now()));
                 self.tally.started = None;
                 match (failure, summary) {
-                    (Some(failure), _) => self.say(failure),
-                    (None, Some(summary)) => self.mark(Mark::Summary(summary)),
+                    // Upstream reports a request that failed as an error under
+                    // `system` (`app_process_runtime.zig:58-63`).
+                    (Some(failure), _) => {
+                        self.announce(notice::Notice::error("system", unattributed(&failure)));
+                    }
+                    (None, Some(summary)) => {
+                        self.mark(Mark::Summary(summary));
+                        self.title_session();
+                    }
                     (None, None) => self.mark(Mark::EndOfLine),
                 }
+                // Whichever way it went, the prompt this turn carried is no
+                // longer the one a later conclusion is about.
+                self.turn_title = None;
                 // The gesture is **not** deferred with it. What the last Ctrl-C
                 // was about ended when the turn did, whatever is left to paint,
                 // and a session that kept remembering it would answer the
@@ -1583,7 +1668,7 @@ impl Shell {
                     entry.efforts.join(",")
                 };
                 format!(
-                    "[shell]   {} context={context} efforts={efforts}",
+                    "{} context={context} efforts={efforts}",
                     entry.preferred_name()
                 )
             })
@@ -1628,7 +1713,7 @@ impl Shell {
             // **Before the owner moves.** A question that was never asked has
             // no screen to give back, and a session left owning a plane with
             // nothing on it would compose its next frame for nobody.
-            self.say(PANEL_TOO_SMALL.to_string());
+            self.announce(notice::Notice::error("permissions", PANEL_TOO_SMALL));
             // Under the id it was asked with, so the prompter parked on that
             // question takes it: a refusal addressed to nobody would be
             // consumed and ignored, and the session would wait for ever for an
@@ -2169,7 +2254,7 @@ impl Shell {
             // presses again.
             match self.alternate.as_mut() {
                 Some(screen) => screen.set_status(notice.to_string()),
-                None => self.say(notice.to_string()),
+                None => self.announce(notice::Notice::warning("permissions", notice)),
             }
             // The question stays up and the keystroke is spent: nothing is
             // queued for a later grant, because an answer held until a frame
@@ -2264,7 +2349,7 @@ impl Shell {
             // question that was never asked has no rows to give back, and a band
             // solved for a panel nobody can answer is a band the composer has
             // lost rows to for the rest of the turn.
-            self.say(QUESTION_TOO_SMALL.to_string());
+            self.announce(notice::Notice::cancelled("question", QUESTION_TOO_SMALL));
             self.work
                 .control(TurnControl::QuestionCancelled { id: panel.id() });
             return;
@@ -2421,6 +2506,18 @@ impl Shell {
         self.mark(Mark::Line(line, role));
     }
 
+    /// Says one of xfx's own notices, in the place the stream has reached --
+    /// [`Self::say`]'s timing, upstream's shape ([`Self::write_notice`]).
+    ///
+    /// Everything xfx says about the session goes through here or, for the
+    /// few sentences that answer a keystroke at once, straight to
+    /// [`Self::write_notice`]. What still goes through [`Self::say`] is the
+    /// tool trail -- `[tool] …` and the `[you] …` amendment that belongs to a
+    /// tool's decision -- whose rendering is the tool rows' own unit.
+    fn announce(&mut self, notice: notice::Notice) {
+        self.mark(Mark::Notice(notice));
+    }
+
     /// Records a document write at the stream position it was issued at.
     fn mark(&mut self, mark: Mark) {
         if self.pacer.pending() == 0 && self.marks.is_empty() {
@@ -2537,6 +2634,7 @@ impl Shell {
                 self.end_transcript_line();
             }
             Mark::Line(line, role) => self.write_document_line(&line, role),
+            Mark::Notice(notice) => self.write_notice(&notice),
             Mark::EndOfLine => self.finish_document_line(),
         }
     }
@@ -2565,6 +2663,60 @@ impl Shell {
         self.close_answer();
         self.finish_document_line();
         self.write_transcript_as(line, role);
+        self.end_transcript_line();
+    }
+
+    /// Puts one notice into the document, as upstream renders one
+    /// (`renderSemanticNotice`, `transcript_blocks.zig:1758-1800`):
+    ///
+    /// * `<glyph> <topic>: <body>`, the topic and its colon dropped when there
+    ///   is no topic -- the glyph and its space are the first row's gutter
+    ///   ([`Gutter::Head`]), the topic is [`Role::Label`] and the body is
+    ///   [`Role::Notice`];
+    /// * every row after the first two columns in, whether the first line
+    ///   wrapped onto it or the body broke onto it;
+    /// * **one blank row above and one below**, and two notices in a row share
+    ///   the one between them (`fx-basic-40x120-version-trailing-space.txt`):
+    ///   the row above is written only when the document does not already end
+    ///   on a blank one ([`Transcript::ends_blank`]), so neither a fresh screen
+    ///   nor a card -- which ends on its own blank row -- grows a second.
+    ///
+    /// Like [`Self::write_document_line`], whatever the answer had open is
+    /// closed first: a notice does not land in the middle of a sentence.
+    fn write_notice(&mut self, notice: &notice::Notice) {
+        self.close_answer();
+        self.finish_document_line();
+        // The gutter in force is the one the row above is written with.
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
+        if !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        if self.transcript.queue_gutter(Gutter::Head(notice.tone)) {
+            self.owed();
+        }
+        // One push for the label and the whole body: the head is one row's,
+        // and every line after the first is written two columns in by the
+        // gutter itself (`Gutter::continued`), so nothing here splits lines.
+        let label = notice.label();
+        let body = notice.said();
+        let gap = if label.is_empty() || body.is_empty() {
+            ""
+        } else {
+            " "
+        };
+        if self.transcript.queue_push_runs(&[
+            (&label, Role::Label(notice.tone)),
+            (gap, Role::Notice),
+            (body, Role::Notice),
+        ]) {
+            self.owed();
+        }
+        self.end_transcript_line();
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
         self.end_transcript_line();
     }
 
@@ -3316,14 +3468,17 @@ impl Shell {
                 // the turn is over a moment later, so what is left of that
                 // answer follows at the drain rate rather than at reading
                 // speed.
-                self.write_document_line(crate::app::INTERRUPT_NOTICE, Role::Notice);
+                self.write_notice(&notice::Notice::cancelled(
+                    "turn",
+                    unattributed(crate::app::INTERRUPT_NOTICE),
+                ));
                 if waiting {
                     // The second half of the same answer to the same keystroke,
                     // and immediate for the same reason: "and the queue went
                     // with it" is only useful beside the sentence it qualifies.
                     // Held back, it would arrive detached from the notice it
                     // belongs to and after text the user asked to stop.
-                    self.write_document_line(QUEUE_DROPPED, Role::Notice);
+                    self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
                     self.prompts.clear();
                 }
             }
@@ -3373,13 +3528,18 @@ impl Shell {
 
     /// What one submitted line is, and what happens to it.
     ///
-    /// **Decided by [`crate::interactive::classify`] and by nothing else**, so
-    /// the two surfaces cannot disagree about what a leading `/` means. That is
-    /// the whole reason the routing is a call rather than a `match` of its own:
-    /// a command grammar whose answer depends on which front end you typed it
-    /// into is exactly the nondeterminism a command surface must not have. The
-    /// names are `interactive::SLASH_COMMANDS` and nothing else: this surface
-    /// answers exactly what the registry advertises.
+    /// **Decided by [`router::classify`]**, which is
+    /// [`crate::interactive::classify`] -- the one reading of what a leading
+    /// `/` means, shared with the line shell -- plus the one rule this surface
+    /// adds on purpose: upstream's, that a command which takes nothing is
+    /// matched **exactly**. The names are `interactive::SLASH_COMMANDS` and
+    /// nothing else: this surface answers exactly what the registry
+    /// advertises.
+    ///
+    /// **A command is not echoed** (`fx-basic-40x120-version.txt`: `/version`
+    /// leaves `* version: 0.0.13` and nothing above it). Only a prompt becomes
+    /// a card: it is the user's half of a conversation, and a command is not
+    /// part of one.
     ///
     /// Most of them are answered on this thread. `/new`, `/model` and `/setup`
     /// go to the runtime as [`TurnWork`] -- `/new` and `/model <id>` because
@@ -3392,7 +3552,7 @@ impl Shell {
             return;
         }
         let text = self.editor.text().to_string();
-        let submitted = interactive::classify(&text);
+        let submitted = router::classify(&text);
         // **Before any arm below, because every one of them consumes the
         // draft**, and the draft is the only place this line exists: the
         // command arms clear the composer through `run_command`, the prompt arm
@@ -3428,26 +3588,28 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
             }
-            Submitted::Command { .. } => {
-                self.echo(&text);
-                self.run_command(&submitted);
-            }
-            // A line that begins with `/` and names nothing is a mistake, not a
-            // question, and it is answered with the same refusal the
-            // line-oriented shell gives it (`interactive.rs:194-200`). It does
+            Submitted::Command { .. } => self.run_command(&submitted),
+            // A line that begins with `/` and names nothing -- or names a
+            // command that takes nothing, with something after it -- is a
+            // mistake, not a question, and it is answered with upstream's
+            // refusal (`commandUnknown`, `app_commands.zig:2162-2169`). It does
             // **not** reach the model: a typo'd command silently becoming a
             // prompt is how a user pays for a slip in tokens and in an answer
             // to a question they did not ask.
-            Submitted::UnknownCommand { token } => {
-                // Consumed like any other submitted line, and for the reason
-                // the echo above gives: it is in the document now, and a
-                // composer that kept it would have the user's next line typed
-                // onto the end of it.
-                let refusal = interactive::unknown_command_message(token);
+            //
+            // Upstream sends `/nosuch with words` to the model as a prompt
+            // (`shouldRouteUnknownSlashCommand`,
+            // `input_submit_runtime.zig:926-934`, routes only an unknown name
+            // with nothing after it); this surface refuses it like the bare
+            // name, for the reason above.
+            Submitted::UnknownCommand { .. } => {
+                // Consumed like any other submitted line: a composer that kept
+                // it would have the user's next line typed onto the end of it.
+                // At once rather than behind the stream, as it always was: it
+                // answers the keystroke.
                 self.take_draft();
                 self.edited(None);
-                self.echo(&text);
-                self.write_document_line(&refusal, Role::Notice);
+                self.write_notice(&notice::Notice::error("command", UNKNOWN_COMMAND));
             }
             // **Expanded here, and only here.** What the composer holds for a
             // collapsed paste is a summary; what the user meant to send is the
@@ -3492,6 +3654,10 @@ impl Shell {
     /// terminal's document, so a submission is something the session visibly
     /// did rather than something that vanished.
     fn send(&mut self, prompt: String, text: &str) {
+        // Of the prompt as the runtime is given it, which is what the store
+        // records and derives its own title from -- not of the composer's
+        // summary of a paste.
+        let title = title_of(&prompt);
         match self.work.submit(TurnWork::Submit(prompt)) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
@@ -3504,7 +3670,7 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(text);
-                self.prompts.push_back(estimate.estimate());
+                self.prompts.push_back((estimate.estimate(), title));
                 self.echo(text);
                 self.gestures.submitted();
             }
@@ -3525,7 +3691,7 @@ impl Shell {
                 self.notice = Some(QUEUE_REJECTED);
                 self.render.request(Reason::Footer);
             }
-            Rejected::Gone => self.say(GONE_NOTICE.to_string()),
+            Rejected::Gone => self.announce(notice::Notice::error("system", GONE_NOTICE)),
         }
     }
 
@@ -3687,9 +3853,17 @@ impl Shell {
 /// socket the thread holding the terminal must never wait on.
 impl CommandHandlers for Shell {
     fn help(&mut self) {
-        for line in interactive::help_text().lines() {
-            self.say(line.to_string());
-        }
+        // The page the line shell prints, as one notice: its first line after
+        // the topic and the rest under it. The page indents its command rows
+        // by two for a terminal with no gutter; the notice indents every row
+        // after its first by two already, so the page's own two come off.
+        let page = interactive::help_text();
+        let body = page
+            .lines()
+            .map(|line| line.strip_prefix("  ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.announce(notice::Notice::neutral("help", body));
     }
 
     fn new_session(&mut self) {
@@ -3708,7 +3882,16 @@ impl CommandHandlers for Shell {
         // a fact that is still true and cost a socket to learn again.
         self.context_used = None;
         self.render.request(Reason::Footer);
-        self.say(NEW_SESSION_NOTICE.to_string());
+        // The session the title named is the one being dropped
+        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`) -- and so
+        // is every prompt already waiting: the work runs in order, so each of
+        // them is answered in the conversation `/new` drops, and none of them
+        // may title the one it starts.
+        self.forget_session_title();
+        for (_, title) in &mut self.prompts {
+            *title = None;
+        }
+        self.announce(notice::Notice::neutral("session", NEW_SESSION_NOTICE));
     }
 
     fn clear(&mut self) {
@@ -3719,8 +3902,11 @@ impl CommandHandlers for Shell {
         self.use_model(argument);
     }
 
+    /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
+    /// bare version, no `v` and no build. The build is the welcome line's to
+    /// say, and the channel and revision are `xfx status`'s.
     fn version(&mut self) {
-        self.say(interactive::version_line());
+        self.announce(notice::Notice::neutral("version", crate::VERSION));
     }
 
     fn quit(&mut self) {
@@ -3758,10 +3944,12 @@ impl Shell {
     /// once and the rows arrive afterwards as their own event.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
-            self.say(format!(
-                "[shell] model={} provider={}",
-                self.model,
-                self.provider.label()
+            // Upstream's bare `/model` report is `* model: <id>`
+            // (`handleModel`); the provider rides beside it because on this
+            // surface it is the one other thing a model id is relative to.
+            self.announce(notice::Notice::neutral(
+                "model",
+                format!("{} provider={}", self.model, self.provider.label()),
             ));
             // **The one network call `/model` makes**, and it is made on the
             // runtime thread rather than here: the UI thread sits in
@@ -3786,7 +3974,7 @@ impl Shell {
             // `ModelOutcome::Refused` arm. Nothing of the argument is quoted
             // back: every one of these reasons is xfx's own words, which is
             // what keeps a hostile id out of the document.
-            self.write_document_line(&format!("xfx: {problem}"), Role::Notice);
+            self.write_notice(&notice::Notice::error("model", problem));
             return;
         }
         // **And nothing else is decided here.** Whether the id is the one
@@ -3821,14 +4009,20 @@ impl Shell {
             // (`interactive::setup_usage`), so a build that grows one does not
             // grow a sentence that forgets it. Nothing of the argument is quoted
             // back, for the reason `/model`'s refusal quotes nothing.
-            self.write_document_line(&interactive::setup_usage(), Role::Notice);
+            self.write_notice(&notice::Notice::error(
+                "",
+                unattributed(&interactive::setup_usage()),
+            ));
             return;
         };
         if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
             self.refused(rejected);
             return;
         }
-        self.say(format!("[shell] setting up {}", provider.label()));
+        self.announce(notice::Notice::neutral(
+            "provider",
+            format!("setting up {}", provider.label()),
+        ));
     }
 
     /// `/clear`: the screen, its scrollback, and what the band remembers of
@@ -3867,7 +4061,59 @@ impl Shell {
         // the document's rows are gone with it, which is what takes any
         // visible recolour owed against them down ([`Self::external_damage`]).
         self.external_damage();
-        self.say(CLEARED_NOTICE.to_string());
+        self.announce(notice::Notice::neutral("screen", CLEARED_NOTICE));
+    }
+
+    /// The window title the session wants, when the band has not been told it
+    /// yet.
+    ///
+    /// Taken by the loop before it builds a frame, because the band is the
+    /// title's only writer (`super::frame::Band::set_title`): this side
+    /// decides what the title says and the band decides when it is written.
+    /// Asked for once per change rather than per frame, so a frame that changes
+    /// nothing about the title allocates nothing for it.
+    pub(crate) fn take_title(&mut self) -> Option<String> {
+        if !std::mem::take(&mut self.title_owed) {
+            return None;
+        }
+        Some(super::frame::title(
+            self.session_title.as_deref(),
+            &self.workspace,
+        ))
+    }
+
+    /// Gives the session its title, from the prompt of the turn that just
+    /// finished, when it has none yet.
+    ///
+    /// Upstream derives it when the first turn's history is committed and
+    /// freezes it there (`ensureCachedSessionTitle`); a turn that failed is
+    /// not one this surface can say was recorded, so it titles nothing.
+    fn title_session(&mut self) {
+        if self.session_title.is_some() {
+            return;
+        }
+        if let Some(title) = self.turn_title.take() {
+            self.session_title = Some(title);
+            self.retitle();
+        }
+    }
+
+    /// Forgets the session's title, for a conversation that is being dropped.
+    ///
+    /// And the running turn's candidate with it: a `/new` taken while a turn
+    /// runs is queued behind that turn, so the turn belongs to the
+    /// conversation being dropped, and its end must not title the next one.
+    fn forget_session_title(&mut self) {
+        self.turn_title = None;
+        if self.session_title.take().is_some() {
+            self.retitle();
+        }
+    }
+
+    /// Owes the band the window title, and the frame that writes it.
+    fn retitle(&mut self) {
+        self.title_owed = true;
+        self.render.request(Reason::Footer);
     }
 
     /// How far down the screen the document reaches ([`Self::document_rows`]).
@@ -4494,9 +4740,10 @@ mod tests {
     /// A document row with the sequences a **role** or a **gutter** put on it
     /// taken off, and nothing else touched.
     ///
-    /// Exactly the four the fixture's palette can add to a transcript row --
+    /// Exactly the ones the fixture's palette can add to a transcript row --
     /// the hint grey of a card's rail (`transcript::Gutter::Rail`), xfx's own
-    /// lines', a turn summary's dim, and the reset that closes any of them.
+    /// lines', a notice label's (plain or bold), a turn summary's dim, and the
+    /// reset that closes any of them.
     /// Anything else a row carries is part of its text and is left where it
     /// is -- with two collisions to know about: a card's bold is closed by
     /// a reset spelled the same as the palette's, so that reset goes too; and
@@ -4506,8 +4753,28 @@ mod tests {
     fn unpainted(row: &str) -> String {
         row.replace(PALETTE.hint(), "")
             .replace(PALETTE.notice(), "")
+            .replace(PALETTE.notice_label(), "")
+            .replace(PALETTE.notice_heading(), "")
             .replace(PALETTE.dim(), "")
             .replace(PALETTE.reset(), "")
+    }
+
+    /// The words of a notice that wrapped, as one line: each row's two-column
+    /// continuation indent and hanging space taken off, the blank rows around
+    /// it dropped, and the rows joined with the one space each wrap consumed.
+    fn joined(rows: &[String]) -> String {
+        rows.iter()
+            .map(|row| row.trim_end().strip_prefix("  ").unwrap_or(row.trim_end()))
+            .filter(|row| !row.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// What one notice that fits on a row leaves in [`Fixture::document`] on a
+    /// screen that already ends on a blank row: its row, `<glyph> <topic>:
+    /// <body>`, and the blank row under it ([`Shell::write_notice`]).
+    fn said(notice: notice::Notice) -> Vec<String> {
+        vec![notice.text(), String::new()]
     }
 
     /// What the echo of a submitted `text` leaves in [`Fixture::document`]:
@@ -7595,11 +7862,14 @@ mod tests {
         // wherever it is typed.
         let said = shell.released();
         assert!(
-            said.contains(&crate::app::INTERRUPT_NOTICE.to_string()),
+            said.contains(
+                &notice::Notice::cancelled("turn", unattributed(crate::app::INTERRUPT_NOTICE))
+                    .text()
+            ),
             "the interrupt landed silently: {said:?}"
         );
         assert!(
-            said.contains(&QUEUE_DROPPED.to_string()),
+            said.contains(&notice::Notice::cancelled("queue", QUEUE_DROPPED).text()),
             "the queue went with it and nobody said so: {said:?}"
         );
         assert_eq!(shell.geometry.panel, 0, "the question stayed on the screen");
@@ -7845,7 +8115,10 @@ mod tests {
             );
         }
         assert!(
-            !shell.released().contains(&PANEL_TOO_SMALL.to_string()),
+            !shell
+                .released()
+                .concat()
+                .contains("this screen is too small"),
             "the session was told the screen was too small for a question it is showing"
         );
     }
@@ -8042,7 +8315,13 @@ mod tests {
                 feedback: None,
             })
         );
-        assert_eq!(shell.released(), vec![PANEL_TOO_SMALL.to_string()]);
+        // An error under `permissions`, its rows joined, because an 80-column
+        // screen wraps the sentence and what is pinned is that it was said.
+        assert_eq!(
+            joined(&shell.released()),
+            notice::Notice::error("permissions", PANEL_TOO_SMALL).text(),
+            "the refusal is not the notice it should be"
+        );
         assert!(!shell.band_rows().join("\n").contains("Permission needed"));
     }
 
@@ -8305,7 +8584,10 @@ mod tests {
         // permission and refuses no change, so [`PANEL_TOO_SMALL`]'s wording
         // would tell the user two things that did not happen -- and it is the
         // wording rather than the row that a reader has to be able to trust.
-        assert_eq!(fixture.released().concat(), QUESTION_TOO_SMALL);
+        assert_eq!(
+            joined(&fixture.released()),
+            notice::Notice::cancelled("question", QUESTION_TOO_SMALL).text()
+        );
         assert_ne!(
             QUESTION_TOO_SMALL, PANEL_TOO_SMALL,
             "the question borrowed the permission panel's refusal again"
@@ -8576,9 +8858,20 @@ mod tests {
             shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 })
         );
+        // The line shell's words, as a cancelled notice: the glyph says the
+        // sentence is xfx's, so its `xfx: ` comes off.
         assert_eq!(
             shell.document(),
-            vec![crate::app::INTERRUPT_NOTICE.to_string()]
+            said(notice::Notice::cancelled(
+                "turn",
+                "interrupted -- stopping the turn; another Ctrl-C before it stops exits."
+            ))
+        );
+        assert!(
+            crate::app::INTERRUPT_NOTICE.ends_with(
+                "interrupted -- stopping the turn; another Ctrl-C before it stops exits."
+            ),
+            "the two surfaces no longer say the same words"
         );
         assert!(!shell.leaving(), "one Ctrl-C ended the session");
     }
@@ -8603,12 +8896,17 @@ mod tests {
             Ok(TurnControl::Cancel { through: 2 }),
             "the interrupt did not reach back over both submissions"
         );
+        // Two notices, sharing the blank row between them.
         assert_eq!(
             shell.document(),
-            vec![
-                crate::app::INTERRUPT_NOTICE.to_string(),
-                QUEUE_DROPPED.to_string()
+            [
+                said(notice::Notice::cancelled(
+                    "turn",
+                    unattributed(crate::app::INTERRUPT_NOTICE)
+                )),
+                said(notice::Notice::cancelled("queue", QUEUE_DROPPED)),
             ]
+            .concat()
         );
     }
 
@@ -8626,7 +8924,10 @@ mod tests {
 
         assert_eq!(
             shell.document(),
-            vec![crate::app::INTERRUPT_NOTICE.to_string()]
+            said(notice::Notice::cancelled(
+                "turn",
+                unattributed(crate::app::INTERRUPT_NOTICE)
+            ))
         );
     }
 
@@ -8827,25 +9128,24 @@ mod tests {
                 "{name} left the composer holding it"
             );
             let document = shell.document();
-            if *name == "/clear" {
-                // The one command whose echo is deliberately not there: the row
-                // it would have been written on is part of what the command
-                // erased.
-                assert_eq!(document, vec![CLEARED_NOTICE.to_string()]);
-                continue;
-            }
+            // **Not echoed** (`fx-basic-40x120-version.txt`): what a command
+            // leaves is its own answer and nothing above it -- no card.
             assert!(
-                document.starts_with(&card(name)),
-                "{name} was not echoed into the document: {document:?}"
+                !document.iter().any(|row| row.contains(RAIL)),
+                "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row; every other one says something under its card.
+            // a row; every other one says something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
             } else {
+                // A bare `/setup` is a usage error and every other one a
+                // neutral answer; either way a notice, glyph first.
                 assert!(
-                    document.len() > card(name).len(),
-                    "{name} answered with nothing"
+                    document
+                        .first()
+                        .is_some_and(|row| row.starts_with("* ") || row.starts_with("\u{2717} ")),
+                    "{name} did not answer with a notice: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             }
@@ -8858,20 +9158,19 @@ mod tests {
 
     #[test]
     fn a_name_that_is_not_one_of_the_six_is_refused_rather_than_asked() {
-        // The same refusal the line-oriented shell gives, from the same call,
-        // because a command surface that answers differently depending on which
-        // front end you typed it into is the one thing it must never be. A typo
-        // silently becoming a prompt is what this costs tokens to prevent.
+        // Upstream's refusal (`app_commands.zig:2162-2169`), with no echo of
+        // the line above it. A typo silently becoming a prompt is what this
+        // costs tokens to prevent.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/notacommand\r");
 
         let document = shell.document();
-        assert!(document.starts_with(&card("/notacommand")), "{document:?}");
-        assert!(
-            document
-                .iter()
-                .any(|row| row.contains("is not an xfx command")),
-            "{document:?}"
+        assert_eq!(
+            document,
+            vec![
+                "\u{2717} command: Unknown command. Try /help.".to_string(),
+                String::new()
+            ]
         );
         assert!(
             shell.sent.try_recv().is_err(),
@@ -8882,6 +9181,248 @@ mod tests {
             "the refused line stayed in the composer, so the next one would be \
              typed onto the end of it"
         );
+    }
+
+    #[test]
+    fn a_command_is_not_echoed_and_its_answer_is_upstreams_notice() {
+        // `fx-basic-40x120-version.txt`: `/version` leaves `* version: 0.0.13`
+        // and nothing above it -- no card, no blank row of the card's.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/version\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("version", crate::VERSION))
+        );
+        assert!(
+            !crate::VERSION.starts_with('v'),
+            "upstream's body is the bare version"
+        );
+    }
+
+    #[test]
+    fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it() {
+        // `fx-basic-40x120-version-trailing-space.txt`, in its order: the two
+        // with an argument are unknown commands, the one with a trailing
+        // space runs -- and two notices in a row share one blank row.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/help extra\r");
+        shell.route_bytes(b"/version now\r");
+        shell.route_bytes(b"/version \r");
+        let unknown = notice::Notice::error("command", "Unknown command. Try /help.");
+        assert_eq!(
+            shell.document(),
+            [
+                said(unknown.clone()),
+                said(unknown),
+                said(notice::Notice::neutral("version", crate::VERSION)),
+            ]
+            .concat()
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refused command reached the runtime"
+        );
+        assert!(
+            shell.editor.is_empty(),
+            "the refused line stayed in the composer"
+        );
+    }
+
+    #[test]
+    fn a_lone_name_nobody_has_is_unknown_and_one_with_words_is_a_prompt() {
+        // Upstream refuses an unknown name only when it is the whole line
+        // (`shouldRouteUnknownSlashCommand`, `input_submit_runtime.zig:926-934`);
+        // with words after it, the line goes to the model as written.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/nosuch\r");
+        let unknown = notice::Notice::error("command", "Unknown command. Try /help.");
+        assert_eq!(shell.document(), said(unknown));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a lone mistyped command was sent to the model"
+        );
+        shell.route_bytes(b"/nosuch with words\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("/nosuch with words".to_string())
+        );
+    }
+
+    #[test]
+    fn a_prompt_is_still_echoed_as_its_card() {
+        // The other half of the rule: only a command goes without its echo.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"say the marker\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Submit("say the marker".to_string())
+        );
+        assert_eq!(shell.document(), card("say the marker"));
+    }
+
+    #[test]
+    fn a_notice_has_a_blank_row_above_it_unless_the_document_already_ends_on_one() {
+        // A tool row ends on its text, so the notice after it opens a blank
+        // row first; the notice's own blank row under it is the one the next
+        // notice stands on.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::ToolStart {
+            call_id: "1".to_string(),
+            tool: "read_file".to_string(),
+        });
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "said")));
+        assert_eq!(
+            shell.document(),
+            vec!["[tool] read_file running", "", "* tool: said", ""]
+        );
+    }
+
+    #[test]
+    fn a_notice_body_of_several_lines_is_its_head_and_rows_two_columns_in() {
+        // `* status: model=…` and its `k=v` rows, as `fx-basic-40x120-status`
+        // shows them; and a first line that wraps continues two columns in.
+        let mut shell = shell(24, 20);
+        shell.apply(UiEvent::Notice(notice::Notice::neutral(
+            "status",
+            "model=a\nhistory_turns=0\n",
+        )));
+        shell.apply(UiEvent::Notice(notice::Notice::error(
+            "command",
+            "Unknown command. Try /help.",
+        )));
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* status: model=a",
+                "  history_turns=0",
+                "",
+                "\u{2717} command: Unknown ",
+                "  command. Try ",
+                "  /help.",
+                "",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_informational_notice_has_upstreams_bold_label() {
+        // `notice_information_style` is `system_notice_label_style`
+        // (`app_render_runtime.zig:530`), bold 252 on dark.
+        let mut shell = shell(24, 80);
+        shell.apply(UiEvent::Notice(notice::Notice::new(
+            notice::Tone::Information,
+            "tip",
+            "worth knowing",
+        )));
+        assert_eq!(
+            shell.take_pending()[0].rows,
+            vec![format!(
+                "\u{1b}[1;38;5;252mi {RESET}\u{1b}[1;38;5;252mtip:{RESET}\
+                 \u{1b}[38;5;250m worth knowing{RESET}"
+            )]
+        );
+    }
+
+    #[test]
+    fn the_window_title_is_the_workspace_until_the_first_turn_titles_the_session() {
+        // `app_session_runtime.zig:3608-3629`: `fx v0.0.13 | work` at launch,
+        // the first prompt's text once its turn has finished, and the
+        // fallback again once the session is dropped (`/new`).
+        let mut shell = shell(24, 80);
+        let fallback = shell.take_title().expect("the launch owes a title");
+        assert!(
+            fallback.starts_with(&format!("xfx v{} | ", crate::VERSION)),
+            "{fallback:?}"
+        );
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "a title nobody changed was owed again"
+        );
+
+        turn_running(&mut shell, b"say the marker\nand more\r");
+        let _ = shell.picks_up();
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "a running turn titled the session"
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title().as_deref(), Some("say the marker"));
+
+        // Frozen at the first prompt, as upstream's derivation is.
+        turn_running(&mut shell, b"another question\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+    }
+
+    #[test]
+    fn dropping_the_conversation_takes_the_window_title_back_to_the_workspace() {
+        // `/new` and a provider switch both start the next prompt in a fresh
+        // conversation, and upstream's `/new` clears the cached title
+        // (`clearCachedSessionTitle`, `app_session_runtime.zig:1982`).
+        let mut shell = shell(24, 80);
+        let fallback = shell.take_title().expect("the launch owes a title");
+        turn_running(&mut shell, b"say the marker\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title().as_deref(), Some("say the marker"));
+
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.take_title(), Some(fallback.clone()));
+        let _ = shell.picks_up();
+
+        // A prompt that was waiting when `/new` was taken is answered in the
+        // conversation `/new` drops, so its turn titles nothing.
+        let mut queued = shell_with(24, 80, PALETTE, false);
+        let _ = queued.take_title();
+        queued.route_bytes(b"asked before the new session\r");
+        queued.route_bytes(b"/new\r");
+        let _ = queued.picks_up();
+        let _ = queued.picks_up();
+        queued.apply(UiEvent::TurnStarted);
+        queued.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(
+            queued.take_title(),
+            None,
+            "a prompt from the dropped conversation titled the new one"
+        );
+
+        let mut switched = shell_with(24, 80, PALETTE, false);
+        let _ = switched.take_title();
+        turn_running(&mut switched, b"say the marker\r");
+        let _ = switched.picks_up();
+        switched.apply(UiEvent::TurnEnded { failure: None });
+        assert!(switched.take_title().is_some());
+        switched.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        assert!(
+            switched
+                .take_title()
+                .is_some_and(|title| title.starts_with("xfx v")),
+            "a provider switch kept the dropped conversation's title"
+        );
+    }
+
+    #[test]
+    fn a_failed_first_turn_does_not_title_the_session() {
+        let mut shell = shell(24, 80);
+        let _ = shell.take_title();
+        turn_running(&mut shell, b"say the marker\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the gateway refused".to_string()),
+        });
+        assert_eq!(shell.take_title(), None);
+        // And the next turn that does finish is the one that titles it.
+        turn_running(&mut shell, b"second try\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title().as_deref(), Some("second try"));
     }
 
     #[test]
@@ -8917,7 +9458,7 @@ mod tests {
         assert!(
             document
                 .iter()
-                .any(|row| row.starts_with("[shell] model=second-model")),
+                .any(|row| row.starts_with("* model: second-model")),
             "a bare /model did not report the model in force: {document:?}"
         );
         // And it asks the runtime for the catalog -- **the one network call
@@ -8961,7 +9502,7 @@ mod tests {
         );
         let document = shell.document();
         assert!(
-            !document.iter().any(|row| row.starts_with("[shell] model=")),
+            !document.iter().any(|row| row.contains("second-model")),
             "the band reported a model change the runtime has not made: {document:?}"
         );
 
@@ -8977,8 +9518,11 @@ mod tests {
         assert_eq!(shell.shell.model, in_force);
         assert_eq!(
             shell.document(),
-            vec!["xfx: gateway does not publish second-model in its catalog".to_string()],
-            "the refusal is not the line the line shell gives"
+            said(notice::Notice::error(
+                "model",
+                "gateway does not publish second-model in its catalog"
+            )),
+            "the refusal is not the line shell's words"
         );
 
         // And a selection moves it, with the caveat both surfaces say when the
@@ -8993,16 +9537,21 @@ mod tests {
         // Joined, because the document wraps to the screen: what is being
         // pinned is the two lines' text, not where an 80-column band broke the
         // second one.
-        let document = shell.document().join("");
-        assert!(
-            document.starts_with("[shell] model=second-model"),
+        // Upstream's announcement (`announceModelSelection`), no topic.
+        let document = shell.document();
+        assert_eq!(
+            document.first().map(String::as_str),
+            Some("* Switched to second-model"),
             "{document:?}"
         );
+        // Joined as the words they are, because the document wraps to the
+        // screen and the caveat is longer than 80 columns.
+        let document = joined(&document);
         // The literal, not the function that produces it: a test that asked
         // `unverified_notice` what it says would agree with any answer it gave.
         assert!(
-            document.ends_with(
-                "xfx: nothing answered, so this model was not checked against \
+            document.contains(
+                "! model: nothing answered, so this model was not checked against \
                  the provider's catalog"
             ),
             "the caveat is not the sentence the line shell gives: {document:?}"
@@ -9010,9 +9559,9 @@ mod tests {
         // And it really is the sentence both front ends say, which is the half
         // a literal alone cannot pin.
         assert!(
-            document.ends_with(&crate::provider::model::unverified_notice(
+            document.contains(unattributed(&crate::provider::model::unverified_notice(
                 "nothing answered"
-            )),
+            ))),
             "the two front ends say an unchecked selection differently: {document:?}"
         );
     }
@@ -9035,13 +9584,10 @@ mod tests {
         for (argument, refusal) in [
             (
                 "two words",
-                "xfx: /model takes one model id, with no spaces in it",
+                "/model takes one model id, with no spaces in it",
             ),
-            (
-                "bad\u{7}id",
-                "xfx: a model id cannot contain control characters",
-            ),
-            (too_long.as_str(), "xfx: that model id is too long"),
+            ("bad\u{7}id", "a model id cannot contain control characters"),
+            (too_long.as_str(), "that model id is too long"),
         ] {
             let mut shell = shell(24, 80);
             let in_force = shell.shell.model.clone();
@@ -9049,8 +9595,8 @@ mod tests {
 
             assert_eq!(
                 shell.document(),
-                vec![refusal.to_string()],
-                "the refusal is not the line the line shell gives"
+                said(notice::Notice::error("model", refusal)),
+                "the refusal is not the line shell's words"
             );
             assert!(
                 shell.sent.try_recv().is_err(),
@@ -9104,9 +9650,11 @@ mod tests {
             "the clear was owed twice, so it would be written twice"
         );
         let document = shell.document();
+        // A notice at the top of a blank screen: no blank row above it -- a
+        // fresh transcript has nothing to put one under -- and its own below.
         assert_eq!(
             document,
-            vec![CLEARED_NOTICE.to_string()],
+            said(notice::Notice::neutral("screen", CLEARED_NOTICE)),
             "a row measured against the erased screen survived the clear"
         );
 
@@ -9167,7 +9715,10 @@ mod tests {
         shell.route_bytes(b"anything");
         shell.route_bytes(&[0x0d]);
 
-        assert_eq!(shell.document(), vec![GONE_NOTICE.to_string()]);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("system", GONE_NOTICE))
+        );
     }
 
     #[test]
@@ -9199,7 +9750,9 @@ mod tests {
         // `/model`, `/setup` and a catalog listing conclude with the same event
         // a turn does, and fx writes no summary under a local command.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Notice("[shell] model=other".to_string()));
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::neutral(
+            "model", "other",
+        )));
         shell.apply(UiEvent::TurnEnded { failure: None });
         let document = shell.released();
         assert!(
@@ -9324,35 +9877,36 @@ mod tests {
     }
 
     #[test]
-    fn two_notices_in_a_row_do_not_put_a_blank_row_between_them() {
+    fn two_notices_in_a_row_share_the_one_blank_row_between_them() {
         // `Transcript::end_line` answers a request to end a line that is
         // already ended with a blank row of its own -- which is right for two
-        // breaks in an answer and wrong for two notices. Without the guard in
-        // `finish_document_line` every notice after the first costs the
-        // document an empty row it can never take back.
+        // breaks in an answer and wrong for two notices. A notice's blank row
+        // above is written only when the document does not already end on one
+        // (`Transcript::ends_blank`), so two notices in a row are separated by
+        // exactly one, as upstream's are
+        // (`fx-basic-40x120-version-trailing-space.txt`) -- not by the two each
+        // would bring on its own.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Notice("first".to_string()));
-        shell.apply(UiEvent::Notice("second".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("", "first")));
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("", "second")));
 
-        assert_eq!(
-            shell.document(),
-            vec!["first".to_string(), "second".to_string()]
-        );
+        assert_eq!(shell.document(), vec!["* first", "", "* second", ""]);
     }
 
     #[test]
     fn a_notice_that_lands_mid_answer_gets_a_row_of_its_own() {
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("half a sentence".to_string()));
-        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
 
+        // The answer's block ends on its blank row, which is the notice's
+        // blank row above as well.
         assert_eq!(
             shell.released(),
-            vec![
-                "  half a sentence".to_string(),
-                String::new(),
-                "[tool] read_file ok".to_string()
-            ],
+            vec!["  half a sentence", "", "! tool: read_file ok", ""],
             "a notice was written into the middle of the answer's row"
         );
     }
@@ -9367,7 +9921,10 @@ mod tests {
         let mut shell = shell(24, 80);
         let start = Instant::now();
         shell.apply(UiEvent::Delta("the first half ".to_string()));
-        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
         // A whole paragraph -- its line and the blank line that ends it -- so
         // the presenter writes it as soon as the pacer has released that end
         // rather than at the answer's close.
@@ -9381,7 +9938,7 @@ mod tests {
         let rows = shell.paced(start, 400);
         let notice = rows
             .iter()
-            .position(|row| row == "[tool] read_file ok")
+            .position(|row| row == "! tool: read_file ok")
             .expect("the notice");
         // The notice ends the answer's block where the stream had reached, so
         // what is above it is the first half and the blank row that block
@@ -9405,8 +9962,8 @@ mod tests {
         // echo wait for a clock tick would put the pacer's delay on the
         // keyboard.
         let mut shell = shell(24, 80);
-        shell.apply(UiEvent::Notice("said at once".to_string()));
-        assert_eq!(shell.document(), vec!["said at once".to_string()]);
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("", "said at once")));
+        assert_eq!(shell.document(), vec!["* said at once", ""]);
     }
 
     #[test]
@@ -9414,15 +9971,19 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("part of an answer".to_string()));
         shell.apply(UiEvent::TurnEnded {
-            failure: Some("the turn was cancelled".to_string()),
+            failure: Some("xfx: the turn was cancelled".to_string()),
         });
 
+        // An error under `system`, upstream's topic for a request that failed
+        // (`app_process_runtime.zig:58-63`), with the line shell's `xfx: `
+        // taken off: the glyph says whose sentence it is.
         assert_eq!(
             shell.released(),
             vec![
-                "  part of an answer".to_string(),
-                String::new(),
-                "the turn was cancelled".to_string()
+                "  part of an answer",
+                "",
+                "\u{2717} system: the turn was cancelled",
+                ""
             ]
         );
         assert!(!shell.leaving(), "a failed turn ended the session");
@@ -9880,8 +10441,11 @@ mod tests {
         exact.route_bytes(&[0x0d]);
         assert_eq!(exact.geometry.panel, 0, "the menu outlived the submission");
         let document = exact.document();
-        assert!(document.starts_with(&card("/version")), "{document:?}");
-        assert!(document.len() > card("/version").len(), "{document:?}");
+        assert_eq!(
+            document,
+            said(notice::Notice::neutral("version", crate::VERSION)),
+            "the completed command did not run, or was echoed: {document:?}"
+        );
     }
 
     #[test]
@@ -10252,18 +10816,17 @@ mod tests {
                 .any(|row| row.contains("gateway") && row.contains("llmux")),
             "the refusal does not name the providers this build can set up: {document:?}"
         );
-        // xfx's own words: the *refusal* quotes nothing of the argument, which
-        // is what keeps a hostile one out of the document. The submitted line
-        // itself is echoed like every other one, and that row is the user's own
-        // keystrokes rather than xfx repeating them back as guidance.
+        // xfx's own words: the refusal quotes nothing of the argument, which
+        // is what keeps a hostile one out of the document -- and the submitted
+        // line is not echoed either, so nothing of it is there at all.
         let refusals: Vec<&String> = document
             .iter()
-            .filter(|row| row.starts_with("xfx: "))
+            .filter(|row| row.starts_with("\u{2717} /setup takes a provider"))
             .collect();
         assert_eq!(refusals.len(), 4, "{document:?}");
         assert!(
-            !refusals.iter().any(|row| row.contains("nonesuch")),
-            "the refusal quoted the argument back: {refusals:?}"
+            !document.iter().any(|row| row.contains("nonesuch")),
+            "the refusal quoted the argument back: {document:?}"
         );
     }
 
@@ -10305,9 +10868,8 @@ mod tests {
         );
         let document = shell.document();
         assert!(
-            document
-                .iter()
-                .any(|row| row.contains("provider=llmux") && row.contains("fresh conversation")),
+            document.iter().any(|row| row
+                == "* provider: llmux model=fable; the next prompt starts a fresh conversation"),
             "{document:?}"
         );
     }
@@ -10322,23 +10884,19 @@ mod tests {
                 entry("plain", None, &[]),
             ],
         });
+        // One notice, a row per model under its head.
         let document = shell.document();
-        assert!(
-            document.iter().any(|row| row == "[shell] catalog=2 shown"),
-            "{document:?}"
-        );
-        assert!(
-            document
-                .iter()
-                .any(|row| row == "[shell]   fable context=1000000 efforts=low,high"),
-            "{document:?}"
-        );
-        // A provider really may publish neither, and an empty column would read
-        // as a rendering fault rather than as an absent fact.
-        assert!(
-            document
-                .iter()
-                .any(|row| row == "[shell]   plain context=unknown efforts=none"),
+        assert_eq!(
+            document,
+            vec![
+                "* catalog: 2 shown",
+                "  fable context=1000000 efforts=low,high",
+                // A provider really may publish neither, and an empty column
+                // would read as a rendering fault rather than as an absent
+                // fact.
+                "  plain context=unknown efforts=none",
+                "",
+            ],
             "{document:?}"
         );
     }
@@ -11843,6 +12401,10 @@ mod tests {
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
     /// And light: `theme::LIGHT`'s `241`.
     const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    /// An outcome notice's label, dark and light (`theme.zig:86-88`,
+    /// `:129-131`).
+    const LABEL_DARK: &str = "\u{1b}[38;5;252m";
+    const LABEL_LIGHT: &str = "\u{1b}[38;5;238m";
     /// What closes any of them.
     const ENDED: &str = "\u{1b}[0m";
 
@@ -11884,17 +12446,26 @@ mod tests {
         // surface claiming to have said what they typed.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"hello\r");
-        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::error(
+            "tool",
+            "read_file refused",
+        )));
         shell.shell.flush_paced();
 
         // The echo is upstream's card: the rail is the band's hint grey, and
-        // the text behind it is bold in the terminal's own foreground.
+        // the text behind it is bold in the terminal's own foreground. The
+        // notice is upstream's too: glyph and topic in the label grey, the
+        // body in the notice grey (`✗ command:ESC[38;5;250m Unknown…`).
         assert_eq!(
             painted_rows(&mut shell),
             vec![
                 format!("{HINT_DARK}{RAIL}{ENDED} {BOLD}hello{ENDED}"),
                 String::new(),
-                format!("{NOTICE_DARK}[tool] read_file ok{ENDED}"),
+                format!(
+                    "{LABEL_DARK}\u{2717} {ENDED}{LABEL_DARK}tool:{ENDED}\
+                     {NOTICE_DARK} read_file refused{ENDED}"
+                ),
+                String::new(),
             ],
             "the echo and the notice were not told apart"
         );
@@ -11907,16 +12478,20 @@ mod tests {
         // that follows it is the answer again rather than more of the notice.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("before".to_string()));
-        shell.apply(UiEvent::Notice("[tool] ran".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::neutral("tool", "ran")));
         shell.apply(UiEvent::Delta("after".to_string()));
         shell.shell.flush_paced();
 
+        // The answer's block ends on a blank row, which is the notice's blank
+        // row above; the notice's own blank row below is what the answer that
+        // resumes starts under. A neutral label is the body's grey.
         assert_eq!(
             painted_rows(&mut shell),
             vec![
                 "  before".to_string(),
                 String::new(),
-                format!("{NOTICE_DARK}[tool] ran{ENDED}"),
+                format!("{NOTICE_DARK}* {ENDED}{NOTICE_DARK}tool:{ENDED}{NOTICE_DARK} ran{ENDED}"),
+                String::new(),
                 "  after".to_string(),
                 String::new(),
             ]
@@ -11934,7 +12509,10 @@ mod tests {
         // stream had reached (`Shell::mark`) with its role beside it.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Delta("held while it was dark".to_string()));
-        shell.apply(UiEvent::Notice("[tool] read_file ok".to_string()));
+        shell.apply(UiEvent::Notice(notice::Notice::warning(
+            "tool",
+            "read_file ok",
+        )));
         let holding = shell.shell.paced_backlog();
         assert!(holding > 0, "the pacer released the delta immediately");
 
@@ -11951,7 +12529,11 @@ mod tests {
             vec![
                 "  held while it was dark".to_string(),
                 String::new(),
-                format!("{NOTICE_LIGHT}[tool] read_file ok{ENDED}"),
+                format!(
+                    "{LABEL_LIGHT}! {ENDED}{LABEL_LIGHT}tool:{ENDED}\
+                     {NOTICE_LIGHT} read_file ok{ENDED}"
+                ),
+                String::new(),
             ]
         );
     }

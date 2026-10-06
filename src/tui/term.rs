@@ -61,11 +61,21 @@ pub(crate) const MODE_SET_TMUX: &str = "\x1b[>4;2m\x1b[?2004h\x1b[?7l\x1b[?2031h
 
 /// The normal exit's restore sequence, with **no** `1049l`: the main surface
 /// was never on the alternate screen (`app_lifecycle.zig:39-41`).
+///
+/// It opens by **clearing** the window title -- upstream's exit
+/// (`TerminalTitle.clear`, `ESC ] 2 ; BEL`, pinned at `render.zig:780-792`;
+/// observed as an empty `pane_title` after `/quit`) -- and then pops the one
+/// it pushed. On a terminal with a title stack the pop gives the user's own
+/// title back and the clear is overwritten by it; on one without, the pop is
+/// ignored and the clear is what keeps the window from naming a session that
+/// has ended. Only the planned exit's: the abnormal restores below keep the
+/// pop alone.
 pub(crate) const RESTORE: &str =
-    "\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+    "\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[<u\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The same for tmux, which was never given the push to pop.
-pub(crate) const RESTORE_TMUX: &str = "\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
+pub(crate) const RESTORE_TMUX: &str =
+    "\x1b]2;\x07\x1b[23;2t\x1b[>4;0m\x1b[?2004l\x1b[?2031l\x1b[?7h\x1b[?25h";
 
 /// The restore sequence for an exit that is *not* the planned one, which leads
 /// with `1049l` defensively: a crash may have happened while a surface xfx does
@@ -733,11 +743,12 @@ mod tests {
         );
         assert_eq!(
             RESTORE,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[<u\u{1b}[?2004l\u{1b}[?2031l\
+             \u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             RESTORE_TMUX,
-            "\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
+            "\u{1b}]2;\u{7}\u{1b}[23;2t\u{1b}[>4;0m\u{1b}[?2004l\u{1b}[?2031l\u{1b}[?7h\u{1b}[?25h"
         );
         assert_eq!(
             ABNORMAL_RESTORE,
@@ -824,6 +835,8 @@ mod tests {
     /// constant it is checking would pass for whatever the module declared.
     const PUSH_TITLE: &str = "\u{1b}[22;2t";
     const POP_TITLE: &str = "\u{1b}[23;2t";
+    /// `OSC 2` with nothing in it: upstream's exit (`render.zig:780-792`).
+    const CLEAR_TITLE: &str = "\u{1b}]2;\u{7}";
 
     #[test]
     fn every_session_pushes_the_terminals_title_once_and_pops_it_once() {
@@ -859,7 +872,13 @@ mod tests {
         // sooner the user's own title is back, the smaller the window in which
         // a second failure leaves it as xfx's.
         for restore in [RESTORE, RESTORE_TMUX] {
-            assert!(restore.starts_with(POP_TITLE), "{restore:?}");
+            // The clear in front of the pop is the same act -- the window
+            // stops naming this session -- said for a terminal with no stack
+            // (`render.zig:780-792`).
+            assert!(
+                restore.starts_with(&format!("{CLEAR_TITLE}{POP_TITLE}")),
+                "{restore:?}"
+            );
         }
         for restore in [ABNORMAL_RESTORE, ABNORMAL_RESTORE_TMUX] {
             // Behind the defensive `1049l` and nothing else: a title popped on
@@ -1476,9 +1495,21 @@ mod tests {
         // push it is seeded with. It says nothing about how many pushes a
         // session that was stopped and continued has made -- Unit A keeps no
         // state between vectors, and a depth across them would need one.
+        //
+        // The clear in front of the pop (upstream's exit, `render.zig:780-792`)
+        // does not stand in for it: without the pop the window is left with
+        // an empty title rather than the user's, and the check says so -- the
+        // first thing it finds wrong is the title, ahead of the stack's depth.
         let damaged = RESTORE.replace("\u{1b}[23;2t", "");
         let refused = check_restore(&damaged, false, false, (24, 80))
             .expect_err("a restore that kept the title it borrowed");
+        assert!(
+            refused.to_string().contains("title"),
+            "the refusal did not name the title: {refused}"
+        );
+        let unpopped = damaged.replace("\u{1b}]2;\u{7}", "");
+        let refused = check_restore(&unpopped, false, false, (24, 80))
+            .expect_err("a restore that neither cleared nor popped");
         assert!(
             refused.to_string().contains("title stack"),
             "the refusal did not name the title stack: {refused}"

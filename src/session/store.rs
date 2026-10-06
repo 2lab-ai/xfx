@@ -581,7 +581,10 @@ impl DurableState {
 }
 
 /// The first line of `text`, trimmed and clipped to a character boundary.
-fn title_of(text: &str) -> Option<String> {
+///
+/// Also the TUI's window title for a session (`crate::tui`'s shell), so the
+/// window and a listing of the session say the same thing.
+pub(crate) fn title_of(text: &str) -> Option<String> {
     let line = text.trim().lines().next().unwrap_or("").trim();
     if line.is_empty() {
         return None;

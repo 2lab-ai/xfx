@@ -132,8 +132,10 @@ pub(crate) enum UiEvent {
         ok: bool,
         detail: String,
     },
-    /// Something the session wants said that is not part of an answer.
-    Notice(String),
+    /// Something the session wants said that is not part of an answer, as a
+    /// notice whose tone and topic the side that knows what happened chose
+    /// ([`super::notice`]).
+    Notice(super::notice::Notice),
     /// What the user said when they answered an approval, on its way to the
     /// document.
     ///
@@ -281,7 +283,15 @@ impl UiEvent {
                 ok,
                 detail: inert_owned(detail),
             },
-            Self::Notice(text) => Self::Notice(inert_owned(text)),
+            // The topic is this crate's word and the body may quote a file, a
+            // daemon or a settings layer; both are made inert, because a rule
+            // that exempted one field would be a rule about which field a
+            // future sender puts foreign text in.
+            Self::Notice(notice) => Self::Notice(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
             // **The most foreign text on this channel.** It is typed at a
             // terminal by a person, so it is the one string here that a user
             // can put an `ESC` into on purpose -- and it is about to be painted
@@ -1308,7 +1318,7 @@ mod tests {
                 ok: true,
                 detail: "done".into(),
             },
-            UiEvent::Notice("n".into()),
+            UiEvent::Notice(super::super::notice::Notice::neutral("", "n")),
             // A turn beginning is the *opposite* of one ending, and a drain
             // loop that stopped at it would leave before the answer.
             UiEvent::TurnStarted,
@@ -1445,7 +1455,10 @@ mod tests {
                 ok: false,
                 detail: "\x1b[2Jd".into(),
             },
-            UiEvent::Notice("\x1b]0;retitled\x07".into()),
+            UiEvent::Notice(super::super::notice::Notice::warning(
+                "\x1b[2Jtopic",
+                "\x1b]0;retitled\x07",
+            )),
             UiEvent::Approval(super::super::approval::ApprovalAsked {
                 id: super::super::approval_readiness::ApprovalId(4),
                 request: ApprovalRequest {
@@ -1487,7 +1500,10 @@ mod tests {
         );
         assert_eq!(
             next(&mut rx).await,
-            Some(UiEvent::Notice(" ]0;retitled ".into()))
+            Some(UiEvent::Notice(super::super::notice::Notice::warning(
+                " [2Jtopic",
+                " ]0;retitled ",
+            )))
         );
         assert_eq!(
             next(&mut rx).await,
