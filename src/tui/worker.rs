@@ -541,8 +541,8 @@ pub(crate) struct SessionSpend(Arc<Mutex<Spent>>);
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Spent {
     pub(crate) usage: crate::session::RecordedUsage,
-    /// When the session began, for the wall clock; `None` before a prompt has
-    /// opened one.
+    /// When the session began, for the wall clock ([`Runtime`]'s
+    /// `began_ms`); `None` only before the runtime has published at all.
     pub(crate) started_at_ms: Option<i64>,
 }
 
@@ -946,6 +946,16 @@ struct Runtime {
     /// Where `/usage`'s session scope reads the conversation's spend from,
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
+    /// When the session `/usage` calls the session began, for its wall clock:
+    /// this runtime's start, the moment `/new` or a provider switch dropped
+    /// the conversation, or the resumed session's own creation.
+    ///
+    /// Upstream's session exists from launch and its clock with it (`reset`,
+    /// `session_usage.zig:2300-2320`), and a resumed one counts from when it
+    /// was created (`:1810-1816`). xfx opens the session log at the first
+    /// prompt, so the log's own creation is the first prompt's time, and the
+    /// clock is kept here instead.
+    began_ms: i64,
 }
 
 impl Runtime {
@@ -991,6 +1001,7 @@ impl Runtime {
             board,
             grants: Grants::default(),
             spend: SessionSpend::default(),
+            began_ms: crate::session::event::system_now_ms(),
         }
     }
 
@@ -1015,15 +1026,13 @@ impl Runtime {
             self.conversation.as_ref(),
         ));
         self.grants.publish(self.grant_lines());
-        self.spend.publish(match self.conversation.as_ref() {
-            Some(conversation) => {
-                let state = conversation.recorder.state();
-                Spent {
-                    usage: state.usage.clone(),
-                    started_at_ms: Some(state.created_at_ms),
-                }
-            }
-            None => Spent::default(),
+        self.spend.publish(Spent {
+            usage: self
+                .conversation
+                .as_ref()
+                .map(|conversation| conversation.recorder.state().usage.clone())
+                .unwrap_or_default(),
+            started_at_ms: Some(self.began_ms),
         });
     }
 
@@ -1333,6 +1342,8 @@ impl Runtime {
                     permission_mode: mode_changed.then(|| mode.label().to_string()),
                 });
         }
+        // A resumed session's clock is its own: from when it was created.
+        self.began_ms = conversation.recorder.state().created_at_ms;
         self.conversation = Some(conversation);
     }
 
@@ -1405,6 +1416,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.began_ms = crate::session::event::system_now_ms();
         self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
@@ -1765,6 +1777,7 @@ async fn turn_loop(
 /// after a reset (`history_turns=0`, `tui-slash-extra.test.ts:314`).
 async fn drop_conversation(state: &mut Runtime, events: &Sender<UiEvent>, through: usize) {
     state.conversation = None;
+    state.began_ms = crate::session::event::system_now_ms();
     state.publish_reply();
     state.publish();
     bridge::send_terminal(events, UiEvent::Fresh { through }).await;
@@ -3881,6 +3894,72 @@ mod tests {
             let through = if between_turns { 0 } else { 4 };
             assert_eq!(seen.try_recv(), Ok(UiEvent::Fresh { through }));
         }
+    }
+
+    #[test]
+    fn the_session_scope_reads_the_conversations_spend_and_a_clock_a_reset_restarts() {
+        let (_home, _workspace, mut state) = recording();
+        let spend = SessionSpend::default();
+        state.spend = spend.clone();
+        // From the runtime's start, as upstream's session is from launch.
+        state.began_ms = 1_000;
+        let recorder = &mut state
+            .conversation
+            .as_mut()
+            .expect("the fixture opened a conversation")
+            .recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::UsageRecorded {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+            requests: vec![crate::session::RequestUsage {
+                at_ms: 2_000,
+                duration_ms: 700,
+                model: "fake/model-a".to_string(),
+                input_tokens: 1200,
+                output_tokens: 40,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: None,
+                cost: Some(0.01),
+                generation_id: None,
+            }],
+            unaccounted: false,
+            lines_added: 4,
+            lines_removed: 1,
+        });
+        state.publish();
+        let spent = spend.read();
+        assert_eq!(spent.started_at_ms, Some(1_000));
+        assert_eq!(spent.usage.requests.len(), 1);
+        assert_eq!((spent.usage.lines_added, spent.usage.lines_removed), (4, 1));
+
+        // `/new`: no spend, and a clock started again.
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        on_a_runtime(async {
+            drop_conversation(&mut state, &events, 0).await;
+        });
+        let spent = spend.read();
+        assert!(spent.usage.requests.is_empty());
+        assert!(
+            spent.started_at_ms.is_some_and(|at| at > 1_000),
+            "{spent:?}"
+        );
+    }
+
+    #[test]
+    fn credits_on_llmux_asks_nobody_and_says_upstreams_sentence() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.provider = crate::provider::ProviderId::Llmux;
+        let answer = on_a_runtime(crate::credits::fetch(&config));
+        assert_eq!(
+            answer,
+            crate::credits::Answer::Failed(crate::credits::UNAVAILABLE.to_string())
+        );
     }
 
     #[test]
