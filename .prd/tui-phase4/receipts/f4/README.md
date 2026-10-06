@@ -2,8 +2,12 @@
 
 Captured on the branch **after** merging `plan/tui-phase4` at `2870b42` (F1 tool
 groups, C2 reset, F3 questions, D4b statusline), so every row below is the
-merged product. Scenarios under `scripts/fxcap/scenarios/`, each run on both
-binaries:
+merged product. Re-checked on the branch head after the later merges (D2a, T1,
+F5, D3; xfx only, every scenario at 40x120): every interrupt, hint, question and
+retry row is the same as here; the only changes are blink/count, stream
+position and retry timing (as below), and one catalog row that is D3's
+(`/provider` in place of `/setup`). Scenarios under `scripts/fxcap/scenarios/`,
+each run on both binaries:
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  <scenario> <size> <dir>
