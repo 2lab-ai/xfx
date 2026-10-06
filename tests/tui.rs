@@ -4229,6 +4229,112 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     assert_eq!(gateway.request_count(), 1, "a command reached the provider");
 }
 
+/// `minutes` before now as the Gateway writes a time: `YYYY-MM-DDTHH:MM:SSZ`.
+fn iso_utc_minutes_ago(minutes: u64) -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs()
+        - minutes * 60;
+    let (days, rest) = ((seconds / 86_400) as i64, seconds % 86_400);
+    // Howard Hinnant's civil-from-days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        (rest % 3600) / 60,
+        rest % 60
+    )
+}
+
+#[test]
+fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread() {
+    // One answer the Gateway billed (`vercel-labs/fx@c1db9191
+    // src/gateway/client.zig:3313-3395`), then the balance. Billed a minute
+    // ago by this machine's clock: a window ends now, and a bill dated after
+    // it is in none.
+    let billed = support::fake_gateway::sse_body(&[
+        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": iso_utc_minutes_ago(1) }),
+        support::fake_gateway::text_delta("answer_0", "MARKER-BILLED"),
+        serde_json::json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": {
+                "routing": { "canonicalSlug": "fake/model-a" },
+                "cost": "0.0125",
+                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+            } }
+        }),
+    ]);
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(billed),
+        support::fake_gateway::Reply::Sse(
+            r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string(),
+        ),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"count this\r");
+    session.wait_for("MARKER-BILLED");
+    session.wait_for("\u{2191}");
+    // The session's logs, read off the UI thread: the window is partial,
+    // because counting began with this very turn.
+    session.type_bytes(b"/usage\r");
+    let text = session.wait_for("12.8K tokens");
+    assert!(text.contains("Partial data"), "{text:?}");
+    session.wait_for("$0.01 spent");
+    session.wait_for("1 request");
+    session.wait_for("fake/model-a");
+    // Shift-Tab to the session, which this turn completed in full.
+    session.type_bytes(b"\x1b[Z");
+    session.wait_for("Local xfx activity");
+    session.type_bytes(&[0x1b]);
+    // Settled when the screen has the hint row back and no key help: a lone
+    // ESC is the Escape key only after 50 ms of quiet.
+    on_screen(&session, (40, 120), &["glm-5.2"], &["tab scope"]);
+
+    session.type_bytes(b"/credits\r");
+    // Read off the screen: the label and the body are separate runs.
+    on_screen(
+        &session,
+        (40, 120),
+        &["* credits: balance=42.17", "  used=7.83", "  plan=pro"],
+        &[],
+    );
+    let asked = &gateway.requests()[1];
+    assert_eq!(
+        (asked.method.as_str(), asked.path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 2);
+}
+
 #[test]
 fn quit_leaves_the_way_ctrl_d_does() {
     let sandbox = Sandbox::new();

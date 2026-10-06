@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-1c516b0 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mfirst question[0m
+
+  First billed answer.
+
+[38;5;245m  0s (↑4 ↓800)[39m
+
+[38;5;255m┃[39m [1msecond question[0m
+
+  Second billed answer.
+
+[38;5;245m  0s (↑4 ↓3.1k)[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mUsage[0m  [38;5;245m30 days[39m  [38;5;245m7 days[39m  [38;5;245m24 hours[39m  [1m[38;5;255m[Session][0m
+[38;5;245mLocal xfx activity[39m
+
+[38;5;245m  67.9K tokens      $0.43 spent      2 requests[39m
+[38;5;245m  64K input         3.9K output      900 reasoning[39m
+[38;5;245m  34K cache read    0 cache write[39m
+
+[1m[38;5;252mSession activity[0m
+[38;5;245mAPI 0s · Wall 16s[39m
+[38;5;245mCode +0 · -0[39m
+
+[1m[38;5;252mModels 2[0m
+[38;5;245m  Model[39m                      [38;5;245mTokens    Share    Spend[39m
+[38;5;245m  anthropic/claude-opus-5[39m    [38;5;245m55.1K     81.1%    $0.42[39m
+[1m[38;5;252m❯ fake/model-a[0m               [38;5;245m12.8K     18.9%    $0.01[39m
+[38;5;245mInput 12K · Output 800 · Cache 4K/0 · Reasoning 0 · Requests 1 · $0.01[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mtab scope     ↑↓ model     enter expand     r refresh     esc close[39m
+
+
+
+
+
+
+

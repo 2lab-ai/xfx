@@ -2067,6 +2067,10 @@ mod tests {
                 SessionEvent::UsageRecorded {
                     input_tokens: Some(1200),
                     output_tokens: Some(40),
+                    requests: Vec::new(),
+                    unaccounted: false,
+                    lines_added: 0,
+                    lines_removed: 0,
                 },
                 SessionEvent::TurnConcluded {
                     outcome: TurnConclusion::Interrupted {

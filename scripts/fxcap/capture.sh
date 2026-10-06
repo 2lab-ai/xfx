@@ -18,6 +18,8 @@
 #                          ~/.xfx/settings.json for xfx
 #   models <catalog.json>  what the fake gateway answers for
 #                          GET /coding-agent/v1/models (default: one model)
+#   credits <credits.json> what it answers for GET /coding-agent/v1/credits
+#                          (default: 404 `not found`)
 #   nomodel                launch without FX_MODEL / XFX_MODEL, so the model
 #                          comes from the profile and no process override
 #                          shadows what a command saves there
@@ -127,7 +129,7 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env='' models='' nomodel=''
+  local turns='[]' extra_env='' models='' credits='' nomodel=''
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -137,6 +139,7 @@ main() {
     # a profile directory anyone else can reach.
     [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/.$which"; cp "$scenarios/${line#seed }" "$run/home/.$which/settings.json"; chmod 600 "$run/home/.$which/settings.json"; }
     [[ $line == models\ * ]] && models=$scenarios/${line#models }
+    [[ $line == credits\ * ]] && credits=$scenarios/${line#credits }
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
@@ -144,7 +147,7 @@ main() {
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
   mkdir -p "$run/bodies"
-  FAKEGW_MODELS=$models bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
+  FAKEGW_MODELS=$models FAKEGW_CREDITS=$credits bun "$here/fakegw.ts" 0 "$run/turns.json" "$run/bodies" > "$run/gateway.log" 2>&1 &
   # Globals, not locals: the EXIT trap runs after main has returned.
   gateway=$!
   sock=$run/s
@@ -212,7 +215,7 @@ $xfx_model $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|nomodel|githead) ;;
+      ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
