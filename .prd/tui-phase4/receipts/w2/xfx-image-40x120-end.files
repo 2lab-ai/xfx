@@ -1,0 +1,24 @@
+=== ~/.xfx/sessions/1791324281119-1717d1ac840d7acb/events.jsonl (4450 bytes)
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":1,"event_id":"c72f878c5f1c5e56435270fa71b6102d","timestamp_ms":1791324281204,"event":{"kind":"session_started","id":"1791324281119-1717d1ac840d7acb","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":2,"event_id":"d2ba5cdd074cd56ff3772b17d3a727b3","timestamp_ms":1791324281557,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":3,"event_id":"825ff99686502520151d85cf091b18bf","timestamp_ms":1791324281712,"event":{"kind":"user_message","text":"[Image #3][Image #4] what is in this image?"}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":4,"event_id":"d676cdaa9fa033548b349ff30320072e","timestamp_ms":1791324281934,"event":{"kind":"images_attached","images":[{"id":3,"path":"<scratch>/work/shot.png","media_type":"image/png","sha256":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0","bytes":73},{"id":4,"path":"<scratch>/work/shot.png","media_type":"image/png","sha256":"3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0","bytes":73}]}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":5,"event_id":"d1ae3ff92ef4f235cd0645edd0047aa3","timestamp_ms":1791324282338,"event":{"kind":"assistant_message","text":"It is a small red square.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":6,"event_id":"79b414035a611d8cf2c2049d8ba77859","timestamp_ms":1791324282470,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":7,"event_id":"56c52ee33aaf21fe93e616cae3418cbd","timestamp_ms":1791324282726,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":8,"event_id":"90ff4a17c6259b15e157bbb118692d47","timestamp_ms":1791324285335,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":9,"event_id":"11ea3f35b2503a2c508ba7074f8e9a2f","timestamp_ms":1791324285515,"event":{"kind":"user_message","text":"describe it again"}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":10,"event_id":"fb6967d23f1b476aeb18eb98124cca61","timestamp_ms":1791324285969,"event":{"kind":"assistant_message","text":"Still red.","tool_calls":[]}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":11,"event_id":"72c91c9ff0e2e93f65db98306de9d3d3","timestamp_ms":1791324286179,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":12,"event_id":"0396e916aad5b84709f787640addc6f3","timestamp_ms":1791324286469,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":13,"event_id":"13a9c170a56f28544f72169238bf1926","timestamp_ms":1791324296942,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":14,"event_id":"8a8f36805fcf0b8ae72d1f1ce9a26134","timestamp_ms":1791324297165,"event":{"kind":"user_message","text":"once more"}}
+{"schema_version":1,"log_generation":"7d25c7887d1724cb8ba842651a038c23","seq":15,"event_id":"9fb53ca6fc48cae474ba17e643581997","timestamp_ms":1791324297559,"event":{"kind":"assistant_message","text":"Red, again.","tool_calls":[]}}
+{"schema_version":1,"log_genera
+=== ~/.xfx/sessions/1791324281119-1717d1ac840d7acb/images/image-3-3fd6e6be528c182d.bin (73 bytes)
+(binary)
+=== ~/.xfx/sessions/1791324281119-1717d1ac840d7acb/images/image-4-3fd6e6be528c182d.bin (73 bytes)
+(binary)
+=== ~/.xfx/sessions/1791324281119-1717d1ac840d7acb/session.json (655 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791324281119-1717d1ac840d7acb","log_generation":"7d25c7887d1724cb8ba842651a038c23","created_at_ms":1791324281204,"updated_at_ms":1791324298423,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"fake/model-a","permission_mode":"auto","title":"[Image #3][Image #4] what is in this image?","history_turns":3,"permission_grants":0,"total_input_tokens":3600,"total_output_tokens":120,"last_event_seq":17,"event_log_bytes":4450,"event_log_sha256":"ba4bf068f71fda31cd661c9299b2fe3ed60a58ce6faadbd3f7fd6330018e9e69"}
+

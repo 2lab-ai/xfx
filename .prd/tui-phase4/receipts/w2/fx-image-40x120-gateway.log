@@ -1,0 +1,6 @@
+[fakegw] listening 64640
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] GET /coding-agent/v1/models bearer=yes
+[fakegw] completion /v4/ai/language-model -> text

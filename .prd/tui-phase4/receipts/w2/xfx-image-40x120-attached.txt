@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-edafd5d [debug] · Run /help for commands
+
+✗ usage: /image <path>
+
+✗ images: image file not found
+
+✗ images: unsupported image type
+
+✗ images: image exceeds the 20 MiB limit
+
+✗ images: failed to attach image: NotRegularFile
+
+* images: no pending images
+
+* images: attached image: shot.png
+
+┃ [Image 1]
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
