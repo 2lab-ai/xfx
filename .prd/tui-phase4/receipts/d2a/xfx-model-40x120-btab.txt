@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+┃ gro
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Models 0  All  [Anthropic]  OpenAI  xAI  Others
+
+No models found.
+
+Note: Gateway catalog is authenticated with an API key
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab provider     enter use     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
