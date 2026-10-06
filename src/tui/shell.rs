@@ -825,18 +825,7 @@ fn compact_duration(seconds: u64) -> String {
     }
 }
 
-/// `formatTokenCountCompact` (`activity_status.zig:259-268`).
-fn compact_tokens(tokens: u64) -> String {
-    if tokens < 1000 {
-        return tokens.to_string();
-    }
-    let (whole, tenths) = (tokens / 1000, (tokens % 1000) / 100);
-    if whole < 10 && tenths > 0 {
-        format!("{whole}.{tenths}k")
-    } else {
-        format!("{whole}k")
-    }
-}
+use super::activity::compact_tokens;
 
 /// Bold on, and every attribute off: what upstream's card puts around the
 /// submitted text (`user_message_card.zig:319-325`).
@@ -972,11 +961,7 @@ impl Shell {
         // ([`Palette::activity`]) cannot leak onto the composer.
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
-            rows.extend(std::iter::repeat_n(String::new(), padding));
-            rows.push(self.painted(
-                self.palette.activity(),
-                self.activity_row.clone().unwrap_or_default(),
-            ));
+            rows.push(self.activity_row.clone().unwrap_or_default());
             rows.extend(std::iter::repeat_n(String::new(), padding));
         }
         // The composer's own rows, as many of them as the window shows, each
@@ -2349,6 +2334,15 @@ impl Shell {
 
     /// Adds answer text to the stream, where the pacer releases it.
     fn stream(&mut self, text: &str) {
+        // Upstream's phase moves to generating on the first content chunk
+        // (`assistant_stream.zig:235-239`).
+        if self.activity.working() {
+            self.activity.set(Work::Generating);
+        }
+        // Counted as it arrives rather than as it is shown, as upstream counts
+        // content (`telemetry.zig:116-120`): a summary written while the pacer
+        // still holds the tail would otherwise leave that tail out.
+        self.tally.streamed.consume(text);
         self.enqueued = self.enqueued.saturating_add(text.len());
         self.pacer.enqueue(text);
     }
@@ -2670,7 +2664,22 @@ impl Shell {
         if self.render.animate(self.activity.working(), now) {
             self.phase = (self.phase + 1) % PHASES;
         }
-        let row = self.activity.row(now, self.phase, self.geometry.cols);
+        let output = self
+            .tally
+            .output
+            .unwrap_or_else(|| self.tally.streamed.estimate());
+        let colours = super::activity::Colours {
+            label: self.palette.activity(),
+            dim: self.palette.dim(),
+            reset: self.palette.reset(),
+        };
+        let row = self.activity.row(
+            now,
+            self.phase,
+            self.geometry.cols,
+            (self.tally.input, output),
+            colours,
+        );
         if row == self.activity_row {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
@@ -2717,6 +2726,11 @@ impl Shell {
             return;
         }
         self.palette.mode = mode;
+        // The answer's own styles follow the mode too, as upstream's theme
+        // switch re-applies them (`theme.zig` `applyTheme`/`activate`).
+        let theme = markdown::theme::builtin(mode == Mode::Light);
+        self.markdown.apply_theme(&theme);
+        self.markdown.activate_theme(theme);
         if !self.damage_untold {
             self.retint_debt = true;
         }
@@ -3482,7 +3496,15 @@ impl Shell {
         if self.transcript.queue_gutter(Gutter::Rail) {
             self.owed();
         }
-        self.write_transcript_as(&format!("{BOLD}{text}{RESET}"), Role::Plain);
+        // Bold opened on every line rather than once around the text: a hard
+        // break ends a row's attributes here, as upstream's card re-applies
+        // its style per row (`user_message_card.zig:365,374`).
+        let card = text
+            .split('\n')
+            .map(|line| format!("{BOLD}{line}{RESET}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.write_transcript_as(&card, Role::Plain);
         self.end_transcript_line();
         if self.transcript.queue_gutter(Gutter::None) {
             self.owed();
@@ -3492,7 +3514,6 @@ impl Shell {
 
     /// Released answer text, through the presenter.
     fn write_answer(&mut self, text: &str) {
-        self.tally.streamed.consume(text);
         for event in self.markdown.feed(text) {
             self.present(event);
         }
@@ -9094,13 +9115,25 @@ mod tests {
         // the document keeps is the whole answer rather than its first
         // fragment -- in the answer's two-column gutter, its block ended on a
         // blank row, and the clean end's summary and its own blank row under
-        // that. The summary's wording is deliberately not pinned here: its
-        // output count is taken when the turn ends, before the pacer has
-        // released this answer, and that is an open question about the
-        // summary rather than about where the answer lands.
+        // that. No prompt was sent, so in is 0; out is the estimate of what
+        // streamed, counted as it arrived rather than as the pacer released
+        // it (`telemetry.zig:116-120`) -- the turn ends with the answer still
+        // held, and the summary still counts it.
         let document = shell.released();
-        assert_eq!(document[..2], ["  MARKER-TURN-ONE", ""], "{document:?}");
-        assert_eq!(document.len(), 4, "{document:?}");
+        assert_eq!(
+            document,
+            ["  MARKER-TURN-ONE", "", "  0s (\u{2191}0 \u{2193}4)", ""],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn every_line_of_a_multi_line_card_is_bold() {
+        let mut fixture = shell(24, 80);
+        fixture.echo("first\nsecond");
+        let document = fixture.released();
+        let bold: Vec<&String> = document.iter().filter(|row| row.contains(BOLD)).collect();
+        assert_eq!(bold.len(), 2, "{document:?}");
     }
 
     #[test]

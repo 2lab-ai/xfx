@@ -59,7 +59,19 @@ main() {
   done
   port=$(sed -n 's/.*listening \([0-9]*\).*/\1/p' "$run/gateway.log" | head -1)
 
-  local base="HOME=$run/home TERM=xterm-256color PATH=/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real"
+  # Nothing a binary does under capture may reach the user's desktop: a shim
+  # directory ahead of the system PATH answers `open` (browser sign-in),
+  # `pbcopy`/`pbpaste` (clipboard) and `afplay` (sound) with no-ops, and fx's
+  # own switch keeps it from launching a browser at all.
+  mkdir -p "$run/shim"
+  local tool
+  for tool in open pbpaste afplay osascript; do
+    printf '#!/bin/sh\nexit 0\n' > "$run/shim/$tool"
+  done
+  # pbcopy is fed through a pipe: drain it, keep a copy for the receipt.
+  printf '#!/bin/sh\ncat > "%s/clipboard"\n' "$run" > "$run/shim/pbcopy"
+  chmod +x "$run/shim/"*
+  local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch
   if [[ $which == fx ]]; then
     launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 \

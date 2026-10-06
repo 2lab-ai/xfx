@@ -289,7 +289,10 @@ impl Palette {
     /// of the terminal program and does not move under a running session
     /// (`depth_from_env`).
     pub(crate) fn document_retint(&self, colour: Color) -> Option<&'static str> {
-        let role = [NOTICE, BODY].into_iter().find(|&role| {
+        // xfx's own colours in the document: its notices, the card's rail
+        // (`HINT`, the same grey `BODY` names), and the quiet rows -- the
+        // welcome line's version and a turn's summary (`DIM`).
+        let role = [NOTICE, BODY, DIM].into_iter().find(|&role| {
             [Mode::Dark, Mode::Light]
                 .into_iter()
                 .any(|mode| self.shade(role, mode) == Some(colour))
