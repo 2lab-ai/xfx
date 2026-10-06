@@ -1,22 +1,22 @@
-x𝒇x v0.1.0-041f94c [debug] · Run /help for commands
+x𝒇x v0.1.0-ffa0811 [debug] · Run /help for commands
 
 ✗ command: Unknown command. Try /help.
 
-* provider: Preparing Vercel AI Gateway.
-
-* provider: Switched to Vercel AI Gateway with fake/model-a. The next prompt starts a fresh conversation.
+* provider: Already using Vercel AI Gateway.
 
 ┃ stream something long please
 
-  MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13
+  MARKER-HEAD word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11
 
 * provider: Provider switching is unavailable until active and queued work finishes.
 
-• Generating (2s) (↑8 ↓51)
+• Generating (2s) (↑8 ↓47)
 
 ┃
 
 auto · model-a
+
+
 
 
 
