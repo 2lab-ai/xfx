@@ -1,0 +1,38 @@
+[
+ {
+  "tool": {
+   "id": "read-1",
+   "name": "read_file",
+   "input": {
+    "path": "notes.txt"
+   }
+  }
+ },
+ {
+  "chunks": [
+   "ANSWER-ONE: the notes are read."
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-TWO: noted."
+  ]
+ },
+ {
+  "hangMs": 2500,
+  "chunks": [
+   "Turn 1\nIn between: Read notes.txt.\nT1: the notes hold NOTES-VALUE-17\n\nFacts:\nF1 (T1): notes.txt holds NOTES-VALUE-17\n"
+  ]
+ },
+ {
+  "hangMs": 3000,
+  "chunks": [
+   "ANSWER-THREE."
+  ]
+ },
+ {
+  "chunks": [
+   "ANSWER-FOUR."
+  ]
+ }
+]

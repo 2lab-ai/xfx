@@ -6,6 +6,7 @@
 //! assistant text arrives in order, exactly one terminal event is written, and
 //! exactly one conclusion is journaled.
 
+pub mod compact;
 pub mod machine;
 pub mod steering;
 pub mod types;
