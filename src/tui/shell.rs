@@ -6535,16 +6535,27 @@ mod tests {
 
     #[test]
     fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer() {
-        // The band gains three rows while a turn runs -- the activity row with
-        // a blank row on either side (`activity_placement.zig`) -- and they come
-        // off the bottom of the document rather than moving the composer: the
-        // caret must not jump because a turn started.
+        // The band gains two rows while a turn runs -- the activity row and a
+        // blank row under it (`frame_layout.zig:62-75`) -- and they come off
+        // the bottom of the document rather than moving the composer: the
+        // caret must not jump because a turn started. The gap above the row is
+        // the document's own blank row, the one the prompt's card ended on.
         let mut shell = shell(24, 80);
         let idle = shell.geometry;
         assert_eq!(idle.activity, None);
         assert_eq!(shell.band_rows()[0], composer_row(""));
 
-        let started = turn_running(&mut shell, b"ask something\r");
+        // `turn_running`, with the document it hands over kept.
+        shell.route_bytes(b"ask something\r");
+        shell.apply(UiEvent::TurnStarted);
+        let started = Instant::now();
+        shell.settle_band(started);
+        let document = shell.document();
+        assert_eq!(
+            document.last().map(String::as_str),
+            Some(""),
+            "no blank row between the document and the activity row: {document:?}"
+        );
         shell.settle_band(started + Duration::from_secs(2));
 
         let geometry = shell.geometry;
@@ -6553,9 +6564,14 @@ mod tests {
             Some(geometry.input_first - 2),
             "the row is not the one a blank row above the composer"
         );
+        assert_eq!(
+            Some(geometry.band_top()),
+            geometry.activity,
+            "the band put a blank row of its own above the activity row"
+        );
         assert_eq!(geometry.divider, idle.divider, "the rule moved");
         assert_eq!(geometry.input_first, idle.input_first, "the caret moved");
-        assert_eq!(geometry.content_bottom, idle.content_bottom - 3);
+        assert_eq!(geometry.content_bottom, idle.content_bottom - 2);
 
         let rows = shell.band_rows();
         assert_eq!(
@@ -6563,35 +6579,33 @@ mod tests {
             usize::from(geometry.band_rows()),
             "the band's rows and its geometry disagree: {rows:?}"
         );
-        assert!(rows[1].contains("Thinking"), "{rows:?}");
+        assert!(rows[0].contains("Thinking"), "{rows:?}");
         // The clock is the turn's own, from the settle that first measured it,
         // so this is two seconds exactly however long the rest of the test
         // takes.
-        assert!(rows[1].contains("2s"), "{rows:?}");
+        assert!(rows[0].contains("(2s)"), "{rows:?}");
         // Literal, not derived from `Palette::activity` itself: a check that
         // asked the accessor what it expects would pass for whatever
         // `theme.rs` happened to declare. `252` is upstream's own dark index
         // for this row (`shimmer_runtime.zig:262-291`'s
-        // `permission_auto_style`, `render.zig:55,86,105`).
+        // `permission_auto_style`, `render.zig:55,86,105`). Asked of the label
+        // rather than of the row's first cell, which is a bare blank while the
+        // marker is dark.
         assert!(
-            rows[1].starts_with("\u{1b}[38;5;252m"),
+            rows[0].contains("\u{1b}[38;5;252m Thinking (2s)"),
             "the activity row is not painted in the dark palette's literal \
              foreground: {rows:?}"
         );
         assert!(
-            rows[1].ends_with("\u{1b}[0m"),
+            rows[0].ends_with("\u{1b}[0m"),
             "the activity row's colour was left open: {rows:?}"
         );
         assert_eq!(
-            rows[0], "",
-            "no blank row between the document and the activity row"
-        );
-        assert_eq!(
-            rows[2], "",
+            rows[1], "",
             "no blank row between the activity row and the composer"
         );
         assert_eq!(
-            rows[3],
+            rows[2],
             composer_row(""),
             "the activity row's colour leaked onto the composer below it: {rows:?}"
         );
@@ -6610,16 +6624,16 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[1].contains("Thinking") && rows[1].contains("2s"),
+            rows[0].contains("Thinking") && rows[0].contains("(2s)"),
             "{rows:?}"
         );
         assert!(
-            rows[1].starts_with("\u{1b}[38;5;238m"),
+            rows[0].contains("\u{1b}[38;5;238m Thinking (2s)"),
             "the activity row is not painted in the light palette's literal \
              foreground: {rows:?}"
         );
         assert!(
-            rows[1].ends_with("\u{1b}[0m"),
+            rows[0].ends_with("\u{1b}[0m"),
             "the activity row's colour was left open: {rows:?}"
         );
     }
@@ -6650,7 +6664,7 @@ mod tests {
         let started = turn_running(&mut shell, b"first\r");
         shell.settle_band(started + Duration::from_secs(2));
         assert!(
-            shell.band_rows()[1].contains("2s"),
+            shell.band_rows()[0].contains("(2s)"),
             "{:?}",
             shell.band_rows()
         );
@@ -6660,7 +6674,7 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[1].contains("3s"),
+            rows[0].contains("(3s)"),
             "the queued prompt restarted the running turn's clock: {rows:?}"
         );
     }
@@ -6678,7 +6692,7 @@ mod tests {
         shell.route_bytes(b"second\r");
         shell.settle_band(started + Duration::from_secs(2));
         assert!(
-            shell.band_rows()[1].contains("2s"),
+            shell.band_rows()[0].contains("(2s)"),
             "{:?}",
             shell.band_rows()
         );
@@ -6690,12 +6704,12 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[1].contains("0s"),
+            rows[0].contains("(0s)"),
             "the queued turn inherited the finished turn's clock: {rows:?}"
         );
         shell.settle_band(started + Duration::from_secs(5));
         assert!(
-            shell.band_rows()[1].contains("2s"),
+            shell.band_rows()[0].contains("(2s)"),
             "{:?}",
             shell.band_rows()
         );
@@ -6776,7 +6790,9 @@ mod tests {
     #[test]
     fn a_running_tool_takes_the_row_over_and_hands_it_back() {
         // A turn that has gone quiet because a tool is taking a minute looks
-        // exactly like a turn that has gone quiet, unless the band says which.
+        // exactly like a turn that has gone quiet, unless the band says which:
+        // `Running` while the tool runs (`activity_status.zig:105-111`); which
+        // tool it is, the document's `[tool] ... running` line says.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"ask something\r");
 
@@ -6785,11 +6801,9 @@ mod tests {
             tool: "read_file".to_string(),
         });
         shell.settle_band(started + Duration::from_millis(50));
-        assert!(
-            shell.band_rows()[1].contains("read_file"),
-            "{:?}",
-            shell.band_rows()
-        );
+        let rows = shell.band_rows();
+        assert!(rows[0].contains("Running"), "{rows:?}");
+        assert!(!rows[0].contains("Thinking"), "{rows:?}");
 
         shell.apply(UiEvent::ToolResult {
             call_id: "1".to_string(),
@@ -6799,12 +6813,12 @@ mod tests {
         });
         shell.settle_band(started + Duration::from_millis(100));
         let rows = shell.band_rows();
-        assert!(rows[1].contains("Thinking"), "{rows:?}");
-        assert!(!rows[1].contains("read_file"), "{rows:?}");
+        assert!(rows[0].contains("Thinking"), "{rows:?}");
+        assert!(!rows[0].contains("Running"), "{rows:?}");
         // The tool was part of the turn, so the turn's clock ran through it.
         shell.settle_band(started + Duration::from_secs(4));
         assert!(
-            shell.band_rows()[1].contains("4s"),
+            shell.band_rows()[0].contains("(4s)"),
             "{:?}",
             shell.band_rows()
         );
@@ -6824,7 +6838,7 @@ mod tests {
         assert_eq!(shell.geometry.activity, working.activity);
         assert_eq!(shell.geometry.content_bottom, working.content_bottom);
         shell.settle_band(started + Duration::from_millis(50));
-        assert!(shell.band_rows()[1].contains("Thinking"));
+        assert!(shell.band_rows()[0].contains("Thinking"));
     }
 
     #[test]
@@ -6843,10 +6857,11 @@ mod tests {
             markers.insert(
                 shell
                     .band_rows()
-                    .get(1)
-                    // The row now opens with the activity role's colour
-                    // (`Self::band_rows`), so the marker's own cell is past
-                    // it rather than at the row's first character.
+                    .first()
+                    // The lit marker is painted in the activity role's colour
+                    // (`Activity::row`), so its cell is past that colour rather
+                    // than at the row's first character; the dark one is a bare
+                    // blank cell.
                     .and_then(|row| {
                         row.strip_prefix(PALETTE.activity())
                             .unwrap_or(row)
