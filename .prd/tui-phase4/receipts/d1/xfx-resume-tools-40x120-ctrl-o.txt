@@ -1,0 +1,40 @@
+  2026-10-06 21:45:20.638 UTC · Tool
+├ Denied file
+│  path: c.txt
+│  content: new file
+│  second line
+│
+
+  2026-10-06 21:45:20.638 UTC · Tool
+├ Failed missing.txt
+│  read_file refused the path: no such path: `missing.txt`
+
+  2026-10-06 21:45:20.638 UTC · Tool
+└ Exited 3 echo boom; echo err >&2; exit 3
+│ boom
+│ err
+│ exit code 3
+
+  2026-10-06 21:45:33.843 UTC · Response
+  All done. The files were updated.
+
+  2026-10-06 21:45:33.843 UTC · Usage
+  13s (↑8 ↓40)
+
+  2026-10-06 21:45:35.447 UTC · Prompt
+┃ and once more
+
+■ Cancelled · What can xfx do differently?
+
+  2026-10-06 21:45:39.505 UTC · Prompt
+┃ run the long one
+
+  2026-10-06 21:45:39.505 UTC · Tool
+● 1 tool call · 1 command
+└ Ran sleep 4
+
+■ Cancelled · What can xfx do differently?
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

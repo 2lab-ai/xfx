@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-e70cb5b [debug] · Run /help for commands
+
+┃ count to ten slowly
+
+* session: renamed to "Counted mid turn"
+
+  One. Two. Three. Four. Five. Six. Seven. Eight. Nine. Ten.
+
+  5s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
