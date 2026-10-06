@@ -21823,7 +21823,11 @@ mod tests {
         shell.help();
         assert!(shell.document().is_empty(), "/help wrote to the document");
         let rows = menu(&shell);
-        assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
+        // Every command, up to upstream's twenty at once.
+        let visible = crate::interactive::SLASH_REGISTRY
+            .len()
+            .min(super::help_menu::MOST_ITEMS);
+        assert_eq!(rows.len(), 2 + visible);
         assert_eq!(usize::from(shell.geometry.panel), rows.len());
         assert!(
             visible_text(&rows[0]).starts_with(&format!(
@@ -21863,6 +21867,7 @@ mod tests {
                     .iter()
                     .filter(move |spec| spec.category == *category))
                 .map(|spec| Some(spec.name.to_string()))
+                .take(visible)
                 .collect::<Vec<_>>()
         );
         assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
@@ -22003,7 +22008,10 @@ mod tests {
         // Shift-Tab, as a terminal spells it, is back to `All`.
         shell.route_bytes(b"\x1b[Z");
         let count = crate::interactive::SLASH_REGISTRY.len();
-        assert_eq!(usize::from(shell.geometry.panel), 2 + count);
+        assert_eq!(
+            usize::from(shell.geometry.panel),
+            2 + count.min(super::help_menu::MOST_ITEMS)
+        );
         assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
     }
 
