@@ -77,4 +77,6 @@ Every snap but the three `/help` ones is byte-identical beyond row 1 at both siz
 
 **Re-run of round 1 on the same tree (`067e401`):** `filepicker` at both sizes, `filepicker-keys` at 40x120 and `filepicker-narrow` at both sizes -- the 33 snaps, every band row identical, and this time nothing differs beyond row 1 at all.
 
+**Re-run on the branch's final merge (`e57af9e`, plan at `b06a889`):** `composer-keys` at both sizes, `filepicker` and `filepicker-keys` at 40x120 and `filepicker-narrow` at 24x80 -- the same verdicts: every snap but the `/help` three identical beyond row 1, the `/help` three differing only in the catalog's contents, and `select me` on both clipboards. The files in this directory are the `067e401` captures.
+
 **Not captured, unit-tested instead:** the published prefix of a first index (`file_index.rs` `the_first_index_is_searched_while_it_is_published`, `shell.rs` `the_rows_fill_in_while_the_first_index_is_published`) -- nine files publish in one run, faster than a capture can see -- and the `/resume` picker's page keys and `C-k`/`C-j` (`shell.rs` `the_page_keys_and_ctrl_j_k_move_the_resume_pickers_mark_and_stop_at_the_ends`), which need saved sessions the capture home does not have.
