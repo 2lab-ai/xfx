@@ -20,6 +20,7 @@ pub mod question;
 pub mod read;
 pub mod spec;
 pub mod terminal;
+pub mod undo;
 
 use std::fmt;
 

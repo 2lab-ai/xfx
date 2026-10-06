@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
+
+┃ compare these two files @deeply-nested-source-directory/al
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                          deeply-nested-source-directory/alpha-component-01-with-a-very-long-descriptive-name.zig
+                          deeply-nested-source-directory/alpha-component-02-with-a-very-long-descriptive-name.zig
+                          deeply-nested-source-directory/alpha-component-03-with-a-very-long-descriptive-name.zig
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

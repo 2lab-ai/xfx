@@ -1,0 +1,16 @@
+=== ~/.xfx/history.jsonl (130 bytes)
+{"schema_version":1,"timestamp_ms":1791324560246,"workspace_root":"<scratch>/work","text":"/settings"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (125 bytes)
+{
+  "notifications": {
+    "attention_required": true,
+    "turn_end": true
+  },
+  "statusLine": {
+    "context": true
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

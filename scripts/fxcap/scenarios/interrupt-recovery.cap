@@ -1,0 +1,12 @@
+# The full transcript's record of each retry: two HTTP 500s with the
+# Gateway's error shape, then an answer (as in interrupt-retry), then Ctrl-O.
+gateway interrupt-retry.json
+wait 2
+type try it
+key Enter
+wait 6
+key C-o
+wait 1
+snap full
+key C-o
+wait 0.5

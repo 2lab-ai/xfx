@@ -1,0 +1,12 @@
+work filepicker-long-ws
+wait 2
+type @alpha
+wait 1.2
+snap at-alpha
+key Down
+wait 0.3
+snap at-alpha-down
+key C-u
+type compare these two files @deeply-nested-source-directory/al
+wait 1.2
+snap at-deep

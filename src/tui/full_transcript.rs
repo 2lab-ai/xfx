@@ -85,6 +85,7 @@ use crate::markdown;
 use crate::permission::ApprovalDiff;
 use crate::session::{SessionEvent, TurnStep};
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
+use crate::trace::civil;
 
 use super::approval_view::{Line as ReviewLine, Review};
 use super::blocks;
@@ -156,26 +157,6 @@ pub(crate) fn stamp(at_ms: i64) -> Option<String> {
         of_day % 3600 / 60,
         of_day % 60
     ))
-}
-
-/// The calendar date `days` after 1970-01-01, proleptic Gregorian -- Howard
-/// Hinnant's `civil_from_days`, the same arithmetic `std.time.epoch` does for
-/// upstream.
-fn civil(days: i64) -> (i64, i64, i64) {
-    let shifted = days + 719_468;
-    let era = shifted.div_euclid(146_097);
-    let of_era = shifted.rem_euclid(146_097);
-    let year_of_era = (of_era - of_era / 1460 + of_era / 36_524 - of_era / 146_096) / 365;
-    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let shifted_month = (5 * of_year + 2) / 153;
-    let day = of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 {
-        shifted_month + 3
-    } else {
-        shifted_month - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    (year, month, day)
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,7 +1274,23 @@ impl FullTranscript {
     }
 
     fn lay_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Vec<String> {
-        let (kind, body) = match &entry.body {
+        let (kind, body) = self.content(entry, cols, palette);
+        if body.is_empty() {
+            return Vec::new();
+        }
+        let mut rows = Vec::with_capacity(body.len() + 1);
+        if let (Some(kind), Some(stamp)) = (kind, stamp(entry.at_ms)) {
+            let text = clip(&format!("  {stamp} \u{b7} {}", kind.label()), cols).to_string();
+            rows.push(format!("{}{text}{}", palette.dim(), palette.reset()));
+        }
+        rows.extend(body);
+        rows
+    }
+
+    /// What one entry says, laid out at `cols`, and what kind of entry its
+    /// header calls it -- [`Self::lay_out`] without the header.
+    fn content(&self, entry: &Entry, cols: u16, palette: Palette) -> (Option<Kind>, Vec<String>) {
+        match &entry.body {
             Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
             Body::Response(events) => (Some(Kind::Response), answer(events, cols, palette)),
             Body::Line(text, role, kind) => (Some(*kind), line(text, *role, cols, palette)),
@@ -1311,17 +1308,61 @@ impl FullTranscript {
             // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
             // question's resolution is not one of them.
             Body::Block(rows) => (None, rows.iter().map(|row| ellipsized(row, cols)).collect()),
+        }
+    }
+
+    /// The record as `/trace` lists it (`crate::trace::Entry`): what the
+    /// document was given, in its order, and apart from it the `* network:`
+    /// records -- each laid out at `cols` as this screen would lay it out,
+    /// without its header, and with no colour.
+    ///
+    /// Laid out afresh rather than through [`Self::laid_out`], whose cache is
+    /// the screen's: a report at its own width must not leave the screen a
+    /// layout it would take for one of its own. The welcome line and the
+    /// session record are left out: the report's summary says what each says.
+    pub(crate) fn traced(
+        &self,
+        cols: u16,
+        palette: Palette,
+    ) -> (Vec<crate::trace::Entry>, Vec<crate::trace::Entry>) {
+        let plain = |entry: &Entry| {
+            // Upstream's names for its own entries (`writeTranscriptTimeline`,
+            // `app_commands.zig:3481-3489`), where xfx has one of the same
+            // kind; a prompt is what was typed, as upstream's `user` entry is,
+            // rather than the card it was drawn as.
+            let (kind, rows) = match &entry.body {
+                Body::Prompt(text) => ("user", text.lines().map(str::to_string).collect()),
+                body => {
+                    let kind = match body {
+                        Body::Response(_) => "assistant",
+                        Body::Notice(_) => "semantic notice",
+                        Body::Usage(_) | Body::Line(..) => "raw",
+                        Body::Tool(_) => "tool",
+                        _ => "questions",
+                    };
+                    let (_, rows) = self.content(entry, cols, palette);
+                    (kind, rows.iter().map(|row| unpainted(row)).collect())
+                }
+            };
+            let problem = matches!(&entry.body, Body::Notice(notice)
+                if matches!(notice.tone, Tone::Error | Tone::Warning));
+            crate::trace::Entry {
+                at_ms: entry.at_ms,
+                kind,
+                rows,
+                problem,
+            }
         };
-        if body.is_empty() {
-            return Vec::new();
-        }
-        let mut rows = Vec::with_capacity(body.len() + 1);
-        if let (Some(kind), Some(stamp)) = (kind, stamp(entry.at_ms)) {
-            let text = clip(&format!("  {stamp} \u{b7} {}", kind.label()), cols).to_string();
-            rows.push(format!("{}{text}{}", palette.dim(), palette.reset()));
-        }
-        rows.extend(body);
-        rows
+        let timeline = self.entries.iter().map(plain).collect();
+        let network = self
+            .records
+            .iter()
+            .filter(
+                |record| matches!(&record.body, Body::Notice(notice) if notice.topic == "network"),
+            )
+            .map(plain)
+            .collect();
+        (timeline, network)
     }
 
     /// A call's rows: its group's header when it is the group's first, its own
@@ -2254,6 +2295,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: crate::provider::Wire::VercelGateway,
+            billing: None,
         }
     }
 
@@ -2648,7 +2690,7 @@ mod tests {
             Action::Backspace,
             Action::Eof,
             Action::PasteStart,
-            Action::HistoryPrevious,
+            Action::ControlP,
         ] {
             assert_eq!(
                 record.key(action, 120, 40, DARK),

@@ -54,12 +54,23 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/undo`: the newest file change the conversation's tools made, taken
+    /// back. It takes nothing: `/undo now` never reaches it ([`classify`]).
+    fn undo(&mut self);
+    /// `/trace`. It takes nothing either: `/trace now` is a line that names
+    /// no command, as upstream's is (`commands.zig:486` has no `has_args`).
+    fn trace(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
     fn sound(&mut self, argument: &str);
     /// `/stats`: what this surface's terminal writer has done so far.
     fn stats(&mut self);
+    /// `/usage` (or its alias `/cost`): the spend dashboard. It takes nothing.
+    fn usage(&mut self);
+    /// `/credits` (or its alias `/balance`): what the Gateway account has
+    /// left. It takes nothing.
+    fn credits(&mut self);
     /// `/status`: the configuration a turn would run under, and the live
     /// conversation's counts.
     fn status(&mut self);
@@ -87,6 +98,10 @@ pub(crate) trait CommandHandlers {
     /// when there was none, which lists the rules in force. What it may be is
     /// `crate::permission::allowlist::Request::parse`'s to say.
     fn allowlist(&mut self, argument: &str);
+    /// `/settings`, with the rest of the line -- already trimmed, and empty
+    /// when there was none. Empty opens the settings menu; anything else is
+    /// its usage line, because xfx answers none of upstream's argument forms.
+    fn settings(&mut self, argument: &str);
 }
 
 /// What one line submitted **on this surface** is.
@@ -168,11 +183,16 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Allowlist => handlers.allowlist(argument),
+        Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
+        Slash::Trace => handlers.trace(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
+        Slash::Usage => handlers.usage(),
+        Slash::Credits => handlers.credits(),
         Slash::Status => handlers.status(),
         Slash::Statusline => handlers.statusline(argument),
+        Slash::Settings => handlers.settings(argument),
         Slash::Version => handlers.version(),
         Slash::Quit => handlers.quit(),
     }
@@ -234,11 +254,23 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn undo(&mut self) {
+            self.calls.push("undo".to_string());
+        }
+        fn trace(&mut self) {
+            self.calls.push("trace".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
         fn stats(&mut self) {
             self.calls.push("stats".to_string());
+        }
+        fn usage(&mut self) {
+            self.calls.push("usage".to_string());
+        }
+        fn credits(&mut self) {
+            self.calls.push("credits".to_string());
         }
         fn status(&mut self) {
             self.calls.push("status".to_string());
@@ -261,6 +293,9 @@ mod tests {
         fn allowlist(&mut self, argument: &str) {
             self.calls.push(format!("allowlist {argument}"));
         }
+        fn settings(&mut self, argument: &str) {
+            self.calls.push(format!("settings {argument}"));
+        }
     }
 
     fn routed(line: &str) -> Vec<String> {
@@ -280,8 +315,11 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/trace", "trace"),
             ("/sound", "sound "),
             ("/stats", "stats"),
+            ("/usage", "usage"),
+            ("/credits", "credits"),
             ("/status", "status"),
             ("/statusline", "statusline "),
             ("/version", "version"),
@@ -289,6 +327,8 @@ mod tests {
             ("/provider", "setup "),
             ("/permissions", "permissions "),
             ("/allowlist", "allowlist "),
+            ("/settings", "settings "),
+            ("/undo", "undo"),
         ];
         assert_eq!(expected.len(), SLASH_COMMANDS.len());
         for (name, call) in expected {
@@ -301,6 +341,8 @@ mod tests {
     fn an_alias_reaches_the_handler_its_command_does() {
         assert_eq!(routed("/exit"), vec!["quit".to_string()]);
         assert_eq!(routed("/setup"), vec!["setup ".to_string()]);
+        assert_eq!(routed("/cost"), vec!["usage".to_string()]);
+        assert_eq!(routed("/balance"), vec!["credits".to_string()]);
         assert_eq!(
             classify("/exit"),
             Submitted::Command {
@@ -417,8 +459,14 @@ mod tests {
             "  /version",
             "/exit  ",
             "/copy ",
+            "/undo ",
+            "/undo\t",
             "/stats ",
             "/status\t",
+            "/usage ",
+            "/cost",
+            "/credits ",
+            "/balance",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::Command { .. }),
@@ -435,12 +483,24 @@ mod tests {
             "/exit now",
             "/copy now",
             "/copy\tall",
+            // `commands.zig:481` gives `/undo` no `accepts_payload` either:
+            // there is no "undo that one".
+            "/undo now",
+            "/undo 2",
+            "/undo\nall",
             // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown
             // command, and `/status` takes nothing either (`commands.zig:473,475`
             // gives neither row `accepts_payload`).
             "/stats extra",
             "/status now",
             "/status\tall",
+            // `fx-credits-404-40x120-arg.txt`: `/credits now` is an unknown
+            // command, and so is anything after `/usage`
+            // (`commands.zig:474,490` give neither row `accepts_payload`).
+            "/credits now",
+            "/balance now",
+            "/usage 7d",
+            "/cost session",
         ] {
             assert!(
                 matches!(super::classify(line), Submitted::UnknownCommand { .. }),

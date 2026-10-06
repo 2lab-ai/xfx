@@ -81,8 +81,10 @@ use super::blocks;
 use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
-use super::editor::{self, Editor};
+use super::editor::{self, Editor, Lent, Step as EditorStep};
 use super::entity::{Entities, EntityKind};
+use super::file_index::Files;
+use super::file_picker::{self, FilePicker};
 use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
@@ -101,15 +103,19 @@ use super::permissions::{self, Change};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
+use super::recall::Recall;
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
 use super::rule_confirm::RuleConfirm;
 use super::session_picker::{self, SessionAction, SessionPicker};
+use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
+use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
+use super::usage_menu::{self, Dashboard, MenuAction as UsageAction};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
@@ -123,6 +129,22 @@ use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
+
+/// Upstream's line for a cancelled turn, in this product's name and in
+/// `palette`: `■` in the warning grey, `Cancelled` in the hint grey, and the
+/// question after it in the terminal's own colour (`lifecycleTerminalLine`,
+/// `transcript/runtime.zig:633-680`; `fx-interrupt-40x120-cc-0.3.ansi`:
+/// `ESC[38;5;252m■ESC[39m ESC[38;5;255mCancelledESC[39m · What can fx do
+/// differently?`).
+pub(crate) fn cancelled_line(palette: Palette) -> String {
+    format!(
+        "{}\u{25a0}{} {}Cancelled{}{CANCELLED_FOLLOW_UP}",
+        palette.warning(),
+        palette.reset(),
+        palette.hint(),
+        palette.reset()
+    )
+}
 
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
@@ -216,6 +238,12 @@ const PROMPT_CELLS: u16 = 2;
 /// full, and never for a row of the terminal's document.
 const TOOL_DETAIL_BYTES: usize = 120;
 
+/// The width `/trace`'s timeline is laid out at: the same for every report,
+/// whatever the screen's, and wide enough that a sentence is a line rather
+/// than a column -- upstream's timeline is the entries' text, unwrapped
+/// (`writeTranscriptTimeline`, `app_commands.zig:3475-3549`).
+const TRACE_COLS: u16 = 200;
+
 /// What the user is told when a submission arrives with the queue already full.
 ///
 /// On the **hint row** rather than in the document, and with the draft left in
@@ -226,9 +254,8 @@ pub(crate) const QUEUE_REJECTED: &str = "one prompt is already queued; this one 
 
 /// What the user is told when the interrupt takes a waiting prompt with it.
 ///
-/// Present tense, like `app::INTERRUPT_NOTICE` beside it, because both are the
-/// *request* landing rather than a report of what the runtime has finished
-/// doing: the drop itself is `super::worker`'s `abandon_pending`, on the far
+/// Present tense, because it is the *request* landing rather than a report of
+/// what the runtime has finished doing: the drop itself is `super::worker`'s `abandon_pending`, on the far
 /// side of the control channel. It is written here and not sent from there for
 /// one reason -- there is no synchronous way to put a sentence on that channel,
 /// and a notice that waited for the cancelled turn to unwind would never arrive
@@ -245,6 +272,99 @@ const QUEUE_DROPPED: &str = "dropping what was queued behind it as well.";
 /// throws a draft away without a key that says so -- and this row is the whole
 /// of the warning the user gets before the second tap.
 pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
+
+/// What the hint row says while a Ctrl-C would leave
+/// (`input_presentation.zig:502`, `c1db919`).
+///
+/// It takes the **whole** row rather than a slot beside the session's facts,
+/// as upstream's does: it is the one thing on the row that is about the next
+/// keystroke, and the next keystroke ends the session.
+pub(crate) const EXIT_ARMED: &str = "press ctrl+c again to exit";
+
+/// What the hint row's right-hand slot says while a second Escape would stop
+/// the work in hand, widest first: the first that fits beside the row is the
+/// one shown (`input_presentation.zig:510-525`).
+const INTERRUPT_ARMED: [&str; 3] = ["esc again to interrupt", "esc esc interrupt", "esc esc"];
+
+/// What the hint row says, whole, when not even the narrowest of those fits
+/// beside the session's facts (`input_presentation.zig:525`).
+const INTERRUPT_ARMED_ALONE: &str = "esc esc to interrupt";
+
+/// What leads a waiting prompt's row in the band (`input_presentation.zig:76`).
+const BANNER_MARK: &str = "\u{250b} ";
+
+/// The most rows one waiting prompt is shown in (`max_steering_message_rows`,
+/// `render_input.zig:491`).
+const BANNER_ROWS: usize = 2;
+
+/// `text` laid out in at most [`BANNER_ROWS`] rows `width` cells wide: broken
+/// at its own line breaks and, inside a line, after the last space that fits;
+/// a word wider than a row cut at the row; and the last row cut one cell short
+/// for `…` when anything is left (`steering_message_layout`,
+/// `render_input.zig:518-577`).
+fn banner_layout(text: &str, width: usize) -> Vec<String> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut lines = text.split('\n').map(|line| line.trim_end_matches('\r'));
+    let mut rest = lines.next().unwrap_or_default().to_string();
+    loop {
+        // The row: as much of the line as fits, back to its last space when
+        // the line goes on past it.
+        let mut cells = 0usize;
+        let mut end = 0usize;
+        let mut last_space = None;
+        for (at, character) in rest.char_indices() {
+            let wide = usize::from(super::wrap::width(&rest[at..at + character.len_utf8()]));
+            if cells + wide > width {
+                break;
+            }
+            if character == ' ' {
+                last_space = Some(at);
+            }
+            cells += wide;
+            end = at + character.len_utf8();
+        }
+        let whole = end == rest.len();
+        let cut = match (whole, last_space) {
+            (false, Some(space)) if space > 0 => space,
+            _ => end,
+        };
+        rows.push(rest[..cut].to_string());
+        let remainder = rest[cut..].trim_start_matches(' ').to_string();
+        let more = !remainder.is_empty() || lines.clone().next().is_some();
+        if rows.len() == BANNER_ROWS && more {
+            if let Some(last) = rows.last_mut() {
+                let room = width.saturating_sub(1);
+                let mut kept = String::new();
+                for character in last.chars() {
+                    let next = format!("{kept}{character}");
+                    if usize::from(super::wrap::width(&next)) > room {
+                        break;
+                    }
+                    kept = next;
+                }
+                *last = format!("{kept}\u{2026}");
+            }
+            break;
+        }
+        if !remainder.is_empty() {
+            rest = remainder;
+            continue;
+        }
+        match lines.next() {
+            Some(line) => rest = line.to_string(),
+            None => break,
+        }
+        if rows.len() == BANNER_ROWS {
+            break;
+        }
+    }
+    rows
+}
+
+/// The question a cancelled turn leaves in the document, after its marker and
+/// its word (`lifecycleTerminalLine`, `transcript/runtime.zig:644`), in this
+/// product's name.
+const CANCELLED_FOLLOW_UP: &str = " \u{b7} What can xfx do differently?";
 
 /// What the user is told when the screen cannot hold the question.
 ///
@@ -680,6 +800,36 @@ pub(crate) struct Shell {
     /// no clock: what is painted has to be the same answer that asked for the
     /// frame, or the row and the reason for it disagree.
     escape_armed: bool,
+    /// Whether a Ctrl-C would leave, as of the last settle -- cached for the
+    /// reason [`Self::escape_armed`] is.
+    exit_armed: bool,
+    /// Whether a second Escape would stop the work in hand, as of the last
+    /// settle.
+    interrupt_armed: bool,
+    /// Whether this session asked the turn in hand to stop and has not yet
+    /// been told it did.
+    ///
+    /// Between the two, the turn's own words are already off the screen
+    /// ([`Self::cancel_turn`]) and anything still on its way across the
+    /// channel is the tail of an answer the user stopped: it is dropped
+    /// rather than painted under the line that says it was cancelled, and the
+    /// conclusion that ends it says nothing the line has not.
+    cancelling: bool,
+    /// The turn's `■ Cancelled` line, while it waits for a running call to
+    /// settle ([`Self::cancel_turn_with`]), and whether the queue notice waits
+    /// with it.
+    cancel_owed: Option<bool>,
+    /// How many of the turns still to start were submitted before the cancel,
+    /// and so are the cancelled work starting late rather than a new turn
+    /// ([`UiEvent::TurnStarted`]).
+    cancel_covers: usize,
+    /// The retry the turn is waiting on, while it is ([`super::retry`]).
+    ///
+    /// It replaces the activity row rather than sitting beside it, as
+    /// upstream's recovery label does (`worker_status.zig:41-49`), and it goes
+    /// the moment the turn shows any sign of having got through -- an answer,
+    /// a tool, a question -- or of being over.
+    retry: Option<super::retry::Standing>,
     /// How many submissions are waiting behind the one in flight, as of the
     /// last settle. Cached for the same reason [`Self::escape_armed`] is.
     queued: usize,
@@ -760,6 +910,43 @@ pub(crate) struct Shell {
     /// it is for is that the *next* keystroke does not re-open what Escape just
     /// closed.
     dismissed: Dismissed,
+    /// The `@` file picker, while the caret is in an `@` word
+    /// ([`super::file_picker`]).
+    ///
+    /// The slash menu's sibling in the slot, and the same kind of thing: a
+    /// view of the draft that takes only the keys it binds. Never both: an `@`
+    /// word and a slash word cannot be the draft at once
+    /// ([`super::picker::Trigger::File`]), and [`Self::reconcile_picker`] asks
+    /// for this one first, as upstream does.
+    file_picker: Option<FilePicker>,
+    /// Where the picker's rows come from: the workspace index and the last
+    /// directory browsed, each read on a worker thread
+    /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
+    files: Files,
+    /// The draft `C-p` lent out of the composer while the model catalog
+    /// borrows it for its search (`model_picker_draft`,
+    /// `app_input_runtime.zig:2356-2404`), given back verbatim when the
+    /// catalog closes -- by a choice, by Escape, by a second `C-p` or by
+    /// `C-c`.
+    model_draft: Option<Lent>,
+    /// Whether the draft is a slash line the history walk handed back, which
+    /// opens no completion menu until it is edited
+    /// (`history_slash_recall_until_edit`, `picker_state.zig:451-466`) -- so
+    /// the next `Up` goes on walking rather than moving a menu's mark.
+    recalled_slash: bool,
+    /// A Super+X whose clipboard write has not answered yet: its number and
+    /// the draft and selection it was made against. The text leaves the draft
+    /// only once the clipboard has it, and only if the draft is still what it
+    /// was (`cutSelection`, `input_selection_runtime.zig:32-42`: copy, then
+    /// delete, and a failed copy keeps both the selection and the text).
+    pending_cut: Option<(u64, String, std::ops::Range<usize>)>,
+    /// The number the next cut is given.
+    cuts: u64,
+    /// The space the last file completion put after its path, while the caret
+    /// is still right after it: a space typed then is that one rather than a
+    /// second (`markFileCompletionSeparator`, `input_completion_runtime.zig:940-946`;
+    /// `tests/e2e/tui-file-picker.test.ts:2005`).
+    separator: Option<usize>,
     /// The `/help` catalog, while it is up ([`super::help_menu`]).
     ///
     /// The third occupant of the band's elastic slot, and like the completion
@@ -818,6 +1005,23 @@ pub(crate) struct Shell {
     /// Where a `/statusline` change is kept: `~/.xfx/settings.json`, or `None`
     /// for a session with no home to keep it in.
     settings_path: Option<std::path::PathBuf>,
+    /// The `/settings` menu, while it is up ([`super::settings`]).
+    ///
+    /// Another occupant of the slot, and a view of the composer like the
+    /// catalog: what is typed is its search. Unlike the catalog it binds Left,
+    /// Right and Enter, so it is offered every keystroke before the editor
+    /// sees it. It opens with the other menus closed and none of them can open
+    /// while it is up: Enter, which is how a command would, is its own.
+    settings_menu: Option<SettingsMenu>,
+    /// Whether the slash popup shows each command's category: the profile's
+    /// `slash_menu_categories` at launch, and `/settings` since.
+    slash_menu_categories: bool,
+    /// Whether a tool group is drawn as its header alone: the profile's
+    /// `collapse_tool_calls` at launch, and `/settings` since.
+    collapse_tool_calls: bool,
+    /// Whether submitted lines are kept, where, and the thread that writes
+    /// them down ([`super::recall`]).
+    recall: Recall,
     /// The `/provider` picker, while the draft is its argument
     /// ([`super::provider_picker`]).
     ///
@@ -915,7 +1119,13 @@ pub(crate) struct Shell {
     /// ([`title_of`], the store's own rule, so the window says what a listing
     /// of the session says): which prompt opens the session is only known
     /// when its turn starts.
-    prompts: VecDeque<(u64, Option<String>)>,
+    ///
+    /// The third is the prompt's card while it is **waiting**: a prompt
+    /// submitted while the runtime had work in hand is shown in the band
+    /// ([`Self::banner_rows`]) and its card is written when its turn starts,
+    /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
+    /// the keystroke, in the middle of the answer it was typed under.
+    prompts: VecDeque<(u64, Option<String>, Option<String>)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -952,6 +1162,9 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// The `/trace` reports still being built, written and copied on their own
+    /// threads, and how each went ([`super::trace`]).
+    traces: Traces,
     /// `/sound`'s two switches, the bells they owe the loop, and the saves
     /// that keep them ([`super::sound`]).
     sound: Sound,
@@ -970,6 +1183,21 @@ pub(crate) struct Shell {
     /// arguments and its whole result -- by the runtime's journal
     /// ([`UiEvent::ToolDetail`]).
     full: FullTranscript,
+    /// `/usage`'s dashboard, while it is up ([`super::usage_menu`]).
+    ///
+    /// A focus like the `/statusline` picker, not a view of the draft: the
+    /// composer row is not shown while it is up and every keystroke is its
+    /// (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`). A
+    /// question outranks it in [`Self::slot`] and takes the keys while it is
+    /// up; the dashboard is back when it has been answered.
+    usage_menu: Option<Dashboard>,
+    /// The thread that reads the session logs for the rolling windows, and
+    /// what it has read ([`usage_menu::Reader`]).
+    usage_reader: usage_menu::Reader,
+    /// The last read that came back, kept for the rolling windows Tab walks
+    /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
+    /// when it was read, and what. A newer read replaces it.
+    usage_read: Option<(i64, crate::usage::Ledger)>,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -1283,6 +1511,11 @@ enum Slot<'a> {
     Rule(&'a RuleConfirm),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// The `/settings` menu. Rows, and the composer as its search; it binds
+    /// more keys than the catalog does, and owns nothing else.
+    Settings(&'a SettingsMenu),
+    /// `/usage`'s dashboard. The same: the focus and the composer's rows.
+    Usage(&'a Dashboard),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1298,6 +1531,8 @@ enum Slot<'a> {
     /// The `/provider` column. Like the menu it owns nothing but rows, and the
     /// composer's argument is its query.
     Provider(&'a ProviderPicker),
+    /// The `@` file picker. It owns nothing but rows either.
+    Files(&'a FilePicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -1358,6 +1593,14 @@ impl Shell {
         let clipboard = Clipboard::system();
         #[cfg(test)]
         let clipboard = Clipboard::searching(super::copy::NOWHERE);
+        // Where `/trace` writes its report: `$TMPDIR`, as upstream's does --
+        // except in a shell a test built, which writes nowhere unless the test
+        // hands it a directory, so a case that types `/trace` cannot leave a
+        // report in the suite runner's own temporary directory.
+        #[cfg(not(test))]
+        let trace_dir = crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref());
+        #[cfg(test)]
+        let trace_dir = std::path::PathBuf::from(super::copy::NOWHERE);
         // The profile `/sound` saves into -- except in a shell a test built,
         // which saves nowhere unless the test hands it a file: the fixtures'
         // homes are gone by the time a case runs, and a save would create one
@@ -1366,7 +1609,23 @@ impl Shell {
         let settings = config.user_settings_path.clone();
         #[cfg(test)]
         let settings = None;
-        Self {
+        // The prompt history, on the same terms: a shell a test built keeps
+        // none unless the test hands it one ([`Recall::keep_in`]).
+        #[cfg(not(test))]
+        let history_store = config
+            .profile_dir
+            .as_deref()
+            .map(crate::session::prompt_history::PromptHistory::in_profile);
+        #[cfg(test)]
+        let history_store = None;
+        // The profile `/usage` reads its sessions from -- the same exception
+        // for a shell a test built, which reads none unless the test says
+        // where ([`Self::read_usage_from`]).
+        #[cfg(not(test))]
+        let profile = config.profile_dir.clone();
+        #[cfg(test)]
+        let profile = None;
+        let mut shell = Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
             geometry: geometry.floated(0),
@@ -1428,6 +1687,12 @@ impl Shell {
             gestures: Gestures::default(),
             notice: None,
             escape_armed: false,
+            exit_armed: false,
+            interrupt_armed: false,
+            cancelling: false,
+            cancel_owed: None,
+            cancel_covers: 0,
+            retry: None,
             queued: 0,
             activity: Activity::new(),
             phase: 0,
@@ -1439,6 +1704,16 @@ impl Shell {
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
+            file_picker: None,
+            files: Files::new(
+                config.workspace_root.clone(),
+                std::env::var_os("HOME").map(std::path::PathBuf::from),
+            ),
+            separator: None,
+            model_draft: None,
+            recalled_slash: false,
+            pending_cut: None,
+            cuts: 0,
             help_menu: None,
             sessions: None,
             wipe: false,
@@ -1457,6 +1732,14 @@ impl Shell {
                 identity
             },
             settings_path: config.user_settings_path.clone(),
+            settings_menu: None,
+            slash_menu_categories: config.slash_menu_categories,
+            collapse_tool_calls: config.collapse_tool_calls,
+            recall: Recall::new(
+                config.prompt_history,
+                history_store,
+                config.workspace_root.to_str().map(str::to_string),
+            ),
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
@@ -1479,11 +1762,17 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
-        }
+            usage_menu: None,
+            usage_reader: usage_menu::Reader::new(profile),
+            usage_read: None,
+        };
+        shell.recall_saved_lines();
+        shell
     }
 
     /// The band's rows, top first, starting at the band's own top row -- the
@@ -1506,7 +1795,20 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            rows.extend(std::iter::repeat_n(String::new(), padding));
+            // A waiting prompt's rows, between the turn's blank row and a
+            // blank row of their own -- when the band was solved with them
+            // ([`layout::solve_band_with_banner`]), which is the only way the
+            // padding is that tall.
+            let banner = self.banner_rows(self.geometry.cols);
+            if !banner.is_empty() && padding == banner.len() + 2 {
+                rows.push(String::new());
+                for row in banner {
+                    rows.push(self.painted(self.palette.dim(), row));
+                }
+                rows.push(String::new());
+            } else {
+                rows.extend(std::iter::repeat_n(String::new(), padding));
+            }
         }
         // The composer's own rows, as many of them as the window shows, each
         // behind upstream's rail: `┃` in the hint colour and a space, or `┃↑`
@@ -1517,7 +1819,13 @@ impl Shell {
         // model's own batch: the question replaces the composer, as upstream's
         // replaces its footer ([`layout::fits_approval`]), and the draft waits
         // in the editor, unpainted, for the answer to give the band back.
-        let composer = self.editor.rows(self.text_cols());
+        // A selection is painted in reverse video and closed by the reset
+        // (`appendLayoutUnit`, `input_presentation.zig:995-1021`).
+        let composer = self.editor.painted_rows(
+            self.text_cols(),
+            self.palette.reverse(),
+            self.palette.reset(),
+        );
         let window = if self.geometry.input_rows() == 0 {
             0..0
         } else {
@@ -1572,6 +1880,13 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same, with the values in force.
+                Some(Slot::Settings(menu)) => menu.rows(
+                    &self.settings_snapshot(),
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    self.palette,
+                ),
                 Some(Slot::Sessions(sessions)) => {
                     sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
@@ -1587,15 +1902,31 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
-                Some(Slot::Menu(picker)) => {
-                    picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
+                // In the rows the geometry gave it, which are the rows its own
+                // height asked for (`composeUsageRow` is handed them).
+                Some(Slot::Usage(dashboard)) => {
+                    dashboard.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                Some(Slot::Menu(picker)) => picker.rows(
+                    self.geometry.cols,
+                    self.geometry.rows,
+                    self.palette,
+                    self.slash_menu_categories,
+                ),
                 Some(Slot::Column) => self.column_rows(),
                 // In the rows the geometry gave it, under the argument it is
                 // the column of.
                 Some(Slot::Provider(column)) => column.rows(
                     self.geometry.cols,
                     self.provider_anchor(column),
+                    self.geometry.panel,
+                    self.palette,
+                ),
+                // Under the `@`, in the rows the geometry gave it -- the same
+                // number its own height asked for.
+                Some(Slot::Files(files)) => files.rows(
+                    self.file_picker_column(files),
+                    self.geometry.cols,
                     self.geometry.panel,
                     self.palette,
                 ),
@@ -1647,10 +1978,24 @@ impl Shell {
             // (`cap/fx-permissions3-40x120-remember-prompt`).
             Some(Slot::Rule(_)) => RuleConfirm::hint(self.geometry.cols, &self.palette),
             // The catalog's own key help, in the same dim grey
-            // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`).
+            // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`) --
+            // except while a Ctrl-C would leave, which the catalog says in the
+            // statusline grey instead of its keys (`:697-703`): the catalog
+            // stays up under a first Ctrl-C, and the row is the only place the
+            // second one is announced.
+            Some(Slot::Catalog(_)) if self.exit_armed => {
+                self.painted(self.palette.statusline(), EXIT_ARMED.to_string())
+            }
             Some(Slot::Catalog(_)) => self.painted(
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // The settings menu's, `←→ change` where the catalog's says
+            // `enter open` (`composeSettingsMenuHintRow`,
+            // `input_presentation.zig:729-765`).
+            Some(Slot::Settings(_)) => self.painted(
+                self.palette.dim(),
+                settings::key_help(self.geometry.cols).to_string(),
             ),
             // The picker's, in the same grey (`input_presentation.zig:834-840`).
             Some(Slot::Sessions(_)) => self.painted(
@@ -1669,6 +2014,12 @@ impl Shell {
             Some(Slot::Statusline(_)) => self.painted(
                 self.palette.dim(),
                 statusline::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the dashboard's (`composeCompactCommandMenuHintRow`, the
+            // `.usage` variants).
+            Some(Slot::Usage(_)) => self.painted(
+                self.palette.dim(),
+                usage_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -1730,6 +2081,12 @@ impl Shell {
     /// ([`super::wrap::width`], which is what the budget is measured with) and
     /// a cut that left nothing for it to apply to leaves nothing to look at.
     fn hint_row(&self) -> String {
+        // A Ctrl-C that would leave outranks everything the row says, a
+        // refusal included (`composeHintRow`, `input_presentation.zig:501`):
+        // the refusal was about a keystroke, and this is about the next one.
+        if self.exit_armed {
+            return EXIT_ARMED.to_string();
+        }
         let session_title = self
             .session_title
             .as_deref()
@@ -1740,55 +2097,78 @@ impl Shell {
             style: self.palette.notice(),
             resume: self.palette.statusline(),
         });
+        // The right-hand slot is upstream's `right_text`: the Escape cues in
+        // the dim grey after the row's own run is closed
+        // (`input_presentation.zig:559-567`) -- the same number as the row's
+        // in the dark palette and not in the light one (`theme.zig:123,128`)
+        // -- and, when neither is armed, the full-access warning in
+        // `red_style` while it has time on the screen left
+        // ([`Self::warning_shown`]). An armed cue outranks the warning
+        // (`dangerStatusText` is empty while one is, `:580`).
+        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
         let (model, effort) = self.hinted_model();
-        hint::row(
-            &Hint {
-                missing_credential: self.missing_credential,
-                queued: self.queued,
-                mode: self.mode,
-                model: &model,
-                effort: effort.as_ref().map(Effort::display),
-                // The three optional segments, each only while it is on
-                // (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
-                session_title: self
-                    .statusline
-                    .session
-                    .then_some(session_title.as_deref())
-                    .flatten(),
-                context_used: self
-                    .statusline
-                    .context
-                    .then(|| self.context_meter())
-                    .flatten(),
-                workspace: self.statusline.workspace.then(|| {
-                    (
-                        self.workspace_identity.label(),
-                        self.workspace_identity.branch(),
-                    )
-                }),
-                notice,
-                // The armed half of the double-Escape gesture goes to the
-                // right-hand slot: it is a warning about what the *next*
-                // keystroke would do rather than another fact about the
-                // session, and a warning that moved left and right with the
-                // queue's depth would be one the eye has to look for.
-                //
-                // Otherwise the slot is the full-access warning's, while it
-                // has time on the screen left ([`Self::warning_shown`]), in
-                // upstream's `red_style` grey.
-                right: self
-                    .escape_armed
-                    .then_some(ESCAPE_ARMED)
-                    .or_else(|| self.warning_shown()),
-                right_style: if self.escape_armed {
-                    ""
-                } else {
-                    self.palette.danger()
-                },
-                accent: (self.palette.activity(), self.palette.statusline()),
+        let mut hint = Hint {
+            missing_credential: self.missing_credential,
+            queued: self.queued,
+            mode: self.mode,
+            model: &model,
+            effort: effort.as_ref().map(Effort::display),
+            // The three optional segments, each only while it is on
+            // (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
+            session_title: self
+                .statusline
+                .session
+                .then_some(session_title.as_deref())
+                .flatten(),
+            context_used: self
+                .statusline
+                .context
+                .then(|| self.context_meter())
+                .flatten(),
+            workspace: self.statusline.workspace.then(|| {
+                (
+                    self.workspace_identity.label(),
+                    self.workspace_identity.branch(),
+                )
+            }),
+            notice,
+            // The armed half of the double-Escape gesture goes to the
+            // right-hand slot: it is a warning about what the *next*
+            // keystroke would do rather than another fact about the
+            // session, and a warning that moved left and right with the
+            // queue's depth would be one the eye has to look for.
+            right: self
+                .escape_armed
+                .then_some(ESCAPE_ARMED)
+                .or_else(|| self.warning_shown()),
+            right_style: if self.escape_armed {
+                cue_style.as_str()
+            } else {
+                self.palette.danger()
             },
-            self.geometry.cols,
-        )
+            accent: (self.palette.activity(), self.palette.statusline()),
+        };
+        let cols = self.geometry.cols;
+        if self.interrupt_armed {
+            // Upstream's rule rather than this row's own budget: the widest
+            // cue that fits beside the **whole** row, and when none does, the
+            // cue owns the row (`input_presentation.zig:510-525`). The row
+            // still shrinks first for a cue that does fit, by `hint::row`'s
+            // own rule, but a narrow screen never loses the warning.
+            hint.right = None;
+            let left = usize::from(super::wrap::width(&hint::row(&hint, cols)));
+            let fits = INTERRUPT_ARMED
+                .into_iter()
+                .find(|cue| usize::from(cols) > left + usize::from(super::wrap::width(cue)));
+            match fits {
+                Some(cue) => {
+                    hint.right = Some(cue);
+                    hint.right_style = cue_style.as_str();
+                }
+                None => return INTERRUPT_ARMED_ALONE.to_string(),
+            }
+        }
+        hint::row(&hint, cols)
     }
 
     /// The model and the effort the hint row says a turn will use.
@@ -1899,6 +2279,16 @@ impl Shell {
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
+        if let Some(dashboard) = self.usage_menu.as_ref() {
+            return Some(Slot::Usage(dashboard));
+        }
+        // Ahead of the catalog and the pickers, as upstream ranks it
+        // (`show_settings_menu`, `surface_frame.zig:399-403`) -- though the
+        // ranking never decides anything: it opens with them closed and none
+        // of them can open while it is up.
+        if let Some(menu) = self.settings_menu.as_ref() {
+            return Some(Slot::Settings(menu));
+        }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
@@ -1911,8 +2301,13 @@ impl Shell {
         if let Some(column) = self.provider_picker.as_ref() {
             return Some(Slot::Provider(column));
         }
+        // The `/model` column before the `@` word, as upstream asks
+        // (`inlinePickerTriggerKind`, `picker_state.zig:233-242`).
         if self.column.active(self.editor.text()).is_some() {
             return Some(Slot::Column);
+        }
+        if let Some(files) = self.file_picker.as_ref() {
+            return Some(Slot::Files(files));
         }
         self.picker.as_ref().map(Slot::Menu)
     }
@@ -1984,6 +2379,13 @@ impl Shell {
                 let row = menu.marked_row(self.geometry.panel);
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
+            // The dashboard has the focus the same way: the start of the
+            // marked model's row, which Enter and the arrows act on, or of the
+            // header when no model is in view.
+            if let Some(dashboard) = self.usage_menu.as_ref() {
+                let row = dashboard.marked_row(self.geometry.panel, self.geometry.cols);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
         }
         let (row, column) = self.editor.point(self.text_cols());
         let window = self.window(self.editor.rows(self.text_cols()).len());
@@ -2008,6 +2410,23 @@ impl Shell {
     /// How wide the composer's *text* is: the screen without the gutter.
     fn text_cols(&self) -> u16 {
         self.geometry.cols.saturating_sub(PROMPT_CELLS).max(1)
+    }
+
+    /// The one-based column the file picker's rows start in: the `@`'s, when
+    /// it is on the caret's row, and the composer's left edge otherwise
+    /// (`projectedAnchorColumn`, `visual_layout.zig:704-712`).
+    fn file_picker_column(&self, files: &FilePicker) -> u16 {
+        let cols = self.text_cols();
+        let (at_row, at_column) = self.editor.point_of(files.query().at, cols);
+        let column = if at_row == self.editor.point(cols).0 {
+            at_column
+        } else {
+            0
+        };
+        PROMPT_CELLS
+            .saturating_add(column)
+            .saturating_add(1)
+            .min(self.geometry.cols)
     }
 
     /// Which of a `rows`-row composer's rows the band is showing.
@@ -2328,15 +2747,67 @@ impl Shell {
             // same clock every other row of the band is settled against
             // ([`Self::tick_activity`]).
             UiEvent::TurnStarted => {
-                self.activity.set(Work::Thinking);
-                let (input, title) = self.prompts.pop_front().unwrap_or_default();
+                self.retry = None;
+                // A turn the user already stopped can still say it started --
+                // the runtime took it before it read the cancellation -- and
+                // its row must not come back under the line that says so. Any
+                // other turn is a new one, and what it says is painted: a
+                // cancel that landed after its turn had already ended is
+                // answered by no conclusion, and must not silence this one.
+                if self.cancel_covers > 0 {
+                    self.cancel_covers -= 1;
+                } else {
+                    self.cancelling = false;
+                    self.cancel_owed = None;
+                }
+                if !self.cancelling {
+                    self.activity.set(Work::Thinking);
+                }
+                let (input, title, card) = self.prompts.pop_front().unwrap_or_default();
                 self.tally.begin(Instant::now(), input);
                 self.turn_title = title;
+                // The waiting prompt is delivered: its card goes into the
+                // document behind whatever the last turn still has to say,
+                // and its rows leave the band.
+                if let Some(card) = card {
+                    if !self.cancelling {
+                        self.echo(&card);
+                    }
+                    self.refit();
+                    self.render.request(Reason::Footer);
+                }
             }
             // The answer, as it arrives -- into the pacer rather than into the
             // document, so a provider that sends a kilobyte in one frame and
             // nothing in the next is still read at one speed.
-            UiEvent::Delta(text) => self.stream(&text),
+            //
+            // **Not after a cancel**: what is still crossing the channel when
+            // the user stopped the turn is the tail of the answer they stopped,
+            // and the line saying so is already under what they read
+            // ([`Self::cancel_turn`]).
+            UiEvent::Delta(text) => {
+                if !self.cancelling {
+                    // The attempt got through: the answer is the evidence.
+                    self.retry = None;
+                    self.stream(&text);
+                }
+            }
+            // A request failed and the turn will try it again. Not after a
+            // cancel: the turn that is retrying is the one the user stopped.
+            UiEvent::Retrying {
+                cause,
+                diagnostic,
+                delay,
+            } => {
+                if !self.cancelling {
+                    self.retry = Some(super::retry::Standing {
+                        cause,
+                        diagnostic,
+                        deadline: Instant::now() + delay,
+                    });
+                    self.render.request(Reason::Footer);
+                }
+            }
             // A row in the transcript's tool group (`super::toolgroup`),
             // behind whatever of the answer the pacer still holds -- the call
             // happened after that text, so its row goes under it.
@@ -2350,7 +2821,10 @@ impl Shell {
                 // turn that has gone quiet because a tool is taking a minute
                 // looks exactly like a turn that has gone quiet, unless it says
                 // so.
-                self.activity.set(Work::Tool { name: tool });
+                if !self.cancelling {
+                    self.activity.set(Work::Tool { name: tool });
+                }
+                self.retry = None;
                 self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
@@ -2364,7 +2838,9 @@ impl Shell {
                 // The tool is over, so the model has the turn again. The
                 // clock is not restarted with it: what the row measures is the
                 // turn, and a tool call is part of one.
-                self.activity.set(Work::Thinking);
+                if !self.cancelling {
+                    self.activity.set(Work::Thinking);
+                }
                 self.mark(Mark::ToolResult {
                     id: call_id,
                     ok,
@@ -2397,6 +2873,9 @@ impl Shell {
                 ));
             }
             UiEvent::Notice(notice) => self.announce(notice),
+            // Written like any notice; what makes it different is only that
+            // a reset never drops it ([`Self::drained`]).
+            UiEvent::Undone(notice) => self.announce(notice),
             // The full transcript's alone, and taken above
             // ([`Self::full_transcript_sees`]): nothing of it is written into
             // the document.
@@ -2541,12 +3020,18 @@ impl Shell {
             // about that -- the panel, the rows it costs the document, the
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
-            UiEvent::Approval(asked) => self.ask(asked.id, asked.request),
+            UiEvent::Approval(asked) => {
+                self.retry = None;
+                self.ask(asked.id, asked.request);
+            }
             // The same three facts for a question the **model** asked: the
             // panel, the rows it costs the document, and the focus. What it is
             // not is an approval -- nothing is granted, and refusing it denies
             // nothing ([`super::question`]).
-            UiEvent::Question(request) => self.ask_question(request),
+            UiEvent::Question(request) => {
+                self.retry = None;
+                self.ask_question(request);
+            }
             UiEvent::TurnEnded { failure } => {
                 // Behind whatever of this turn's answer is still in the pacer:
                 // a conclusion that overtook the text it concludes would land
@@ -2554,7 +3039,21 @@ impl Shell {
                 // because it is part of the turn and the conclusion is under
                 // it: whatever of it is still running was stopped with the
                 // turn ([`Mark::TurnOver`]).
+                //
+                // A cancel that waited for a running call is answered now: the
+                // call's own line if the turn ends with it still running, and
+                // otherwise the turn's ([`Self::cancel_turn_with`]).
+                let owed = self.cancel_owed.take();
+                let stops_a_call = self.group.running();
                 self.mark(Mark::TurnOver);
+                if let Some(waiting) = owed {
+                    if !stops_a_call {
+                        self.write_cancelled();
+                    }
+                    if waiting {
+                        self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
+                    }
+                }
                 // A summary only under a turn the runtime ran: `/model`, `/setup`
                 // and a catalog listing end with this event too, and they
                 // started no turn to summarize.
@@ -2569,6 +3068,17 @@ impl Shell {
                 // which [`Self::settle_band`] notices.
                 self.sound.turn_ended(summary.is_some());
                 self.tally.started = None;
+                // A turn this session stopped has already been answered for,
+                // at the keystroke: no summary under an answer that was cut
+                // off, and no `✗ system:` for a failure the user asked for --
+                // upstream writes the one `■ Cancelled` line and nothing after
+                // it (`fx-interrupt-40x120-cc-1.5`).
+                self.cancel_covers = 0;
+                let (failure, summary) = if std::mem::take(&mut self.cancelling) {
+                    (None, None)
+                } else {
+                    (failure, summary)
+                };
                 match (failure, summary) {
                     // Upstream reports a request that failed as an error under
                     // `system` (`app_process_runtime.zig:58-63`).
@@ -2597,6 +3107,7 @@ impl Shell {
                 // would inherit the elapsed time of the turn it was waiting
                 // for and report a number that was never about it.
                 self.activity.end();
+                self.retry = None;
                 self.pacer.finish();
                 self.gestures.turn_ended();
                 // A column that wanted the catalog while this held the queue
@@ -2658,6 +3169,17 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
+            }
+            // What `/credits` found, under its topic: neutral for the fields
+            // or the word that there were none, an error for a failure
+            // (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
+            UiEvent::Credits(answer) => {
+                let body = answer.body();
+                self.announce(if answer.is_error() {
+                    notice::Notice::error(crate::credits::TOPIC, body)
+                } else {
+                    notice::Notice::neutral(crate::credits::TOPIC, body)
+                });
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -3131,11 +3653,26 @@ impl Shell {
             return false;
         };
         match request {
-            HelpAction::Up | HelpAction::Down => {
+            HelpAction::Up | HelpAction::Down | HelpAction::Page(_) => {
                 // The window a move scrolls against is the one on the screen:
-                // the rows the geometry gave the catalog.
+                // the rows the geometry gave the catalog. A page is the
+                // composer's row cap, as it is for the caret
+                // (`routeComposerVertical`'s `row_count`).
                 let visible = menu.visible_items(self.geometry.panel);
-                if menu.step(request == HelpAction::Down, visible) {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match request {
+                    HelpAction::Up => -1,
+                    HelpAction::Down => 1,
+                    HelpAction::Page(down) => {
+                        if down {
+                            page
+                        } else {
+                            -page
+                        }
+                    }
+                    _ => 0,
+                };
+                if menu.step_by(delta, visible) {
                     self.render.request(Reason::Modal);
                 }
                 true
@@ -3216,11 +3753,412 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// What each `/settings` row is set to now ([`settings::Snapshot`]): the
+    /// session's own fields, read at the moment they are painted or changed.
+    fn settings_snapshot(&self) -> settings::Snapshot<'_> {
+        settings::Snapshot {
+            statusline: self.statusline,
+            slash_menu_categories: self.slash_menu_categories,
+            collapse_tool_calls: self.collapse_tool_calls,
+            model: &self.model,
+            effort: self.effort.display(),
+            efforts: self.model_levels(),
+            permission_mode: self.mode,
+            sound: self.sound.notifications(),
+            prompt_history: self.recall.enabled,
+        }
+    }
+
+    /// The levels the catalog lists for the model in force, as `/model`'s
+    /// footer segment reads them: none while the catalog has not been read
+    /// (`resolvedModelCapabilities`' generic answer for a model it does not
+    /// know, `settings_catalog.zig:308-313`).
+    fn model_levels(&self) -> &[String] {
+        if self.catalog_known != CatalogKnown::Loaded {
+            return &[];
+        }
+        self.catalog
+            .iter()
+            .find(|entry| entry.matches(&self.model))
+            .map_or(&[], |entry| entry.efforts.as_slice())
+    }
+
+    /// Offers one keystroke to the `/settings` menu, and says whether it was
+    /// taken.
+    ///
+    /// The eight keys [`SettingsAction::of`] names, and nothing else: a letter,
+    /// a Backspace or a C-u edits the search and goes on to the composer with
+    /// the menu still up. Up and Down wrap; Tab and Shift-Tab change the tab,
+    /// and with it the menu's height, so the band is re-solved; Left and Right
+    /// change the marked setting at once (`changeSettingsMenuSelection`,
+    /// `app_input_runtime.zig:2489-2514`) -- on `Model`, Right opens `/model`'s
+    /// menu and Left does nothing; Enter opens `/model`'s menu on `Model` and
+    /// is spent on every other row; Escape closes the menu and empties its
+    /// search.
+    fn offer_to_settings(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = SettingsAction::of(*action) else {
+            return false;
+        };
+        // Taken out and put back, so the menu can be moved against a snapshot
+        // that borrows the rest of the shell.
+        let Some(mut menu) = self.settings_menu.take() else {
+            return false;
+        };
+        let snapshot = self.settings_snapshot();
+        let mut change = None;
+        let mut models = false;
+        let mut close = false;
+        let mut refit = false;
+        let mut repaint = false;
+        match request {
+            SettingsAction::Up | SettingsAction::Down => {
+                let visible = menu.visible_items(&snapshot, self.geometry.panel);
+                repaint = menu.step(request == SettingsAction::Down, visible, &snapshot);
+            }
+            SettingsAction::NextCategory | SettingsAction::PreviousCategory => {
+                menu.cycle(request == SettingsAction::NextCategory);
+                refit = true;
+            }
+            SettingsAction::Previous | SettingsAction::Next => {
+                let forward = request == SettingsAction::Next;
+                if menu.selected(&snapshot) == Some(Setting::Model) {
+                    models = forward;
+                } else {
+                    change = menu.change(forward, &snapshot);
+                }
+            }
+            SettingsAction::Open => {
+                models = menu.selected(&snapshot) == Some(Setting::Model);
+            }
+            SettingsAction::Close => close = true,
+        }
+        self.settings_menu = Some(menu);
+        if close {
+            self.close_settings();
+            return true;
+        }
+        if models {
+            self.open_models_from_settings();
+            return true;
+        }
+        if let Some(change) = change {
+            self.apply_setting(change);
+            // A change can narrow or widen what the search finds -- the search
+            // reads values too -- so the height is asked again.
+            refit = true;
+        }
+        if refit {
+            self.refit();
+            repaint = true;
+        }
+        if repaint {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Offers one keystroke to the `@` file picker, and says whether it was
+    /// taken.
+    ///
+    /// The keys upstream binds while the picker owns the composer's surface
+    /// (`app_input_runtime.zig:1497-1501`, `:1582-1589`, `:1220-1235`;
+    /// `input_completion_runtime.zig:209-262`): the arrows, `C-j`/`C-k` and the
+    /// page keys walk the list -- with nothing in it they are spent and do
+    /// nothing, rather than moving a caret the user is not looking at -- Tab
+    /// and Enter choose, Escape closes. Everything else is an edit of the
+    /// draft and goes on to the composer with the picker still up, which is
+    /// what makes it a search.
+    fn offer_to_files(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(files) = self.file_picker.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match action {
+            Action::Up | Action::ControlK => -1,
+            Action::Down | Action::ControlJ => 1,
+            Action::PageUp => -page,
+            Action::PageDown => page,
+            Action::Tab => {
+                match files.marked().cloned() {
+                    Some(found) => self.complete_file(&found),
+                    // Nothing to choose: a picker that could not read is
+                    // asked to read again (`autocompleteFilePickerSelection`,
+                    // `input_completion_runtime.zig:877-889`).
+                    None if files.shown() == file_picker::Shown::Unavailable => {
+                        self.files.retry();
+                        self.refresh_file_picker();
+                    }
+                    None => {}
+                }
+                return true;
+            }
+            Action::Submit => {
+                return match files.enter() {
+                    file_picker::Enter::Accept(found) => {
+                        self.complete_file(&found);
+                        true
+                    }
+                    // Nothing matched: the line goes as typed, and the
+                    // keystroke goes on to send it.
+                    file_picker::Enter::Submit => false,
+                    file_picker::Enter::Wait => true,
+                };
+            }
+            Action::Escape => {
+                self.dismiss_picker();
+                return true;
+            }
+            _ => return false,
+        };
+        if files.step(delta) {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Takes the settings menu down and empties its search
+    /// (`cancelSettingsMenu` -> `closeSettingsMenu(app, true)`,
+    /// `app_input_runtime.zig:2324-2333`, `:3292-3294`).
+    fn close_settings(&mut self) {
+        if self.settings_menu.take().is_none() {
+            return;
+        }
+        if !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the menu gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// The `Model` row's Enter or Right: `/model`'s menu, as a bare `/model`
+    /// opens it -- the settings menu closed and its search emptied first, so
+    /// what was typed to find the row is not taken for a model's name.
+    ///
+    /// Upstream opens an inline list of models **under the row**, inside the
+    /// settings menu, and Left in it applies the marked one
+    /// (`settings_menu_presentation.zig:15-19`, `:277-310`,
+    /// `app_input_runtime.zig:2489-2529`); this opens the menu `/model` opens,
+    /// which lists the same catalog and applies a model the same way.
+    fn open_models_from_settings(&mut self) {
+        self.close_settings();
+        self.open_models();
+    }
+
+    /// Applies one `/settings` change through the code path the setting's own
+    /// command takes, and says so in its words (`applySettingsCatalogChange`,
+    /// `app_commands.zig:4110-4210`).
+    fn apply_setting(&mut self, change: settings::Change) {
+        let on = change.value == "on";
+        let value = change.value.as_str();
+        match change.setting {
+            // `applyStatuslineItem(.announce)`: both of `/statusline <item>`'s
+            // notices.
+            Setting::Statusline(item) => {
+                if on != self.statusline.get(item) {
+                    self.set_statusline(item, on, true);
+                }
+            }
+            // `handlePermissions(app, value)`: `/permissions <mode>` itself.
+            Setting::PermissionMode => CommandHandlers::permissions(self, value),
+            // `handleNotificationsCommand(app, value)`: `/sound <level>`.
+            Setting::SoundLevel => CommandHandlers::sound(self, value),
+            // `selectEffortFromSettings` (`session_commands.zig:863-884`): the
+            // effort is the session's at once, written as `effort`, and the
+            // saved line is all that is said -- no `Switched to`.
+            Setting::Effort => {
+                if let Some(effort) = Effort::parse(value) {
+                    self.set_effort(effort);
+                }
+            }
+            Setting::SlashMenuCategories => {
+                let changed = on != self.slash_menu_categories;
+                self.slash_menu_categories = on;
+                self.save_preference(
+                    settings::SLASH_MENU_CATEGORIES_TOPIC,
+                    &[crate::config::SLASH_MENU_CATEGORIES_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            Setting::CollapseToolCalls => {
+                let changed = on != self.collapse_tool_calls;
+                self.collapse_tool_calls = on;
+                // The open group is the document's last thing and is drawn
+                // again at once; a group the document has already moved past
+                // keeps the rows it was written with.
+                if changed {
+                    self.redraw_group();
+                }
+                self.save_preference(
+                    settings::COLLAPSE_TOOL_CALLS_TOPIC,
+                    &[crate::config::COLLAPSE_TOOL_CALLS_KEY],
+                    serde_json::Value::Bool(on),
+                    changed,
+                );
+            }
+            Setting::PromptHistory => self.set_prompt_history(on),
+            // The menu offers no change for the model: its row opens `/model`'s
+            // menu instead ([`settings::SettingsMenu::change`]).
+            Setting::Model => {}
+        }
+        self.render.request(Reason::Footer);
+    }
+
+    /// `/settings`' effort row: the band's effort and the runtime's move to
+    /// `effort`, and the profile's `effort` is written here and announced
+    /// (`applyEffort(app, effort, announce=false, persist=true)`,
+    /// `session_commands.zig:863-880`). The runtime is told as a model change
+    /// that keeps the model ([`ModelChange::effort_only`]), so one made while
+    /// a turn runs waits for it as `/model`'s does.
+    fn set_effort(&mut self, effort: Effort) {
+        self.effort = effort.clone();
+        self.work.control(TurnControl::Model(ModelChange {
+            name: self.model.clone(),
+            effort: Some(effort.clone()),
+            picker: false,
+            announced: true,
+            next_turn: self.turn_pending(),
+            effort_only: true,
+        }));
+        self.save_preference(
+            settings::EFFORT_TOPIC,
+            &[crate::config::EFFORT_KEY],
+            serde_json::Value::String(effort.label().to_string()),
+            true,
+        );
+    }
+
+    /// Upstream's `handleHistory(app, "on"|"off")` (`session_commands.zig:443-509`):
+    /// off is in force at once and then saved; on is saved first and in force
+    /// only once it was, so a history that could not be kept on stays off and
+    /// says so.
+    fn set_prompt_history(&mut self, on: bool) {
+        let key: &[&str] = &[crate::config::PROMPT_HISTORY_KEY, "enabled"];
+        if !on {
+            let changed = self.recall.enabled;
+            self.recall.enabled = false;
+            self.save_preference(
+                settings::HISTORY_TOPIC,
+                key,
+                serde_json::Value::Bool(false),
+                changed,
+            );
+            return;
+        }
+        if self.save_preference(
+            settings::HISTORY_TOPIC,
+            key,
+            serde_json::Value::Bool(true),
+            false,
+        ) {
+            self.recall.enabled = true;
+        }
+    }
+
+    /// Writes one `/settings` preference to the profile and announces it
+    /// (`persistUserPreferences`, `app_commands.zig:167-192`): `* <topic>:
+    /// saved to user settings (scope=user)`, or, when the write failed,
+    /// `✗ <topic>: [active for this process but ]not saved to user settings
+    /// (<reason>)` (`reportUserSettingsFailure`, `session_commands.zig:110-133`).
+    /// Answers whether it was written.
+    ///
+    /// On this thread, for the reason [`Self::set_statusline`]'s write is.
+    fn save_preference(
+        &mut self,
+        topic: &str,
+        key: &[&str],
+        value: serde_json::Value,
+        changed: bool,
+    ) -> bool {
+        let written = match self.settings_path.as_deref() {
+            Some(path) => crate::provider::profile::write_preference(path, key, value)
+                .map_err(|err| err.to_string()),
+            None => Err("no home directory is set".to_string()),
+        };
+        match written {
+            Ok(()) => {
+                self.announce(notice::Notice::neutral(
+                    topic,
+                    interactive::STATUSLINE_SAVED,
+                ));
+                true
+            }
+            Err(reason) => {
+                let body = if changed {
+                    interactive::statusline_not_saved(&reason)
+                } else {
+                    format!("not saved to user settings ({reason})")
+                };
+                self.announce(notice::Notice::error(topic, body));
+                false
+            }
+        }
+    }
+
+    /// Puts the workspace's saved lines into this session's recall, oldest
+    /// first, at launch ([`Recall::saved_lines`]).
+    fn recall_saved_lines(&mut self) {
+        for line in self.recall.saved_lines() {
+            self.history.record(HistoryEntry::new(line, Vec::new()));
+        }
+    }
+
+    /// The text a submitted line is saved as: the line with its collapsed
+    /// pastes put back, trimmed -- what upstream records, which is the
+    /// expanded submission (`recordAcceptedInput(app, visual_text.text)`,
+    /// `input_submit_runtime.zig:884-886`), since a file cannot hold the
+    /// in-memory blocks a summary stands for.
+    fn saved_line(&self, text: &str) -> String {
+        if self.editor.entities().is_empty() {
+            return text.trim().to_string();
+        }
+        self.editor.expanded().trim().to_string()
+    }
+
+    /// Hands one submitted line to the history's writer (`recordAcceptedInput`,
+    /// `input_submit_runtime.zig:1246-1281`), when the history is on and has a
+    /// file. A failure is said once, as a warning, until an append works
+    /// again; the submission goes on either way. One the writer reports later
+    /// is said by [`Self::settle_history`].
+    fn save_line(&mut self, saved: String) {
+        if let Some(reason) = self.recall.keep(saved) {
+            self.history_failed(&reason);
+        }
+    }
+
+    /// Says how the history's appends went -- only a failure, and only the
+    /// first of a run of them.
+    fn settle_history(&mut self) {
+        while let Some(reason) = self.recall.failure() {
+            self.history_failed(&reason);
+        }
+    }
+
+    /// `! history: failed to save input history (<reason>); submission
+    /// continued` (`input_submit_runtime.zig:1256-1274`).
+    fn history_failed(&mut self, reason: &str) {
+        self.announce(notice::Notice::warning(
+            settings::HISTORY_TOPIC,
+            format!("failed to save input history ({reason}); submission continued"),
+        ));
+    }
+
     /// Offers one keystroke to the `/resume` picker, and says whether it was
     /// taken.
     ///
-    /// The six keys [`SessionAction::of`] names: the arrows move the mark and
-    /// **stop** at the ends (`moveVisibleItems`, `app_session_runtime.zig:538-552`),
+    /// The keys [`SessionAction::of`] names: the arrows, `C-k`/`C-j` and the
+    /// page keys move the mark and **stop** at the ends (`moveVisibleItems`,
+    /// `app_session_runtime.zig:538-552`),
     /// Tab and Shift-Tab change the scope, Escape closes the picker and empties
     /// the search, and Enter asks the runtime for the marked session. Anything
     /// else is an edit of the search.
@@ -3238,6 +4176,13 @@ impl Shell {
             SessionAction::Up | SessionAction::Down => {
                 let visible = sessions.visible_items(self.geometry.panel);
                 if sessions.step(request == SessionAction::Down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            SessionAction::Page(down) => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                if sessions.step_by(if down { page } else { -page }, visible) {
                     self.render.request(Reason::Modal);
                 }
             }
@@ -3271,9 +4216,22 @@ impl Shell {
             return false;
         };
         match request {
-            ModelAction::Up | ModelAction::Down => {
+            ModelAction::Up | ModelAction::Down | ModelAction::Page(_) => {
                 let visible = menu.visible_items(self.geometry.panel);
-                if menu.step(request == ModelAction::Down, visible) {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match request {
+                    ModelAction::Up => -1,
+                    ModelAction::Down => 1,
+                    ModelAction::Page(down) => {
+                        if down {
+                            page
+                        } else {
+                            -page
+                        }
+                    }
+                    _ => 0,
+                };
+                if menu.step_by(delta, visible) {
                     self.render.request(Reason::Modal);
                 }
             }
@@ -3287,6 +4245,55 @@ impl Shell {
             ModelAction::Use => self.use_marked_model(),
         }
         true
+    }
+
+    /// Puts a chosen path in the draft in place of the `@` word
+    /// ([`super::file_picker::completion`]).
+    ///
+    /// One edit, so one undo takes it back. Refused whole -- by the prompt's
+    /// budget or because the word runs into a pasted block -- it changes
+    /// nothing, exactly as a keystroke the budget refuses does.
+    fn complete_file(&mut self, found: &super::file_index::Found) {
+        let Some(files) = self.file_picker.as_ref() else {
+            return;
+        };
+        let chosen =
+            file_picker::completion(self.editor.text(), files.query(), found, files.indexed());
+        let removed = chosen.range.end - chosen.range.start;
+        if !paste::fits(
+            self.editor.text().len().saturating_sub(removed),
+            self.editor.retained(),
+            chosen.text.len(),
+        ) {
+            return;
+        }
+        let Some(delta) = self.editor.replace(
+            chosen.range.start,
+            chosen.range.end,
+            &chosen.text,
+            chosen.caret,
+        ) else {
+            return;
+        };
+        // A file's completion leaves the caret past its separator, so the
+        // picker closes on the way through; a directory's leaves it at the
+        // end of the path, so the picker goes on, listing that directory.
+        self.amended(Some(delta));
+        self.separator = chosen.separator;
+    }
+
+    /// Asks the source again for the open picker's rows, and owes a frame if
+    /// they changed.
+    fn refresh_file_picker(&mut self) {
+        let Some(files) = self.file_picker.as_mut() else {
+            return;
+        };
+        let Some(lookup) = files.lookup().map(str::to_string) else {
+            return;
+        };
+        if files.settle(self.files.lookup(&lookup)) {
+            self.render.request(Reason::Modal);
+        }
     }
 
     /// Enter, while the picker is up (`submitSessionPickerSelection`,
@@ -3339,7 +4346,19 @@ impl Shell {
             return;
         };
         let id = id.to_string();
-        self.close_models();
+        if self.model_draft.is_some() {
+            // A `C-p` draft stays lent while the column borrows the composer
+            // (`submitModelMenuSelection`, `app_input_runtime.zig:2775-2779`):
+            // the menu goes and its search with it, and
+            // [`Self::settle_model_draft`] gives the draft back when the flow
+            // ends.
+            self.model_menu = None;
+            self.take_draft();
+            self.refit();
+            self.render.request(Reason::Modal);
+        } else {
+            self.close_models();
+        }
         let entry = self.catalog.iter().find(|entry| entry.id == id).cloned();
         match entry.map(|entry| self.column.choose(&entry)) {
             Some(Chosen::Efforts(text)) => self.write_column_text(&text),
@@ -3413,7 +4432,13 @@ impl Shell {
                         | Action::WordRight
                 )
         );
-        if !bound || self.help_menu.is_some() || self.model_menu.is_some() {
+        // Nor while the settings menu is up: the draft is its search, and a
+        // `/model ` typed there names a setting, not a model.
+        if !bound
+            || self.help_menu.is_some()
+            || self.model_menu.is_some()
+            || self.settings_menu.is_some()
+        {
             return false;
         }
         if self.column.active(self.editor.text()).is_none() {
@@ -3553,6 +4578,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -3600,6 +4626,7 @@ impl Shell {
         }
         if self.help_menu.is_none()
             && self.model_menu.is_none()
+            && self.settings_menu.is_none()
             && self.column.active(self.editor.text()).is_some()
         {
             self.want_catalog();
@@ -3612,6 +4639,11 @@ impl Shell {
         if self.model_menu.take().is_none() {
             return;
         }
+        // A catalog `C-p` opened gives the draft it borrowed the composer
+        // from back, whatever its search held.
+        if self.give_back_model_draft() {
+            return;
+        }
         if !self.editor.is_empty() {
             // Through the one funnel every whole-draft disposal takes, which
             // re-solves the band for the rows the menu gave back.
@@ -3621,6 +4653,93 @@ impl Shell {
         }
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// The draft `C-p` lent out, back in the composer in place of whatever
+    /// the flow left there (`restoreModelPickerDraft`,
+    /// `app_input_runtime.zig:2377-2386`), and whether there was one.
+    fn give_back_model_draft(&mut self) -> bool {
+        let Some(lent) = self.model_draft.take() else {
+            return false;
+        };
+        self.take_draft();
+        self.editor.give_back(lent);
+        self.amended(None);
+        true
+    }
+
+    /// Backs out of the whole `C-p` flow -- the catalog, or the inline
+    /// effort column a choice in it went on into -- and gives the draft back
+    /// (`exitModelPickerShortcutIfActive`, `app_input_runtime.zig:1666-1673`):
+    /// a second `C-p`, a Ctrl-C, a Ctrl-D. `false` when no draft is lent.
+    fn exit_model_shortcut(&mut self) -> bool {
+        if self.model_draft.is_none() {
+            return false;
+        }
+        self.model_menu = None;
+        self.column.reset();
+        self.give_back_model_draft();
+        self.refit();
+        self.render.request(Reason::Modal);
+        true
+    }
+
+    /// Gives the lent draft back once neither the catalog nor the column has
+    /// the composer -- a model applied, an Escape that put the column away,
+    /// an edit that left the `/model` line (`settleModelPickerDraft`,
+    /// `app_input_runtime.zig:2388-2404`, after every input).
+    fn settle_model_draft(&mut self) {
+        if self.model_draft.is_none()
+            || self.model_menu.is_some()
+            || self.column.active(self.editor.text()).is_some()
+        {
+            return;
+        }
+        self.give_back_model_draft();
+    }
+
+    /// `C-p` (`app_input_runtime.zig:1197-1210`): the catalog `/model` opens,
+    /// with the composer only **lent** to it -- the draft goes into a stash
+    /// and comes back verbatim when the flow ends, a model chosen or not,
+    /// the effort column a choice goes on into included
+    /// (`openModelPickerShortcut`, `:2356-2375`; [`Self::settle_model_draft`]).
+    /// A second `C-p` backs out, as does closing a catalog `/model` opened; a surface that owns the
+    /// keyboard already makes it nothing (`modelPickerShortcutBlocked`,
+    /// `:2406-2418`) -- here, the `/help` catalog, the `/settings` menu
+    /// (`settingsMenuActive`, `:2409`), the `/statusline` picker,
+    /// the `/resume` picker and the full transcript, which leaves the key
+    /// unbound for the composer behind it. A catalog that cannot open (the runtime refused to load one)
+    /// gives the draft straight back.
+    fn model_catalog_shortcut(&mut self) {
+        // A second `C-p` backs out of the flow, from the catalog or the column
+        // a choice in it went on into (`app_input_runtime.zig:1199-1201`).
+        if self.exit_model_shortcut() {
+            return;
+        }
+        if self.model_menu.is_some() {
+            self.close_models();
+            return;
+        }
+        if self.help_menu.is_some()
+            || self.settings_menu.is_some()
+            || self.statusline_menu.is_some()
+            || self.sessions.is_some()
+            || self.full.is_open()
+        {
+            return;
+        }
+        // The draft's deltas name offsets into a text that is about to leave
+        // the composer, so the history takes a boundary here as at every
+        // whole-draft replacement ([`Self::take_draft`]).
+        self.edit_history.boundary();
+        self.model_draft = Some(self.editor.lend());
+        self.open_models();
+        if self.model_menu.is_none() {
+            if let Some(lent) = self.model_draft.take() {
+                self.editor.give_back(lent);
+            }
+        }
+        self.edited(None);
     }
 
     /// One keystroke, while the `/statusline` picker has the focus.
@@ -3635,7 +4754,7 @@ impl Shell {
         use super::rule_confirm::{Key, Reply};
         let key = match event {
             Input::Text(character) => Key::Digit(character),
-            Input::Action(Action::Up | Action::HistoryPrevious) => Key::Up,
+            Input::Action(Action::Up | Action::ControlP) => Key::Up,
             Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
             Input::Action(Action::Submit) => Key::Enter,
             Input::Action(Action::Escape) => Key::Escape,
@@ -3736,6 +4855,141 @@ impl Shell {
         }
     }
 
+    /// One keystroke, while `/usage`'s dashboard has the focus
+    /// (`routeActiveModalInput` and `routeCompactCommandMenuEscapeAction`,
+    /// `app_input_runtime.zig:1366-1395`, `:2640-2690`): Tab and Shift-Tab
+    /// walk the header, Left and Right walk the windows the other way and
+    /// stop at the ends, the arrows and Ctrl-J/Ctrl-K move the mark, Enter
+    /// opens the marked model, `r` reads the window again, Escape closes it.
+    /// Everything else is swallowed.
+    fn offer_to_usage(&mut self, event: Input) {
+        let request = match event {
+            Input::Action(action) => UsageAction::of_action(action),
+            Input::Text(character) => UsageAction::of_text(character),
+            Input::PasteByte(_) | Input::Report(_) => None,
+        };
+        let Some(request) = request else {
+            return;
+        };
+        let Some(dashboard) = self.usage_menu.as_mut() else {
+            return;
+        };
+        let scope = dashboard.scope();
+        let visible = dashboard.visible_models(self.geometry.panel, self.geometry.cols);
+        match request {
+            UsageAction::Cycle(forward) => self.show_usage(scope.cycled(forward)),
+            // A step that stays put asks nothing (`if (next != current)`).
+            UsageAction::Previous if scope.previous() != scope => self.show_usage(scope.previous()),
+            UsageAction::Next if scope.next() != scope => self.show_usage(scope.next()),
+            UsageAction::Previous | UsageAction::Next => {}
+            UsageAction::Move(down) => {
+                if dashboard.step(down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            UsageAction::Expand => {
+                if dashboard.toggle(visible) {
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            // The session is read where it is; a window is asked of the
+            // reader again, and what is shown stays until it answers
+            // (`reloadUsageMenu`, `app_commands.zig:1094-1112`).
+            UsageAction::Reload if scope == crate::usage::Scope::Session => self.show_usage(scope),
+            UsageAction::Reload => self.read_usage(scope),
+            UsageAction::Close => {
+                self.usage_menu = None;
+                // The composer's row comes back with the dashboard's going.
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
+    /// Puts `scope` on the dashboard (`refreshUsageMenu`,
+    /// `app_commands.zig:1064-1092`): the session at once, from what the
+    /// runtime last published; a rolling window from the last read when there
+    /// is one, else `Loading usage` and a read.
+    fn show_usage(&mut self, scope: crate::usage::Scope) {
+        let snapshot = if scope == crate::usage::Scope::Session {
+            let spent = self.work.spent();
+            Some(crate::usage::session_snapshot(
+                &spent.usage,
+                spent.started_at_ms,
+                crate::session::event::system_now_ms(),
+            ))
+        } else {
+            self.usage_read
+                .as_ref()
+                .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms))
+        };
+        let Some(dashboard) = self.usage_menu.as_mut() else {
+            return;
+        };
+        match snapshot {
+            Some(snapshot) => dashboard.show(snapshot),
+            None => {
+                dashboard.loading(scope);
+                self.read_usage(scope);
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Asks the reader for the session logs again, for `scope`. A read that
+    /// could not even be asked for is a failed one.
+    fn read_usage(&mut self, scope: crate::usage::Scope) {
+        if self
+            .usage_reader
+            .request(crate::session::event::system_now_ms())
+            .is_err()
+        {
+            if let Some(dashboard) = self.usage_menu.as_mut() {
+                dashboard.failed(scope);
+            }
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Takes every read of the session logs that has finished, keeps the
+    /// newest, and shows it when a rolling window is up to show it on
+    /// (`collectUsageDashboardFacts`, `app_commands.zig:1114-1139`).
+    fn settle_usage(&mut self) {
+        while let Some(read) = self.usage_reader.finished() {
+            let Some(dashboard) = self.usage_menu.as_mut() else {
+                if let Ok(ledger) = read.ledger {
+                    self.usage_read = Some((read.at_ms, ledger));
+                }
+                continue;
+            };
+            let scope = dashboard.scope();
+            match read.ledger {
+                Ok(ledger) => {
+                    if scope != crate::usage::Scope::Session {
+                        dashboard.show(ledger.snapshot(scope, read.at_ms));
+                    }
+                    self.usage_read = Some((read.at_ms, ledger));
+                }
+                // The session scope is not the reader's, and is not made old
+                // by a read it did not ask for.
+                Err(_) if scope != crate::usage::Scope::Session => dashboard.failed(scope),
+                Err(_) => {}
+            }
+            self.refit();
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Gives `/usage` a reader that reads nothing and answers only what the
+    /// case delivers ([`usage_menu::Reader::by_hand`]).
+    #[cfg(test)]
+    pub(crate) fn read_usage_by_hand(&mut self) {
+        self.usage_reader = usage_menu::Reader::by_hand();
+    }
+
     /// Turns one footer segment on or off, keeps it in the profile, and --
     /// when `announce` -- says both (`applyStatuslineItem`,
     /// `app_commands.zig:3905-3929`).
@@ -3781,6 +5035,15 @@ impl Shell {
         }
     }
 
+    /// Takes in whatever the file workers have finished, once a turn of the
+    /// loop: an index or a directory listing arrives on its own thread's
+    /// clock, so this is where the picker hears about it.
+    fn settle_files(&mut self) {
+        if self.files.poll() {
+            self.refresh_file_picker();
+        }
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -3800,6 +5063,20 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        // A page of the menu at a time (`routeComposerVertical` with `page`,
+        // `input_completion_runtime.zig:209-262`): a page is the composer's
+        // row cap, as it is for the caret.
+        if matches!(action, Action::PageUp | Action::PageDown) {
+            let Some(picker) = self.picker.as_mut() else {
+                return false;
+            };
+            picker.page(
+                matches!(action, Action::PageDown),
+                layout::input_row_limit(self.geometry.rows),
+            );
+            self.render.request(Reason::Modal);
+            return true;
+        }
         let Some(request) = PickerAction::of(*action) else {
             return false;
         };
@@ -3877,10 +5154,15 @@ impl Shell {
     /// Silent when there is none, so every caller can say "there is no menu
     /// now" without first asking whether there was one.
     fn dismiss_picker(&mut self) {
-        let Some(picker) = self.picker.take() else {
+        let trigger = if self.file_picker.take().is_some() {
+            Some(Trigger::File)
+        } else {
+            self.picker.take().map(|picker| picker.trigger())
+        };
+        let Some(trigger) = trigger else {
             return;
         };
-        self.dismissed.dismiss(picker.trigger());
+        self.dismissed.dismiss(trigger);
         // The band just gave the menu's rows back to the document.
         self.refit();
         self.render.request(Reason::Modal);
@@ -3901,6 +5183,16 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
+            self.file_picker = None;
+            self.provider_picker = None;
+            return;
+        }
+        // The same for the settings menu (`syncSettingsMenu`,
+        // `app_input_runtime.zig:2930-2933`): `sou` typed into it is a search.
+        if let Some(menu) = self.settings_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            self.file_picker = None;
             self.provider_picker = None;
             return;
         }
@@ -3911,6 +5203,7 @@ impl Shell {
             menu.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.file_picker = None;
             return;
         }
         // The same for the session picker: the draft is the session search,
@@ -3919,19 +5212,67 @@ impl Shell {
             sessions.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
+            self.file_picker = None;
             return;
         }
         // The `/provider` column next: a draft that is its argument has a
         // space in it, so it is never a slash word as well.
         if self.reconcile_provider_picker() {
             self.picker = None;
+            // Before the `@` word, as upstream asks (`rawFilePickerQuery`,
+            // `picker_state.zig:225-231`).
+            self.file_picker = None;
             // Still asked, so a completion menu Escape closed over `/provider`
             // is forgotten once the draft has become the column's: the trigger
             // changed kind, and that is what a dismissal lasts until.
             let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
             return;
         }
-        if !self.dismissed.admits(Trigger::of(self.editor.text())) {
+        // The `@` word first, as upstream asks (`inlinePickerTriggerKind`,
+        // `picker_state.zig:233-242`) -- unless the line is the `/model`
+        // column's, open or dismissed, which is never an `@` word as well
+        // (`rawFilePickerQuery`, `:225-231`).
+        let file = if model_column::shaped_line(self.editor.text()) {
+            None
+        } else {
+            file_picker::query_at(self.editor.text(), self.editor.caret())
+        };
+        let trigger = if file.is_some() {
+            Some(Trigger::File)
+        } else {
+            Trigger::of(self.editor.text())
+        };
+        if !self.dismissed.admits(trigger) {
+            self.picker = None;
+            self.file_picker = None;
+            return;
+        }
+        if let Some(query) = file {
+            self.picker = None;
+            // The same word, typed to the same point: the list and its mark
+            // stay as they are. A caret moved inside the word is a different
+            // query, as an edit is.
+            if self
+                .file_picker
+                .as_ref()
+                .is_some_and(|open| *open.query() == query)
+            {
+                return;
+            }
+            // A picker opening is an episode, and an episode reads the
+            // workspace again (`prepareFilePicker`'s `refresh_requested`).
+            if self.file_picker.is_none() {
+                self.files.begin_episode();
+            }
+            let mut files = FilePicker::open(query);
+            if let Some(lookup) = files.lookup().map(str::to_string) {
+                files.settle(self.files.lookup(&lookup));
+            }
+            self.file_picker = Some(files);
+            return;
+        }
+        self.file_picker = None;
+        if self.recalled_slash {
             self.picker = None;
             return;
         }
@@ -4011,13 +5352,23 @@ impl Shell {
         let Some(column) = self.provider_picker.as_mut() else {
             return false;
         };
-        match action {
-            Action::Up | Action::Down => {
-                if column.step(matches!(action, Action::Down)) {
-                    self.render.request(Reason::Modal);
-                }
-                true
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match action {
+            Action::Up | Action::ControlK => Some(-1),
+            Action::Down | Action::ControlJ => Some(1),
+            Action::PageUp => Some(-page),
+            Action::PageDown => Some(page),
+            _ => None,
+        };
+        if let Some(delta) = delta {
+            // The arrows, `C-j`/`C-k` and a page (`routeNonSlashPickerMove`,
+            // `input_completion_runtime.zig:389-413`).
+            if column.step_by(delta) {
+                self.render.request(Reason::Modal);
             }
+            return true;
+        }
+        match action {
             Action::Tab => {
                 if let Some(text) = column.completion() {
                     self.replace_word(&text);
@@ -4172,10 +5523,10 @@ impl Shell {
         // question until now. The arrows are deliberately not reused: they walk
         // the choices, and a key that scrolled *and* chose would be a key that
         // answers by accident.
-        if let Input::Action(Action::HistoryPrevious | Action::HistoryNext) = event {
+        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
             let (cols, rows) = (self.geometry.cols, self.geometry.rows);
             if let Some(screen) = self.alternate.as_mut() {
-                let delta = if matches!(event, Input::Action(Action::HistoryPrevious)) {
+                let delta = if matches!(event, Input::Action(Action::ControlP)) {
                     -1
                 } else {
                     1
@@ -4212,7 +5563,7 @@ impl Shell {
             // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
             // asserts in all four spellings. Upstream has no second surface to
             // scroll, so this is a retention rather than a divergence.
-            Input::Action(Action::HistoryPrevious) => approval::Action::Up,
+            Input::Action(Action::ControlP) => approval::Action::Up,
             Input::Action(Action::HistoryNext) => approval::Action::Down,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
@@ -4363,6 +5714,7 @@ impl Shell {
             // to stop. **One message still**, and it carries no sentence: the
             // drafts were dropped above, so a cancel at a filled draft says
             // nothing on either channel.
+            //
             // **The call this panel was asking about is stopped by this key**:
             // the prompter answers the stop by refusing it and handing the
             // interrupt on, so the call never runs (`super::approval`'s
@@ -4370,10 +5722,18 @@ impl Shell {
             // answers the key, as upstream's does the moment it is pressed
             // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
             // reports for it next is the same stop in the tool's words, and is
-            // dropped ([`Self::abandoned`]).
+            // dropped ([`Self::abandoned`]). That call's own `■ Cancelled …`
+            // line is the turn's, so no second one is written for the turn
+            // (`append_turn_cancellation`, `transcript/runtime.zig:5378-5383`).
+            //
+            // **No exit is armed by it**: upstream's `cancelApprovalOperation`
+            // stops the turn and leaves the hint row the session's
+            // (`fx-approvals-cc-40x120-after-esc`), because the Escape was an
+            // answer to the question rather than half of a way out.
             approval::Action::Escape => {
-                self.settle_group();
-                self.interrupt(now);
+                let stopped = self.settle_group();
+                self.cancel_turn_with(stopped);
+                self.settle_band(now);
             }
             // Ctrl-C and the rest are an answer about *this call* and nothing
             // more: the turn goes on, and is told no -- with whatever the user
@@ -4513,7 +5873,9 @@ impl Shell {
             // The composer's own window and its own warning on the hint row
             // ([`super::gesture`], [`ESCAPE_ARMED`]): one gesture, wherever
             // the draft it clears is.
-            if self.gestures.escape(now) == Escape::Clear && ask.clear_draft() {
+            // The clear's window, not the interrupt's: the draft is what
+            // this Escape is about, as at an idle composer.
+            if self.gestures.escape(now, false, true) == Escape::Clear && ask.clear_draft() {
                 self.settled_question();
             }
             self.settle_band(now);
@@ -4551,7 +5913,14 @@ impl Shell {
                     DocumentRow::Plain,
                 )]));
                 self.settled_question();
-                self.interrupt(now);
+                // **The question's `■ Cancelled` is the turn's line**, and
+                // nothing follows it: upstream's `cancelQuestionPrompt` records
+                // the question cancelled and stops the turn, with no line of
+                // the turn's own after it and no exit armed -- the key was the
+                // question's (`input_question_runtime.zig:59-80`;
+                // `receipts/f3/fx-question-…-q2-esc`).
+                self.cancel_turn_with(true);
+                self.settle_band(now);
             }
         }
     }
@@ -4588,8 +5957,8 @@ impl Shell {
     /// happened, and Phase 1 never goes back to insert one.
     ///
     /// Two lines do **not** come through here, and they are a pair: the
-    /// interrupt notice and the sentence saying the queue went with it
-    /// ([`Self::interrupt`]). Both are what a Ctrl-C is answered with, so both
+    /// cancelled line and the sentence saying the queue went with it
+    /// ([`Self::cancel_turn`]). Both are what a Ctrl-C is answered with, so both
     /// are about the keystroke rather than about the answer, and the reason is
     /// written where they are.
     fn say(&mut self, line: String) {
@@ -4763,7 +6132,7 @@ impl Shell {
                 }
             }
             Mark::TurnOver => {
-                self.settle_group();
+                let _ = self.settle_group();
                 self.abandoned.clear();
             }
         }
@@ -4778,6 +6147,7 @@ impl Shell {
     /// every other write closes it first ([`Self::close_group`]).
     fn redraw_group(&mut self) {
         let trailer = self.trailer_rows();
+        self.group.set_collapsed(self.collapse_tool_calls);
         let Some(rows) = self.group.redraw(self.palette, &trailer) else {
             return;
         };
@@ -4829,15 +6199,20 @@ impl Shell {
     /// has read one, its stream goes silent (`super::bridge`'s `send_ui`). So
     /// it is shown as upstream shows a call the user stopped: `Cancelled`,
     /// counted, with its own line under the group.
-    fn settle_group(&mut self) {
+    ///
+    /// Says whether it stopped anything -- that is, whether a call's own
+    /// `■ Cancelled …` line is now in the document.
+    fn settle_group(&mut self) -> bool {
         self.full.settle();
         let stopped = self.group.cancel_running();
-        if !stopped.is_empty() {
+        let any = !stopped.is_empty();
+        if any {
             self.redraw_group();
         }
         self.abandoned.extend(stopped);
         self.close_group();
         self.group = ToolGroup::default();
+        any
     }
 
     /// How much answer text is waiting to be released.
@@ -5108,16 +6483,49 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
-        // And so is a `/sound` save.
+        // So is a file index or a directory listing.
+        self.settle_files();
+        // And a report.
+        self.settle_traces();
+        // And so is a `/sound` save, and a line the history kept.
         self.settle_saves();
+        self.settle_history();
+        // And a read of the session logs for `/usage`.
+        self.settle_usage();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
             self.render.request(Reason::Footer);
         }
+        // **Nothing in hand is nothing that can still answer a cancel.** The
+        // runtime reads a cancellation at the top of its loop before it takes
+        // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
+        // the cancel covered can be dropped without ever saying it started --
+        // and a cancel that landed after its turn had already concluded is
+        // answered by nothing at all. Either way the place is given back, and
+        // once none is held, no event about the cancelled work is coming.
+        if self.cancelling && self.work.outstanding() == 0 {
+            self.cancelling = false;
+            self.cancel_owed = None;
+            self.cancel_covers = 0;
+        }
         let armed = self.gestures.escape_armed(now);
         if armed != self.escape_armed {
             self.escape_armed = armed;
+            self.render.request(Reason::Footer);
+        }
+        // The two warnings a keystroke arms and the clock takes back: the
+        // exit after a Ctrl-C, and the interrupt after an Escape over running
+        // work. Read with the decision's own windows, so the row goes back to
+        // the session's facts on the tick the keystroke stops doing it.
+        let exit = self.gestures.exit_armed(now);
+        if exit != self.exit_armed {
+            self.exit_armed = exit;
+            self.render.request(Reason::Footer);
+        }
+        let interrupt = self.gestures.interrupt_armed(now);
+        if interrupt != self.interrupt_armed {
+            self.interrupt_armed = interrupt;
             self.render.request(Reason::Footer);
         }
         // After the Escape: an armed one takes the slot the warning is in, and
@@ -5171,12 +6579,45 @@ impl Shell {
     /// ([`super::copy`]), so its outcome is a fact that arrives rather than one
     /// this thread waits for.
     fn settle_copies(&mut self) {
+        // A selection's copy says nothing either way (`copy_selection`,
+        // `app_input_runtime.zig:356-370`); a cut whose copy landed takes its
+        // text out of the draft, if the draft is still the one it was cut from.
+        while let Some((purpose, copied)) = self.copies.selection_finished() {
+            let super::copy::Selection::Cut(id) = purpose else {
+                continue;
+            };
+            let Some((pending, draft, range)) = self.pending_cut.take() else {
+                continue;
+            };
+            if pending != id {
+                self.pending_cut = Some((pending, draft, range));
+                continue;
+            }
+            if copied && self.editor.text() == draft && self.editor.selection() == Some(range) {
+                let delta = self.editor.apply(Action::Delete, self.text_cols());
+                self.amended(delta);
+            }
+        }
         while let Some(copied) = self.copies.finished() {
             self.announce(if copied {
                 notice::Notice::neutral(clipboard::TOPIC, clipboard::COPIED)
             } else {
                 notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
             });
+        }
+    }
+
+    /// Says how each `/trace` that has finished went, in upstream's one
+    /// sentence and with no topic (`finish_trace_notice`,
+    /// `app_commands.zig:55-65`): an error when the copy or the write failed.
+    fn settle_traces(&mut self) {
+        while let Some(done) = self.traces.finished() {
+            let tone = if done.failed() {
+                notice::Tone::Error
+            } else {
+                notice::Tone::Neutral
+            };
+            self.announce(notice::Notice::new(tone, "", done.sentence()));
         }
     }
 
@@ -5232,16 +6673,23 @@ impl Shell {
         // it would be a row reporting on a turn that is waiting for the person
         // reading it. The clock stopped above; the row comes back, at the
         // elapsed time it stopped at, when the question goes.
-        let row = if self.modal() {
-            None
-        } else {
-            self.activity.row(
+        //
+        // A retry the turn is waiting on is the row, whole, in the warning
+        // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
+        // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
+        // counting down on this clock.
+        let row = match self.retry.as_ref() {
+            _ if self.modal() => None,
+            Some(standing) if self.activity.working() => {
+                Some(self.painted(self.palette.warning(), standing.label(now)))
+            }
+            _ => self.activity.row(
                 now,
                 self.phase,
                 self.geometry.cols,
                 (self.tally.input, output),
                 colours,
-            )
+            ),
         };
         if row == self.activity_row {
             // A phase that turned over without changing the row is not a frame:
@@ -5450,6 +6898,10 @@ impl Shell {
     /// two bytes timed each other out would be two unrelated keystrokes.
     fn consume(&mut self, events: Vec<Input>, now: Instant) {
         for event in events {
+            // After every input, the one before this included: a `C-p` flow
+            // that ended gives its draft back before the next key lands
+            // (`settleModelPickerDraft`, `app_input_runtime.zig:617`).
+            self.settle_model_draft();
             // **Before the focus, and that is the point of putting it here.**
             // A theme report is not a keystroke: nobody typed it, and every
             // branch below is written to swallow what it does not bind -- so a
@@ -5461,6 +6913,32 @@ impl Shell {
             if let Input::Report(mode) = event {
                 self.retint(mode);
                 continue;
+            }
+            // **Before the focus, as upstream disarms before it routes**
+            // (`app_input_runtime.zig:954-962`): any keystroke but the two the
+            // gestures time takes back an armed exit and an armed interrupt,
+            // whatever has the keys. A paste is content rather than a
+            // keystroke, and its bytes and its frame disarm nothing. An Escape
+            // the composer will see disarms through [`Gestures::escape`]; one a
+            // panel, a menu or the full transcript takes is a key like any
+            // other here.
+            let disarms = match &event {
+                Input::Action(Action::Cancel | Action::PasteStart | Action::PasteEnd)
+                | Input::Action(Action::Ignore)
+                | Input::PasteByte(_)
+                | Input::Report(_) => false,
+                Input::Action(Action::Escape) => {
+                    self.ask.is_some()
+                        || self.asking()
+                        || self.help_menu.is_some()
+                        || self.settings_menu.is_some()
+                        || self.picker.is_some()
+                        || self.full.is_open()
+                }
+                _ => true,
+            };
+            if disarms && self.gestures.other_key() {
+                self.render.request(Reason::Footer);
             }
             // The full transcript, while it is up, has the keys it binds;
             // everything else goes where it would have gone with the screen
@@ -5510,11 +6988,19 @@ impl Shell {
                 self.offer_to_statusline(event);
                 continue;
             }
+            // `/usage`'s dashboard, the same way.
+            if self.usage_menu.is_some() {
+                self.offer_to_usage(event);
+                continue;
+            }
             // And the catalog or the completion menu -- never both -- takes
             // the keys it binds, before the editor and before the gestures see
             // them. Everything else falls through with it still up, because
             // each is a view of the draft and typing is what the draft is made
             // of.
+            if self.offer_to_settings(&event) {
+                continue;
+            }
             if self.offer_to_sessions(&event) {
                 continue;
             }
@@ -5525,6 +7011,9 @@ impl Shell {
                 continue;
             }
             if self.offer_to_column(&event) {
+                continue;
+            }
+            if self.offer_to_files(&event) {
                 continue;
             }
             if self.offer_to_picker(&event) {
@@ -5548,6 +7037,7 @@ impl Shell {
                 Input::Report(_) => {}
             }
         }
+        self.settle_model_draft();
     }
 
     /// One typed character.
@@ -5556,6 +7046,17 @@ impl Shell {
     /// upstream flashes the composer (`input_limit_rejection.zig:4-23`) and
     /// this phase does not, which `docs/parity.md` records.
     fn type_character(&mut self, character: char) {
+        // The space a file completion just added, typed again: it is the same
+        // space, so the draft keeps one (`tests/e2e/tui-file-picker.test.ts:2005`).
+        if character == ' ' {
+            if let Some(at) = self.separator.take() {
+                if self.editor.caret() == at + 1
+                    && self.editor.text().as_bytes().get(at) == Some(&b' ')
+                {
+                    return;
+                }
+            }
+        }
         let mut encoded = [0u8; 4];
         let typed = character.encode_utf8(&mut encoded);
         // **Against the prompt's budget, not the composer's.** What the draft
@@ -5678,7 +7179,10 @@ impl Shell {
             Action::Backspace
             | Action::Delete
             | Action::DeleteWordLeft
+            | Action::DeleteWordBackward
+            | Action::DeleteWordRight
             | Action::KillToEnd
+            | Action::ControlK
             | Action::KillToStart => {
                 let delta = self.editor.apply(action, self.text_cols());
                 // The one deletion a later column survives
@@ -5687,6 +7191,22 @@ impl Shell {
                     self.column_edit = ColumnEdit::Backspace;
                 }
                 self.amended(delta);
+            }
+            // A page of composer rows, as far as the draft goes and no
+            // further: unlike the arrows, a page at the edge of the draft is
+            // not a history step (`input_completion_runtime.zig:257`,
+            // `if (page or extend_selection) return`). A page is the
+            // composer's row cap, the most rows it is ever shown in.
+            Action::PageUp | Action::PageDown => {
+                let step = if matches!(action, Action::PageUp) {
+                    EditorStep::Up
+                } else {
+                    EditorStep::Down
+                };
+                let page = usize::from(layout::input_row_limit(self.geometry.rows));
+                if self.editor.move_rows(step, page, self.text_cols()) {
+                    self.moved();
+                }
             }
             // The two keys that are the composer's until the caret has nowhere
             // left to go, and the history's exactly there.
@@ -5735,28 +7255,82 @@ impl Shell {
             // deletes do: through the budget. `C-j` inserts a newline and
             // nothing else (`super::editor::Editor::apply`), so routing it
             // here is the same edit with the same question asked first.
-            Action::InsertNewline => self.type_character('\n'),
-            Action::Submit => self.submit(),
+            Action::InsertNewline | Action::ControlJ => self.type_character('\n'),
+            // A backslash right before the caret is a line that goes on, not a
+            // line to send (`app_input_runtime.zig:1612`): the Return turns it
+            // into the line break, as one edit.
+            Action::Submit => match self.editor.continue_line() {
+                Some(delta) => self.amended(Some(delta)),
+                None => self.submit(),
+            },
             // Ctrl-C. With `ISIG` cleared the terminal generates no `SIGINT`,
             // so this byte is the only Ctrl-C a TUI session sees -- and what it
             // means is the line-oriented shell's rule, decided in
             // [`super::gesture`].
+            // While `C-p` has the composer lent to the catalog, the first
+            // Ctrl-C backs out of that and gives the draft back
+            // (`exitModelPickerShortcutIfActive`, `app_input_runtime.zig:1666-1676`).
+            Action::Cancel if self.model_draft.is_some() => {
+                self.exit_model_shortcut();
+            }
             Action::Cancel => self.interrupt(now),
-            // A lone Escape does nothing here; the second one inside the window
-            // clears the composer, and the hint row says so in between.
-            Action::Escape => match self.gestures.escape(now) {
-                Escape::Armed => self.settle_band(now),
-                Escape::Clear => {
-                    self.clear_composer();
-                    self.settle_band(now);
+            // A lone Escape does nothing here; the second one inside its window
+            // clears the composer at an idle prompt and stops the turn over
+            // running work, and the hint row says which in between
+            // ([`super::gesture`]).
+            //
+            // "Running work" is the turn the activity row is about: upstream
+            // arms its interrupt over an *active operation*
+            // (`hasActiveOperation`, `app_input_runtime.zig:3168`), and the row
+            // is this session's reading of exactly that -- from the runtime's
+            // own `TurnStarted` to its conclusion or the keystroke that
+            // stopped it. A prompt still waiting for the runtime to pick it up
+            // is not yet an operation there is anything to interrupt in.
+            Action::Escape => {
+                match self
+                    .gestures
+                    .escape(now, self.activity.working(), !self.editor.is_empty())
+                {
+                    Escape::Nothing | Escape::Armed | Escape::InterruptArmed => {
+                        self.settle_band(now)
+                    }
+                    Escape::Clear => {
+                        self.clear_composer();
+                        self.settle_band(now);
+                    }
+                    // Upstream's `cancelActiveOperation`, with no exit armed: the
+                    // Escape pair is its own confirmation, and the row after it is
+                    // the session's (`fx-interrupt2-40x120-esc2`).
+                    Escape::Interrupt => {
+                        self.cancel_turn();
+                        self.settle_band(now);
+                    }
                 }
-            },
+            }
             // The end of the session, but only from an empty composer: with
             // text under the caret Ctrl-D is the forward delete it is in every
             // shell that has both, and leaving would throw away a draft.
+            //
+            // **And not while a turn is running**: upstream ignores it while
+            // an answer streams (`handleSemanticCtrlD`,
+            // `app_input_runtime.zig:1750`). A key that sits beside Ctrl-C and
+            // means "I am done" must not end a session in the middle of the
+            // answer the user is reading; Ctrl-C is the key that stops a turn,
+            // and it says so first. Read off the activity row, as upstream
+            // reads its stream: a turn the user has already stopped is not
+            // one, so a Ctrl-D after a Ctrl-C leaves as it always has.
+            //
+            // While `C-p` has the composer lent, Ctrl-D backs out of that
+            // rather than leaving from the empty composer the flow is using
+            // (`handleSemanticCtrlD`, `app_input_runtime.zig:1745-1746`).
+            Action::Eof if self.model_draft.is_some() => {
+                self.exit_model_shortcut();
+            }
             Action::Eof => {
                 if self.editor.is_empty() {
-                    self.leave();
+                    if !self.activity.working() {
+                        self.leave();
+                    }
                 } else {
                     let delta = self.editor.apply(Action::Delete, self.text_cols());
                     self.amended(delta);
@@ -5776,15 +7350,14 @@ impl Shell {
             // `Ignore` is a keystroke this session has no binding for at all:
             // an event rather than silence, precisely so that it accounts for
             // the bytes it was decoded from.
-            // `C-p` and `C-n`, which are the recall **wherever the caret
-            // is**: the arrows above cannot reach it from the middle of a
-            // multi-row draft, which is the draft a user reaches for a recall
-            // from. A step that recalls nothing changes nothing and asks for
-            // no frame -- a keystroke that did not move the band must not
-            // repaint it.
-            Action::HistoryPrevious => {
-                self.recall(HistoryStep::Previous);
-            }
+            // `C-p` is the model catalog (`open_model_catalog`,
+            // `escape_parser.zig:271`; ssot divergence 8), and the line before
+            // this one is the `Up` arrow's.
+            Action::ControlP => self.model_catalog_shortcut(),
+            // `C-n`, which is the recall **wherever the caret is**: the arrows
+            // above cannot reach it from the middle of a multi-row draft. A
+            // step that recalls nothing changes nothing and asks for no frame
+            // -- a keystroke that did not move the band must not repaint it.
             Action::HistoryNext => {
                 self.recall(HistoryStep::Next);
             }
@@ -5828,9 +7401,35 @@ impl Shell {
             Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
-            // The page keys are the full transcript's, and the composer has no
-            // page of its own.
-            Action::Tab | Action::PageUp | Action::PageDown | Action::Ignore => {}
+            // Super+A, Super+C, Super+X (`select_all`, `copy_selection`,
+            // `cut_selection`, `app_input_runtime.zig:350-385`).
+            Action::SelectAll => {
+                if self.editor.select_all() {
+                    self.moved();
+                }
+            }
+            Action::CopySelection => {
+                if let Some(text) = self.editor.selected_text() {
+                    let _ = self
+                        .copies
+                        .start_selection(std::sync::Arc::from(text), super::copy::Selection::Copy);
+                }
+            }
+            Action::CutSelection => {
+                let Some(range) = self.editor.selection() else {
+                    return;
+                };
+                self.cuts += 1;
+                let text: std::sync::Arc<str> =
+                    std::sync::Arc::from(&self.editor.text()[range.clone()]);
+                if self
+                    .copies
+                    .start_selection(text, super::copy::Selection::Cut(self.cuts))
+                {
+                    self.pending_cut = Some((self.cuts, self.editor.text().to_string(), range));
+                }
+            }
+            Action::Tab | Action::Ignore => {}
         }
     }
 
@@ -5892,7 +7491,24 @@ impl Shell {
         Some(delta)
     }
 
-    /// One Ctrl-C.
+    /// One Ctrl-C at the composer.
+    ///
+    /// What it means is [`super::gesture`]'s to decide, from whether the
+    /// runtime has work in hand and whether the composer holds a draft.
+    fn interrupt(&mut self, now: Instant) {
+        let draft = !self.editor.is_empty();
+        match self
+            .gestures
+            .interrupt(now, self.work.outstanding() > 0, draft)
+        {
+            Interrupt::Cancel => self.cancel_turn(),
+            Interrupt::Clear => self.clear_composer(),
+            Interrupt::Leave => self.leave_by(Leaving::Interrupted),
+        }
+        self.settle_band(now);
+    }
+
+    /// Stops the turn in hand, and says so the way upstream does.
     ///
     /// The cancellation goes out on the **control** channel, which is unbounded
     /// and read by the runtime *inside* the turn (`super::worker`'s `run_turn`),
@@ -5901,78 +7517,121 @@ impl Shell {
     /// **session's** cancellation, and cancelling that would make every later
     /// turn be born cancelled (`super::bridge`'s `Cancellation::turn`) -- one
     /// Ctrl-C would end the conversation rather than the answer.
-    fn interrupt(&mut self, now: Instant) {
-        match self.gestures.interrupt(now, self.work.outstanding() > 0) {
-            Interrupt::Cancel => {
-                // Read **before** the message goes out, because after it the
-                // runtime is dropping exactly these and the count is on its way
-                // to zero: what the user is owed a sentence about is what was
-                // waiting when they pressed the key.
-                let waiting = self.work.queued() > 0;
-                // Quoting what has been submitted **so far** is what keeps the
-                // drop from reaching past this keystroke: a prompt typed while
-                // this message is still in flight is a new intention, and the
-                // runtime is told exactly where the old ones stop.
-                self.work.control(TurnControl::Cancel {
-                    through: self.work.accepted(),
-                });
-                self.forget_catalog_request();
-                // The turn this stops ends with no bell: the user is here, and
-                // upstream's turn-end cue is silent for an interrupted turn.
-                self.sound.interrupted();
-                // A call that is already running is **not** settled by this
-                // keystroke, and that is the difference from upstream's
-                // `fx-interrupt-40x120-cmd-cc`, where the command is killed at
-                // once. Here a running executor holds the runtime's thread
-                // until it returns, so the stop is read only after the command
-                // has finished (`super::worker`'s `raced_against_control`
-                // polls the control channel beside the turn, not inside a
-                // tool). A `Cancelled` row now would be the screen claiming a
-                // stop the command never had; the call's real result settles
-                // it, and a turn that ends without one settles it as stopped
-                // ([`Mark::TurnOver`]). A call parked at an approval is the
-                // other case, and is settled where that key is read
-                // ([`approval::Action::Cancel`]).
-                //
-                // The same sentence the line-oriented shell writes for the same
-                // keystroke (`app::INTERRUPT_NOTICE`), so that the request is
-                // something the user watched land rather than something they
-                // have to infer from the stream stopping -- which, for a
-                // provider that has gone quiet without hanging up, it may not.
-                //
-                // **Written at once rather than through [`Self::say`]**, and
-                // so is the sentence below it: they are the **two** document
-                // lines of this session that are, and they are a pair rather
-                // than one rule and an exception. Every other line is *about
-                // the answer* and belongs at the point of it the stream had
-                // reached. These two are about the **keystroke** -- they are
-                // what the user's Ctrl-C is answered with, both of them -- and
-                // a keystroke's answer that waited for thirteen seconds of
-                // paced text would not be an answer to it at all.
-                //
-                // The cost is that they land inside the answer rather than
-                // after it, which is what "stop here" means; the pacer is told
-                // the turn is over a moment later, so what is left of that
-                // answer follows at the drain rate rather than at reading
-                // speed.
-                self.write_notice(&notice::Notice::cancelled(
-                    "turn",
-                    unattributed(crate::app::INTERRUPT_NOTICE),
-                ));
-                if waiting {
-                    // The second half of the same answer to the same keystroke,
-                    // and immediate for the same reason: "and the queue went
-                    // with it" is only useful beside the sentence it qualifies.
-                    // Held back, it would arrive detached from the notice it
-                    // belongs to and after text the user asked to stop.
-                    self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
-                    self.prompts.clear();
-                }
-            }
-            Interrupt::Clear => self.clear_composer(),
-            Interrupt::Leave => self.leave_by(Leaving::Interrupted),
+    ///
+    /// **What the screen shows is decided here, at the keystroke, and not at
+    /// the conclusion**: upstream publishes the cancellation the moment it is
+    /// asked for (`presentActiveToolCancellation`, `transcript/runtime.zig:
+    /// 4761-4763`), and a keystroke's answer that waited for the runtime to
+    /// unwind -- or for a provider that has gone quiet to hang up -- would not
+    /// be an answer to it. So the answer stops where the user stopped reading
+    /// it ([`Self::abandon_answer`]), the row above the divider goes
+    /// (`fx-interrupt-40x120-cmd-cc`: no activity row under the line), and the
+    /// one line upstream writes for a cancelled turn takes the place of the
+    /// rest ([`Self::write_cancelled`]).
+    fn cancel_turn(&mut self) {
+        self.cancel_turn_with(false);
+    }
+
+    /// The same, told whether the keystroke has already written a call's own
+    /// `■ Cancelled …` line -- which is the turn's line too, so no second one
+    /// is written (`append_turn_cancellation`, `transcript/runtime.zig:
+    /// 5378-5383`).
+    ///
+    /// **A call that is still running is not settled by this keystroke**, and
+    /// that is the difference from upstream's `fx-interrupt-40x120-cmd-cc`,
+    /// where the command is killed at once. Here a running executor holds the
+    /// runtime's thread until it returns, so the stop is read only after the
+    /// command has finished (`super::worker`'s `raced_against_control` polls
+    /// the control channel beside the turn, not inside a tool). A `Cancelled`
+    /// row now would be the screen claiming a stop the command never had, and
+    /// so would the turn's line: both wait for the turn to end. The call's
+    /// real result settles its row, one the turn ends without is settled as
+    /// stopped with its own line ([`Mark::TurnOver`]), and the turn's line is
+    /// written then only when no call's line was ([`Self::cancel_owed`]). The
+    /// activity row stays while the command runs, because it does.
+    fn cancel_turn_with(&mut self, written: bool) {
+        // Read **before** the message goes out, because after it the runtime
+        // is dropping exactly these and the count is on its way to zero: what
+        // the user is owed a sentence about is what was waiting when they
+        // pressed the key.
+        let waiting = self.work.queued() > 0;
+        // Quoting what has been submitted **so far** is what keeps the drop
+        // from reaching past this keystroke: a prompt typed while this message
+        // is still in flight is a new intention, and the runtime is told
+        // exactly where the old ones stop.
+        self.work.control(TurnControl::Cancel {
+            through: self.work.accepted(),
+        });
+        self.forget_catalog_request();
+        // The turn this stops ends with no bell: the user is here, and
+        // upstream's turn-end cue is silent for an interrupted turn.
+        self.sound.interrupted();
+        self.cancelling = true;
+        self.abandon_answer();
+        self.retry = None;
+        if waiting {
+            self.prompts.clear();
+            // The waiting prompt's rows go with it.
+            self.refit();
         }
-        self.settle_band(now);
+        // A prompt the runtime took before it read this is still to say it
+        // started; with nothing waiting behind it, it is the only entry left.
+        self.cancel_covers = self.prompts.len();
+        if !written && self.group.running() {
+            self.cancel_owed = Some(waiting);
+            return;
+        }
+        self.activity.end();
+        if !written {
+            self.write_cancelled();
+        }
+        if waiting {
+            // The second half of the same answer to the same keystroke, and
+            // immediate for the same reason: "and the queue went with it" is
+            // only useful beside the line it qualifies. Upstream has no queue
+            // to drop; xfx's is its own, and so is this sentence.
+            self.write_notice(&notice::Notice::cancelled("queue", QUEUE_DROPPED));
+        }
+    }
+
+    /// Takes the answer off the screen's to-do list where it stands.
+    ///
+    /// Everything the pacer is still holding was never painted, and the line
+    /// the presenter is holding back for its end was never painted either --
+    /// upstream paints neither after a cancel (`fx-interrupt-40x120-mid` and
+    /// `-cc-0.3`: the un-ended words were not on the screen before the
+    /// keystroke and are not after it). Both go; the conversation keeps them,
+    /// because what the model is told is the runtime's record and not this
+    /// screen. The lines xfx placed *behind* that text -- a tool row, a notice
+    /// -- are not the answer's and are written now, at the point the stream
+    /// has been declared to have reached, rather than dropped with it.
+    fn abandon_answer(&mut self) {
+        self.pacer.forget();
+        self.emitted = self.enqueued;
+        // Before the marks, which close the answer as they run: closing it
+        // with the held line still in the presenter would paint that line.
+        self.markdown.reset();
+        self.run_due_marks();
+        self.close_prose();
+    }
+
+    /// Upstream's line for a cancelled turn (`writeTurnCancellation` and
+    /// `lifecycleTerminalLine`, `transcript/runtime.zig:633-680`, `:9951-9966`):
+    /// `■` in the warning grey, `Cancelled` in the hint grey, and the question
+    /// after it in the terminal's own colour -- with a blank row above and
+    /// below, as `fx-interrupt-40x120-cc-0.3` lays it out.
+    fn write_cancelled(&mut self) {
+        self.finish_document_line();
+        if self.transcript.queue_gutter(Gutter::None) {
+            self.owed();
+        }
+        if !self.transcript.ends_blank() {
+            self.end_transcript_line();
+        }
+        let line = cancelled_line(self.palette);
+        self.write_transcript_as(&line, Role::Plain);
+        self.end_transcript_line();
+        self.end_transcript_line();
     }
 
     /// Empties the composer, and with it the paste blocks its summaries named.
@@ -6054,7 +7713,13 @@ impl Shell {
         //
         // `Blank` still ends the walk, for the same reason recording one does:
         // the draft the walk was standing beside has been consumed.
-        if matches!(submitted, Submitted::Blank) {
+        //
+        // **Neither while the prompt history is off** (`/settings`): the line
+        // is kept nowhere, and the walk still ends, because the draft it stood
+        // beside has been consumed either way.
+        let saved = (!matches!(submitted, Submitted::Blank) && self.recall.enabled)
+            .then(|| self.saved_line(&text));
+        if saved.is_none() {
             self.history.leave();
         } else {
             // **With the blocks its summaries name.** An entry is the line as
@@ -6124,6 +7789,13 @@ impl Shell {
                 self.send(self.expanded_prompt(&text, prompt), &text);
             }
         }
+        // To the file after the line has been acted on, as upstream appends
+        // once the submission is through (`input_submit_runtime.zig:884-886`,
+        // `:1048-1053`): a warning that the save failed reads under what was
+        // sent, not above it.
+        if let Some(saved) = saved {
+            self.save_line(saved);
+        }
     }
 
     /// The prompt a draft really sends: its blocks put back, trimmed exactly
@@ -6161,6 +7833,12 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // Whether it will wait behind a turn that is running -- the turn the
+        // activity row is about, as upstream's steer waits on an active
+        // operation. Work the session has stopped or reset is not one: a
+        // prompt typed after it goes out as soon as that work unwinds, and its
+        // card is written at once, as it always was.
+        let waits = self.activity.working();
         match self.work.submit(TurnWork::Submit(prompt)) {
             Ok(()) => {
                 // Nothing is said about the turn here, and that is the point:
@@ -6173,8 +7851,15 @@ impl Shell {
                 self.edited(None);
                 let mut estimate = Estimator::default();
                 estimate.consume(text);
-                self.prompts.push_back((estimate.estimate(), title));
-                self.echo(text);
+                if waits {
+                    self.prompts
+                        .push_back((estimate.estimate(), title, Some(text.to_string())));
+                    self.refit();
+                    self.render.request(Reason::Footer);
+                } else {
+                    self.prompts.push_back((estimate.estimate(), title, None));
+                    self.echo(text);
+                }
                 self.gestures.submitted();
             }
             Err(rejected) => self.refused(rejected),
@@ -6386,6 +8071,7 @@ impl CommandHandlers for Shell {
         // The completion menu goes first: the two share the slot, and the
         // catalog is what the user asked for. So does the session picker.
         self.picker = None;
+        self.file_picker = None;
         self.sessions = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
@@ -6431,6 +8117,7 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.model_menu = None;
         self.provider_picker = None;
+        self.file_picker = None;
         self.sessions = Some(SessionPicker::open(self.editor.text()));
         self.refit();
         self.render.request(Reason::Modal);
@@ -6478,6 +8165,41 @@ impl CommandHandlers for Shell {
     /// are -- its own bytes are counted by the frame that delivers them.
     fn stats(&mut self) {
         self.announce(notice::Notice::neutral("stats", self.metrics.body()));
+    }
+
+    /// Upstream's `commandShowUsage` (`app_commands.zig:1024-1062`): the
+    /// menus that share the slot close and the dashboard opens on `30 days`
+    /// -- on the last read when there is one, else `Loading usage` -- and the
+    /// session logs are read again either way (`openUsageDashboard`,
+    /// `:1141-1155`). Nothing is written to the document.
+    fn usage(&mut self) {
+        self.picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.provider_picker = None;
+        self.statusline_menu = None;
+        let scope = crate::usage::Scope::Days30;
+        let cached = self
+            .usage_read
+            .as_ref()
+            .map(|(at_ms, ledger)| ledger.snapshot(scope, *at_ms));
+        self.usage_menu = Some(Dashboard::open(scope, cached));
+        self.read_usage(scope);
+        // [`Self::run_command`] re-solved the band before routing here, for a
+        // band with a composer in it.
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
+    /// on the runtime thread: the question opens a socket, and the thread that
+    /// holds the terminal waits on none. The answer is a notice when it comes
+    /// ([`UiEvent::Credits`]).
+    fn credits(&mut self) {
+        if let Err(rejected) = self.work.submit(TurnWork::Credits) {
+            self.refused(rejected);
+        }
     }
 
     /// Upstream's `* status: model=…` with one `key=value` row per fact under
@@ -6568,6 +8290,8 @@ impl CommandHandlers for Shell {
                     self.picker = None;
                     self.help_menu = None;
                     self.statusline_menu = None;
+                    self.settings_menu = None;
+                    self.usage_menu = None;
                     self.rule_confirm = Some(RuleConfirm::new(confirmation));
                     self.refit();
                     self.render.request(Reason::Modal);
@@ -6636,6 +8360,7 @@ impl CommandHandlers for Shell {
     fn statusline(&mut self, argument: &str) {
         if argument.is_empty() {
             self.picker = None;
+            self.file_picker = None;
             self.help_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
@@ -6649,6 +8374,34 @@ impl CommandHandlers for Shell {
             return;
         };
         self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
+    /// Upstream's `commandHandleSettings` (`app_commands.zig:2022-2041`):
+    /// bare, the menu opens on `All` with its first row marked, the composer
+    /// -- emptied by the submit that got here -- as its search, and the menus
+    /// that share its slot closed. With anything after it, the usage line as
+    /// an error with no topic, as upstream answers a word its argument form
+    /// does not know (`writeSettingsUsage`, `session_commands.zig:1129-1135`);
+    /// upstream's one argument, `startup-scrollback`, names a setting xfx does
+    /// not have, so the usage does not offer it.
+    fn settings(&mut self, argument: &str) {
+        if !argument.is_empty() {
+            self.write_notice(&notice::Notice::error("", interactive::SETTINGS_USAGE));
+            return;
+        }
+        self.picker = None;
+        self.help_menu = None;
+        self.sessions = None;
+        self.model_menu = None;
+        self.statusline_menu = None;
+        self.usage_menu = None;
+        self.provider_picker = None;
+        self.file_picker = None;
+        self.settings_menu = Some(SettingsMenu::open(self.editor.text()));
+        // [`Self::run_command`] re-solved the band before routing here, for a
+        // band with no menu in it.
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
@@ -6672,6 +8425,54 @@ impl CommandHandlers for Shell {
                 clipboard::TOPIC,
                 clipboard::COPY_FAILED,
             ));
+        }
+    }
+
+    /// Upstream's `commandUndoLast` (`app_commands.zig:1242-1290`): the
+    /// newest file change the conversation's tools made, taken back, and one
+    /// neutral `* undo: …` notice saying what became of it.
+    ///
+    /// **Handed to the runtime, as a control message** ([`TurnControl::Undo`]):
+    /// the journal is the conversation's and the conversation is that thread's,
+    /// and the restore is file I/O the thread holding the terminal does not
+    /// do. Never refused and never queued -- upstream never refuses it -- and
+    /// done at once between turns or the moment a running one is over. Nothing
+    /// is said here: the answer is the runtime's ([`UiEvent::Undone`]), because
+    /// only it knows which file, and whether it could be put back.
+    fn undo(&mut self) {
+        self.work.control(TurnControl::Undo);
+    }
+
+    /// Upstream's `handleTraceReport` (`app_commands.zig:624-660`): a private
+    /// report about this session, written to a file and the file put on the
+    /// clipboard ([`crate::trace`]).
+    ///
+    /// What only this thread knows is taken **now**, at the keystroke -- the
+    /// runtime's last publication, the screen, the writer's counters, the work
+    /// in hand and the full transcript -- and everything that waits is the
+    /// report's own thread's ([`super::trace`]). Like `/copy`, it is answered
+    /// at once mid-turn too, and the report says the turn was running.
+    ///
+    /// **No `Preparing trace...` first.** Upstream writes that notice and
+    /// replaces it in place with the outcome; this document is append-only,
+    /// so the outcome is the one notice written, when it is known -- the
+    /// screen upstream ends on.
+    fn trace(&mut self) {
+        let (status, facts) = self.work.trace_facts();
+        let (timeline, network) = self.full.traced(TRACE_COLS, self.palette);
+        let job = Job {
+            status,
+            facts,
+            effort: self.effort.label().to_string(),
+            cols: self.screen.1,
+            rows: self.screen.0,
+            metrics: self.metrics.body(),
+            outstanding: self.work.outstanding(),
+            timeline,
+            network,
+        };
+        if !self.traces.start(job) {
+            self.announce(notice::Notice::error("", crate::trace::UNAVAILABLE));
         }
     }
 
@@ -6754,7 +8555,15 @@ impl Shell {
         if !self.warning.active() || self.mode != PermissionMode::Yolo {
             return None;
         }
-        if self.slot().is_some() || self.modal() || self.notice.is_some() || self.escape_armed {
+        // Nor while an armed cue or the exit hint has the row: upstream's
+        // `dangerStatusText` is empty while any of them is (`:580`).
+        if self.slot().is_some()
+            || self.modal()
+            || self.notice.is_some()
+            || self.escape_armed
+            || self.interrupt_armed
+            || self.exit_armed
+        {
             return None;
         }
         // Nor while the other buffer owns the screen -- a question's review or
@@ -6832,6 +8641,7 @@ impl Shell {
         // The completion menu shares the slot, and the menu is what the user
         // asked for.
         self.picker = None;
+        self.file_picker = None;
         let note = (self.provider == ProviderId::Gateway)
             .then_some(self.gateway_note)
             .flatten();
@@ -6924,6 +8734,7 @@ impl Shell {
             picker: false,
             announced,
             next_turn: self.turn_pending(),
+            effort_only: false,
         });
     }
 
@@ -7019,6 +8830,7 @@ impl Shell {
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            effort_only: false,
         }))
     }
 
@@ -7112,6 +8924,12 @@ impl Shell {
         self.tally = Tally::default();
         self.activity.end();
         self.gestures.turn_ended();
+        // A cancel this session was waiting to hear the end of belongs to the
+        // conversation being dropped, and so does its line.
+        self.cancelling = false;
+        self.cancel_owed = None;
+        self.cancel_covers = 0;
+        self.retry = None;
         self.context_used = None;
         // The old screen's debts: the text the pacer holds, the lines placed
         // behind it, the answer block a cancelled turn left open, and -- once
@@ -7174,6 +8992,7 @@ impl Shell {
             | UiEvent::FullDetail(_)
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
+            | UiEvent::Retrying { .. }
             | UiEvent::Usage { .. } => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
@@ -7210,7 +9029,12 @@ impl Shell {
             // The fence itself, the runtime's own state, and a runtime that is
             // gone: shown as usual. A provider switch or a model change that
             // completed before the cancellation reached it really did happen.
+            // An undo the runtime did on the way past a reset: the file did
+            // change, or was refused, and saying nothing would make it a change
+            // nobody was told of.
             UiEvent::Fresh { .. }
+            | UiEvent::Credits(_)
+            | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
@@ -7369,6 +9193,7 @@ impl Shell {
         // `set_text` is the one whole-draft disposal that does not go through
         // [`Self::take_draft`], which is why the boundary is named here.
         self.edit_history.boundary();
+        self.recalled_slash = Trigger::of(self.editor.text()) == Some(Trigger::Slash);
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
         true
@@ -7388,6 +9213,7 @@ impl Shell {
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
         self.history.leave();
+        self.recalled_slash = false;
         self.edited(delta);
     }
 
@@ -7420,6 +9246,9 @@ impl Shell {
     /// re-solved: the rows it takes are rows of the band, so a geometry solved
     /// from the menu the last keystroke wanted would put the divider a row out.
     fn moved(&mut self) {
+        // Whatever this keystroke was, it was not the space typed straight
+        // after a completion -- that one never gets here.
+        self.separator = None;
         self.reconcile_picker();
         self.reconcile_column();
         self.refit();
@@ -7490,18 +9319,39 @@ impl Shell {
             Some(Slot::Column) => model_column::height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
             Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
+            Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
+            | Some(Slot::Settings(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
             | Some(Slot::Provider(_))
+            | Some(Slot::Files(_))
             | None => 0,
         };
+        let snapshot = self.settings_snapshot();
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Settings(menu)) => {
+                menu.height(&snapshot, rows, input_rows.saturating_sub(1))
+            }
             Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
+            }
+            // Upstream's budget for a list (`activeListPickerReservedRows`)
+            // leaves no room for a running turn's row, which xfx's band puts
+            // above the composer; on a screen that short the list gives way
+            // first, down to the one row it never goes below.
+            Some(Slot::Files(_)) => {
+                let room = rows
+                    .saturating_sub(
+                        input_rows
+                            .saturating_add(4)
+                            .saturating_add(u16::from(activity)),
+                    )
+                    .max(1);
+                FilePicker::height(rows, input_rows.saturating_sub(1)).min(room)
             }
             _ => fixed,
         };
@@ -7529,18 +9379,66 @@ impl Shell {
         // screen too short for all five -- with a turn's row above it, say --
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
-        if matches!(slot, Some(Slot::Statusline(_))) {
+        //
+        // `/usage`'s dashboard is the same kind of occupant, and gives up rows
+        // the same way (`composeConstrainedUsageRow`).
+        if matches!(slot, Some(Slot::Statusline(_)) | Some(Slot::Usage(_))) {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
                 .map(|geometry| geometry.floated(self.document_rows));
         }
+        // **A waiting prompt's rows, under the turn's own** -- only with the
+        // turn's row above them, which is the band they are a view of, and
+        // only when the screen holds them with the composer: a band that
+        // cannot is solved without them, and the hint row's `queued 1` is
+        // still the waiting prompt's sign.
+        let banner = if activity {
+            u16::try_from(self.banner_rows(cols).len()).unwrap_or(0)
+        } else {
+            0
+        };
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                (banner > 0)
+                    .then(|| {
+                        layout::solve_band_with_banner(
+                            rows,
+                            cols,
+                            input_rows,
+                            panel(input_rows),
+                            banner,
+                        )
+                    })
+                    .flatten()
+                    .or_else(|| {
+                        layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
+                    })
             })
             .map(|geometry| geometry.floated(self.document_rows))
+    }
+
+    /// The rows a waiting prompt is shown in, above the composer, without
+    /// their colour: `┋ ` and the prompt, at most two rows of it, broken at a
+    /// space and at its own line breaks, the last cut one cell short for `…`
+    /// when there is more (`steering_message_layout`,
+    /// `render_input.zig:518-577`; `composeSteeringMessageRows`,
+    /// `input_presentation.zig:58-80`).
+    fn banner_rows(&self, cols: u16) -> Vec<String> {
+        let width = usize::from(cols.saturating_sub(2)).max(1);
+        let mut rows = Vec::new();
+        for (_, _, card) in &self.prompts {
+            let Some(card) = card else {
+                continue;
+            };
+            rows.extend(
+                banner_layout(card, width)
+                    .into_iter()
+                    .map(|row| format!("{BANNER_MARK}{row}")),
+            );
+        }
+        rows
     }
 
     /// Whether this session's row numbers are claims about a screen that may
@@ -7986,7 +9884,12 @@ mod tests {
         let padding = usize::from(cols)
             - usize::from(super::super::wrap::width(IDLE_HINT))
             - usize::from(super::super::wrap::width(ESCAPE_ARMED));
-        format!("{IDLE_HINT}{}{ESCAPE_ARMED}", " ".repeat(padding))
+        format!(
+            "{IDLE_HINT}{}{}{}{ESCAPE_ARMED}",
+            " ".repeat(padding),
+            PALETTE.reset(),
+            PALETTE.dim()
+        )
     }
 
     /// One hint row, painted the way the band paints it.
@@ -8045,6 +9948,16 @@ mod tests {
     /// <body>`, and the blank row under it ([`Shell::write_notice`]).
     fn said(notice: notice::Notice) -> Vec<String> {
         vec![notice.text(), String::new()]
+    }
+
+    /// What a cancelled turn leaves in [`Fixture::document`] on a screen that
+    /// already ends on a blank row: upstream's line, and the blank row under
+    /// it ([`Shell::write_cancelled`]).
+    fn cancelled() -> Vec<String> {
+        vec![
+            "\u{25a0} Cancelled \u{b7} What can xfx do differently?".to_string(),
+            String::new(),
+        ]
     }
 
     /// What the echo of a submitted `text` leaves in [`Fixture::document`]:
@@ -9142,13 +11055,13 @@ mod tests {
         shell.route_bytes(&[0x0d]);
         assert_eq!(shell.picks_up(), TurnWork::Submit(second.clone()));
 
-        shell.route_bytes(&[0x10]); // C-p: the newest line
+        shell.route_bytes(b"\x1b[A"); // Up: the newest line
         assert_eq!(
             shell.editor.expanded(),
             second,
             "the newest line came back without the block its summary named"
         );
-        shell.route_bytes(&[0x10]); // C-p: the one before it
+        shell.route_bytes(b"\x1b[A"); // Up: the one before it
         assert_eq!(
             shell.editor.expanded(),
             first,
@@ -9427,24 +11340,28 @@ mod tests {
         submitted(&mut shell, "first line");
         submitted(&mut shell, "second line");
         submitted(&mut shell, "/help");
+        // The catalog `/help` opened takes the arrows, so it is closed first:
+        // the walk is the composer's.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"half typed");
         assert_eq!(shell.edit_depths(), (10, 0));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "/help");
         assert_eq!(
             shell.edit_depths(),
             (0, 0),
             "the recall left deltas naming a draft that is gone"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
             "second line",
             "the second step back handed the newest line over again: the \
              recall ended its own walk"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
             "first line",
@@ -9800,7 +11717,7 @@ mod tests {
         shell.route_bytes(&[0x0d]);
         assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
 
-        shell.route_bytes(&[0x10]); // C-p: one step back
+        shell.route_bytes(b"\x1b[A"); // Up: one step back
         assert_eq!(
             shell.editor.text(),
             "[Pasted text #2, 1 lines]",
@@ -9827,7 +11744,7 @@ mod tests {
         assert_eq!(shell.picks_up(), TurnWork::Submit(block));
 
         *shell.paste.ids() = u32::MAX;
-        shell.route_bytes(&[0x10]); // C-p
+        shell.route_bytes(b"\x1b[A"); // Up
         assert_eq!(
             shell.editor.text(),
             "[Pasted text #1, 1 lines]",
@@ -10598,7 +12515,9 @@ mod tests {
 
     /// How the interrupt's notice opens in the document: `⊘ turn: ` and the
     /// sentence after it.
-    const INTERRUPTED_ROW: &str = "\u{2298} turn: interrupted";
+    /// The turn's own `■ Cancelled` line (claim changed: this was the line
+    /// shell's interrupt notice, `⊘ turn: interrupted …`).
+    const INTERRUPTED_ROW: &str = "\u{25a0} Cancelled \u{b7} What can xfx do differently?";
 
     /// A tool call starting, as the runtime announces it: with the row its
     /// own spec gives it (`crate::tools::ToolSpec::shown`).
@@ -11275,14 +13194,12 @@ mod tests {
             "a second message went with it; the prompter answers the question \
              from the cancellation itself"
         );
-        // And the user was told, in the two sentences the interrupt is answered
-        // with wherever it is asked for.
+        // And the user was told, in the line upstream answers a cancelled
+        // turn with and the sentence about the queue (claim changed: the
+        // first was the line shell's interrupt notice).
         let said = shell.released();
         assert!(
-            said.contains(
-                &notice::Notice::cancelled("turn", unattributed(crate::app::INTERRUPT_NOTICE))
-                    .text()
-            ),
+            said.contains(&cancelled()[0]),
             "the interrupt landed silently: {said:?}"
         );
         assert!(
@@ -11293,6 +13210,12 @@ mod tests {
         assert!(
             !shell.leaving(),
             "one Escape at a question left the session"
+        );
+        // An answer to the question rather than half of a way out: upstream's
+        // `cancelApprovalOperation` arms no exit (`fx-approvals-cc-…-after-esc`).
+        assert!(
+            !shell.hint().contains(EXIT_ARMED),
+            "an Escape at a question armed the exit"
         );
     }
 
@@ -12522,9 +14445,12 @@ mod tests {
     #[test]
     fn a_ctrl_c_while_the_runtime_is_working_asks_it_to_stop_and_says_so() {
         // The cancellation goes out on the **control** channel, so it cannot
-        // queue behind the deltas it is trying to stop -- and the notice is the
-        // line shell's own, so the user watches the request land rather than
-        // inferring it from a stream that may not stop for a while.
+        // queue behind the deltas it is trying to stop -- and the document says
+        // so at once, in upstream's line for a cancelled turn, so the user
+        // watches the request land rather than inferring it from a stream that
+        // may not stop for a while. Claim changed: the document line was the
+        // line shell's interrupt notice; it is upstream's `■ Cancelled` line,
+        // and the promise about the next press moved to the hint row.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"stream something\r");
         let _taken = shell.picks_up();
@@ -12536,22 +14462,52 @@ mod tests {
             shell.control.try_recv(),
             Ok(TurnControl::Cancel { through: 1 })
         );
-        // The line shell's words, as a cancelled notice: the glyph says the
-        // sentence is xfx's, so its `xfx: ` comes off.
+        assert_eq!(shell.document(), cancelled());
         assert_eq!(
-            shell.document(),
-            said(notice::Notice::cancelled(
-                "turn",
-                "interrupted -- stopping the turn; another Ctrl-C before it stops exits."
-            ))
-        );
-        assert!(
-            crate::app::INTERRUPT_NOTICE.ends_with(
-                "interrupted -- stopping the turn; another Ctrl-C before it stops exits."
-            ),
-            "the two surfaces no longer say the same words"
+            shell.hint(),
+            EXIT_ARMED,
+            "the press that would leave was not announced"
         );
         assert!(!shell.leaving(), "one Ctrl-C ended the session");
+    }
+
+    #[test]
+    fn the_cancelled_line_is_upstreams_marker_word_and_question_in_upstreams_greys() {
+        // `fx-interrupt-40x120-cc-0.3.ansi`: `ESC[38;5;252m■ESC[39m
+        // ESC[38;5;255mCancelledESC[39m · What can fx do differently?` -- the
+        // marker in the warning grey, the word in the hint grey, the question
+        // in the terminal's own colour. tmux re-serializes resets as `39`;
+        // this crate writes `0`, the same pen.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"stream something\r");
+        let _taken = shell.picks_up();
+        let _ = shell.take_pending();
+
+        shell.route_bytes(&[0x03]);
+
+        let rows: Vec<String> = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                "\u{1b}[38;5;252m\u{25a0}\u{1b}[0m \u{1b}[38;5;255mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+                    .to_string(),
+                String::new(),
+            ]
+        );
+        // And in the light palette, the same roles at upstream's light greys
+        // (`theme.zig:122,129`).
+        let light = Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::Ansi256,
+        };
+        assert_eq!(
+            cancelled_line(light),
+            "\u{1b}[38;5;238m\u{25a0}\u{1b}[0m \u{1b}[38;5;235mCancelled\u{1b}[0m \u{b7} What can xfx do differently?"
+        );
     }
 
     #[test]
@@ -12574,14 +14530,12 @@ mod tests {
             Ok(TurnControl::Cancel { through: 2 }),
             "the interrupt did not reach back over both submissions"
         );
-        // Two notices, sharing the blank row between them.
+        // The cancelled line and the notice, sharing the blank row between
+        // them.
         assert_eq!(
             shell.document(),
             [
-                said(notice::Notice::cancelled(
-                    "turn",
-                    unattributed(crate::app::INTERRUPT_NOTICE)
-                )),
+                cancelled(),
                 said(notice::Notice::cancelled("queue", QUEUE_DROPPED)),
             ]
             .concat()
@@ -12600,51 +14554,760 @@ mod tests {
 
         shell.route_bytes(&[0x03]);
 
+        assert_eq!(shell.document(), cancelled());
+    }
+
+    #[test]
+    fn the_ctrl_c_that_stopped_a_turn_leaves_only_while_the_row_says_it_will() {
+        // Claim changed (was `a_turn_that_ended_takes_the_interrupt_that_
+        // stopped_it_with_it`). The intent is the same -- no Ctrl-C ends the
+        // session by surprise -- and what keeps it now is the hint row: the
+        // press that stopped the turn armed upstream's three-second exit and
+        // the row says `press ctrl+c again to exit` for exactly that long,
+        // whether or not the turn has concluded in between
+        // (`fx-interrupt-40x120-cc-1.5`). Inside it a press leaves; after it a
+        // press is a first press again.
+        let now = Instant::now();
+        let stopped = |shell: &mut Fixture| {
+            shell.consume(
+                b"first"
+                    .iter()
+                    .map(|b| Input::Text(char::from(*b)))
+                    .collect(),
+                now,
+            );
+            shell.consume(vec![Input::Action(Action::Submit)], now);
+            let _running = shell.picks_up();
+            shell.consume(vec![Input::Action(Action::Cancel)], now);
+            assert_eq!(
+                shell.control.try_recv(),
+                Ok(TurnControl::Cancel { through: 1 })
+            );
+            shell.apply(UiEvent::TurnEnded { failure: None });
+        };
+
+        let mut inside = shell(24, 80);
+        stopped(&mut inside);
+        inside.settle_band(now + EXIT_WINDOW - Duration::from_millis(1));
         assert_eq!(
-            shell.document(),
-            said(notice::Notice::cancelled(
-                "turn",
-                unattributed(crate::app::INTERRUPT_NOTICE)
-            ))
+            inside.band_rows().last().map(|row| uncoloured(row)),
+            Some(EXIT_ARMED.to_string()),
+            "the row stopped announcing the exit before the window closed"
+        );
+        inside.consume(
+            vec![Input::Action(Action::Cancel)],
+            now + EXIT_WINDOW - Duration::from_millis(1),
+        );
+        assert!(inside.leaving(), "a press the row announced did not leave");
+
+        let mut outside = shell(24, 80);
+        stopped(&mut outside);
+        outside.settle_band(now + EXIT_WINDOW);
+        assert_ne!(
+            outside.band_rows().last().map(|row| uncoloured(row)),
+            Some(EXIT_ARMED.to_string()),
+            "the row kept announcing an exit the next press would not make"
+        );
+        outside.consume(vec![Input::Action(Action::Cancel)], now + EXIT_WINDOW);
+        assert!(
+            !outside.leaving(),
+            "the session left on a press the row had stopped announcing"
+        );
+    }
+
+    /// A fixture with a turn the runtime has taken and started: `prompt`'s
+    /// card on the screen, the activity row up, and the document taken.
+    fn running(prompt: &str) -> Fixture {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(prompt.as_bytes());
+        shell.route_bytes(b"\r");
+        let _taken = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(Instant::now());
+        let _ = shell.take_pending();
+        shell
+    }
+
+    #[test]
+    fn a_double_escape_over_a_running_turn_stops_it_and_the_row_warns_in_between() {
+        // `fx-interrupt2-40x120-esc1`: `esc again to interrupt` flush with the
+        // last column; `-esc2`: the cancelled line, and the row the session's
+        // own again -- no exit armed by an Escape pair.
+        let mut shell = running("stream lines");
+        let now = Instant::now();
+
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        shell.settle_band(now);
+        assert_eq!(
+            shell.band_rows().last().map(|row| uncoloured(row)),
+            Some(format!(
+                "{IDLE_HINT}{}esc again to interrupt",
+                " ".repeat(
+                    80 - usize::from(super::super::wrap::width(IDLE_HINT))
+                        - "esc again to interrupt".len()
+                )
+            )),
+            "the second Escape's meaning was not announced"
+        );
+        assert_eq!(shell.controlled(), None, "one Escape stopped the turn");
+
+        let second = now + super::super::gesture::INTERRUPT_WINDOW;
+        shell.consume(vec![Input::Action(Action::Escape)], second);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        assert_eq!(shell.document(), cancelled());
+        shell.settle_band(second);
+        assert_eq!(
+            shell.band_rows().last().map(|row| uncoloured(row)),
+            Some(IDLE_HINT.to_string()),
+            "an Escape pair armed something on its way out"
+        );
+        assert_eq!(shell.activity_row, None, "the row stayed up under the line");
+    }
+
+    #[test]
+    fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed() {
+        // `fx-interrupt-40x120-esc1.ansi`: `…model-aESC[39m<spaces>ESC[38;5;245m
+        // esc again to interrupt` -- the row's run closed, the cue in
+        // `dim_style`. The same number as the row's grey in the dark palette,
+        // so the light one is where the role shows (`theme.zig:123,128`: 241
+        // for the row, 247 for the cue).
+        let light = Palette {
+            mode: super::super::theme::Mode::Light,
+            depth: super::super::theme::Depth::Ansi256,
+        };
+        let mut shell = shell_with(24, 80, light, false);
+        shell.escape_armed = true;
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to clear"),
+            "{row:?}"
+        );
+        assert!(row.starts_with("\u{1b}[38;5;241m"), "{row:?}");
+
+        shell.escape_armed = false;
+        shell.interrupt_armed = true;
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to interrupt"),
+            "{row:?}"
         );
     }
 
     #[test]
-    fn a_turn_that_ended_takes_the_interrupt_that_stopped_it_with_it() {
-        // The window this closes is small and entirely real: the runtime gives
-        // its place back **after** the terminal event (`super::worker`'s
-        // `turn_loop`), so for a moment the UI has been told the turn is over
-        // while the count still says something is in hand. A session that kept
-        // remembering the Ctrl-C that stopped that turn would read the next one
-        // -- a keystroke the user meant as "clear the prompt" -- as the second
-        // half of an exit, and leave with 130.
-        let mut shell = shell(24, 80);
-        shell.route_bytes(b"first\r");
-        let _running = shell.picks_up();
-        shell.route_bytes(&[0x03]);
+    fn the_interrupt_warning_gives_way_to_the_screen_rather_than_disappearing() {
+        // `input_presentation.zig:510-525`: the widest of three cues that fits
+        // beside the row, and the whole row when none does. The fixture's row
+        // is 32 cells, so the three cues fit strictly beside it below 55, 50
+        // and 40 columns.
+        let mut shell = running("stream lines");
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        assert_eq!(super::super::wrap::width(IDLE_HINT), 32);
+        for (cols, expected) in [
+            (55u16, "esc again to interrupt"),
+            (54, "esc esc interrupt"),
+            (50, "esc esc interrupt"),
+            (49, "esc esc"),
+            (40, "esc esc"),
+            (39, "esc esc to interrupt"),
+        ] {
+            shell.resize(24, cols);
+            shell.settle_band(now);
+            let row = uncoloured(shell.band_rows().last().expect("a hint row"));
+            assert!(
+                row.ends_with(expected),
+                "{cols} columns: {row:?} does not end with {expected:?}"
+            );
+            assert!(
+                usize::from(super::super::wrap::width(&row)) <= usize::from(cols),
+                "{cols} columns: the row overran the screen: {row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_ctrl_c_over_a_running_turn_takes_the_draft_first_and_nothing_else() {
+        // `fx-interrupt2-40x120-draft-cc`: the draft goes, the answer goes on,
+        // the row is the session's; `-draft-cc2`: the next press stops the
+        // turn and arms the exit.
+        let mut shell = running("stream words");
+        let now = Instant::now();
+        shell.consume("draft text".chars().map(Input::Text).collect(), now);
+
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert!(shell.editor.is_empty(), "the draft survived");
+        assert_eq!(shell.controlled(), None, "the turn was stopped as well");
+        shell.settle_band(now);
         assert_eq!(
-            shell.control.try_recv(),
-            Ok(TurnControl::Cancel { through: 1 })
+            shell.band_rows().last().map(|row| uncoloured(row)),
+            Some(IDLE_HINT.to_string()),
+            "clearing a draft armed the exit"
+        );
+        assert!(shell.activity_row.is_some(), "the turn's row went");
+
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert_eq!(shell.controlled(), Some(TurnControl::Cancel { through: 1 }));
+        assert_eq!(shell.document(), cancelled());
+        assert_eq!(shell.hint(), EXIT_ARMED);
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn an_idle_ctrl_c_says_the_next_one_leaves_and_the_row_comes_back_after() {
+        // `fx-interrupt-40x120-idle-cc` and `-idle-cc-expired`, and the e2e
+        // claim behind them (`tui-keybindings.test.ts:35-47`).
+        let mut shell = shell(24, 80);
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert_eq!(
+            row,
+            format!("{}{EXIT_ARMED}{}", PALETTE.statusline(), PALETTE.reset()),
+            "the exit hint is upstream's statusline grey, whole row"
+        );
+        shell.settle_band(now + EXIT_WINDOW);
+        assert_eq!(
+            shell.band_rows().last().map(|row| uncoloured(row)),
+            Some(IDLE_HINT.to_string())
+        );
+        assert!(!shell.leaving());
+    }
+
+    #[test]
+    fn any_other_key_takes_the_exit_back() {
+        // `disarmCtrlCExit` on every byte but `0x03`: a user who pressed
+        // Ctrl-C and went on typing is not half way out of the session.
+        let mut shell = shell(24, 80);
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.consume(vec![Input::Text('a')], now);
+        shell.settle_band(now);
+        assert_eq!(
+            shell.band_rows().last().map(|row| uncoloured(row)),
+            Some(IDLE_HINT.to_string()),
+            "a typed character left the exit armed"
+        );
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        assert!(!shell.leaving(), "the press after typing left");
+        assert!(shell.editor.is_empty(), "and it did not clear the draft");
+    }
+
+    #[test]
+    fn the_catalog_says_the_next_ctrl_c_leaves_in_place_of_its_keys() {
+        // `composeHelpMenuHintRow` (`input_presentation.zig:696-703`) and
+        // `receipts/c1/fx-help-40x120-ctrl-c`: the catalog stays up, and its
+        // key help gives way to the warning in the statusline grey.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/help\r");
+        assert!(shell.help_menu.is_some(), "the catalog did not open");
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.settle_band(now);
+        assert!(
+            shell.help_menu.is_some(),
+            "a first Ctrl-C closed the catalog"
+        );
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{EXIT_ARMED}{}",
+                PALETTE.statusline(),
+                PALETTE.reset()
+            ))
+        );
+        shell.settle_band(now + EXIT_WINDOW);
+        assert_eq!(
+            shell.band_rows().last().cloned(),
+            Some(format!(
+                "{}{}{}",
+                PALETTE.dim(),
+                help_menu::key_help(120),
+                PALETTE.reset()
+            )),
+            "the catalog's keys did not come back with the window"
+        );
+    }
+
+    #[test]
+    fn ctrl_d_is_not_an_exit_while_a_turn_is_running() {
+        // `handleSemanticCtrlD`, `app_input_runtime.zig:1750`: ignored while
+        // an answer streams -- and a turn the user has stopped is not one.
+        let mut shell = running("stream please");
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Eof)], now);
+        assert!(!shell.leaving(), "Ctrl-D ended a session mid-answer");
+
+        shell.consume(vec![Input::Action(Action::Cancel)], now);
+        shell.consume(vec![Input::Action(Action::Eof)], now);
+        assert!(
+            shell.leaving(),
+            "Ctrl-D did not leave after the turn was stopped"
+        );
+        assert_eq!(
+            format!("{:?}", shell.exit_code()),
+            format!("{:?}", ExitCode::SUCCESS),
+            "a Ctrl-D exit is a finished session, not an interrupted one"
+        );
+    }
+
+    #[test]
+    fn what_a_cancelled_turn_was_still_saying_never_reaches_the_screen() {
+        // Upstream paints nothing of an answer after the cancel
+        // (`fx-interrupt-40x120-cc-0.3`, `fx-interrupt2-40x120-esc2`): not the
+        // line it had not finished, not the text still being released, not the
+        // deltas still crossing the channel -- and the conclusion that follows
+        // adds no summary and no `✗ system:` for a failure the user asked for.
+        let mut shell = running("stream please");
+        shell.apply(UiEvent::Delta("a whole line\n".to_string()));
+        shell.flush_paced();
+        let shown = shell.document();
+        assert!(
+            shown.iter().any(|row| row.contains("a whole line")),
+            "{shown:?}"
+        );
+        shell.apply(UiEvent::Delta("MARKER-HEAD word0 word1 ".to_string()));
+        shell.settle_band(Instant::now());
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::Delta("word2 MARKER-TAIL".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the turn was cancelled".to_string()),
+        });
+
+        let after = shell.released();
+        let text = after.join("\n");
+        assert!(
+            !text.contains("MARKER"),
+            "the stopped answer was painted: {after:?}"
+        );
+        assert!(
+            !text.contains("system"),
+            "the cancel was reported as a failure: {after:?}"
+        );
+        assert_eq!(
+            after.iter().filter(|row| row.contains("Cancelled")).count(),
+            1,
+            "{after:?}"
+        );
+        assert!(
+            !after.iter().any(|row| row.trim_start().starts_with("0s")),
+            "a summary was written under a cut-off answer: {after:?}"
+        );
+    }
+
+    #[test]
+    fn the_answer_after_a_cancelled_one_is_painted() {
+        // The silence is the cancelled turn's and nothing else's: a prompt the
+        // user sends next is answered on the screen, even when the runtime
+        // never concluded the turn the cancel was aimed at.
+        let mut shell = running("first");
+        shell.route_bytes(&[0x03]);
+        shell.route_bytes(b"second\r");
+        let _second = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        let shown = shell.released();
+        assert!(
+            shown.iter().any(|row| row.contains("MARKER-SECOND")),
+            "{shown:?}"
+        );
+    }
+
+    #[test]
+    fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down() {
+        // `fx-retry-40x120-r0.6`: the row, whole, in the warning grey, no
+        // marker; `-r1.3`: the count gone once the attempt is under way;
+        // `-r2.0`: the answer, and the row the turn's own again.
+        let mut shell = running("try it");
+        // The capture's width: at 80 columns the label is cut, as upstream's is.
+        shell.resize(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Retrying {
+            cause: "Provider unavailable",
+            diagnostic: "HTTP 500 \u{b7} server_error: upstream exploded".to_string(),
+            delay: Duration::from_millis(250),
+        });
+        shell.settle_band(now);
+        let label = "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream exploded \u{b7} retrying request";
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(format!("{}{label} in 1s{}", PALETTE.warning(), PALETTE.reset()).as_str())
+        );
+        assert_eq!(PALETTE.warning(), "\u{1b}[38;5;252m");
+        shell.settle_band(now + Duration::from_secs(1));
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()).as_str())
         );
 
-        // The turn concludes. Nothing is submitted in between -- that is the
-        // whole point: a later submission would reset the gesture by itself and
-        // this claim would be about `submitted` rather than about the boundary.
-        shell.apply(UiEvent::TurnEnded { failure: None });
-        let _ = shell.document();
+        shell.apply(UiEvent::Delta("Recovered answer.".to_string()));
+        shell.settle_band(now + Duration::from_secs(1));
+        let row = shell.activity_row.clone().expect("the turn's row");
+        assert!(
+            uncoloured(&row).contains("Generating"),
+            "the retry outlived the answer that ended it: {row:?}"
+        );
+    }
+
+    #[test]
+    fn a_retry_leaves_upstreams_recovery_record_on_the_full_transcript_only() {
+        // `recordRouteRecoveryNotice` (`app_worker_runtime.zig:92-133`,
+        // `visibility = .full_only`): a recovery record in the warning tone --
+        // upstream's `!` (`types.zig:53`) -- with the label and the facts
+        // behind it, on the Ctrl-O screen and not in the document.
+        let mut shell = running("try it");
+        shell.resize(40, 120);
+        let before = shell.written();
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 500,
+            body: r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#.to_string(),
+            retryable: true,
+            retry_after: None,
+        };
+        shell.apply(UiEvent::FullDetail(
+            crate::tui::retry::Retried::of(&error, Duration::from_secs(1)).record(1, 3),
+        ));
+        assert_eq!(shell.written(), before, "the document was given the record");
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let at = screen
+            .iter()
+            .position(|row| row.starts_with("! recovery: "))
+            .unwrap_or_else(|| panic!("no recovery record: {screen:#?}"));
+        assert!(
+            screen[at - 1].ends_with(" UTC \u{b7} Notice"),
+            "{screen:#?}"
+        );
+        // Wrapped at the screen's width, two columns in.
+        assert_eq!(
+            screen[at..at + 3],
+            [
+                "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
+                 upstream exploded \u{b7} retrying request in 1s",
+                "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                "  upstream exploded",
+            ],
+            "{screen:#?}"
+        );
+    }
+
+    #[test]
+    fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
+        let mut shell = running("try it");
+        shell.resize(24, 40);
+        shell.apply(UiEvent::Retrying {
+            cause: "Provider unavailable",
+            diagnostic: "HTTP 500: unexpected request".to_string(),
+            delay: Duration::from_secs(2),
+        });
+        shell.settle_band(Instant::now());
+        let row = shell.activity_row.clone().expect("a row");
+        assert!(row.ends_with(PALETTE.reset()), "{row:?}");
+        assert_eq!(super::super::wrap::width(&row), 40, "{row:?}");
+    }
+
+    #[test]
+    fn a_retry_goes_with_the_turn_and_never_outlives_a_cancel() {
+        let now = Instant::now();
+        let retrying = || UiEvent::Retrying {
+            cause: "Rate limited",
+            diagnostic: "HTTP 429".to_string(),
+            delay: Duration::from_secs(5),
+        };
+        // The turn failed for good: the reason is in the document, the row is
+        // gone with the turn.
+        let mut ended = running("try it");
+        ended.apply(retrying());
+        ended.apply(UiEvent::TurnEnded {
+            failure: Some("xfx: the Gateway returned HTTP 429".to_string()),
+        });
+        ended.settle_band(now);
+        assert_eq!(ended.activity_row, None);
+
+        // Stopped by the user: no retry row comes back under the line, even
+        // from an event that was already crossing the channel.
+        let mut stopped = running("try it");
+        stopped.apply(retrying());
+        stopped.route_bytes(&[0x03]);
+        stopped.apply(retrying());
+        stopped.settle_band(now);
+        assert_eq!(stopped.activity_row, None);
+        assert_eq!(stopped.document(), cancelled());
+    }
+
+    #[test]
+    fn a_ctrl_c_at_a_models_question_leaves_only_the_questions_cancelled_line() {
+        // `cancelQuestionPrompt` (`input_question_runtime.zig:59-80`) and
+        // `receipts/f3/fx-question-…-q2-esc`: the question's `■ Cancelled` is
+        // the turn's line; no second line and no exit armed follow it.
+        let mut shell = running("ask me");
+        shell.apply(UiEvent::Question(QuestionRequest {
+            id: QuestionId(7),
+            entries: vec![QuestionEntry {
+                question: "Which database?".to_string(),
+                options: vec![
+                    QuestionOption {
+                        label: "Postgres".to_string(),
+                        description: None,
+                    },
+                    QuestionOption {
+                        label: "SQLite".to_string(),
+                        description: None,
+                    },
+                ],
+            }],
+        }));
+        shell.settle_band(Instant::now());
+        let _ = shell.released();
 
         shell.route_bytes(&[0x03]);
 
         assert!(
-            !shell.leaving(),
-            "the session left on the first Ctrl-C after a turn ended, because \
-             it still remembered the one that stopped that turn"
+            matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
+            "the turn was not stopped"
         );
+        let written = shell.released();
         assert_eq!(
-            shell.control.try_recv(),
-            Ok(TurnControl::Cancel { through: 1 }),
-            "the keystroke did nothing at all"
+            written
+                .iter()
+                .filter(|row| row.contains("Cancelled"))
+                .count(),
+            1,
+            "{written:#?}"
         );
+        assert!(
+            !written.iter().any(|row| row.contains("What can xfx")),
+            "the turn's own line followed the question's: {written:#?}"
+        );
+        assert!(
+            !shell.hint().contains(EXIT_ARMED),
+            "a Ctrl-C at a question armed the exit"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_waits_for_a_running_call_survives_a_prompt_typed_meanwhile() {
+        // The command holds the turn until it returns, so the turn's line
+        // waits for the turn's end -- and a prompt typed while it waits is
+        // queued behind it, not a reason to forget the line.
+        let mut shell = running("run it");
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 30"}),
+        ));
+        shell.route_bytes(&[0x03]);
+        assert!(
+            shell.activity_row.is_some(),
+            "the row went while the command still runs"
+        );
+        shell.route_bytes(b"second\r");
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::Delta("MARKER-STOPPED\n".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let written = shell.released();
+        let text = written.join("\n");
+        assert!(!text.contains("MARKER-STOPPED"), "{written:#?}");
+        assert!(!text.contains("system"), "{written:#?}");
+        let line = text
+            .find("\u{25a0} Cancelled \u{b7} What can xfx")
+            .expect("the turn's line");
+        let second = text.find("MARKER-SECOND").expect("the next answer");
+        assert!(line < second, "{written:#?}");
+    }
+
+    #[test]
+    fn a_prompt_the_cancel_dropped_before_it_started_does_not_silence_the_next() {
+        // The runtime reads a cancellation before it takes the next item
+        // (`super::worker`'s `turn_loop`, `biased`), so a prompt submitted
+        // and not yet started can be dropped without ever saying it started.
+        // Once no place is held, nothing about the cancelled work is coming.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        let _taken = shell.picks_up();
+        shell.route_bytes(&[0x03]);
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        // Dropped at the top of the runtime's loop: its place goes back, and
+        // no `TurnStarted` or conclusion is ever sent for it.
+        shell.work.give_back();
+        shell.settle_band(Instant::now());
+
+        shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        let written = shell.released();
+        assert!(
+            written.iter().any(|row| row.contains("MARKER-SECOND")),
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_that_landed_after_its_turn_ended_does_not_silence_the_next() {
+        // The runtime gives its place back after the conclusion, so a press in
+        // between is answered as a cancel no conclusion will follow.
+        let mut shell = running("first");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.route_bytes(&[0x03]);
+        assert!(
+            matches!(shell.controlled(), Some(TurnControl::Cancel { .. })),
+            "the press was not answered from the running column"
+        );
+        shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        let written = shell.released();
+        assert!(
+            written.iter().any(|row| row.contains("MARKER-SECOND")),
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_prompt_typed_while_an_answer_streams_waits_in_the_band_and_never_splits_its_line() {
+        // `fx-steer-40x120-steer-tool`: the prompt typed while a turn runs is
+        // the band's dim `┋ change tone` row, between the activity row and
+        // the composer with a blank row either side, and its card is written
+        // when it is delivered (`steer-done`), never in the middle of the
+        // answer it was typed under. A card written at the keystroke would
+        // finish the presenter (`Self::run_mark`) and cut the line it is
+        // still holding in two.
+        let mut shell = running("first");
+        let now = Instant::now();
+        shell.apply(UiEvent::Delta("half of a line ".to_string()));
+        shell.settle_band(now + Duration::from_secs(5));
+
+        shell.route_bytes(b"second\r");
+        assert!(
+            matches!(shell.picks_up(), TurnWork::Submit(prompt) if prompt == "second"),
+            "the prompt was not queued"
+        );
+        shell.settle_band(now + Duration::from_secs(5));
+        let band = uncoloured_rows(&shell.band_rows());
+        let steer = band
+            .iter()
+            .position(|row| row == "\u{250b} second")
+            .unwrap_or_else(|| panic!("no waiting row in the band: {band:#?}"));
+        assert_eq!(band[steer - 1], "", "{band:#?}");
+        assert_eq!(band[steer + 1], "", "{band:#?}");
+        assert!(band[steer + 2].starts_with(RAIL), "{band:#?}");
+        assert!(
+            band[..steer - 1]
+                .iter()
+                .any(|row| row.contains("Generating")),
+            "{band:#?}"
+        );
+        let painted = shell.band_rows()[steer].clone();
+        assert_eq!(
+            painted,
+            format!("{}\u{250b} second{}", PALETTE.dim(), PALETTE.reset())
+        );
+
+        shell.apply(UiEvent::Delta("and the rest\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-SECOND\n".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let written = shell.released();
+        assert!(
+            written
+                .iter()
+                .any(|row| row == "  half of a line and the rest"),
+            "the held line was split: {written:#?}"
+        );
+        let card = written
+            .iter()
+            .position(|row| row.contains("second") && row.starts_with(RAIL))
+            .unwrap_or_else(|| panic!("no card: {written:#?}"));
+        let answer = written
+            .iter()
+            .position(|row| row.contains("and the rest"))
+            .expect("the answer");
+        let marker = written
+            .iter()
+            .position(|row| row.contains("MARKER-SECOND"))
+            .expect("the second answer");
+        assert!(answer < card && card < marker, "{written:#?}");
+        shell.settle_band(now + Duration::from_secs(6));
+        assert!(
+            !uncoloured_rows(&shell.band_rows())
+                .iter()
+                .any(|row| row.starts_with('\u{250b}')),
+            "the waiting row outlived its delivery"
+        );
+    }
+
+    #[test]
+    fn a_long_waiting_prompt_takes_two_rows_and_ends_in_an_ellipsis() {
+        // `steering_message_layout` (`render_input.zig:518-577`): at most two
+        // rows, broken at a space, the last cut one cell short for `…`.
+        let mut shell = running("first");
+        shell.resize(24, 40);
+        let now = Instant::now();
+        shell.route_bytes(
+            b"one two three four five six seven eight nine ten eleven twelve thirteen fourteen\r",
+        );
+        shell.settle_band(now);
+        let band = uncoloured_rows(&shell.band_rows());
+        let rows: Vec<&String> = band
+            .iter()
+            .filter(|row| row.starts_with('\u{250b}'))
+            .collect();
+        assert_eq!(rows.len(), 2, "{band:#?}");
+        assert_eq!(rows[0], "\u{250b} one two three four five six seven");
+        assert!(rows[1].ends_with('\u{2026}'), "{band:#?}");
+        assert!(
+            rows.iter().all(|row| super::super::wrap::width(row) <= 40),
+            "{band:#?}"
+        );
+    }
+
+    #[test]
+    fn a_cancel_drops_the_waiting_prompt_and_its_row() {
+        let mut shell = running("first");
+        shell.route_bytes(b"second\r");
+        shell.settle_band(Instant::now());
+        assert!(uncoloured_rows(&shell.band_rows())
+            .iter()
+            .any(|row| row == "\u{250b} second"));
+        shell.route_bytes(&[0x03]);
+        shell.settle_band(Instant::now());
+        assert!(
+            !uncoloured_rows(&shell.band_rows())
+                .iter()
+                .any(|row| row.starts_with('\u{250b}')),
+            "the dropped prompt is still shown waiting"
+        );
+        assert!(
+            !shell.released().iter().any(|row| row.contains("second")),
+            "the dropped prompt's card was written"
+        );
+    }
+
+    #[test]
+    fn an_escape_at_an_empty_composer_does_not_warn_about_a_clear() {
+        // `app_input_runtime.zig:3210-3213`: fx disarms; nothing is cleared,
+        // so nothing is announced.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.hint(), IDLE_HINT, "an empty composer armed the clear");
     }
 
     #[test]
@@ -12863,6 +15526,24 @@ mod tests {
                     "/resume wrote to the document: {document:?}"
                 );
                 assert_eq!(shell.picks_up(), TurnWork::Sessions);
+            } else if *name == "/usage" {
+                // The dashboard, in the band, in place of the composer
+                // (`fx-usage-40x120-empty`).
+                assert!(shell.usage_menu.is_some(), "/usage opened no dashboard");
+                assert!(
+                    document.is_empty(),
+                    "/usage wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/credits" {
+                // Asked of the runtime, which answers with the notice; the
+                // UI thread waits on no socket.
+                assert_eq!(shell.picks_up(), TurnWork::Credits);
+                assert!(
+                    document.is_empty(),
+                    "/credits answered before it was asked: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/statusline" {
                 assert!(
                     shell.statusline_menu.is_some(),
@@ -12871,6 +15552,33 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/settings" {
+                assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+                assert!(
+                    document.is_empty(),
+                    "/settings wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/undo" {
+                // The runtime's to answer: the journal is the conversation's
+                // and the conversation is on that thread
+                // ([`UiEvent::Undone`]). Nothing is said here first.
+                assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+                assert!(
+                    document.is_empty(),
+                    "/undo answered before the runtime did: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/trace" {
+                // Answered when its own thread is done (`super::trace`), and a
+                // case's shell has nowhere to write a report: upstream's
+                // sentence for that, with no topic.
+                assert!(document.is_empty(), "/trace answered before it ran");
+                assert_eq!(
+                    copy_settled(&mut shell),
+                    said(notice::Notice::error("", crate::trace::UNAVAILABLE))
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
@@ -12942,8 +15650,8 @@ mod tests {
         );
     }
 
-    /// Turns the loop until a `/copy` that is running on its own thread has
-    /// said how it went, and hands back what the document gained.
+    /// Turns the loop until a `/copy` or a `/trace` that is running on its own
+    /// thread has said how it went, and hands back what the document gained.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
         let deadline = Instant::now() + std::time::Duration::from_secs(10);
         loop {
@@ -13082,6 +15790,195 @@ mod tests {
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
         assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    // -----------------------------------------------------------------------
+    // /trace
+    // -----------------------------------------------------------------------
+
+    /// The one report written under `dir`, its path and what it says.
+    fn the_report(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+        let written: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+            .expect("the report directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        assert_eq!(written.len(), 1, "not one report: {written:?}");
+        let report = std::fs::read_to_string(&written[0]).expect("the report");
+        (written[0].clone(), report)
+    }
+
+    /// What `/trace` says once its report is written: copied on macOS, where
+    /// the fake `osascript` took it, and saved everywhere else.
+    fn traced(path: &std::path::Path) -> Vec<String> {
+        let done = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path.to_path_buf())
+        } else {
+            crate::trace::Disposition::Saved(path.to_path_buf())
+        };
+        said(notice::Notice::neutral("", done.sentence()))
+    }
+
+    #[test]
+    fn trace_writes_what_the_screen_was_given_into_a_private_file_and_says_so() {
+        // `fx-trace-40x120-after-turn`: `* Trace copied to clipboard. Review
+        // and redact it before sharing.` -- no topic, no echo of `/trace` --
+        // and a report under `$TMPDIR` holding the conversation as the screen
+        // showed it (`writeTranscriptTimeline`, `app_commands.zig:3475`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(40, 120);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        a_turn_that_ran_a_command(&mut shell);
+        // The runtime gives the turn's place back once it is over.
+        shell.work.give_back();
+        shell.route_bytes(b"/notacommand\r");
+        shell.apply(UiEvent::FullDetail(notice::Notice::warning(
+            "network",
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} 9ms\nfailed: unauthorized",
+        )));
+        let _ = shell.document();
+
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, report) = the_report(dir.path());
+        assert_eq!(document, traced(&path));
+        assert!(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("xfx-trace-") && name.ends_with(".md")),
+            "{path:?}"
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "the report is readable by others: {mode:o}"
+            );
+        }
+        if cfg!(target_os = "macos") {
+            assert_eq!(tool.copied_file().as_deref(), path.to_str());
+        }
+        assert_eq!(tool.copied(), None, "the report was copied as text");
+        for needle in [
+            "\n## Transcript Timeline\nansi stripped; only obvious secrets masked\n",
+            "] user\n  run the loop\n",
+            "] tool\n",
+            "boom",
+            "] assistant\n  All done.\n",
+            "] semantic notice\n  \u{2717} command: Unknown command. Try /help.\n",
+            "- notice [",
+            "] \u{2717} command: Unknown command. Try /help.\n",
+            "\n## Network Calls\ncalls=1 ok=0 refused=1\n",
+            "- network [",
+            "failed: unauthorized\n",
+            "terminal: 120 cols x 40 rows\n",
+            "work: outstanding=0 queued=0\n",
+            "\nmetrics: ansi_bytes=",
+        ] {
+            assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+        }
+        assert!(shell.sent.try_recv().is_err(), "/trace reached the runtime");
+    }
+
+    #[test]
+    fn trace_masks_what_looks_like_a_secret_in_what_the_screen_was_given() {
+        let dir = tempfile::tempdir().expect("a report directory");
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"deploy it with PASSWORD=hunter2-not-for-the-report\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let _ = shell.document();
+        shell.route_bytes(b"/trace\r");
+        let _ = copy_settled(&mut shell);
+        let (_, report) = the_report(dir.path());
+        assert!(
+            report.contains("deploy it with PASSWORD=[redacted]"),
+            "{report}"
+        );
+        assert!(!report.contains("hunter2"), "{report}");
+    }
+
+    #[test]
+    fn trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error() {
+        // `format_trace_notice`'s `copy_failed` (`app_commands.zig:85`) on
+        // macOS, where a file copy was tried; everywhere else nothing is tried
+        // and the report is `saved`, as upstream's e2e splits it
+        // (`tui-command-permissions.test.ts:1722-1726`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let dir = tempfile::tempdir().expect("a report directory");
+        // Wide enough that the sentence and the path it names are one row.
+        let mut shell = shell(24, 250);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, _) = the_report(dir.path());
+        let expected = if cfg!(target_os = "macos") {
+            said(notice::Notice::error(
+                "",
+                crate::trace::Disposition::CopyFailed(path).sentence(),
+            ))
+        } else {
+            traced(&path)
+        };
+        assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn trace_takes_no_argument() {
+        // `commands.zig:486` has no `has_args`: `/trace now` names no command.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"/trace now\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "`/trace now` wrote a report"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "`/trace now` reached the runtime"
+        );
+    }
+
+    #[test]
+    fn trace_mid_turn_is_answered_at_once_and_says_the_turn_was_running() {
+        // Upstream's report notes a turn it was taken during
+        // (`writeProblemsSummary`, `app_commands.zig:2580-2585`), and the
+        // report is not work: it neither waits behind the turn nor queues.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"first\r");
+        let _ = shell.document();
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, report) = the_report(dir.path());
+        assert_eq!(document, traced(&path));
+        assert!(
+            report.contains(
+                "- report captured an active turn; the session log may end mid-turn \
+                 outstanding=1 queued=0\n"
+            ),
+            "{report}"
+        );
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/trace reached the runtime");
     }
 
     // -----------------------------------------------------------------------
@@ -15162,6 +18059,41 @@ mod tests {
     }
 
     #[test]
+    fn the_page_keys_and_ctrl_j_k_move_the_resume_pickers_mark_and_stop_at_the_ends() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.work.give_back();
+        let session = |id: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(format!("question {id}")),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![session("c"), session("b"), session("a")],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        let marked = |shell: &Fixture| shell.sessions.as_ref().and_then(SessionPicker::selected);
+        assert_eq!(marked(&shell).as_deref(), Some("c"));
+        // A page is the composer's row cap -- more than three rows on a
+        // 40-row screen -- so PgDn stops on the last session, not past it.
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(marked(&shell).as_deref(), Some("a"));
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(marked(&shell).as_deref(), Some("c"));
+        // C-j and C-k are Down and Up here, not a newline and a kill.
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(marked(&shell).as_deref(), Some("b"));
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(marked(&shell).as_deref(), Some("c"));
+        assert!(shell.editor.is_empty(), "a key reached the search");
+    }
+
+    #[test]
     fn a_resume_with_nothing_searched_gives_the_band_its_rows_back() {
         use super::super::session_picker::{ListedSession, Listing};
         let mut shell = shell(40, 120);
@@ -15407,6 +18339,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn: false,
+                effort_only: false,
             },
             "the model change never reached the thread that owns the session log"
         );
@@ -15577,6 +18510,7 @@ mod tests {
                 picker: false,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -15768,6 +18702,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -16171,6 +19106,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             }
         );
         assert_eq!(
@@ -16324,6 +19260,54 @@ mod tests {
     }
 
     #[test]
+    fn a_ctrl_p_draft_stays_lent_through_the_effort_column_and_comes_back_when_it_ends() {
+        // `submitModelMenuSelection` keeps the stash while the column borrows
+        // the composer, and `settleModelPickerDraft` hands it back once
+        // neither the menu nor the column has it
+        // (`app_input_runtime.zig:2388-2404`, `:2775-2779`).
+        //
+        // Escape puts the column away: the draft comes back.
+        let mut shell = harness_shell();
+        shell.route_bytes(b"half a thought");
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_some());
+        shell.route_bytes(b"\x1b[B\r");
+        assert_eq!(shell.editor.text(), "/model anthropic/claude-opus-5 ");
+        assert_eq!(column(&shell)[0], format!("{}default", " ".repeat(33)));
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert_eq!(shell.editor.text(), "half a thought");
+        assert!(shell.controlled().is_none(), "a model was applied");
+
+        // A level chosen: the change is made, and the draft comes back.
+        let mut shell = harness_shell();
+        shell.route_bytes(b"half a thought");
+        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[B\r");
+        shell.route_bytes(b"\x1b[B\r");
+        let made = change(&mut shell);
+        assert_eq!(made.name, "anthropic/claude-opus-5");
+        assert_eq!(shell.editor.text(), "half a thought");
+
+        // A second C-p, a Ctrl-C and a Ctrl-D back out of the column as they
+        // do out of the menu.
+        for key in [0x10u8, 0x03, 0x04] {
+            let mut shell = harness_shell();
+            shell.route_bytes(b"half a thought");
+            shell.route_bytes(&[0x10]);
+            shell.route_bytes(b"\x1b[B\r");
+            shell.route_bytes(&[key]);
+            assert_eq!(shell.editor.text(), "half a thought", "{key:#04x}");
+            assert!(shell.model_menu.is_none(), "{key:#04x}");
+            assert!(
+                shell.controlled().is_none(),
+                "{key:#04x} reached the runtime"
+            );
+            assert!(!shell.leaving(), "{key:#04x} ended the session");
+        }
+    }
+
+    #[test]
     fn a_failed_catalog_says_upstreams_retry_sentence_and_the_next_model_asks_again() {
         // `retryableFailureText` (`model_menu_presentation.zig:435-443`), and
         // `retry /model.` made true.
@@ -16355,6 +19339,14 @@ mod tests {
         shell.route_bytes(b"/model ");
         let _first = shell.picks_up();
         assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        // Claim changed with F4: over a running turn, a Ctrl-C with a draft in
+        // the composer takes the draft and nothing else (`app_input_runtime.zig:
+        // 1675-1712`), so the turn is stopped by the second one.
+        shell.route_bytes(&[0x03]);
+        assert!(
+            shell.controlled().is_none(),
+            "the draft's Ctrl-C stopped the turn"
+        );
         shell.route_bytes(&[0x03]);
         assert!(matches!(
             shell.controlled(),
@@ -16364,7 +19356,7 @@ mod tests {
         // giving both places back -- and sends nothing about the load.
         shell.work.finished_one();
         shell.work.finished_one();
-        shell.route_bytes(b"x");
+        shell.route_bytes(b"/model ");
         assert_eq!(
             shell.picks_up(),
             TurnWork::Catalog,
@@ -16833,6 +19825,62 @@ mod tests {
     }
 
     #[test]
+    fn an_undo_is_said_as_upstreams_neutral_notice() {
+        // `* undo: Restored …` (`fx-undo-40x120-undo1`): topic `undo`, the
+        // neutral glyph, whatever the answer was -- `Could not undo` too
+        // (`commandUndoLast`, `app_commands.zig:1285-1289`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/undo\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+        for body in [
+            "Restored /w/a.txt",
+            "Deleted /w/a.txt (was newly created)",
+            "Could not undo /w/a.txt",
+            "Nothing to undo.",
+        ] {
+            shell.apply(UiEvent::Undone(notice::Notice::neutral("undo", body)));
+        }
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* undo: Restored /w/a.txt".to_string(),
+                String::new(),
+                "* undo: Deleted /w/a.txt (was newly created)".to_string(),
+                String::new(),
+                "* undo: Could not undo /w/a.txt".to_string(),
+                String::new(),
+                "* undo: Nothing to undo.".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_undo_the_runtime_did_past_a_reset_is_still_said() {
+        // An `/undo` typed while a turn ran is done once the turn is over, and
+        // a `/new` typed after it drops that turn's notices until the fence.
+        // The undo's answer is not one of them: the file changed, and a change
+        // nobody was told of is the one thing a reset must not hide.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 0 }));
+        let _ = shell.document();
+        shell.apply(UiEvent::Notice(notice::Notice::neutral(
+            "tool",
+            "the old turn's",
+        )));
+        shell.apply(UiEvent::Undone(notice::Notice::neutral(
+            "undo",
+            "Restored /w/a.txt",
+        )));
+        shell.shell.flush_paced();
+        assert_eq!(
+            shell.document(),
+            vec!["* undo: Restored /w/a.txt".to_string(), String::new()]
+        );
+    }
+
+    #[test]
     fn a_submitted_line_that_is_only_whitespace_is_consumed_and_sent_nowhere() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"   \r");
@@ -17181,7 +20229,9 @@ mod tests {
         // turn (`app_input_runtime.zig:3139-3143`), and the call the panel was
         // asking about never runs, so the row says `Cancelled`, the header
         // counts it, and the call gets its own line under the group -- at the
-        // keystroke, above the sentence that answers it.
+        // keystroke. That line is the turn's too: no second `■ Cancelled`
+        // follows it (`append_turn_cancellation`, `transcript/runtime.zig:
+        // 5378-5383`). Claim changed: an interrupt notice used to follow.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(tool_start(
@@ -17210,10 +20260,8 @@ mod tests {
             "{written:#?}"
         );
         assert!(
-            written[5..]
-                .iter()
-                .any(|row| row.starts_with(INTERRUPTED_ROW)),
-            "{written:#?}"
+            !written.iter().any(|row| row.starts_with(INTERRUPTED_ROW)),
+            "a second cancelled line followed the call's own: {written:#?}"
         );
 
         // The panel answers the stop by refusing the call, and the runtime
@@ -17293,7 +20341,10 @@ mod tests {
         // the stop is read after the command has finished: a `Cancelled` row at
         // the keystroke would claim a stop the command never had. The sentence
         // that answers the key goes under the group, and the command's real
-        // result settles its row above it when it comes.
+        // result settles its row above it when it comes. Claim changed: the
+        // answer to the key is the turn's `■ Cancelled` line, written once the
+        // turn has ended -- after the command's real row -- rather than an
+        // interrupt notice at the keystroke.
         let mut shell = shell(24, 80);
         let _ = turn_running(&mut shell, b"run it\r");
         shell.apply(tool_start(
@@ -17316,7 +20367,9 @@ mod tests {
         });
         let written = shell.written();
         assert!(
-            !written.iter().any(|row| row.contains("Cancelled")),
+            !written
+                .iter()
+                .any(|row| row.contains("Cancelled sleep") || row.contains("cancelled")),
             "a stop the command never had was drawn: {written:#?}"
         );
         let notice = written
@@ -18384,6 +21437,779 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // the `@` file picker
+    // -----------------------------------------------------------------------
+
+    /// A shell working in `workspace`, which outlives it (the plain fixture's
+    /// workspace is gone by the time a case runs).
+    fn shell_in(rows: u16, cols: u16, workspace: &std::path::Path) -> Fixture {
+        let home = tempfile::tempdir().expect("a home");
+        let (work, sent, control) = WorkHandle::detached();
+        Fixture {
+            shell: Shell::new(
+                &config(home.path(), workspace),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        }
+    }
+
+    /// The research captures' `ws2` workspace, and a shell working in it.
+    fn in_ws2(rows: u16, cols: u16) -> (tempfile::TempDir, Fixture) {
+        let workspace = super::super::file_index::tests::seeded();
+        let shell = shell_in(rows, cols, workspace.path());
+        (workspace, shell)
+    }
+
+    /// Turns of the loop until the picker has rows or says why it has none --
+    /// the index is built on a worker thread, and a turn is what hears it land.
+    fn listed(shell: &mut Fixture) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            shell.settle_band(Instant::now());
+            if shell
+                .file_picker
+                .as_ref()
+                .is_some_and(|files| files.shown() != file_picker::Shown::Loading)
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("the file list never arrived");
+    }
+
+    /// The band rows between the two rules under the composer.
+    fn listed_rows(shell: &Fixture) -> Vec<String> {
+        let rows = shell.band_rows();
+        let first = usize::from(shell.geometry.input_rows()) + 1;
+        rows[first..first + usize::from(shell.geometry.panel)].to_vec()
+    }
+
+    /// One of the list's rows as the band paints it: `indent` columns in, the
+    /// marked one on the grey bar and the rest in the dim grey.
+    fn file_row(indent: usize, text: &str, marked: bool) -> String {
+        let style = if marked {
+            PALETTE.selected()
+        } else {
+            PALETTE.dim().to_string()
+        };
+        format!("{}{style}{text}{}", " ".repeat(indent), PALETTE.reset())
+    }
+
+    #[test]
+    fn an_at_opens_the_file_list_under_the_composer_and_leaves_the_hint_row() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        let rows = shell.band_rows();
+        // `fx-composer-40x120-at.ansi`: the composer, a rule, six rows two
+        // columns in with the first on the grey bar, a rule -- and the hint
+        // row as it was, because upstream's file picker has no key help.
+        assert_eq!(rows[0], composer_row("@"));
+        assert_eq!(rows[1], divider(120));
+        assert_eq!(
+            listed_rows(&shell),
+            [
+                file_row(2, "Cargo.toml", true),
+                file_row(2, "README.md", false),
+                file_row(2, "docs/", false),
+                file_row(2, "docs/guide.md", false),
+                file_row(2, "src/", false),
+                file_row(2, "src/deep/", false),
+            ]
+        );
+        assert_eq!(rows[8], divider(120));
+        assert_eq!(rows[9], hint_row(IDLE_HINT));
+        // The caret stays in the composer: the list is a view of it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 1)
+        );
+    }
+
+    #[test]
+    fn the_list_says_it_is_indexing_until_the_index_lands() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        // Nothing is adopted until a turn of the loop polls the worker.
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!("  {}indexing files...{}", PALETTE.dim(), PALETTE.reset())
+        );
+        // Enter while there is nothing to choose yet sends nothing and
+        // chooses nothing.
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a draft was sent from a loading list"
+        );
+        assert_eq!(shell.editor.text(), "@");
+    }
+
+    #[test]
+    fn a_model_line_is_the_model_columns_and_never_an_at_word() {
+        // `rawFilePickerQuery` returns nothing for a `/model ` line
+        // (`picker_state.zig:225-231`): the column has it, open or put away.
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"/model @sr");
+        assert!(shell.file_picker.is_none(), "an @ word opened under /model");
+        // The same word anywhere else is a file query.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"see @sr");
+        assert!(shell.file_picker.is_some());
+    }
+
+    #[test]
+    fn the_rows_fill_in_while_the_first_index_is_published() {
+        use super::super::file_index::tests::{candidates, driven};
+        use super::super::file_index::Published;
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        // A walk held by hand, so the prefix can be looked at between runs.
+        let walk = driven(&mut shell.files);
+        shell.route_bytes(b"@");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!("  {}indexing files...{}", PALETTE.dim(), PALETTE.reset())
+        );
+        walk.send(Published::More(candidates(&["Cargo.toml", "README.md"])))
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[..2],
+            [
+                file_row(2, "Cargo.toml", true),
+                file_row(2, "README.md", false),
+            ],
+            "the published prefix is listed before the index is whole"
+        );
+        // The mark is kept on its path as the list grows under it.
+        shell.route_bytes(b"\x1b[B");
+        walk.send(Published::More(candidates(&["docs/", "docs/guide.md"])))
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            listed_rows(&shell)[..4],
+            [
+                file_row(2, "Cargo.toml", false),
+                file_row(2, "README.md", true),
+                file_row(2, "docs/", false),
+                file_row(2, "docs/guide.md", false),
+            ]
+        );
+        walk.send(Published::Ready)
+            .expect("the shell holds the walk");
+        shell.settle_band(Instant::now());
+        assert_eq!(listed_rows(&shell)[1], file_row(2, "README.md", true));
+    }
+
+    #[test]
+    fn a_query_narrows_the_list_and_bolds_what_it_matched() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        listed(&mut shell);
+        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank.
+        let selected = PALETTE.selected();
+        assert_eq!(
+            listed_rows(&shell),
+            [
+                format!(
+                    "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
+                    PALETTE.reset()
+                ),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"see @src/");
+        listed(&mut shell);
+        // `fx-composer-40x120-at-dir.txt`: the `@` is in column 7, so the rows
+        // are six columns in, and `src/` is browsed rather than searched.
+        assert_eq!(
+            listed_rows(&shell)[..3],
+            [
+                file_row(6, "src/deep/", true),
+                file_row(6, "src/lib.rs", false),
+                file_row(6, "src/main.rs", false),
+            ]
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/lib.rs", true));
+        // `fx-composer-40x120-at-tab.txt`: Tab puts the path in, with the space
+        // after it, and the list closes because the caret has left the word.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "see @src/lib.rs ");
+        assert!(shell.file_picker.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_puts_the_path_in_and_only_a_second_enter_sends_it() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        // `fx-composer-40x120-at-enter.txt`.
+        assert_eq!(shell.editor.text(), "@docs/guide.md ");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the first Return sent the line"
+        );
+        shell.route_bytes(b"\r");
+        // The mention is the text: no attachment, no rewriting
+        // (`fx-composer-40x120-bodies/002-completion.json`). Upstream sends
+        // the trailing space too; every prompt this crate sends is trimmed
+        // (`crate::interactive::classify`), this one included.
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "@docs/guide.md"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_undo_takes_a_completion_back_to_what_was_typed() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@docs/guide.md ");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "@gui");
+    }
+
+    #[test]
+    fn a_directory_choice_keeps_the_list_up_on_that_directory() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@src");
+        listed(&mut shell);
+        // `src` is its own name exactly, which outranks everything else; the
+        // three letters it matched are bold on the bar.
+        let selected = PALETTE.selected();
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!(
+                "  {selected}\u{1b}[1msrc\u{1b}[0m{selected}/{}",
+                PALETTE.reset()
+            )
+        );
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/deep/", true));
+    }
+
+    #[test]
+    fn escape_closes_the_list_until_the_caret_leaves_the_word() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@sch");
+        listed(&mut shell);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        // `fx-composer-40x120-at-esc.txt`: the text stays, the list goes, and
+        // the hint row says nothing about a second Escape.
+        assert!(shell.file_picker.is_none());
+        assert_eq!(shell.editor.text(), "@sch");
+        assert_eq!(shell.hint(), IDLE_HINT);
+        shell.route_bytes(b"e");
+        assert!(
+            shell.file_picker.is_none(),
+            "the next letter of the word opened it again"
+        );
+        // A new `@` word is a new trigger.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@");
+        assert!(shell.file_picker.is_some());
+    }
+
+    #[test]
+    fn an_unmatched_mention_is_sent_by_enter() {
+        // `tests/e2e/tui-file-picker.test.ts:1142`.
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"review @definitely-not-present");
+        listed(&mut shell);
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!(
+                "         {}no matching files{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.route_bytes(b"\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "review @definitely-not-present"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_j_and_k_walk_the_list_and_alt_enter_is_still_a_newline() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(listed_rows(&shell)[1], file_row(2, "README.md", true));
+        assert_eq!(shell.editor.text(), "@", "C-j put a newline under a list");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "Cargo.toml", true));
+        // Alt-Enter is not `C-j`: a newline, which ends the word and the list.
+        shell.route_bytes(b"\x1b\r");
+        assert_eq!(shell.editor.text(), "@\n");
+        assert!(shell.file_picker.is_none());
+    }
+
+    #[test]
+    fn control_j_and_k_walk_the_slash_menu_too_and_are_edits_without_one() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        let (first, _) = shell.picker.as_ref().expect("a menu").marked();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, first + 1);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, first);
+        // With no menu up they are the composer's newline and kill.
+        let mut shell = super::tests::shell(24, 80);
+        shell.route_bytes(b"ab");
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "ab",
+            "C-k no longer killed into the slot"
+        );
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "ab\n");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_list_a_page_and_wraps_past_its_end() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        let page = usize::from(layout::input_row_limit(24));
+        assert_eq!(page, 11);
+        // Nine rows: a page down from the first is past the end, so the mark
+        // goes to the other end (`advanceSelection`).
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml")
+        );
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("src/main.rs")
+        );
+        assert_eq!(shell.editor.text(), "@");
+    }
+
+    #[test]
+    fn a_space_typed_right_after_a_completion_is_the_one_it_added() {
+        // `tests/e2e/tui-file-picker.test.ts:2005`.
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b" @REA");
+        assert_eq!(shell.editor.text(), "@docs/guide.md @REA");
+        // Only straight after it: a space typed later is a space.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"\x1b[D\x1b[C ");
+        assert_eq!(shell.editor.text(), "@docs/guide.md  ");
+    }
+
+    #[test]
+    fn a_choice_in_the_middle_of_a_line_reuses_the_space_after_it() {
+        // `tests/e2e/tui-file-picker.test.ts:2038`.
+        let (workspace, _) = in_ws2(24, 80);
+        std::fs::write(workspace.path().join("first-file.txt"), "first").expect("a file");
+        let mut shell = shell_in(24, 80, workspace.path());
+        shell.route_bytes(b"Read @first- suffix");
+        for _ in 0.." suffix".len() {
+            shell.route_bytes(b"\x1b[D");
+        }
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "Read @first-file.txt suffix");
+        assert_eq!(shell.editor.caret(), "Read @first-file.txt ".len());
+    }
+
+    #[test]
+    fn a_question_dismisses_the_file_list() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.dismiss_picker();
+        assert!(shell.file_picker.is_none());
+        // Dismissed, not dropped: the same word does not bring it back.
+        shell.route_bytes(b"s");
+        assert!(shell.file_picker.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // composer keys upstream has (`surfaces.md` §5.2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_trailing_backslash_turns_return_into_a_line_break() {
+        // `fx-composer-40x120-multiline.txt`: `line3\` and Enter is a new row,
+        // not a prompt ending in a backslash (`app_input_runtime.zig:1612`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"line3\\");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "line3\n");
+        assert!(shell.sent.try_recv().is_err());
+        // One edit: one undo puts the backslash back.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "line3\\");
+        // A backslash that is not right before the caret is text.
+        shell.route_bytes(b"x\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "line3\\x"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn alt_b_and_alt_f_move_by_word_in_their_escape_spelling() {
+        // `fx-composer-40x120-alt-b.txt`: `Xhello world ` then Alt-b and `Y`.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"Xhello world ");
+        shell.route_bytes(b"\x1bb");
+        shell.route_bytes(b"Y");
+        assert_eq!(shell.editor.text(), "Xhello Yworld ");
+        // Alt-f goes to the end of the word (`moveWordRight`), not to the
+        // start of the next one (`fx-filepicker-keys-40x120-alt-f`).
+        shell.route_bytes(b"\x1bf");
+        shell.route_bytes(b"Z");
+        assert_eq!(shell.editor.text(), "Xhello YworldZ ");
+    }
+
+    #[test]
+    fn alt_d_deletes_the_word_to_the_right_without_killing_it() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello, world");
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(b"\x1bd");
+        // The word and the separators after it (`wordRightRange`).
+        assert_eq!(shell.editor.text(), "world");
+        assert_eq!(shell.cursor().1, PROMPT_CELLS);
+        // Ctrl-Delete is the same key.
+        shell.route_bytes(b"\x1b[3;5~");
+        assert_eq!(shell.editor.text(), "");
+        // A deletion, not a kill: `C-y` has nothing to yank.
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "");
+        // And one undo per deletion.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "world");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_caret_a_page_and_never_into_history() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"earlier\r");
+        let _sent = shell.picks_up();
+        for line in ["one", "two", "three"] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(&[0x0a]);
+        }
+        shell.route_bytes(b"four");
+        assert_eq!(shell.editor.point(shell.text_cols()).0, 3);
+        shell.route_bytes(b"\x1b[5~");
+        // Row 0, as near the column the caret had as the row reaches.
+        assert_eq!(shell.editor.point(shell.text_cols()), (0, 3));
+        // At the top a page is nothing at all -- not the prompt before.
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(shell.editor.point(shell.text_cols()).0, 3);
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_slash_menu_a_page() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        let (_, count) = shell.picker.as_ref().expect("a menu").marked();
+        shell.route_bytes(b"\x1b[5~");
+        // Up from the first row by a page is past the start: the last row.
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, count - 1);
+    }
+
+    #[test]
+    fn a_page_key_moves_the_help_catalog_a_page_and_wraps_past_its_end() {
+        // `routeHelpMenuMove` with a page's delta (`input_completion_runtime.zig`
+        // :209-226, :449-467): the composer's row cap, wrapping to the other
+        // end past either (`HelpMenu.move`, `command_specs.zig:232-248`).
+        let mut shell = with_catalog(24, 80);
+        let first = shell
+            .help_menu
+            .as_ref()
+            .and_then(HelpMenu::selected)
+            .map(|spec| spec.name);
+        shell.route_bytes(b"\x1b[5~");
+        let last = crate::interactive::SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| {
+                crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category)
+            })
+            .last()
+            .map(|spec| spec.name);
+        assert_eq!(
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name),
+            last,
+            "a page up from the first command did not wrap to the last"
+        );
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name),
+            first,
+            "a page down past the end did not wrap to the first"
+        );
+        assert!(shell.help_menu.is_some(), "a page key closed the catalog");
+    }
+
+    #[test]
+    fn ctrl_p_lends_the_draft_to_the_model_catalog_and_every_way_out_gives_it_back() {
+        // `openModelPickerShortcut` and `restoreModelPickerDraft`
+        // (`app_input_runtime.zig:2356-2386`): the catalog's search starts
+        // empty, and the draft comes back verbatim -- its caret and its blocks
+        // too -- by Escape, by a second `C-p` and by `C-c`
+        // (`exitModelPickerShortcutIfActive`, `:1666-1676`).
+        let draft = "x".repeat(1200);
+        for (way_out, bytes) in [
+            ("Escape", &b"\x1b"[..]),
+            ("a second C-p", &b"\x10"[..]),
+            ("C-c", &b"\x03"[..]),
+        ] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"before ");
+            shell.route_bytes(&[b"\x1b[200~", draft.as_bytes(), b"\x1b[201~"].concat());
+            shell.route_bytes(b" after");
+            shell.route_bytes(b"\x1b[D\x1b[D");
+            let held = shell.editor.text().to_string();
+            let caret = shell.editor.caret();
+            assert_eq!(
+                shell.editor.entities().len(),
+                1,
+                "the paste did not collapse"
+            );
+            shell.route_bytes(&[0x10]);
+            assert!(
+                shell.model_menu.is_some(),
+                "{way_out}: C-p opened no catalog"
+            );
+            assert_eq!(
+                shell.editor.text(),
+                "",
+                "{way_out}: the search was not empty"
+            );
+            shell.route_bytes(b"gro");
+            shell.route_bytes(bytes);
+            shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert!(shell.model_menu.is_none(), "{way_out} left the catalog up");
+            assert_eq!(shell.editor.text(), held, "{way_out} lost the draft");
+            assert_eq!(shell.editor.caret(), caret, "{way_out} moved the caret");
+            assert_eq!(shell.editor.entities().len(), 1, "{way_out} lost the block");
+            assert!(shell
+                .sent
+                .try_recv()
+                .is_ok_and(|work| matches!(work, TurnWork::Catalog)));
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{way_out} sent something besides the catalog request"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_p_closes_a_catalog_slash_model_opened_and_does_nothing_over_help() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no catalog");
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none());
+        assert_eq!(shell.editor.text(), "");
+        // A surface that owns the keyboard makes it nothing
+        // (`modelPickerShortcutBlocked`, `app_input_runtime.zig:2406-2418`).
+        let mut shell = with_catalog(24, 80);
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none());
+        assert!(shell.help_menu.is_some());
+    }
+
+    #[test]
+    fn a_recalled_slash_line_opens_no_menu_until_it_is_edited() {
+        // `history_slash_recall_until_edit` (`picker_state.zig:451-466`): the
+        // next `Up` goes on walking rather than moving a menu's mark.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "older");
+        submitted(&mut shell, "/version");
+        let _ = shell.document();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/version");
+        assert!(shell.picker.is_none(), "a recalled command opened the menu");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "older");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(shell.editor.text(), "/version");
+        shell.route_bytes(&[0x7f]);
+        assert!(shell.picker.is_some(), "an edit did not give the menu back");
+    }
+
+    #[test]
+    fn alt_backspace_deletes_by_word_characters_and_c_w_by_whitespace() {
+        // `delete_word_left` (`composer_deletion.zig:103-136`) against
+        // `delete_whitespace_word_left` (`composer_kill_ring.zig:14-18`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"see foo.bar");
+        shell.route_bytes(b"\x1b\x7f");
+        assert_eq!(shell.editor.text(), "see foo.");
+        shell.route_bytes(&[0x17]);
+        assert_eq!(shell.editor.text(), "see ");
+        // Alt-Backspace is a deletion, so `C-y` yanks what `C-w` killed.
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "see foo.");
+    }
+
+    /// Turns of the loop until the selection copies have answered.
+    fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            shell.settle_band(Instant::now());
+            if done(shell) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("the clipboard never answered");
+    }
+
+    #[test]
+    fn super_a_selects_the_draft_and_paints_it_in_reverse_video() {
+        // `select_all` (`editor_state.zig:140-146`) and its painting
+        // (`appendLayoutUnit`, `input_presentation.zig:995-1021`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[97;9u");
+        assert_eq!(shell.editor.selection(), Some(0..10));
+        assert_eq!(
+            shell.band_rows()[0],
+            composer_row(&format!("\u{1b}[7malpha beta{}", PALETTE.reset()))
+        );
+        // A move ends it: Left collapses to the start and goes no further.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.selection(), None);
+        assert_eq!(shell.editor.caret(), 0);
+        assert_eq!(shell.band_rows()[0], composer_row("alpha beta"));
+        // Typing replaces it, as one edit.
+        shell.route_bytes(b"\x1b[97;9u");
+        shell.route_bytes(b"z");
+        assert_eq!(shell.editor.text(), "z");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "alpha beta");
+        // A deletion takes it; a kill takes it into the slot.
+        shell.route_bytes(b"\x1b[97;9u");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "alpha beta");
+        // An empty draft has nothing to select.
+        let mut empty = super::tests::shell(24, 80);
+        empty.route_bytes(b"\x1b[97;9u");
+        assert_eq!(empty.editor.selection(), None);
+    }
+
+    #[test]
+    fn super_c_copies_the_selection_and_says_nothing() {
+        // `copy_selection` (`app_input_runtime.zig:356-370`): through the
+        // clipboard `/copy` uses, and no notice either way.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[99;9u");
+        assert_eq!(tool.copied(), None, "Super+C without a selection copied");
+        shell.route_bytes(b"\x1b[97;9u\x1b[99;9u");
+        copies_settled(&mut shell, |_| {
+            tool.copied().as_deref() == Some(&b"alpha beta"[..])
+        });
+        assert_eq!(tool.copied().as_deref(), Some(&b"alpha beta"[..]));
+        assert_eq!(shell.editor.text(), "alpha beta");
+        assert!(shell.document().is_empty(), "the copy said something");
+    }
+
+    #[test]
+    fn super_x_takes_the_text_out_only_once_the_clipboard_has_it() {
+        // `cutSelection` (`input_selection_runtime.zig:32-42`): copy first,
+        // then delete -- and a copy that failed keeps the selection and the
+        // text.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"alpha beta");
+        shell.route_bytes(b"\x1b[97;9u\x1b[120;9u");
+        copies_settled(&mut shell, |shell| shell.editor.is_empty());
+        assert_eq!(tool.copied().as_deref(), Some(&b"alpha beta"[..]));
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(
+            shell.editor.text(),
+            "alpha beta",
+            "the cut was not one edit"
+        );
+
+        let failing = crate::clipboard::fake::FakeTool::keeping();
+        failing.fail();
+        let mut kept = super::tests::shell(24, 80);
+        kept.copies = Copies::new(failing.clipboard());
+        kept.route_bytes(b"alpha beta");
+        kept.route_bytes(b"\x1b[97;9u\x1b[120;9u");
+        copies_settled(&mut kept, |shell| shell.pending_cut.is_none());
+        assert_eq!(kept.editor.text(), "alpha beta");
+        assert_eq!(kept.editor.selection(), Some(0..10));
+    }
+
+    // -----------------------------------------------------------------------
     // the /help catalog
     // -----------------------------------------------------------------------
 
@@ -18443,7 +22269,12 @@ mod tests {
         shell.help();
         assert!(shell.document().is_empty(), "/help wrote to the document");
         let rows = menu(&shell);
-        assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
+        // Every command up to upstream's cap of twenty; past it the window
+        // pages, as upstream's own catalog does.
+        assert_eq!(
+            rows.len(),
+            2 + crate::interactive::SLASH_REGISTRY.len().min(20)
+        );
         assert_eq!(usize::from(shell.geometry.panel), rows.len());
         assert!(
             visible_text(&rows[0]).starts_with(&format!(
@@ -18483,6 +22314,7 @@ mod tests {
                     .iter()
                     .filter(move |spec| spec.category == *category))
                 .map(|spec| Some(spec.name.to_string()))
+                .take(20)
                 .collect::<Vec<_>>()
         );
         assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
@@ -18623,7 +22455,7 @@ mod tests {
         // Shift-Tab, as a terminal spells it, is back to `All`.
         shell.route_bytes(b"\x1b[Z");
         let count = crate::interactive::SLASH_REGISTRY.len();
-        assert_eq!(usize::from(shell.geometry.panel), 2 + count);
+        assert_eq!(usize::from(shell.geometry.panel), 2 + count.min(20));
         assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
     }
 
@@ -18633,8 +22465,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 6,
-            "/clear, /new, /reset, /resume, /rename and /copy"
+            2 + 7,
+            "/clear, /new, /reset, /resume, /rename, /undo and /copy"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -19859,7 +23691,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_p_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
+    fn up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
         // The whole of item 15 on this surface: what was sent comes back,
         // newest first, and the half-typed line the walk began from is what it
         // comes back to.
@@ -19868,16 +23700,16 @@ mod tests {
         submitted(&mut shell, "second line");
         shell.route_bytes(b"half typed");
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
             shell.cursor(),
             (22, 13),
             "the caret is not at the end of the recalled line"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first line"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first line"),
@@ -19897,18 +23729,20 @@ mod tests {
     fn a_recall_asks_for_the_frame_that_shows_it_and_a_recall_of_nothing_asks_for_none() {
         // The band is repainted whole, so a recall that did not ask for a frame
         // would leave the terminal showing a draft the composer no longer
-        // holds; and a `C-p` at a session with nothing to recall must not
-        // repaint the band on a link that may be a serial line.
+        // holds; and a `C-n` at a session with nothing to recall must not
+        // repaint the band on a link that may be a serial line. (`C-n`, not
+        // the arrow: an arrow at the edge is still a vertical move, and owes
+        // its frame for the column it recorded.)
         let mut shell = shell(24, 80);
         let _first = shell.render.begin().expect("the first frame");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x0e]);
         assert!(
             shell.render.begin().is_none(),
             "a recall that recalled nothing repainted the whole band"
         );
         submitted(&mut shell, "sent");
         let _submission = shell.render.begin();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert!(
             shell.render.begin().is_some(),
             "a recall asked for no frame, so the band would go on showing the \
@@ -19924,7 +23758,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/version\r");
         let _echo = shell.document();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         // Asked through the caret rather than through a band row: the recalled
         // draft is a slash word, so the completion menu opens over the rows
         // above the rule -- and the caret staying in the composer is the same
@@ -19958,7 +23792,7 @@ mod tests {
         // this case without a single line having been recorded.
         shell.route_bytes(b"\x15");
         assert_eq!(shell.band_rows()[0], composer_row(""));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("third"));
     }
 
@@ -19970,7 +23804,7 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "real");
         submitted(&mut shell, "   ");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("real"));
     }
 
@@ -20054,19 +23888,61 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_p_walks_back_from_a_row_the_arrow_would_only_move_in() {
-        // The difference between the two keys, and the reason there are two:
-        // the caret is on the last of two rows, so `Up` there is a movement --
-        // and `C-p` is the recall wherever the caret is.
+    fn ctrl_p_is_the_model_catalog_and_the_recall_is_the_arrows() {
+        // Ssot divergence 8: `C-p` opens the catalog `/model` opens
+        // (`escape_parser.zig:271`), with the draft lent out of the composer,
+        // and the line before this one is the `Up` arrow's -- from the first
+        // row, as the arrow always was.
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"top\x0abottom");
         shell.route_bytes(&[0x10]);
-        assert_eq!(
-            shell.band_rows()[0],
-            composer_row("sent"),
-            "C-p from the last row of a two-row draft only moved the caret"
+        assert!(
+            shell.model_menu.is_some(),
+            "C-p did not open the model catalog"
         );
+        assert_eq!(shell.editor.text(), "", "the catalog's search is not empty");
+        // The draft comes back verbatim when the catalog closes.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.model_menu.is_none());
+        assert_eq!(shell.editor.text(), "top\nbottom");
+        // From the last row `Up` moves; from the first it recalls.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "top\nbottom");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("sent"));
+    }
+
+    #[test]
+    fn ctrl_p_over_the_full_transcript_or_the_resume_picker_opens_nothing() {
+        // `modelPickerShortcutBlocked` (`app_input_runtime.zig:2406-2418`):
+        // the full transcript leaves `C-p` unbound for the composer behind
+        // it, and the shortcut is nothing while that screen is up -- nor
+        // while the session picker owns the keyboard.
+        let mut screen = shell(40, 120);
+        screen.route_bytes(b"kept");
+        screen.route_bytes(b"\x0f");
+        assert!(screen.full.is_open());
+        screen.route_bytes(&[0x10]);
+        assert!(
+            screen.model_menu.is_none(),
+            "a catalog opened behind the screen"
+        );
+        assert_eq!(screen.editor.text(), "kept", "the draft was lent out");
+        screen.route_bytes(b"\x0f");
+        assert!(!screen.full.is_open());
+
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.work.give_back();
+        shell.route_bytes(&[0x10]);
+        assert!(
+            shell.model_menu.is_none(),
+            "C-p took the keyboard from /resume"
+        );
+        assert!(shell.sessions.is_some());
     }
 
     #[test]
@@ -20077,13 +23953,13 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
         assert_eq!(shell.band_rows()[0], composer_row("first!"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20106,12 +23982,12 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.band_rows()[0], composer_row("firs"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20128,10 +24004,10 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first"),
@@ -20149,8 +24025,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
@@ -20162,7 +24038,7 @@ mod tests {
             "the second Escape did not clear the recalled line"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20177,8 +24053,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -20186,7 +24062,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20202,8 +24078,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
@@ -20212,7 +24088,7 @@ mod tests {
         shell.route_bytes(&[0x04]);
         assert_eq!(shell.band_rows()[0], composer_row("irst"));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20228,8 +24104,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -20240,7 +24116,7 @@ mod tests {
             composer_row("first[Pasted text #1, 1 lines]")
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -20289,7 +24165,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
@@ -20327,7 +24203,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("[Pasted text #1, 1 lines]"),
@@ -20348,16 +24224,16 @@ mod tests {
         // it records it once rather than twice.
         let mut shell = shell(24, 80);
         submitted(&mut shell, "ask me again");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
             TurnWork::Submit("ask me again".to_string())
         );
         let _echo = shell.document();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("ask me again"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("ask me again"),
@@ -20405,7 +24281,7 @@ mod tests {
         for open in [false, true] {
             for (up, down) in [
                 (Action::Up, Action::Down),
-                (Action::HistoryPrevious, Action::HistoryNext),
+                (Action::ControlP, Action::HistoryNext),
             ] {
                 let mut shell = shell(24, 80);
                 asking(&mut shell);
@@ -20829,7 +24705,7 @@ mod tests {
 
         // `C-p` scrolls the change and leaves the draft open: it is not a
         // choice key here.
-        shell.decide(Input::Action(Action::HistoryPrevious), Instant::now());
+        shell.decide(Input::Action(Action::ControlP), Instant::now());
         shell.decide(Input::Action(Action::HistoryNext), Instant::now());
         assert!(
             shell.drafting(),
@@ -21857,5 +25733,1022 @@ mod tests {
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());
+    }
+
+    // -----------------------------------------------------------------------
+    // `/usage` and `/credits`
+    // -----------------------------------------------------------------------
+
+    /// The band's rows with every colour taken off.
+    fn usage_band(shell: &Fixture) -> Vec<String> {
+        shell
+            .band_rows()
+            .iter()
+            .map(|row| colourless(row))
+            .collect()
+    }
+
+    /// What the reader would have read: the fx capture's two billed turns.
+    fn billed_ledger(at_ms: i64) -> crate::usage::Ledger {
+        let request =
+            |model: &str, input, output, cache, reasoning, cost| crate::session::RequestUsage {
+                at_ms: at_ms - 60_000,
+                duration_ms: 300,
+                model: model.to_string(),
+                input_tokens: input,
+                output_tokens: output,
+                cache_read_tokens: cache,
+                cache_write_tokens: 0,
+                reasoning_tokens: Some(reasoning),
+                cost: Some(cost),
+                generation_id: None,
+            };
+        let usage = crate::session::RecordedUsage {
+            requests: vec![
+                request("fake/model-a", 12000, 800, 4000, 0, 0.0125),
+                request("anthropic/claude-opus-5", 52000, 3100, 30000, 900, 0.421),
+            ],
+            ..crate::session::RecordedUsage::default()
+        };
+        crate::usage::Ledger::from_sessions([&usage], &[], Some(at_ms - 120_000))
+    }
+
+    fn deliver(shell: &mut Fixture, ledger: Result<crate::usage::Ledger, String>) {
+        let at_ms = crate::session::event::system_now_ms();
+        shell
+            .usage_reader
+            .deliver(super::super::usage_menu::Read { at_ms, ledger });
+        shell.settle_band(Instant::now());
+    }
+
+    #[test]
+    fn usage_opens_the_dashboard_in_place_of_the_composer_and_writes_nothing() {
+        // `fx-usage-40x120-empty`: no composer row, the dashboard between two
+        // rules, its key help on the hint row.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/usage\r");
+        assert!(shell.document().is_empty(), "/usage wrote to the document");
+        assert!(shell.usage_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        // Nothing read yet: the test shell has no profile to read, so the
+        // read failed where it was asked.
+        assert_eq!(
+            usage_band(&shell)[1..3],
+            [
+                "Usage  [30 days]  7 days  24 hours  Session",
+                "Usage unavailable \u{b7} press r to retry"
+            ]
+        );
+        assert_eq!(
+            usage_band(&shell).last().map(String::as_str),
+            Some(
+                "tab scope     \u{2191}\u{2193} model     enter expand     r refresh     esc close"
+            )
+        );
+        assert!(shell.band_rows().last().unwrap().starts_with(PALETTE.dim()));
+        assert!(shell.sent.try_recv().is_err(), "/usage reached the runtime");
+    }
+
+    #[test]
+    fn a_read_fills_the_window_and_the_keys_walk_it() {
+        let mut shell = shell(40, 120);
+        shell.read_usage_by_hand();
+        shell.route_bytes(b"/usage\r");
+        // Asked, and not answered yet: `Loading usage`.
+        assert_eq!(shell.usage_reader.asked(), 1);
+        assert_eq!(usage_band(&shell)[2], "Loading usage");
+        let now = crate::session::event::system_now_ms();
+        deliver(&mut shell, Ok(billed_ledger(now)));
+        let band = usage_band(&shell);
+        assert_eq!(shell.geometry.panel, 11);
+        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
+        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
+        assert_eq!(
+            band[10],
+            "\u{276f} anthropic/claude-opus-5    55.1K     81.1%    $0.42"
+        );
+        // The caret is on the marked model, at its start.
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 9, 0));
+
+        // Enter opens it, and the band grows by its detail line.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.geometry.panel, 12);
+        assert!(
+            usage_band(&shell)[11].starts_with("Input 52K"),
+            "{:?}",
+            usage_band(&shell)
+        );
+        // Down moves the mark under it (`fx-usage3-40x120-d30-down`).
+        shell.route_bytes(b"\x1b[B");
+        assert!(usage_band(&shell)[12].starts_with("\u{276f} fake/model-a"));
+
+        // Tab: 7 days, from the read already in hand -- no second read.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.usage_reader.asked(), 1);
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  [7 days]  24 hours  Session"
+        );
+        // Shift-Tab back, then Left: one step towards the session, which the
+        // header prints to the right (`fx-usage-40x120-left`).
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  [30 days]  7 days  24 hours  Session"
+        );
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  [7 days]  24 hours  Session"
+        );
+        // Right twice: back to 30 days, and then nowhere further
+        // (`fx-usage-40x120-right1`).
+        shell.route_bytes(b"\x1b[C\x1b[C");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  [30 days]  7 days  24 hours  Session"
+        );
+
+        // Everything else is swallowed: no letter reaches the hidden
+        // composer, Ctrl-D does not leave, Ctrl-C does not reach the runtime.
+        shell.route_bytes(b"abc\x7f\x04\x03");
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert!(!shell.leaving(), "Ctrl-D left from behind the dashboard");
+        assert_eq!(shell.controlled(), None);
+        assert!(shell.document().is_empty());
+
+        // Escape: gone, and the composer is back.
+        escape(&mut shell);
+        assert!(shell.usage_menu.is_none());
+        assert_eq!(shell.geometry.input_rows(), 1);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn the_session_scope_is_the_runtimes_last_publication() {
+        // `fx-usage2-40x120-session`: what the session has recorded, its
+        // clock and its edits -- read at once, never from the reader.
+        let mut shell = shell(40, 120);
+        let now = crate::session::event::system_now_ms();
+        let mut usage = crate::session::RecordedUsage::default();
+        usage.requests.push(crate::session::RequestUsage {
+            at_ms: now,
+            duration_ms: 1_200,
+            model: "fake/model-a".to_string(),
+            input_tokens: 1200,
+            output_tokens: 40,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: None,
+        });
+        usage.lines_added = 2;
+        shell.work.publish_spent(super::super::worker::Spent {
+            usage,
+            started_at_ms: Some(now - 12_400),
+        });
+        shell.route_bytes(b"/cost\r");
+        assert!(shell.usage_menu.is_some(), "/cost is /usage");
+        shell.route_bytes(b"\x1b[Z");
+        let band = usage_band(&shell);
+        assert_eq!(band[1], "Usage  30 days  7 days  24 hours  [Session]");
+        assert_eq!(band[2], "Partial data \u{b7} some usage may be missing");
+        assert_eq!(band[4], "  0 tokens        $0.00 spent      0 requests");
+        assert_eq!(band[5], "  0 input         0 output         0 reasoning");
+        assert_eq!(band[8], "Session activity");
+        assert_eq!(band[9], "API 1s \u{b7} Wall 12s");
+        assert_eq!(band[10], "Code +2 \u{b7} -0");
+        assert_eq!(band[14], "  No model usage in this scope.");
+        // `r` reads it again, and it is still the session.
+        shell.route_bytes(b"r");
+        assert_eq!(
+            usage_band(&shell)[1],
+            "Usage  30 days  7 days  24 hours  [Session]"
+        );
+    }
+
+    #[test]
+    fn a_failed_read_keeps_what_is_shown_and_says_it_is_old() {
+        let mut shell = shell(40, 120);
+        shell.read_usage_by_hand();
+        shell.route_bytes(b"/usage\r");
+        let now = crate::session::event::system_now_ms();
+        deliver(&mut shell, Ok(billed_ledger(now)));
+        shell.route_bytes(b"r");
+        assert_eq!(shell.usage_reader.asked(), 2, "`r` read again");
+        deliver(&mut shell, Err("unreadable".to_string()));
+        let band = usage_band(&shell);
+        assert_eq!(band[2], "Refresh failed \u{b7} showing previous data");
+        assert_eq!(band[4], "  67.9K tokens      $0.43 spent      2 requests");
+        // The next `/usage` opens on the read in hand rather than on nothing.
+        escape(&mut shell);
+        shell.route_bytes(b"/usage\r");
+        assert_eq!(
+            usage_band(&shell)[4],
+            "  67.9K tokens      $0.43 spent      2 requests"
+        );
+    }
+
+    #[test]
+    fn usage_and_credits_take_nothing_after_them() {
+        // `fx-credits-404-40x120-arg`: `/credits now` is a command nobody has.
+        for line in ["/usage 7d", "/cost now", "/credits now", "/balance x"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(format!("{line}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "command",
+                    "Unknown command. Try /help."
+                )),
+                "{line}"
+            );
+            assert!(shell.usage_menu.is_none(), "{line}");
+            assert!(shell.sent.try_recv().is_err(), "{line}");
+        }
+    }
+
+    #[test]
+    fn credits_is_asked_of_the_runtime_and_answered_as_upstreams_notice() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/balance\r");
+        assert_eq!(shell.picks_up(), TurnWork::Credits);
+        assert!(shell.document().is_empty(), "answered before it was asked");
+
+        // `fx-credits-ok-40x120-after`: three fields, one per row, the later
+        // two under the first's gutter.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+            balance: Some("42.17".to_string()),
+            used: Some("7.83".to_string()),
+            plan: Some("pro".to_string()),
+        }));
+        assert_eq!(
+            shell.document(),
+            ["* credits: balance=42.17", "  used=7.83", "  plan=pro", ""]
+        );
+        // `credits-empty`: neutral, and says there was nothing.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+            balance: None,
+            used: None,
+            plan: None,
+        }));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "credits",
+                "no data returned by gateway"
+            ))
+        );
+        // `credits-404`: an error, in the error tone.
+        shell.apply(UiEvent::Credits(crate::credits::Answer::Failed(
+            "HTTP 404: not found".to_string(),
+        )));
+        let rows = shell.take_pending();
+        let row = &rows[0].rows[0];
+        assert_eq!(colourless(row), "\u{2717} credits: HTTP 404: not found");
+        // The glyph and topic in the outcome label's grey, the body in the
+        // notice grey (`\e[38;5;252m✗ credits:\e[38;5;250m HTTP 404…`).
+        assert!(row.starts_with(PALETTE.notice_label()), "{row:?}");
+        assert!(
+            row.contains(&format!("{} HTTP 404: not found", PALETTE.notice())),
+            "{row:?}"
+        );
+    }
+
+    #[test]
+    fn credits_with_the_queue_full_is_refused_where_the_user_reads_it() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        shell.document();
+        shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/credits joined a full queue"
+        );
+        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+    }
+
+    // -----------------------------------------------------------------------
+    // `/settings`: the menu, its keys, and each row's change
+    // -----------------------------------------------------------------------
+
+    /// The settings menu's key help as the hint row paints it at 120 columns.
+    fn settings_key_help() -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.dim(),
+            settings::key_help(120),
+            PALETTE.reset()
+        )
+    }
+
+    /// The menu's rows with their colours taken out.
+    fn settings_text(shell: &Shell) -> Vec<String> {
+        menu(shell).iter().map(|row| visible_text(row)).collect()
+    }
+
+    /// A `shell_at_home` with `/settings` up.
+    fn with_settings(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell.route_bytes(b"/settings\r");
+        assert!(shell.settings_menu.is_some(), "/settings opened no menu");
+        shell
+    }
+
+    /// `n` presses of Down.
+    fn down(shell: &mut Fixture, n: usize) {
+        for _ in 0..n {
+            shell.route_bytes(b"\x1b[B");
+        }
+    }
+
+    const RIGHT: &[u8] = b"\x1b[C";
+    const LEFT: &[u8] = b"\x1b[D";
+
+    /// The saved line a `/settings` preference announces under `topic`.
+    fn settings_saved(topic: &str) -> Vec<String> {
+        said(notice::Notice::neutral(
+            topic,
+            interactive::STATUSLINE_SAVED,
+        ))
+    }
+
+    #[test]
+    fn a_bare_settings_opens_upstreams_menu_under_the_composer() {
+        // `cap/fx-settings-40x120-bare`: the composer row stays, the rule, the
+        // header and a blank, a row per setting with the first marked, the
+        // rule and the key help -- and nothing written anywhere.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        assert!(shell.document().is_empty(), "the menu wrote a notice");
+        assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
+        assert_eq!(shell.geometry.panel, 12);
+        let model = format!("  Model                    {}", shell.model);
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 10  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Status line context      off  on",
+                "  Status line session      off  on",
+                "  Status line workspace    off  on",
+                "  Slash menu categories    off  on",
+                "  Collapse tool calls      off  on",
+                model.as_str(),
+                "  Reasoning effort         default",
+                "  Permission mode          ask  auto  full access",
+                "  Sound level              off  on",
+                "  Prompt history           off  on",
+            ]
+        );
+        let rows = menu(&shell);
+        let (bright, dim, reset) = (PALETTE.subtitle(), PALETTE.dim(), PALETTE.reset());
+        assert_eq!(
+            rows[2],
+            format!("  {bright}Status line context{reset}      {bright}off{reset}  {dim}on{reset}")
+        );
+        assert_eq!(
+            rows[5],
+            format!("  {dim}Slash menu categories{reset}    {dim}off{reset}  {bright}on{reset}")
+        );
+        assert_eq!(shell.band_rows().last(), Some(&settings_key_help()));
+        // A view of the composer: the caret stays in it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the menu took the caret"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/settings reached the runtime"
+        );
+    }
+
+    #[test]
+    fn typing_is_the_search_and_escape_closes_the_menu_and_empties_it() {
+        // `fx-settings2-40x120-filter-sou`, `-filter-none`, `-esc`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"sou");
+        assert_eq!(shell.editor.text(), "sou");
+        assert!(shell.picker.is_none());
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 2  [All]  Interface  Agent  Notifications  Advanced",
+                "",
+                "  Slash menu categories    off  on",
+                "  Sound level              off  on",
+            ]
+        );
+        assert_eq!(shell.geometry.panel, 4, "the band follows the search");
+        shell.route_bytes(b"zzz");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            ["No settings found.".to_string()]
+        );
+        // A slash word typed into it is its search, not a command.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/");
+        assert!(shell.picker.is_none(), "the completion menu opened over it");
+        escape(&mut shell);
+        assert!(shell.settings_menu.is_none());
+        assert!(shell.editor.is_empty(), "{:?}", shell.editor.text());
+        assert_eq!(shell.geometry.panel, 0);
+        assert_eq!(shell.hint(), IDLE_HINT);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn nothing_typed_into_the_search_opens_another_picker_and_c_p_is_nothing_over_it() {
+        // The draft is the menu's search: an `@` word is no file query, a
+        // `/model ` line no model column, and C-p -- blocked by a menu that
+        // owns the keyboard (`modelPickerShortcutBlocked`,
+        // `app_input_runtime.zig:2408-2410`) -- opens no catalog.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"@src");
+        assert!(
+            shell.file_picker.is_none(),
+            "an @ word opened the file picker"
+        );
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/model ");
+        assert!(shell.column.active(shell.editor.text()).is_some());
+        assert!(
+            !matches!(shell.slot(), Some(Slot::Column)),
+            "the model column took the slot"
+        );
+        shell.route_bytes(b"x");
+        assert_eq!(shell.editor.text(), "/model x");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the search asked for a catalog"
+        );
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none(), "C-p opened the model catalog");
+        assert!(shell.settings_menu.is_some());
+        assert_eq!(shell.editor.text(), "/model x");
+    }
+
+    #[test]
+    fn tab_and_shift_tab_walk_the_categories_and_the_band_follows() {
+        // `fx-settings2-40x120-tab1..5`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[0],
+            "Settings 5  All  [Interface]  Agent  Notifications  Advanced"
+        );
+        assert_eq!(shell.geometry.panel, 7);
+        shell.route_bytes(b"\t");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [
+                format!("  Model               {}", shell.model),
+                "  Reasoning effort    default".to_string(),
+                "  Permission mode     ask  auto  full access".to_string(),
+            ]
+        );
+        // Shift-Tab is the category back, and not the permission mode.
+        shell.route_bytes(b"\x1b[Z");
+        assert!(settings_text(&shell)[0].contains("[Interface]"));
+        assert_eq!(shell.mode, PermissionMode::Auto);
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert_eq!(
+            settings_text(&shell),
+            [
+                "Settings 1  All  Interface  Agent  Notifications  [Advanced]",
+                "",
+                "  Prompt history    off  on",
+            ]
+        );
+        assert_eq!(shell.mode, PermissionMode::Auto);
+    }
+
+    #[test]
+    fn up_and_down_wrap_and_enter_changes_nothing_on_a_setting() {
+        // `fx-settings2-40x120-enter` is `-sound-right` again: Enter is inert
+        // everywhere but on `Model` (trap b: the statusline picker is the one
+        // whose Enter flips).
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(b"\x1b[A");
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        let before = shell.band_rows();
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.band_rows(), before);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.recall.enabled);
+        assert!(shell.document().is_empty());
+        assert_eq!(profile_at(root.path()), "");
+        down(&mut shell, 1);
+        assert_eq!(menu(&shell)[2].matches(PALETTE.subtitle()).count(), 2);
+    }
+
+    #[test]
+    fn right_on_a_status_line_row_is_statusline_item_and_says_both_notices() {
+        // `fx-settings2-40x120-right-context`: the two notices above the
+        // still-open menu, the row's `on` bold, and the profile written.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("context", true));
+        assert!(shell.statusline.context);
+        assert!(shell.settings_menu.is_some(), "a change closed the menu");
+        assert_eq!(
+            settings_text(&shell)[2],
+            "  Status line context      off  on"
+        );
+        assert!(menu(&shell)[2].ends_with(&format!("{}on{}", PALETTE.subtitle(), PALETTE.reset())));
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"statusLine\": {\n    \"context\": true\n  }\n}\n"
+        );
+        // Left wraps back to off, and says so the same way.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), flipped("context", false));
+        assert!(!shell.statusline.context);
+        // The workspace segment shows on the hint row at once.
+        down(&mut shell, 2);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), flipped("workspace", true));
+        escape(&mut shell);
+        assert!(
+            shell
+                .hint()
+                .ends_with(&shell.workspace.display().to_string()),
+            "{}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn right_on_permission_mode_is_permissions_with_the_mode_its_notice_and_the_runtime_told() {
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        let (mut typed, mut typed_changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 7);
+        assert!(visible_text(&menu(&shell)[9]).starts_with("  Permission mode"));
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions full-access\r");
+        assert_eq!(shell.mode, PermissionMode::Yolo);
+        assert_eq!(shell.document(), typed.document());
+        assert_eq!(changes_sent(&mut changes), changes_sent(&mut typed_changes));
+        assert!(settings_text(&shell)[9].ends_with("ask  auto  full access"));
+        assert_eq!(
+            menu(&shell)[9].matches(PALETTE.subtitle()).count(),
+            2,
+            "the marked label and `full access`"
+        );
+        // Right again wraps to ask.
+        shell.route_bytes(RIGHT);
+        typed.route_bytes(b"/permissions ask\r");
+        assert_eq!(shell.mode, PermissionMode::Ask);
+        assert_eq!(shell.document(), typed.document());
+    }
+
+    #[test]
+    fn right_on_sound_level_is_sound_on_and_saves_both_switches() {
+        // `fx-settings2-40x120-sound-right`: `* sound: on`.
+        let (_home, path) = profile();
+        let mut shell = sounding(40, false, Some(path.clone()));
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 8);
+        shell.route_bytes(RIGHT);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        assert_eq!(
+            shell.sound.notifications(),
+            crate::config::Notifications::both(true)
+        );
+        saved_as(
+            &path,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
+        );
+        assert!(settings_text(&shell)[10].ends_with("Sound level              off  on"));
+    }
+
+    #[test]
+    fn right_on_reasoning_effort_walks_the_models_levels_saves_effort_and_tells_the_runtime() {
+        // `fx-settings-effort-40x120-right1..3`, `-left`: each change says
+        // only `* effort: saved to user settings (scope=user)`.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: harness_rows(),
+        });
+        shell.model = "openai/gpt-6-astra".to_string();
+        let _ = shell.document();
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default  low  medium  high  xhigh"
+        );
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Named("low".to_string()));
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"low\"\n}\n");
+        // The runtime is told the effort and nothing else: the model kept.
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("low".to_string())),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            }
+        );
+        assert!(menu(&shell)[8].contains(&format!("{}low{}", PALETTE.subtitle(), PALETTE.reset())));
+        // Left from low is the default again, written as upstream writes it.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.document(), settings_saved("effort"));
+        assert_eq!(shell.effort, Effort::Auto);
+        assert_eq!(profile_at(root.path()), "{\n  \"effort\": \"auto\"\n}\n");
+        // And the footer says the level in force once it is not the default.
+        shell.route_bytes(LEFT);
+        assert_eq!(shell.effort, Effort::Named("xhigh".to_string()));
+        escape(&mut shell);
+        assert!(shell.hint().ends_with("xhigh"), "{}", shell.hint());
+
+        // A model with no levels and the default in force: the value alone,
+        // and Right changes nothing.
+        shell.model = "fake/model-a".to_string();
+        shell.effort = Effort::Auto;
+        let _ = shell.document();
+        while shell.controlled().is_some() {}
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 6);
+        assert_eq!(
+            settings_text(&shell)[8],
+            "  Reasoning effort         default"
+        );
+        shell.route_bytes(RIGHT);
+        assert!(shell.document().is_empty());
+        assert_eq!(shell.controlled(), None);
+    }
+
+    #[test]
+    fn slash_menu_categories_off_hides_the_popups_column_and_is_read_back_at_launch() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        down(&mut shell, 3);
+        shell.route_bytes(RIGHT);
+        assert_eq!(shell.document(), settings_saved("slash menu categories"));
+        assert!(!shell.slash_menu_categories);
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"slash_menu_categories\": false\n}\n"
+        );
+        escape(&mut shell);
+        shell.route_bytes(b"/");
+        let popup = menu(&shell);
+        assert!(
+            popup[2..]
+                .iter()
+                .all(|row| !visible_text(row).trim_end().ends_with("General")),
+            "{popup:?}"
+        );
+        // The next launch reads it back.
+        let config = config(&root.path().join("home"), &root.path().join("work"));
+        assert!(!config.slash_menu_categories);
+        let relaunched = shell_at_home(root.path(), 40, 120);
+        assert!(!relaunched.slash_menu_categories);
+    }
+
+    #[test]
+    fn collapse_tool_calls_draws_the_open_group_as_its_header_and_the_next_one_too() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 1 tool call \u{b7} 1 command",
+                "\u{2514} Running sleep 4",
+                ""
+            ]
+        );
+        shell.route_bytes(b"/settings\r");
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        // The open block is rewritten as its header, and the notice is written
+        // under it as every line under an open group is.
+        let written = shell.written();
+        assert_eq!(
+            written[..2],
+            ["\u{25cf} 1 tool call \u{b7} 1 command", ""],
+            "{written:#?}"
+        );
+        assert!(
+            written.contains(
+                &"* collapse tool calls: saved to user settings (scope=user)".to_string()
+            ),
+            "{written:#?}"
+        );
+        assert!(
+            !written.iter().any(|row| row.contains("Running")),
+            "{written:#?}"
+        );
+        assert_eq!(
+            profile_at(root.path()),
+            "{\n  \"collapse_tool_calls\": true\n}\n"
+        );
+        // The group's result and the next group are drawn collapsed as well.
+        shell.apply(tool_ended(
+            "1",
+            "terminal",
+            true,
+            "",
+            CallOutcome::Exited(0),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.written();
+        shell.apply(tool_start(
+            "2",
+            "read_file",
+            serde_json::json!({"path": "a.txt"}),
+        ));
+        let written = shell.written();
+        assert_eq!(
+            written,
+            ["\u{25cf} 1 tool call \u{b7} 1 read", ""],
+            "{written:#?}"
+        );
+    }
+
+    #[test]
+    fn a_preference_that_could_not_be_saved_is_in_force_and_says_so_in_error() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        shell.settings_path = None;
+        down(&mut shell, 4);
+        shell.route_bytes(RIGHT);
+        assert!(shell.collapse_tool_calls);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "collapse tool calls",
+                "active for this process but not saved to user settings (no home directory is set)"
+            ))
+        );
+        // History on is saved first and only then in force: a failed save
+        // leaves it as it was, and says it was not saved -- with nothing
+        // "active" about it.
+        shell.recall.enabled = false;
+        shell.route_bytes(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
+        assert!(visible_text(&menu(&shell)[11]).starts_with("  Prompt history"));
+        assert_eq!(menu(&shell)[11].matches(PALETTE.subtitle()).count(), 2);
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "history",
+                "not saved to user settings (no home directory is set)"
+            ))
+        );
+    }
+
+    #[test]
+    fn enter_or_right_on_model_opens_models_menu_with_an_empty_search() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = with_settings(root.path());
+        // `model used` is the Model row's description alone: the effort row's
+        // mentions the model too.
+        shell.route_bytes(b"model used");
+        assert_eq!(
+            settings_text(&shell)[2..],
+            [format!("  Model    {}", shell.model)]
+        );
+        // Left does nothing on it.
+        shell.route_bytes(LEFT);
+        assert!(shell.settings_menu.is_some());
+        assert!(shell.model_menu.is_none());
+        shell.route_bytes(b"\r");
+        assert!(shell.settings_menu.is_none(), "the settings menu stayed up");
+        assert!(shell.model_menu.is_some(), "no model menu");
+        assert!(shell.editor.is_empty(), "the search became the model query");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        assert!(shell.document().is_empty());
+
+        let mut right = with_settings(root.path());
+        down(&mut right, 5);
+        right.route_bytes(RIGHT);
+        assert!(right.settings_menu.is_none());
+        assert!(right.model_menu.is_some());
+    }
+
+    #[test]
+    fn an_argument_is_the_usage_line_without_upstreams_startup_scrollback() {
+        // `fx-settings-40x120-bogus`, with this product's grammar.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        for argument in ["bogus", "startup-scrollback", "startup-scrollback off"] {
+            shell.route_bytes(format!("/settings {argument}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("", "usage: /settings")),
+                "{argument}"
+            );
+            assert!(shell.settings_menu.is_none(), "{argument} opened the menu");
+        }
+        assert_eq!(profile_at(root.path()), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // the prompt history
+    // -----------------------------------------------------------------------
+
+    /// A [`shell_at_home`] that keeps its prompt history in its own profile.
+    fn remembering(root: &std::path::Path) -> Fixture {
+        let mut shell = shell_at_home(root, 40, 120);
+        shell
+            .recall
+            .keep_in(crate::session::prompt_history::PromptHistory::in_profile(
+                &root.join("home").join(".xfx"),
+            ));
+        shell
+    }
+
+    /// The texts the history file under `root` holds, oldest first, once the
+    /// shell's writer has written what it was handed -- and whatever it said
+    /// about that settled into the document.
+    fn saved_texts(shell: &mut Fixture, root: &std::path::Path) -> Vec<String> {
+        shell.recall.wait_for_writes();
+        shell.settle_band(Instant::now());
+        std::fs::read_to_string(root.join("home").join(".xfx").join("history.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| {
+                let record: serde_json::Value = serde_json::from_str(line).expect("a record");
+                assert_eq!(record["schema_version"], 1, "{line}");
+                assert!(record["timestamp_ms"].as_u64().is_some(), "{line}");
+                record["text"].as_str().expect("a text").to_string()
+            })
+            .collect()
+    }
+
+    /// What Up puts in the composer.
+    fn recalled(shell: &mut Fixture) -> String {
+        shell.route_bytes(b"\x1b[A");
+        shell.editor.text().to_string()
+    }
+
+    #[test]
+    fn a_submitted_line_is_kept_in_the_file_under_its_workspace() {
+        // `fx-settings-history-40x120-*.files`: commands and prompts alike,
+        // one record each, the workspace's latest not twice.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"/version\r");
+        shell.route_bytes(b"  a prompt  \r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["/version", "a prompt"]
+        );
+        let line =
+            std::fs::read_to_string(root.path().join("home/.xfx/history.jsonl")).expect("the file");
+        let workspace = shell.workspace.display().to_string();
+        assert!(
+            line.contains(&format!(
+                "\"workspace_root\":{}",
+                serde_json::json!(workspace)
+            )),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn prompt_history_off_keeps_no_line_anywhere_and_on_keeps_them_again() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(!shell.recall.enabled);
+        let document = shell.document();
+        assert!(
+            document.ends_with(&settings_saved("history")),
+            "{document:?}"
+        );
+        assert!(profile_at(root.path()).contains("\"enabled\": false"));
+        escape(&mut shell);
+        shell.route_bytes(b"secret\r");
+        // Not in the file, and not in this session's recall either.
+        assert_eq!(saved_texts(&mut shell, root.path()), ["first", "/settings"]);
+        let walked: Vec<String> = (0..4).map(|_| recalled(&mut shell)).collect();
+        assert_eq!(walked[0], "/settings");
+        assert!(!walked.contains(&"secret".to_string()), "{walked:?}");
+        shell.route_bytes(&[0x15]);
+
+        shell.route_bytes(b"/settings\r");
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(RIGHT);
+        assert!(shell.recall.enabled);
+        assert!(profile_at(root.path()).contains("\"enabled\": true"));
+        escape(&mut shell);
+        shell.route_bytes(b"public\r");
+        assert_eq!(
+            saved_texts(&mut shell, root.path()),
+            ["first", "/settings", "public"]
+        );
+    }
+
+    #[test]
+    fn a_launch_recalls_its_workspaces_saved_lines_unless_the_history_is_off() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut first = remembering(root.path());
+        first.route_bytes(b"alpha\r");
+        first.route_bytes(b"beta\r");
+        assert_eq!(saved_texts(&mut first, root.path()), ["alpha", "beta"]);
+        let workspace = first
+            .recall
+            .workspace()
+            .expect("a UTF-8 workspace")
+            .to_string();
+        crate::session::prompt_history::PromptHistory::in_profile(&root.path().join("home/.xfx"))
+            .append(1, "/another/workspace", "theirs")
+            .expect("append");
+
+        let mut next = remembering(root.path());
+        next.recall_saved_lines();
+        // Up recalls, and the next Up first takes the caret to the start of the
+        // recalled line, as upstream's does (`fx-settings-history-40x120-relaunch-up1..4`).
+        let walked: Vec<String> = (0..6).map(|_| recalled(&mut next)).collect();
+        assert_eq!(walked[0], "beta");
+        assert!(walked.contains(&"alpha".to_string()), "{walked:?}");
+        assert!(
+            !walked.contains(&"theirs".to_string()),
+            "another workspace's line was recalled: {walked:?}"
+        );
+        assert_eq!(next.recall.workspace(), Some(workspace.as_str()));
+
+        let mut off = remembering(root.path());
+        off.recall.enabled = false;
+        off.recall_saved_lines();
+        assert_eq!(recalled(&mut off), "");
+    }
+
+    #[test]
+    fn a_saved_line_is_the_text_a_collapsed_paste_stands_for() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        let pasted = "p".repeat(2000);
+        shell.route_bytes(format!("\x1b[200~{pasted}\x1b[201~").as_bytes());
+        assert!(
+            shell.editor.text().starts_with("[Pasted text #1"),
+            "{}",
+            shell.editor.text()
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(saved_texts(&mut shell, root.path()), [pasted]);
+    }
+
+    #[test]
+    fn a_history_that_cannot_be_written_warns_once_and_the_line_still_goes() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = remembering(root.path());
+        // A directory where the file goes: every append fails.
+        std::fs::create_dir_all(root.path().join("home/.xfx/history.jsonl")).expect("a dir");
+        shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
+        let document = shell.document();
+        assert!(
+            document.iter().any(
+                |row| row.starts_with("! history: failed to save input history (")
+                    && row.ends_with("); submission continued")
+            ),
+            "{document:?}"
+        );
+        shell.route_bytes(b"/version\r");
+        let _ = saved_texts(&mut shell, root.path());
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.contains("history:")),
+            "warned twice: {document:?}"
+        );
+        assert_eq!(recalled(&mut shell), "/version", "the recall lost the line");
     }
 }

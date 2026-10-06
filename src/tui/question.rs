@@ -227,9 +227,14 @@ impl Act {
             Action::Delete => Some(Self::Delete),
             Action::WordLeft => Some(Self::WordLeft),
             Action::WordRight => Some(Self::WordRight),
-            Action::DeleteWordLeft => Some(Self::DeleteWordLeft),
+            // `C-w`, and Alt-Backspace, which the decoder reads as a deletion
+            // by word characters: this field has the whitespace one only.
+            Action::DeleteWordLeft | Action::DeleteWordBackward => Some(Self::DeleteWordLeft),
             Action::KillToStart => Some(Self::KillToStart),
-            Action::KillToEnd => Some(Self::KillToEnd),
+            // `C-k` is its own action to the decoder -- a menu's Up -- and the
+            // kill to the line's end here (`shortcuts.zig:18`,
+            // `fromFocusedEditorControlByte`, `:31-41`).
+            Action::KillToEnd | Action::ControlK => Some(Self::KillToEnd),
             Action::PasteStart => Some(Self::PasteStart),
             Action::PasteEnd => Some(Self::PasteEnd),
             Action::Tab => Some(Self::Tab),
@@ -1404,6 +1409,13 @@ impl QuestionRequester for TuiQuestioner {
                         self.control.defer(change);
                         continue;
                     }
+                    // `/undo` while the model's question is up: done once the
+                    // turn is over, and the batch stays up -- it is not the
+                    // user cancelling it (`ControlChannel::defer_undo`).
+                    Some(TurnControl::Undo) => {
+                        self.control.defer_undo(false);
+                        continue;
+                    }
                     // The interrupt and the shutdown belong to the loop that can
                     // act on them (`super::approval::ControlChannel::put_back`);
                     // `give_back` rearms.
@@ -2389,6 +2401,16 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_k_and_alt_backspace_reach_the_answer_as_its_kill_keys() {
+        assert_eq!(Act::of(Action::ControlK), Some(Act::KillToEnd));
+        assert_eq!(Act::of(Action::KillToEnd), Some(Act::KillToEnd));
+        assert_eq!(
+            Act::of(Action::DeleteWordBackward),
+            Some(Act::DeleteWordLeft)
+        );
+    }
+
+    #[test]
     fn the_answers_word_and_kill_keys_reach_it_and_nothing_at_a_choice() {
         let mut panel = captured();
         for act in [Act::WordLeft, Act::KillToEnd, Act::DeleteWordLeft] {
@@ -2979,6 +3001,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         let sent = change.clone();
         let answers = harness.request_while(move |events_rx, control_tx, _cancel| {
@@ -2992,7 +3015,35 @@ mod tests {
                 .unwrap();
         });
         assert_eq!(answers, QuestionReply::Answered(vec!["kept".to_string()]));
-        assert_eq!(harness.control.take_deferred(), vec![change]);
+        assert_eq!(
+            harness.control.take_deferred(),
+            vec![super::super::approval::Deferred::Model(change)]
+        );
+        assert_eq!(harness.control.waiting(), None);
+    }
+
+    #[test]
+    fn an_undo_at_the_models_question_is_put_aside_and_the_batch_stays_up() {
+        // `/undo` while the model's question batch waits: not the user
+        // cancelling the batch -- the catch-all below the arm would read it as
+        // an interrupt -- so the wait goes on to the batch's own answer, and
+        // the undo waits for the loop.
+        let mut harness = Harness::new(4);
+        let answers = harness.request_while(move |events_rx, control_tx, _cancel| {
+            shown(events_rx);
+            control_tx.send(TurnControl::Undo).unwrap();
+            control_tx
+                .send(TurnControl::QuestionAnswer {
+                    id: QuestionId(1),
+                    answers: vec!["kept".into()],
+                })
+                .unwrap();
+        });
+        assert_eq!(answers, QuestionReply::Answered(vec!["kept".to_string()]));
+        assert_eq!(
+            harness.control.take_deferred(),
+            vec![super::super::approval::Deferred::Undo { after_reset: false }]
+        );
         assert_eq!(harness.control.waiting(), None);
     }
 

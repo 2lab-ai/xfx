@@ -133,6 +133,11 @@ const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
 /// match where a hint row ended and the frame closed.
 const HINT_END: &str = "\u{1b}[0m\u{1b}[3;3H";
 
+/// What a cancelled turn leaves in the document after its marker and its word
+/// (`shell::cancelled_line`): response-only, since nothing a case types
+/// contains it.
+const CANCELLED: &str = "What can xfx do differently?";
+
 /// A terminal, to the extent this suite has to model one.
 ///
 /// **Why a model and not a byte string.** A frame is now a *difference* from
@@ -2711,7 +2716,8 @@ fn a_collapsed_paste_is_one_unit_to_the_keys_and_comes_back_renumbered() {
 fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     // Item 15 on a real terminal. Four claims, and the first two are the ones a
     // history without a captured draft would pass: the arrow at the edge of the
-    // draft walks back, `C-p`/`C-n` walk it from anywhere, the half-typed line
+    // draft walks back (and `C-n` forward from anywhere -- `C-p` is the model
+    // catalog, ssot divergence 8), the half-typed line
     // the walk began from is what it comes back to, and an edit to a recalled
     // line ends that walk -- so the next step back starts at the newest entry
     // again and comes back to the *edited* text.
@@ -2755,8 +2761,8 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the newest submitted line to come back", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
-    // C-p, which is the recall wherever the caret is.
-    session.type_bytes(&[0x10]);
+    // Up again, which walks on.
+    session.type_bytes(b"\x1b[A");
     session.wait_until("the line before it to come back", |text| {
         composer(text) == "\u{2503} alpha prompt"
     });
@@ -2781,7 +2787,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the recalled line to take the keystroke", |text| {
         composer(text) == "\u{2503} bravo prompt!"
     });
-    session.type_bytes(&[0x10]);
+    session.type_bytes(b"\x1b[A");
     session.wait_until("the walk to start from the newest line again", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -2918,7 +2924,11 @@ fn a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept() {
     // and not the line discipline echoing what was typed.
     session.wait_for("third");
 
-    session.type_bytes(&[0x03, 0x03]);
+    // Three presses: with a draft in the composer over a running turn, the
+    // first takes the draft and nothing else (upstream's `handleSemanticCtrlC`,
+    // `app_input_runtime.zig:1677-1681`), the second stops the turn and arms
+    // the exit, the third leaves.
+    session.type_bytes(&[0x03, 0x03, 0x03]);
     assert_eq!(session.wait_exit().code(), Some(130));
 
     assert_eq!(
@@ -3067,72 +3077,22 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     // together are what prove the two paths are disjoint -- one kills the
     // process by the signal, the other is a keystroke the session answers.
     //
-    // # The two presses are answered from two different states, and the case
-    // # waits for the second one rather than racing it
+    // # What the presses mean, and why three are typed
     //
-    // `gesture.rs`'s table has two columns, and which one a Ctrl-C is answered
-    // from depends on whether a turn is running *at that instant*. The first
-    // press below is answered from the running column: it cancels. What
-    // happens next is the runtime's, not the keyboard's -- the transport chops
-    // its wait for the next chunk into `gateway::CANCEL_POLL` (50 ms) slices and
-    // reads the cancellation between them (`gateway/mod.rs:779`-`791`), so
-    // about fifty milliseconds later the turn concludes, the UI applies
-    // `UiEvent::TurnEnded`, and `Gestures::turn_ended` puts the session back in
-    // the idle column (`shell.rs:705`, `gesture.rs:173`).
+    // `gesture.rs`'s rule is upstream's `handleSemanticCtrlC`: every press is a
+    // press of one three-second exit window, the first arming it -- and
+    // stopping the turn when one is running -- and a second inside it leaving.
+    // The window is not closed by the turn concluding (the hint row says
+    // `press ctrl+c again to exit` across the conclusion, as upstream's does),
+    // so the column the runtime's release lands the next press in no longer
+    // decides whether it leaves. This case used to wait for the conclusion to
+    // pin that column; there is nothing left to pin.
     //
-    // **That reset is the ruled behaviour, not a defect**: it is Task 12's MF3
-    // fix, mutant-pinned (N5, N6), it is what `docs/parity.md:46` states for
-    // both surfaces -- *"Ctrl-C stops a running turn and a second one exits
-    // 130; at the prompt it clears the line, and twice in a row leaves"* -- and
-    // the line shell reproduces it exactly (`interactive.rs:257`-`259`).
-    //
-    // So a second lone `0x03` typed after a gap is answered from **whichever
-    // column that fifty milliseconds landed in**, which is a race and not a
-    // contract: it exited 130 locally and did nothing on four CI targets
-    // (run 32887368090, `pty.rs:388` "xfx did not exit"). This case pins the
-    // state instead of guessing it: it waits for the conclusion, which is a
-    // runtime-owned line, so waiting for it is waiting for the runtime.
-    //
-    // # Three presses, and the third one is not a spare
-    //
-    // Pinning the conclusion is not by itself enough, and "the bytes of one
-    // read are decided together" is the wrong guarantee to lean on. The column
-    // is not chosen by the read's timestamp: `Shell::interrupt` re-reads
-    // `self.work.outstanding()` **once per press** (`shell.rs:1342`, reached
-    // per decoded action from `:1295`), and the runtime gives the turn's place
-    // back on its own thread *after* the terminal event (`worker.rs:680`). So
-    // the release can land between two presses of a single read, and a pair
-    // has an interleaving that does not leave:
-    //
-    // | `outstanding > 0` at each press | what they mean | |
-    // |---|---|---|
-    // | `(1, 1)` | `Cancel`, then `Leave` | exits |
-    // | `(1, 0)` | `Cancel`, then `Clear` -- the idle arm clears `asked_to_stop` and finds nothing armed (`gesture.rs:129`) | **does not exit** |
-    // | `(0, 0)` | `Clear`, then `Leave` | exits |
-    //
-    // A third press closes it, and closes it *totally* rather than by a margin.
-    // `outstanding` only ever falls here -- its one increment is
-    // `WorkHandle::submit` (`worker.rs:207`-`212`) and this case submits nothing
-    // after its prompt -- so the flag is monotone and those three rows are the
-    // whole space. Each of them reaches `Leave` by the third press: `(1,1,·)`
-    // leaves on the second, `(1,0,0)` spends the second arming and leaves on the
-    // third, `(0,0,·)` leaves on the second. The only clock in it is
-    // `gesture::EXIT_WINDOW` (3000 ms, `gesture.rs:64`) between consecutive idle
-    // presses, against bytes of one `write` consumed an event-loop iteration
-    // apart. `gesture::tests::a_press_that_lands_before_the_place_comes_back_arms_rather_than_leaves`
-    // is the same table at the seam where the interleaving can actually be
-    // dictated, which a pseudoterminal cannot.
-    //
-    // Synchronising on "the place is back" instead was considered and is not
-    // available: nothing on the screen distinguishes one outstanding item from
-    // none -- the hint row's `queued N` is `outstanding - 1` (`worker.rs:264`)
-    // -- and the session log, which §14 used for the other race, is published
-    // *before* the terminal event and so before the release.
-    //
-    // The running column's own two-press exit is not lost with it: it is what
-    // `a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider` and
-    // `a_prompt_typed_while_a_turn_runs_is_queued_and_the_next_one_is_refused`
-    // both leave through, from a turn that is provably still running.
+    // Three presses are still typed, and the third is the margin for a slow
+    // machine rather than for a race: if more than `gesture::EXIT_WINDOW`
+    // passed between the cancel and these bytes, the first of them arms again
+    // (stopping the turn a second time if it is still running), and the second
+    // leaves. Either way the session is gone by the third.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
@@ -3151,19 +3111,14 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
     session.wait_for("MARKER-STREAMING");
 
     session.type_bytes(&[0x03]);
-    // Response-only: `app::INTERRUPT_NOTICE`'s own words, which nothing here
-    // types.
-    session.wait_for("stopping the turn");
+    // Response-only: upstream's line for a cancelled turn, which nothing here
+    // types -- and the hint row's promise about the next press.
+    session.wait_for(CANCELLED);
+    session.wait_for("press ctrl+c again to exit");
     // No signal was delivered, so the child is still alive and the byte did the
     // work. Read without consuming anything, so asking does not change the
     // answer for the exit below.
     assert!(matches!(session.state(), Wait::Running));
-
-    // The turn is over, said by the runtime rather than inferred from a clock:
-    // `ProviderError::Cancelled`'s own words, carried by the `TurnEnded` that
-    // resets the gesture (`gateway/mod.rs:611`, `shell.rs:687`). Everything
-    // below is therefore answered from the idle column, on every machine.
-    session.wait_for("the turn was cancelled");
 
     session.type_bytes(&[0x03, 0x03, 0x03]);
     let status = session.wait_exit();
@@ -3173,6 +3128,155 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
         "a session the user interrupted did not say so in its status"
     );
     assert_eq!(before, modes(&pty));
+}
+
+#[test]
+fn the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does() {
+    // fx's next request after a stopped answer
+    // (`fx-interrupt-40x120-bodies/003-completion.json`): the partial answer,
+    // a blank line and `The previous response ended before completion.`, then
+    // a `<turn_aborted>` user message, then the new prompt
+    // (`vercel-labs/fx@c1db9191 src/core/session/session.zig:52-64`,
+    // `:2695-2747`). Red before: the request carried the two prompts and
+    // nothing of the stopped turn.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            // A paragraph of its own, so it is on the screen while the turn
+            // still hangs: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
+            support::fake_gateway::text_delta("a", "MARKER-PARTIAL\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream please\r");
+    session.wait_for("MARKER-PARTIAL");
+    session.type_bytes(&[0x03]);
+    session.wait_for(CANCELLED);
+
+    session.type_bytes(b"next\r");
+    session.wait_for("MARKER-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<(String, String)> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .map(|message| {
+            let text = message["content"]
+                .as_array()
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part["text"].as_str())
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            (
+                message["role"].as_str().unwrap_or_default().to_string(),
+                text,
+            )
+        })
+        .collect();
+    assert_eq!(
+        prompt,
+        vec![
+            ("user".to_string(), "stream please".to_string()),
+            (
+                "assistant".to_string(),
+                "MARKER-PARTIAL\n\n\n\nThe previous response ended before completion.".to_string()
+            ),
+            (
+                "user".to_string(),
+                "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands \
+                 may have partially executed. Do not continue this request unless the user \
+                 explicitly asks to continue.\n</turn_aborted>"
+                    .to_string()
+            ),
+            ("user".to_string(), "next".to_string()),
+        ],
+        "{body:#}"
+    );
+}
+
+#[test]
+fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does() {
+    // After a question the user cancelled, fx's next request carries the
+    // call, its result as `{"type":"error-text","value":"aborted by user"}`
+    // and the `<turn_aborted>` message, and nothing else of the turn
+    // (`vercel-labs/fx@c1db9191 src/core/session/session.zig:52-64`,
+    // `:2701-2747`; `src/gateway/vercel_protocol.zig:742-747`). Red before:
+    // the result went as `"type":"text"` and an assistant message after it
+    // said the question was a tool call that completed.
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "q1",
+                "ask_user_question",
+                serde_json::json!({ "questions": [{
+                    "question": "Deploy now?",
+                    "options": [{ "label": "Yes" }, { "label": "No" }],
+                }] }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(support::fake_gateway::content_only(&["MARKER-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask me\r");
+    session.wait_for("Deploy now?");
+    session.type_bytes(&[0x03]);
+    session.wait_for("Cancelled");
+
+    session.type_bytes(b"next\r");
+    session.wait_for("MARKER-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<serde_json::Value> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .cloned()
+        .collect();
+    let roles: Vec<&str> = prompt
+        .iter()
+        .map(|message| message["role"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "tool", "user", "user"],
+        "{body:#}"
+    );
+    assert_eq!(prompt[1]["content"][0]["type"], "tool-call", "{body:#}");
+    assert_eq!(
+        prompt[2]["content"][0]["output"],
+        serde_json::json!({ "type": "error-text", "value": "aborted by user" }),
+        "{body:#}"
+    );
+    assert_eq!(
+        prompt[3]["content"][0]["text"],
+        "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may \
+         have partially executed. Do not continue this request unless the user explicitly asks \
+         to continue.\n</turn_aborted>",
+        "{body:#}"
+    );
+    assert_eq!(prompt[4]["content"][0]["text"], "next", "{body:#}");
 }
 
 #[test]
@@ -3205,7 +3309,7 @@ fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() 
     session.type_bytes(&[0x03]);
     // Response-only, and both halves of the keystroke: the turn was asked to
     // stop, and what was queued behind it goes too.
-    session.wait_for("stopping the turn");
+    session.wait_for(CANCELLED);
     session.wait_for("dropping what was queued");
     // Still alive: one Ctrl-C is a cancellation, not an exit.
     assert!(matches!(session.state(), Wait::Running));
@@ -3289,12 +3393,12 @@ fn the_interrupt_that_stopped_one_turn_does_not_end_the_session_on_the_next() {
     session.type_bytes(b"ask one\r");
     session.wait_for("MARKER-ONE");
     session.type_bytes(&[0x03]);
-    session.wait_for("stopping the turn");
+    session.wait_for(CANCELLED);
 
     session.type_bytes(b"ask two\r");
     session.wait_for("MARKER-TWO");
     session.type_bytes(&[0x03]);
-    session.wait_for_count("stopping the turn", 2);
+    session.wait_for_count(CANCELLED, 2);
     assert!(
         matches!(session.state(), Wait::Running),
         "the first Ctrl-C of a new turn exited the session, because the \
@@ -3366,7 +3470,10 @@ fn a_streamed_answer_is_released_over_frames_rather_than_dumped_in_one() {
     // And the rest of it arrives -- pacing is a delay, not a filter.
     session.wait_for("MARKER-TAIL");
 
-    session.type_bytes(&[0x04]);
+    // `/quit` rather than Ctrl-D: Ctrl-D is not an exit while an answer is
+    // streaming (upstream's `handleSemanticCtrlD`, `app_input_runtime.zig:1750`),
+    // and this turn never stops streaming.
+    session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
 }
 
@@ -3421,7 +3528,7 @@ fn leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it() {
     // repaints a document row, so an answer still in the queue when the session
     // exits is an answer the user never gets. Every way out flushes it whole --
     // this is the way out that has *nothing to drain*, because the runtime had
-    // already handed everything over before the user typed Ctrl-D.
+    // already handed everything over before the user typed `/quit`.
     let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
         support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
             "a",
@@ -3438,7 +3545,10 @@ fn leaving_mid_stream_does_not_take_the_rest_of_the_answer_with_it() {
     session.type_bytes(b"stream\r");
     session.wait_for("MARKER-BEGAN");
 
-    session.type_bytes(&[0x04]);
+    // `/quit` rather than Ctrl-D: Ctrl-D is not an exit while an answer is
+    // streaming (upstream's `handleSemanticCtrlD`, `app_input_runtime.zig:1750`),
+    // and this turn never stops streaming.
+    session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
     assert!(
@@ -3568,7 +3678,10 @@ fn what_the_backpressure_held_back_is_drained_and_painted_on_the_way_out() {
          on the terminal"
     );
 
-    session.type_bytes(&[0x04]);
+    // `/quit` rather than Ctrl-D: Ctrl-D is not an exit while an answer is
+    // streaming (upstream's `handleSemanticCtrlD`, `app_input_runtime.zig:1750`),
+    // and this turn never stops streaming.
+    session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
     let text = session.settled_text();
     assert!(
@@ -3621,8 +3734,13 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    // `/trace` writes a file and copies it: into a directory and through a
+    // tool of this case's own, never the runner's.
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
@@ -3671,6 +3789,9 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
     session.wait_for("history_turns=0");
+    // The runtime's answer: nothing has been changed yet.
+    session.type_bytes(b"/undo\r");
+    session.wait_for("Nothing to undo.");
     // A reset answers with a fresh screen: the welcome line again, once per
     // reset, after the one the launch wrote.
     session.type_bytes(b"/new\r");
@@ -3681,6 +3802,14 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for_count("Run /help for commands", 3);
     session.type_bytes(b"/reset\r");
     session.wait_for_count("Run /help for commands", 4);
+    // A report about the session, which is a file and not a request.
+    session.type_bytes(b"/trace\r");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard."
+    } else {
+        "Trace saved at"
+    });
+    assert_eq!(clipboard.reports().len(), 1, "/trace wrote no report");
 
     // The last one, and the reason it leaves this test rather than a Ctrl-D:
     // every canonical name is then literally pinned against the zero-request
@@ -3937,6 +4066,136 @@ fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
     );
 }
 
+/// A turn that writes `a.txt`, then one that reads it and writes it again --
+/// fx's own `/undo` receipt (`fx-undo-40x120`), with the read xfx's
+/// `write_file` needs before it replaces a file.
+fn two_writes() -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let call = |id: &str, name: &str, input: Value| {
+        Reply::Sse(sse_body(&[
+            tool_call(id, name, input),
+            finish("tool-calls"),
+        ]))
+    };
+    vec![
+        call(
+            "w1",
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        ),
+        Reply::Sse(content_only(&["wrote one"])),
+        call("r1", "read_file", serde_json::json!({"path": "a.txt"})),
+        call(
+            "w2",
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "two\n"}),
+        ),
+        Reply::Sse(content_only(&["wrote two"])),
+    ]
+}
+
+#[test]
+fn undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1242-1290`: `Restored`, then
+    // `Deleted … (was newly created)`, then `Nothing to undo.` -- here
+    // interrupted by a `/new` after the first, which leaves the creation
+    // behind as upstream's reset does (`app_session_runtime.zig:1999`).
+    let gateway = FakeGateway::start(two_writes());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 200);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"write one please\r");
+    session.wait_for("wrote one");
+    session.type_bytes(b"write two please\r");
+    session.wait_for("wrote two");
+    let file = sandbox.workspace.join("a.txt");
+    assert_eq!(std::fs::read_to_string(&file).expect("written"), "two\n");
+    let path = std::fs::canonicalize(&file).expect("canonicalize");
+
+    session.type_bytes(b"/undo\r");
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!("* undo: Restored {}", path.display())],
+        &[],
+    );
+    assert_eq!(std::fs::read_to_string(&file).expect("restored"), "one\n");
+
+    session.type_bytes(b"/new\r");
+    session.wait_for_count("Run /help for commands", 2);
+    session.type_bytes(b"/undo\r");
+    on_screen(&session, (30, 200), &["* undo: Nothing to undo."], &[]);
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("left alone"),
+        "one\n",
+        "the reset's fresh conversation took back the old one's change"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        5,
+        "an undo reached the model, or a turn did not run"
+    );
+}
+
+#[test]
+fn an_undo_typed_while_a_turn_runs_is_done_when_the_turn_is_over() {
+    // Upstream's undo is never refused (`commandUndoLast` runs from the
+    // handler whatever the worker is doing); xfx's runtime does it once the
+    // running turn has said its last word, rather than under it.
+    use support::fake_gateway::{finish, sse_body, text_delta, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "w1",
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::SseThenHang(vec![sse_body(&[text_delta("d", "STILL-RUNNING\n\n")])]),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 200);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"make a file\r");
+    session.wait_for("STILL-RUNNING");
+    let file = sandbox.workspace.join("a.txt");
+    let path = std::fs::canonicalize(&file).expect("the turn wrote it");
+
+    session.type_bytes(b"/undo\r");
+    // Not refused and not done under the turn: the composer took it, and the
+    // file is still there while the turn runs. The wait is what keeps this
+    // from being vacuous -- the runtime reads a control message within a
+    // poll of its arrival, so an undo done at once would be done by now.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    on_screen(&session, (30, 200), &["STILL-RUNNING"], &["* undo:"]);
+    assert!(file.exists(), "the undo ran under the running turn");
+
+    session.type_bytes(&[0x03]);
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!(
+            "* undo: Deleted {} (was newly created)",
+            path.display()
+        )],
+        &[],
+    );
+    assert!(!file.exists(), "the undo was dropped with the turn");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
 #[test]
 fn status_counts_the_turn_the_live_conversation_just_held() {
     // `history_turns` is the conversation the runtime is holding, not the
@@ -3968,6 +4227,112 @@ fn status_counts_the_turn_the_live_conversation_just_held() {
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
     assert_eq!(gateway.request_count(), 1, "a command reached the provider");
+}
+
+/// `minutes` before now as the Gateway writes a time: `YYYY-MM-DDTHH:MM:SSZ`.
+fn iso_utc_minutes_ago(minutes: u64) -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs()
+        - minutes * 60;
+    let (days, rest) = ((seconds / 86_400) as i64, seconds % 86_400);
+    // Howard Hinnant's civil-from-days.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        (rest % 3600) / 60,
+        rest % 60
+    )
+}
+
+#[test]
+fn usage_counts_the_billed_turn_and_credits_asks_the_gateway_off_the_ui_thread() {
+    // One answer the Gateway billed (`vercel-labs/fx@c1db9191
+    // src/gateway/client.zig:3313-3395`), then the balance. Billed a minute
+    // ago by this machine's clock: a window ends now, and a bill dated after
+    // it is in none.
+    let billed = support::fake_gateway::sse_body(&[
+        serde_json::json!({ "type": "response-metadata", "modelId": "fake/model-a",
+                "timestamp": iso_utc_minutes_ago(1) }),
+        support::fake_gateway::text_delta("answer_0", "MARKER-BILLED"),
+        serde_json::json!({
+            "type": "finish",
+            "finishReason": { "unified": "stop", "raw": "stop" },
+            "usage": {
+                "inputTokens": { "total": 12000, "cacheRead": 4000 },
+                "outputTokens": { "total": 800, "reasoning": 0 }
+            },
+            "providerMetadata": { "gateway": {
+                "routing": { "canonicalSlug": "fake/model-a" },
+                "cost": "0.0125",
+                "generationId": "gen_01JABCDEFGHJKMNPQRSTVWXYZ0"
+            } }
+        }),
+    ]);
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(billed),
+        support::fake_gateway::Reply::Sse(
+            r#"{"balance":"42.17","used":"7.83","plan":"pro"}"#.to_string(),
+        ),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"count this\r");
+    session.wait_for("MARKER-BILLED");
+    session.wait_for("\u{2191}");
+    // The session's logs, read off the UI thread: the window is partial,
+    // because counting began with this very turn.
+    session.type_bytes(b"/usage\r");
+    let text = session.wait_for("12.8K tokens");
+    assert!(text.contains("Partial data"), "{text:?}");
+    session.wait_for("$0.01 spent");
+    session.wait_for("1 request");
+    session.wait_for("fake/model-a");
+    // Shift-Tab to the session, which this turn completed in full.
+    session.type_bytes(b"\x1b[Z");
+    session.wait_for("Local xfx activity");
+    session.type_bytes(&[0x1b]);
+    // Settled when the screen has the hint row back and no key help: a lone
+    // ESC is the Escape key only after 50 ms of quiet.
+    on_screen(&session, (40, 120), &["glm-5.2"], &["tab scope"]);
+
+    session.type_bytes(b"/credits\r");
+    // Read off the screen: the label and the body are separate runs.
+    on_screen(
+        &session,
+        (40, 120),
+        &["* credits: balance=42.17", "  used=7.83", "  plan=pro"],
+        &[],
+    );
+    let asked = &gateway.requests()[1];
+    assert_eq!(
+        (asked.method.as_str(), asked.path.as_str()),
+        ("GET", "/coding-agent/v1/credits")
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 2);
 }
 
 #[test]
@@ -4277,7 +4642,7 @@ fn ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on() {
         session.text()
     );
     assert!(
-        !session.text().contains("stopping the turn"),
+        !session.text().contains(CANCELLED),
         "Ctrl-C at a question stopped the turn: {:?}",
         session.text()
     );
@@ -4337,9 +4702,9 @@ fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // A lone ESC: the decoder settles it as Escape once nothing follows it.
     session.type_bytes(&[0x1b]);
 
-    // (b) The turn was interrupted, in the words the interrupt is answered with
-    // wherever it is asked for (`app::INTERRUPT_NOTICE`). Response-only.
-    session.wait_for("stopping the turn");
+    // (b) The turn was interrupted, in upstream's line for a cancelled turn.
+    // Response-only.
+    session.wait_for(CANCELLED);
     // (c) ... and the queue went with it, said where the user can read it.
     session.wait_for("dropping what was queued");
 
@@ -4789,6 +5154,92 @@ fn a_change_too_big_for_the_band_is_reviewed_on_a_screen_of_its_own_and_the_band
 /// The full transcript's footer (`src/tui/full_transcript.rs`, upstream's
 /// `paint_plan.zig:1003`).
 const FULL_FOOTER: &str = "full detail \u{b7} ctrl+o close";
+
+#[test]
+fn a_request_the_turn_retried_leaves_upstreams_recovery_record_on_the_full_transcript() {
+    // The whole path, from the turn's retry to the Ctrl-O screen: upstream
+    // records each retry it shows (`recordRouteRecoveryNotice`,
+    // `vercel-labs/fx@c1db9191 src/core/app/app_worker_runtime.zig:92-133`)
+    // as a warning, `! recovery:`, the label as it read when the retry was
+    // decided, then the facts -- and again as the next attempt starts, and a
+    // `✓ recovery:` once one gets through. xfx's first backoff is 250 ms,
+    // under a second, so there is no `in Ns` and no `retry delay:`
+    // (`orchestrator.zig:5017` rounds down).
+    use support::fake_gateway::{content_only, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Status(
+            500,
+            r#"{"error":{"message":"upstream exploded","type":"server_error"}}"#.to_string(),
+        ),
+        Reply::Sse(content_only(&["MARKER-RECOVERED"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 160);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"try it\r");
+    session.wait_for("MARKER-RECOVERED");
+    assert_eq!(gateway.request_count(), 2, "the turn did not retry");
+
+    session.type_bytes(&[0x0f]);
+    let text = session.wait_until("the recovery records on the full transcript", |text| {
+        last_hidden_frame(text).is_some_and(|frame| {
+            frame.contains(FULL_FOOTER) && frame.contains("kind: auto_recovered")
+        })
+    });
+    let frame =
+        without_colour(last_hidden_frame(&text).expect("the wait returns on a complete frame"));
+    assert!(
+        frame.contains(
+            "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
+             upstream exploded \u{b7} retrying request"
+        ),
+        "{frame:?}"
+    );
+    // Upstream's sequence: the retry, the next attempt as it starts, and the
+    // recovery.
+    for record in [
+        "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+         diagnostic: HTTP 500 \u{b7} server_error: upstream exploded",
+        "kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+         diagnostic: HTTP 500 \u{b7} server_error: upstream exploded",
+        "\u{2713} recovery: \u{2713} recovered \u{b7} succeeded on attempt 2",
+        "kind: auto_recovered \u{b7} attempt: 2/3",
+    ] {
+        assert!(frame.contains(record), "{record:?} in {frame:?}");
+    }
+    // Closed before the next keys, so they reach the composer as keys rather
+    // than an Escape that prefixes them.
+    session.type_bytes(&[0x0f]);
+    session.wait_until("the band back on the primary plane", |text| {
+        text.rfind(LEAVES_ALTERNATE)
+            .is_some_and(|leave| text[leave..].contains(FRAME_END))
+    });
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// `text` with its colour sequences (`ESC [ … m`) taken out and every other
+/// byte kept, so a row's words read as one run however many colours paint it.
+fn without_colour(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("\u{1b}[") {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 2..];
+        match after.find(|c: char| !(c.is_ascii_digit() || c == ';')) {
+            Some(end) if after[end..].starts_with('m') => rest = &after[end + 1..],
+            _ => {
+                out.push_str("\u{1b}[");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
 
 #[test]
 fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with_its_draft() {
@@ -5353,7 +5804,10 @@ mod faults {
         session.type_bytes(b"stream a lot\r");
         session.wait_for("chunk-0");
 
-        session.type_bytes(&[0x04]);
+        // `/quit` rather than Ctrl-D: Ctrl-D is not an exit while an answer is
+        // streaming (upstream's `handleSemanticCtrlD`,
+        // `app_input_runtime.zig:1750`), and this turn never stops streaming.
+        session.type_bytes(b"/quit\r");
         let started = Instant::now();
         assert_eq!(session.wait_exit().code(), Some(0), "the drain deadlocked");
         // Near what the protocol actually promises rather than an order of
@@ -6595,7 +7049,10 @@ fn an_exit_inside_the_debounce_writes_the_tail_at_the_screen_the_terminal_really
     // The window changes to a size the terminal will not describe, and the user
     // leaves before the debounce comes round.
     resize(&pty, &session, 0, 0);
-    session.type_bytes(&[0x04]);
+    // `/quit` rather than Ctrl-D: Ctrl-D is not an exit while an answer is
+    // streaming (upstream's `handleSemanticCtrlD`, `app_input_runtime.zig:1750`),
+    // and this turn never stops streaming.
+    session.type_bytes(b"/quit\r");
     assert_eq!(session.wait_exit().code(), Some(0));
 
     let text = session.settled_text();
@@ -7368,4 +7825,95 @@ fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+// ---------------------------------------------------------------------------
+// /trace
+// ---------------------------------------------------------------------------
+
+#[test]
+fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text() {
+    // Upstream's own case (`tui-command-permissions.test.ts:1797-1890`) through
+    // the real binary: after a turn, `/trace` says `Trace copied to clipboard`
+    // on macOS and `Trace saved at` elsewhere; the report is a Markdown file
+    // under `$TMPDIR` that only its owner can read, and the clipboard tool was
+    // handed its path. Never a request, and never the credential.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["TRACE_RENDER_DONE"]),
+    )]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"render the trace fixture\r");
+    // The turn is over once the session is titled by its first prompt.
+    session.wait_for("\u{1b}]2;render the trace fixture\u{7}");
+    session.type_bytes(b"/trace\r");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let path = &reports[0];
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+    assert!(
+        name.starts_with("xfx-trace-") && name.ends_with(".md"),
+        "{name}"
+    );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "the report is readable by others: {mode:o}"
+        );
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(clipboard.copied_file().as_deref(), path.to_str());
+    } else {
+        assert_eq!(clipboard.copied_file(), None, "a file copy was tried");
+    }
+    assert_eq!(clipboard.copied(), None, "the report was copied as text");
+    let report = std::fs::read_to_string(path).expect("the report");
+    for needle in [
+        "# xfx trace\n".to_string(),
+        "\n## Summary\n".to_string(),
+        format!("\nworkspace: {}\n", sandbox.workspace.display()),
+        "\nauth: source=AI_GATEWAY_API_KEY refreshable=false\n".to_string(),
+        "\nhistory_turns: 1\n".to_string(),
+        "\n    render the trace fixture\n".to_string(),
+        "\n    TRACE_RENDER_DONE\n".to_string(),
+        "] user\n  render the trace fixture\n".to_string(),
+        "] assistant\n  TRACE_RENDER_DONE\n".to_string(),
+        "\n## Network Calls\ncalls=1 ok=1 refused=0\n".to_string(),
+    ] {
+        assert!(report.contains(&needle), "{needle:?} is not in:\n{report}");
+    }
+    assert!(
+        !report.contains(support::sandbox::TEST_KEY),
+        "the credential reached the report"
+    );
+
+    // A copy the clipboard refused names the file, as an error.
+    clipboard.fail();
+    session.type_bytes(b"/trace\r");
+    if cfg!(target_os = "macos") {
+        session.wait_for("Clipboard copy failed.");
+    } else {
+        session.wait_for_count("Trace saved at", 2);
+    }
+    assert_eq!(clipboard.reports().len(), 2);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 1, "/trace sent a request");
 }

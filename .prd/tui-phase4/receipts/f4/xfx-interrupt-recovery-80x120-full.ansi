@@ -1,0 +1,80 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-ddca9d9 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;245m  2026-10-06 21:03:11.291 UTC · Notice[39m
+[38;5;250m* session: provider: gateway · model: fake/model-a · effort: auto[39m
+  [38;5;250mtools: 9 advertised (list_files, glob_files, grep_files, read_file, write_file, edit_file, create_folder, terminal, +1
+[39m  [38;5;250mmore)[39m
+  [38;5;250mmcp: none[39m
+
+[38;5;245m  2026-10-06 21:03:13.383 UTC · Notice[39m
+[38;5;252m! network:[38;5;250m provider: gateway · model: fake/model-a · 15ms[39m
+  [38;5;250mfailed: server_error[39m
+
+[38;5;245m  2026-10-06 21:03:13.383 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 1/3 · diagnostic: HTTP 500 · server_error: upstream exploded
+
+[38;5;245m  2026-10-06 21:03:13.642 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 2/3 · diagnostic: HTTP 500 · server_error: upstream exploded
+
+[38;5;245m  2026-10-06 21:03:13.701 UTC · Notice[39m
+[38;5;252m! network:[38;5;250m provider: gateway · model: fake/model-a · 61ms[39m
+  [38;5;250mfailed: server_error[39m
+
+[38;5;245m  2026-10-06 21:03:13.701 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 2/3 · diagnostic: HTTP 500 · server_error: upstream exploded
+
+[38;5;245m  2026-10-06 21:03:14.207 UTC · Notice[39m
+[38;5;252m! recovery:[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying request[39m
+  [38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 3/3 · diagnostic: HTTP 500 · server_error: upstream exploded
+
+[38;5;245m  2026-10-06 21:03:14.457 UTC · Notice[39m
+[38;5;250m* network: provider: gateway · model: fake/model-a · 255ms[39m
+  [38;5;250mfinish: stop[39m
+  [38;5;250mtokens: 1200 in · 40 out[39m
+
+[38;5;245m  2026-10-06 21:03:14.457 UTC · Notice[39m
+[38;5;252m✓ recovery:[38;5;250m ✓ recovered · succeeded on attempt 3[39m
+  [38;5;250mkind: auto_recovered · attempt: 3/3[39m
+
+[38;5;245m  2026-10-06 21:03:13.295 UTC · Prompt[39m
+[38;5;255m┃[39m [1mtry it[0m
+
+[38;5;245m  2026-10-06 21:03:14.791 UTC · Response[39m
+  Recovered answer.
+
+[38;5;245m  2026-10-06 21:03:14.791 UTC · Usage[39m
+[38;5;245m  1s (↑2 ↓40)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m

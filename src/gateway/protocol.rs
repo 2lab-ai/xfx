@@ -67,6 +67,14 @@ pub enum ContentPart {
         call_id: String,
         tool: String,
         output: String,
+        /// Whether the call failed -- refused, broken, or stopped under its
+        /// turn (`aborted by user`, `vercel-labs/fx@c1db9191
+        /// src/core/session/session.zig:64`). Each wire has its own word for
+        /// it: the Gateway's output type `error-text`, which upstream gives
+        /// every result whose status is a failure
+        /// (`src/gateway/vercel_protocol.zig:742-747`), and Anthropic's
+        /// `is_error`.
+        error: bool,
     },
     /// The provider's own content blocks, kept exactly as they arrived.
     ///
@@ -182,6 +190,25 @@ impl Message {
                 call_id: call_id.into(),
                 tool: tool.into(),
                 output: output.into(),
+                error: false,
+            }],
+        }
+    }
+
+    /// The answer to a call that failed, said as a failure on the wire
+    /// ([`ContentPart::ToolResult::error`]).
+    pub fn tool_error(
+        call_id: impl Into<String>,
+        tool: impl Into<String>,
+        output: impl Into<String>,
+    ) -> Self {
+        Self {
+            role: Role::Tool,
+            content: vec![ContentPart::ToolResult {
+                call_id: call_id.into(),
+                tool: tool.into(),
+                output: output.into(),
+                error: true,
             }],
         }
     }
@@ -498,12 +525,13 @@ impl Serialize for WireParts<'_> {
                     call_id,
                     tool,
                     output,
+                    error,
                 } => seq.serialize_element(&ToolResultPart {
                     r#type: "tool-result",
                     tool_call_id: call_id,
                     tool_name: tool,
                     output: TextOutput {
-                        r#type: "text",
+                        r#type: if *error { "error-text" } else { "text" },
                         value: output,
                     },
                 })?,
@@ -594,6 +622,34 @@ pub struct Usage {
     pub output_tokens: Option<u64>,
 }
 
+/// What one response cost, as the provider accounted for it.
+///
+/// Present only when the provider said **everything** upstream requires
+/// before it counts a request (`parseSseBilling`, `vercel-labs/fx@c1db9191
+/// src/gateway/client.zig:3313-3395`): when it was billed, what it was billed
+/// as, what it cost, and every token count it is made of. A response that
+/// said less is a response whose spend is unknown, and it has no billing
+/// rather than a partial one -- a partial bill would be summed as if whole.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Billing {
+    /// When the provider billed it, milliseconds since the epoch.
+    pub at_ms: i64,
+    /// What it was billed as.
+    pub model: String,
+    /// The provider's id for the generation, when it has one.
+    pub generation_id: Option<String>,
+    /// US dollars, as the provider said.
+    pub cost: f64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Part of `input_tokens`.
+    pub cache_read_tokens: u64,
+    /// Part of `input_tokens`.
+    pub cache_write_tokens: u64,
+    /// Part of `output_tokens`, when the provider said.
+    pub reasoning_tokens: Option<u64>,
+}
+
 /// One completed model response.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Completion {
@@ -621,12 +677,40 @@ pub struct Completion {
     /// provider it *asked*, the decoder knows which wire actually answered, and
     /// the second is the one a replay contract is written against.
     pub wire: Wire,
+    /// What the response cost, when the provider accounted for it
+    /// ([`Billing`]). `None` is "unknown", never "free".
+    pub billing: Option<Billing>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_call_that_never_produced_a_result_is_answered_with_error_text() {
+        // fx's request after a cancelled command
+        // (`fx-interrupt-40x120-bodies/006-completion.json`):
+        // `{"type":"tool-result",...,"output":{"type":"error-text","value":"aborted by user"}}`.
+        let parts = |message: &Message| serde_json::to_value(WireParts(&message.content)).unwrap();
+        assert_eq!(
+            parts(&Message::tool_error(
+                "call_1",
+                "terminal",
+                "aborted by user"
+            )),
+            json!([{
+                "type": "tool-result",
+                "toolCallId": "call_1",
+                "toolName": "terminal",
+                "output": { "type": "error-text", "value": "aborted by user" }
+            }])
+        );
+        assert_eq!(
+            parts(&Message::tool_result("call_1", "terminal", "ok"))[0]["output"]["type"],
+            json!("text")
+        );
+    }
 
     #[test]
     fn role_labels_are_the_wire_names() {
@@ -724,6 +808,7 @@ mod tests {
             call_id: "c".to_string(),
             tool: "t".to_string(),
             output: "o".to_string(),
+            error: false,
         };
         assert!(text.allowed_on(Role::System) && text.allowed_on(Role::User));
         assert!(!text.allowed_on(Role::Tool));

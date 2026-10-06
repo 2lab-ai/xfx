@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* undo: Nothing to undo.
+
+✗ command: Unknown command. Try /help.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
