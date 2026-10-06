@@ -26,8 +26,9 @@ in it changed for this round. `respawn-pane` blanks the pane when it restarts
 it, so the first launch's screen is not above the second in either binary's
 `relaunched`/`resumed` snaps; the history keeps what had scrolled off.
 
-The xfx binary is `target/debug/xfx` built at `e70cb5b` (this branch with
-`plan/tui-phase4` at `2b5967f` merged) and its banner shows that revision.
+The xfx binary is `target/debug/xfx` built at `cbf8bea` (this branch with
+`plan/tui-phase4` at `aed448c` merged) and its banner shows that revision;
+the fx side is the c1db919 build, taken in the same round.
 Sanitized: no scratch path appears in any capture; the host name tmux restores
 as the window title after xfx's exit is written `<host>`. `.ansi` files are
 tmux's re-serialization of cell attributes (`capture-pane -e`), not the
@@ -35,12 +36,14 @@ programs' wire bytes. `resume-paging`'s fx side was taken twice: in the first
 run, under the load of the other units' builds, fx lost one of the eighteen
 prompts (`question thirteen` typed while the previous `/new` was still being
 handled), so it had seventeen sessions and no page to load; the second run,
-the one kept, has all eighteen.
+the one kept, has all eighteen. `resume`'s xfx side was taken twice for the
+same reason (load average above 30): the first run lost `first question
+alpha` the same way and listed two sessions; the run kept lists all three.
 
 ## What matches
 
 Every pair below is identical row for row, SGR included, **except row 1 where
-row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-e70cb5b
+row 1 is the welcome line** (`𝒇x v0.0.13` against `x𝒇x v0.1.0-cbf8bea
 [debug]`). Where row 1 is the resume notice the whole `.ansi` file is
 identical.
 
@@ -97,7 +100,7 @@ Every comparison of the first round holds on this tree, the same way:
 
 | snap | both show | matches |
 |---|---|---|
-| `during` | `┃ count to ten slowly`, `* session: renamed to "Counted mid turn"` under it **while the answer streams**, the activity row | Rows 2-40 identical but the activity row's blink phase (`•`). |
+| `during` | `┃ count to ten slowly`, `* session: renamed to "Counted mid turn"` under it **while the answer streams**, the activity row | Rows 2-40 identical (an earlier take differed only in the activity row's blink phase, `•`). |
 | `during.title` | `Counted mid turn` | Identical: the window took the title at once. |
 | `after` | the notice, then the whole answer and `  5s (↑6 ↓40)` | Rows 2-40 identical. |
 | `relaunched`, `relaunched.title` | `* session resumed: Counted mid turn` and the turn | **Whole files identical**: the title the session got mid-turn is in its log. |
