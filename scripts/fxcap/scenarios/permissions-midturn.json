@@ -1,0 +1,5 @@
+[
+ {"tool":{"name":"write_file","input":{"path":"first.txt","content":"one\n"}}},
+ {"hangMs":4500,"tool":{"name":"write_file","input":{"path":"second.txt","content":"two\n"}}},
+ {"delayMs":100,"chunks":["Done ","writing."]}
+]

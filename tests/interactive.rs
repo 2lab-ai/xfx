@@ -306,6 +306,34 @@ fn slash_permissions_says_the_mode_changes_it_and_records_it() {
 }
 
 #[test]
+fn slash_permissions_says_when_a_higher_layer_still_decides_a_fresh_session() {
+    // Upstream's shadow suffix (`appendShadowedUserSource`,
+    // `session_commands.zig:225-236`): the write happened, and the environment
+    // still decides what the next launch starts in.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command();
+    command.env("XFX_PERMISSION_MODE", "ask");
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/permissions auto");
+    let text = session.wait_for("higher-precedence permission_mode=process_override");
+    assert!(
+        text.contains(
+            "xfx: permission-mode: saved to user settings (scope=user); fresh sessions \
+             here use higher-precedence permission_mode=process_override"
+        ),
+        "{text}"
+    );
+    let settings = sandbox.home.join(".xfx").join("settings.json");
+    let written: Value =
+        serde_json::from_str(&fs::read_to_string(&settings).expect("the profile")).expect("json");
+    assert_eq!(written, json!({"permission_mode": "auto"}));
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
 fn slash_help_lists_exactly_the_canonical_commands() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();

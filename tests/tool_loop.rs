@@ -35,7 +35,8 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
 use xfx::output::{Event, RecordingSink};
 use xfx::permission::{
-    ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse, PermissionSession,
+    ApprovalAnswer, ApprovalDiff, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
+    PermissionSession,
 };
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
@@ -1786,6 +1787,78 @@ impl TurnJournal for RecordingJournal {
     }
 }
 
+/// The kinds of what a turn recorded, and the changes it handed over between
+/// them as `change`.
+#[derive(Default)]
+struct ChangeJournal {
+    kinds: Vec<&'static str>,
+    changes: Vec<(String, ApprovalDiff)>,
+}
+
+impl TurnJournal for ChangeJournal {
+    fn record(&mut self, event: SessionEvent) {
+        self.kinds.push(event.kind());
+    }
+
+    fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
+        self.kinds.push("change");
+        self.changes.push((call_id.to_string(), change.clone()));
+    }
+}
+
+#[tokio::test]
+async fn a_change_a_turn_made_is_handed_to_the_journal_after_its_result_with_no_approval() {
+    // The full transcript shows the diff of every change, reviewed or not;
+    // `yolo` reviews none. The read records nothing of the kind, and the log
+    // a session keeps is the same with or without the change beside it.
+    let tree = Tree::new();
+    tree.write("notes.md", "old\n");
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            read_call("r", "notes.md"),
+            write_call("w", "notes.md", "new\n"),
+        ]),
+        final_step("rewritten"),
+    ]);
+    let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
+    let mut sink = RecordingSink::new();
+    let mut journal = ChangeJournal::default();
+    run_turn_saved(
+        turn("rewrite the note", tools),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    assert_eq!(
+        fs::read_to_string(tree.root().join("notes.md")).expect("the written file"),
+        "new\n"
+    );
+    assert_eq!(
+        journal.kinds,
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_result",
+            "change",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded",
+        ]
+    );
+    assert_eq!(journal.changes.len(), 1);
+    let (call_id, change) = &journal.changes[0];
+    assert_eq!(call_id, "w");
+    assert_eq!(
+        (change.before.as_str(), change.after.as_str()),
+        ("old\n", "new\n")
+    );
+}
+
 /// A context in `ask` mode whose approvals are answered by `prompter`.
 fn asking_context(tree: &Tree, limits: ToolLimits, prompter: ScriptedAmender) -> ToolContext {
     ToolContext::with_limits(
@@ -2280,16 +2353,68 @@ async fn a_fatal_result_journals_the_sentence_and_sends_no_request() {
     // sentences to travel in.
     assert_eq!(provider.requests().len(), 1);
 
-    // Replayed: nothing either. The group is incomplete -- `c4` never ran --
-    // so it never flushes, and the sentences go with it rather than arriving
-    // as loose user messages beside an orphan result.
+    // Replayed (claim changed: this was "nothing", the incomplete group
+    // dropped with its sentences). A turn that did not finish is replayed as
+    // upstream replays one (`vercel-labs/fx@c1db9191
+    // src/core/session/session.zig:2695-2747`): the call that never ran is
+    // answered `aborted by user` as a failure, so the group is whole -- its
+    // answer beside the step's other results, and the sentences after every
+    // result, never between a call and its answer -- and `<turn_aborted>`
+    // closes the turn.
     let state = replayed(&journal.events, tree.root());
     let replay = state.history_messages(Wire::VercelGateway);
     assert_eq!(
-        replay.messages,
-        vec![Message::user("edit the note")],
-        "an incomplete group replayed anyway"
+        replay_shape(&replay.messages),
+        [
+            "user: edit the note",
+            "assistant: Interrupted by user after completing 3 tool calls: write_file, read_file, \
+             edit_file. | call c1 | call c2 | call c3 | call c4",
+            "tool: c1",
+            "tool: c2",
+            "tool: c3 error",
+            "tool: c4 error aborted by user",
+            "user: draft it as markdown",
+            "user: keep the heading",
+            "user: <turn_aborted>",
+        ],
+        "{:#?}",
+        replay.messages
     );
+}
+
+/// Each message as one line: its role, then its text, calls and results --
+/// a result by its call, `error` when it is sent as a failure, and its output
+/// only when that is `aborted by user`. A `<turn_aborted>` message is named by
+/// its tag.
+fn replay_shape(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| {
+            let parts: Vec<String> = message
+                .content
+                .iter()
+                .map(|part| match part {
+                    ContentPart::Text { text } if text.starts_with("<turn_aborted>") => {
+                        "<turn_aborted>".to_string()
+                    }
+                    ContentPart::Text { text } => text.clone(),
+                    ContentPart::ToolCall(call) => format!("call {}", call.id),
+                    ContentPart::ToolResult {
+                        call_id,
+                        output,
+                        error,
+                        ..
+                    } => match (*error, output.as_str()) {
+                        (true, "aborted by user") => format!("{call_id} error aborted by user"),
+                        (true, _) => format!("{call_id} error"),
+                        (false, _) => call_id.clone(),
+                    },
+                    ContentPart::RawBlocks(_) => "raw".to_string(),
+                })
+                .collect();
+            format!("{}: {}", message.role.label(), parts.join(" | "))
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -2751,10 +2876,27 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
     );
     assert_eq!(provider.requests().len(), 1, "a stopped turn asked again");
 
-    // And a resume replays neither: nothing was recorded to replay.
+    // And a resume replays no sentence: none was recorded. What it does
+    // replay (claim changed: this was the prompt alone) is the stopped batch
+    // as upstream replays a stopped turn (`session.zig:2695-2747`): the calls
+    // that ran, the one that never did answered `aborted by user` as a
+    // failure, and `<turn_aborted>`.
     let state = replayed(&journal.events, tree.root());
     let replay = state.history_messages(Wire::VercelGateway);
-    assert_eq!(replay.messages, vec![Message::user("draft three files")]);
+    assert_eq!(
+        replay_shape(&replay.messages),
+        [
+            "user: draft three files",
+            "assistant: Interrupted by user after completing 2 tool calls: write_file, \
+             write_file. | call c1 | call c2 | call c3",
+            "tool: c1",
+            "tool: c2",
+            "tool: c3 error aborted by user",
+            "user: <turn_aborted>",
+        ],
+        "{:#?}",
+        replay.messages
+    );
 }
 
 #[tokio::test]

@@ -818,11 +818,12 @@ fn a_cancelled_decode_stops_at_the_next_frame() {
 
 #[test]
 fn the_default_endpoint_is_the_upstream_gateway_over_https() {
-    // `vercel-labs/fx@580a0c5d src/builtins/gateway.zig:41`.
+    // `vercel-labs/fx@c1db9191 src/builtins/gateway.zig:47`: the v4 route,
+    // which applies a reasoning effort the v3 one dropped (upstream `09ec38c2`).
     let endpoint = Endpoint::resolve(None).expect("the default endpoint always resolves");
     assert_eq!(
         endpoint.url(),
-        "https://ai-gateway.vercel.sh/v3/ai/language-model"
+        "https://ai-gateway.vercel.sh/v4/ai/language-model"
     );
 }
 

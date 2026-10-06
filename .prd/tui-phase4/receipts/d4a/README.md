@@ -1,13 +1,21 @@
 # D4a receipt: `/permissions` and Shift-Tab
 
-Two scenarios, run at 40x120 on both binaries:
+Three scenarios, run at 40x120 on both binaries (the third added with the
+follow-ups: a change made while a turn runs):
 
 ```
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  permissions      40x120 <dir>
                                   scripts/fxcap/capture.sh xfx permissions      40x120 <dir>
 FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  permissions-btab 40x120 <dir>
                                   scripts/fxcap/capture.sh xfx permissions-btab 40x120 <dir>
+FX_BIN=<fx c1db919 build, 0.0.13> scripts/fxcap/capture.sh fx  permissions-midturn 40x120 <dir>
+                                  scripts/fxcap/capture.sh xfx permissions-midturn 40x120 <dir>
 ```
+
+All three were retaken together on `8826458` (plan `0d41a22` merged, with its
+fx sound guard in `capture.sh`); the xfx files of the first two are
+byte-identical to the earlier takes apart from the welcome line's revision, and
+fx's differ only in the timestamps, session ids and backup names fx writes.
 
 `permissions.cap` types a bare `/permissions`, Down, Escape, then
 `/permissions auto`, `full-access`, `ask`, `reset`, `bogus` and a second bare
@@ -71,16 +79,45 @@ explained below.
 | `btab-full-again` | `full access · model-a`, **no** warning | same | Identical: shown once per profile, not once per entry. |
 | `bare` (btab) | `mode=full access` listing | same | Identical but the two usage rows. `settings.json` ends `yolo` + acknowledged on both. |
 
+## A change while a turn is running (`permissions-midturn`)
+
+Turns `scenarios/permissions-midturn.json`: the model writes `first.txt`, then
+-- its second step held open 4.5 s (`hangMs`) -- asks to write `second.txt`,
+then says `Done writing.`. The scenario sends the prompt, snaps the turn after
+the first write (`first-done`), presses Shift-Tab twice -- the harness's
+`auto`, full access, `ask` -- while the second step is still held (`switched`),
+snaps when the second write's approval is up (`second-asks`), refuses it with
+Ctrl-C (`after-refusal`), and lists the workspace (`work-end`) and HOME
+(`end.files`).
+
+| snap | fx | xfx | matches / differs |
+|---|---|---|---|
+| `first-done` | `└ Wrote first.txt +1`; the activity row; footer `\e[38;5;252mauto\e[38;5;245m · model-a` | same | The first write ran unasked in `auto` on both. Row 8, the activity row, differs in two things that are not this unit's: the blinking marker's phase at the snap (`•` against a blank) and the output count (`↓40` against `↓0` -- the activity row's token accounting). |
+| `switched` | footer `\e[38;5;245mask · model-a` | same | **The footer says `ask` while the turn is running**, on both. Row 8 as above. |
+| `second-asks` | the approval band for `second.txt` (`Write · +1 -0`, `1 Apply once` …) | same band | **The running turn's second write is put to the person** on both: the switch governs that turn's next call. The band's option 2 and the explanation row under it are xfx's own approval wording (F2's surface), two rows longer. |
+| `after-refusal` | `● 2 tool calls · 2 write · 1 denied`, `├ Wrote first.txt +1`, `└ Denied file`, `Done writing.` | same | Identical but the summary's output count (`↓120` against `↓40`, as above). `work-end`: only `first.txt` on both. |
+
+xfx's `end.files` shows the record that followed: the turn's events, then --
+between pieces of work, once the turn had ended -- `preferences_changed` to
+`yolo` and to `ask`, in the order the keys were pressed, and `settings.json`
+`{"permission_mode": "ask", "yolo_acknowledged": true}`. The mode governed the
+turn from the keystroke; the log and the profile record it afterwards.
+
 ## What the receipt does not show
 
-- **A change while a turn is running.** xfx applies it between turns: the
-  running turn finishes under the mode it started with and whatever was queued
-  behind it starts under the new one (`src/tui/worker.rs` tests
-  `a_change_sent_after_work_was_queued_is_applied_before_that_work_starts`,
-  `a_change_lands_while_the_loop_is_idle_and_one_typed_before_leaving_is_not_lost`).
-  fx applies it to the running turn's later tool calls too
-  (`tests/e2e/yolo-permission-mode.test.ts:373-450`). While a turn runs, xfx's
-  row therefore shows the mode of the next turn, not of the one in flight.
+- **A reset during a turn, and its durable record.** A reset takes every
+  earlier "always" out of force at once and the runtime writes
+  `permission_grants_cleared` so a resume does not restore them; no scenario
+  here holds a grant. `src/tui/worker.rs`
+  `a_reset_mid_turn_takes_the_grants_away_from_that_turns_next_call` and
+  `a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back`, and
+  `src/session/store.rs` `a_reset_withdraws_every_grant_before_it_and_none_after_it`.
+- **The shadow line.** The harness pins `XFX_MODEL` and no permission
+  override, so no save is outranked here. `src/tui/worker.rs`
+  `a_mode_a_higher_layer_outranks_is_saved_and_says_so_in_upstreams_words`
+  (TUI) and `tests/interactive.rs`
+  `slash_permissions_says_when_a_higher_layer_still_decides_a_fresh_session`
+  (line shell).
 - **Grants in the bare listing.** No turn runs in either scenario, so both list
   `session grants: (none)`. The listing of real grants (` - write_file -> a.txt`,
   workspace-relative, made inert) is covered by

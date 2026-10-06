@@ -296,6 +296,14 @@ pub struct TurnMachine {
     /// spans several steps answers with all of them, because that is what the
     /// user watched arrive.
     output: String,
+    /// The text a step delivered before it failed, when one did.
+    ///
+    /// Recorded as the turn's last assistant step when the turn ends on that
+    /// failure ([`Self::run_journaled`]), because it is what the user read and
+    /// what upstream keeps: the next request carries the partial answer, closed
+    /// by the sentence that says it ended early (`session.zig:3057-3069`;
+    /// `crate::session::store`'s `close_interrupted`).
+    partial: String,
     steps: u32,
     finalized: bool,
     /// Every model request this turn completed, as `/usage` keeps it
@@ -321,6 +329,7 @@ impl TurnMachine {
             user,
             suffix: Vec::new(),
             output: String::new(),
+            partial: String::new(),
             steps: 0,
             finalized: false,
             requests: Vec::new(),
@@ -390,13 +399,28 @@ impl TurnMachine {
 
         let result = self.drive(provider, events, journal).await;
 
-        // What the turn cost, before it is concluded. A turn that failed
-        // records one only when it has something to say -- a request that
-        // completed before the failure, or one that was lost after it was
-        // sent -- because a turn refused before any request was made cost
-        // nothing, and a frame saying so would be a frame about nothing. Its
-        // two totals stay absent: they are the answering step's, and it had
-        // none.
+        // The answer a failed step had put in front of the user, as the turn's
+        // last step: the conclusion closes it.
+        if result.is_err() {
+            let partial = std::mem::take(&mut self.partial);
+            if !partial.is_empty() {
+                journal.record(SessionEvent::AssistantMessage {
+                    text: partial,
+                    tool_calls: Vec::new(),
+                    raw_content: Vec::new(),
+                    responses_state: Vec::new(),
+                    wire: None,
+                });
+            }
+        }
+
+        // What the turn cost, after its last step and just before it is
+        // concluded. A turn that failed records one only when it has something
+        // to say -- a request that completed before the failure, or one that
+        // was lost after it was sent -- because a turn refused before any
+        // request was made cost nothing, and a frame saying so would be a
+        // frame about nothing. Its two totals stay absent: they are the
+        // answering step's, and it had none.
         let (input_tokens, output_tokens) = match &result {
             Ok(outcome) => (outcome.usage.input_tokens, outcome.usage.output_tokens),
             Err(_) => (None, None),
@@ -413,21 +437,17 @@ impl TurnMachine {
         }
 
         // Exactly one conclusion, whichever way the turn went.
-        match &result {
-            Ok(outcome) => {
-                journal.record(SessionEvent::TurnConcluded {
-                    outcome: TurnConclusion::Final {
-                        finish_reason: outcome.finish_reason.label().to_string(),
-                        steps: outcome.steps,
-                    },
-                });
-            }
-            Err(err) => journal.record(SessionEvent::TurnConcluded {
-                outcome: TurnConclusion::Interrupted {
+        journal.record(SessionEvent::TurnConcluded {
+            outcome: match &result {
+                Ok(outcome) => TurnConclusion::Final {
+                    finish_reason: outcome.finish_reason.label().to_string(),
+                    steps: outcome.steps,
+                },
+                Err(err) => TurnConclusion::Interrupted {
                     reason: err.to_string(),
                 },
-            }),
-        }
+            },
+        });
 
         // The only place a terminal event is written. One match, two arms, no
         // early return in between: the "exactly once" property is the shape of
@@ -665,8 +685,17 @@ impl TurnMachine {
                 ok: result.ok,
                 output: result.output.clone(),
             });
-            self.suffix
-                .push(Message::tool_result(&call.id, &call.name, result.output));
+            if let Some(change) = &result.change {
+                journal.change_made(&call.id, change);
+            }
+            // A call that failed is said as one on the wire, as upstream says
+            // every result whose status is a failure (`error-text`,
+            // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).
+            self.suffix.push(if result.ok {
+                Message::tool_result(&call.id, &call.name, result.output)
+            } else {
+                Message::tool_error(&call.id, &call.name, result.output)
+            });
 
             // Buffered here, delivered after the loop. Directly after the
             // result push, so only a call that actually ran and was answered
@@ -837,14 +866,21 @@ impl TurnMachine {
                 });
             }
             attempt += 1;
+            if attempt > 1 {
+                events.retry_started(attempt, self.request.max_attempts);
+            }
 
             let mut deltas = StepDeltas {
                 events: &mut *events,
                 delivered: false,
+                text: String::new(),
                 error: None,
             };
             let outcome = provider.stream(&request, &mut deltas).await;
             let delivered = deltas.delivered;
+            // What reached the user, kept for a turn that ends here; a step
+            // that completes records its own text instead.
+            self.partial = std::mem::take(&mut deltas.text);
             // A sink failure is reported as itself rather than as whatever the
             // provider made of it, so a closed stdout is never read as a
             // protocol failure.
@@ -853,7 +889,13 @@ impl TurnMachine {
             }
 
             match outcome {
-                Ok(completion) => return Ok(completion),
+                Ok(completion) => {
+                    self.partial.clear();
+                    if attempt > 1 {
+                        events.recovered(attempt, self.request.max_attempts);
+                    }
+                    return Ok(completion);
+                }
                 Err(err) => {
                     // `delivered` is the decisive fact: once part of an answer
                     // is in front of the user, a replay would produce a second
@@ -871,6 +913,16 @@ impl TurnMachine {
                     }
                     // The failure survived every "do not replay" test, so this
                     // is the one place a retry is allowed -- and it waits first.
+                    // Said before the wait, to whoever is showing the turn: the
+                    // decision is already made, and the delay is the one
+                    // `wait_for_retry` is about to spend (`retry_delay` is a
+                    // function of exactly these two values).
+                    events.retrying(
+                        &err,
+                        attempt,
+                        self.request.max_attempts,
+                        retry_delay(attempt, err.retry_after()),
+                    );
                     self.wait_for_retry(&err, attempt).await?;
                 }
             }
@@ -953,6 +1005,8 @@ impl TurnMachine {
 struct StepDeltas<'a> {
     events: &'a mut dyn EventSink,
     delivered: bool,
+    /// The text the user was shown, in order -- only what was emitted.
+    text: String,
     /// The first write failure, kept so the turn can report it as its own.
     error: Option<io::Error>,
 }
@@ -964,7 +1018,10 @@ impl DeltaSink for StepDeltas<'_> {
             text: text.to_string(),
         };
         match self.events.emit(&event) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.text.push_str(text);
+                Ok(())
+            }
             Err(err) => {
                 let reported = io::Error::new(err.kind(), err.to_string());
                 if self.error.is_none() {

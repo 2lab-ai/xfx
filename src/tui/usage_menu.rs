@@ -102,6 +102,10 @@ pub(crate) struct Reader {
     thread: Option<(Sender<i64>, JoinHandle<()>)>,
     done: Sender<Read>,
     results: Receiver<Read>,
+    /// How many reads a reader built by a test was asked for: one that starts
+    /// no thread, so what it answers is only ever what the test delivers.
+    #[cfg(test)]
+    asked: Option<usize>,
 }
 
 impl Reader {
@@ -112,7 +116,25 @@ impl Reader {
             thread: None,
             done,
             results,
+            #[cfg(test)]
+            asked: None,
         }
+    }
+
+    /// A reader that reads nothing: asked, it counts the ask, and answers
+    /// only with what [`Self::deliver`] hands it -- so a case about what the
+    /// UI does with a read is not racing a real one.
+    #[cfg(test)]
+    pub(crate) fn by_hand() -> Self {
+        let mut reader = Self::new(Some(PathBuf::new()));
+        reader.asked = Some(0);
+        reader
+    }
+
+    /// How many reads a [`Self::by_hand`] reader was asked for.
+    #[cfg(test)]
+    pub(crate) fn asked(&self) -> usize {
+        self.asked.unwrap_or(0)
     }
 
     /// Asks for one read, as of `now_ms`, and returns without waiting.
@@ -120,6 +142,11 @@ impl Reader {
         let Some(profile) = self.profile.clone() else {
             return Err(NO_PROFILE.to_string());
         };
+        #[cfg(test)]
+        if let Some(asked) = self.asked.as_mut() {
+            *asked += 1;
+            return Ok(());
+        }
         if self.thread.is_none() {
             let (asks, asked) = mpsc::channel::<i64>();
             let done = self.done.clone();

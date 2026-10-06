@@ -32,7 +32,7 @@
 //! search keeps a row when it is in the id or in the vendor's name, ignoring
 //! case (`modelMenuItemMatches`, `model_cache_runtime.zig:247-256`).
 
-use crate::provider::model::CatalogEntry;
+use crate::provider::model::{CatalogEntry, CatalogRetry};
 
 use super::picker::{cells, edge_start, ellipsized, pad_to};
 use super::theme::Palette;
@@ -102,6 +102,11 @@ pub(crate) enum ModelAction {
     Up,
     /// The next one, wrapping to the first. Down.
     Down,
+    /// A page of the composer's row cap, `true` for down, wrapping past
+    /// either end (`routeModelMenuMove` with a page's delta,
+    /// `input_completion_runtime.zig:209-226`, `:469-480`). Page Up and Page
+    /// Down.
+    Page(bool),
     /// The next vendor tab, wrapping to `All`. Tab.
     NextVendor,
     /// The previous one. Shift-Tab.
@@ -120,8 +125,12 @@ impl ModelAction {
     pub(crate) fn of(action: super::input::Action) -> Option<Self> {
         use super::input::Action;
         match action {
-            Action::Up => Some(Self::Up),
-            Action::Down => Some(Self::Down),
+            // `C-k` and `C-j` walk it too (`routePickerControlByte`,
+            // `app_input_runtime.zig:1220-1235`, through `routeModelMenuMove`).
+            Action::Up | Action::ControlK => Some(Self::Up),
+            Action::Down | Action::ControlJ => Some(Self::Down),
+            Action::PageUp => Some(Self::Page(false)),
+            Action::PageDown => Some(Self::Page(true)),
             Action::Tab => Some(Self::NextVendor),
             Action::BackTab => Some(Self::PreviousVendor),
             Action::Submit => Some(Self::Use),
@@ -188,8 +197,9 @@ enum Load {
     Loading,
     /// The runtime's answer, which may be no rows at all.
     Ready,
-    /// The runtime could not read the catalog.
-    Failed,
+    /// The runtime could not read the catalog, and whether asking again could
+    /// change that.
+    Failed(Option<CatalogRetry>),
 }
 
 /// One model as the menu shows it.
@@ -324,9 +334,10 @@ impl ModelMenu {
         self.reset();
     }
 
-    /// The runtime could not read the catalog.
-    pub(crate) fn failed(&mut self) {
-        self.load = Load::Failed;
+    /// The runtime could not read the catalog; `retry` is upstream's category
+    /// for a failure the next `/model` may not repeat.
+    pub(crate) fn failed(&mut self, retry: Option<CatalogRetry>) {
+        self.load = Load::Failed(retry);
         self.items.clear();
         self.tab = Vendor::All;
         self.reset();
@@ -391,17 +402,19 @@ impl ModelMenu {
     /// `visible` models only as far as keeps it in view
     /// (`moveVisibleItems`, `:166-180`). `false`, and nothing moved, when
     /// there is nothing listed.
+    #[cfg(test)]
     pub(crate) fn step(&mut self, down: bool, visible: u16) -> bool {
+        self.step_by(if down { 1 } else { -1 }, visible)
+    }
+
+    /// The mark `delta` rows on, wrapping to the other end past either
+    /// (`moveVisibleItems`, `model_cache_runtime.zig:168-184`).
+    pub(crate) fn step_by(&mut self, delta: i64, visible: u16) -> bool {
         let count = self.items().len();
         if self.load != Load::Ready || count == 0 {
             return false;
         }
-        let current = self.selected % count;
-        self.selected = if down {
-            (current + 1) % count
-        } else {
-            (current + count - 1) % count
-        };
+        self.selected = super::picker::advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
         true
     }
@@ -553,11 +566,15 @@ impl ModelMenu {
         rows
     }
 
-    /// What the menu says in place of its rows (`composeStateRow`, `:394-401`).
+    /// What the menu says in place of its rows (`composeStateRow`, `:394-401`):
+    /// for a failure asking again could change, upstream's `retry /model.`
+    /// sentence instead of `Unable to load models.` (`retryableFailureText`,
+    /// `:435-443`).
     fn state_text(&self) -> &'static str {
         match self.load {
             Load::Loading => "Loading models\u{2026}",
-            Load::Failed => "Unable to load models.",
+            Load::Failed(Some(retry)) => retry.text(),
+            Load::Failed(None) => "Unable to load models.",
             Load::Ready if self.items.is_empty() => "No models available.",
             Load::Ready => "No models found.",
         }
@@ -983,10 +1000,26 @@ mod tests {
         );
         assert_eq!(loading.selected(), None);
         let mut failed = ModelMenu::loading("");
-        failed.failed();
+        failed.failed(None);
         assert_eq!(
             shown(&failed, 120, 40),
             ["Models 0  [All]", "", "Unable to load models."]
+        );
+        // A failure the next `/model` may not repeat says so, in upstream's
+        // words (`retryableFailureText`).
+        failed.failed(Some(CatalogRetry::Unreachable));
+        assert_eq!(
+            shown(&failed, 120, 40),
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; retry /model."
+            ]
+        );
+        failed.failed(Some(CatalogRetry::RateLimited));
+        assert_eq!(
+            shown(&failed, 120, 40)[2],
+            "AI Gateway rate limited model discovery; retry /model."
         );
         let empty = ModelMenu::ready(&[], Some(NOTE), "");
         assert_eq!(
@@ -1116,5 +1149,9 @@ mod tests {
         assert_eq!(ModelAction::of(Action::Escape), Some(ModelAction::Close));
         assert_eq!(ModelAction::of(Action::Left), None);
         assert_eq!(ModelAction::of(Action::Backspace), None);
+        // `C-k` and `C-j` are the same two moves; Alt-Enter is not.
+        assert_eq!(ModelAction::of(Action::ControlK), Some(ModelAction::Up));
+        assert_eq!(ModelAction::of(Action::ControlJ), Some(ModelAction::Down));
+        assert_eq!(ModelAction::of(Action::InsertNewline), None);
     }
 }

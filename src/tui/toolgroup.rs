@@ -280,6 +280,11 @@ impl ToolGroup {
             .collect()
     }
 
+    /// Whether any call of the group has not returned yet.
+    pub(crate) fn running(&self) -> bool {
+        self.calls.iter().any(|call| call.state == State::Running)
+    }
+
     /// Whether the group's block is on the screen (or on its way there).
     pub(crate) fn drawn(&self) -> bool {
         !self.drawn.is_empty()

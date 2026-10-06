@@ -1,0 +1,43 @@
+# Ctrl-C and Escape over a streamed answer, and at an idle prompt: the exit
+# hint on the hint row and its window (idle-cc, idle-cc-expired), a Ctrl-C
+# mid-stream (cc-*) with the window across the turn's conclusion, the next
+# turn answered normally, and Escape twice over a running turn (esc1, esc2).
+# The answer streams words with no line break, so nothing of it is on the
+# screen before the keystroke.
+gateway interrupt-words.json
+wait 2
+key C-c
+wait 0.3
+snap idle-cc
+wait 3.5
+snap idle-cc-expired
+type stream please
+key Enter
+wait 2.5
+snap mid
+key C-c
+wait 0.3
+snap cc-0.3
+wait 1.2
+snap cc-1.5
+wait 2
+snap cc-3.5
+type next
+key Enter
+wait 2
+snap next
+type stream again
+key Enter
+wait 2.5
+snap mid2
+key Escape
+wait 0.3
+snap esc1
+wait 0.3
+key Escape
+wait 0.4
+snap esc2
+wait 1.5
+snap esc2-later
+snapfull end
+gwlog

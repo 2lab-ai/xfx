@@ -60,8 +60,8 @@ pub use authority::{
 pub use command::{classify, CommandEffect, DeniedEffect};
 pub use policy::{
     AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
-    ApprovalSubject, Decided, DenyCause, Grant, PermissionRules, PermissionSession, PolicyDecision,
-    ProposedAction, Rule, TtyPrompter, YOLO_WARNING,
+    ApprovalSubject, Decided, DenyCause, Grant, LiveAuthority, PermissionRules, PermissionSession,
+    PolicyDecision, ProposedAction, Rule, TtyPrompter, YOLO_WARNING,
 };
 
 #[cfg(test)]

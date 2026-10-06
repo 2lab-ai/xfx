@@ -1,0 +1,23 @@
+# A mode change while a turn runs (D4a follow-up): the turn's first write is
+# judged in the harness's `auto`; while the model's second step is held open,
+# Shift-Tab twice -- auto, full access, ask -- and the second write is put to
+# the person rather than run. Ctrl-C refuses it and the turn goes on.
+gateway permissions-midturn.json
+wait 3
+type write two files
+wait 0.3
+key Enter
+wait 2
+snap first-done
+key BTab
+wait 0.4
+key BTab
+wait 0.6
+snap switched
+wait 4.5
+snap second-asks
+key C-c
+wait 3
+snap after-refusal
+workls end
+home end

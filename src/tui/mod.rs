@@ -453,7 +453,10 @@ fn hold(
     // are the document, on the screen the launch's push left.
     match replay {
         Some(replay) => shell.hydrate(replay, false),
-        None => shell.welcome(),
+        None => {
+            shell.welcome();
+            shell.session_assembled();
+        }
     }
     let code = event_loop::run(
         &mut shell,
@@ -697,6 +700,8 @@ mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
+mod file_index;
+mod file_picker;
 mod frame;
 mod freeform;
 mod full_transcript;
@@ -708,6 +713,7 @@ mod history;
 mod hydration;
 mod input;
 mod layout;
+mod model_column;
 mod model_menu;
 mod notice;
 mod pacer;
@@ -719,6 +725,7 @@ mod probe;
 mod provider_picker;
 mod question;
 mod render_request;
+mod retry;
 mod router;
 mod session_picker;
 mod shell;

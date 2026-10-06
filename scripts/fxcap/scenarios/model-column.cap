@@ -1,0 +1,39 @@
+# /model's inline column: the models under the argument, the filter, the
+# effort column a model with levels opens -- from the column and from the
+# menu -- Left back a column, and Escape.
+models models.json
+fx: seed model-seed-fx.json
+xfx: seed model-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Space
+wait 0.8
+snap space
+type gpt
+wait 0.4
+snap filter-gpt
+key Enter
+wait 0.4
+snap gpt-enter
+key Down
+wait 0.3
+snap effort-down
+key Left
+wait 0.3
+snap left
+key Escape
+wait 0.5
+snap esc
+key C-u
+wait 0.3
+type /model
+key Enter
+wait 0.8
+key Down
+key Enter
+wait 0.5
+snap menu-enter
+key Left
+wait 0.3
+snap menu-enter-left

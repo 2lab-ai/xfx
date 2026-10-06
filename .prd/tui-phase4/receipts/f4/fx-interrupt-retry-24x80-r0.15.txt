@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ try it
+
+⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying
+  request in 1s
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+

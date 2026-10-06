@@ -405,6 +405,22 @@ pub enum TurnStep {
     ToolFeedback { call_id: String, text: String },
 }
 
+/// What the model is told after a turn that did not finish, before the next
+/// prompt (`interrupted_turn_context`, `vercel-labs/fx@c1db9191
+/// src/core/session/session.zig:52-56`).
+pub const TURN_ABORTED: &str = "<turn_aborted>\nThe previous turn ended before completion. \
+Any tools or commands may have partially executed. Do not continue this request unless the \
+user explicitly asks to continue.\n</turn_aborted>";
+
+/// What closes the answer of a turn that did not finish
+/// (`interrupted_before_completion_output`, `session.zig:63`).
+pub const ENDED_BEFORE_COMPLETION: &str = "The previous response ended before completion.";
+
+/// What a call its turn stopped under is answered with (`aborted_tool_output`,
+/// `session.zig:64`) -- the same words a question the user cancelled answers
+/// with, so there is one copy of them.
+pub const ABORTED_TOOL_OUTPUT: &str = crate::tools::question::ABORTED_OUTPUT;
+
 /// A history rebuilt for one active wire, and what the user has to be told
 /// about what did not survive the rebuild.
 #[derive(Debug, Clone, PartialEq)]
@@ -544,13 +560,33 @@ impl DurableState {
     ///
     /// Dropping shapes a *request*; it never mutates a record. The items stay on
     /// disk and a later resume back onto the original authority replays them.
+    ///
+    /// **A turn that did not finish is closed the way upstream closes one**
+    /// (`appendHistoryMessages`' `.interrupted` arm, `vercel-labs/fx@c1db9191
+    /// src/core/session/session.zig:2695-2747`) -- whether the user stopped it
+    /// or it failed, as upstream's arm reads neither reason: a call that never
+    /// got its result is answered `aborted by user` as an error, and otherwise
+    /// the turn's last answer is closed by a sentence saying it ended before
+    /// completion; then the model is told, in a message of its own, not to
+    /// carry the turn on unasked ([`TURN_ABORTED`]). A turn with no conclusion
+    /// in the log -- a crash -- is replayed as it always was, the incomplete
+    /// group dropped.
     pub fn history_messages(&self, active: Wire) -> ReplayedHistory {
         let mut out = Vec::new();
         let mut notices = Vec::new();
         for turn in &self.turns {
             out.push(Message::user(turn.user.clone()));
+            let opened = out.len();
             let mut pending: Vec<Message> = Vec::new();
             let mut awaiting: Vec<String> = Vec::new();
+            // The calls of the step being answered, by id, for the aborted
+            // results an interrupted turn owes them; and every tool that did
+            // return in this turn, in order, for the sentence that names them.
+            let mut named: Vec<(String, String)> = Vec::new();
+            let mut finished: Vec<String> = Vec::new();
+            // Whether the step being answered has a call that was stopped
+            // rather than finished (see the `ToolResult` arm).
+            let mut stopped = false;
             for step in &turn.steps {
                 match step {
                     TurnStep::Assistant {
@@ -560,6 +596,7 @@ impl DurableState {
                         responses_state,
                         wire,
                     } => {
+                        stopped = false;
                         if text.is_empty()
                             && tool_calls.is_empty()
                             && raw_content.is_empty()
@@ -576,6 +613,11 @@ impl DurableState {
                             })
                             .collect();
                         awaiting.extend(calls.iter().map(|call| call.id.clone()));
+                        named.extend(
+                            calls
+                                .iter()
+                                .map(|call| (call.id.clone(), call.name.clone())),
+                        );
                         // The replay table of `.prd/04-providers.md` §Provenance,
                         // in one expression. `None` with blocks is legacy
                         // Anthropic, because that is the only wire that ever
@@ -616,11 +658,28 @@ impl DurableState {
                     TurnStep::ToolResult {
                         call_id,
                         tool,
+                        ok,
                         output,
-                        ..
                     } => {
-                        pending.push(Message::tool_result(call_id, tool, output.clone()));
+                        // Replayed as it was sent: a failure as a failure.
+                        pending.push(if *ok {
+                            Message::tool_result(call_id, tool, output.clone())
+                        } else {
+                            Message::tool_error(call_id, tool, output.clone())
+                        });
                         awaiting.retain(|id| id != call_id);
+                        // A call that answered `aborted by user` did not
+                        // finish: its turn was stopped under it (a question the
+                        // user cancelled, `crate::tools::question`). It is the
+                        // call upstream keeps on the interrupted turn rather
+                        // than among the completed ones
+                        // (`InterruptedHistoryTurn.tool_call`,
+                        // `session.zig:2701-2736`).
+                        if !*ok && output == ABORTED_TOOL_OUTPUT {
+                            stopped = true;
+                        } else {
+                            finished.push(tool.clone());
+                        }
                     }
                     TurnStep::ToolFeedback { text, .. } => {
                         // Into `pending`, with `awaiting` untouched: this is
@@ -639,12 +698,134 @@ impl DurableState {
                     out.append(&mut pending);
                 }
             }
+            if matches!(turn.outcome, Some(TurnConclusion::Interrupted { .. })) {
+                let stopped_under = stopped || !awaiting.is_empty();
+                close_interrupted(
+                    &mut out,
+                    opened,
+                    pending,
+                    &awaiting,
+                    &named,
+                    &finished,
+                    stopped_under,
+                );
+            }
         }
         ReplayedHistory {
             messages: out,
             notices,
         }
     }
+}
+
+/// Closes a turn that did not finish, as upstream's history does
+/// ([`DurableState::history_messages`]): `opened` is where the turn's own
+/// messages begin in `out`, `pending` and `awaiting` are the step that was
+/// still waiting for results, `named` every call of the turn by id,
+/// `finished` the tools that returned, and `stopped_under` whether the turn
+/// stopped under a call -- one never answered, or one that answered
+/// `aborted by user`.
+///
+/// Upstream's two shapes (`session.zig:2695-2747`): a turn stopped under a
+/// call ends with that call answered `aborted by user` as a failure, the tools
+/// that did return named on the message that made it; any other ends with an
+/// assistant message closing the answer that was cut off. Both are followed by
+/// the [`TURN_ABORTED`] user message.
+fn close_interrupted(
+    out: &mut Vec<Message>,
+    opened: usize,
+    mut pending: Vec<Message>,
+    awaiting: &[String],
+    named: &[(String, String)],
+    finished: &[String],
+    stopped_under: bool,
+) {
+    use crate::gateway::protocol::{ContentPart, Role};
+    // `formatCompletedToolSummary` (`session.zig:3020-3032`).
+    let summary = (!finished.is_empty()).then(|| {
+        format!(
+            "Interrupted by user after completing {} tool call{}: {}.",
+            finished.len(),
+            if finished.len() == 1 { "" } else { "s" },
+            finished.join(", ")
+        )
+    });
+    if stopped_under {
+        // The call the turn stopped under, answered as an error so the group
+        // is whole (`formatInterruptedToolOutput`, `session.zig:82-108`) --
+        // beside the step's other results, ahead of any sentence the user said
+        // about them, so no user message stands between a call and an answer.
+        let aborted: Vec<Message> = awaiting
+            .iter()
+            .map(|id| {
+                let tool = named
+                    .iter()
+                    .rev()
+                    .find(|(call, _)| call == id)
+                    .map(|(_, tool)| tool.as_str())
+                    .unwrap_or_default();
+                Message::tool_error(id.clone(), tool, ABORTED_TOOL_OUTPUT)
+            })
+            .collect();
+        let at = pending
+            .iter()
+            .rposition(|message| message.role != Role::User)
+            .map_or(pending.len(), |last| last + 1);
+        pending.splice(at..at, aborted);
+        out.append(&mut pending);
+        // `formatInterruptedAssistantToolContent` (`session.zig:3034-3055`):
+        // the tools that did return are named after the text of the message
+        // that made the call. Not on a message carried as the provider's own
+        // blocks, which are sent back exactly as they arrived or not at all.
+        if let Some(summary) = summary {
+            let caller = out[opened..].iter_mut().rev().find(|message| {
+                message.role == Role::Assistant
+                    && message
+                        .content
+                        .iter()
+                        .any(|part| matches!(part, ContentPart::ToolCall(_)))
+            });
+            if let Some(caller) = caller.filter(|caller| caller.raw_blocks().is_none()) {
+                match caller.content.first_mut() {
+                    Some(ContentPart::Text { text }) => {
+                        text.push_str("\n\n");
+                        text.push_str(&summary);
+                    }
+                    _ => caller
+                        .content
+                        .insert(0, ContentPart::Text { text: summary }),
+                }
+            }
+        }
+    } else {
+        // The answer that was cut off: the turn's last message when it is the
+        // assistant's text and nothing else -- a step that answered with text
+        // alone would have ended the turn, so one here is the partial answer
+        // the turn stopped in.
+        let partial = match out.last() {
+            Some(last)
+                if out.len() > opened
+                    && last.role == Role::Assistant
+                    && last
+                        .content
+                        .iter()
+                        .all(|part| matches!(part, ContentPart::Text { .. })) =>
+            {
+                out.pop().map(|message| message.text())
+            }
+            _ => None,
+        }
+        .filter(|text| !text.is_empty());
+        // `formatInterruptedAssistantClosedContent` (`session.zig:3057-3069`).
+        let closing = match (partial, summary) {
+            (Some(text), Some(summary)) => format!("{text}\n\n{summary}"),
+            (None, Some(summary)) => summary,
+            (Some(text), None) => format!("{text}\n\n{ENDED_BEFORE_COMPLETION}"),
+            (None, None) => ENDED_BEFORE_COMPLETION.to_string(),
+        };
+        out.push(Message::assistant(Some(&closing), Vec::new()));
+    }
+    out.push(Message::user(TURN_ABORTED));
 }
 
 /// The first line of `text`, trimmed and clipped to a character boundary.
@@ -2057,6 +2238,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                 state.grants.push(grant);
             }
         }
+        // Every approval recorded so far is withdrawn; one recorded after
+        // this is a new answer and stands.
+        SessionEvent::PermissionGrantsCleared => state.grants.clear(),
         SessionEvent::UsageRecorded {
             input_tokens,
             output_tokens,
@@ -2581,7 +2765,7 @@ fn verify_private(_path: &Path, _expected: u32) -> Result<(), SessionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gateway::protocol::Role;
+    use crate::gateway::protocol::{ContentPart, Role};
     use crate::session::event::TurnConclusion;
 
     fn frame(seq: u64, event: SessionEvent) -> EventEnvelope {
@@ -2810,6 +2994,31 @@ mod tests {
     }
 
     #[test]
+    fn a_reset_withdraws_every_grant_before_it_and_none_after_it() {
+        let grant = |tool: &str, target: &str| SessionEvent::PermissionGrantRecorded {
+            tool: tool.to_string(),
+            target: target.to_string(),
+        };
+        let state = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            grant("terminal", "ls in /w"),
+            SessionEvent::PermissionGrantsCleared,
+            grant("edit_file", "/w/a.txt"),
+        ])
+        .expect("reduces");
+        assert_eq!(state.grants, vec![Grant::new("edit_file", "/w/a.txt")]);
+
+        let cleared = reduce(vec![
+            started(),
+            grant("edit_file", "/w/a.txt"),
+            SessionEvent::PermissionGrantsCleared,
+        ])
+        .expect("reduces");
+        assert!(cleared.grants.is_empty());
+    }
+
+    #[test]
     fn a_repeated_grant_is_recorded_once() {
         let state = reduce(vec![
             started(),
@@ -2826,34 +3035,316 @@ mod tests {
         assert_eq!(state.grants.len(), 1);
     }
 
+    /// The roles and the text of each message, for a case about the shape.
+    fn shape(messages: &[Message]) -> Vec<(Role, String)> {
+        messages
+            .iter()
+            .map(|message| {
+                let text = message
+                    .content
+                    .iter()
+                    .map(|part| match part {
+                        ContentPart::Text { text } => text.clone(),
+                        ContentPart::ToolCall(call) => format!("call {}", call.id),
+                        ContentPart::ToolResult {
+                            call_id,
+                            output,
+                            error,
+                            ..
+                        } => format!("result {call_id} {output} error={error}"),
+                        ContentPart::RawBlocks(_) => "raw".to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                (message.role, text)
+            })
+            .collect()
+    }
+
+    fn interrupted() -> SessionEvent {
+        SessionEvent::TurnConcluded {
+            outcome: TurnConclusion::Interrupted {
+                reason: "the turn was cancelled".to_string(),
+            },
+        }
+    }
+
+    fn assistant(text: &str, calls: &[(&str, &str)]) -> SessionEvent {
+        SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: calls
+                .iter()
+                .map(|(id, name)| RecordedToolCall {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: serde_json::json!({}),
+                })
+                .collect(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        }
+    }
+
     #[test]
-    fn history_drops_a_tool_call_that_never_got_its_result() {
+    fn history_answers_a_call_its_interrupted_turn_never_finished_as_aborted() {
+        // Claim changed (was `history_drops_a_tool_call_that_never_got_its_
+        // result`): fx's next request after a command the user stopped
+        // (`fx-interrupt-40x120-bodies/006-completion.json`) carries the call,
+        // its result as `error-text` `aborted by user` (`session.zig:64`,
+        // `:2725-2737`) and then the `<turn_aborted>` message (`:52-56`).
         let state = reduce(vec![
             started(),
             SessionEvent::UserMessage {
                 text: "go".to_string(),
             },
-            SessionEvent::AssistantMessage {
-                text: "reading".to_string(),
-                tool_calls: vec![RecordedToolCall {
-                    id: "c1".to_string(),
-                    name: "read_file".to_string(),
-                    input: serde_json::json!({ "path": "a.txt" }),
-                }],
-                raw_content: Vec::new(),
-                responses_state: Vec::new(),
-                wire: None,
+            assistant("reading", &[("c1", "read_file")]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::AnthropicMessages);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "reading | call c1".to_string()),
+                (
+                    Role::Tool,
+                    "result c1 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+        assert_eq!(
+            TURN_ABORTED,
+            "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may \
+             have partially executed. Do not continue this request unless the user explicitly asks \
+             to continue.\n</turn_aborted>"
+        );
+    }
+
+    #[test]
+    fn history_closes_an_interrupted_answer_with_upstreams_sentence() {
+        // `fx-interrupt-40x120-bodies/003-completion.json`: the partial
+        // answer, a blank line, `The previous response ended before
+        // completion.` (`session.zig:63`, `:3067-3069`), then `<turn_aborted>`.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "stream please".to_string(),
             },
+            assistant("MARKER-HEAD word0 ", &[]),
+            interrupted(),
+            SessionEvent::UserMessage {
+                text: "next".to_string(),
+            },
+            assistant("After interrupt answer.", &[]),
             SessionEvent::TurnConcluded {
-                outcome: TurnConclusion::Interrupted {
-                    reason: "the turn was cancelled".to_string(),
+                outcome: TurnConclusion::Final {
+                    finish_reason: "stop".to_string(),
+                    steps: 1,
                 },
             },
         ])
         .expect("reduces");
-        let replay = state.history_messages(Wire::AnthropicMessages);
-        assert_eq!(replay.messages.len(), 1, "{:?}", replay.messages);
-        assert_eq!(replay.messages[0].text(), "go");
+        let replay = state.history_messages(Wire::VercelGateway);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "stream please".to_string()),
+                (
+                    Role::Assistant,
+                    "MARKER-HEAD word0 \n\nThe previous response ended before completion."
+                        .to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+                (Role::User, "next".to_string()),
+                (Role::Assistant, "After interrupt answer.".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_closes_an_interrupted_turn_that_said_nothing_with_the_sentence_alone() {
+        // `formatInterruptedAssistantClosedContent` (`session.zig:3057-3065`):
+        // no partial answer and no finished tool -- the sentence by itself.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (
+                    Role::Assistant,
+                    "The previous response ended before completion.".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_says_which_tools_finished_before_the_interruption() {
+        // `formatInterruptedAssistantToolContent` and
+        // `formatCompletedToolSummary` (`session.zig:3020-3055`): tools that
+        // finished are named, after whatever partial answer followed them.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file"), ("c2", "glob_files")]),
+            SessionEvent::ToolResult {
+                call_id: "c1".to_string(),
+                tool: "read_file".to_string(),
+                ok: true,
+                output: "bytes".to_string(),
+            },
+            SessionEvent::ToolResult {
+                call_id: "c2".to_string(),
+                tool: "glob_files".to_string(),
+                ok: true,
+                output: "a.txt".to_string(),
+            },
+            assistant("so far", &[]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway);
+        let shown = shape(&replay.messages);
+        assert_eq!(
+            shown[4],
+            (
+                Role::Assistant,
+                "so far\n\nInterrupted by user after completing 2 tool calls: read_file, glob_files."
+                    .to_string()
+            ),
+            "{shown:#?}"
+        );
+        assert_eq!(shown[5], (Role::User, TURN_ABORTED.to_string()));
+        assert_eq!(shown.len(), 6, "{shown:#?}");
+    }
+
+    fn result(call_id: &str, tool: &str, ok: bool, output: &str) -> SessionEvent {
+        SessionEvent::ToolResult {
+            call_id: call_id.to_string(),
+            tool: tool.to_string(),
+            ok,
+            output: output.to_string(),
+        }
+    }
+
+    #[test]
+    fn history_answers_a_question_the_user_cancelled_as_the_call_its_turn_stopped_under() {
+        // A question cancelled with Ctrl-C or Escape answers `aborted by user`
+        // as a failure (`crate::tools::question`), and upstream keeps that
+        // call on the interrupted turn (`session.zig:2701-2736`): the call,
+        // its answer as `error-text`, then `<turn_aborted>` -- no closing
+        // assistant message, and the question is not a tool that completed.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "ask me".to_string(),
+            },
+            assistant("", &[("q1", "ask_user_question")]),
+            result("q1", "ask_user_question", false, ABORTED_TOOL_OUTPUT),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "ask me".to_string()),
+                (Role::Assistant, "call q1".to_string()),
+                (
+                    Role::Tool,
+                    "result q1 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_names_the_finished_tools_on_the_call_its_turn_stopped_under() {
+        // `formatInterruptedAssistantToolContent` (`session.zig:3034-3055`):
+        // when the turn stopped under a call, the tools that finished before
+        // it are named after the text of the message that made that call.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file")]),
+            result("c1", "read_file", true, "bytes"),
+            assistant("checking", &[("c2", "terminal")]),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "call c1".to_string()),
+                (Role::Tool, "result c1 bytes error=false".to_string()),
+                (
+                    Role::Assistant,
+                    "checking\n\nInterrupted by user after completing 1 tool call: read_file. \
+                     | call c2"
+                        .to_string()
+                ),
+                (
+                    Role::Tool,
+                    "result c2 aborted by user error=true".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_replays_a_failed_result_as_a_failure_and_as_a_call_that_finished() {
+        // Upstream sends every result whose status is a failure as
+        // `error-text` (`vercel_protocol.zig:742-747`); a call that failed on
+        // its own still returned, so it is among the completed ones.
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "go".to_string(),
+            },
+            assistant("", &[("c1", "read_file")]),
+            result("c1", "read_file", false, "no such file"),
+            interrupted(),
+        ])
+        .expect("reduces");
+        let replay = state.history_messages(Wire::VercelGateway);
+        assert_eq!(
+            shape(&replay.messages),
+            vec![
+                (Role::User, "go".to_string()),
+                (Role::Assistant, "call c1".to_string()),
+                (Role::Tool, "result c1 no such file error=true".to_string()),
+                (
+                    Role::Assistant,
+                    "Interrupted by user after completing 1 tool call: read_file.".to_string()
+                ),
+                (Role::User, TURN_ABORTED.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_aborted_answer_is_the_questions_own_words() {
+        assert_eq!(ABORTED_TOOL_OUTPUT, "aborted by user");
     }
 
     #[test]

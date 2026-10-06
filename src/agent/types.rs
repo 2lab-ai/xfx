@@ -54,6 +54,15 @@ pub struct TurnRequest {
 /// most worth keeping and the ones most likely to be lost.
 pub trait TurnJournal {
     fn record(&mut self, event: SessionEvent);
+
+    /// The change a call made, for a surface that shows it beside the log --
+    /// the TUI's full transcript (`crate::tui`'s `full_transcript::Teed`).
+    ///
+    /// **Not recorded**, and that is why it is a method of its own rather than
+    /// an event: the log keeps what the model was told, and a diff is what
+    /// the person watching is shown. Every journal that only keeps the log
+    /// keeps nothing of it.
+    fn change_made(&mut self, _call_id: &str, _change: &crate::permission::ApprovalDiff) {}
 }
 
 /// A journal that keeps nothing.

@@ -1,0 +1,13 @@
+# The exit hint on the /help catalog's row: a first Ctrl-C leaves the catalog
+# up and replaces its key help with the warning; the key help comes back with
+# the window.
+wait 2
+type /help
+key Enter
+wait 1
+snap help-open
+key C-c
+wait 0.5
+snap help-cc
+wait 3.5
+snap help-cc-expired
