@@ -11,8 +11,8 @@ as fx's is (D4a). `interrupt-steer` was captured on that head. What the model is
 interrupt, and the full transcript's recovery records, were captured on both
 products at `ddca9d9` (after merging plan `87c9ed9`): `interrupt-next-question`,
 `interrupt-next-cmd`, `interrupt-recovery`, and xfx's `interrupt` bodies and
-gateway log (its snaps are unchanged from the earlier capture but for the
-banner). Scenarios under
+gateway log (its snaps, retaken in the same run and diffed against the ones
+here, differ only by the banner and blink/count in `mid2` and `esc1`). Scenarios under
 `scripts/fxcap/scenarios/`, each run on both binaries:
 
 ```
