@@ -1,0 +1,210 @@
+{
+ "after": {
+  "cc": [
+   4,
+   255,
+   255,
+   127,
+   23,
+   21,
+   18,
+   255,
+   3,
+   28,
+   26,
+   25,
+   17,
+   19,
+   22,
+   15,
+   1,
+   0,
+   20,
+   255
+  ],
+  "cflag": "0x4b00",
+  "iflag": "0x2b02",
+  "ispeed": 9600,
+  "lflag": "0x200005cb",
+  "oflag": "0x3",
+  "ospeed": 9600,
+  "pendin": true,
+  "winsize": {
+   "cols": 306,
+   "rows": 62,
+   "xpixel": 3060,
+   "ypixel": 1364
+  }
+ },
+ "before": {
+  "cc": [
+   4,
+   255,
+   255,
+   127,
+   23,
+   21,
+   18,
+   255,
+   3,
+   28,
+   26,
+   25,
+   17,
+   19,
+   22,
+   15,
+   1,
+   0,
+   20,
+   255
+  ],
+  "cflag": "0x4b00",
+  "iflag": "0x2b02",
+  "ispeed": 9600,
+  "lflag": "0x200005cb",
+  "oflag": "0x3",
+  "ospeed": 9600,
+  "pendin": true,
+  "winsize": {
+   "cols": 306,
+   "rows": 62,
+   "xpixel": 3060,
+   "ypixel": 1364
+  }
+ },
+ "binary": "/opt/homebrew/Cellar/xfx-preview/2026.10.06.112101.37455797717.1/bin/xfx",
+ "compare": {
+  "before": {
+   "cc": [
+    4,
+    255,
+    255,
+    127,
+    23,
+    21,
+    18,
+    255,
+    3,
+    28,
+    26,
+    25,
+    17,
+    19,
+    22,
+    15,
+    1,
+    0,
+    20,
+    255
+   ],
+   "cflag": "0x4b00",
+   "iflag": "0x2b02",
+   "ispeed": 9600,
+   "lflag": "0x200005cb",
+   "oflag": "0x3",
+   "ospeed": 9600,
+   "winsize": {
+    "cols": 306,
+    "rows": 62,
+    "xpixel": 3060,
+    "ypixel": 1364
+   }
+  },
+  "diffs": {},
+  "pane": "wA:p1",
+  "pendin_after": true,
+  "pendin_before": true,
+  "status": "0",
+  "steps": {
+   "after_ctrl_c": [
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 0.2,
+     "thinking": false
+    },
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 0.5,
+     "thinking": false
+    },
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 1.0,
+     "thinking": false
+    },
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 2.0,
+     "thinking": false
+    },
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 3.0,
+     "thinking": false
+    },
+    {
+     "composer": ">",
+     "max": 4,
+     "notice": true,
+     "running": true,
+     "t": 5.0,
+     "thinking": false
+    }
+   ],
+   "at_ctrl_c": {
+    "max_number": 3,
+    "numbers_visible": 3,
+    "since_prompt_s": 1.685
+   },
+   "attempts": [
+    {
+     "completed_before_window": false,
+     "confirmation": "[shell] model=gpt-5.6-sol[1m]",
+     "first_number_after_s": 1.592,
+     "hint_row": "auto \u00b7 gpt-5.6-sol[1m]",
+     "model": "gpt-5.6-sol[1m]"
+    }
+   ],
+   "composer_empty_after_ctrl_c": true,
+   "ctrl_c_exercised": true,
+   "ctrl_d_exits": "PASS",
+   "ctrl_d_to_exit_s": 0.033,
+   "error_pattern_lines_after_ctrl_c": [
+    "xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits."
+   ],
+   "hint_row_at_start": "auto \u00b7 fable",
+   "interrupt_lines": [
+    "xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits."
+   ],
+   "pong_answer_lines": [
+    "pong"
+   ],
+   "pong_seconds": 2.753,
+   "pong_turn_ended": true,
+   "still_running_after_ctrl_c": true,
+   "streaming_stopped": true
+  },
+  "termios_exact": true
+ },
+ "profile": "real (llmux backend)",
+ "release": "preview-2026-10-06-112101-37455797717-1-ab55e133dce2",
+ "sha256": "0f59cb4b19f5bc8920afa91bb7bae67ee4111ffe2269d6516718369f0a9fef15",
+ "status": "0",
+ "terminal": "herdr 0.9.3, interactive login shell"
+}

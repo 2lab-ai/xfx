@@ -1,0 +1,13 @@
+/model gpt-5.6-sol[1m]
+[shell] model=gpt-5.6-sol[1m]
+xfx: the catalog has not been loaded in this process, so this model was not checked against the provider's catalog
+count from 1 to 300, one number per line, nothing else
+1
+2
+3
+4
+xfx: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+the turn was cancelled
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+auto · gpt-5.6-sol[1m]
