@@ -35,7 +35,16 @@
 //! session's journal: [`Teed`] stands between the turn and the recorder on the
 //! runtime thread and hands each of those to the UI as a [`Detail`] as it is
 //! written down. The UI thread never waits on the runtime for any of it, and
-//! never reads the log back.
+//! never reads the log back. A change's diff comes the same way
+//! (`TurnJournal::change_made`), for every change, reviewed or not.
+//!
+//! Upstream's full-detail records -- `* session:` for a fresh launch and
+//! `* network:` for each provider request a turn settles -- are shown here and
+//! never in the document, above every entry, as upstream's are
+//! ([`session_record`], [`Networked`]). A resumed session is recorded by the
+//! writes that replay it, its calls' details read off the log
+//! ([`details_of`]) and its entries stamped with the log's times
+//! ([`FullTranscript::stamp_with`]).
 //!
 //! # The screen
 //!
@@ -48,16 +57,17 @@
 //!
 //! # What differs from upstream's screen, and why
 //!
-//! * Upstream's also lists a `* network:` notice per request and a `* session:`
-//!   notice at launch. xfx writes neither into its document, and this screen
-//!   shows what the document was given; inventing them here would be a second
-//!   source of truth about requests.
-//! * `Home` and `End` go to the top and the tail. Upstream binds neither on
-//!   this screen (they reach its hidden composer); everything else this screen
-//!   does not bind is swallowed here rather than typed into a composer nobody
-//!   can see.
-//! * The caret is left on the blank row under the footer's text: xfx's plane
-//!   painter always shows it, where upstream's hides it.
+//! * Upstream's `* recovery:` record (a retry it scheduled,
+//!   `app_worker_runtime.zig:95-133`) has no counterpart: xfx's turn retries
+//!   without telling anything (`agent::machine`'s `wait_for_retry`).
+//! * The `* session:` record has no `system prompt:` or `skills:` line
+//!   ([`session_record`]): xfx assembles no system prompt at launch and has no
+//!   skill catalog.
+//! * A change made before a resume has no diff: the log keeps what the model
+//!   was told, and the diff is handed to the screen alone
+//!   (`TurnJournal::change_made`), where upstream persists its file
+//!   presentation (`writeCommittedFilePresentation`,
+//!   `app_session_runtime.zig:4978`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -69,9 +79,11 @@ use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
 
 use crate::agent::TurnJournal;
+use crate::gateway::protocol::{Completion, CompletionRequest, FinishReason};
+use crate::gateway::{DeltaSink, Provider, ProviderError};
 use crate::markdown;
 use crate::permission::ApprovalDiff;
-use crate::session::SessionEvent;
+use crate::session::{SessionEvent, TurnStep};
 use crate::tools::{Activity, LineChanges, Outcome, Registry, Shown};
 
 use super::approval_view::{Line as ReviewLine, Review};
@@ -164,6 +176,156 @@ fn civil(days: i64) -> (i64, i64, i64) {
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
+}
+
+// ---------------------------------------------------------------------------
+// The full-detail records
+// ---------------------------------------------------------------------------
+
+/// How many tool names the session record lists before `+N more`
+/// (`session_tool_name_preview_max`, `app_bootstrap_runtime.zig:57`).
+const SESSION_TOOLS_SHOWN: usize = 8;
+
+/// The record of the session a fresh launch assembled
+/// (`writeSessionAssemblyBody`, `app_bootstrap_runtime.zig:61-111`).
+///
+/// Only the lines xfx has a fact for. `system prompt:` is upstream's own
+/// prompt, which it omits when there is none, and xfx has none: its one
+/// system message is the workspace's `AGENTS.md`, read at each turn
+/// (`agent::machine`'s `with_context`), not assembled at launch. `skills:`
+/// counts upstream's skill catalog, and xfx has no catalog to count.
+/// `effort: auto` is upstream's word for an effort nobody chose -- what it
+/// writes for an app with no effort of its own (`:378-381`) -- and xfx sends
+/// none. `mcp: none` is the fact: xfx connects to no server.
+pub(crate) fn session_record(provider: &str, model: &str, tools: &[&str]) -> Notice {
+    let mut body = format!("provider: {provider} \u{b7} model: {model} \u{b7} effort: auto\n");
+    body.push_str(&format!("tools: {} advertised", tools.len()));
+    if !tools.is_empty() {
+        let shown = tools.len().min(SESSION_TOOLS_SHOWN);
+        body.push_str(&format!(" ({}", tools[..shown].join(", ")));
+        if tools.len() > shown {
+            body.push_str(&format!(", +{} more", tools.len() - shown));
+        }
+        body.push(')');
+    }
+    body.push_str("\nmcp: none");
+    Notice::neutral("session", body)
+}
+
+/// The record of one settled provider request (`writeNetworkRecordBody` and
+/// `pushNetworkRecord`, `orchestrator.zig:4194-4280`): neutral for one that
+/// completed, a warning for one the provider refused.
+///
+/// `None` for an attempt that ended any other way -- a connection that never
+/// opened, a broken stream, a cancellation -- because upstream's stream call
+/// returns those as errors before the record is pushed (`:7966`, `:8000`).
+/// A completion's `generation:` and `served-by:` are left out because xfx's
+/// completion carries neither, as upstream leaves them out when its does not.
+pub(crate) fn network_record(
+    provider: &str,
+    model: &str,
+    elapsed_ms: u64,
+    settled: &Result<Completion, ProviderError>,
+) -> Option<Notice> {
+    let head = format!("provider: {provider} \u{b7} model: {model} \u{b7} {elapsed_ms}ms\n");
+    match settled {
+        Ok(completion) => {
+            let reason = match completion.finish_reason {
+                FinishReason::Stop => "stop",
+                FinishReason::Length => "length",
+                FinishReason::ContentFilter => "content_filter",
+                FinishReason::ToolCalls => "tool_calls",
+                FinishReason::ProviderError => "provider_error",
+                FinishReason::Other => "other",
+            };
+            let mut body = format!("{head}finish: {reason}");
+            // Only what the provider reported, as upstream writes it
+            // (`writeUsageTokens`): zero included, an absent count left out.
+            let counts: Vec<String> = [
+                ("in", completion.usage.input_tokens),
+                ("out", completion.usage.output_tokens),
+            ]
+            .into_iter()
+            .filter_map(|(name, count)| count.map(|count| format!("{count} {name}")))
+            .collect();
+            if !counts.is_empty() {
+                body.push_str(&format!("\ntokens: {}", counts.join(" \u{b7} ")));
+            }
+            Some(Notice::neutral("network", body))
+        }
+        Err(ProviderError::Status {
+            status,
+            retry_after,
+            ..
+        }) => {
+            // Upstream's names for a refusing status (`failureKind`,
+            // `host_stream_provider.zig:435-447`).
+            let kind = match status {
+                400 => "invalid_request",
+                401 => "unauthorized",
+                403 => "forbidden",
+                413 => "request_too_large",
+                429 => "rate_limited",
+                500 => "server_error",
+                502 => "bad_gateway",
+                503 => "unavailable",
+                504 => "gateway_timeout",
+                _ => "provider_error",
+            };
+            let mut body = format!("{head}failed: {kind}");
+            if let Some(after) = retry_after {
+                body.push_str(&format!(" \u{b7} retry after: {}s", after.as_secs()));
+            }
+            Some(Notice::warning("network", body))
+        }
+        Err(_) => None,
+    }
+}
+
+/// The provider a turn streams from, with a [`network_record`] handed to the
+/// UI for every attempt it settles -- one call is one attempt
+/// (`crate::gateway::Provider`), as upstream pushes one per stream it settles.
+pub(crate) struct Networked<'a> {
+    provider: &'a dyn Provider,
+    label: &'static str,
+    events: Sender<UiEvent>,
+    cancel: CancellationToken,
+}
+
+impl<'a> Networked<'a> {
+    pub(crate) fn new(
+        provider: &'a dyn Provider,
+        label: &'static str,
+        events: Sender<UiEvent>,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self {
+            provider,
+            label,
+            events,
+            cancel,
+        }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for Networked<'_> {
+    async fn stream(
+        &self,
+        request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let started = std::time::Instant::now();
+        let settled = self.provider.stream(request, deltas).await;
+        let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        if let Some(record) = network_record(self.label, &request.model, elapsed, &settled) {
+            // Best effort, as upstream's is ("publication failure never fails
+            // the turn"): a turn already cancelled, or a UI already gone,
+            // loses a record nobody would see.
+            let _ = bridge::send_ui(&self.events, &self.cancel, UiEvent::FullDetail(record)).await;
+        }
+        settled
+    }
 }
 
 /// Now, as the milliseconds a header is stamped with.
@@ -264,6 +426,40 @@ fn details(event: &SessionEvent) -> Vec<(String, Detail)> {
         } => vec![(call_id.clone(), result(tool, output))],
         _ => Vec::new(),
     }
+}
+
+/// What the full transcript shows of each call a saved turn made -- its
+/// arguments and its whole result -- read off the steps the log kept, as
+/// [`details`] reads them off the events a live turn journals; upstream's
+/// resume replays a call through the adapters a live one went through
+/// (`writeCompletedToolResult`, `app_session_runtime.zig:4970-5030`).
+///
+/// The entry point a resumed session's record is filled from
+/// (`super::hydration`): the details go to [`FullTranscript::observe`] as
+/// [`UiEvent::ToolDetail`]s before the turn's rows are replayed, and wait for
+/// them there.
+pub(crate) fn details_of(steps: &[TurnStep]) -> Vec<(String, Detail)> {
+    let mut found = Vec::new();
+    for step in steps {
+        match step {
+            TurnStep::Assistant { tool_calls, .. } => {
+                found.extend(tool_calls.iter().map(|call| {
+                    (
+                        call.id.clone(),
+                        Detail::Arguments(arguments(&call.name, &call.input)),
+                    )
+                }));
+            }
+            TurnStep::ToolResult {
+                call_id,
+                tool,
+                output,
+                ..
+            } => found.push((call_id.clone(), result(tool, output))),
+            TurnStep::ToolFeedback { .. } => {}
+        }
+    }
+    found
 }
 
 /// A call's arguments, in the order its tool's schema declares them.
@@ -555,9 +751,18 @@ struct Pending {
 /// while that screen is up.
 pub(crate) struct FullTranscript {
     clock: fn() -> i64,
+    /// The time new entries are stamped with instead of the clock's: a
+    /// resumed turn's, while it is replayed ([`Self::stamp_with`]).
+    stamp: Option<i64>,
     /// Whether the document opened with the welcome line, which upstream's
     /// screen shows first and without a header.
     welcome: bool,
+    /// Upstream's full-detail records -- the session it assembled, each
+    /// provider request it settled -- which the document is never given.
+    /// Kept apart from the entries and shown above them, under the welcome,
+    /// in the order they came (`prependFullDetailRecords`,
+    /// `transcript/runtime.zig:4970-5001`).
+    records: Vec<Entry>,
     entries: Vec<Entry>,
     /// Which entry each call is.
     calls: HashMap<String, usize>,
@@ -628,7 +833,9 @@ impl FullTranscript {
     fn with_clock(clock: fn() -> i64) -> Self {
         Self {
             clock,
+            stamp: None,
             welcome: false,
+            records: Vec::new(),
             entries: Vec::new(),
             calls: HashMap::new(),
             groups: Vec::new(),
@@ -640,13 +847,39 @@ impl FullTranscript {
     }
 
     fn push(&mut self, body: Body) {
+        let entry = self.entry(body);
+        self.entries.push(entry);
+    }
+
+    fn entry(&mut self, body: Body) -> Entry {
         self.revision += 1;
-        self.entries.push(Entry {
-            at_ms: (self.clock)(),
+        Entry {
+            at_ms: self.stamp.unwrap_or_else(self.clock),
             body,
             revision: self.revision,
             drawn: RefCell::new(None),
-        });
+        }
+    }
+
+    /// Stamps what is recorded from here with `at_ms` rather than the clock,
+    /// or with the clock again for `None`: a resumed session's turns carry
+    /// the times the log has for them, as upstream's replay sets each one's
+    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`).
+    pub(crate) fn stamp_with(&mut self, at_ms: Option<i64>) {
+        self.stamp = at_ms;
+    }
+
+    /// One of upstream's full-detail records: shown here and nowhere else
+    /// (`visibility = .full_only`).
+    pub(crate) fn full_detail(&mut self, notice: Notice) {
+        let entry = self.entry(Body::Notice(notice));
+        self.records.push(entry);
+    }
+
+    /// Every entry in the order the screen shows them: the records, then
+    /// what the document was given.
+    fn shown(&self) -> impl Iterator<Item = &Entry> {
+        self.records.iter().chain(&self.entries)
     }
 
     /// The document opened with the welcome line.
@@ -801,8 +1034,12 @@ impl FullTranscript {
     }
 
     /// What the runtime said that the document is not told about: the
-    /// journal's details for each call.
+    /// journal's details for each call, and the records only this screen
+    /// shows.
     pub(crate) fn observe(&mut self, event: &UiEvent) {
+        if let UiEvent::FullDetail(notice) = event {
+            self.full_detail(notice.clone());
+        }
         if let UiEvent::ToolDetail { call_id, detail } = event {
             match detail {
                 Detail::Arguments(arguments) => self.attach(
@@ -978,7 +1215,7 @@ impl FullTranscript {
     fn total(&self, cols: u16, palette: Palette) -> usize {
         let welcome = if self.welcome { 1 } else { 0 };
         let mut total = welcome;
-        for entry in &self.entries {
+        for entry in self.shown() {
             let rows = self.laid_out(entry, cols, palette);
             if rows.is_empty() {
                 continue;
@@ -1011,7 +1248,7 @@ impl FullTranscript {
                 &mut at,
             );
         }
-        for entry in &self.entries {
+        for entry in self.shown() {
             if at >= end {
                 break;
             }
@@ -1979,6 +2216,329 @@ mod tests {
                 "\u{2717} system: it broke",
                 "",
             ]
+        );
+    }
+
+    #[test]
+    fn the_session_record_is_upstreams_body_with_the_lines_xfx_has_a_fact_for() {
+        // `fx-fulltranscript-notice-40x120-full-top`: the record under the
+        // welcome, the tool list cut at eight and wrapped two columns in.
+        let notice = session_record(
+            "gateway",
+            "fake/model-a",
+            &["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+        );
+        assert_eq!(notice.tone, Tone::Neutral);
+        assert_eq!(notice.topic, "session");
+        assert_eq!(
+            notice.body,
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} effort: auto\n\
+             tools: 9 advertised (a, b, c, d, e, f, g, h, +1 more)\n\
+             mcp: none"
+        );
+        assert_eq!(
+            session_record("llmux", "m", &["a"]).body,
+            "provider: llmux \u{b7} model: m \u{b7} effort: auto\ntools: 1 advertised (a)\nmcp: none"
+        );
+    }
+
+    fn completion(
+        finish_reason: FinishReason,
+        usage: crate::gateway::protocol::Usage,
+    ) -> Completion {
+        Completion {
+            text: String::new(),
+            tool_calls: Vec::new(),
+            finish_reason,
+            usage,
+            provider_detail: None,
+            raw_content: Vec::new(),
+            wire: crate::provider::Wire::VercelGateway,
+        }
+    }
+
+    #[test]
+    fn a_network_record_says_how_a_request_settled_as_upstreams_does() {
+        // `writeNetworkRecordBody` (`orchestrator.zig:4194-4235`) and the
+        // capture's `* network: provider: gateway · model: fake/model-a ·
+        // 5510ms` / `finish: stop` / `tokens: 1200 in · 40 out`.
+        let usage = crate::gateway::protocol::Usage {
+            input_tokens: Some(1200),
+            output_tokens: Some(40),
+        };
+        let done = network_record(
+            "gateway",
+            "fake/model-a",
+            5510,
+            &Ok(completion(FinishReason::Stop, usage)),
+        )
+        .expect("a completed request");
+        assert_eq!((done.tone, done.topic.as_str()), (Tone::Neutral, "network"));
+        assert_eq!(
+            done.body,
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} 5510ms\nfinish: stop\ntokens: 1200 in \u{b7} 40 out"
+        );
+        // Only the counts the provider reported, zero included.
+        let silent = network_record(
+            "gateway",
+            "m",
+            1,
+            &Ok(completion(
+                FinishReason::ToolCalls,
+                crate::gateway::protocol::Usage {
+                    input_tokens: None,
+                    output_tokens: Some(0),
+                },
+            )),
+        )
+        .expect("a completed request");
+        assert_eq!(
+            silent.body,
+            "provider: gateway \u{b7} model: m \u{b7} 1ms\nfinish: tool_calls\ntokens: 0 out"
+        );
+        let unreported = network_record(
+            "gateway",
+            "m",
+            1,
+            &Ok(completion(
+                FinishReason::ContentFilter,
+                crate::gateway::protocol::Usage::default(),
+            )),
+        )
+        .expect("a completed request");
+        assert!(
+            unreported.body.ends_with("\nfinish: content_filter"),
+            "{unreported:?}"
+        );
+
+        // A refusal is a warning, named as upstream names its status.
+        let refused = network_record(
+            "llmux",
+            "m",
+            7,
+            &Err(ProviderError::Status {
+                subject: "completion",
+                status: 429,
+                body: "slow down \u{1b}[2J".into(),
+                retryable: true,
+                retry_after: Some(std::time::Duration::from_secs(3)),
+            }),
+        )
+        .expect("a refused request");
+        assert_eq!(refused.tone, Tone::Warning);
+        assert_eq!(
+            refused.body,
+            "provider: llmux \u{b7} model: m \u{b7} 7ms\nfailed: rate_limited \u{b7} retry after: 3s"
+        );
+        for (status, kind) in [
+            (400, "invalid_request"),
+            (503, "unavailable"),
+            (418, "provider_error"),
+        ] {
+            let body = network_record(
+                "gateway",
+                "m",
+                0,
+                &Err(ProviderError::Status {
+                    subject: "completion",
+                    status,
+                    body: String::new(),
+                    retryable: false,
+                    retry_after: None,
+                }),
+            )
+            .expect("a refused request")
+            .body;
+            assert!(
+                body.ends_with(&format!("failed: {kind}")),
+                "{status}: {body}"
+            );
+        }
+
+        // Anything else never settled, and upstream pushes no record for it.
+        assert!(network_record("gateway", "m", 0, &Err(ProviderError::Cancelled)).is_none());
+        assert!(network_record(
+            "gateway",
+            "m",
+            0,
+            &Err(ProviderError::Connect {
+                subject: "completion",
+                detail: "refused".into(),
+            })
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn every_attempt_the_turns_provider_settles_is_handed_to_the_ui_as_a_record() {
+        struct Answers(RefCell<Vec<Result<Completion, ProviderError>>>);
+        #[async_trait::async_trait(?Send)]
+        impl Provider for Answers {
+            async fn stream(
+                &self,
+                _request: &CompletionRequest,
+                _deltas: &mut dyn DeltaSink,
+            ) -> Result<Completion, ProviderError> {
+                self.0.borrow_mut().remove(0)
+            }
+        }
+        struct Nowhere;
+        impl DeltaSink for Nowhere {
+            fn text_delta(&mut self, _text: &str) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let inner = Answers(RefCell::new(vec![
+            Err(ProviderError::Status {
+                subject: "completion",
+                status: 503,
+                body: String::new(),
+                retryable: true,
+                retry_after: None,
+            }),
+            Ok(completion(
+                FinishReason::Stop,
+                crate::gateway::protocol::Usage::default(),
+            )),
+            Err(ProviderError::Cancelled),
+        ]));
+        let (events, mut received) = tokio::sync::mpsc::channel(8);
+        let networked = Networked::new(&inner, "gateway", events, CancellationToken::new());
+        let request = CompletionRequest {
+            model: "vendor/\u{1b}model".into(),
+            messages: Vec::new(),
+            tools: Vec::new(),
+            tool_choice: crate::gateway::protocol::ToolChoice::Auto,
+        };
+        for _ in 0..3 {
+            let _ = bridge::park_on(networked.stream(&request, &mut Nowhere));
+        }
+        let mut records = Vec::new();
+        while let Ok(UiEvent::FullDetail(notice)) = received.try_recv() {
+            records.push(notice);
+        }
+        assert_eq!(records.len(), 2, "{records:?}");
+        assert_eq!(records[0].tone, Tone::Warning);
+        assert!(records[0].body.contains("failed: unavailable"));
+        assert_eq!(records[1].tone, Tone::Neutral);
+        // The model id came out of a settings file: made inert at the channel.
+        assert!(
+            records[1]
+                .body
+                .starts_with("provider: gateway \u{b7} model: vendor/ model \u{b7} "),
+            "{:?}",
+            records[1].body
+        );
+        assert!(records[1].body.ends_with("\nfinish: stop"));
+    }
+
+    #[test]
+    fn records_sit_under_the_welcome_above_every_entry_in_the_order_they_came() {
+        // `prependFullDetailRecords` (`transcript/runtime.zig:4980-5001`):
+        // the network record of a request that settled after the prompt and
+        // the answer is still above them, as in the capture.
+        let mut record = record();
+        record.welcome();
+        record.full_detail(session_record("gateway", "m", &["read_file"]));
+        record.prompt("hi");
+        record.answer("hello\n");
+        record.observe(&UiEvent::FullDetail(Notice::neutral(
+            "network",
+            "provider: gateway \u{b7} model: m \u{b7} 5ms\nfinish: stop",
+        )));
+        let rows = screen(&record);
+        let kinds: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(kinds, ["Notice", "Notice", "Prompt", "Response"]);
+        assert!(rows[0].contains("Run /help for commands"), "{rows:?}");
+        assert_eq!(
+            rows[3],
+            "* session: provider: gateway \u{b7} model: m \u{b7} effort: auto"
+        );
+        assert_eq!(rows[4], "  tools: 1 advertised (read_file)");
+        assert_eq!(
+            rows[8],
+            "* network: provider: gateway \u{b7} model: m \u{b7} 5ms"
+        );
+        assert_eq!(rows[9], "  finish: stop");
+        // A reset starts a record with none.
+        assert!(!screen(&FullTranscript::with_clock(fixed))
+            .iter()
+            .any(|row| row.contains("session:")));
+    }
+
+    #[test]
+    fn a_replayed_turn_carries_the_times_the_log_has_and_its_calls_details() {
+        // The entry point a resumed session fills the record through:
+        // `details_of` over the log's steps, and `stamp_with` its times.
+        let steps = vec![
+            TurnStep::Assistant {
+                text: String::new(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "c".into(),
+                    name: "read_file".into(),
+                    input: json!({"path": "a.txt"}),
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            TurnStep::ToolResult {
+                call_id: "c".into(),
+                tool: "read_file".into(),
+                ok: true,
+                output: "<path>a.txt</path>\n<content>\n1\tsaved line\n</content>".into(),
+            },
+            TurnStep::ToolFeedback {
+                call_id: "c".into(),
+                text: "fine".into(),
+            },
+        ];
+        let details = details_of(&steps);
+        assert_eq!(
+            details,
+            vec![
+                (
+                    "c".to_string(),
+                    Detail::Arguments(vec![Argument {
+                        name: "path".into(),
+                        value: "a.txt".into(),
+                        text: true,
+                    }])
+                ),
+                ("c".to_string(), Detail::Result("1    saved line".into())),
+            ]
+        );
+
+        let mut record = record();
+        for (call_id, detail) in details {
+            record.observe(&UiEvent::ToolDetail { call_id, detail });
+        }
+        // 2026-10-02 00:00:00.000 UTC, then a second later.
+        record.stamp_with(Some(1_790_899_200_000));
+        record.prompt("read it");
+        record.tool_started("c", &read("a.txt"));
+        record.tool_finished("c", true, "", Outcome::Finished, None);
+        record.stamp_with(Some(1_790_899_201_000));
+        record.answer("done\n");
+        record.stamp_with(None);
+        record.notice(&Notice::neutral("now", "live"));
+        let rows = screen(&record);
+        assert_eq!(rows[0], "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt");
+        assert_eq!(rows[3], "  2026-10-02 00:00:00.000 UTC \u{b7} Tool");
+        assert!(
+            rows.contains(&"\u{2502}  1    saved line".to_string()),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  2026-10-02 00:00:01.000 UTC \u{b7} Response".to_string()),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  2026-10-06 14:43:50.620 UTC \u{b7} Notice".to_string()),
+            "{rows:?}"
         );
     }
 

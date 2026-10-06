@@ -168,6 +168,11 @@ pub(crate) enum UiEvent {
         call_id: String,
         detail: super::full_transcript::Detail,
     },
+    /// A record only the full transcript shows: one provider request the turn
+    /// settled (`super::full_transcript::Networked`), as upstream's
+    /// `full_detail_record` event carries its `* network:` notice
+    /// (`orchestrator.zig:4251-4280`).
+    FullDetail(super::notice::Notice),
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -418,6 +423,13 @@ impl UiEvent {
                 call_id: inert_owned(call_id),
                 detail: detail.made_inert(),
             },
+            // The model id is a settings file's or a catalog's, as foreign as
+            // the notice's own body.
+            Self::FullDetail(notice) => Self::FullDetail(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,
             // and is therefore exactly as foreign as a delta.
@@ -583,6 +595,13 @@ impl UiEvent {
                             }
                             ending => ending,
                         },
+                        started_at_ms: turn.started_at_ms,
+                        concluded_at_ms: turn.concluded_at_ms,
+                        details: turn
+                            .details
+                            .into_iter()
+                            .map(|(id, detail)| (inert_owned(id), detail.made_inert()))
+                            .collect(),
                     })
                     .collect(),
                 model: hydration.model.map(inert_owned),

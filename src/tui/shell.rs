@@ -1899,6 +1899,18 @@ impl Shell {
         self.end_transcript_line();
     }
 
+    /// The full transcript's record of the session a fresh launch assembled,
+    /// as upstream writes one for a fresh session and none for a resumed one
+    /// (`writeSessionAssemblyNotice`, `app_bootstrap_runtime.zig:640-642`).
+    /// The document is not given it (`visibility = .full_only`).
+    pub(crate) fn session_assembled(&mut self) {
+        self.full.full_detail(full_transcript::session_record(
+            self.provider.label(),
+            &self.model,
+            crate::tools::ADVERTISED_TOOLS,
+        ));
+    }
+
     /// Says that this session continues a saved one, as upstream's resume does
     /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
     /// notice under `session resumed` whose body is the session's title, and
@@ -1986,10 +1998,37 @@ impl Shell {
     /// One saved turn, through what each live event reaches
     /// ([`Self::apply`]): the card, the presenter, the tool group's marks, the
     /// amendment row, the conclusion.
+    ///
+    /// The full transcript is filled by the same writes, and given what the
+    /// screen never shows -- each call's arguments and whole result -- before
+    /// them, to wait for their rows ([`full_transcript::details_of`]). Its
+    /// entries carry the log's times, as upstream's replay stamps them
+    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
+    /// start for the card and what it did on the way, its conclusion for the
+    /// answer after its last call and the summary.
     fn replay_turn(&mut self, turn: HydratedTurn) {
+        for (call_id, detail) in turn.details {
+            // Made inert here as the channel would have: a launch's replay is
+            // handed over without crossing it.
+            self.full.observe(&UiEvent::ToolDetail {
+                call_id,
+                detail: detail.made_inert(),
+            });
+        }
+        // A turn the log has no conclusion for keeps its start throughout.
+        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
+        self.full.stamp_with(Some(turn.started_at_ms));
+        let concluding = turn
+            .steps
+            .iter()
+            .rposition(|step| !matches!(step, HydratedStep::Text(_)))
+            .map_or(0, |last| last + 1);
         self.run_mark(Mark::Card(turn.user.clone()));
         let mut streamed = Estimator::default();
-        for step in turn.steps {
+        for (index, step) in turn.steps.into_iter().enumerate() {
+            if index == concluding {
+                self.full.stamp_with(Some(concluded));
+            }
             match step {
                 HydratedStep::Text(text) => {
                     streamed.consume(&text);
@@ -2019,6 +2058,7 @@ impl Shell {
                 )),
             }
         }
+        self.full.stamp_with(Some(concluded));
         self.run_mark(Mark::TurnOver);
         match turn.ending {
             // In is the prompt's estimate, as a live turn's is; out is what
@@ -2042,6 +2082,7 @@ impl Shell {
             }
             Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
+        self.full.stamp_with(None);
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -2197,7 +2238,7 @@ impl Shell {
             // The full transcript's alone, and taken above
             // ([`Self::full_transcript_sees`]): nothing of it is written into
             // the document.
-            UiEvent::ToolDetail { .. } => {}
+            UiEvent::ToolDetail { .. } | UiEvent::FullDetail(_) => {}
             // The switch is **done** by the time this arrives: the file is
             // written, the configuration has been re-read from it, and the
             // runtime has swapped. So every field here is adopted rather than
@@ -4164,13 +4205,16 @@ impl Shell {
 
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
-        self.record(&mark);
         // Anything that is not the answer ends the answer's block. A notice
         // ends only the rows already written: the line the presenter is still
         // holding goes on under it ([`Self::write_notice`]).
         if !matches!(mark, Mark::Notice(_)) {
             self.close_answer();
         }
+        // After the answer's close, which is the document's order: what the
+        // presenter was holding is written -- and recorded
+        // ([`Self::present`]) -- before the mark's own write.
+        self.record(&mark);
         match mark {
             Mark::Card(text) => self.write_card(&text),
             Mark::Summary(line) => {
@@ -6339,6 +6383,7 @@ impl Shell {
             | UiEvent::ToolStart { .. }
             | UiEvent::ToolResult { .. }
             | UiEvent::ToolDetail { .. }
+            | UiEvent::FullDetail(_)
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Usage { .. } => true,
@@ -13517,6 +13562,9 @@ mod tests {
             user: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
+            started_at_ms: 0,
+            concluded_at_ms: None,
+            details: Vec::new(),
         }
     }
 
@@ -13659,6 +13707,96 @@ mod tests {
     }
 
     #[test]
+    fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times() {
+        // Upstream's resume replays a call through the adapters a live one
+        // went through, its output included (`writeCompletedToolResult`,
+        // `app_session_runtime.zig:4970-5030`), and stamps the turn's entries
+        // with its start and its conclusion (`setCreatedAtMs`, `:4753-4810`).
+        let input = serde_json::json!({"path": "notes.txt"});
+        let shown = crate::tools::Registry::builtin()
+            .spec("read_file")
+            .expect("read_file")
+            .shown(&input);
+        let steps = vec![
+            crate::session::TurnStep::Assistant {
+                text: "Looking.".to_string(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "c1".into(),
+                    name: "read_file".into(),
+                    input,
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            crate::session::TurnStep::ToolResult {
+                call_id: "c1".into(),
+                tool: "read_file".into(),
+                ok: true,
+                output:
+                    "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
+                        .into(),
+            },
+        ];
+        let mut turn = saved(
+            "look",
+            vec![
+                HydratedStep::Text("Looking.".to_string()),
+                HydratedStep::ToolStart {
+                    id: "c1".into(),
+                    shown,
+                },
+                HydratedStep::ToolResult {
+                    id: "c1".into(),
+                    ok: true,
+                    detail: String::new(),
+                    outcome: CallOutcome::Finished,
+                },
+                HydratedStep::Text("Done.".to_string()),
+            ],
+            2,
+            Some(40),
+        );
+        // 2026-10-02 00:00:00 UTC, and two seconds later.
+        turn.started_at_ms = 1_790_899_200_000;
+        turn.concluded_at_ms = Some(1_790_899_202_000);
+        turn.details = full_transcript::details_of(&steps);
+        let mut shell = shell(40, 120);
+        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let headers: Vec<&str> = screen
+            .iter()
+            .filter(|row| row.contains(" UTC \u{b7} "))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            headers[1..],
+            [
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+            ],
+            "{screen:#?}"
+        );
+        // What the read returned, which the document never showed -- made
+        // inert, as a live turn's would be at the channel.
+        assert!(
+            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG [2J".to_string()),
+            "{screen:#?}"
+        );
+        assert!(
+            !shell
+                .written()
+                .iter()
+                .any(|row| row.contains("ONLY-IN-THE-LOG")),
+            "the document was given what only the full transcript shows"
+        );
+    }
+
+    #[test]
     fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
         let read = crate::tools::Registry::builtin()
             .spec("read_file")
@@ -13732,6 +13870,9 @@ mod tests {
                         user: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
+                        started_at_ms: 0,
+                        concluded_at_ms: None,
+                        details: Vec::new(),
                     },
                 ],
             ),
@@ -19446,6 +19587,96 @@ mod tests {
             .expect("the first response");
         assert_eq!(screen[first + 1], "  Opening line of the answer.");
         assert_eq!(screen[first + 2], "");
+    }
+
+    #[test]
+    fn a_fresh_launchs_session_record_is_on_the_full_transcript_and_nowhere_else() {
+        // `writeSessionAssemblyNotice` (`app_bootstrap_runtime.zig:640-642`),
+        // `visibility = .full_only`: under the welcome on the screen, never in
+        // the document.
+        let mut shell = shell(40, 120);
+        let before = shell.written();
+        shell.session_assembled();
+        assert_eq!(shell.written(), before, "the document was given the record");
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let at = screen
+            .iter()
+            .position(|row| row.starts_with("* session: "))
+            .expect("the session record");
+        assert!(
+            screen[at - 1].ends_with(" UTC \u{b7} Notice"),
+            "{screen:#?}"
+        );
+        assert_eq!(
+            screen[at],
+            format!(
+                "* session: provider: {} \u{b7} model: {} \u{b7} effort: auto",
+                shell.provider.label(),
+                shell.model
+            )
+        );
+        // Wrapped at the screen's width, two columns in, as upstream's
+        // `+7` / `more)` is at 120 columns.
+        assert_eq!(
+            screen[at + 1..at + 4],
+            [
+                format!(
+                    "  tools: {} advertised ({}, +1 ",
+                    crate::tools::ADVERTISED_TOOLS.len(),
+                    crate::tools::ADVERTISED_TOOLS[..8].join(", ")
+                ),
+                "  more)".to_string(),
+                "  mcp: none".to_string(),
+            ]
+        );
+        // A reset starts the record again without it, as upstream's clear
+        // drops its records (`transcript/runtime.zig:4967`).
+        shell.route_bytes(b"\x0f");
+        shell.route_bytes(b"/new\r");
+        shell.route_bytes(b"\x0f");
+        assert!(
+            !full_screen(&shell)
+                .iter()
+                .any(|row| row.starts_with("* session: ")),
+            "{:#?}",
+            full_screen(&shell)
+        );
+    }
+
+    #[test]
+    fn an_unfinished_line_before_a_call_is_recorded_above_the_call_as_the_document_writes_it() {
+        // The presenter gives a line up at a call's start (`run_mark`'s
+        // `close_answer`), so the document has `Looking.` above the group;
+        // the record follows the document's order, and `Done.` is an answer
+        // of its own under the group rather than more of the first.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"look\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("Looking.".to_string()));
+        shell.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.apply(tool_result("c1", "read_file", true, "notes.txt"));
+        shell.apply(UiEvent::Delta("Done.".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Prompt", "Response", "Tool", "Response", "Usage"],
+            "{screen:#?}"
+        );
+        assert!(screen.contains(&"  Looking.".to_string()), "{screen:#?}");
+        assert!(screen.contains(&"  Done.".to_string()), "{screen:#?}");
     }
 
     #[test]

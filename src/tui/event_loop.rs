@@ -3213,6 +3213,9 @@ mod tests {
                     seconds: 0,
                     output: Some(40),
                 },
+                started_at_ms: 0,
+                concluded_at_ms: None,
+                details: Vec::new(),
             }],
             model: None,
         }
