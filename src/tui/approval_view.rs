@@ -135,6 +135,8 @@ pub(crate) struct Styles {
     pub diff: &'static str,
     /// The dotted rule above the header (`divider_style`).
     pub rule: &'static str,
+    /// The draft's one-cell caret (`ESC[7m`, `approval_ui.zig:1662`, `:1679`).
+    pub reverse: &'static str,
     /// What ends a run.
     pub reset: &'static str,
 }
@@ -148,6 +150,7 @@ impl Styles {
         dim: "",
         diff: "",
         rule: "",
+        reverse: "",
         reset: "",
     };
 
@@ -160,6 +163,7 @@ impl Styles {
             dim: palette.dim(),
             diff: palette.diff(),
             rule: palette.divider(),
+            reverse: palette.reverse(),
             reset: palette.reset(),
         }
     }
@@ -711,59 +715,128 @@ pub(crate) fn choice_rows(
 ) -> (Vec<String>, bool) {
     let file = kind.reviews_a_file();
     let digit = (b'1' + index as u8) as char;
-    // The words, and the draft's first row with what it is painted in.
-    let (words, first, first_style) = match draft {
+    // The words, and the draft's first row as it is painted: with the
+    // draft's one-cell caret in reverse video where the caret is, as upstream
+    // draws it (`writeApprovalDraft`, `approval_ui.zig:1652-1673`) -- or, on
+    // an empty draft, the placeholder with its first character reversed
+    // (`writeApprovalPlaceholder`, `:1675-1687`).
+    let draft_style = if selected { styles.strong } else { "" };
+    let (words, first) = match draft {
         Some(block) => {
             let empty = block.rows.iter().all(String::is_empty);
             let head = amended_head(kind, index);
             if empty && block.caret.is_some() {
-                (head, placeholder(index).to_string(), styles.quiet)
+                (head, placeholder_row(placeholder(index), styles))
             } else {
+                let caret = block.caret.filter(|(row, _)| *row == 0).map(|(_, at)| at);
                 (
                     head,
-                    block.rows.first().cloned().unwrap_or_default(),
-                    if selected { styles.strong } else { "" },
+                    caret_row(
+                        block.rows.first().map_or("", String::as_str),
+                        caret,
+                        draft_style,
+                        styles,
+                    ),
                 )
             }
         }
-        None => (label(kind, index), String::new(), ""),
+        None => (label(kind, index), String::new()),
     };
     let words_cells = usize::from(choice_prefix_cells(kind)) + super::wrap::width(words) as usize;
     let whole = words_cells <= usize::from(cols);
     let row = match (file, selected) {
         (true, true) => format!(
-            "{}{}{}",
+            "{}{}{first}",
             " ".repeat(INSET),
             styles.run(styles.strong, &format!("❯ {digit}  {words}")),
-            styles.run(first_style, &first)
         ),
         (true, false) => format!(
-            "{}  {}  {words}{}",
+            "{}  {}  {words}{first}",
             " ".repeat(INSET),
             styles.run(styles.quiet, &digit.to_string()),
-            styles.run(first_style, &first)
         ),
         (false, true) => format!(
-            "{}❯ {}{}",
+            "{}❯ {}{first}",
             " ".repeat(INSET),
             styles.run(styles.strong, words),
-            styles.run(first_style, &first)
         ),
-        (false, false) => format!(
-            "{}  {words}{}",
-            " ".repeat(INSET),
-            styles.run(first_style, &first)
-        ),
+        (false, false) => format!("{}  {words}{first}", " ".repeat(INSET)),
     };
     let mut rows = vec![styles.finish(&row, cols)];
     if let Some(block) = draft {
         let column = " ".repeat(usize::from(draft_column(kind, index)));
-        let style = if selected { styles.strong } else { "" };
-        rows.extend(block.rows.iter().skip(1).take(continuation).map(|segment| {
-            styles.finish(&format!("{column}{}", styles.run(style, segment)), cols)
-        }));
+        rows.extend(
+            block
+                .rows
+                .iter()
+                .enumerate()
+                .skip(1)
+                .take(continuation)
+                .map(|(at, segment)| {
+                    let caret = block
+                        .caret
+                        .filter(|(row, _)| *row == at)
+                        .map(|(_, col)| col);
+                    styles.finish(
+                        &format!("{column}{}", caret_row(segment, caret, draft_style, styles)),
+                        cols,
+                    )
+                }),
+        );
     }
     (rows, whole)
+}
+
+/// One row of a draft, in `style`, with the cell `caret` cells in drawn in
+/// reverse video -- the character under the caret, or a space past the end of
+/// the row (`writeApprovalDraft`, `approval_ui.zig:1662-1672`: the reverse is
+/// opened **on top of** the draft's own pen and closed with a reset, so the
+/// cell keeps the bold hint grey it is reversed from).
+///
+/// `None` is a row the caret is not on: the text in `style`, and nothing else.
+pub(crate) fn caret_row(text: &str, caret: Option<u16>, style: &str, styles: &Styles) -> String {
+    let Some(at) = caret else {
+        return styles.run(style, text);
+    };
+    let (before, unit, after) = split_at_cell(text, at);
+    let unit = if unit.is_empty() { " " } else { unit };
+    let mut row = styles.run(style, before);
+    row.push_str(style);
+    row.push_str(styles.reverse);
+    row.push_str(unit);
+    row.push_str(styles.reset);
+    row.push_str(&styles.run(style, after));
+    row
+}
+
+/// An open, empty draft's placeholder: its first character reversed, all of
+/// it in the statusline grey (`writeApprovalPlaceholder`,
+/// `approval_ui.zig:1675-1687`).
+fn placeholder_row(text: &str, styles: &Styles) -> String {
+    let (_, first, rest) = split_at_cell(text, 0);
+    format!(
+        "{}{}{}{first}{}{}",
+        styles.reset,
+        styles.quiet,
+        styles.reverse,
+        styles.reset,
+        styles.run(styles.quiet, rest)
+    )
+}
+
+/// `text` cut at the cell `at` cells in: what is before it, the grapheme that
+/// starts there (empty past the end), and the rest.
+pub(crate) fn split_at_cell(text: &str, at: u16) -> (&str, &str, &str) {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut used = 0u16;
+    for (offset, cluster) in text.grapheme_indices(true) {
+        if used >= at {
+            let end = offset + cluster.len();
+            return (&text[..offset], &text[offset..end], &text[end..]);
+        }
+        used = used.saturating_add(super::wrap::width(cluster));
+    }
+    (text, "", "")
 }
 
 /// What answering `2` would buy, in the permission layer's own words, under
@@ -1103,9 +1176,11 @@ mod tests {
             rows: vec!["use capitals".to_string()],
             caret: Some((0, 12)),
         };
+        // The caret's own cell after the draft, a space (painted in reverse
+        // video below).
         assert_eq!(
             choice_rows(Kind::Edit, 0, true, Some(&typed), 3, 120, &Styles::PLAIN).0,
-            ["  ❯ 1  Apply once, use capitals"]
+            ["  ❯ 1  Apply once, use capitals "]
         );
         assert_eq!(
             choice_rows(
@@ -1118,10 +1193,51 @@ mod tests {
                 &Styles::PLAIN
             )
             .0,
-            ["    3. No, use capitals"]
+            ["    3. No, use capitals "]
         );
         assert_eq!(draft_column(Kind::Edit, 0), 19);
         assert_eq!(draft_column(Kind::Command, 0), 12);
+    }
+
+    #[test]
+    fn the_drafts_caret_is_a_reverse_video_cell_as_upstream_paints_it() {
+        // `fx-approvals-40x120-edit-amend-typed.ansi` row 15:
+        // `  ESC[1mESC[38;5;255m❯ 1  Apply once, use capitalsESC[7m ESC[0m`, and
+        // `edit-tab-amend`: the placeholder's first character reversed, all
+        // of it in the statusline grey (`approval_ui.zig:1652-1687`).
+        let styles = Styles::of(&Palette {
+            mode: super::super::theme::Mode::Dark,
+            depth: super::super::theme::Depth::Ansi256,
+        });
+        let typed = Block {
+            choice: 0,
+            rows: vec!["use capitals".to_string()],
+            caret: Some((0, 12)),
+        };
+        assert_eq!(
+            choice_rows(Kind::Edit, 0, true, Some(&typed), 3, 120, &styles).0,
+            ["  \u{1b}[1;38;5;255m❯ 1  Apply once, \u{1b}[0m\u{1b}[1;38;5;255muse capitals\u{1b}[0m\u{1b}[1;38;5;255m\u{1b}[7m \u{1b}[0m"]
+        );
+        let open = Block {
+            choice: 0,
+            rows: vec![String::new()],
+            caret: Some((0, 0)),
+        };
+        assert_eq!(
+            choice_rows(Kind::Edit, 0, true, Some(&open), 3, 120, &styles).0,
+            ["  \u{1b}[1;38;5;255m❯ 1  Apply once, \u{1b}[0m\u{1b}[0m\u{1b}[38;5;245m\u{1b}[7ma\u{1b}[0m\u{1b}[38;5;245mnd tell xfx what to do next\u{1b}[0m"]
+        );
+        // A caret inside the draft reverses the character under it.
+        let inside = Block {
+            choice: 0,
+            rows: vec!["use capitals".to_string()],
+            caret: Some((0, 4)),
+        };
+        assert!(
+            choice_rows(Kind::Edit, 0, true, Some(&inside), 3, 120, &styles).0[0].contains(
+                "use \u{1b}[0m\u{1b}[1;38;5;255m\u{1b}[7mc\u{1b}[0m\u{1b}[1;38;5;255mapitals"
+            )
+        );
     }
 
     #[test]

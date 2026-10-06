@@ -2314,7 +2314,7 @@ fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
     while let Some(part) = parts.next() {
         match part {
             "0" | "39" => pen = Some(Color::Default),
-            "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" => {}
+            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" => {}
             "38" => match parts.next() {
                 Some("5") => {
                     let index = parts.next().ok_or_else(malformed)?;
@@ -2570,12 +2570,22 @@ mod tests {
         assert!(wire_color("38;2;1;2", 0).is_err());
         assert!(wire_color("48;5;1", 0).is_err());
         assert!(
-            wire_color("7", 0).is_err(),
-            "reverse is not in the vocabulary"
+            wire_color("8", 0).is_err(),
+            "conceal is not in the vocabulary"
         );
         assert!(
-            wire_color("1;7", 0).is_err(),
+            wire_color("1;8", 0).is_err(),
             "nor hidden behind an admitted group"
+        );
+        // Reverse video is: upstream's one-cell caret in a draft it paints
+        // (`question_ui.zig:323-399`, `approval_ui.zig:1655-1675`). An
+        // attribute and not a pen, like bold, and the reset in front of it is
+        // the default pen.
+        assert_eq!(wire_color("7", 0).expect("reverse"), None);
+        assert_eq!(wire_color("27", 0).expect("its close"), None);
+        assert_eq!(
+            wire_color("0;7", 0).expect("a reset, then reverse"),
+            Some(Color::Default)
         );
         assert_eq!(wire_color("1", 0).expect("an attribute"), None);
         assert_eq!(wire_color("22", 0).expect("its close"), None);

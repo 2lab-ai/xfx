@@ -527,14 +527,20 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 /// * a reset or a foreground default: `0`, `39`, and the bare `CSI m`;
 /// * a text attribute and its close: bold/dim `1`/`2`/`22`, italic `3`/`23`,
 ///   underline `4`/`24`, strike `9`/`29` -- what the assistant's markdown,
-///   the welcome line's brand and a statusline label are written in;
+///   the welcome line's brand and a statusline label are written in -- and
+///   reverse video `7`/`27`, the one-cell caret upstream paints in a draft it
+///   owns (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`;
+///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`);
 /// * `38 ; 5 ; <n>` -- a 256-colour foreground;
 /// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground.
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible, `blink` makes it move, `reverse` and a background colour repaint
-/// the whole width of it. None of them is in upstream's assistant or footer
-/// text, and an allowlist wider than what is emitted is untested surface.
+/// invisible, `blink` makes it move, a background colour repaints the whole
+/// width of it. None of them is in upstream's assistant or footer text, and an
+/// allowlist wider than what is emitted is untested surface. Reverse video is
+/// admitted only because upstream's footer does paint it -- one cell, closed
+/// on the same row -- and provider text never reaches here with an escape in
+/// it (`super::bridge::inert`).
 /// [`SgrState`] models every attribute this admits, so a row that ends with
 /// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
@@ -550,7 +556,7 @@ fn is_palette_sgr(text: &str) -> bool {
     let mut params = params.split(';');
     while let Some(group) = params.next() {
         match group {
-            "0" | "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "39" => {}
+            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "39" => {}
             "38" => {
                 // The number of parameters each colour shape carries after its
                 // selector. Each one a terminal reads as a number, and nothing
@@ -1347,6 +1353,12 @@ mod tests {
             "\u{1b}[9m",
             "\u{1b}[29m",
             "\u{1b}[39m",
+            // Upstream's one-cell caret in a draft it paints itself, spelled
+            // as its wire writes it (a reset, then reverse) and closed.
+            "\u{1b}[7m",
+            "\u{1b}[0;7m",
+            "\u{1b}[27m",
+            "\u{1b}[1;7m",
         ] {
             assert_eq!(
                 colour_at(painted),
@@ -1355,17 +1367,16 @@ mod tests {
             );
         }
         // Every one of these is a well-formed SGR the grammar accepts, and none
-        // of them is a shape this crate writes. The first four are the ones
+        // of them is a shape this crate writes. The first three are the ones
         // with a cost on a shared screen; the rest are well-formed colours in
         // spellings the palette does not use, or one of those hidden inside an
         // otherwise admitted group.
         for refused in [
             "\u{1b}[5m",
-            "\u{1b}[7m",
             "\u{1b}[8m",
             "\u{1b}[48;5;196m",
             "\u{1b}[31m",
-            "\u{1b}[1;7m",
+            "\u{1b}[1;8m",
             "\u{1b}[38;5m",
             "\u{1b}[38;5;m",
             "\u{1b}[38;2;1;2m",

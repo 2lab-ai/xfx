@@ -698,6 +698,7 @@ mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
 mod frame;
+mod freeform;
 mod full_transcript;
 mod gesture;
 mod grid;
