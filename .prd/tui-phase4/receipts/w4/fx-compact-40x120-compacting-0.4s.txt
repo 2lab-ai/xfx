@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ first question
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  ANSWER-ONE: the notes are read.
+
+  1s (↑4 ↓80)
+
+┃ second question
+
+  ANSWER-TWO: noted.
+
+  1s (↑4 ↓40)
+
+• Compacting (0s)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

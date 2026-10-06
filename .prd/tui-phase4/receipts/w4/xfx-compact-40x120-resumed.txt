@@ -1,0 +1,40 @@
+* session resumed: first question
+
+┃ first question
+
+● 1 tool call · 1 read
+└ Read notes.txt
+
+  ANSWER-ONE: the notes are read.
+
+  0s (↑4 ↓40)
+
+┃ second question
+
+  ANSWER-TWO: noted.
+
+  0s (↑4 ↓40)
+
+┃ third question
+
+  ANSWER-THREE.
+
+  3s (↑4 ↓40)
+
+┃ fourth question
+
+  ANSWER-FOUR.
+
+  0s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+

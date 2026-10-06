@@ -692,6 +692,7 @@ mod blocks;
 mod bridge;
 mod check;
 mod clipboard_image;
+mod compaction;
 mod copy;
 mod credits_ask;
 mod deliver;

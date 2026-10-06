@@ -139,8 +139,20 @@ pub(crate) fn raw_from(saved: &Termios) -> Termios {
     raw
 }
 
+/// Makes the terminal raw **now**, keeping what is already queued on it.
+///
+/// `TCSANOW`, as upstream's `enableRawMode` sets it (`shell_runtime.zig:128`),
+/// pinned there by "enableRawMode preserves already queued input"
+/// (`:640-678`). `TCSAFLUSH` -- what this used before -- discards input that
+/// was received and not yet read, which is every key typed while xfx was
+/// starting: a prompt typed ahead of the band, or a `/command`, was lost
+/// without a trace. Kept, those bytes are the first the composer reads, as a
+/// keyboard's are; a line the cooked terminal already ended reaches it as the
+/// line feed the line discipline made of its Return. The way **out**
+/// ([`restore_attrs`]) still flushes, as upstream's `disableRawMode` does
+/// (`:135`): what was typed at xfx is not the shell's next command.
 pub(crate) fn enter_raw(fd: BorrowedFd<'_>, saved: &Termios) -> io::Result<()> {
-    tcsetattr(fd, OptionalActions::Flush, &raw_from(saved)).map_err(io::Error::from)
+    tcsetattr(fd, OptionalActions::Now, &raw_from(saved)).map_err(io::Error::from)
 }
 
 /// Records what a handler will need, and who owns the terminal.
@@ -965,6 +977,50 @@ mod tests {
             output_before,
             "the restore was stamped onto the output terminal"
         );
+    }
+
+    #[test]
+    fn entering_raw_mode_keeps_what_was_already_typed() {
+        // Upstream's "enableRawMode preserves already queued input"
+        // (`shell_runtime.zig:640-678`), ported: a byte queued while the
+        // terminal was still the shell's is read once it is raw. And a
+        // cooked terminal's unfinished line -- keys typed while xfx starts,
+        // with no Return yet -- is kept as well.
+        for (setup, typed) in [(true, &b"\x03"[..]), (false, &b"typed early"[..])] {
+            let (master, input) = open_pty();
+            if setup {
+                let mut quiet = tcgetattr(&input).expect("read the terminal");
+                quiet
+                    .local_modes
+                    .remove(LocalModes::ECHO | LocalModes::ICANON | LocalModes::ISIG);
+                quiet.special_codes[SpecialCodeIndex::VMIN] = 1;
+                quiet.special_codes[SpecialCodeIndex::VTIME] = 0;
+                tcsetattr(&input, OptionalActions::Now, &quiet).expect("set the terminal");
+            }
+            let saved = tcgetattr(&input).expect("read the terminal");
+            rustix::io::write(&master, typed).expect("type on the terminal");
+            enter_raw(input.as_fd(), &saved).expect("enter raw mode");
+            let mut read = Vec::new();
+            let mut buffer = [0u8; 64];
+            let wait = rustix::event::Timespec {
+                tv_sec: 5,
+                tv_nsec: 0,
+            };
+            while read.len() < typed.len() {
+                let mut ready = [rustix::event::PollFd::new(
+                    &input,
+                    rustix::event::PollFlags::IN,
+                )];
+                let polled = rustix::event::poll(&mut ready, Some(&wait)).expect("poll");
+                if polled == 0 {
+                    break;
+                }
+                let count = rustix::io::read(&input, &mut buffer).expect("read the terminal");
+                read.extend_from_slice(&buffer[..count]);
+            }
+            drop(master);
+            assert_eq!(read, typed, "what was typed before raw mode was lost");
+        }
     }
 
     #[test]

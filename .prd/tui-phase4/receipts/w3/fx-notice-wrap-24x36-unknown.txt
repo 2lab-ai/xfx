@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+✗ command: Unknown command. Try /
+  help.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

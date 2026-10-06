@@ -371,6 +371,28 @@ pub enum SessionEvent {
     /// binary reads every old log, and an older one refuses a log that holds
     /// this frame rather than half-reading it.
     SessionRenamed { title: String },
+    /// The conversation was compacted (`/compact`, or a turn that reached the
+    /// automatic compaction point): every turn opened at or before
+    /// `covers_through_seq` is replaced, in what the model reads from here on,
+    /// by `compacted` ([`super::checkpoint::render`]).
+    ///
+    /// Upstream's `context_checkpoint { covers_through_seq, summary }`
+    /// (`vercel-labs/fx@c1db9191 src/core/session/session_event.zig:169-172`,
+    /// `:182`), with the payload typed rather than a string behind a marker --
+    /// see the module header on why there is no blob event here. The turns it
+    /// covers stay in the log and on a resumed screen; only the next request
+    /// carries the compacted form instead of them. The latest one in a log is
+    /// the one in force, and each one carries everything the one before it
+    /// kept.
+    ///
+    /// Written under schema 1 for the reason [`Self::ToolFeedback`] is: a new
+    /// binary reads every old log, and an older one refuses a log that holds
+    /// this frame rather than half-reading it -- which would be resuming with
+    /// the whole history after the user compacted it.
+    ContextCheckpoint {
+        covers_through_seq: u64,
+        compacted: super::checkpoint::Compacted,
+    },
 }
 
 impl SessionEvent {
@@ -391,6 +413,7 @@ impl SessionEvent {
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
             Self::SessionRenamed { .. } => "session_renamed",
+            Self::ContextCheckpoint { .. } => "context_checkpoint",
         }
     }
 }
