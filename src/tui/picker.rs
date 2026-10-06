@@ -552,7 +552,7 @@ fn row_budget(terminal_rows: u16) -> u16 {
 /// Where a window of `rows` over `count` matches starts once `selected` is
 /// kept in it, moving from `current` only as far as it has to
 /// (`list_window.zig:50-62`, `updateEdgeStart`).
-fn edge_start(current: usize, count: usize, selected: usize, rows: u16) -> usize {
+pub(super) fn edge_start(current: usize, count: usize, selected: usize, rows: u16) -> usize {
     let rows = usize::from(rows);
     if count == 0 || rows == 0 || count <= rows {
         return 0;
@@ -595,13 +595,13 @@ fn widest<'a>(texts: impl Iterator<Item = &'a str>) -> usize {
 }
 
 /// How many cells `text` takes, by the measure the painter cuts with.
-fn cells(text: &str) -> usize {
+pub(super) fn cells(text: &str) -> usize {
     usize::from(super::wrap::width(text))
 }
 
 /// Spaces onto `row` until it is `target` cells wide, colours not counted
 /// (`appendSpacesToVisibleWidth`, `picker_presentation.zig:1406-1409`).
-fn pad_to(row: &mut String, target: usize) {
+pub(super) fn pad_to(row: &mut String, target: usize) {
     let mut width = cells(row);
     while width < target {
         row.push(' ');
@@ -611,7 +611,7 @@ fn pad_to(row: &mut String, target: usize) {
 
 /// `text` in at most `budget` cells, its tail swapped for an ellipsis when it
 /// does not fit (`appendSingleLineEllipsized`, `row_text.zig:60-101`).
-fn ellipsized(text: &str, budget: usize) -> String {
+pub(super) fn ellipsized(text: &str, budget: usize) -> String {
     if budget == 0 {
         return String::new();
     }

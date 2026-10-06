@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-04d9593 [debug] · Run /help for commands
+
+┃ /help
+
+┃ /help
+
+┃ /help
+
+┃ /version
+
+xfx 0.1.0 (debug, revision 04d959375cb9)
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

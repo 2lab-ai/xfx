@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ session
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Commands 9  [All]  General  Session  Account  Model  Appearance  Security  Workspace  Media  Agents  Extensions  Product
+
+  /new           start a fresh session
+  /reset         reset the current session context
+  /resume        resume a saved session
+  /rename        rename the current session
+  /undo          undo the latest tracked file operation
+  /copy          copy the last assistant response
+  /compact       summarize context into a fresh window
+  /logout        sign out of a provider session
+  /statusline    toggle status line segments
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+↑↓ navigate     tab category     enter open     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

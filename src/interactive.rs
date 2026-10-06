@@ -85,13 +85,15 @@ pub struct SlashSpec {
     pub aliases: &'static [&'static str],
     /// The single line `/help` prints beside the name, and the menu beside it.
     pub summary: &'static str,
-    /// The group the completion menu files it under, at the right of its row.
+    /// The group the completion menu files it under, at the right of its row,
+    /// and the tab the TUI's `/help` catalog lists it on.
     ///
-    /// Upstream's own names (`SlashPresentationCategory.label`,
-    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`):
-    /// General, Session, Account, Model, Appearance, Security, Workspace,
-    /// Media, Agents, Extensions and Product. A string rather than an `enum`
-    /// because it is only ever *shown*: nothing branches on it.
+    /// One of [`SLASH_CATEGORIES`], upstream's own names
+    /// (`SlashPresentationCategory.label`,
+    /// `vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:143-157`).
+    /// A string rather than an `enum` because nothing branches on *which* one it
+    /// is: the menu shows it and the catalog groups by it, and the assertion
+    /// under the registry keeps it to that closed set at compile time.
     pub category: &'static str,
     /// Whether the rest of the line means anything to it.
     ///
@@ -182,6 +184,49 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
 ];
+
+/// Every category a command can be filed under, in the order the `/help`
+/// catalog's tabs are in.
+///
+/// Upstream's `SlashPresentationCategory`, in its declaration order
+/// (`vercel-labs/fx@c1db9191 src/core/slash_commands/command_specs.zig:130-157`),
+/// which is also the order the catalog lists commands in (`helpCatalogSpecAt`,
+/// `:429-440`). **All eleven, including the ones no xfx command is filed
+/// under**: a tab is a category, not a command, and upstream's own catalog has
+/// a tab with nothing on it (`Agents` at `c1db919`), so an empty one says
+/// "nothing here" rather than advertising anything.
+pub const SLASH_CATEGORIES: &[&str] = &[
+    "General",
+    "Session",
+    "Account",
+    "Model",
+    "Appearance",
+    "Security",
+    "Workspace",
+    "Media",
+    "Agents",
+    "Extensions",
+    "Product",
+];
+
+/// Every registry row is filed under one of [`SLASH_CATEGORIES`], or this crate
+/// does not build: a row under a name the catalog has no tab for would be a
+/// command the `/help` catalog never lists.
+const _: () = {
+    let mut row = 0;
+    while row < SLASH_REGISTRY.len() {
+        let mut found = false;
+        let mut category = 0;
+        while category < SLASH_CATEGORIES.len() {
+            if same(SLASH_REGISTRY[row].category, SLASH_CATEGORIES[category]) {
+                found = true;
+            }
+            category += 1;
+        }
+        assert!(found);
+        row += 1;
+    }
+};
 
 /// The registry row for one command.
 ///

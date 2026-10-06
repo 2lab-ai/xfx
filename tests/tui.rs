@@ -3389,16 +3389,21 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
-    // types: `/help`'s closing line, `/version`'s topic, the model report,
+    // types: `/help`'s catalog, `/version`'s topic, the model report,
     // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
     // name the registry does not carry. Each needle sits inside one run of
     // colour: a notice's label and body are separate runs on the wire.
     session.type_bytes(b"/help\r");
-    // The **closing** line of the help page rather than a summary out of the
-    // middle of it: the completion menu shows the same summaries while the name
-    // is being typed, so a needle taken from one of those would be satisfied by
-    // the menu and would stop saying that `/help` was answered at all.
-    session.wait_for("Anything else is a prompt.");
+    // The catalog's key help rather than a summary out of its rows: the
+    // completion menu shows the same summaries while the name is being typed,
+    // so a needle taken from one of those would be satisfied by the menu and
+    // would stop saying that `/help` was answered at all. Only the catalog says
+    // `tab category`.
+    session.wait_for("tab category");
+    // Typed into the open catalog, where it is the search -- and Enter on a
+    // command typed out in full runs it as typed and closes the catalog
+    // (upstream's `submitHelpMenuSelection`), which is what leaves the
+    // composer free for the rest of the names below.
     session.type_bytes(b"/version\r");
     session.wait_for("version:");
     session.type_bytes(b"/model\r");
