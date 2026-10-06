@@ -1,0 +1,24 @@
+│[38;5;245m err[39m
+│[38;5;245m exit code 3[39m
+
+[38;5;245m  2026-10-06 18:10:36.278 UTC · Tool[39m
+├ Edited a.txt +1 / -1
+
+[38;5;245m  │ 1   alpha line 1
+[38;5;252m  │ 2 - alpha line 2
+  │ 2 + ALPHA LINE TWO[39m
+[38;5;245m  │ 3   alpha line 3
+
+  2026-10-06 18:10:36.586 UTC · Tool[39m
+└ Failed missing.txt: Path not found: missing.txt
+│[38;5;245m  Path not found: missing.txt[39m
+
+[38;5;245m  2026-10-06 18:10:37.015 UTC · Response
+[39m  All done.
+
+[38;5;245m  2026-10-06 18:10:36.996 UTC · Usage[39m
+[38;5;245m  7s (↑4 ↓200)[39m
+
+[38;5;255m┃[39m [38;5;245mfull detail · ctrl+o close · pgup/pgdn scroll · esc close[39m
+
+[38;5;245mask · model-a[39m

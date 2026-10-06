@@ -10138,4 +10138,141 @@ mod tests {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // the full transcript (`C-o`) on the other plane
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ctrl_o_takes_the_plane_in_one_checked_frame_and_gives_back_the_band_it_had() {
+        // The screen is the review's plane (`super::super::full_transcript`):
+        // the same three transitions, through the same output check -- with
+        // rows that carry what no review does: a highlighted code panel, a
+        // bold card, a notice's label, a command's output.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = CountingScreen::default();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            Instant::now(),
+            Reconciled,
+        )
+        .expect("the first frame");
+        shell.route_bytes(b"run it\r");
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Notice(super::super::notice::Notice::warning(
+            "session",
+            "a warning",
+        )));
+        let input = serde_json::json!({"action": "exec", "command": "echo boom"});
+        shell.apply(UiEvent::ToolStart {
+            call_id: "c".into(),
+            tool: "terminal".into(),
+            shown: crate::tools::terminal::TERMINAL.shown(&input),
+        });
+        shell.apply(UiEvent::ToolResult {
+            call_id: "c".into(),
+            tool: "terminal".into(),
+            ok: true,
+            detail: "echo boom (exit 0)".into(),
+            outcome: crate::tools::Outcome::Exited(0),
+            changes: None,
+        });
+        shell.apply(UiEvent::ToolDetail {
+            call_id: "c".into(),
+            detail: super::super::full_transcript::Detail::Command {
+                output: "boom-from-the-command".into(),
+                status: None,
+            },
+        });
+        shell.apply(UiEvent::Delta(
+            "**Done**.\n\n```rust\nfn main() { let x = 1; }\n```\n".into(),
+        ));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.flush_paced();
+        let now = Instant::now();
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the document");
+        let before = shell.band_rows();
+        out.written.clear();
+        out.calls = 0;
+
+        shell.route_bytes(b"\x0f");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that takes the plane");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(out.calls, 1, "the enter was not one write: {written:?}");
+        assert!(written.starts_with(ENTERS_ALTERNATE), "{written:?}");
+        assert!(band.on_alternate(), "the loop forgot which plane it is on");
+        for needle in [
+            super::super::full_transcript::FOOTER,
+            "boom-from-the-command",
+            " UTC \u{b7} Tool",
+            "fn",
+        ] {
+            assert!(
+                written.contains(needle),
+                "{needle:?} is not on the screen: {written:?}"
+            );
+        }
+        assert!(
+            !written.contains(LEAVES_ALTERNATE),
+            "the plane was given back while it was up: {written:?}"
+        );
+
+        // A page is a repaint of the plane it already has.
+        out.written.clear();
+        out.calls = 0;
+        shell.route_bytes(b"\x1b[5~");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the page");
+        assert!(!String::from_utf8_lossy(&out.written).contains(ENTERS_ALTERNATE));
+
+        out.written.clear();
+        out.calls = 0;
+        shell.route_bytes(b"\x0f");
+        commit_frame(
+            &mut shell,
+            &mut band,
+            &mut out,
+            &mut failures,
+            now,
+            Reconciled,
+        )
+        .expect("the frame that gives the plane back");
+        let written = String::from_utf8_lossy(&out.written).into_owned();
+        assert_eq!(out.calls, 1, "the leave was not one write: {written:?}");
+        assert!(written.starts_with(LEAVES_ALTERNATE), "{written:?}");
+        assert!(!band.on_alternate());
+        assert!(
+            written.contains(HINT_MODEL),
+            "the band did not come back: {written:?}"
+        );
+        assert_eq!(shell.band_rows(), before, "the band came back different");
+    }
 }

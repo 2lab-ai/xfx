@@ -1,0 +1,24 @@
+# D3, xfx only: a provider switch that really writes, and the bytes it writes.
+# The profile starts on llmux with a recorded loopback url (a credential xfx
+# accepts, with no daemon behind it -- nothing here asks it anything), so the
+# Gateway row is a switch rather than `Already using`. fx has no counterpart
+# leaf: its Gateway row opens the gated sign-in columns (#88).
+xfx: seed provider-llmux-settings.json
+nomodel
+wait 2.5
+type /provider
+key Enter
+wait 1
+snap open
+home before
+key Enter
+wait 2
+snap commit
+home after-commit
+type /provider
+key Enter
+wait 1
+key Enter
+wait 1.5
+snap again
+home after-again
