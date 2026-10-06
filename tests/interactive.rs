@@ -267,17 +267,17 @@ fn slash_permissions_says_the_mode_changes_it_and_records_it() {
     let mut session = start(&sandbox, &pty, sandbox.command());
 
     session.type_line("/permissions");
-    let text = session.wait_for("[permissions] usage:");
+    let text = session.wait_for("[permissions] /permissions revoke <rule-id>");
     for row in [
         "[permissions] mode=auto",
         "[permissions] configured rules: (none)",
         "[permissions] session grants: (none)",
         "[permissions] saved-session permission rules: none",
         "[permissions] usage: /permissions [ask|auto|full-access|reset]",
+        "[permissions] /permissions remember <allow|deny> <tool-name> <arguments-json>",
     ] {
         assert!(text.contains(row), "{row} missing: {text}");
     }
-    assert!(!text.contains("remember"), "{text}");
 
     session.type_line("/permissions Full-Access");
     let text = session.wait_for("mode set to full access");

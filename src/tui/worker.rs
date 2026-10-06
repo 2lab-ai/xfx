@@ -82,7 +82,7 @@ use super::bridge::{
     UiEventSink,
 };
 use super::notice::Notice;
-use super::permissions::{self, Change, Grants};
+use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
@@ -94,7 +94,7 @@ use crate::interactive::{
     Conversation,
 };
 use crate::output::StatusSnapshot;
-use crate::permission::{LiveAuthority, PermissionSession};
+use crate::permission::{LiveAuthority, LiveRules, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
@@ -234,8 +234,20 @@ pub(crate) struct WorkHandle {
     /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
     /// whose channel messages can be older than what the person chose since.
     live: LiveAuthority,
+    /// The configured permission table every conversation's authority reads
+    /// at each decision ([`LiveRules`]).
+    ///
+    /// Written here, on the UI thread, by `/allowlist` the moment it has
+    /// written the file -- so the change governs the next tool call, of a
+    /// running turn too, as upstream's live engine does
+    /// (`replaceEffectivePermissionRules`, `session_commands.zig:927-941`) --
+    /// and read by a bare `/permissions` for its `configured rules`.
+    rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, as the
+    /// runtime last published it ([`SavedRulesAt`]).
+    saved_rules: SavedRulesAt,
     /// What `/usage`'s session scope reads, as the runtime last published it.
     spend: SessionSpend,
 }
@@ -495,6 +507,19 @@ impl WorkHandle {
         }
     }
 
+    /// Where the live conversation keeps its saved-session permission rules,
+    /// or `None` while no saved session is open.
+    pub(crate) fn saved_rules_path(&self) -> Option<std::path::PathBuf> {
+        self.saved_rules.read()
+    }
+
+    /// Stands in for the runtime's publication of where the saved-session
+    /// rules are kept.
+    #[cfg(test)]
+    pub(crate) fn publish_saved_rules(&self, path: Option<std::path::PathBuf>) {
+        self.saved_rules.publish(path);
+    }
+
     /// Whether a reset has happened since the runtime last published, so
     /// every grant that publication counted is out of force.
     pub(crate) fn grants_reset_since_published(&self) -> bool {
@@ -560,13 +585,21 @@ impl WorkHandle {
                 status: StatusBoard::unpublished(),
                 permissions,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             work_rx,
             control_rx,
             changes,
         )
+    }
+
+    /// The configured permission table every conversation decides with, for
+    /// the UI thread to read and to replace ([`LiveRules`]).
+    pub(crate) fn rules(&self) -> &LiveRules {
+        &self.rules
     }
 
     /// Stands in for the runtime's publication of the grants list, as of the
@@ -855,10 +888,16 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    let saved_rules = SavedRulesAt::default();
+    let publishes_saved_rules = saved_rules.clone();
     // One live authority for the session: the handle writes it, every
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
     let loops_live = live.clone();
+    // The same for the configured table: one handle, written by `/allowlist`
+    // on the UI thread, read by every conversation the runtime opens.
+    let rules = LiveRules::new(config.permission.effective().clone());
+    let loops_rules = rules.clone();
     let spend = SessionSpend::default();
     let publishes_spend = spend.clone();
     let session_cancel = cancel.clone();
@@ -882,7 +921,9 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.saved_rules = publishes_saved_rules;
             state.live = loops_live;
+            state.rules = loops_rules;
             state.spend = publishes_spend;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
@@ -917,7 +958,9 @@ pub(crate) fn spawn(
                 status,
                 permissions: permissions_tx,
                 live,
+                rules,
                 grants,
+                saved_rules,
                 spend,
             },
             resumable: None,
@@ -1063,10 +1106,16 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, published
+    /// with the grants.
+    saved_rules: SavedRulesAt,
     /// The mode and reset count the UI writes and every conversation's
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// The configured table the UI writes and every conversation's authority
+    /// reads ([`WorkHandle::rules`]). Read here, never written.
+    rules: LiveRules,
     /// Where `/usage`'s session scope reads the conversation's spend from,
     /// written by [`Runtime::publish`] beside the other two.
     spend: SessionSpend,
@@ -1126,6 +1175,7 @@ impl Runtime {
         let config_mode = config.permission_mode;
         let workspace =
             WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
+        let config_rules = config.permission.effective().clone();
         Self {
             config,
             env,
@@ -1139,7 +1189,9 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
+            rules: LiveRules::new(config_rules),
             spend: SessionSpend::default(),
             began_ms: crate::session::event::system_now_ms(),
             workspace,
@@ -1178,6 +1230,14 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.saved_rules
+            .publish(self.conversation.as_ref().and_then(|conversation| {
+                conversation
+                    .tools
+                    .permissions()
+                    .session_rules_path()
+                    .map(std::path::Path::to_path_buf)
+            }));
         self.spend.publish(Spent {
             usage: self
                 .conversation
@@ -1531,6 +1591,8 @@ impl Runtime {
             // Read at every decision, so a change the person makes while a
             // turn runs governs that turn's next call (`LiveAuthority`).
             .with_live(self.live.clone())
+            // And the configured table, for the same reason (`LiveRules`).
+            .with_live_rules(self.rules.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -3209,7 +3271,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3269,7 +3333,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3308,7 +3374,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -3665,7 +3733,9 @@ mod tests {
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
             live: LiveAuthority::new(PermissionMode::Auto),
+            rules: LiveRules::default(),
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             spend: SessionSpend::default(),
         };
         drop(work_rx);
@@ -5222,7 +5292,9 @@ mod tests {
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
                 live: LiveAuthority::new(PermissionMode::Auto),
+                rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
                 spend: SessionSpend::default(),
             },
             resumable: None,
@@ -6476,6 +6548,43 @@ mod tests {
         );
         assert_eq!(state.authority().mode(), state.config.permission_mode);
     }
+
+    #[test]
+    fn the_authority_decides_with_the_profiles_table_and_with_what_the_ui_puts_in_force() {
+        use crate::permission::{ConfiguredRule, RuleAction, RuleSet};
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        crate::provider::profile::write_document(
+            &home.path().join(".xfx").join("settings.json"),
+            br#"{"permission":{"bash":{"git *":"allow"}}}"#,
+        )
+        .expect("an owner-only profile");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        // At launch: the table the profile holds.
+        assert_eq!(
+            state.authority().rules().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        // The handle the UI writes is the one every authority reads, so a
+        // `/allowlist` change reaches a conversation already open.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.rules = handle.rules().clone();
+        let authority = state.authority();
+        handle
+            .rules()
+            .replace(RuleSet::new(vec![ConfiguredRule::new(
+                "edit",
+                "*",
+                RuleAction::Deny,
+            )]));
+        assert_eq!(
+            authority.rules().rules(),
+            &[ConfiguredRule::new("edit", "*", RuleAction::Deny)]
+        );
+    }
+
     #[test]
     fn the_catalog_a_ui_is_given_is_bounded_at_the_event() {
         // A daemon may advertise any number of models; the browser renders at

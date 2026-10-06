@@ -203,11 +203,65 @@ fn write_preferences_within(
     create_private_dir(dir)?;
     let _across_processes = SettingsLock::acquire(dir, deadline)?;
     let mut document = read_existing(path)?;
+    set_preferences(&mut document, preferences);
+    write_settings(path, document)
+}
+
+/// Writes `document` as the settings file: pretty JSON, a newline, the
+/// profile's own staged rename. The one serializer every preference write
+/// ends in.
+fn write_settings(path: &Path, document: Map<String, Value>) -> io::Result<()> {
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
+/// Applies a `/allowlist` change to the settings file at `path` and writes it
+/// back, as one transaction under the same two locks [`write_preferences`]
+/// takes (`applyPermissionPatch`, `settings_store.zig:430-436`).
+///
+/// `workspace` names the table: `None` for the profile's own, `Some(key)` for
+/// that workspace's entry. **Nothing is written when nothing changed** -- a
+/// rule already there, a rule not there to remove -- so a no-op neither moves
+/// the file's mtime nor creates a profile. A file xfx cannot parse, or a table
+/// that is not an object, is an error and the file is left as it was.
+pub fn write_permission(
+    path: &Path,
+    workspace: Option<&str>,
+    patch: &crate::permission::allowlist::Patch,
+) -> io::Result<crate::permission::allowlist::Applied> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    let mut document = read_existing(path)?;
+    let applied = crate::permission::allowlist::apply(&mut document, workspace, patch)
+        .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
+    if !applied.changed {
+        return Ok(applied);
+    }
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    // Read again under the lock: another process may have written between
+    // the first read -- which decided whether there was anything to do -- and
+    // the lock, and its change must survive this one.
+    let mut document = read_existing(path)?;
+    let applied = crate::permission::allowlist::apply(&mut document, workspace, patch)
+        .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
+    if applied.changed {
+        write_settings(path, document)?;
+    }
+    Ok(applied)
+}
+
+/// Sets each preference's key path in `document`.
+fn set_preferences(document: &mut Map<String, Value>, preferences: &[(&[&str], Value)]) {
     for (key_path, value) in preferences {
         let (last, parents) = key_path
             .split_last()
             .expect("every key path was checked above");
-        let mut object = &mut document;
+        let mut object = &mut *document;
         for key in parents {
             let slot = object
                 .entry((*key).to_string())
@@ -221,10 +275,6 @@ fn write_preferences_within(
         }
         object.insert((*last).to_string(), value.clone());
     }
-    let mut body = serde_json::to_string_pretty(&Value::Object(document))
-        .expect("a settings object is always serializable");
-    body.push('\n');
-    write_document(path, body.as_bytes())
 }
 
 /// One read, change and rename of the settings document, under the same two
@@ -241,6 +291,10 @@ fn write_preferences_within(
 /// it did not**: the file stays byte-identical, which is what lets a caller
 /// report `saved_changed=false` and mean it. An `Err` from `edit` is returned
 /// as it is, with nothing written.
+///
+/// The document keeps its key order (`serde_json`'s `preserve_order`), so an
+/// `edit` that removes a key removes it with `shift_remove`: `remove` would
+/// move the last key into the hole.
 pub fn edit_document<E: From<io::Error>>(
     path: &Path,
     edit: impl FnOnce(&mut Map<String, Value>) -> Result<bool, E>,
@@ -255,10 +309,7 @@ pub fn edit_document<E: From<io::Error>>(
     if !edit(&mut document)? {
         return Ok(false);
     }
-    let mut body = serde_json::to_string_pretty(&Value::Object(document))
-        .expect("a settings object is always serializable");
-    body.push('\n');
-    write_document(path, body.as_bytes())?;
+    write_settings(path, document)?;
     Ok(true)
 }
 
@@ -983,6 +1034,30 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
         assert_eq!(written["statusLine"]["session"], json!(false));
         assert_eq!(written["statusLine"]["context"], json!(true));
+    }
+
+    #[test]
+    fn a_preference_write_keeps_every_key_in_the_order_the_file_had_it() {
+        // A permission table is read last-match-wins in document order
+        // (`crate::permission::rules::RuleSet::decide`), so a write of any
+        // other key that sorted the file would change what the table allows:
+        // `{"rm*":"allow","*":"deny"}` denies everything, and sorted it would
+        // allow `rm`. Upstream's writer keeps the order (`writeJsonValue` over
+        // an insertion-ordered map, `settings_store.zig:1830-1850`).
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            "{\"zeta\":1,\"permission\":{\"bash\":{\"rm*\":\"allow\",\"*\":\"deny\"},\"edit\":\"ask\"},\"alpha\":2}",
+        )
+        .expect("seed");
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            "{\n  \"zeta\": 1,\n  \"permission\": {\n    \"bash\": {\n      \"rm*\": \"allow\",\n      \
+             \"*\": \"deny\"\n    },\n    \"edit\": \"ask\"\n  },\n  \"alpha\": 2,\n  \
+             \"statusLine\": {\n    \"session\": true\n  }\n}\n"
+        );
     }
 
     #[test]

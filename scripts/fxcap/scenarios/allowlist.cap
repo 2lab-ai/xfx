@@ -1,0 +1,46 @@
+# W8 `/allowlist` (research `appearance-security-ext.md` §`/allowlist`): the
+# bare and `view` listings on an empty profile, an add to each table, every
+# view, a remove, a refused reset, a refused word, and the profile after.
+wait 2
+type /allowlist
+key Enter
+wait 1
+snap bare
+type /allowlist view
+key Enter
+wait 1
+snap view
+type /allowlist add command "git *"
+key Enter
+wait 1
+snap add-cmd
+type /allowlist user add url https://example.com/*
+key Enter
+wait 1
+snap user-add-url
+type /allowlist view effective
+key Enter
+wait 1
+snap view-effective
+type /allowlist view local
+key Enter
+wait 1
+snap view-local
+type /allowlist view user
+key Enter
+wait 1
+snap view-user
+home files-mid
+type /allowlist remove command "git *"
+key Enter
+wait 1
+snap remove-cmd
+type /allowlist local reset
+key Enter
+wait 1
+snap local-reset
+type /allowlist bogus
+key Enter
+wait 1
+snap bogus
+home files

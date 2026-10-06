@@ -729,6 +729,7 @@ mod recall;
 mod render_request;
 mod retry;
 mod router;
+mod rule_confirm;
 mod session_picker;
 mod settings;
 mod shell;

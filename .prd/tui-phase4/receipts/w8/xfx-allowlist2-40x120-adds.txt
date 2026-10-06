@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-41cf01d [debug] · Run /help for commands
+
+* allowlist: added tool read: "*" (scope=local)
+
+* allowlist: added tool edit: "*" (scope=local)
+
+✗ usage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>
+
+* allowlist: added web-fetch-domain: "domain:example.com" (scope=local)
+
+* allowlist: added command: "git *" (scope=local)
+
+* allowlist: added command: "git *" (scope=local)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

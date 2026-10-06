@@ -521,8 +521,12 @@ fn apply(
             had
         }
     };
+    // `shift_remove`, not `remove`: the profile keeps document order, and a
+    // swap would move the last key into the hole -- a reordering of somebody
+    // else's settings, `permission`'s ordered rows among them, that nothing
+    // asked for.
     if list.is_empty() {
-        entry.remove(ADDITIONAL_DIRECTORIES_KEY);
+        entry.shift_remove(ADDITIONAL_DIRECTORIES_KEY);
     } else {
         entry.insert(
             ADDITIONAL_DIRECTORIES_KEY.to_string(),
@@ -530,10 +534,10 @@ fn apply(
         );
     }
     if entry.is_empty() {
-        workspaces.remove(key);
+        workspaces.shift_remove(key);
     }
     if workspaces.is_empty() {
-        document.remove(WORKSPACES_KEY);
+        document.shift_remove(WORKSPACES_KEY);
     }
     Ok(changed)
 }
@@ -1309,6 +1313,57 @@ mod tests {
         let again = tree.run(&cleared.access, "clear").expect("cleared twice");
         assert!(!again.mutation.saved_changed && !again.mutation.runtime_changed);
         let _ = a;
+    }
+
+    #[test]
+    fn removing_the_last_directory_keeps_every_other_key_in_its_place() {
+        // The profile's keys keep document order (`preserve_order`), and a
+        // removal must not move the last key into the hole it leaves: the
+        // `permission` table's rows are ordered and the last match wins.
+        let tree = Tree::new();
+        tree.dir("extra");
+        let key = path(&tree.primary);
+        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        fs::write(
+            &tree.settings,
+            format!(
+                "{{\"model\":\"m\",\"workspaces\":{{\"/other\":{{\"a\":1}},\"{key}\":{{\"x\":1,\"additional_directories\":[],\"y\":2,\"z\":3}},\"/later\":{{\"b\":2}}}},\"permission\":{{}},\"zz\":true}}"
+            ),
+        )
+        .expect("seed");
+        let access = tree
+            .run(&WorkspaceAccess::default(), "add ../extra")
+            .expect("added")
+            .access;
+        tree.run(&access, "clear").expect("cleared");
+        let document = tree.document();
+        let top: Vec<&String> = document.as_object().unwrap().keys().collect();
+        assert_eq!(top, ["model", "workspaces", "permission", "zz"]);
+        let workspaces: Vec<&String> = document["workspaces"].as_object().unwrap().keys().collect();
+        assert_eq!(workspaces, ["/other", key.as_str(), "/later"]);
+        let entry: Vec<&String> = document["workspaces"][&key]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect();
+        assert_eq!(entry, ["x", "y", "z"]);
+
+        // And an emptied entry leaves without reordering its neighbours.
+        fs::write(
+            &tree.settings,
+            format!(
+                "{{\"workspaces\":{{\"/other\":{{}},\"{key}\":{{}},\"/later\":{{}},\"/last\":{{}}}},\"zz\":true}}"
+            ),
+        )
+        .expect("seed");
+        let access = tree
+            .run(&WorkspaceAccess::default(), "add ../extra")
+            .expect("added")
+            .access;
+        tree.run(&access, "clear").expect("cleared");
+        let document = tree.document();
+        let workspaces: Vec<&String> = document["workspaces"].as_object().unwrap().keys().collect();
+        assert_eq!(workspaces, ["/other", "/later", "/last"]);
     }
 
     #[test]
