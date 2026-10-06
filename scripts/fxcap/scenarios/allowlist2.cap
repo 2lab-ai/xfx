@@ -1,0 +1,53 @@
+# W8 `/allowlist`, the other forms: a tool and its category, an unknown tool,
+# a web-fetch domain, a repeated add, a remove of nothing, the local listing,
+# resets by scope, and the user table coming into force once the local one is
+# gone.
+wait 2
+type /allowlist add tool read
+key Enter
+wait 1
+type /allowlist add tool write_file
+key Enter
+wait 1
+type /allowlist add tool nonsense
+key Enter
+wait 1
+type /allowlist add web-fetch-domain Example.COM
+key Enter
+wait 1
+type /allowlist add command "git *"
+key Enter
+wait 1
+type /allowlist add command "git *"
+key Enter
+wait 1
+snap adds
+type /allowlist remove command "nope"
+key Enter
+wait 1
+type /allowlist view local
+key Enter
+wait 1
+snap view-local
+home files-mid
+type /allowlist local reset tools
+key Enter
+wait 1
+type /allowlist local reset all
+key Enter
+wait 1
+type /allowlist user add url https://example.com/*
+key Enter
+wait 1
+type /allowlist view effective
+key Enter
+wait 1
+snap after-reset
+type /allowlist user reset all
+key Enter
+wait 1
+type /allowlist view
+key Enter
+wait 1
+snap final
+home files

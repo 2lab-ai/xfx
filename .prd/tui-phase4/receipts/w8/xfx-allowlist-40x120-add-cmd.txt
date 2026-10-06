@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-41cf01d [debug] · Run /help for commands
+
+* allowlist: effective persistent allow rules: (none)
+
+* allowlist: effective persistent allow rules: (none)
+
+* allowlist: added command: "git *" (scope=local)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
