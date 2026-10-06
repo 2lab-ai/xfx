@@ -110,3 +110,5 @@ Done when every row above carries a status in `loop.md`'s gap matrix; every P an
 ## Tensions
 
 - `UPSTREAM.md` pins `580a0c5`; this workstream cites `c1db919` for every UI claim. The pin advances to `c1db919` for the UI ledger in this workstream rather than leaving two revisions implicit.
+- **Resize.** fx re-solves and repaints the frame it owns after a resize (`resize_runtime.zig`, `frame_layout.solveWithPreservedRowRelease`). xfx pins its band to the bottom of the resized screen instead of floating it (`Shell::resize` sets the document past any screen): the rows above the band are the terminal's own document after a reflow, and xfx has no way to know where a terminal put them, so a band floated under a guess would paint over them. Floating resumes after the next `/clear`. Captures at a fixed size match; a resize capture differs by where the band sits until the screen has filled.
+- **Partial lines while streaming.** fx shows an answer's line once the markdown presenter has its end (captured mid-stream: only the activity row is visible). xfx does the same since 3efe232; xfx's earlier per-character pacing of partial lines is gone with it.
