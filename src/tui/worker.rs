@@ -2428,7 +2428,8 @@ async fn compact_conversation(
         )
         .await;
     }
-    let event = {
+    let spent = compact::Spent::default();
+    let finished = {
         let model = state.model().to_string();
         let selector = &state.selector;
         let efforts = |name: &str| {
@@ -2447,20 +2448,27 @@ async fn compact_conversation(
             model: &model,
             fallback: state.config.provider == ProviderId::Gateway,
             efforts: &efforts,
+            spent: &spent,
         };
-        match compact::finish(&plan, &caller).await {
-            Ok(event) => event,
-            Err(failure) => return feedback_of(failure),
-        }
+        compact::finish(&plan, &caller).await
+    };
+    let Some(conversation) = state.conversation.as_mut() else {
+        return Feedback::Failed;
+    };
+    // What the notes requests cost goes to `/usage` however the compaction
+    // ends: a request that was answered was billed (`spent`'s doc).
+    if let Some(frame) = spent.frame() {
+        conversation.recorder.commit(frame);
+    }
+    let event = match finished {
+        Ok(event) => event,
+        Err(failure) => return feedback_of(failure),
     };
     // Stopped while the notes were written: nothing is saved
     // (`orchestrator.zig:6241`).
     if turn.mirror.is_cancelled() {
         return Feedback::Cancelled;
     }
-    let Some(conversation) = state.conversation.as_mut() else {
-        return Feedback::Failed;
-    };
     let before = conversation.recorder.state().last_event_seq;
     conversation.recorder.commit(event);
     if conversation.recorder.state().last_event_seq == before {

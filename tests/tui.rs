@@ -8473,8 +8473,8 @@ const COMPACTION_WORDS: [&str; 4] = [
     "No context to compact",
 ];
 
-/// Every `context_checkpoint` frame of the sandbox's sessions.
-fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
+/// Every frame of the sandbox's sessions, in each log's order.
+fn session_frames(sandbox: &Sandbox) -> Vec<Value> {
     sandbox
         .session_ids()
         .iter()
@@ -8486,6 +8486,13 @@ fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
                 .filter_map(|line| serde_json::from_str::<Value>(line).ok())
                 .collect::<Vec<_>>()
         })
+        .collect()
+}
+
+/// Every `context_checkpoint` frame of the sandbox's sessions.
+fn checkpoints(sandbox: &Sandbox) -> Vec<Value> {
+    session_frames(sandbox)
+        .into_iter()
         .filter(|frame| frame["event"]["kind"] == "context_checkpoint")
         .collect()
 }
@@ -8570,6 +8577,26 @@ fn compact_replaces_the_older_turn_in_every_later_request_and_a_resume_keeps_it(
         !asked.contains("second question"),
         "the kept turn was compacted"
     );
+
+    // What the notes request cost is in the session's `/usage` record, in a
+    // frame of its own just before the checkpoint: it answered no turn, so it
+    // carries no turn's totals (`app_agent_runtime.zig:1127`).
+    let frames = session_frames(&sandbox);
+    let at = frames
+        .iter()
+        .position(|frame| frame["event"]["kind"] == "context_checkpoint")
+        .expect("the checkpoint");
+    let usage = &frames[at - 1]["event"];
+    assert_eq!(usage["kind"], "usage_recorded", "{usage}");
+    assert!(
+        usage.get("input_tokens").is_none_or(Value::is_null),
+        "{usage}"
+    );
+    let billed = usage["requests"].as_array().expect("requests");
+    assert_eq!(billed.len(), 1, "{usage}");
+    // The sandbox's model (`support::sandbox`), which the request names in a
+    // header rather than its body.
+    assert_eq!(billed[0]["model"], "zai/glm-5.2", "{usage}");
 
     // The checkpoint covers the first turn and keeps its exact texts.
     let frame = checkpoints(&sandbox).remove(0);

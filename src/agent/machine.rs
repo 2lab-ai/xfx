@@ -146,7 +146,7 @@ pub fn allows_step(limit: u32, step: u32) -> bool {
 /// (`DeliveryOutcome.unbilled`, `vercel-labs/fx@c1db9191
 /// src/core/session/session_usage.zig:43-53`). Everything else left and was
 /// lost on the way back, and a model that started answering bills for it.
-fn may_have_billed(err: &ProviderError) -> bool {
+pub(crate) fn may_have_billed(err: &ProviderError) -> bool {
     match err {
         ProviderError::Endpoint(_)
         | ProviderError::Request { .. }
@@ -157,6 +157,42 @@ fn may_have_billed(err: &ProviderError) -> bool {
         | ProviderError::Protocol(_)
         | ProviderError::Sink(_)
         | ProviderError::Cancelled => true,
+    }
+}
+
+/// What one completed request cost, as `/usage` keeps it: the provider's own
+/// bill when it gave one ([`Completion::billing`]); otherwise the request as
+/// asked of `model`, its token totals when they were said, and **no cost** --
+/// a request whose spend nobody reported, which `/usage` counts as missing
+/// rather than as free. A turn's steps and a compaction's notes requests are
+/// kept alike (`crate::agent::compact`).
+pub(crate) fn request_usage(completion: &Completion, model: &str, took: Duration) -> RequestUsage {
+    let duration_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
+    match &completion.billing {
+        Some(bill) => RequestUsage {
+            at_ms: bill.at_ms,
+            duration_ms,
+            model: bill.model.clone(),
+            input_tokens: bill.input_tokens,
+            output_tokens: bill.output_tokens,
+            cache_read_tokens: bill.cache_read_tokens,
+            cache_write_tokens: bill.cache_write_tokens,
+            reasoning_tokens: bill.reasoning_tokens,
+            cost: Some(bill.cost),
+            generation_id: bill.generation_id.clone(),
+        },
+        None => RequestUsage {
+            at_ms: crate::session::event::system_now_ms(),
+            duration_ms,
+            model: model.to_string(),
+            input_tokens: completion.usage.input_tokens.unwrap_or(0),
+            output_tokens: completion.usage.output_tokens.unwrap_or(0),
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            reasoning_tokens: None,
+            cost: None,
+            generation_id: None,
+        },
     }
 }
 
@@ -947,33 +983,8 @@ impl TurnMachine {
     /// and **no cost** -- a request whose spend nobody reported, which
     /// `/usage` counts as missing rather than as free.
     fn account(&mut self, completion: &Completion, took: Duration) {
-        let duration_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
-        self.requests.push(match &completion.billing {
-            Some(bill) => RequestUsage {
-                at_ms: bill.at_ms,
-                duration_ms,
-                model: bill.model.clone(),
-                input_tokens: bill.input_tokens,
-                output_tokens: bill.output_tokens,
-                cache_read_tokens: bill.cache_read_tokens,
-                cache_write_tokens: bill.cache_write_tokens,
-                reasoning_tokens: bill.reasoning_tokens,
-                cost: Some(bill.cost),
-                generation_id: bill.generation_id.clone(),
-            },
-            None => RequestUsage {
-                at_ms: crate::session::event::system_now_ms(),
-                duration_ms,
-                model: self.request.model.clone(),
-                input_tokens: completion.usage.input_tokens.unwrap_or(0),
-                output_tokens: completion.usage.output_tokens.unwrap_or(0),
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                reasoning_tokens: None,
-                cost: None,
-                generation_id: None,
-            },
-        });
+        self.requests
+            .push(request_usage(completion, &self.request.model, took));
     }
 
     /// Waits out the backoff between two attempts.
