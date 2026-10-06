@@ -16536,6 +16536,32 @@ mod tests {
     }
 
     #[test]
+    fn a_reset_starts_the_full_transcript_again_with_the_document() {
+        // `/clear` = `/new` = `/reset` hands the old document to scrollback and
+        // starts a fresh one under the welcome line (C2); the full transcript
+        // is that document's record, so it starts again too -- and a detail the
+        // runtime still sends about the old conversation is dropped with the
+        // rest of it.
+        for command in RESETS {
+            let mut shell = shell(40, 120);
+            a_turn_that_ran_a_command(&mut shell);
+            shell.route_bytes(command);
+            shell.apply(UiEvent::ToolDetail {
+                call_id: "c1".into(),
+                detail: full_transcript::Detail::Result("late".into()),
+            });
+            shell.route_bytes(b"\x0f");
+            let screen = full_screen(&shell);
+            assert!(screen[0].starts_with("x\u{1d487}x"), "{screen:?}");
+            assert!(
+                screen[1..36].iter().all(String::is_empty),
+                "{} kept the old conversation: {screen:?}",
+                String::from_utf8_lossy(command)
+            );
+        }
+    }
+
+    #[test]
     fn the_exit_gives_back_a_plane_the_full_transcript_was_holding() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x0f");
