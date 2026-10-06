@@ -708,6 +708,7 @@ mod blocks;
 mod bridge;
 mod check;
 mod clipboard_image;
+mod compaction;
 mod copy;
 mod deliver;
 mod diagnostic;
