@@ -40,6 +40,25 @@ fn tui_with(sandbox: &Sandbox, gateway: &FakeGateway) -> Command {
     command
 }
 
+/// Waits until the screen -- its **cells**, rebuilt from the bytes -- carries
+/// every one of `needles`, and none of `gone`.
+///
+/// Read off the cells rather than the byte stream because the painter writes
+/// only the cells a frame changed: a menu whose `Models 0` became `Models 4`
+/// sends a `4` and nothing else, so a needle looked for in the bytes can be on
+/// the screen and never in the stream.
+fn on_screen(session: &Session, (rows, cols): (usize, usize), needles: &[&str], gone: &[&str]) {
+    session.wait_until(
+        &format!("{needles:?} on the screen, {gone:?} off it"),
+        |text| {
+            Screen::painted(text, rows, cols).is_some_and(|screen| {
+                needles.iter().all(|needle| screen.find(needle).is_some())
+                    && gone.iter().all(|needle| screen.find(needle).is_none())
+            })
+        },
+    );
+}
+
 /// The text of every user message in a captured request body.
 ///
 /// The same reduction `tests/interactive.rs` performs on the line-oriented
@@ -3605,13 +3624,16 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // `/model`'s menu, which only it opens: its key help says `tab provider`.
     // This fake publishes no catalog, so the menu says the load failed -- and
     // the catalog request is not a turn ([`FakeGateway::catalog_requests`]).
-    session.wait_for("tab provider");
-    session.wait_for("Unable to load models.");
+    on_screen(
+        &session,
+        (24, 80),
+        &["tab provider", "Unable to load models."],
+        &[],
+    );
     // Escape takes it down; the hint row painted back is what says it settled,
     // a lone ESC being the Escape key only after 50 ms of quiet.
-    let hints = session.text().matches("glm-5.2").count();
     session.type_bytes(&[0x1b]);
-    session.wait_for_count("glm-5.2", hints + 1);
+    on_screen(&session, (24, 80), &["glm-5.2"], &["tab provider"]);
     // Bare, so it refuses without switching anything -- which still proves the
     // name is answered by the session, and still costs the provider nothing.
     session.type_bytes(b"/setup\r");
@@ -3738,11 +3760,14 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     // only it says; Escape takes it down, which the hint row painted back
     // shows has settled.
     session.type_bytes(b"\r");
-    session.wait_for("tab provider");
-    session.wait_for("Unable to load models.");
-    let hints = session.text().matches("glm-5.2").count();
+    on_screen(
+        &session,
+        (24, 80),
+        &["tab provider", "Unable to load models."],
+        &[],
+    );
     session.type_bytes(&[0x1b]);
-    session.wait_for_count("glm-5.2", hints + 1);
+    on_screen(&session, (24, 80), &["glm-5.2"], &["tab provider"]);
 
     // A partial word and a Return runs the command the menu marked for it,
     // in that one Return (`input_submit_runtime.zig:1087-1089`).
@@ -6609,10 +6634,16 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
     // listed by name (a llmux id has no vendor in front), the window where the
     // daemon published one and nothing where it did not.
     session.type_bytes(b"/model\r");
-    session.wait_for("tab provider");
-    session.wait_for("claude-fable-5[1m]");
-    session.wait_for("1M context");
-    session.wait_for("plain-model");
+    on_screen(
+        &session,
+        (24, 80),
+        &[
+            "tab provider",
+            "claude-fable-5[1m]  1M context",
+            "  plain-model",
+        ],
+        &[],
+    );
 
     // Down to the second row and Enter: that model, applied at once.
     session.type_bytes(b"\x1b[B");
@@ -6638,7 +6669,7 @@ fn the_model_menu_lists_the_daemons_models_and_a_choice_is_saved_for_the_next_la
         command
     });
     again.wait_for(READY);
-    again.wait_for("plain-model");
+    on_screen(&again, (24, 80), &["auto \u{b7} plain-model"], &[]);
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
 
@@ -6767,11 +6798,17 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     session.wait_for(READY);
 
     session.type_bytes(b"/model\r");
-    session.wait_for("Models 4");
-    session.wait_for("openai/gpt-6-astra");
-    session.wait_for("400K context \u{b7} 128K output \u{b7} Fast \u{b7} Ultra");
-    session.wait_for("1M context \u{b7} 64K output \u{b7} Fast");
-    session.wait_for("Note: Gateway catalog is authenticated with an API key");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "Models 4  [All]  Anthropic  OpenAI  xAI  Others",
+            "  openai/gpt-6-astra       400K context \u{b7} 128K output \u{b7} Fast \u{b7} Ultra",
+            "  anthropic/claude-opus-5  1M context \u{b7} 64K output \u{b7} Fast",
+            "Note: Gateway catalog is authenticated with an API key",
+        ],
+        &[],
+    );
     assert!(
         !session.text().contains("text-embedding"),
         "a row that is not a language model was listed"
@@ -6781,7 +6818,7 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
     session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: normal)");
-    session.wait_for("opus 5");
+    on_screen(&session, (40, 120), &["auto \u{b7} opus 5"], &[]);
     // The router form, over the same catalog without asking for it again.
     session.type_bytes(b"/model grok\r");
     session.wait_for("Switched to xai/grok-4.7 (effort: default, speed: normal)");

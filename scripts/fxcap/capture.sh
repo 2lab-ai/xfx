@@ -23,6 +23,8 @@
 #                          shadows what a command saves there
 #   work <dir>             a directory under scenarios/ copied into the
 #                          workspace before launch
+#   githead <branch>       makes the workspace a checkout on <branch>: a
+#                          `.git/HEAD` naming it, and nothing else
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
@@ -39,9 +41,9 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
-#   home <label>           writes the HOME's file list and every settings,
-#                          session and history JSON(L) in it to
-#                          <bin>-<scenario>-<size>-home-<label>.txt
+#   home <label>           every settings file under the run's HOME -- each
+#                          binary's own profile and fx's backups of it -- to
+#                          <bin>-<scenario>-<size>-<label>.home
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -95,6 +97,7 @@ main() {
     [[ $line == models\ * ]] && models=$here/scenarios/${line#models }
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
+    [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -150,7 +153,7 @@ $xfx_model $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|nomodel) ;;
+      ''|'#'*|gateway|env|seed|work|models|nomodel|githead) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -192,13 +195,8 @@ $xfx_model $extra_env $bin"
         fi
         ;;
       home)
-        local name=$out/$which-$scenario-$size-home-$rest.txt f
-        (cd "$run/home" && find . -type f | sort) > "$name"
-        while IFS= read -r f; do
-          printf '== %s\n' "$f"
-          head -c 4000 "$run/home/$f"
-          echo
-        done < <(cd "$run/home" && find . -type f \( -name '*.json' -o -name '*.jsonl' \) | sort) >> "$name"
+        local name=$out/$which-$scenario-$size-$rest.home
+        (cd "$run/home" && find . -type f \( -name settings.json -o -path '*/backups/*' \) | sort | while IFS= read -r f; do echo "== $f"; cat "$f"; echo; done) > "$name"
         echo "$name"
         ;;
       clipfail)

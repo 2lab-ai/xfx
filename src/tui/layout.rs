@@ -161,19 +161,6 @@ pub(crate) fn solve_with(
     solve_band(rows, cols, input_rows, activity, 0)
 }
 
-/// Whether a screen of `rows` x `cols` could hold a `panel`-row question at
-/// all.
-///
-/// Asked with a **one-row** composer and the activity row present, which is the
-/// band a question always appears in front of: a turn is running, and a draft
-/// taller than one row is something the caller can scroll rather than a reason
-/// to refuse the question. A `false` is a screen on which xfx cannot ask, and
-/// `super::shell` refuses on the user's behalf rather than painting a question
-/// with its choices off the bottom.
-pub(crate) fn fits_panel(rows: u16, cols: u16, panel: u16) -> bool {
-    solve_band(rows, cols, 1, true, panel).is_some()
-}
-
 /// Whether a screen of `rows` x `cols` could hold a `panel`-row **permission**
 /// question.
 ///
@@ -458,12 +445,13 @@ mod tests {
         // row, and one row of document.
         // On a short screen the turn's row keeps its place and drops the blank
         // row under it before a question is refused.
-        assert!(fits_panel(24, 80, 8));
-        assert!(fits_panel(12, 80, 6));
-        assert!(!fits_panel(11, 80, 6));
-        assert!(fits_panel(24, 80, 18));
-        assert!(!fits_panel(24, 80, 19));
-        assert!(!fits_panel(24, 19, 8), "a screen too narrow for any band");
+        let fits = |rows, cols, panel| solve_band(rows, cols, 1, true, panel).is_some();
+        assert!(fits(24, 80, 8));
+        assert!(fits(12, 80, 6));
+        assert!(!fits(11, 80, 6));
+        assert!(fits(24, 80, 18));
+        assert!(!fits(24, 80, 19));
+        assert!(!fits(24, 19, 8), "a screen too narrow for any band");
         assert!(solve_band(16, 80, 6, true, 8).is_none());
         assert_eq!(
             solve_band(16, 80, 1, true, 8)
