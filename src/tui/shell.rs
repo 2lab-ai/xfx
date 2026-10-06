@@ -5872,14 +5872,17 @@ impl CommandHandlers for Shell {
     /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2650`), on
     /// `Loading sessions…` until the runtime has read the store.
     ///
-    /// **Refused while anything is in hand** -- a turn running, a prompt
-    /// waiting, a `/model` being answered -- with upstream's notice, at once:
-    /// the conversation a resume would replace is the one that work is
-    /// writing into. Upstream refuses while its response streams; xfx's
-    /// outstanding count is that and the prompt queued behind it, which would
-    /// otherwise run in the old conversation after the resume had switched.
+    /// **Refused while a response is in hand** -- a turn running, or a prompt
+    /// sent whose turn has not started -- with upstream's notice, at once:
+    /// the conversation a resume would replace is the one that turn writes
+    /// into. Upstream's rule is `stream.active` (`:2590`), which its turn sets
+    /// as it begins (`begin_prompt`, `app_worker_runtime.zig:975-985`) and
+    /// keeps while prompts wait behind it (`:783-805`): the busy rule a
+    /// provider switch is under too ([`Self::provider_work_busy`]). Other work
+    /// -- a `/model` being answered, a catalog loading -- is no response; the
+    /// picker's listing simply runs after it.
     fn resume(&mut self) {
-        if self.work.outstanding() > 0 {
+        if self.provider_work_busy() {
             self.write_notice(&notice::Notice::neutral("session", RESUME_BUSY));
             return;
         }
@@ -14413,6 +14416,43 @@ mod tests {
                 "session",
                 "resume is unavailable until the response finishes"
             ))
+        );
+    }
+
+    /// Upstream refuses while its response is active (`stream.active`,
+    /// `app_session_runtime.zig:2590`), which a turn begins
+    /// (`begin_prompt`, `app_worker_runtime.zig:975-985`) and keeps while
+    /// prompts wait behind it (`:783-805`) -- the busy rule a provider switch
+    /// is under too ([`Shell::provider_work_busy`]). A `/model` the runtime
+    /// has not answered yet is no response, and the picker opens.
+    #[test]
+    fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model second-model\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/resume\r");
+        assert!(shell.sessions.is_some(), "{:?}", shell.document());
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.sessions.is_none());
+        // Both answered, as the runtime would have by now.
+        shell.work.give_back();
+        shell.work.give_back();
+
+        // A prompt sent and not started yet runs before anything the picker
+        // could ask for: refused, as one streaming is.
+        shell.route_bytes(b"queued one\r");
+        let _ = shell.picks_up();
+        let _ = shell.document();
+        shell.route_bytes(b"/resume\r");
+        assert!(
+            shell.sessions.is_none(),
+            "a picker opened over a waiting prompt"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("session", RESUME_BUSY))
         );
     }
 

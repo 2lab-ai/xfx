@@ -92,15 +92,14 @@ pub const MAX_LIST_LIMIT: usize = 200;
 /// The most directory entries one listing will consider.
 const MAX_SCANNED_SESSIONS: usize = 5_000;
 
-/// The most bytes of a user message kept as a session's title.
-const MAX_TITLE_BYTES: usize = 80;
+/// The most words of a prompt a derived title keeps (`max_title_words`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:11`).
+const MAX_TITLE_WORDS: usize = 8;
 
-/// The most bytes a title the user chose may have (`max_title_bytes`,
-/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`).
-///
-/// Wider than [`MAX_TITLE_BYTES`] on purpose: that one clips a prompt nobody
-/// meant as a title, and this one bounds a title somebody typed as one, which
-/// upstream lets run to 240 bytes and refuses past them rather than clipping.
+/// The most bytes any session title has (`max_title_bytes`,
+/// `vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig:12`):
+/// one a prompt gives, which is clipped to it ([`title_of`]), and one the user
+/// chose, which is refused past it rather than clipped ([`validate_title`]).
 pub const MAX_RENAMED_TITLE_BYTES: usize = 240;
 
 /// The tail every staged manifest name ends in, so a leftover one is
@@ -507,18 +506,21 @@ impl DurableState {
         }
     }
 
-    /// What the session is called: the title the user gave it, or else its
-    /// first user message, clipped.
+    /// What the session is called: the title the user gave it, or else the
+    /// one the first prompt that can give one gives ([`title_of`]).
     ///
     /// The order is upstream's (`readNativeResumeDisplay`,
     /// `app_session_runtime.zig:4644-4655`: the conversation title when there
-    /// is one, a title derived from the history when there is not), and the
+    /// is one, a title derived from the history when there is not --
+    /// `deriveFromHistory`, `session_display_metadata.zig:33-55`, whose search
+    /// passes over a prompt that is blank or a slash command alone), and the
     /// manifest publishes this, so a listing, a resume and the window title all
-    /// say the same thing.
+    /// say the same thing. `None` where no prompt gives one, which a surface
+    /// names `Untitled session`, as upstream's fallback does.
     pub fn title(&self) -> Option<String> {
         self.renamed
             .clone()
-            .or_else(|| self.turns.first().and_then(|turn| title_of(&turn.user)))
+            .or_else(|| self.turns.iter().find_map(|turn| title_of(&turn.user)))
     }
 
     /// The durable history, as the messages a next request would carry on
@@ -635,23 +637,49 @@ impl DurableState {
     }
 }
 
-/// The first line of `text`, trimmed and clipped to a character boundary.
+/// The title a prompt gives its session, upstream's way
+/// (`vercel-labs/fx@c1db9191 src/core/session/session_display_metadata.zig`):
+/// its first line that is not blank (`firstNonEmptyLine`, `:117-124`), as at
+/// most [`MAX_TITLE_WORDS`] words joined by one space and at most
+/// [`MAX_RENAMED_TITLE_BYTES`] bytes, the last word cut at a character
+/// boundary if it does not fit (`cappedTitle`, `:126-147`). `None` for a
+/// prompt that gives none: one that is blank, or a slash command on a line
+/// of its own (`promptCandidateFromUser`, `:84-90`).
 ///
 /// Also the TUI's window title for a session (`crate::tui`'s shell), so the
 /// window and a listing of the session say the same thing.
 pub(crate) fn title_of(text: &str) -> Option<String> {
-    let line = text.trim().lines().next().unwrap_or("").trim();
-    if line.is_empty() {
+    let trimmed = text.trim_matches([' ', '\t', '\r', '\n']);
+    if trimmed.is_empty() || (trimmed.starts_with('/') && !trimmed.contains('\n')) {
         return None;
     }
-    if line.len() <= MAX_TITLE_BYTES {
-        return Some(line.to_string());
+    let line = text
+        .split('\n')
+        .map(|line| line.trim_matches([' ', '\t', '\r']))
+        .find(|line| !line.is_empty())?;
+    let mut title = String::new();
+    // `std.ascii.isWhitespace`, which is Rust's ASCII whitespace and the
+    // vertical tab.
+    let words = line
+        .split(|character: char| character.is_ascii_whitespace() || character == '\u{b}')
+        .filter(|word| !word.is_empty())
+        .take(MAX_TITLE_WORDS);
+    for word in words {
+        let separator = usize::from(!title.is_empty());
+        let room = MAX_RENAMED_TITLE_BYTES.saturating_sub(title.len() + separator);
+        let mut take = word.len().min(room);
+        while !word.is_char_boundary(take) {
+            take -= 1;
+        }
+        if take == 0 {
+            break;
+        }
+        if separator == 1 {
+            title.push(' ');
+        }
+        title.push_str(&word[..take]);
     }
-    let mut end = MAX_TITLE_BYTES;
-    while end > 0 && !line.is_char_boundary(end) {
-        end -= 1;
-    }
-    Some(format!("{}...", &line[..end]))
+    (!title.is_empty()).then_some(title)
 }
 
 /// Why a title the user typed cannot be a session's title.
@@ -2805,10 +2833,45 @@ mod tests {
     #[test]
     fn a_title_is_the_first_line_of_the_first_prompt_and_is_bounded() {
         assert_eq!(title_of("  hello \n world "), Some("hello".to_string()));
+        assert_eq!(
+            title_of("\n\n  second line\nthird"),
+            Some("second line".to_string())
+        );
         assert_eq!(title_of("   "), None);
-        let long = title_of(&"x".repeat(200)).expect("a title");
-        assert!(long.len() <= MAX_TITLE_BYTES + 3, "{}", long.len());
-        assert!(long.ends_with("..."));
+        // Eight words, joined by one space whatever separated them.
+        assert_eq!(
+            title_of("one  two\tthree four five six seven eight nine ten").as_deref(),
+            Some("one two three four five six seven eight")
+        );
+        // 240 bytes, the word that does not fit cut where a character ends.
+        let long =
+            title_of(&format!("{} {}", "x".repeat(200), "\u{e9}".repeat(30))).expect("a title");
+        assert_eq!(long.len(), 239, "{long}");
+        assert!(long.ends_with('\u{e9}'));
+        assert_eq!(title_of(&"x".repeat(300)), Some("x".repeat(240)));
+        // A slash command alone gives none; one with more lines under it does.
+        assert_eq!(title_of("  /compact  "), None);
+        assert_eq!(title_of("/plan\nthe migration").as_deref(), Some("/plan"));
+    }
+
+    #[test]
+    fn a_session_is_titled_by_the_first_prompt_that_gives_a_title() {
+        let state = reduce(vec![
+            started(),
+            SessionEvent::UserMessage {
+                text: "/status".to_string(),
+            },
+            SessionEvent::TurnConcluded {
+                outcome: TurnConclusion::Interrupted {
+                    reason: "x".to_string(),
+                },
+            },
+            SessionEvent::UserMessage {
+                text: "fix the parser please".to_string(),
+            },
+        ])
+        .expect("reduces");
+        assert_eq!(state.title().as_deref(), Some("fix the parser please"));
     }
 
     #[test]
