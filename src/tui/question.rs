@@ -1396,6 +1396,14 @@ impl QuestionRequester for TuiQuestioner {
                         | TurnControl::QuestionCancelled { .. }
                         | TurnControl::Answer { .. },
                     ) => continue,
+                    // `/model` while the model's question is up: about the next
+                    // turn, so put aside for the loop, and the question stays up
+                    // -- it is not the user cancelling the batch
+                    // (`super::approval::ControlChannel::defer`).
+                    Some(TurnControl::Model(change)) => {
+                        self.control.defer(change);
+                        continue;
+                    }
                     // The interrupt and the shutdown belong to the loop that can
                     // act on them (`super::approval::ControlChannel::put_back`);
                     // `give_back` rearms.
@@ -2957,6 +2965,35 @@ mod tests {
                 .unwrap();
         });
         assert_eq!(answers, QuestionReply::Answered(vec!["fresh".to_string()]));
+    }
+
+    #[test]
+    fn a_model_change_at_the_models_question_is_put_aside_and_the_batch_stays_up() {
+        // `/model` while the model's question batch waits: not the user
+        // cancelling the batch, so the wait goes on to the batch's own answer,
+        // and the change waits for the loop.
+        let mut harness = Harness::new(4);
+        let change = super::super::bridge::ModelChange {
+            name: "next/model".to_string(),
+            effort: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+        };
+        let sent = change.clone();
+        let answers = harness.request_while(move |events_rx, control_tx, _cancel| {
+            shown(events_rx);
+            control_tx.send(TurnControl::Model(sent)).unwrap();
+            control_tx
+                .send(TurnControl::QuestionAnswer {
+                    id: QuestionId(1),
+                    answers: vec!["kept".into()],
+                })
+                .unwrap();
+        });
+        assert_eq!(answers, QuestionReply::Answered(vec!["kept".to_string()]));
+        assert_eq!(harness.control.take_deferred(), vec![change]);
+        assert_eq!(harness.control.waiting(), None);
     }
 
     #[test]

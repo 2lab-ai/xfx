@@ -32,7 +32,7 @@
 //! search keeps a row when it is in the id or in the vendor's name, ignoring
 //! case (`modelMenuItemMatches`, `model_cache_runtime.zig:247-256`).
 
-use crate::provider::model::CatalogEntry;
+use crate::provider::model::{CatalogEntry, CatalogRetry};
 
 use super::picker::{cells, edge_start, ellipsized, pad_to};
 use super::theme::Palette;
@@ -188,8 +188,9 @@ enum Load {
     Loading,
     /// The runtime's answer, which may be no rows at all.
     Ready,
-    /// The runtime could not read the catalog.
-    Failed,
+    /// The runtime could not read the catalog, and whether asking again could
+    /// change that.
+    Failed(Option<CatalogRetry>),
 }
 
 /// One model as the menu shows it.
@@ -324,9 +325,10 @@ impl ModelMenu {
         self.reset();
     }
 
-    /// The runtime could not read the catalog.
-    pub(crate) fn failed(&mut self) {
-        self.load = Load::Failed;
+    /// The runtime could not read the catalog; `retry` is upstream's category
+    /// for a failure the next `/model` may not repeat.
+    pub(crate) fn failed(&mut self, retry: Option<CatalogRetry>) {
+        self.load = Load::Failed(retry);
         self.items.clear();
         self.tab = Vendor::All;
         self.reset();
@@ -553,11 +555,15 @@ impl ModelMenu {
         rows
     }
 
-    /// What the menu says in place of its rows (`composeStateRow`, `:394-401`).
+    /// What the menu says in place of its rows (`composeStateRow`, `:394-401`):
+    /// for a failure asking again could change, upstream's `retry /model.`
+    /// sentence instead of `Unable to load models.` (`retryableFailureText`,
+    /// `:435-443`).
     fn state_text(&self) -> &'static str {
         match self.load {
             Load::Loading => "Loading models\u{2026}",
-            Load::Failed => "Unable to load models.",
+            Load::Failed(Some(retry)) => retry.text(),
+            Load::Failed(None) => "Unable to load models.",
             Load::Ready if self.items.is_empty() => "No models available.",
             Load::Ready => "No models found.",
         }
@@ -983,10 +989,26 @@ mod tests {
         );
         assert_eq!(loading.selected(), None);
         let mut failed = ModelMenu::loading("");
-        failed.failed();
+        failed.failed(None);
         assert_eq!(
             shown(&failed, 120, 40),
             ["Models 0  [All]", "", "Unable to load models."]
+        );
+        // A failure the next `/model` may not repeat says so, in upstream's
+        // words (`retryableFailureText`).
+        failed.failed(Some(CatalogRetry::Unreachable));
+        assert_eq!(
+            shown(&failed, 120, 40),
+            [
+                "Models 0  [All]",
+                "",
+                "Could not reach AI Gateway; retry /model."
+            ]
+        );
+        failed.failed(Some(CatalogRetry::RateLimited));
+        assert_eq!(
+            shown(&failed, 120, 40)[2],
+            "AI Gateway rate limited model discovery; retry /model."
         );
         let empty = ModelMenu::ready(&[], Some(NOTE), "");
         assert_eq!(

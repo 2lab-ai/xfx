@@ -39,7 +39,9 @@ use serde::ser::{SerializeMap, SerializeSeq, Serializer};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::gateway::protocol::{CompletionRequest, ContentPart, ProtocolError, Role, ToolChoice};
+use crate::gateway::protocol::{
+    CompletionRequest, ContentPart, ProtocolError, RequestOptions, Role, ToolChoice,
+};
 
 /// The output ceiling xfx asks for, in tokens.
 ///
@@ -67,6 +69,25 @@ pub const MAX_TOKENS: u32 = 8192;
 /// tool result or a duplicate call id is a client bug on either wire, and two
 /// validators would be two things to keep in step.
 pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
+    body_with(request, &RequestOptions::default())
+}
+
+/// [`body`], with what the session asks of every request.
+///
+/// The effort travels as Anthropic's `output_config.effort`, because that is
+/// the one field llmux reads an effort from, on every route it serves
+/// (`2lab-ai/llmux@4b3d4a4`): `src/provider/codex.rs:387-420`
+/// (`resolve_reasoning_effort`, the request's value at `:413-419` when the
+/// daemon has none configured), `src/provider/grok.rs:327-345` (the same
+/// precedence, read at `:333-337`), and for a Claude model the body is
+/// forwarded as written (`src/proxy/forward.rs:488-505` reads the same field
+/// for its own record). Sent as the catalog spells it: llmux clamps a value a
+/// backend does not take itself, and `max` -- which the Gateway's route
+/// refuses -- is one llmux's own catalog publishes.
+pub fn body_with(
+    request: &CompletionRequest,
+    options: &RequestOptions,
+) -> Result<String, ProtocolError> {
     request.validate()?;
     for tool in &request.tools {
         check_tool(tool)?;
@@ -83,7 +104,7 @@ pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
     if messages[0].role != "user" {
         return Err(ProtocolError::AssistantFirst);
     }
-    Ok(serde_json::to_string(&WireRequest(request))
+    Ok(serde_json::to_string(&WireRequest(request, options))
         .expect("a validated request is always serializable"))
 }
 
@@ -130,7 +151,7 @@ fn schema_of(tool: &Map<String, Value>) -> Option<&Value> {
 }
 
 /// The request body, in the key order above.
-struct WireRequest<'a>(&'a CompletionRequest);
+struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions);
 
 impl Serialize for WireRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -152,6 +173,9 @@ impl Serialize for WireRequest<'_> {
         if let Some(tools) = tools {
             map.serialize_entry("tools", &WireTools(tools))?;
             map.serialize_entry("tool_choice", &ToolChoiceBody(self.0.tool_choice))?;
+        }
+        if let Some(effort) = &self.1.reasoning {
+            map.serialize_entry("output_config", &serde_json::json!({ "effort": effort }))?;
         }
         map.end()
     }
@@ -409,6 +433,31 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("read_file"), "{message}");
         assert!(message.contains("inputSchema"), "{message}");
+    }
+
+    #[test]
+    fn an_effort_rides_as_output_config_effort_and_nothing_is_sent_without_one() {
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![crate::gateway::protocol::Message::user("hi")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let plain: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(plain.get("output_config"), None);
+        // Spelled as the catalog spells it: no `max` -> `xhigh` here, which is
+        // the Gateway route's rule and not llmux's.
+        let max: Value = serde_json::from_str(
+            &body_with(
+                &request,
+                &RequestOptions {
+                    reasoning: Some("max".to_string()),
+                },
+            )
+            .expect("valid"),
+        )
+        .expect("json");
+        assert_eq!(max["output_config"], json!({ "effort": "max" }));
     }
 
     #[test]
