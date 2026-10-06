@@ -28,7 +28,9 @@ matter are quoted below from them. The xfx captures are this branch at `5c0ea7d`
 at `c252bbb` merged in); against the first take (`6fb6e42`) they differ only in the banner's
 revision, a turn summary's second and the marker's blink phase. (A take in between, at `0c67b5b`,
 caught `empty-0.3s` before the band had painted -- the machine's load average was over 20 -- and was
-not kept.)
+not kept.) The four were taken again at `27cb3eb` (`plan/tui-phase4` at `350a5d1`, W2's images and
+W8's rules merged in) and not committed: every request body is the same JSON as the `5c0ea7d`
+take's, and the screens differ only in a marker's blink phase and a turn summary's second.
 
 ## What every snap shares
 
