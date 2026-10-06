@@ -5413,6 +5413,17 @@ mod tests {
         /// Whether the model's question came back as the user's cancellation
         /// rather than as a failure or an unanswered call.
         fn question_was_cancelled(&mut self) -> bool {
+            self.question_came_back(true, "the question was cancelled")
+        }
+
+        /// Whether the model's question came back as a call the user stopped
+        /// the turn at: upstream's `aborted by user`, never the cancellation
+        /// sentinel (`crate::tools::question::ABORTED_OUTPUT`).
+        fn question_was_aborted(&mut self) -> bool {
+            self.question_came_back(false, crate::tools::question::ABORTED_OUTPUT)
+        }
+
+        fn question_came_back(&mut self, expect_ok: bool, expect_detail: &str) -> bool {
             let mut seen = false;
             while let Ok(event) = self.events_rx.try_recv() {
                 if let UiEvent::ToolResult {
@@ -5424,8 +5435,8 @@ mod tests {
                 } = event
                 {
                     if call_id == "call-1" && tool == "ask_user_question" {
-                        assert!(ok, "a cancelled question is not a failed tool call");
-                        assert_eq!(detail, "the question was cancelled");
+                        assert_eq!(ok, expect_ok, "the question came back as {detail:?}");
+                        assert_eq!(detail, expect_detail);
                         seen = true;
                     }
                 }
@@ -5501,7 +5512,8 @@ mod tests {
         // question is an *interrupt*, and the shell sends exactly one message
         // for it (`super::super::shell`'s `answer_question`): the turn's
         // `Cancel`. What has to be true afterwards is a fact about the turn --
-        // the question comes back as the cancellation sentinel, no later call
+        // the question comes back aborted (never as the cancellation sentinel:
+        // upstream's e2e `tui-decision-prompts.test.ts:2454`), no later call
         // of that same step runs, and no second model request is spent.
         //
         // The two hops that make it true, and both are load-bearing: the
@@ -5523,7 +5535,7 @@ mod tests {
         });
 
         assert!(
-            session.question_was_cancelled(),
+            session.question_was_aborted(),
             "the question was never answered at all, so nothing here is about a cancelled one"
         );
         assert!(
@@ -5589,13 +5601,15 @@ mod tests {
     }
 
     #[test]
-    fn an_escape_at_a_question_declines_the_batch_and_the_turn_runs_on() {
-        // **The distinction the two keys carry.** Escape declines the *question*
-        // -- the model is told so with its own sentinel and the turn goes on,
-        // later calls and next request included. Ctrl-C stops the *turn*. A
-        // panel that sent both, or a machine that treated a declined question as
-        // an interrupt, would collapse the two into one meaning and lose the
-        // ability to say "not that question, but carry on".
+    fn a_declined_question_is_the_sentinel_and_the_turn_runs_on() {
+        // **The distinction the two messages carry.** A declined question --
+        // which the band sends only for a batch the screen cannot show
+        // (`super::super::shell`'s `ask_question`), since Escape and Ctrl-C
+        // both stop the turn now (divergence 7) -- is told to the model with
+        // its own sentinel and the turn goes on, later calls and next request
+        // included. A stop ends the turn. A machine that treated a declined
+        // question as an interrupt would collapse the two into one meaning and
+        // lose the ability to say "not that question, but carry on".
         let mut session = AskingSession::new(PermissionMode::Yolo);
         let provider = ScriptedProvider::new(vec![
             ask_then_write(),

@@ -1,0 +1,20 @@
+     xy!
+     line-three
+
+  Got it.
+
+  5s (↑2 ↓40)
+
+┃ ask again
+
+■ Cancelled
+
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before
+  it stops exits.
+
+
+✗ system: the turn was cancelled
+
+┃
+
+auto · model-a
