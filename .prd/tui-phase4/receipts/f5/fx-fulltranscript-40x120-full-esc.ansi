@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mrun the checks[0m
+
+  Reading first.
+
+[38;5;255m●[39m [38;5;245m4 tool calls · 2 read · 1 edit · 1 command · 2 failed[39m
+[38;5;245m├ Read a.txt[39m
+[38;5;245m├ Exited 3 [38;5;252mecho[38;5;245m boom[38;5;252m;[38;5;245m [38;5;252mecho[38;5;245m err [38;5;252m>&[38;5;250m2[38;5;252m;[38;5;245m [38;5;252mexit[38;5;245m 3[39m
+[38;5;245m├ Edited a.txt +1 / -1[39m
+[38;5;245m└ Failed missing.txt: Path not found: missing.txt[39m
+
+  All done.
+
+[38;5;245m  6s (↑4 ↓200)[39m
+
+[38;5;255m┃[39m
+
+[38;5;245mask · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

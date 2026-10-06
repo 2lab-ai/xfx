@@ -1,0 +1,40 @@
+│  3    alpha line 3
+
+  2026-10-06 18:03:59.220 UTC · Tool
+├ Exited 3 echo boom; echo err >&2; exit 3
+│  action: run
+│  yield_time_ms: 30000
+│ boom
+│ err
+│ exit code 3
+
+  2026-10-06 18:04:05.127 UTC · Tool
+├ Edited a.txt +1 / -1
+
+  │ 1   alpha line 1
+  │ 2 - alpha line 2
+  │ 2 + ALPHA LINE TWO
+  │ 3   alpha line 3
+
+  2026-10-06 18:04:05.633 UTC · Tool
+└ Failed missing.txt: Path not found: missing.txt
+│  Path not found: missing.txt
+
+  2026-10-06 18:04:06.081 UTC · Response
+  All done.
+
+  2026-10-06 18:04:06.078 UTC · Usage
+  6s (↑4 ↓200)
+
+  2026-10-06 18:04:12.727 UTC · Prompt
+┃ second prompt
+
+  2026-10-06 18:04:13.065 UTC · Response
+  Second answer.
+
+  2026-10-06 18:04:13.064 UTC · Usage
+  0s (↑4 ↓40)
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+ask · model-a

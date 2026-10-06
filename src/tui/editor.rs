@@ -392,6 +392,9 @@ impl Editor {
             | Action::Yank
             | Action::PasteStart
             | Action::PasteEnd
+            | Action::ToggleTranscript
+            | Action::PageUp
+            | Action::PageDown
             | Action::Ignore => None,
         }
     }

@@ -155,6 +155,19 @@ pub(crate) enum UiEvent {
     /// sentence the user typed and then interrupted out of reaches neither, and
     /// a sentence that reached one reached all three.
     ToolFeedback { call_id: String, text: String },
+    /// What the session's journal recorded about a call that the document is
+    /// never shown -- its arguments, its whole result -- for the full
+    /// transcript (`super::full_transcript::Teed`).
+    ///
+    /// Its own variant rather than more fields on [`Self::ToolStart`] and
+    /// [`Self::ToolResult`]: those are the turn machine's events and carry
+    /// what the inline transcript draws; this is the journal's record, read
+    /// at the moment it is written down, and nothing but the full transcript
+    /// reads it.
+    ToolDetail {
+        call_id: String,
+        detail: super::full_transcript::Detail,
+    },
     /// A question only the person at the terminal can answer (Task 17).
     ///
     /// Carries the id it was asked under
@@ -365,6 +378,12 @@ impl UiEvent {
             Self::ToolFeedback { call_id, text } => Self::ToolFeedback {
                 call_id: inert_owned(call_id),
                 text: inert_owned(text),
+            },
+            // A call's arguments and a tool's output are the model's and the
+            // tool's, and are about to be laid out into rows.
+            Self::ToolDetail { call_id, detail } => Self::ToolDetail {
+                call_id: inert_owned(call_id),
+                detail: detail.made_inert(),
             },
             // The provider is an enum this crate wrote; the model id is a
             // string that came out of a settings file or a daemon's catalog,

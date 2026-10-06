@@ -694,6 +694,7 @@ mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
 mod frame;
+mod full_transcript;
 mod gesture;
 mod grid;
 mod help_menu;
