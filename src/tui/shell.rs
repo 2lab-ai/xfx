@@ -7531,8 +7531,15 @@ impl CommandHandlers for Shell {
     /// done at once between turns or the moment a running one is over. Nothing
     /// is said here: the answer is the runtime's ([`UiEvent::Undone`]), because
     /// only it knows which file, and whether it could be put back.
+    ///
+    /// **Which change it is, is decided here**: the journal's position now,
+    /// at the keystroke ([`crate::tools::undo::Mark::now`] -- one atomic read,
+    /// no lock and no file), so an undo the runtime does once a turn is over
+    /// takes back what was newest when it was typed, as upstream's does.
     fn undo(&mut self) {
-        self.work.control(TurnControl::Undo);
+        self.work.control(TurnControl::Undo {
+            through: crate::tools::undo::Mark::now(),
+        });
     }
 
     /// Upstream's `handleNotificationsCommand` (`app_commands.zig:3974-4029`):
@@ -14571,7 +14578,7 @@ mod tests {
                 // The runtime's to answer: the journal is the conversation's
                 // and the conversation is on that thread
                 // ([`UiEvent::Undone`]). Nothing is said here first.
-                assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+                assert!(matches!(shell.controlled(), Some(TurnControl::Undo { .. })));
                 assert!(
                     document.is_empty(),
                     "/undo answered before the runtime did: {document:?}"
@@ -18368,10 +18375,17 @@ mod tests {
     fn an_undo_is_said_as_upstreams_neutral_notice() {
         // `* undo: Restored …` (`fx-undo-40x120-undo1`): topic `undo`, the
         // neutral glyph, whatever the answer was -- `Could not undo` too
-        // (`commandUndoLast`, `app_commands.zig:1285-1289`).
+        // (`commandUndoLast`, `app_commands.zig:1286-1290`).
         let mut shell = shell(24, 80);
+        let before = crate::tools::undo::Mark::now();
         shell.route_bytes(b"/undo\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+        // Pinned at the keystroke: the journal's position then, never a bound
+        // that would reach a change made after it.
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Undo { through })
+                if through >= before && through <= crate::tools::undo::Mark::now()
+        ));
         for body in [
             "Restored /w/a.txt",
             "Deleted /w/a.txt (was newly created)",

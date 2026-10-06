@@ -62,7 +62,7 @@ use crate::permission::{
     MutationPlan, PolicyDecision, Preimage, ProposedAction,
 };
 
-use super::undo::{TrackedChange, Undone};
+use super::undo::{Mark, Taken, TrackedChange, Undone};
 
 use super::spec::{
     nonblank, object, required_string, Activity, InputSchema, LineChanges, Outcome, PermissionKind,
@@ -625,7 +625,7 @@ fn read_proof_missing(
 /// change changed nothing to take back, and a folder is not tracked, as
 /// upstream tracks `write_file` and `edit_file` alone
 /// (`publishCommittedTracker`, `vercel-labs/fx@c1db9191
-/// src/core/app/app_callbacks.zig:1124-1170`).
+/// src/core/app/app_callbacks.zig:1125-1170`).
 fn commit(
     context: &ToolContext,
     located: Location,
@@ -755,19 +755,42 @@ fn commit(
 /// since, another program rewrote it, a link stands where the file was -- is
 /// `Could not undo`, and the file is left as it is. **Stricter than upstream**,
 /// whose `writeFileAtomic` replaces whatever is there (its own test replaces a
-/// symbolic link with the preimage, `change_tracker.zig:453-485`).
+/// symbolic link with the preimage, `change_tracker.zig:501-537`).
 ///
 /// A read proof is left as it is afterwards. The model last saw what it read;
 /// if the file is that again its next edit may rest on that, and if not the
 /// edit is refused until it reads the file again -- which is the rule working,
 /// not a gap in it.
 pub(crate) fn undo_last(context: &ToolContext) -> Undone {
+    undo_through(context, Mark::LATEST)
+}
+
+/// [`undo_last`], as of `mark`: the newest change tracked at or before it is
+/// the one taken back, and anything tracked since stays on the journal
+/// ([`crate::tools::undo::ChangeJournal::take_through`]).
+///
+/// What an `/undo` typed while a turn ran is done with, once the turn is over:
+/// the change it takes back is the one that was newest at the keystroke, as
+/// upstream's -- done at the keystroke -- is. A change the turn made since to
+/// the **same file** is not discarded to do it: that undo is `Could not undo`,
+/// the file is left as the later change made it, and the change is spent like
+/// any other that could not be reversed. The later change stays for the next
+/// `/undo`.
+pub(crate) fn undo_through(context: &ToolContext, mark: Mark) -> Undone {
     // Released before the filesystem is touched: the journal's lock guards a
     // list, never I/O.
-    let Some(change) = context.changes().pop() else {
+    let Some(Taken { change, superseded }) = context.changes().take_through(mark) else {
         return Undone::Nothing;
     };
-    match take_back(context, &change) {
+    let reversed = if superseded {
+        Err(
+            "a later change of this session touched the file after the undo was asked for"
+                .to_string(),
+        )
+    } else {
+        take_back(context, &change)
+    };
+    match reversed {
         Ok(()) if change.before.is_some() => Undone::Restored(change.path),
         Ok(()) => Undone::Deleted(change.path),
         Err(reason) => Undone::Unavailable {
@@ -808,7 +831,7 @@ fn take_back(context: &ToolContext, change: &TrackedChange) -> Result<(), String
     };
     match (&change.before, &now) {
         (Some(before), _) => namespace::restore(&located, &expected, before),
-        // Already gone is the state the undo asks for (`change_tracker.zig:67-74`).
+        // Already gone is the state the undo asks for (`change_tracker.zig:69-77`).
         (None, None) => Ok(()),
         (None, Some(_)) => namespace::remove(&located, &expected),
     }
@@ -1249,7 +1272,7 @@ mod namespace {
     /// what the caller found there (`expected`), and **never** by creating a
     /// directory -- a directory on the path that has gone since the change
     /// means the file cannot be put back where it was, and upstream refuses
-    /// that too (`change_tracker.zig:353-377`, "does not create parents").
+    /// that too (`change_tracker.zig:399-423`, "does not create parents").
     pub fn restore(located: &Location, expected: &Preimage, bytes: &[u8]) -> Result<(), String> {
         if !located.reachable() {
             return Err(format!(
@@ -2180,7 +2203,7 @@ mod tests {
     #[test]
     fn a_link_standing_where_the_file_was_is_neither_followed_nor_replaced() {
         // `undo restore cannot be redirected by a symlink introduced after
-        // capture` (`change_tracker.zig:453-485`): upstream replaces the link
+        // capture` (`change_tracker.zig:501-537`): upstream replaces the link
         // with the preimage; a write here refuses a link at its target, and so
         // does this. Either way the link's target is never written.
         let (_dir, context) = committing();
@@ -2214,7 +2237,7 @@ mod tests {
     #[test]
     fn a_directory_that_has_gone_is_not_made_again() {
         // `undoLast pops before filesystem restore failures, reports them, and
-        // does not create parents` (`change_tracker.zig:353-377`).
+        // does not create parents` (`change_tracker.zig:399-423`).
         let (_dir, context) = committing();
         std::fs::create_dir(located(&context, "sub")).expect("fixture dir");
         std::fs::write(located(&context, "sub/a.txt"), "one\n").expect("fixture");
@@ -2233,7 +2256,7 @@ mod tests {
     #[test]
     fn a_created_file_already_gone_is_deleted_all_the_same() {
         // `undoLast reports deleted for a new write when the file is already
-        // absent` (`change_tracker.zig:300-325`).
+        // absent` (`change_tracker.zig:330-357`).
         let (_dir, context) = committing();
         assert!(write(&context, "a.txt", "made\n").ok);
         std::fs::remove_file(located(&context, "a.txt")).expect("remove");
@@ -2272,9 +2295,67 @@ mod tests {
     }
 
     #[test]
+    fn an_undo_pinned_before_a_later_change_takes_back_the_one_before_it() {
+        // `/undo` typed mid-turn, done once the turn is over: the change that
+        // was newest at the keystroke is taken back, and the turn's later
+        // change -- another file -- stays for the next `/undo`.
+        let (_dir, context) = committing();
+        assert!(write(&context, "a.txt", "one\n").ok);
+        let typed = Mark::now();
+        assert!(write(&context, "b.txt", "two\n").ok);
+
+        assert_eq!(
+            undo_through(&context, typed),
+            Undone::Deleted(located(&context, "a.txt"))
+        );
+        assert_eq!(contents(&context, "b.txt").as_deref(), Some("two\n"));
+        assert_eq!(undo_through(&context, typed), Undone::Nothing);
+        assert_eq!(
+            undo_last(&context),
+            Undone::Deleted(located(&context, "b.txt"))
+        );
+    }
+
+    #[test]
+    fn an_undo_pinned_before_a_later_change_to_the_same_file_takes_nothing_back() {
+        // The later change is the file as it now stands; putting the older
+        // preimage back would discard it. `Could not undo`, the file as the
+        // later change left it, the older change spent -- and the later one
+        // still there to be taken back on its own.
+        let (_dir, context) = committing();
+        std::fs::write(located(&context, "a.txt"), "one\n").expect("fixture");
+        read(&context, "a.txt");
+        assert!(write(&context, "a.txt", "two\n").ok);
+        let typed = Mark::now();
+        read(&context, "a.txt");
+        assert!(write(&context, "a.txt", "three\n").ok);
+        // A complete read of the file as it now is, which on its own would
+        // let a restore through: the rule here is about the journal.
+        read(&context, "a.txt");
+
+        let undone = undo_through(&context, typed);
+        assert!(
+            matches!(&undone, Undone::Unavailable { path, reason }
+                if *path == located(&context, "a.txt") && reason.contains("a later change")),
+            "{undone:?}"
+        );
+        assert_eq!(
+            undone.sentence(),
+            format!("Could not undo {}", located(&context, "a.txt").display())
+        );
+        assert_eq!(contents(&context, "a.txt").as_deref(), Some("three\n"));
+        assert_eq!(context.changes().len(), 1);
+        assert_eq!(
+            undo_last(&context),
+            Undone::Restored(located(&context, "a.txt"))
+        );
+        assert_eq!(contents(&context, "a.txt").as_deref(), Some("two\n"));
+    }
+
+    #[test]
     fn a_hostile_name_is_taken_back_and_said_spelled_out() {
         // `hostile path stays encoded through approval transcript changes and
-        // undo` (`tests/e2e/tui-permissions.test.ts:1949-1980`): a file whose
+        // undo` (`tests/e2e/tui-permissions.test.ts:1941-1982`): a file whose
         // name carries a window-title sequence and a line feed is created,
         // taken back, and named in the notice as text.
         let (_dir, context) = committing();

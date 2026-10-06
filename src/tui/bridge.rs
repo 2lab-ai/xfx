@@ -342,7 +342,7 @@ pub(crate) enum UiEvent {
         unsaved: Option<String>,
     },
     /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
-    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1285-1289`).
+    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1286-1290`).
     ///
     /// **Not a [`Self::Notice`]**, and the one difference is the reason: a
     /// notice the old conversation's work sends after a reset is dropped
@@ -798,7 +798,7 @@ pub(crate) enum TurnControl {
     /// queued behind it is taken. An interrupt does not drop it: it is not a
     /// piece of work, and the turn after the interrupt is the one it was for.
     Model(ModelChange),
-    /// `/undo` ([`crate::tools::mutate::undo_last`]), answered with
+    /// `/undo` ([`crate::tools::mutate::undo_through`]), answered with
     /// [`UiEvent::Undone`].
     ///
     /// **A control message rather than work**, for the reason [`Self::Model`]
@@ -811,10 +811,16 @@ pub(crate) enum TurnControl {
     /// -- **not at once, as upstream's is**: the files a running turn is
     /// changing are the runtime thread's to change, and an undo there,
     /// between one call's commit and the next call's read, is exactly the
-    /// interleaving a single thread exists to rule out. The cost is that an
-    /// undo typed mid-turn takes back the newest change when the turn is over,
-    /// which may be one the turn made after it was typed.
-    Undo,
+    /// interleaving a single thread exists to rule out.
+    ///
+    /// **What it takes back is decided at the keystroke all the same.**
+    /// `through` is the journal's position when the key was pressed
+    /// ([`crate::tools::undo::Mark::now`], read on the UI thread), and the
+    /// undo takes back the newest change at or before it -- the one upstream's
+    /// would have -- whatever the turn has committed since. A later change to
+    /// the same file makes it `Could not undo` rather than a restore that
+    /// discards that change.
+    Undo { through: crate::tools::undo::Mark },
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
