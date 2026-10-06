@@ -1,0 +1,6 @@
+== ./.fx/backups/settings.json.backup.1791310877986-0000000000000001-34870b92bf9909e84860b25e4afd4ab0
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+== ./.fx/settings.json
+{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
+
