@@ -3584,9 +3584,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
     // `/setup`'s usage refusal, `/stats`'s first counter, `/status`'s turn
-    // count, `/new`'s sentence, `/clear`'s promise, and a name the registry
-    // does not carry. Each needle sits inside one run of colour: a notice's
-    // label and body are separate runs on the wire.
+    // count, the reset's scrollback handoff for `/new`, `/clear` and `/reset`
+    // (which say nothing), and a name the registry does not carry. Each needle
+    // sits inside one run of colour: a notice's label and body are separate
+    // runs on the wire.
     session.type_bytes(b"/help\r");
     // The catalog's key help rather than a summary out of its rows: the
     // completion menu shows the same summaries while the name is being typed,
@@ -3619,12 +3620,16 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
     session.wait_for("history_turns=0");
+    // A reset answers with a fresh screen: the welcome line again, once per
+    // reset, after the one the launch wrote.
     session.type_bytes(b"/new\r");
-    session.wait_for("starts a fresh conversation");
+    session.wait_for_count("Run /help for commands", 2);
     session.type_bytes(b"/notacommand\r");
     session.wait_for("Unknown command. Try /help.");
     session.type_bytes(b"/clear\r");
-    session.wait_for("the conversation is kept");
+    session.wait_for_count("Run /help for commands", 3);
+    session.type_bytes(b"/reset\r");
+    session.wait_for_count("Run /help for commands", 4);
 
     // The last one, and the reason it leaves this test rather than a Ctrl-D:
     // every canonical name is then literally pinned against the zero-request
@@ -3763,58 +3768,112 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     );
 }
 
-/// The three sequences `/clear` writes, in order (`interactive.rs:85`).
-///
-/// Spelled out rather than imported, like [`MODE_SET`]: `src/tui/shell.rs` is
-/// not visible to an integration test, and a test that read the constant it is
-/// checking would pass for any sequence the module happened to declare.
-/// Response-only -- no test types an escape sequence -- so waiting for it means
-/// the bytes are really on the wire.
-const CLEAR_SCREEN: &str = "\u{1b}[H\u{1b}[2J\u{1b}[3J";
+#[test]
+fn a_reset_hands_the_screen_to_scrollback_and_starts_a_fresh_conversation() {
+    // Upstream's `/clear`, `/new` and `/reset` (`app_commands.zig:667-680`):
+    // the answer is still in the terminal's own scrollback afterwards -- it
+    // left the top of the screen as a linefeed from the bottom row, never
+    // under an erase -- the screen starts again with the welcome line on row
+    // 1, nothing says so, and the next prompt is sent in a conversation that
+    // does not carry the first one.
+    for command in [b"/clear\r".as_slice(), b"/new\r", b"/reset\r"] {
+        let gateway = FakeGateway::start(vec![
+            support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+                "MARKER-BEFORE-THE-RESET",
+            ])),
+            support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+                "MARKER-AFTER-THE-RESET",
+            ])),
+        ]);
+        let sandbox = Sandbox::new();
+        let pty = Pty::open();
+        pty.resize(24, 80);
+        let mut session =
+            Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+        session.wait_for(READY);
+        session.type_bytes(b"say the marker\r");
+        session.wait_for("MARKER-BEFORE-THE-RESET");
+        let name = String::from_utf8_lossy(command).trim().to_string();
+
+        session.type_bytes(command);
+        let text = session.wait_for_count("Run /help for commands", 2);
+        assert!(
+            !text.contains("\u{1b}[3J") && !text.contains("\u{1b}[2J"),
+            "{name} erased the screen or the scrollback: {text:?}"
+        );
+        let reset_at = text
+            .rfind("Run /help for commands")
+            .expect("the fresh welcome");
+        let painted = Screen::painted(&text, 24, 80).expect("a frame after the reset");
+        assert_eq!(
+            painted.find("Run /help for commands"),
+            Some(1),
+            "{name} did not put the welcome line on row 1"
+        );
+        assert_eq!(
+            painted.find("MARKER-BEFORE-THE-RESET"),
+            None,
+            "{name} left the old answer on the screen"
+        );
+        assert!(
+            !text[reset_at..].contains("MARKER-BEFORE-THE-RESET"),
+            "{name} wrote the old answer again after the reset"
+        );
+
+        session.type_bytes(b"and now\r");
+        session.wait_for("MARKER-AFTER-THE-RESET");
+        session.type_bytes(&[0x04]);
+        assert_eq!(session.wait_exit().code(), Some(0));
+
+        assert_eq!(
+            user_messages(&gateway.requests()[1].json()),
+            vec!["and now".to_string()],
+            "{name} kept the conversation"
+        );
+    }
+}
 
 #[test]
-fn clear_erases_the_scrollback_the_answers_live_in_and_not_only_the_screen() {
-    // `3J` is the one that carries the weight here. An answer that has scrolled
-    // past the band is in the *terminal's own* scrollback and xfx never
-    // repaints it, so a `/clear` that erased the visible screen alone would
-    // leave the whole transcript one wheel-turn away -- and would mean
-    // something different on this surface than the same command means on the
-    // line-oriented one.
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
-        support::fake_gateway::content_only(&["MARKER-BEFORE-THE-CLEAR"]),
-    )]);
+fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
+    // The first turn never finishes by itself: its body arrives and the
+    // connection stays open. A reset that queued behind it would wait for
+    // ever; this one cancels it and the next prompt runs at once.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-AFTER-THE-RESET",
+        ])),
+    ]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut session =
         Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     session.wait_for(READY);
-    session.type_bytes(b"say the marker\r");
-    session.wait_for("MARKER-BEFORE-THE-CLEAR");
+    session.type_bytes(b"first\r");
+    session.wait_for("FIRST-TURN-RUNNING");
 
     session.type_bytes(b"/clear\r");
-    session.wait_for(CLEAR_SCREEN);
-    session.wait_for("the conversation is kept");
+    let text = session.wait_for_count("Run /help for commands", 2);
+    let reset_at = text
+        .rfind("Run /help for commands")
+        .expect("the fresh welcome");
+    session.type_bytes(b"second\r");
+    let text = session.wait_for("MARKER-AFTER-THE-RESET");
+    // No cancelled notice and no summary of the cancelled turn reached the
+    // fresh screen: upstream's reset says nothing.
+    let after = &text[reset_at..];
+    assert!(!after.contains("interrupted"), "{after:?}");
+    assert!(!after.contains("FIRST-TURN-RUNNING"), "{after:?}");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
-
-    let text = session.settled_text();
-    let erased = text
-        .find(CLEAR_SCREEN)
-        .expect("the erase reached the screen");
-    let kept = text
-        .rfind("the conversation is kept")
-        .expect("the promise reached the screen");
-    assert!(
-        erased < kept,
-        "the row that says the conversation was kept was erased by the clear \
-         it was written for: {text:?}"
-    );
     assert_eq!(
-        text.matches(CLEAR_SCREEN).count(),
-        1,
-        "the screen was erased more than once for one /clear: {text:?}"
+        user_messages(&gateway.requests()[1].json()),
+        vec!["second".to_string()],
+        "the prompt after the reset carried the cancelled conversation"
     );
 }
 
@@ -4026,11 +4085,13 @@ fn a_refusal_in_the_band_leaves_the_file_alone() {
         "alpha\n"
     );
     // The refusal reached the user as well, on a row of its own: a denial
-    // nobody can see is the same as no denial at all.
+    // nobody can see is the same as no denial at all. Said as upstream's tool
+    // group says it -- the call's row and the header's count
+    // (`fx-approvals-cc-40x120-after-cc`: `└ Denied file`, `· 1 denied`).
+    let text = session.wait_for("Denied file");
     assert!(
-        session.text().contains("edit_file refused"),
-        "the turn was told no and the user was not: {:?}",
-        session.text()
+        text.contains("1 denied"),
+        "the turn was told no and the header did not count it: {text:?}"
     );
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -4074,7 +4135,13 @@ fn an_answer_lands_even_with_a_prompt_already_queued() {
 
 #[test]
 fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
-    // What that interval measures is the person, not the model.
+    // What that interval measures is the person, not the model -- so the row
+    // that reports it is off the band while the panel is up, as upstream's is
+    // (`render_input.zig:705`), and its clock is stopped underneath. The number
+    // it comes back with is pinned by the shell's own cases
+    // (`the_turns_clock_stops_while_the_question_is_up_and_starts_again_after_it`);
+    // what a real terminal is shown here is that no frame paints a turn row
+    // beside the question, however long it waits.
     let gateway = FakeGateway::start(support::sandbox::edit_then_finish());
     let sandbox = Sandbox::new();
     let _notes = support::sandbox::with_notes(&sandbox);
@@ -4085,43 +4152,25 @@ fn the_thinking_clock_is_frozen_while_the_panel_is_up() {
     let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
-    session.wait_for(PERMISSION_TITLE);
-
-    let text = session.text();
-    let before = elapsed_on_activity_row(&text);
-    let frames_before = text.matches(FRAME_END).count();
-    // Whether the activity row is on the screen with the question at all. The
-    // band grew to hold the question, so the frame that painted it repainted
-    // every row of the band: the row is in that frame or it is not up.
-    let row_shown = text
-        .split(FRAME_END)
-        .find(|frame| frame.contains(PERMISSION_TITLE))
-        .and_then(elapsed_on_activity_row)
-        .is_some();
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    let text = session.text();
-    // Only the frames painted while the user was being waited on. The painter
-    // writes the cells that changed, so a clock that ran would put its new
-    // number in one of them, and a frozen one puts none there at all.
-    let shown: Vec<u64> = text
-        .split(FRAME_END)
-        .skip(frames_before)
-        .filter_map(elapsed_on_activity_row)
-        .collect();
+    let shown = session.wait_for(PERMISSION_TITLE);
     assert!(
-        shown.iter().all(|seconds| Some(*seconds) == before),
-        "the clock ran while xfx was waiting for the user: {before:?}, then {shown:?}"
+        elapsed_on_activity_row(&shown).is_some(),
+        "the turn never had a row, so its absence below proves nothing"
     );
-    // **The band kept painting**, and this is what keeps the assertion above
-    // from being vacuous: the marker blinks every 500 ms whether or not the
-    // clock is running, so a session that had simply stopped drawing would
-    // trivially show no new number. Only while the row is up: upstream's band
-    // hides it under an approval (`render_input.zig:705`), and a row that is
-    // not on the screen has no marker to blink and no clock to be seen running.
-    if row_shown {
+    let asked = shown.rfind(PERMISSION_TITLE).expect("the panel");
+
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    // **The band is still painting**, which keeps the assertion below from
+    // being vacuous: a key the panel answers by moving its marker is a frame,
+    // and it arrives.
+    let frames = session.text().matches(FRAME_END).count();
+    session.type_bytes(b"\x1b[B");
+    let text = session.wait_for_count(FRAME_END, frames + 1);
+    let beside = &text[asked..];
+    for label in ["Thinking", "Running", "Generating"] {
         assert!(
-            text.matches(FRAME_END).count() > frames_before,
-            "the band stopped painting, so the frozen clock proves nothing"
+            !beside.contains(label),
+            "a turn row was painted beside the question: {beside:?}"
         );
     }
 
@@ -4160,8 +4209,10 @@ fn ctrl_c_at_a_question_denies_only_the_call_and_the_turn_goes_on() {
         "alpha\n",
         "the refused call ran anyway"
     );
+    // The refusal is the call's own row in the tool group, as upstream draws
+    // a call the user refused.
     assert!(
-        session.text().contains("edit_file refused"),
+        session.text().contains("\u{2514} Denied file"),
         "the refusal never reached the user: {:?}",
         session.text()
     );
@@ -4249,8 +4300,17 @@ fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // repaint the hint row" as "the hint row no longer says it", and lets this
     // wait through while the place is still held -- which is exactly the
     // refusal it exists to avoid.
+    //
+    // **And read the status row, not whatever is last on the screen.** Between
+    // the panel closing and the band's next frame, the bottom rows still hold
+    // the panel's own key help, which never said `queued`; an absence read off
+    // that row passed while the place was still held. The status row names the
+    // mode, so the wait asks for it to be back and to have lost `queued`.
     session.wait_until("the runtime to give the queued place back", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.above_hint(0).contains("queued"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| {
+            let hint = screen.above_hint(0);
+            hint.contains("ask ·") && !hint.contains("queued")
+        })
     });
 
     // A prompt typed *after* the interrupt is a new intention and still runs.
