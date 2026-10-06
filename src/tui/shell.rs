@@ -3025,24 +3025,26 @@ impl Shell {
     /// composer the caret has left, and a Ctrl-D at one does not end a session
     /// that is holding a turn open waiting to be answered.
     ///
-    /// **Escape and Ctrl-C both take the panel down and they mean different
-    /// things, so they send different messages -- one each.**
+    /// **Escape and Ctrl-C both cancel the turn the batch belongs to**, as
+    /// upstream's do (`vercel-labs/fx@c1db919`): Ctrl-C is the question's own
+    /// `cancel` byte (`src/ui/input/runtime.zig:138`, `3 => .cancel`, answered
+    /// `.cancelled` at `question_prompt.zig:327`), and Escape at a field with
+    /// nothing in it reaches the same function (`app_input_runtime.zig:3137`);
+    /// both are `cancelQuestionPrompt` (`input_question_runtime.zig:59-83`),
+    /// which stops the worker's turn and answers the batch with nothing. The
+    /// model is never told the user declined the question -- the call answers
+    /// `aborted by user` (`crate::tools::question::ABORTED_OUTPUT`) -- and
+    /// upstream's e2e pins exactly that (`tui-decision-prompts.test.ts:2454`).
+    /// Divergence 7 of `.prd/tui-phase4/ssot.md`, which reverses xfx's old
+    /// meaning (Escape declined the question and the turn went on).
     ///
-    /// Escape declines the *question*: `QuestionCancelled` under the batch's own
-    /// id, the model is told so with its own sentinel, and the turn carries on
-    /// with whatever it was doing. Ctrl-C stops the *turn*
-    /// ([`Self::interrupt`]), and sends only that: the requester parked on this
-    /// channel treats an interrupt as its question being over, answers the tool
-    /// with the same sentinel, and hands the interrupt **back** to the loop that
-    /// can stop the turn (`super::question::TuiQuestioner`).
-    ///
-    /// Sending both, as this once did, is what made a Ctrl-C at a question a
-    /// declined question that also stopped a turn *later*: the requester
-    /// answered on the first message and returned while the second was still in
-    /// the channel, so the calls behind the question ran before anything had
-    /// read the interrupt. One key, one message, and the turn's own stop is the
-    /// one the machine's boundary can see (`crate::agent::machine`'s
-    /// `execute_tool_calls`).
+    /// **One message, and it is the turn's** ([`Self::interrupt`]): the
+    /// requester parked on this channel reads the interrupt as its question
+    /// being over, answers the tool as interrupted, and hands the interrupt
+    /// **back** to the loop that can stop the turn
+    /// (`super::question::TuiQuestioner`). A `QuestionCancelled` in front of it
+    /// would be the question declined -- the sentinel, and the calls behind the
+    /// question run before anything had read the interrupt.
     ///
     /// **Whichever way the batch ends, the document keeps a record of it**,
     /// as upstream's does (`finalizeQuestionTranscript`,
@@ -3124,21 +3126,12 @@ impl Shell {
                     .control(TurnControl::QuestionAnswer { id, answers });
                 self.settled_question();
             }
+            // Escape or Ctrl-C: the turn's own stop, and **only** it.
             question::Answered::Cancelled => {
                 self.ask = None;
                 self.mark(Mark::Block(vec![question::cancelled_row(&self.palette)]));
-                if matches!(act, question::Act::Cancel) {
-                    // The turn's own stop, and **only** it: the requester reads
-                    // this as its question being over and gives it back for the
-                    // loop to act on. A `QuestionCancelled` in front of it would
-                    // release the turn to run the rest of its step before the
-                    // interrupt had been read by anyone.
-                    self.settled_question();
-                    self.interrupt(now);
-                } else {
-                    self.work.control(TurnControl::QuestionCancelled { id });
-                    self.settled_question();
-                }
+                self.settled_question();
+                self.interrupt(now);
             }
         }
     }
@@ -9974,22 +9967,20 @@ mod tests {
     fn escape_and_ctrl_c_at_a_model_question_leave_cancelled_in_the_document() {
         // `fx-question2-40x120-q2-esc` row 14, for either key: one row, and the
         // questions are not repeated (`writeCancelledResolution`). What the
-        // two keys tell the runtime is unchanged and asserted on its own
-        // (`escape_at_a_question_cancels_the_batch_and_arms_nothing_else`,
-        // `ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else`).
-        let mut fixture = shell(40, 120);
-        asking_question(&mut fixture, a_batch());
-        let _ = fixture.document();
-        fixture.route_bytes(&[0x1b]);
-        fixture.settle_input(Instant::now() + Duration::from_millis(100));
-        assert_eq!(fixture.document(), vec!["■ Cancelled", ""]);
-
-        let mut fixture = shell(40, 120);
-        asking_question(&mut fixture, a_batch());
-        let _ = fixture.document();
-        fixture.route_bytes(&[0x03]);
-        let document = fixture.document();
-        assert_eq!(document[..2], ["■ Cancelled", ""], "{document:?}");
+        // two keys tell the runtime is asserted on its own
+        // (`escape_at_a_question_cancels_the_turn_and_sends_nothing_else`,
+        // `ctrl_c_at_a_question_stops_the_turn_and_sends_nothing_else`). The
+        // interrupt's own notice that follows it is the interrupt unit's
+        // wording, so only the record's rows are pinned here.
+        for key in [&[0x1b][..], &[0x03][..]] {
+            let mut fixture = shell(40, 120);
+            asking_question(&mut fixture, a_batch());
+            let _ = fixture.document();
+            fixture.route_bytes(key);
+            fixture.settle_input(Instant::now() + Duration::from_millis(100));
+            let document = fixture.document();
+            assert_eq!(document[..2], ["■ Cancelled", ""], "{key:?}: {document:?}");
+        }
     }
 
     #[test]
@@ -10020,31 +10011,43 @@ mod tests {
         assert_eq!(fixture.controlled(), None, "the second Escape cancelled");
         assert_eq!(fixture.marked(), "    3) ", "the draft was not emptied");
 
-        // Past the window, at an empty draft: the batch is refused.
+        // Past the window, at an empty draft: the turn is cancelled.
+        let accepted = fixture.work.accepted();
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(now + Duration::from_secs(5));
-        assert!(matches!(
+        assert_eq!(
             fixture.controlled(),
-            Some(TurnControl::QuestionCancelled { id: QuestionId(1) })
-        ));
+            Some(TurnControl::Cancel { through: accepted })
+        );
     }
 
     #[test]
-    fn escape_at_a_question_cancels_the_batch_and_arms_nothing_else() {
+    fn escape_at_a_question_cancels_the_turn_and_sends_nothing_else() {
+        // Upstream's Escape at a question (`app_input_runtime.zig:3137` ->
+        // `cancelQuestionPrompt`, `input_question_runtime.zig:59-83`): the
+        // turn is cancelled, with the one message Ctrl-C sends -- never a
+        // `QuestionCancelled`, which would tell the model the question was
+        // declined (fx e2e `tui-decision-prompts.test.ts:2454`). Divergence 7.
         let mut fixture = shell(24, 80);
         asking_question(&mut fixture, a_batch());
+        let accepted = fixture.work.accepted();
         // A lone `ESC` is the Escape key only once it has gone quiet, which is
-        // the decoder's own timeout and the settle is what resolves it
-        // (`escape_at_a_question_refuses_it_rather_than_arming_the_clear`).
+        // the decoder's own timeout and the settle is what resolves it.
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(Instant::now() + Duration::from_millis(100));
-        assert!(matches!(
-            fixture.control.try_recv(),
-            Ok(TurnControl::QuestionCancelled { id: QuestionId(1) })
-        ));
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::Cancel { through: accepted }),
+            "Escape at a question left the turn running"
+        );
+        assert_eq!(
+            fixture.controlled(),
+            None,
+            "a second message: the batch was declined as well as interrupted"
+        );
         assert!(
-            fixture.control.try_recv().is_err(),
-            "Escape is not also a clear"
+            !fixture.band_rows().join("\n").contains("Which depth?"),
+            "the question stayed up"
         );
     }
 

@@ -72,7 +72,7 @@ use tokio::sync::mpsc::Sender;
 use crate::tools::question::{
     terminal_safe, QuestionEntry, QuestionOption, FREEFORM_LABEL, MAX_FREEFORM_ENCODED_BYTES,
 };
-use crate::tools::QuestionRequester;
+use crate::tools::{QuestionReply, QuestionRequester};
 
 use super::approval::ControlChannel;
 use super::approval_view::safe_rows;
@@ -1156,18 +1156,32 @@ impl QuestionRequester for TuiQuestioner {
     /// that did not put it back would leave the loop parked on a channel it is
     /// no longer registered on -- and the next control message, the Ctrl-C that
     /// would end the turn included, would wake nobody.
-    fn request(&self, entries: &[QuestionEntry]) -> Option<Vec<String>> {
-        let id = self.mint()?;
+    ///
+    /// **Declined and interrupted are two answers.** A batch the band could
+    /// not show, or that no UI was there to show, is declined: the model is
+    /// told so and the turn goes on. A batch the turn was stopped at -- the
+    /// interrupt the band sends for Escape and for Ctrl-C alike, a shutdown, the
+    /// session ending -- is interrupted, and the model is never told the user
+    /// declined it (`crate::tools::question::ABORTED_OUTPUT`).
+    fn request(&self, entries: &[QuestionEntry]) -> QuestionReply {
+        let Some(id) = self.mint() else {
+            return QuestionReply::Declined;
+        };
         let token = self.cancel.token();
         let request = QuestionRequest {
             id,
             entries: entries.to_vec(),
         };
         if park_on(send_ui(&self.events, &token, UiEvent::Question(request))).is_err() {
-            // No UI to ask, or no session to ask in. The honest result is the
-            // cancellation sentinel, which the turn can still carry
-            // (`crate::tools::question::CANCEL_SENTINEL`).
-            return None;
+            // No UI to ask, or no session to ask in -- and which of the two is
+            // what the session's root says: a root that was cancelled while the
+            // question waited for room is a stop, and anything else is a
+            // question nobody could be asked.
+            return if token.is_cancelled() {
+                QuestionReply::Interrupted
+            } else {
+                QuestionReply::Declined
+            };
         }
         park_on(async {
             loop {
@@ -1178,15 +1192,17 @@ impl QuestionRequester for TuiQuestioner {
                     // and waiting on `answered()` alone would never return.
                     () = token.cancelled() => {
                         self.control.rearm();
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
                     message = self.control.answered() => message,
                 };
                 match message {
                     Some(TurnControl::QuestionAnswer { id: seen, answers }) if seen == id => {
-                        return Some(answers)
+                        return QuestionReply::Answered(answers)
                     }
-                    Some(TurnControl::QuestionCancelled { id: seen }) if seen == id => return None,
+                    Some(TurnControl::QuestionCancelled { id: seen }) if seen == id => {
+                        return QuestionReply::Declined
+                    }
                     // A keystroke on a panel that has already gone, or an
                     // approval answer nobody is waiting for: consumed, so the
                     // next question does not inherit it -- the turn loop's rule
@@ -1201,14 +1217,15 @@ impl QuestionRequester for TuiQuestioner {
                     // `give_back` rearms.
                     Some(stop) => {
                         self.control.give_back(stop);
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
-                    // The UI dropped its sender. `answered` rearmed on the ready
-                    // poll; rearming again is spurious and harmless, and keeps
-                    // "every exit rearms" true without a reader having to check.
+                    // The UI dropped its sender, which is the session ending.
+                    // `answered` rearmed on the ready poll; rearming again is
+                    // spurious and harmless, and keeps "every exit rearms" true
+                    // without a reader having to check.
                     None => {
                         self.control.rearm();
-                        return None;
+                        return QuestionReply::Interrupted;
                     }
                 }
             }
@@ -2422,7 +2439,7 @@ mod tests {
         fn request_while(
             &mut self,
             drive: impl FnOnce(&mut Receiver<UiEvent>, &UnboundedSender<TurnControl>, &Cancellation),
-        ) -> Option<Vec<String>> {
+        ) -> QuestionReply {
             let Harness {
                 questioner,
                 events_rx,
@@ -2520,7 +2537,10 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["Thorough".to_string()]));
+        assert_eq!(
+            answers,
+            QuestionReply::Answered(vec!["Thorough".to_string()])
+        );
     }
 
     #[test]
@@ -2552,7 +2572,7 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["fresh".to_string()]));
+        assert_eq!(answers, QuestionReply::Answered(vec!["fresh".to_string()]));
     }
 
     #[test]
@@ -2563,7 +2583,11 @@ mod tests {
                 .send(TurnControl::QuestionCancelled { id: QuestionId(1) })
                 .unwrap();
         });
-        assert_eq!(answers, None, "no answer is the cancellation sentinel");
+        assert_eq!(
+            answers,
+            QuestionReply::Declined,
+            "the panel's own refusal is the cancellation sentinel"
+        );
     }
 
     #[test]
@@ -2575,7 +2599,11 @@ mod tests {
                 shown(events_rx);
                 control_tx.send(stop).unwrap();
             });
-            assert_eq!(answers, None);
+            assert_eq!(
+                answers,
+                QuestionReply::Interrupted,
+                "a stopped turn's question is aborted, never declined"
+            );
             assert_eq!(
                 format!("{:?}", harness.control.waiting().expect("handed back")),
                 expected,
@@ -2596,7 +2624,7 @@ mod tests {
             );
             cancel.cancel();
         });
-        assert_eq!(answers, None);
+        assert_eq!(answers, QuestionReply::Interrupted);
     }
 
     #[test]
@@ -2622,7 +2650,7 @@ mod tests {
             shown(events_rx);
             cancel.cancel();
         });
-        assert_eq!(answers, None);
+        assert_eq!(answers, QuestionReply::Interrupted);
         assert_eq!(
             woken.load(Ordering::SeqCst),
             1,
@@ -2637,7 +2665,11 @@ mod tests {
             &mut harness.events_rx,
             tokio::sync::mpsc::channel(1).1,
         ));
-        assert_eq!(harness.questioner.request(&entries()), None);
+        assert_eq!(
+            harness.questioner.request(&entries()),
+            QuestionReply::Declined,
+            "with no UI to ask, nobody declined and nobody stopped anything"
+        );
     }
 
     #[test]
@@ -2669,7 +2701,7 @@ mod tests {
                 })
                 .unwrap();
         });
-        assert_eq!(answers, Some(vec!["ok".to_string()]));
+        assert_eq!(answers, QuestionReply::Answered(vec!["ok".to_string()]));
     }
 
     #[test]
@@ -2696,8 +2728,9 @@ mod tests {
             cancel.cancel();
         });
         assert_eq!(
-            answers, None,
-            "a question that could not even be shown is a cancelled one"
+            answers,
+            QuestionReply::Interrupted,
+            "a question the session ended under before it could be shown is an aborted one"
         );
     }
 
@@ -2710,7 +2743,7 @@ mod tests {
         harness.questioner.next.store(u64::MAX, Ordering::Relaxed);
         assert_eq!(
             harness.questioner.request(&entries()),
-            None,
+            QuestionReply::Declined,
             "an id that cannot be minted is a cancelled question, not a reused one"
         );
         assert_eq!(
