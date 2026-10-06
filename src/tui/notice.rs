@@ -29,7 +29,6 @@ pub(crate) enum Tone {
     #[cfg_attr(not(test), allow(dead_code))]
     Information,
     /// Something the user asked for that happened.
-    #[cfg_attr(not(test), allow(dead_code))]
     Success,
     /// Something that happened with a caveat the user should know about.
     Warning,

@@ -1,0 +1,31 @@
+# A prompt submitted while a turn is running. fx steers: during a tool-free
+# answer it interrupts and continues with the new prompt at once; during a
+# tool it shows the prompt above the composer as `┋ <prompt>` and delivers
+# it after the tool. xfx keeps its queue -- the prompt runs as the next turn
+# -- and shows it the same way, `┋ <prompt>`, until that turn starts and its
+# card is written.
+fx: gateway interrupt-steer-fx.json
+xfx: gateway interrupt-steer-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 2
+type stream please
+key Enter
+wait 2
+type what are you doing
+key Enter
+wait 0.4
+snap steer-stream
+wait 12
+snap steer-stream-done
+type run it
+key Enter
+wait 1.5
+type change tone
+key Enter
+wait 0.4
+snap steer-tool
+wait 6
+snap steer-done
+snapfull end
+gwlog
