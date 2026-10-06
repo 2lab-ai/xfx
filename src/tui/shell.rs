@@ -1999,7 +1999,7 @@ impl Shell {
         // `red_style` while it has time on the screen left
         // ([`Self::warning_shown`]). An armed cue outranks the warning
         // (`dangerStatusText` is empty while one is, `:580`).
-        let cue_style = format!("{}{}", self.palette.reset(), self.palette.dim());
+        let cue_style = self.palette.dim().to_string();
         let (model, effort) = self.hinted_model();
         let mut hint = Hint {
             missing_credential: self.missing_credential,
@@ -2039,6 +2039,7 @@ impl Shell {
             } else {
                 self.palette.danger()
             },
+            close: self.palette.reset(),
             accent: (self.palette.activity(), self.palette.statusline()),
         };
         let cols = self.geometry.cols;
@@ -9087,10 +9088,12 @@ mod tests {
         let padding = usize::from(cols)
             - usize::from(super::super::wrap::width(IDLE_HINT))
             - usize::from(super::super::wrap::width(ESCAPE_ARMED));
+        // The row's run closed before the padding, as upstream's is before
+        // the slot's column (`input_presentation.zig:551-567`).
         format!(
             "{IDLE_HINT}{}{}{}{ESCAPE_ARMED}",
-            " ".repeat(padding),
             PALETTE.reset(),
+            " ".repeat(padding),
             PALETTE.dim()
         )
     }
@@ -13986,10 +13989,13 @@ mod tests {
     #[test]
     fn the_right_hand_cue_is_painted_in_the_dim_grey_after_the_rows_run_is_closed() {
         // `fx-interrupt-40x120-esc1.ansi`: `…model-aESC[39m<spaces>ESC[38;5;245m
-        // esc again to interrupt` -- the row's run closed, the cue in
-        // `dim_style`. The same number as the row's grey in the dark palette,
-        // so the light one is where the role shows (`theme.zig:123,128`: 241
-        // for the row, 247 for the cue).
+        // esc again to interrupt` -- the row's run closed **before** the
+        // padding, the padding in no colour, the cue in `dim_style`. Claim
+        // changed: the reset was after the padding, so tmux read the padding
+        // as the row's grey (the byte difference the F4 receipt recorded). The
+        // same number as the row's grey in the dark palette, so the light one
+        // is where the role shows (`theme.zig:123,128`: 241 for the row, 247
+        // for the cue).
         let light = Palette {
             mode: super::super::theme::Mode::Light,
             depth: super::super::theme::Depth::Ansi256,
@@ -13997,19 +14003,24 @@ mod tests {
         let mut shell = shell_with(24, 80, light, false);
         shell.escape_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to clear"),
-            "{row:?}"
-        );
+        let closed = |row: &str, cue: &str| {
+            let at = row.find(cue).expect("the cue");
+            let before = &row[..at];
+            let reset = before.rfind("\u{1b}[0m").expect("the run closed");
+            before[reset..]
+                == format!(
+                    "\u{1b}[0m{}\u{1b}[38;5;247m",
+                    " ".repeat(before.len() - reset - 4 - 11)
+                )
+                && before[..reset].ends_with("glm-5.2")
+        };
+        assert!(closed(&row, "esc again to clear"), "{row:?}");
         assert!(row.starts_with("\u{1b}[38;5;241m"), "{row:?}");
 
         shell.escape_armed = false;
         shell.interrupt_armed = true;
         let row = shell.band_rows().last().cloned().expect("a hint row");
-        assert!(
-            row.contains("\u{1b}[0m\u{1b}[38;5;247mesc again to interrupt"),
-            "{row:?}"
-        );
+        assert!(closed(&row, "esc again to interrupt"), "{row:?}");
     }
 
     #[test]

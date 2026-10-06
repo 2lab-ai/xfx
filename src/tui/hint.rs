@@ -126,6 +126,12 @@ pub(crate) struct Hint<'a> {
     /// `red_style` (`input_presentation.zig:565`), where the armed-Escape cue
     /// is in the row's grey.
     pub(crate) right_style: &'a str,
+    /// What ends the row's own colours before [`Self::right`]'s padding:
+    /// upstream closes the run (`reset_style`) and then moves to the slot's
+    /// column, so the cells between are the terminal's own and the slot opens
+    /// its colour afresh (`input_presentation.zig:551-567`). Empty for a
+    /// caller with no palette.
+    pub(crate) close: &'a str,
     /// The two colours a permission mode that grants something is said in:
     /// its own, and the row's to resume with (`render.zig:235-241`, `c1db919`:
     /// `auto` and `full access` in `permission_auto_style`, then
@@ -246,7 +252,9 @@ pub(crate) fn row(hint: &Hint<'_>, cols: u16) -> String {
         // Flush with the last column. The left side was budgeted against
         // `limit`, so this is at least [`GAP`] whenever anything survived on
         // it -- and zero only when a single oversized segment was cut to the
-        // screen, where the clip below is what keeps the row on it.
+        // screen, where the clip below is what keeps the row on it. The row's
+        // run ends first, so the padding is in no colour of its own.
+        row.push_str(hint.close);
         let padding = budget.saturating_sub(cells(&row) + right_cells);
         row.extend(std::iter::repeat_n(' ', padding));
         // The last thing on the row, so its colour needs no resume: whoever
@@ -375,6 +383,7 @@ mod tests {
             notice: None,
             right: None,
             right_style: "",
+            close: "",
             accent: ("", ""),
         }
     }
