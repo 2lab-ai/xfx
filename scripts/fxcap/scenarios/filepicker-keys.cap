@@ -1,0 +1,42 @@
+work filepicker-ws
+wait 2
+type hello, world
+key C-a M-d
+wait 0.3
+snap alt-d
+key C-e
+type  foo bar
+key M-b M-b
+type Y
+wait 0.3
+snap alt-b
+key M-f
+type Z
+wait 0.3
+snap alt-f
+key C-u
+type line1\
+key Enter
+type line2
+key C-j
+type line3
+key PPage
+type <
+wait 0.3
+snap pgup
+key NPage
+type >
+wait 0.3
+snap pgdn
+key Escape
+wait 0.1
+key Escape
+wait 0.6
+type @
+wait 1.2
+key NPage
+wait 0.3
+snap at-pgdn
+key C-k
+wait 0.3
+snap at-ck
