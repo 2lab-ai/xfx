@@ -63,12 +63,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// and the shortfall is disclosed in the output.
 const DRAIN_GRACE: Duration = Duration::from_millis(1_500);
 
-/// How many extra times a killed command's process group is signalled while
-/// its leader is still unreaped, and how long the sweep pauses between rounds.
+/// How many more times, at most, a killed command's process group is signalled
+/// once its leader has exited and before the leader is collected.
 ///
 /// Two rounds, not a duration: this is a bound on work, not a promise about
-/// wall-clock time, which a loaded machine does not let anyone make.
+/// wall-clock time, which a loaded machine does not let anyone make. What the
+/// rounds wait for before they start is an event, the leader's exit, and not a
+/// clock; see `sweep_anchored`.
 const ANCHORED_ROUNDS: u32 = 2;
+
+// A sweep of zero rounds would signal nothing after the leader's exit, which is
+// the escape `sweep_anchored` exists to close.
+const _: () = assert!(ANCHORED_ROUNDS > 0);
 
 /// How many times the group is *asked* whether it is gone before xfx stops
 /// waiting for it. Also a round bound rather than a time one; nothing is
@@ -488,10 +494,11 @@ fn supervise(child: &mut Child, timeout: Duration, cancel: &CancelToken) -> Endi
 ///
 /// The group is signalled first, because the process holding xfx's pipe is very
 /// often not the process xfx forked. The direct kill follows as a backstop for
-/// the case where the group could not be signalled at all. Then the group is
-/// signalled again -- see `sweep_anchored` for why once is not enough -- and
-/// only after that is the leader collected and the group asked whether it is
-/// gone.
+/// the case where the group could not be signalled at all. Then xfx waits for
+/// the leader to exit without collecting it, and signals the group again --
+/// see `sweep_anchored` for why once is not enough and why the wait comes
+/// first -- and only after that is the leader collected and the group asked
+/// whether it is gone.
 ///
 /// Returns `None` when the group is gone, and otherwise the kernel's reason for
 /// saying it is not. That answer is not a detail to swallow: it means something
@@ -508,9 +515,11 @@ fn stop(child: &mut Child) -> Option<Stranded> {
     }
     let _ = child.kill();
 
-    // Before the leader is collected, never after: see `sweep_anchored`.
+    // After the leader has exited, before it is collected, never after: see
+    // `sweep_anchored`.
     #[cfg(unix)]
     if let Some(group) = group {
+        exited_uncollected(group);
         sweep_anchored(group);
     }
 
@@ -527,40 +536,102 @@ fn stop(child: &mut Child) -> Option<Stranded> {
     stranded
 }
 
-/// Signals `group` again, `ANCHORED_ROUNDS` times, while the command's leader
-/// is still unreaped.
+/// Blocks until the command's leader has exited, and leaves it uncollected.
 ///
-/// **One signal is not enough, and the reason is a race in the kernel rather
-/// than a gap in xfx's bookkeeping.** `kill(-pgid)` walks the group's list of
-/// members; a `fork` running at the same instant adds a member the walk may
-/// have already passed. That member never receives the signal. Its parent is
-/// dead, so nothing will fork again -- but the survivor keeps running, and it
-/// keeps the stdout and stderr pipes xfx handed the command open, which is
-/// exactly the "stream still open" the drain then has to report. Measured on
-/// macOS, with one signal: 51 of 240 cancellations five milliseconds into a
-/// twenty-child fork loop left a child alive, and 91 of 160 cancellations forty
-/// milliseconds into a three-hundred-child loop. With this sweep, both were 0.
+/// `waitid` with `WNOWAIT` reports the exit and keeps the zombie, so the
+/// leader's id -- which is the group's id -- stays out of the allocator for
+/// the sweep that follows, and `child.wait()` still does the collecting. This
+/// is not a new wait: `child.wait()` already blocked on this same exit, and a
+/// leader that never dies hung it exactly as it hangs this. What changes is
+/// which side of the exit the sweep runs on.
 ///
-/// **Every signal xfx sends to the group is sent from here, before the leader
-/// is collected, and that ordering is the whole safety argument.** A process
+/// `EINTR` asks again, because the TUI installs its signal handlers without
+/// `SA_RESTART`. Any other error is the previous behaviour -- the sweep runs
+/// without having waited -- rather than no sweep at all.
+#[cfg(unix)]
+fn exited_uncollected(leader: rustix::process::Pid) {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+
+    while let Err(rustix::io::Errno::INTR) = waitid(
+        WaitId::Pid(leader),
+        WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+    ) {}
+}
+
+/// Signals `group` again, up to `ANCHORED_ROUNDS` times, after the command's
+/// leader has exited and before it is collected.
+///
+/// **One signal is not enough, and the reason is in the kernel rather than in
+/// xfx's bookkeeping.** On macOS, `kill(-pgid)` copies the group's member list
+/// and then takes a reference on each member before signalling it. A child
+/// that a `fork` has already put on that list but not yet finished creating
+/// refuses the reference and is skipped, without an error: XNU
+/// `bsd/kern/kern_proc.c` `pgrp_iterate` → `proc_find` → `proc_ref_try_fast`,
+/// which fails while `P_REF_NEW` is set; `forkproc` sets it when it allocates
+/// the child, before `pgrp_enter_locked` joins it to the group, and only
+/// `pinsertchild` clears it, after the child's task has been created
+/// (`bsd/kern/kern_fork.c`). That member never receives the signal. It keeps
+/// running, and it keeps the stdout and stderr pipes xfx handed the command
+/// open, which is exactly the "stream still open" the drain then has to
+/// report. Measured on macOS, with one signal: 51 of 240 cancellations five
+/// milliseconds into a twenty-child fork loop left a child alive, and 91 of 160
+/// cancellations forty milliseconds into a three-hundred-child loop. Linux has
+/// no such window: `copy_process` abandons a fork when a fatal signal is
+/// pending and hands a group signal that arrives mid-fork to the child
+/// (`kernel/fork.c`).
+///
+/// **The leader's exit comes first because it closes the window for the
+/// leader's own forks.** A process cannot exit from inside `fork`: the pending
+/// `SIGKILL` is acted on when the call returns, and the child is a finished
+/// member by then. So once the leader has exited, every child it forked is a
+/// member a signal reaches. The sweep used to run straight after the first
+/// signal, two rounds two milliseconds apart -- a bound that held on an idle
+/// machine and not on a loaded one, where a leader descheduled inside `fork`
+/// finished it after the last round, exited, and left its child running. With
+/// 144 forking commands stopped at once on 18 cores, 2 to 7 of 1152 stops left
+/// a child that was never killed, in each of six runs; waiting for the exit
+/// first, 0 in twelve. The rounds after the exit are for members that fork
+/// too. One that finds nothing
+/// left to signal ends the sweep: macOS's `kill` skips zombies and answers
+/// `EPERM` when that leaves nobody (`killpg1`, `bsd/kern/kern_sig.c`). Linux
+/// counts the zombie leader as signalled, so there every round runs.
+///
+/// **Every signal xfx sends to the group is sent before the leader is
+/// collected, and that ordering is the whole safety argument.** A process
 /// group id is a process id, and process ids are recycled. The id cannot be
 /// recycled while this function runs, because the leader has been killed but
 /// not yet waited for: POSIX ends a process's lifetime -- and only then returns
-/// its id to the system -- when it is waited for, not when it dies, and a group
-/// exists while it has a member. Measured here rather than assumed: on macOS a
-/// group whose only member is an unreaped leader answers `kill(-pgid, 0)` with
-/// `EPERM`, not `ESRCH`, which per `kill(2)` "is returned if any members of the
-/// group could not be signaled" -- the group is still there. So a signal sent
-/// in this window provably reaches this command's group and nothing else.
+/// its id to the system -- when it is waited for, not when it dies, and does
+/// not reuse a process group id until the group's lifetime ends (POSIX.1-2017
+/// XBD 3.301, 4.14). XNU keeps the same promise in code: its pid allocator
+/// skips any id still in the process or the process-group hash, and a member
+/// leaves its group when it is collected, not when it dies (`forkproc`;
+/// `reap_child_locked` → `pgrp_leave_locked`, `bsd/kern/kern_exit.c`).
+/// Measured here rather than assumed: on macOS a group whose only member is an
+/// unreaped leader answers `kill(-pgid, 0)` with `EPERM`, not `ESRCH`, which
+/// per `kill(2)` "is returned if any members of the group could not be
+/// signaled" -- the group is still there. So a signal sent in this window
+/// provably reaches this command's group and nothing else.
 ///
 /// After the leader is collected xfx signals nothing further, however the
-/// checks in `settled` come out. A signal then would rest on the id still being
-/// this group's, which is exactly what collecting the leader gave up.
+/// checks in `settled` come out. A group that still had a member would be as
+/// safe to signal then -- its id is not reused while it exists -- but xfx
+/// cannot know that it still has one at the instant the signal is sent: asking
+/// first and signalling second leaves a window in which the last member is
+/// collected and the id handed out again. The unreaped leader is the one
+/// member whose presence xfx controls, which is why every signal is sent while
+/// it is held.
 #[cfg(unix)]
 fn sweep_anchored(group: rustix::process::Pid) {
-    for _ in 0..ANCHORED_ROUNDS {
-        std::thread::sleep(GROUP_KILL_PAUSE);
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    for round in 0..ANCHORED_ROUNDS {
+        // No pause before the first round: the leader has exited, so the
+        // member its last `fork` made is already there to be signalled.
+        if round > 0 {
+            std::thread::sleep(GROUP_KILL_PAUSE);
+        }
+        if rustix::process::kill_process_group(group, rustix::process::Signal::KILL).is_err() {
+            break;
+        }
     }
 }
 
@@ -1000,6 +1071,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn settling_reports_the_last_answer_the_kernel_gave() {
+        let _alone = one_group_test_at_a_time();
         let tag = tag_for(2);
         let _sweep = SweepTag(tag.clone());
         let (mut child, marker) = a_shell_that_says_it_forked(&tag);
@@ -1119,6 +1191,25 @@ mod tests {
         format!("30.{test}{}", std::process::id())
     }
 
+    /// Held by every test here that stops a process group and then reads what
+    /// is left of it, so none of them runs beside another.
+    ///
+    /// The loaded-machine test is load by design, and the others assert that a
+    /// group is gone within `settle`'s rounds -- a bound a killed process can
+    /// outlast while it is still exiting on a saturated machine. Run beside the
+    /// loaded test, each of the three failed in some runs and passed in others,
+    /// for that reason and not for an escape. Tags keep their children apart;
+    /// this keeps their schedules apart.
+    #[cfg(unix)]
+    fn one_group_test_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static GROUP_TESTS: Mutex<()> = Mutex::new(());
+        // A test that panicked while holding it has already failed by name;
+        // the next one should still run.
+        GROUP_TESTS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[cfg(unix)]
     fn marker_for(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("xfx-forked-{tag}"))
@@ -1163,6 +1254,35 @@ mod tests {
         }
     }
 
+    /// Whether `group` still holds a process that was never killed.
+    ///
+    /// Right after `stop` returns, `kill(-pgid, 0)` answering `Ok` means a
+    /// member that is not yet a zombie, and that is one of two things: a
+    /// process that escaped every signal, or one that received `SIGKILL` and
+    /// has not finished exiting. Under load the second is common -- with 144
+    /// forking commands stopped at once on 18 cores, `stop` returned with such
+    /// a member in up to 24 of 1152 stops -- each one `ps` still listed a
+    /// forked shell in state `U` or `E`, reparented to launchd, and every group
+    /// gone 1.5 seconds later -- and that is not an escape. So the question is asked until the group is
+    /// gone, for at most ten seconds. Every process these tests start is
+    /// `sleep 30.<tag>`, so one still there after ten seconds was never killed.
+    ///
+    /// Only asked, never signalled: the leader has been collected by now, so
+    /// this rests on the group's id not being handed out again between two
+    /// questions ten milliseconds apart, which would take the whole pid space
+    /// cycling in that time.
+    #[cfg(unix)]
+    fn outlived_its_kill(group: rustix::process::Pid) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while rustix::process::test_kill_process_group(group) == Ok(()) {
+            if Instant::now() >= deadline {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
     #[cfg(unix)]
     fn a_forking_shell(tag: &str, children: usize) -> Child {
         use std::os::unix::process::CommandExt;
@@ -1203,6 +1323,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_stopped_command_leaves_nothing_alive_in_its_process_group() {
+        let _alone = one_group_test_at_a_time();
         // A duration unique to this process, so a survivor can be cleaned up
         // without reaching for another test's children.
         let tag = tag_for(1);
@@ -1241,6 +1362,65 @@ mod tests {
         );
     }
 
+    /// The same claim on a machine with more runnable work than cores.
+    ///
+    /// The test above passed run after run alone and failed once inside a full
+    /// suite at load 33, because a leader descheduled inside `fork` can finish
+    /// the call after any fixed number of signals (`sweep_anchored`). Load is
+    /// what makes that happen, so this test brings its own: eight forking
+    /// commands per core, all stopped at once, eight times each -- 1152 stops in
+    /// about two and a half seconds on 18 cores. Each command is the same
+    /// leader-only fork loop as above, because for that shape zero is a
+    /// guarantee rather than a rate: its only forker is the leader, and `stop`
+    /// waits for the leader's exit before it sweeps.
+    ///
+    /// Measured on 18 cores at an ambient load of 50 to 80: against the `stop`
+    /// that swept on a clock, 6 of 6 runs failed, with 7, 2, 2, 6, 3 and 3 of
+    /// 1152 stops leaving a child that was never killed -- 23 of 6912, 0.33% a
+    /// stop. A run of 1152 stops passes against that at
+    /// `(1 - 0.0033)^1152`, about 2%, and at the lowest rate seen in one run
+    /// (2 of 1152) about 14%. Against this one, 12 of 12 runs and 0 of 13824
+    /// stops. A quieter machine lowers the old rate, not the new one.
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_command_leaves_nothing_alive_in_its_process_group_on_a_loaded_machine() {
+        let _alone = one_group_test_at_a_time();
+        const SHELLS_PER_CORE: usize = 8;
+        const ROUNDS: usize = 8;
+        let cores = std::thread::available_parallelism().map_or(4, |cores| cores.get());
+        let workers: Vec<_> = (0..cores * SHELLS_PER_CORE)
+            .map(|worker| {
+                std::thread::spawn(move || {
+                    let tag = tag_for(100 + worker as u32);
+                    let _sweep = SweepTag(tag.clone());
+                    let mut escaped = 0;
+                    for _ in 0..ROUNDS {
+                        let mut child = a_forking_shell(&tag, 50);
+                        let group =
+                            rustix::process::Pid::from_raw(child.id() as i32).expect("a group");
+                        std::thread::sleep(Duration::from_millis(10));
+                        stop(&mut child);
+                        if outlived_its_kill(group) {
+                            escaped += 1;
+                        }
+                    }
+                    escaped
+                })
+            })
+            .collect();
+        let stopped = workers.len() * ROUNDS;
+        let escaped: usize = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("a worker"))
+            .sum();
+
+        assert_eq!(
+            escaped, 0,
+            "{escaped} of {stopped} commands stopped on a loaded machine left a process \
+             alive in their group"
+        );
+    }
+
     /// The timeout ending gets the same sweep as the cancelled one, because
     /// both go through `stop`.
     ///
@@ -1252,6 +1432,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_timed_out_command_gets_the_same_sweep_as_a_cancelled_one() {
+        let _alone = one_group_test_at_a_time();
         let tag = tag_for(3);
         let _sweep = SweepTag(tag.clone());
         let (mut child, marker) = a_shell_that_says_it_forked(&tag);
