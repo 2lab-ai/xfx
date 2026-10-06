@@ -37,6 +37,11 @@
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
+#   home <label>           every file under the run's HOME, as it stands now,
+#                          to <bin>-<scenario>-<size>-<label>.files: the path
+#                          relative to HOME, its size, and its bytes (locks
+#                          and logs by size only), the run's own directory
+#                          written as <scratch> -- what a settings write left
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
@@ -44,6 +49,19 @@
 #   home <label>           every settings file under the run's HOME -- each
 #                          binary's own profile and fx's backups of it -- to
 #                          <bin>-<scenario>-<size>-<label>.home
+#   bells <label>          writes how many terminal bells the pane has rung so
+#                          far (tmux's alert-bell hook, one line per bell; an
+#                          OSC's BEL terminator is not one) and the clients
+#                          attached to this server -- none, so no bell reaches
+#                          any real terminal -- to
+#                          <bin>-<scenario>-<size>-<label>.bells
+#
+# fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
+# the PATH shims below do not reach. Every fx run starts with FX_SOUND=0; a
+# scenario that turns sound on also sets `fx: env TMPDIR=/var/empty`, a
+# directory fx cannot write its chime into, so it rings the terminal bell
+# instead (vercel-labs/fx@c1db9191 src/core/notifications/sound.zig:40-62,
+# :176-181) and nothing plays on the machine running the capture.
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -146,8 +164,13 @@ $fx_model $extra_env $bin"
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
 $xfx_model $extra_env $bin"
   fi
-  tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
-    "cd $run/work && exec $launch"
+  # Every bell the pane rings, one line each, for `bells`. The hook is set on a
+  # server started for it, **before** the session that runs the binary: fx
+  # rings its start-up cue as soon as it is up (`app_entry_runtime.zig:327`),
+  # and a hook set after `new-session` returned can be set after that bell.
+  tmux -f /dev/null -S "$sock" start-server \; \
+    set-hook -g alert-bell "run-shell 'echo bell >> $run/bells'" \; \
+    new-session -d -s cap -x "$cols" -y "$rows" "cd $run/work && exec $launch"
 
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
@@ -179,6 +202,20 @@ $xfx_model $extra_env $bin"
           echo "== $f"; head -c 2000 "$f"; echo
         done) > "$out/$which-$scenario-$size-work-$rest.txt"
         ;;
+      home)
+        local name=$out/$which-$scenario-$size-$rest.files
+        (
+          cd "$run/home"
+          find . -type f ! -path '*/file-index/*' | LC_ALL=C sort | while IFS= read -r f; do
+            echo "=== ~/${f#./} ($(wc -c < "$f" | tr -d ' ') bytes)"
+            case $f in
+              *.lock|*.log|*.sqlite*) ;;
+              *) head -c 4000 "$f" | sed "s#$run#<scratch>#g"; echo ;;
+            esac
+          done
+        ) > "$name"
+        echo "$name"
+        ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"
@@ -198,6 +235,16 @@ $xfx_model $extra_env $bin"
         local name=$out/$which-$scenario-$size-$rest.home
         (cd "$run/home" && find . -type f \( -name settings.json -o -path '*/backups/*' \) | sort | while IFS= read -r f; do echo "== $f"; cat "$f"; echo; done) > "$name"
         echo "$name"
+        ;;
+      bells)
+        local name=$out/$which-$scenario-$size-$rest.bells
+        # The hook runs a shell of its own; give it a moment to append.
+        sleep 0.3
+        {
+          echo "bells=$( [[ -f $run/bells ]] && wc -l < "$run/bells" | tr -d ' ' || echo 0)"
+          echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
+        } > "$name"
+        echo "$name: $(tr '\n' ' ' < "$name")"
         ;;
       clipfail)
         case $rest in
