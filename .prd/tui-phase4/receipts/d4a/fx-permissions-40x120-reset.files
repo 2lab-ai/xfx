@@ -1,0 +1,33 @@
+=== ~/.fx/backups/settings.json.backup.1791310327949-0000000000000001-53e7c02caad79e1fbbc8a9b880b92713 (27 bytes)
+{"permission_mode":"auto"}
+
+=== ~/.fx/backups/settings.json.backup.1791310327952-0000000000000002-27bb55eb053e2db85f7b1d2d64d6f7ed (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/backups/settings.json.backup.1791310329711-0000000000000003-2dc502dd20deecac21b3feaeaf5e3ccf (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/history.jsonl (692 bytes)
+{"schema_version":1,"timestamp_ms":1791310323528,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1791310326425,"workspace_root":"<scratch>/work","text":"/permissions auto"}
+{"schema_version":1,"timestamp_ms":1791310327948,"workspace_root":"<scratch>/work","text":"/permissions full-access"}
+{"schema_version":1,"timestamp_ms":1791310329698,"workspace_root":"<scratch>/work","text":"/permissions ask"}
+{"schema_version":1,"timestamp_ms":1791310331225,"workspace_root":"<scratch>/work","text":"/permissions reset"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/rGraVkGidmMK/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/rGraVkGidmMK/owner.live (43 bytes)
+{"pid":21578,"opened_at_ms":1791310321243}
+
+=== ~/.fx/sessions/rGraVkGidmMK/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/rGraVkGidmMK/session.json (365 bytes)
+{"schema_version":4,"id":"rGraVkGidmMK","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791310321209,"updated_at_ms":1791310321209,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/rGraVkGidmMK/session.lock (0 bytes)
+=== ~/.fx/sessions/rGraVkGidmMK/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"rGraVkGidmMK","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (51 bytes)
+{"permission_mode":"ask","yolo_acknowledged":true}
+
+=== ~/.fx/settings.lock (0 bytes)

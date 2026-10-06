@@ -1,0 +1,32 @@
+=== ~/.fx/backups/settings.json.backup.1791310339283-0000000000000001-854412b868deab01b0824cbe5895cbda (27 bytes)
+{"permission_mode":"yolo"}
+
+=== ~/.fx/backups/settings.json.backup.1791310344706-0000000000000002-d5a1b4258a340ec5d37209955662d24f (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/backups/settings.json.backup.1791310345576-0000000000000003-99597035b72f3f462f9be52339f7da9f (51 bytes)
+{"permission_mode":"ask","yolo_acknowledged":true}
+
+=== ~/.fx/backups/settings.json.backup.1791310346157-0000000000000004-7510392a1896ee065ffb162c89a75b18 (52 bytes)
+{"permission_mode":"auto","yolo_acknowledged":true}
+
+=== ~/.fx/history.jsonl (133 bytes)
+{"schema_version":1,"timestamp_ms":1791310347260,"workspace_root":"<scratch>/work","text":"/permissions"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/zIl9uzImFkCy/events.jsonl (0 bytes)
+
+=== ~/.fx/sessions/zIl9uzImFkCy/owner.live (43 bytes)
+{"pid":38604,"opened_at_ms":1791310337155}
+
+=== ~/.fx/sessions/zIl9uzImFkCy/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/zIl9uzImFkCy/session.json (365 bytes)
+{"schema_version":4,"id":"zIl9uzImFkCy","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791310337147,"updated_at_ms":1791310337147,"conversation_language":"und","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"subagent_child":false}
+=== ~/.fx/sessions/zIl9uzImFkCy/session.lock (0 bytes)
+=== ~/.fx/sessions/zIl9uzImFkCy/usage-v2.json (532 bytes)
+{"schema_version":1,"session_id":"zIl9uzImFkCy","snapshot":{"schema_version":3,"billing":"complete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":1,"settled_through_sequence":0,"api_duration_ms":0,"wall_duration_ms":0,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (52 bytes)
+{"permission_mode":"yolo","yolo_acknowledged":true}
+
+=== ~/.fx/settings.lock (0 bytes)
