@@ -3583,9 +3583,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/setup`'s usage refusal, `/new`'s sentence, `/clear`'s promise, and a
-    // name the registry does not carry. Each needle sits inside one run of
-    // colour: a notice's label and body are separate runs on the wire.
+    // `/setup`'s usage refusal, `/stats`'s first counter, `/status`'s turn
+    // count, `/new`'s sentence, `/clear`'s promise, and a name the registry
+    // does not carry. Each needle sits inside one run of colour: a notice's
+    // label and body are separate runs on the wire.
     session.type_bytes(b"/help\r");
     // The catalog's key help rather than a summary out of its rows: the
     // completion menu shows the same summaries while the name is being typed,
@@ -3605,6 +3606,10 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     // name is answered by the session, and still costs the provider nothing.
     session.type_bytes(b"/setup\r");
     session.wait_for("/setup takes a provider to set up");
+    session.type_bytes(b"/stats\r");
+    session.wait_for("ansi_bytes=");
+    session.type_bytes(b"/status\r");
+    session.wait_for("history_turns=0");
     session.type_bytes(b"/new\r");
     session.wait_for("starts a fresh conversation");
     session.type_bytes(b"/notacommand\r");
@@ -3795,6 +3800,39 @@ fn clear_erases_the_scrollback_the_answers_live_in_and_not_only_the_screen() {
         1,
         "the screen was erased more than once for one /clear: {text:?}"
     );
+}
+
+#[test]
+fn status_counts_the_turn_the_live_conversation_just_held() {
+    // `history_turns` is the conversation the runtime is holding, not the
+    // store's last session -- read from what the runtime thread published
+    // before it told the band the turn was over, so the summary row under the
+    // answer is the moment `/status` can count it.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-ONE-TURN"]),
+    )]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/status\r");
+    session.wait_for("history_turns=0");
+    session.type_bytes(b"one turn, please\r");
+    session.wait_for("MARKER-ONE-TURN");
+    // The turn summary: written when the band hears the turn ended.
+    session.wait_for("\u{2191}");
+    session.type_bytes(b"/status\r");
+    session.wait_for("history_turns=1");
+    session.type_bytes(b"/stats\r");
+    let text = session.wait_for("stream_chunks=0");
+    assert!(text.contains("footer_updates=0"), "{text:?}");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 1, "a command reached the provider");
 }
 
 #[test]

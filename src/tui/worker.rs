@@ -68,7 +68,7 @@ use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -85,7 +85,8 @@ use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
-use crate::interactive::{bind_conversation, open_conversation, Conversation};
+use crate::interactive::{bind_conversation, open_conversation, status_snapshot, Conversation};
+use crate::output::StatusSnapshot;
 use crate::permission::PermissionSession;
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
@@ -198,6 +199,65 @@ pub(crate) struct WorkHandle {
     /// What `/copy` copies: the conversation's last reply, as the runtime
     /// last published it ([`LastReply`]).
     reply: LastReply,
+    /// What `/status` reads, as the runtime last published it.
+    status: StatusBoard,
+}
+
+/// What `/status` reads of the runtime thread, as that thread last left it.
+///
+/// The configuration, the model in force and the conversation all live on the
+/// runtime thread, and `/status` is typed on the UI thread -- which may not
+/// wait for that one: mid-turn it is busy for as long as the turn is, and at an
+/// approval it is parked. Asking it through the work queue would also put the
+/// question behind the turn and on the band as `queued 1`. So the runtime
+/// **publishes** a snapshot wherever one of those facts changes
+/// ([`Runtime::publish`]) -- when a turn, a `/new`, a provider switch or a
+/// model change is over -- and the UI reads the latest one. Mid-turn that is
+/// the snapshot the last of those left, so the counts are the conversation's
+/// as of the turn before.
+///
+/// **The lock guards a store and a clone and nothing else.** Neither side holds
+/// it across I/O, a channel or an `.await`, so the UI thread's wait on it is
+/// the length of copying one struct.
+#[derive(Clone)]
+pub(crate) struct StatusBoard(Arc<Mutex<StatusSnapshot>>);
+
+impl StatusBoard {
+    fn new(snapshot: StatusSnapshot) -> Self {
+        Self(Arc::new(Mutex::new(snapshot)))
+    }
+
+    /// Replaces what `/status` will read next.
+    fn publish(&self, snapshot: StatusSnapshot) {
+        *self.lock() = snapshot;
+    }
+
+    /// The snapshot the runtime last published.
+    pub(crate) fn read(&self) -> StatusSnapshot {
+        self.lock().clone()
+    }
+
+    /// A board no runtime publishes to, seeded the way `spawn` seeds one:
+    /// from a configuration the real loader resolved, over an empty home and
+    /// an empty workspace. A case that is about what `/status` shows
+    /// publishes what it needs ([`WorkHandle::publish_status`]).
+    #[cfg(test)]
+    fn unpublished() -> Self {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        Self::new(status_snapshot(&config, &config.model, None))
+    }
+
+    /// Never poisoned in practice -- nothing that holds it can panic -- and a
+    /// snapshot is whole either way: it is replaced by one assignment.
+    fn lock(&self) -> MutexGuard<'_, StatusSnapshot> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl WorkHandle {
@@ -300,6 +360,12 @@ impl WorkHandle {
         self.reply.publish(Some(reply));
     }
 
+    /// What `/status` reports: the runtime's last published snapshot
+    /// ([`StatusBoard`]). Never waits for the runtime.
+    pub(crate) fn status(&self) -> StatusSnapshot {
+        self.status.read()
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -324,10 +390,18 @@ impl WorkHandle {
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             work_rx,
             control_rx,
         )
+    }
+
+    /// Stands in for the runtime's own publication, for the cases that are
+    /// about what the UI does with a snapshot.
+    #[cfg(test)]
+    pub(crate) fn publish_status(&self, snapshot: StatusSnapshot) {
+        self.status.publish(snapshot);
     }
 }
 
@@ -540,6 +614,12 @@ pub(crate) fn spawn(
     ));
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
+    // Seeded here, on the calling thread and from the configuration the
+    // runtime is about to be built from, so a `/status` typed before that
+    // thread has constructed anything still reads the session it will be:
+    // the configured model and no conversation yet.
+    let status = StatusBoard::new(status_snapshot(&config, &config.model, None));
+    let publishes = status.clone();
     let outstanding = Arc::new(AtomicUsize::new(0));
     let loops_outstanding = Arc::clone(&outstanding);
     let reply = LastReply::default();
@@ -570,6 +650,9 @@ pub(crate) fn spawn(
                 // start, as fx's hydrated history is (`session.zig:2067-2079`).
                 state.publish_reply();
             }
+            // `/status` reads the resumed conversation's counts from the start
+            // too: `publishing_to` publishes what the runtime is now.
+            let state = state.publishing_to(publishes);
             runtime.block_on(turn_loop(
                 state,
                 &events_tx,
@@ -590,6 +673,7 @@ pub(crate) fn spawn(
                 outstanding,
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply,
+                status,
             },
             resumable: None,
         },
@@ -720,6 +804,9 @@ struct Runtime {
     /// Where the conversation's last reply is published for `/copy`
     /// ([`Runtime::publish_reply`]).
     reply: LastReply,
+    /// Where `/status` reads this runtime from ([`StatusBoard`]), written by
+    /// [`Runtime::publish`] and by nothing else.
+    board: StatusBoard,
 }
 
 impl Runtime {
@@ -751,6 +838,7 @@ impl Runtime {
         questioner: Arc<TuiQuestioner>,
     ) -> Self {
         let selector = ModelSelector::new(&config);
+        let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         Self {
             config,
             env,
@@ -761,7 +849,30 @@ impl Runtime {
             questioner,
             selector,
             reply: LastReply::default(),
+            board,
         }
+    }
+
+    /// Publishes to `board` from here on -- the one the UI reads -- starting
+    /// with what this runtime is now.
+    fn publishing_to(mut self, board: StatusBoard) -> Self {
+        self.board = board;
+        self.publish();
+        self
+    }
+
+    /// Tells `/status` what this runtime is now: its configuration, the model
+    /// in force, and the conversation a turn would continue.
+    ///
+    /// Called where one of those has just changed and **before** the event
+    /// that tells the UI so, so a `/status` typed the moment a turn is seen to
+    /// end already reads that turn in its count.
+    fn publish(&self) {
+        self.board.publish(status_snapshot(
+            &self.config,
+            self.model(),
+            self.conversation.as_ref(),
+        ));
     }
 
     /// Publishes what `/copy` would copy from the conversation as it stands.
@@ -931,6 +1042,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
         // only place the question can be answered after a switch.
@@ -1127,6 +1239,7 @@ async fn turn_loop(
             // edited are sold as being about *this* conversation.
             TurnWork::New => {
                 state.conversation = None;
+                state.publish();
                 Ended::Turn
             }
             TurnWork::Submit(prompt) => {
@@ -1316,6 +1429,10 @@ async fn run_turn(
     state.publish_reply();
     match caught {
         Ok(failure) => {
+            // The turn is in the conversation's count now, and so is any
+            // "always" it was answered -- both are written down by the time the
+            // body returns ([`record_grants`]).
+            state.publish();
             bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
             ended
         }
@@ -1445,6 +1562,7 @@ async fn run_setup(
 /// no longer in.
 async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
     let outcome = state.use_model(name);
+    state.publish();
     let answered = match outcome {
         ModelOutcome::Selected { unverified, .. } => ModelAnswer::Applied { unverified },
         ModelOutcome::Unchanged { .. } => ModelAnswer::Unchanged,
@@ -1903,6 +2021,7 @@ mod tests {
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             resumable: None,
         };
@@ -1958,6 +2077,7 @@ mod tests {
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             resumable: None,
         };
@@ -1992,6 +2112,7 @@ mod tests {
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             resumable: None,
         };
@@ -2344,6 +2465,7 @@ mod tests {
             outstanding: Arc::new(AtomicUsize::new(0)),
             accepted: Arc::new(AtomicUsize::new(0)),
             reply: LastReply::default(),
+            status: StatusBoard::unpublished(),
         };
         drop(work_rx);
         assert_eq!(
@@ -2439,6 +2561,130 @@ mod tests {
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
+    }
+
+    // -----------------------------------------------------------------------
+    // what `/status` reads
+    // -----------------------------------------------------------------------
+
+    /// A runtime holding an open conversation, publishing to a board the case
+    /// can read -- the arrangement `spawn` makes between this thread and the
+    /// UI's `WorkHandle`.
+    fn published_runtime() -> (tempfile::TempDir, tempfile::TempDir, Runtime, StatusBoard) {
+        let (home, workspace, state) = recording();
+        let board = StatusBoard::unpublished();
+        let state = state.publishing_to(board.clone());
+        (home, workspace, state, board)
+    }
+
+    #[test]
+    fn the_runtime_publishes_what_it_is_the_moment_it_starts_publishing() {
+        let (_home, _workspace, state, board) = published_runtime();
+        let seen = board.read();
+        assert_eq!(seen.model, state.model());
+        assert_eq!(seen.provider, state.config.provider.label());
+        assert_eq!(
+            seen.workspace,
+            state.config.workspace_root.display().to_string()
+        );
+        assert_eq!(seen.history_turns, 0);
+        assert_eq!(seen.session_permission_grants, 0);
+        // And in the shape the notice body is, which is the shape `xfx status`
+        // prints less its `[status] ` prefix.
+        assert_eq!(
+            seen.notice_body(),
+            seen.render_text().replace("[status] ", "")
+        );
+    }
+
+    #[test]
+    fn a_turn_is_in_the_published_count_before_the_ui_is_told_it_ended() {
+        // `history_turns` is the live conversation's (`session.historyLen()`
+        // upstream), so a `/status` typed the moment the band sees the turn end
+        // must already count it: the publication is ahead of `TurnEnded` on
+        // this thread, and the UI reads the board only after it has the event.
+        let (_home, _workspace, mut state, board) = published_runtime();
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers("hello back")])),
+        });
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+
+        let ended = on_a_runtime(run_turn(
+            &mut state,
+            "hello".to_string(),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+
+        assert_eq!(ended, Ended::Turn);
+        let mut last = None;
+        while let Ok(event) = events_rx.try_recv() {
+            last = Some(event);
+        }
+        assert_eq!(last, Some(UiEvent::TurnEnded { failure: None }));
+        assert_eq!(board.read().history_turns, 1);
+    }
+
+    #[test]
+    fn a_grant_a_model_and_a_new_conversation_each_reach_what_status_reads() {
+        let (_home, _workspace, mut state, board) = published_runtime();
+
+        // An "always" is held by the authority from the moment it is given.
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new("edit_file", "/w/notes.txt"));
+        state.publish();
+        assert_eq!(board.read().session_permission_grants, 1);
+
+        // `/model`: the selector's model, not the configuration's.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(run_model(&mut state, "second-model", &events_tx));
+        assert_eq!(board.read().model, "second-model");
+        assert_ne!(
+            state.config.model, "second-model",
+            "the case proves nothing"
+        );
+
+        // `/new`, through the loop that answers it: the conversation goes, and
+        // with it both counts.
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let outstanding = AtomicUsize::new(1);
+        work_tx.try_send(TurnWork::New).expect("room for one");
+        drop(work_tx);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(control_tx);
+        let after = board.read();
+        assert_eq!(after.history_turns, 0);
+        assert_eq!(after.session_permission_grants, 0);
+        assert_eq!(after.model, "second-model", "/new changed the model");
     }
 
     #[test]
@@ -2969,6 +3215,7 @@ mod tests {
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
                 reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             resumable: None,
         };
