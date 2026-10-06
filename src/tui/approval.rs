@@ -806,12 +806,16 @@ pub(crate) enum Deferred {
     Speed(super::bridge::SpeedChange),
     /// [`TurnControl::Undo`].
     ///
+    /// `through` is the position the keystroke saw, carried as it came.
     /// `after_reset` when the loop had already read a `/new`, `/clear` or
     /// `/reset` aimed at the same work: that reset drops the conversation
     /// once the work is over, and an undo typed after it is about the
     /// conversation it leaves -- which has changed nothing yet -- rather than
     /// the one it drops.
-    Undo { after_reset: bool },
+    Undo {
+        through: crate::tools::undo::Mark,
+        after_reset: bool,
+    },
 }
 
 impl ControlChannel {
@@ -854,8 +858,11 @@ impl ControlChannel {
     /// loop must not act on it while the work runs, and **an undo answers no
     /// question** -- a prompter that took it for a stop would refuse a call
     /// the user never refused.
-    pub(crate) fn defer_undo(&self, after_reset: bool) {
-        self.deferred.guarded().push(Deferred::Undo { after_reset });
+    pub(crate) fn defer_undo(&self, through: crate::tools::undo::Mark, after_reset: bool) {
+        self.deferred.guarded().push(Deferred::Undo {
+            through,
+            after_reset,
+        });
     }
 
     /// Everything put aside, oldest first, for the turn loop to do now that
@@ -1128,8 +1135,8 @@ impl ApprovalPrompter for TuiPrompter {
                     // turn is over, and the question stays up -- it refuses
                     // nothing ([`ControlChannel::defer_undo`]). Above the
                     // `stop` catch-all for the reason the arm before it is.
-                    Some(TurnControl::Undo) => {
-                        self.control.defer_undo(false);
+                    Some(TurnControl::Undo { through }) => {
+                        self.control.defer_undo(through, false);
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a
@@ -2232,7 +2239,9 @@ mod tests {
             topic: "fast",
             provider: crate::provider::ProviderId::Gateway,
         };
-        tx.send(TurnControl::Undo).expect("the channel is open");
+        let typed = crate::tools::undo::Mark::now();
+        tx.send(TurnControl::Undo { through: typed })
+            .expect("the channel is open");
         tx.send(TurnControl::Model(change.clone()))
             .expect("the channel is open");
         // A `/fast` too: it answers no question either, and waits behind the
@@ -2259,7 +2268,10 @@ mod tests {
         assert_eq!(
             control.take_deferred(),
             vec![
-                Deferred::Undo { after_reset: false },
+                Deferred::Undo {
+                    through: typed,
+                    after_reset: false
+                },
                 Deferred::Model(change),
                 Deferred::Speed(speed)
             ]

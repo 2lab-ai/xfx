@@ -1417,8 +1417,8 @@ impl QuestionRequester for TuiQuestioner {
                     // `/undo` while the model's question is up: done once the
                     // turn is over, and the batch stays up -- it is not the
                     // user cancelling it (`ControlChannel::defer_undo`).
-                    Some(TurnControl::Undo) => {
-                        self.control.defer_undo(false);
+                    Some(TurnControl::Undo { through }) => {
+                        self.control.defer_undo(through, false);
                         continue;
                     }
                     // The interrupt and the shutdown belong to the loop that can
@@ -3038,7 +3038,11 @@ mod tests {
         let mut harness = Harness::new(4);
         let answers = harness.request_while(move |events_rx, control_tx, _cancel| {
             shown(events_rx);
-            control_tx.send(TurnControl::Undo).unwrap();
+            control_tx
+                .send(TurnControl::Undo {
+                    through: crate::tools::undo::Mark::LATEST,
+                })
+                .unwrap();
             control_tx
                 .send(TurnControl::QuestionAnswer {
                     id: QuestionId(1),
@@ -3049,7 +3053,10 @@ mod tests {
         assert_eq!(answers, QuestionReply::Answered(vec!["kept".to_string()]));
         assert_eq!(
             harness.control.take_deferred(),
-            vec![super::super::approval::Deferred::Undo { after_reset: false }]
+            vec![super::super::approval::Deferred::Undo {
+                through: crate::tools::undo::Mark::LATEST,
+                after_reset: false
+            }]
         );
         assert_eq!(harness.control.waiting(), None);
     }
