@@ -142,27 +142,28 @@ pub fn document_for(existing: Map<String, Value>, selection: &Selection<'_>) -> 
     body.into_bytes()
 }
 
-/// Sets one preference in the settings file at `path`, keeping everything else.
+/// Sets one preference in the settings file at `path` and writes it back.
 ///
-/// The shell's own preferences -- the permission mode a `/permissions` chose,
-/// a status-line segment, a sound level -- are one key each, and they ride
-/// the same discipline [`write`] does: the file as it stands is read
-/// ([`read_existing`], so one this build cannot parse is refused rather than
-/// overwritten), the key is set at `key_path` -- each step but the last an
-/// object, created where it is missing and **replacing** a value in the way
-/// that is not one, because there is nothing to preserve inside a string and
-/// merging into it would fail the write over someone else's typo -- and the
-/// result goes through [`write_document`] as pretty JSON with a trailing
-/// newline. Unknown keys survive, which is what lets an older or a newer
-/// binary share the file.
+/// `key_path` names a key inside nested objects -- `["statusLine", "context"]`
+/// is `statusLine.context` -- and `value` replaces whatever was there. Every
+/// object on the way is created when it is missing, and a value on the way
+/// that is not an object is **replaced** by one rather than refused: the
+/// operator asked for this key to hold this value, and upstream's partial
+/// merge does the same (`attemptUserPreferences`). Nothing else in the file is
+/// touched, so a key this build does not know survives the write.
 ///
-/// An empty `key_path` names no key and is refused rather than read as "the
-/// whole document".
+/// The read is [`read_existing`] and the write is [`write_document`], so a file
+/// xfx cannot parse is an error rather than an empty object that would be
+/// written over it, and the replacement is the profile's own staged, owner-only
+/// rename. The bytes are pretty JSON and a newline, the same serializer
+/// [`document_for`] uses.
+///
+/// An empty `key_path` names no key and is refused before anything is read.
 pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
     let Some((last, parents)) = key_path.split_last() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "a preference needs a key to be written under",
+            "a preference needs a key",
         ));
     };
     let mut document = read_existing(path)?;
@@ -766,57 +767,88 @@ mod tests {
     }
 
     #[test]
-    fn a_preference_is_set_in_place_and_everything_else_survives() {
+    fn a_preference_is_one_nested_key_and_the_rest_of_the_file_survives() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("profile").join("settings.json");
-        // No file and no directory yet: the first preference creates both.
-        write_preference(&path, &["permission_mode"], json!("auto")).expect("first write");
+
+        // No file, and no profile home either: both are created, and the file
+        // holds the one key and nothing else (upstream's partial merge,
+        // `cap/fx-statusline-40x120-files.files`).
+        write_preference(&path, &["statusLine", "session"], json!(true)).expect("write");
         assert_eq!(
             fs::read_to_string(&path).expect("read"),
-            "{\n  \"permission_mode\": \"auto\"\n}\n"
+            "{\n  \"statusLine\": {\n    \"session\": true\n  }\n}\n"
         );
+
+        // A sibling under the same object, a key this build does not know and
+        // a key at the top are all kept.
         fs::write(
             &path,
-            "{\"provider\":\"llmux\",\"statusLine\":\"nonsense\",\"future\":{\"kept\":true}}\n",
+            "{\"permission_mode\":\"auto\",\"statusLine\":{\"session\":true,\"sandbox\":false}}",
         )
         .expect("seed");
-        write_preference(&path, &["permission_mode"], json!("yolo")).expect("replace");
-        write_preference(&path, &["yolo_acknowledged"], json!(true)).expect("add");
-        // A nested key creates its parents and replaces a parent that is not
-        // an object.
-        write_preference(&path, &["statusLine", "context"], json!(false)).expect("nested");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
         let written: Value =
             serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
         assert_eq!(
             written,
             json!({
-                "provider": "llmux",
-                "future": {"kept": true},
-                "permission_mode": "yolo",
-                "yolo_acknowledged": true,
-                "statusLine": {"context": false},
+                "permission_mode": "auto",
+                "statusLine": {"session": true, "sandbox": false, "context": true}
             })
         );
-        assert!(fs::read(&path).expect("read").ends_with(b"}\n"));
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
-                0o600,
-                "born owner-only, like every profile write"
-            );
-        }
+
+        // The same key again replaces its value rather than adding a second.
+        write_preference(&path, &["statusLine", "session"], json!(false)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(written["statusLine"]["session"], json!(false));
+        assert_eq!(written["statusLine"]["context"], json!(true));
+    }
+
+    #[test]
+    fn a_value_in_the_way_of_a_preference_is_replaced_by_an_object() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{\"statusLine\":7,\"model\":\"m\"}\n").expect("seed");
+        write_preference(&path, &["statusLine", "workspace"], json!(true)).expect("write");
+        let written: Value =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read")).expect("json");
+        assert_eq!(
+            written,
+            json!({"statusLine": {"workspace": true}, "model": "m"})
+        );
     }
 
     #[test]
     fn a_preference_is_never_written_over_a_file_xfx_cannot_read() {
+        // "xfx could not parse this" is not "this is empty": the operator's file
+        // stays exactly as it was, and the write says why it did not happen.
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
-        fs::write(&path, "{ not json").expect("seed");
-        assert!(write_preference(&path, &["permission_mode"], json!("ask")).is_err());
-        assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
-        assert!(write_preference(&path, &[], json!("ask")).is_err());
+        for original in ["{not json", "[1, 2]"] {
+            fs::write(&path, original).expect("seed");
+            let err = write_preference(&path, &["statusLine", "context"], json!(true))
+                .expect_err("an unreadable file is refused");
+            assert_eq!(err.kind(), io::ErrorKind::InvalidData, "{err}");
+            assert_eq!(fs::read_to_string(&path).expect("read"), original);
+        }
+        // And a preference with no key names nothing to write.
+        let err = write_preference(&path, &[], json!(true)).expect_err("no key");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preference_written_into_a_new_profile_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        write_preference(&path, &["statusLine", "context"], json!(true)).expect("write");
+        assert_eq!(
+            fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]

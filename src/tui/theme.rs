@@ -239,17 +239,29 @@ const RESET: &str = "\u{1b}[0m";
 /// highlighter paints them, not this table; the role is here so a theme report
 /// can find them ([`Self::document_retint_in`]).
 ///
-/// The thirteenth is upstream's `red_style` **on the hint row**: the one-time
+/// The thirteenth is the answer under an answered question in the
+/// document's summary of a question batch, which upstream writes in
+/// `statusline_style` (`writeQuestionAnswerResolution`, `question_ui.zig:481`)
+/// -- the [`STATUSLINE`] numbers under a name of their own, for the reason
+/// [`BODY`] is not [`HINT`]: the hint row is the band's, and this row is the
+/// document's, where a theme report has to find it. Two of the document's
+/// roles share a number with it in one mode each ([`DIM`]'s `245` in the dark,
+/// [`NOTICE`]'s `241` in the light), and an answer row opens with nothing a
+/// [`DocumentRow`] can be told by -- a turn's summary opens with the same
+/// painted blank -- so a retinted answer cell is taken to whichever of the
+/// two is listed first ([`Palette::document_retint`]).
+///
+/// The fourteenth is upstream's `red_style` **on the hint row**: the one-time
 /// full-access warning flush with its last column
 /// (`input_presentation.zig:565`, `cap/fx-permissions-40x120-full.ansi`). The
 /// same grey as [`LABEL`] in each theme (`theme.zig:86-88`, `:129-131`) and not
 /// the same decision: that one is written into the document, and this one is
 /// the band's alone, so a theme report has nothing of it to retint.
-const DARK: [u8; 13] = [
-    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 252,
+const DARK: [u8; 14] = [
+    240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252, 245, 252,
 ];
-const LIGHT: [u8; 13] = [
-    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 238,
+const LIGHT: [u8; 14] = [
+    250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238, 241, 238,
 ];
 
 /// Where in one of those tuples each role sits.
@@ -265,7 +277,8 @@ const DIFF: usize = 8;
 const WARNING: usize = 9;
 const TOOL: usize = 10;
 const COMMAND: usize = 11;
-const DANGER: usize = 12;
+const ANSWER: usize = 12;
+const DANGER: usize = 13;
 
 /// What kind of document row a theme report is repainting, read off the row's
 /// first cell ([`Palette::document_row`]).
@@ -364,6 +377,12 @@ impl Palette {
         self.paint(DIFF)
     }
 
+    /// The answer under an answered question, in the document's summary of a
+    /// question batch (`statusline_style`, `question_ui.zig:481`; [`ANSWER`]).
+    pub(crate) fn answer(&self) -> &'static str {
+        self.paint(ANSWER)
+    }
+
     /// The hint row's warning that every permission check is off ([`DANGER`]).
     pub(crate) fn danger(&self) -> &'static str {
         self.paint(DANGER)
@@ -402,9 +421,11 @@ impl Palette {
     /// What this palette repaints an **already painted** document cell in, or
     /// `None` for a cell it has nothing to say about.
     ///
-    /// Four of the roles reach the document -- the answer text (`BODY`),
-    /// xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`) and an
-    /// outcome notice's label ([`Self::notice_label`]) -- and a cell is
+    /// Six of the roles reach the document -- the answer text (`BODY`),
+    /// xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
+    /// outcome notice's label ([`Self::notice_label`]), a cancelled tool
+    /// call's mark ([`Self::warning`]) and an answered question's answer
+    /// ([`Self::answer`]) -- and a cell is
     /// recognised by the colour it is *holding*, in **either** mode, at this
     /// palette's own depth. Both sides map onto the mode in force rather than
     /// old-to-new, and that is what makes a run of reports converge: a chained
@@ -424,10 +445,13 @@ impl Palette {
         // xfx's own colours in the document: its notices, the card's rail
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
-        // label (`DIM`) -- and the label of a notice that reports an outcome
-        // (`LABEL`), bold or not -- and a cancelled tool call's `■`
-        // (`WARNING`), the same grey under another name.
-        let role = [NOTICE, BODY, DIM, LABEL, WARNING]
+        // label (`DIM`) -- the label of a notice that reports an outcome
+        // (`LABEL`), bold or not, a cancelled tool call's `■` (`WARNING`),
+        // the same grey under another name, and an answered question's answer
+        // (`ANSWER`). **Last**, because each of its numbers is another role's
+        // in one mode: listed earlier it would take every dark `DIM` cell and
+        // every light `NOTICE` cell for its own.
+        let role = [NOTICE, BODY, DIM, LABEL, WARNING, ANSWER]
             .into_iter()
             .find(|&role| {
                 [Mode::Dark, Mode::Light]
@@ -841,6 +865,10 @@ mod tests {
             // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
             (Mode::Dark, LABEL, 252, 208),
             (Mode::Light, LABEL, 238, 68),
+            // `theme.zig` `statusline_style` (`245` dark, `241` light): an
+            // answered question's answer (`question_ui.zig:481`).
+            (Mode::Dark, ANSWER, 245, 138),
+            (Mode::Light, ANSWER, 241, 98),
         ] {
             assert_eq!(
                 level,
@@ -926,6 +954,39 @@ mod tests {
             Some("\u{1b}[38;5;250m")
         );
         assert_eq!(dark.document_retint(Color::Indexed(255)), None);
+    }
+
+    #[test]
+    fn an_answered_questions_answer_is_a_document_grey_a_theme_report_reaches() {
+        // Upstream's `statusline_style` in both modes, literally: `245` dark and
+        // `241` light (`theme.zig`), the hint row's numbers under the
+        // document's name.
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        let light = Palette {
+            mode: Mode::Light,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.answer(), "\u{1b}[38;5;245m");
+        assert_eq!(light.answer(), "\u{1b}[38;5;241m");
+        // A cell holding it is one a report repaints. Each of its numbers is
+        // another document role's in one mode, and the cell carries only its
+        // colour, so the earlier-listed role is what it is taken to: a dark
+        // `245` becomes the light quiet grey, a light `241` the dark notice
+        // grey. Pinned, so that moving `ANSWER` up the list -- which would
+        // take every quiet row and every notice for an answer -- fails here.
+        assert_eq!(
+            light.document_retint(Color::Indexed(245)),
+            Some("\u{1b}[38;5;247m")
+        );
+        assert_eq!(
+            dark.document_retint(Color::Indexed(241)),
+            Some("\u{1b}[38;5;250m")
+        );
+        assert_eq!(dark.document_retint(Color::Indexed(245)), None);
+        assert_eq!(light.document_retint(Color::Indexed(241)), None);
     }
 
     #[test]

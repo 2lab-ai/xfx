@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
 use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
-use crate::config::{Environment, PermissionMode, RuntimeConfig};
+use crate::config::{Environment, PermissionMode, RuntimeConfig, StatusLineItem};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
 use crate::output::{
     safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
@@ -69,6 +69,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/model",
     "/permissions",
     "/copy",
+    "/statusline",
     "/version",
     "/quit",
 ];
@@ -222,6 +223,16 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Statusline,
+        name: "/statusline",
+        aliases: &[],
+        // Upstream's words (`commands.zig:494`); the grammar is
+        // `STATUSLINE_USAGE`, which the refusal prints.
+        summary: "toggle status line segments",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Version,
         name: "/version",
         aliases: &[],
@@ -346,6 +357,50 @@ pub const PROMPT: &str = "> ";
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
 
+/// What every `/statusline` notice is filed under, on both surfaces.
+pub const STATUSLINE_TOPIC: &str = "statusline";
+
+/// `/statusline`'s refusal, upstream's words exactly
+/// (`handleStatuslineCommand`, `app_commands.zig:3931-3941`).
+pub const STATUSLINE_USAGE: &str = "usage: /statusline [context|session|workspace]";
+
+/// What a `/statusline` write that landed says (`reportUserSettingsCommit`,
+/// `session_commands.zig:27-84`): the profile is the one scope xfx writes.
+pub const STATUSLINE_SAVED: &str = "saved to user settings (scope=user)";
+
+/// What `/statusline` says an item is now: `context: on`
+/// (`applyStatuslineItem`, `app_commands.zig:3915-3923`).
+pub fn statusline_state(item: StatusLineItem, on: bool) -> String {
+    format!("{}: {}", item.name(), if on { "on" } else { "off" })
+}
+
+/// Keeps one `/statusline` item in the profile at `path`, or says why it could
+/// not.
+///
+/// One preference, through the profile's one writer
+/// ([`crate::provider::profile::write_preference`]): read, set
+/// `statusLine.<item>`, write back staged and owner-only. A session with no
+/// home has no profile to keep it in, and that is the reason it says.
+pub fn save_statusline(
+    path: Option<&std::path::Path>,
+    item: StatusLineItem,
+    on: bool,
+) -> Result<(), String> {
+    let Some(path) = path else {
+        return Err("no home directory is set".to_string());
+    };
+    crate::provider::profile::write_preference(path, &item.key_path(), serde_json::Value::Bool(on))
+        .map_err(|err| err.to_string())
+}
+
+/// What a `/statusline` write that failed says: the change is in force for
+/// this process and nowhere else (`reportUserSettingsFailure`,
+/// `session_commands.zig:110-133`, whose `runtime_changed` is always true
+/// here -- every `/statusline` change is a flip).
+pub fn statusline_not_saved(reason: &str) -> String {
+    format!("active for this process but not saved to user settings ({reason})")
+}
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -404,6 +459,10 @@ pub enum Slash {
     /// The configuration a turn would run under, and the live conversation's
     /// own two counts.
     Status,
+    /// Which of the footer's optional segments are shown: a picker in the
+    /// TUI, one item flipped by name on either surface, and the choice kept in
+    /// the profile (`statusLine.{context,session,workspace}`).
+    Statusline,
     Version,
     Quit,
 }
@@ -927,6 +986,12 @@ pub async fn run(
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut())?;
                     }
+                    Slash::Statusline => statusline_on_the_line(
+                        &argument,
+                        &mut config,
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                 }
                 io::stdout().flush()?;
             }
@@ -1392,6 +1457,47 @@ fn apply_permissions(
     Ok(())
 }
 
+/// `/statusline` on this shell.
+///
+/// There is no footer here to draw the segments in and no band to put a picker
+/// in, so this surface does the half of the command that outlives it: an item
+/// named is flipped and kept in the profile the full-screen shell reads at
+/// launch, in the same two sentences that shell says. Bare, it says what each
+/// item is set to and how to change one -- the picker's content, as lines.
+fn statusline_on_the_line(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    if argument.is_empty() {
+        let states: Vec<String> = StatusLineItem::ALL
+            .into_iter()
+            .map(|item| statusline_state(item, config.statusline.get(item)))
+            .collect();
+        writeln!(out, "[shell] {STATUSLINE_TOPIC}: {}", states.join(", "))?;
+        return writeln!(out, "[shell] {STATUSLINE_USAGE}");
+    }
+    let Some(item) = StatusLineItem::parse(argument) else {
+        return writeln!(err, "xfx: {STATUSLINE_USAGE}");
+    };
+    let on = !config.statusline.get(item);
+    config.statusline.set(item, on);
+    match save_statusline(config.user_settings_path.as_deref(), item, on) {
+        Ok(()) => writeln!(out, "[shell] {STATUSLINE_TOPIC}: {STATUSLINE_SAVED}")?,
+        Err(reason) => writeln!(
+            err,
+            "xfx: {STATUSLINE_TOPIC}: {}",
+            statusline_not_saved(&reason)
+        )?,
+    }
+    writeln!(
+        out,
+        "[shell] {STATUSLINE_TOPIC}: {}",
+        statusline_state(item, on)
+    )
+}
+
 /// `/copy` on this shell: the conversation's last reply onto the clipboard,
 /// and one line saying how that went ([`crate::clipboard`]).
 ///
@@ -1462,9 +1568,10 @@ mod tests {
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
-        // upstream's third name for the one reset -- and twelve since
-        // `/permissions`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 12);
+        // upstream's third name for the one reset -- and thirteen since
+        // `/permissions` and `/statusline`; `/models` and `/provider` stay
+        // deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 13);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1754,10 +1861,14 @@ mod tests {
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
         // The three that mean something by the rest of the line: `/model <id>`
         // picks among what a provider offers, `/setup <provider>` picks the
-        // provider, `/permissions <mode|reset>` picks the authority. Every
-        // other name is the whole command.
+        // provider, `/permissions <mode|reset>` picks the authority,
+        // `/statusline <item>` flips a footer segment. Every other name is the
+        // whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup" | "/permissions");
+            let takes_one = matches!(
+                spec.name,
+                "/model" | "/setup" | "/permissions" | "/statusline"
+            );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }
@@ -1875,5 +1986,93 @@ mod tests {
         // Still one bounded, sanitized line: deriving the count must not have
         // moved the guidance off the end of it.
         assert!(refusal.ends_with("commands"), "{refusal}");
+    }
+
+    /// A configuration over `root/home` and `root/work`, both kept by the
+    /// caller's temporary directory.
+    fn config_under(root: &std::path::Path) -> RuntimeConfig {
+        let home = root.join("home");
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&home).expect("a home");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        RuntimeConfig::load_with(
+            &Environment::new(Some(home), std::collections::BTreeMap::new()),
+            &workspace,
+        )
+        .expect("load a configuration")
+    }
+
+    /// `/statusline <argument>` on this shell: what it printed on each stream.
+    fn statusline_said(argument: &str, config: &mut RuntimeConfig) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        statusline_on_the_line(argument, config, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_flips_and_keeps_a_statusline_item_in_the_tuis_words() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("workspace", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: saved to user settings (scope=user)\n\
+             [shell] statusline: workspace: on\n"
+        );
+        assert_eq!(err, "");
+        assert!(config.statusline.workspace);
+        // What it kept is what the next launch reads.
+        let reloaded = config_under(root.path());
+        assert!(reloaded.statusline.workspace);
+        assert!(!reloaded.statusline.context);
+
+        let (out, _) = statusline_said("workspace", &mut config);
+        assert!(
+            out.ends_with("[shell] statusline: workspace: off\n"),
+            "{out}"
+        );
+        assert!(!config_under(root.path()).statusline.workspace);
+    }
+
+    #[test]
+    fn a_bare_statusline_on_the_line_shell_says_each_item_and_how_to_change_one() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        config.statusline.session = true;
+        let (out, err) = statusline_said("", &mut config);
+        assert_eq!(
+            out,
+            "[shell] statusline: context: off, session: on, workspace: off\n\
+             [shell] usage: /statusline [context|session|workspace]\n"
+        );
+        assert_eq!(err, "");
+        assert!(
+            !root.path().join("home").join(".xfx").exists(),
+            "asking wrote the profile"
+        );
+    }
+
+    #[test]
+    fn the_line_shell_refuses_an_item_it_does_not_have_and_says_a_failed_write() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = statusline_said("Context", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(err, "xfx: usage: /statusline [context|session|workspace]\n");
+        assert_eq!(config.statusline, crate::config::StatusLine::default());
+
+        // No home: in force for this process, and said not to be kept.
+        config.user_settings_path = None;
+        let (out, err) = statusline_said("context", &mut config);
+        assert_eq!(out, "[shell] statusline: context: on\n");
+        assert_eq!(
+            err,
+            "xfx: statusline: active for this process but not saved to user settings \
+             (no home directory is set)\n"
+        );
+        assert!(config.statusline.context);
     }
 }

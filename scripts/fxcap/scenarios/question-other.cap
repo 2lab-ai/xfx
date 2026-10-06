@@ -1,0 +1,28 @@
+# The freeform `Other` choice, typed into and answered, then a second question
+# refused with Escape. fx cancels the turn at that Escape; xfx declines the
+# question and the model is told so with the tool's own sentinel, so xfx's
+# gateway serves the turn after it ("after cancel.") and fx's never asks.
+gateway question-other.json
+wait 3
+type ask me
+key Enter
+wait 2.5
+snap q
+key Down Down
+wait 0.4
+snap q-other
+type MariaDB please
+wait 0.4
+snap q-typed
+key Enter
+wait 2.5
+snap answered
+type ask again
+key Enter
+wait 2.5
+snap q2
+key Escape
+wait 3
+snap q2-esc
+snapfull end
+gwlog
