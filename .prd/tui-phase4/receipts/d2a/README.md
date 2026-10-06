@@ -65,8 +65,14 @@ Gateway logs: one `GET /coding-agent/v1/models bearer=yes` per xfx run; fx asks 
 - **A failed load** says `Unable to load models.` in xfx whatever the failure; fx says `Could not reach AI Gateway; retry /model.` for a retryable one (`retryableFailureText`, `:435-443`). xfx loads a provider's catalog once per process and does not retry, so "retry" would be a promise it does not keep. Not captured (the fake gateway always answers).
 - **The banner**: xfx's brand line (WU-A).
 
+## Re-captured after merging `plan/tui-phase4` (2c09164)
+
+Every xfx scenario was captured again from the merged tree (`5559524`) and compared with the files here: all 20 xfx snaps are byte-identical after the banner, except `model-busy`'s activity row (`• Generating` against ` Generating`, the marker's blink phase) and its elapsed seconds (`6s` against `7s`). The files kept are the pre-merge ones.
+
 ## Found, not fixed
 
 `model-busy after`: xfx's answer rows end one cell short -- `… word31 word3` where fx has `… word31 word32` at column 120, and the same at `word4`/`word49`. Reproduced with `plan/tui-phase4`'s own binary over `slow-line-turn.json` alone, so it is not this unit's: a full-width answer row loses its last cell. Reported to the dispatcher.
+
+The banner of the merged-tree build still read `v0.1.0-b9c5591`: `build.rs`'s `watch_git_head` watches the branch's loose ref only when it exists, and a worktree branch created on a packed ref has none until its first commit -- so the build script that ran then watched HEAD alone, which a commit on the branch never changes. Also reported, not fixed.
 
 Verdict: **the menu, its keys, its states, the router form and its persistence match fx byte for byte in every snap where both binaries take the same path** (16 snaps fully identical after the banner). The differences are the queued mid-turn change, the later unit's inline column, the registry summary and the brand line.
