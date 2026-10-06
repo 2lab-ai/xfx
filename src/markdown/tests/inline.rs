@@ -2,7 +2,7 @@
 //! (`assistant_presentation.zig:1230-1782`).
 
 use std::cell::Cell;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::{contains, rule_only, text};
 use crate::markdown::{parse_table_payload, render_table_payload, MarkdownProcessor, Styles};
@@ -407,9 +407,9 @@ fn entity_lookup_is_bounded_and_a_long_ampersand_line_renders_in_bounded_time() 
     out.clear();
     let mut line = "&".repeat(64 * 1024);
     line.push('\n');
-    let started = Instant::now();
+    let started = super::thread_cpu_time();
     processor.push(&line, &mut out);
-    let elapsed = started.elapsed();
+    let elapsed = super::thread_cpu_time() - started;
     assert!(elapsed < Duration::from_millis(500), "{elapsed:?}");
     assert_eq!(text(&out), line);
 }

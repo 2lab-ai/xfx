@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-0ce2d17 [debug] · Run /help for commands
+
+┃ edit the files
+
+● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied
+├ Read a.txt
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Ran echo hi > out.txt && cat out.txt
+└ Running echo again
+
+[you] use capitals
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Permission needed · Choose one                                                                               Command
+
+  Would you like to run the following command?
+
+  $ # terminal.exec cwd=.
+    echo again
+
+  ❯ 1. Yes
+    2. Yes, and don't ask again for this exact command
+    3. No
+  2 = allow every future run of exactly `echo again` in . for the rest of this session, and in every later `xfx ask
+  --resume-id 1791305830353-e466714564c7a521` of this saved session
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
+
+
+
+
+
+
+
+
+
+
+
+

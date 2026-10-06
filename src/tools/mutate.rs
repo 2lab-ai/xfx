@@ -63,8 +63,8 @@ use crate::permission::{
 };
 
 use super::spec::{
-    nonblank, object, required_string, InputSchema, PermissionKind, Property, PropertyKind,
-    ToolContext, ToolInput, ToolResult, ToolSpec,
+    nonblank, object, required_string, Activity, InputSchema, LineChanges, Outcome, PermissionKind,
+    Presentation, Property, PropertyKind, ToolContext, ToolInput, ToolResult, ToolSpec,
 };
 
 use namespace::Location;
@@ -107,6 +107,7 @@ pub const WRITE_FILE: ToolSpec = ToolSpec::new(
     "write_file",
     WRITE_FILE_DESCRIPTION,
     PermissionKind::MutateFile,
+    Presentation::new(Activity::Write, "Writing", "Wrote", "file"),
     InputSchema {
         properties: &[
             Property {
@@ -135,6 +136,7 @@ pub const EDIT_FILE: ToolSpec = ToolSpec::new(
     "edit_file",
     EDIT_FILE_DESCRIPTION,
     PermissionKind::MutateFile,
+    Presentation::new(Activity::Edit, "Editing", "Edited", "file"),
     InputSchema {
         properties: &[
             Property {
@@ -170,6 +172,7 @@ pub const CREATE_FOLDER: ToolSpec = ToolSpec::new(
     "create_folder",
     CREATE_FOLDER_DESCRIPTION,
     PermissionKind::MutateFile,
+    Presentation::new(Activity::Write, "Creating", "Created", "folder"),
     InputSchema {
         properties: &[Property {
             name: "path",
@@ -286,6 +289,15 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     if let Some(reason) = read_proof_missing("write_file", context, &located, &preimage) {
         return ToolResult::failure(reason);
     }
+    // What the row under the turn counts (`Wrote c.txt +2`). Only for a
+    // preimage that is text: lines of bytes that are not UTF-8 are not lines,
+    // and a count made of them would be a number about nothing.
+    let changes = match &preimage {
+        TargetState::Absent => Some(LineChanges::between("", &input.content)),
+        TargetState::Present { bytes, .. } => std::str::from_utf8(bytes)
+            .ok()
+            .map(|before| LineChanges::between(before, &input.content)),
+    };
 
     // The pair a screen review shows, built **here**, from the preimage this
     // executor read and the exact text that would replace it -- the same two
@@ -310,7 +322,7 @@ fn execute_write_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         &preimage.as_text(),
         &input.content,
     ));
-    commit(context, located, plan, |plan| {
+    commit(context, located, plan, changes, |plan| {
         format!(
             "Wrote {} ({} bytes)",
             plan.display(),
@@ -376,6 +388,10 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
     if let Err(reason) = bounded("edit_file", "result", after.len(), context) {
         return ToolResult::failure(reason);
     }
+    // Counted over the whole file, as upstream's review diff is, rather than
+    // over the two strings: an `old_string` that ends mid-line changes the
+    // line it ends on, and only the file says which one that is.
+    let changes = Some(LineChanges::between(text, &after));
 
     // The excerpt is what an approval prompt shows. It is built from the exact
     // strings the model sent, bounded and escaped, so a human is asked about the
@@ -407,7 +423,7 @@ fn execute_edit_file(input: &ToolInput, context: &ToolContext) -> ToolResult {
         after: bounded_excerpt(&input.new_string),
     })
     .with_diff(diff);
-    commit(context, located, plan, |plan| {
+    commit(context, located, plan, changes, |plan| {
         format!("Edited {}", plan.display())
     })
 }
@@ -442,7 +458,7 @@ fn execute_create_folder(input: &ToolInput, context: &ToolContext) -> ToolResult
         Preimage::Absent,
         Vec::new(),
     );
-    commit(context, located, plan, |plan| {
+    commit(context, located, plan, None, |plan| {
         format!("Created {}", plan.display())
     })
 }
@@ -581,6 +597,7 @@ fn commit(
     context: &ToolContext,
     located: Location,
     plan: MutationPlan,
+    changes: Option<LineChanges>,
     describe: impl Fn(&MutationPlan) -> String,
 ) -> ToolResult {
     let tool = plan.kind().tool();
@@ -592,7 +609,8 @@ fn commit(
         return ToolResult::success(
             format!("No changes to {}", plan.display()),
             format!("{} is already what was asked for", plan.display()),
-        );
+        )
+        .ending(Outcome::Unchanged);
     }
 
     // The guard is released by the end of this statement: minting takes the same
@@ -609,6 +627,7 @@ fn commit(
         PolicyDecision::Allow { source } => source,
         PolicyDecision::Deny { reason, .. } => {
             return ToolResult::failure(format!("{tool} was not permitted: {reason}"))
+                .ending(Outcome::Denied)
                 .with_feedback(feedback)
         }
         // `decide_with_feedback` resolves every prompt; this arm exists so that
@@ -617,6 +636,7 @@ fn commit(
             return ToolResult::failure(format!(
                 "{tool} was not permitted: the approval was never resolved"
             ))
+            .ending(Outcome::Denied)
             .with_feedback(feedback)
         }
     };
@@ -641,9 +661,13 @@ fn commit(
         .mutation()
         .expect("a mutation authority carries a mutation plan");
     match namespace::apply(&located, plan) {
+        // Carried only by the change that was made: a refused or failed one
+        // added and removed nothing, whatever it would have.
         Ok(()) => {
             let summary = describe(plan);
-            ToolResult::success(summary.clone(), summary).with_feedback(feedback)
+            ToolResult::success(summary.clone(), summary)
+                .with_changes(changes)
+                .with_feedback(feedback)
         }
         Err(namespace::ApplyError::Stale(reason)) => ToolResult::revoked(format!(
             "{tool} stopped: the authority for `{}` no longer describes the filesystem -- {reason}",
