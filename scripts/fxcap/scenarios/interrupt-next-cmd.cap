@@ -1,0 +1,18 @@
+# What the model is told after a command the user stopped: Ctrl-C while a
+# six-second command runs (as in interrupt-cmd), then, once the command would
+# have ended, a new prompt -- the request it sends is the receipt (gwlog).
+fx: gateway interrupt-cmd-fx.json
+xfx: gateway interrupt-cmd-xfx.json
+fx: env FX_PERMISSION_MODE=yolo
+xfx: env XFX_PERMISSION_MODE=yolo
+wait 2
+type run cmd
+key Enter
+wait 2.5
+key C-c
+wait 7
+type next
+key Enter
+wait 2.5
+snap next
+gwlog

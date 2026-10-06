@@ -7,7 +7,12 @@ merged product. Re-checked on the branch head `ab08b05` after the later merges
 interrupt, hint, question and retry row is the same as here; the only changes
 are blink/count, stream position and retry timing (as below), the catalog's
 rows (the registry grew), and xfx's no-questions mode now named `full access`
-as fx's is (D4a). `interrupt-steer` was captured on that head. Scenarios under
+as fx's is (D4a). `interrupt-steer` was captured on that head. What the model is told after an
+interrupt, and the full transcript's recovery records, were captured on both
+products at `ddca9d9` (after merging plan `87c9ed9`): `interrupt-next-question`,
+`interrupt-next-cmd`, `interrupt-recovery`, and xfx's `interrupt` bodies and
+gateway log (its snaps are unchanged from the earlier capture but for the
+banner). Scenarios under
 `scripts/fxcap/scenarios/`, each run on both binaries:
 
 ```
@@ -24,6 +29,9 @@ XFX_BIN=<this branch's target/debug/xfx> scripts/fxcap/capture.sh xfx <scenario>
 | `interrupt-retry.cap` | `interrupt-retry.json` | 40x120, 24x80 | two HTTP 500s with the Gateway's error shape then an answer; then a prompt the fake has no turn for (every request a plain-text 500) |
 | `interrupt-help.cap` | none | 40x120 | a first Ctrl-C at the `/help` catalog, and the window closing |
 | `interrupt-steer.cap` | `interrupt-steer-fx.json` / `interrupt-steer-xfx.json` | 40x120 | a prompt submitted while an answer streams, and while a command runs |
+| `interrupt-next-question.cap` | `interrupt-question.json` | 40x120 | Ctrl-C at a model's question, then a new prompt: the request it sends |
+| `interrupt-next-cmd.cap` | `interrupt-cmd-fx.json` / `interrupt-cmd-xfx.json` | 40x120 | Ctrl-C while a six-second command runs, then (after it would have ended) a new prompt: the request it sends |
+| `interrupt-recovery.cap` | `interrupt-retry.json` | 80x120 (tall enough for every record) | two HTTP 500s then an answer, then Ctrl-O: the full transcript's `recovery:` records |
 
 The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and
 `FX_NO_OPEN_BROWSER=1` are the harness's own, unchanged. Sanitized: the scratch
@@ -51,6 +59,8 @@ timing: both are "blink/count" below and are not a difference in the row.
 | retry row, plain-text body | `ESC[38;5;252m⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1sESC[39m` | the same |
 | question cancelled by Ctrl-C | `ESC[38;5;252m■ESC[39m Cancelled`, nothing after it | the same |
 | a prompt waiting for its turn | `ESC[38;5;245m┋ change toneESC[39m`, between the activity row's blank and a blank of its own, above the composer | the same row, same SGR, same place |
+| full transcript, a retry | `ESC[38;5;252m! recovery:ESC[38;5;250m ⚠ Provider unavailable · HTTP 500 · server_error: upstream exploded · retrying requestESC[39m` then `  ESC[38;5;250mkind: auto_retry · cause: provider_unavailable · attempt: 1/10 · diagnostic: HTTP 500 · server_error: upstreamESC[39m` | the same bytes, `1/3` for `1/10` (so the row fits 120 columns unwrapped) |
+| full transcript, the recovery | `ESC[38;5;252m✓ recovery:ESC[38;5;250m ✓ recovered · succeeded on attempt 3ESC[39m` then `  ESC[38;5;250mkind: auto_recovered · attempt: 3/10ESC[39m` | the same bytes, `3/3` for `3/10` |
 
 (`ESC[39m` is tmux's re-serialization of the reset; xfx writes `ESC[0m`.)
 
@@ -133,6 +143,38 @@ retrying.
 | `f2.5` (both sizes) | rows above the last | xfx spent its three attempts and wrote `✗ system: the Gateway returned HTTP 500: unexpected request` (its terminal failure, unchanged); fx is still retrying |
 | `r0.15`, `r0.45` (24x80) | the row's words and colour up to column 80 | **fx wraps the label onto a second row** (`  request in 1s`, two-column indent, up to three rows: `max_static_status_activity_rows`, `render_input.zig:406`, `:690-697`); **xfx cuts it at column 80** (`…· retrying r`). xfx's activity row is one geometry row (`layout.rs` `Geometry::activity`); a multi-row activity block is a layout change not made here |
 
+### What the model is told: `interrupt` bodies, `interrupt-next-question`, `interrupt-next-cmd` 40x120
+
+The request after the interrupt, non-system messages (the `*-bodies/`
+directories):
+
+| after | fx | xfx |
+|---|---|---|
+| an answer stopped mid-stream (`interrupt`, fx `003`, xfx `002`) | `user stream please` · `assistant <partial> \n\nThe previous response ended before completion.` · `user <turn_aborted>…` · `user next` | the same four messages; the partial ends one word earlier (stream position) |
+| a question cancelled with Ctrl-C (fx `003`, xfx `002`) | `user ask me` · `assistant` tool-call `ask_user_question` · `tool` `{"type":"error-text","value":"aborted by user"}` · `user <turn_aborted>…` · `user next` | the same five messages and output type; the call id and the input's key order are each product's own |
+| a command stopped while it ran (fx `003`, xfx `002`) | the call, `error-text` `aborted by user`, `<turn_aborted>`, `next` | the call, **its real result** (`exit_code 0`, `text`), `assistant Interrupted by user after completing 1 tool call: terminal.`, `<turn_aborted>`, `next` |
+
+The last row is the running-command residual below, not the history: xfx's
+command ran to its end, so the history says it completed, in fx's own sentence
+for completed calls (`formatCompletedToolSummary`, `session.zig:3020-3032`).
+The `next` snaps: `interrupt-next-question`'s are the same rows on both
+products but for the banner; `interrupt-next-cmd`'s differ only in the stopped
+group, as in `interrupt-cmd` `cmd-done` (fx `└ Cancelled sleep 6`, xfx `└ Ran
+sleep 6` and the turn's own cancelled line).
+
+### `interrupt-recovery` 80x120
+
+`full`: the full transcript's records, under `* session:`, in fx's order -- the
+failed request's `! network:`, `! recovery:` for the retry (`attempt: 1/…`),
+`! recovery:` again as attempt 2 starts, the second failure's `! network:` and
+`! recovery:`, `! recovery:` as attempt 3 starts, the `* network:` that
+finished, and `✓ recovery: ✓ recovered · succeeded on attempt 3` -- SGR byte for
+byte (table above). Differs: the budget (`/3`, `/10`); fx's second backoff is a
+second, so its second retry and the attempt after it say `in 1s` and `retry
+delay: 1s`, where xfx's 500 ms rounds down to neither (`orchestrator.zig:5017`);
+fx's `* session:` has its own `system prompt:` and `skills:` lines and fifteen
+tools (F5's).
+
 ### `interrupt-help` 40x120
 
 `help-open`, `help-cc`, `help-cc-expired`: the catalog stays up under a first
@@ -153,15 +195,14 @@ row byte for byte in all three. Every other row differs by the two registries
   right-slot rule, which `esc again to clear` shares.
 - **A running command is not stopped at the keystroke** (`interrupt-cmd`
   above): runtime, not presentation.
-- **What the model is told about a stopped turn.** fx sends the partial answer
-  with `The previous response ended before completion.` and a `<turn_aborted>`
-  user message (`fx-interrupt-40x120-bodies/003-completion.json`); xfx sends the
-  user prompts and nothing of the stopped turn
-  (`xfx-interrupt-40x120-bodies/002-completion.json`). That is the runtime's
-  record (`session.zig:53-56`, `:63` upstream), not this screen.
-- **`✓ recovered · attempt N`** for 1.5 s after a recovery (`worker_status.zig:5`,
-  `:221-235`) is not shown; the row goes back to the turn's own on the first
-  sign the attempt got through. Neither capture caught fx's at these intervals.
+- **A failed result that is a refusal** goes as `error-text`; fx sends a
+  permission denial as `execution-denied` (`vercel_protocol.zig:742-744`).
+  Every other failed result is `error-text` on both.
+- **`✓ recovered · attempt N` on the band** for 1.5 s after a recovery
+  (`worker_status.zig:5`, `:221-235`) is not shown; the row goes back to the
+  turn's own on the first sign the attempt got through. Neither capture caught
+  fx's at these intervals. Its full-transcript record is written
+  (`interrupt-recovery`).
 - **Escape pausing a retry** (`app_input_runtime.zig:3163-3167`) and the
   `waiting for connection` / `recovery paused` labels: xfx has no pausable
   recovery.
