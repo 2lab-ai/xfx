@@ -424,6 +424,16 @@ impl Palette {
         }
     }
 
+    /// The hint row's `⚡︎` while Ultra mode is on: one yellow on either
+    /// screen, at the depth the terminal has (`appendSessionStatusSegments`,
+    /// `render.zig:396-400`, `c1db919`).
+    pub(crate) fn ultra(&self) -> &'static str {
+        match self.depth {
+            Depth::Ansi256 => "\u{1b}[38;5;220m",
+            Depth::TrueColor => "\u{1b}[38;2;255;204;0m",
+        }
+    }
+
     /// What ends a run, in either mode and at either depth.
     pub(crate) fn reset(&self) -> &'static str {
         RESET

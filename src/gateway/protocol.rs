@@ -240,6 +240,16 @@ pub struct RequestOptions {
     /// The effort level to ask for, as the catalog names it; `None` asks for
     /// nothing and the provider decides.
     pub reasoning: Option<String>,
+    /// Fast mode, for a model that offers it: the Gateway's
+    /// `providerOptions.gateway.speed = "fast"` (`writeProviderOptions`,
+    /// `vercel_protocol.zig:469-472`).
+    pub fast: bool,
+    /// Ultra mode, for an OpenAI model on the Gateway that offers it:
+    /// `providerOptions.gateway.only = ["openai"]` and
+    /// `providerOptions.openai.serviceTier = "ultrafast"` (`:478-494`). Never
+    /// set with [`Self::fast`]; if both were, Ultra is what is sent, as
+    /// upstream's writer does.
+    pub ultrafast: bool,
 }
 
 /// The effort the Gateway's language-model route is sent for `label`.
@@ -411,6 +421,22 @@ impl Serialize for WireRequest<'_> {
         map.serialize_entry("toolChoice", &ToolChoiceBody(self.0.tool_choice))?;
         if let Some(reasoning) = &self.1.reasoning {
             map.serialize_entry("reasoning", reasoning_wire_value(reasoning))?;
+        }
+        // `writeProviderOptions`: the key only when there is something in it,
+        // `gateway` before `openai`.
+        if self.1.ultrafast {
+            map.serialize_entry(
+                "providerOptions",
+                &serde_json::json!({
+                    "gateway": {"only": ["openai"]},
+                    "openai": {"serviceTier": "ultrafast"},
+                }),
+            )?;
+        } else if self.1.fast {
+            map.serialize_entry(
+                "providerOptions",
+                &serde_json::json!({"gateway": {"speed": "fast"}}),
+            )?;
         }
         map.end()
     }
@@ -678,6 +704,7 @@ mod tests {
         let low = request
             .body_with(&RequestOptions {
                 reasoning: Some("low".to_string()),
+                ..RequestOptions::default()
             })
             .expect("valid");
         assert!(
@@ -687,6 +714,7 @@ mod tests {
         let max = request
             .body_with(&RequestOptions {
                 reasoning: Some("max".to_string()),
+                ..RequestOptions::default()
             })
             .expect("valid");
         assert!(max.ends_with(r#""reasoning":"xhigh"}"#), "{max}");
@@ -698,9 +726,55 @@ mod tests {
         assert_eq!(
             empty.body_with(&RequestOptions {
                 reasoning: Some("low".to_string()),
+                ..RequestOptions::default()
             }),
             Err(ProtocolError::EmptyPrompt)
         );
+    }
+
+    #[test]
+    fn fast_and_ultra_are_upstreams_provider_options_after_the_effort() {
+        // `writeProviderOptions` (`vercel_protocol.zig:453-494`, `c1db919`),
+        // less upstream's `caching` entry, which xfx does not send.
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![Message::user("go")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let fast = request
+            .body_with(&RequestOptions {
+                reasoning: Some("low".to_string()),
+                fast: true,
+                ultrafast: false,
+            })
+            .expect("valid");
+        assert!(
+            fast.ends_with(r#""reasoning":"low","providerOptions":{"gateway":{"speed":"fast"}}}"#),
+            "{fast}"
+        );
+        let ultra = request
+            .body_with(&RequestOptions {
+                reasoning: None,
+                fast: false,
+                ultrafast: true,
+            })
+            .expect("valid");
+        assert!(
+            ultra.ends_with(
+                r#""providerOptions":{"gateway":{"only":["openai"]},"openai":{"serviceTier":"ultrafast"}}}"#
+            ),
+            "{ultra}"
+        );
+        // Ultra wins a pair that should never be sent.
+        let both = request
+            .body_with(&RequestOptions {
+                reasoning: None,
+                fast: true,
+                ultrafast: true,
+            })
+            .expect("valid");
+        assert_eq!(both, ultra);
     }
 
     #[test]

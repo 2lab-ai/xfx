@@ -1,0 +1,31 @@
+# Ultra on a model that offers it, its status, /fast turning it off, and a
+# model change turning both off (account-model research §5-§6).
+models models.json
+seed fast-seed-astra.json
+nomodel
+wait 2.5
+snap start
+type /ultrafast on
+key Enter
+wait 1
+snap uf-on
+home uf-on
+type /ultrafast
+key Enter
+wait 1
+snap uf-status
+type /fast
+key Enter
+wait 1
+snap fast-after-uf
+home fast-after-uf
+type /ultrafast on
+key Enter
+wait 1
+type /model xai/grok-4.7
+wait 0.5
+key Escape
+key Enter
+wait 1.5
+snap model-change-clears
+home end

@@ -78,7 +78,7 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{self, ModelAnswer, ModelChange, TurnControl, TurnWork, UiEvent};
+use super::bridge::{self, ModelAnswer, ModelChange, SpeedChange, TurnControl, TurnWork, UiEvent};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
@@ -116,7 +116,7 @@ use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
-use crate::provider::effort::Effort;
+use crate::provider::effort::{intrinsic_fast, Effort, Speed, TurnSettings};
 use crate::provider::model::model_id_problem;
 use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
@@ -355,32 +355,62 @@ const PROVIDER_BUSY: &str =
     "Provider switching is unavailable until active and queued work finishes.";
 
 /// What a `/model` explicit form that does not hold is answered with --
-/// four words or more, an effort the model does not list, a speed xfx cannot
-/// send: upstream's usage line, an error with no topic
+/// four words or more, an effort the model does not list, a speed it does not
+/// offer: upstream's usage line, an error with no topic
 /// (`submitExplicitModelSelection`, `app_input_runtime.zig:2860-2894`;
 /// `fx-model3-40x120-paste-bad-effort`).
 const MODEL_USAGE: &str = "usage: /model <id> <effort> [normal|fast|ultrafast]";
 
+/// `/fast` for a model whose catalog row offers no Fast mode
+/// (`toggleFastForModel`, `session_commands.zig:733-751`): neutral, topic
+/// `fast`, and nothing changed.
+const NO_FAST_MODE: &str = "This model does not come with a fast mode.";
+
+/// `/ultrafast on` for a model whose row offers no Ultra mode
+/// (`applyUltrafastMode`, `session_commands.zig:802-815`): a **warning**, not
+/// an error, topic `ultrafast`, and nothing changed.
+const NO_ULTRA_MODE: &str = "Ultra mode is unavailable for this model and may increase cost.";
+
+/// `/ultrafast` with anything but `on`, `off` or `status`
+/// (`handleUltrafast`, `session_commands.zig:704-723`): an error with no topic.
+const ULTRAFAST_USAGE: &str = "usage: /ultrafast [on|off|status]";
+
+/// `/fast`, or `/ultrafast` with a word it knows: the command as given,
+/// before the catalog row it is judged against is known
+/// ([`Shell::held_speed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpeedCommand {
+    /// `/fast`: a toggle.
+    Fast,
+    /// `/ultrafast on` or `/ultrafast off`.
+    Ultra(bool),
+    /// `/ultrafast` or `/ultrafast status`: what was asked for.
+    Status,
+}
+
 /// Upstream's announcement of a model change (`announceModelSelection`,
 /// `session_commands.zig:1266-1279`): `Switched to`, or `Next turn will use`
 /// while a turn is still to finish, then the id, the effort -- `default` for
-/// none -- and the speed. The speed is `normal` unless the id itself is a fast
-/// one (`intrinsic_fast`, `model_capabilities.zig:117-119`): xfx sends no speed
-/// of its own yet.
-fn switched(next_turn: bool, model: &str, effort: &Effort) -> String {
+/// none -- and the speed: `ultrafast` with Ultra on, `fast` with Fast on or for
+/// an id that is a fast one itself (`intrinsic_fast`,
+/// `model_capabilities.zig:117-119`), and `normal` otherwise.
+fn switched(next_turn: bool, model: &str, settings: &TurnSettings) -> String {
     let lead = if next_turn {
         "Next turn will use "
     } else {
         "Switched to "
     };
-    let speed = if model.ends_with("-fast") {
-        "fast"
+    let speed = if settings.ultrafast {
+        Speed::Ultrafast
+    } else if settings.fast || intrinsic_fast(model) {
+        Speed::Fast
     } else {
-        "normal"
+        Speed::Normal
     };
     format!(
-        "{lead}{model} (effort: {}, speed: {speed})",
-        effort.display()
+        "{lead}{model} (effort: {}, speed: {})",
+        settings.effort.display(),
+        speed.label()
     )
 }
 
@@ -561,14 +591,29 @@ pub(crate) struct Shell {
     /// this side can say at once; a catalog nobody has read cannot be
     /// resolved here at all.
     catalog_known: CatalogKnown,
-    /// The session's reasoning effort, as the band shows and announces it.
+    /// The session's reasoning effort and its two speed switches, as the band
+    /// shows and announces them.
     ///
-    /// The runtime's is the one a request is sent with
-    /// (`super::worker`'s `Runtime::effort`); this one starts from the same
-    /// profile and moves with every change this side asks for -- at once, the
+    /// The runtime's are the ones a request is sent with
+    /// (`super::worker`'s `Runtime::settings`); these start from the same
+    /// profile and move with every change this side asks for -- at once, the
     /// moment it is asked for, because that is when the band says so -- and
     /// with every [`UiEvent::ModelAnswered`], which carries the runtime's.
-    effort: Effort,
+    settings: TurnSettings,
+    /// Whether the Fast mode above was chosen for the model in force
+    /// (`fast_mode_model_bound`, `resolveStartupFastMode`,
+    /// `app_lifecycle.zig:827-844`): what the footer's `⚡︎` asks besides the
+    /// switch. A profile's hand-written `fast_mode` is on and unmarked until
+    /// the first change made here, which binds it, as upstream's every write
+    /// does.
+    fast_bound: bool,
+    /// `/fast` or `/ultrafast` given before this side has read the catalog
+    /// that says whether the model offers the mode: held, with the catalog
+    /// asked for, and decided in the order given the moment the answer
+    /// arrives -- or dropped with the provider they were given under. One
+    /// given while another is held waits behind it, so two `/fast` are still
+    /// a toggle on and a toggle off.
+    held_speed: Vec<SpeedCommand>,
     /// `/model`'s inline column picker ([`super::model_column`]): which column
     /// is open over the composer's `/model ` line, which model is pending and
     /// which row is marked. A view of the composer like the completion menu,
@@ -1399,7 +1444,13 @@ impl Shell {
             provider: config.provider,
             catalog: Vec::new(),
             catalog_known: CatalogKnown::Unasked,
-            effort: config.effort.clone(),
+            settings: TurnSettings {
+                effort: config.effort.clone(),
+                fast: config.fast_mode,
+                ultrafast: config.ultrafast_mode,
+            },
+            fast_bound: config.fast_mode_model_bound,
+            held_speed: Vec::new(),
             column: Column::default(),
             column_seen: String::new(),
             column_edit: ColumnEdit::Other,
@@ -1726,7 +1777,7 @@ impl Shell {
             style: self.palette.notice(),
             resume: self.palette.statusline(),
         });
-        let (model, effort) = self.hinted_model();
+        let (model, effort, speed) = self.hinted_model();
         hint::row(
             &Hint {
                 missing_credential: self.missing_credential,
@@ -1734,6 +1785,7 @@ impl Shell {
                 mode: self.mode,
                 model: &model,
                 effort: effort.as_ref().map(Effort::display),
+                speed,
                 // The three optional segments, each only while it is on
                 // (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
                 session_title: self
@@ -1777,20 +1829,30 @@ impl Shell {
         )
     }
 
-    /// The model and the effort the hint row says a turn will use.
+    /// The model, the effort and the speed marker the hint row says a turn
+    /// will use: the marker's colour ([`Hint::speed`]) -- empty for Fast,
+    /// Ultra's yellow for Ultra -- or `None`.
     ///
     /// **While the inline column has a model pending, the pending one**, and
-    /// the level the text spells or the mark is on: upstream's footer previews
-    /// the choice before it is made (`app_render_runtime.zig:653-668`;
-    /// `fx-model-40x120-gpt-enter`, `effort-enter`). Otherwise the model in
-    /// force and the session's effort.
+    /// the level and the speed the text spells or the mark is on: upstream's
+    /// footer previews the choice before it is made
+    /// (`app_render_runtime.zig:653-668`, `:712-714`;
+    /// `fx-model-40x120-gpt-enter`, `effort-enter`). The speed is marked
+    /// before the speed column opens -- `fast` for a model that offers it --
+    /// so the effort column already shows `⚡︎`. Otherwise the model in force,
+    /// the session's effort, and its switches.
     ///
     /// The effort is shown only when it is not the default and the model takes
     /// it (`render.zig:390-393`): its catalog row lists that level -- or no
     /// catalog has been read yet, which upstream treats as a level it has not
     /// been told is unsupported (`active_capabilities_pending`, `:655-658`). A
     /// catalog that could not be read lists nothing, so nothing is shown.
-    fn hinted_model(&self) -> (String, Option<Effort>) {
+    ///
+    /// The marker is Ultra's for Ultra on -- previewed only where the row
+    /// offers it -- and Fast's for a fast id (`intrinsic_fast`), or for Fast
+    /// on: previewed where the row offers it, and in force when it is bound to
+    /// the model ([`Self::fast_bound`]).
+    fn hinted_model(&self) -> (String, Option<Effort>, Option<&'static str>) {
         let catalog = known(self.catalog_known, &self.catalog);
         if let Some(preview) = self
             .column
@@ -1798,20 +1860,42 @@ impl Shell {
             .filter(|_| self.help_menu.is_none() && self.model_menu.is_none())
             .and_then(|query| self.column.preview(&query, catalog))
         {
-            let (model, effort) = preview;
-            return (model, (!effort.is_default()).then_some(effort));
+            let entry = catalog.entry(&preview.model);
+            let offers =
+                |speed: Speed| entry.is_some_and(|entry| Speed::options(entry).contains(&speed));
+            let speed = if preview.speed == Speed::Ultrafast && offers(Speed::Ultrafast) {
+                Some(self.palette.ultra())
+            } else if intrinsic_fast(&preview.model)
+                || (preview.speed == Speed::Fast && offers(Speed::Fast))
+            {
+                Some("")
+            } else {
+                None
+            };
+            let effort = (!preview.effort.is_default()).then_some(preview.effort);
+            return (preview.model, effort, speed);
         }
         let shown = match self.catalog_known {
             CatalogKnown::Loaded => self
                 .catalog
                 .iter()
                 .find(|entry| entry.matches(&self.model))
-                .is_some_and(|entry| self.effort.supported_by(entry) && !entry.efforts.is_empty()),
+                .is_some_and(|entry| {
+                    self.settings.effort.supported_by(entry) && !entry.efforts.is_empty()
+                }),
             CatalogKnown::Unread(_) => false,
             CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted => true,
         };
-        let effort = (shown && !self.effort.is_default()).then(|| self.effort.clone());
-        (self.model.clone(), effort)
+        let effort =
+            (shown && !self.settings.effort.is_default()).then(|| self.settings.effort.clone());
+        let speed = if self.settings.ultrafast {
+            Some(self.palette.ultra())
+        } else if intrinsic_fast(&self.model) || (self.settings.fast && self.fast_bound) {
+            Some("")
+        } else {
+            None
+        };
+        (self.model.clone(), effort, speed)
     }
 
     /// The context meter's numerator and, when there is one, its denominator.
@@ -2128,6 +2212,12 @@ impl Shell {
         if let Some(model) = replay.model {
             self.model = model;
         }
+        // The session's own, put back with it; recorded with the model they
+        // were chosen for, so bound to it.
+        if let Some(settings) = replay.settings {
+            self.settings = settings;
+            self.fast_bound = true;
+        }
         self.resumed(replay.title);
         for turn in replay.turns {
             self.replay_turn(turn);
@@ -2400,6 +2490,14 @@ impl Shell {
                 self.catalog_known = CatalogKnown::Unasked;
                 self.column.reset();
                 self.context_used = None;
+                // The speed switches went off with the model the switch
+                // replaced, on the runtime too (`super::worker`'s `adopt`), and
+                // a `/fast` held for the old provider's catalog is about a
+                // model that is not in force any more. The effort is the
+                // session's, and stays.
+                self.settings.fast = false;
+                self.settings.ultrafast = false;
+                self.held_speed.clear();
                 // The conversation went with the bundle, and the session its
                 // title named with it.
                 self.forget_session_title();
@@ -2436,13 +2534,18 @@ impl Shell {
             // turn was held in the id it resolved to.
             UiEvent::ModelAnswered {
                 model,
-                effort,
+                settings,
                 outcome,
                 next_turn,
                 announced,
             } => {
+                // Upstream writes the binding beside every model change; a
+                // refusal wrote nothing.
+                if !matches!(outcome, ModelAnswer::Refused { .. }) {
+                    self.fast_bound = true;
+                }
                 self.model = model;
-                self.effort = effort;
+                self.settings = settings;
                 match outcome {
                     // Said already, the moment it was asked for
                     // ([`Self::request_change`]); this only moves the band's
@@ -2454,7 +2557,7 @@ impl Shell {
                     // catalog that could not be read, because upstream adds
                     // none.
                     ModelAnswer::Applied { .. } | ModelAnswer::Unchanged => {
-                        let line = switched(next_turn, &self.model, &self.effort);
+                        let line = switched(next_turn, &self.model, &self.settings);
                         self.announce(notice::Notice::neutral("", line));
                     }
                     // xfx's own words, from the selector. Nothing of the id is
@@ -2476,6 +2579,7 @@ impl Shell {
                 self.catalog = entries;
                 self.catalog_known = CatalogKnown::Loaded;
                 self.provider = provider;
+                self.settle_speed();
                 let note = (provider == ProviderId::Gateway)
                     .then_some(self.gateway_note)
                     .flatten();
@@ -2497,6 +2601,9 @@ impl Shell {
             // help, which the next `/model` then does.
             UiEvent::CatalogUnread { retry, .. } => {
                 self.catalog_known = CatalogKnown::Unread(retry);
+                // No row says the model offers a mode, as upstream's generic
+                // capabilities say none (`capabilitiesForModel`).
+                self.settle_speed();
                 if let Some(menu) = self.model_menu.as_mut() {
                     menu.failed(retry);
                     self.refit();
@@ -3320,11 +3427,11 @@ impl Shell {
         self.close_models();
         let entry = self.catalog.iter().find(|entry| entry.id == id).cloned();
         match entry.map(|entry| self.column.choose(&entry)) {
-            Some(Chosen::Efforts(text)) => self.write_column_text(&text),
-            Some(Chosen::Commit(model)) => self.commit_column(model, None),
+            Some(Chosen::Efforts(text) | Chosen::Speeds(text)) => self.write_column_text(&text),
+            Some(Chosen::Commit(model)) => self.commit_column(model, None, None),
             // A row the menu listed is a row of the catalog, so this is not a
             // case the menu can reach; the id is still the user's choice.
-            None => self.commit_column(id, None),
+            None => self.commit_column(id, None, None),
         }
     }
 
@@ -3429,10 +3536,10 @@ impl Shell {
                 true
             }
             Input::Action(Action::Left) => {
-                match self
-                    .column
-                    .step_back(known(self.catalog_known, &self.catalog))
-                {
+                match self.column.step_back(
+                    known(self.catalog_known, &self.catalog),
+                    self.settings.speed(),
+                ) {
                     Some(text) => {
                         self.write_column_text(&text);
                         true
@@ -3461,24 +3568,38 @@ impl Shell {
     /// A space at the column (`advanceModelPickerOnSpace`,
     /// `input_completion_runtime.zig:1123-1147`): from the model column, a
     /// model spelled exactly is taken as Enter would take it -- which for a
-    /// model with no levels **makes the change**, so the rest of a typed
-    /// `/model <id> <more>` arrives in an emptied composer and is sent as a
-    /// prompt, exactly as upstream's is (`fx-model2-40x120-explicit-bad-effort`).
-    /// From the effort column a space would open the speed column, which xfx
-    /// does not have yet, so it does nothing.
+    /// model with no levels and no speed **makes the change**, so the rest of
+    /// a typed `/model <id> <more>` arrives in an emptied composer and is sent
+    /// as a prompt, exactly as upstream's is
+    /// (`fx-model2-40x120-explicit-bad-effort`). From the effort column, a
+    /// level spelled exactly opens the speed column for a model that offers
+    /// either speed ([`Column::advance_effort`]). Otherwise it does nothing.
     fn advance_column(&mut self, query: &model_column::Query<'_>) {
         if !self.editor.caret_at_end() {
             return;
         }
-        if query.stage != model_column::Stage::Model {
-            return;
+        let catalog = known(self.catalog_known, &self.catalog);
+        match query.stage {
+            model_column::Stage::Model => {
+                let Some(entry) = Column::exact_model(query.query, catalog).cloned() else {
+                    return;
+                };
+                self.chose_model(&entry);
+            }
+            model_column::Stage::Effort => {
+                let Some(effort) = self.column.exact_effort(query.query, catalog) else {
+                    return;
+                };
+                let Some(entry) = self.column.pending().and_then(|id| catalog.entry(id)) else {
+                    return;
+                };
+                let entry = entry.clone();
+                if let Some(text) = self.column.advance_effort(&entry, &effort) {
+                    self.write_column_text(&text);
+                }
+            }
+            model_column::Stage::Speed => {}
         }
-        let Some(entry) =
-            Column::exact_model(query.query, known(self.catalog_known, &self.catalog)).cloned()
-        else {
-            return;
-        };
-        self.chose_model(&entry);
     }
 
     /// Enter at the column (`submitModelPicker`,
@@ -3499,38 +3620,75 @@ impl Shell {
                 true
             }
             model_column::Stage::Effort => {
-                let Some(model) = self.column.pending().map(str::to_string) else {
+                let Some(entry) = self
+                    .column
+                    .pending()
+                    .and_then(|id| catalog.entry(id))
+                    .cloned()
+                else {
                     return false;
                 };
                 // Nothing that matches: the Return is spent, the column stays.
-                if let Some(effort) = self.column.chosen_effort(query, catalog) {
-                    self.commit_column(model, Some(effort));
+                let Some(effort) = self.column.chosen_effort(query, catalog) else {
+                    return true;
+                };
+                // On to the speeds for a model that offers Fast; the change,
+                // with this level and the session's Fast as far as the model
+                // offers it, for one that does not.
+                match self.column.chose_effort(&entry, &effort) {
+                    Some(text) => self.write_column_text(&text),
+                    None => self.commit_column(entry.id, Some(effort), None),
                 }
+                true
+            }
+            model_column::Stage::Speed => {
+                let Some(entry) = self
+                    .column
+                    .pending()
+                    .and_then(|id| catalog.entry(id))
+                    .cloned()
+                else {
+                    return false;
+                };
+                // Nothing that matches: the Return is spent, the column stays.
+                let Some(speed) = self.column.chosen_speed(query, catalog) else {
+                    return true;
+                };
+                // The level goes with a model that has levels; one with none
+                // leaves the session's as it is (`selectModelFromPicker`,
+                // `session_commands.zig:899-902`).
+                let effort = (!Effort::options(&entry).is_empty())
+                    .then(|| self.column.speed_effort(catalog));
+                self.commit_column(entry.id, effort, Some(speed));
                 true
             }
         }
     }
 
-    /// What taking `entry` in the model column leads to: the effort column,
-    /// or the change.
+    /// What taking `entry` in the model column leads to: a later column, or
+    /// the change.
     fn chose_model(&mut self, entry: &CatalogEntry) {
         match self.column.choose(entry) {
-            Chosen::Efforts(text) => self.write_column_text(&text),
-            Chosen::Commit(model) => self.commit_column(model, None),
+            Chosen::Efforts(text) | Chosen::Speeds(text) => self.write_column_text(&text),
+            Chosen::Commit(model) => self.commit_column(model, None, None),
         }
     }
 
     /// Makes the change the column settled on, and empties the composer
-    /// (`selectModelFromPicker` and `clearCurrent`).
-    fn commit_column(&mut self, model: String, effort: Option<Effort>) {
+    /// (`selectModelFromPicker` and `clearCurrent`). `speed` is `None` where
+    /// no speed was chosen: the session's Fast stands as far as the model
+    /// offers it, and Ultra goes off.
+    fn commit_column(&mut self, model: String, effort: Option<Effort>, speed: Option<Speed>) {
         self.column.reset();
         self.clear_composer();
         self.request_change(ModelChange {
             name: model,
             effort,
+            speed,
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            provider: self.provider,
         });
     }
 
@@ -6475,6 +6633,30 @@ impl CommandHandlers for Shell {
         self.set_statusline(item, !self.statusline.get(item), true);
     }
 
+    /// `/fast` (`toggleFastForModel`, `session_commands.zig:733-751`): Fast
+    /// off when it is on; on -- and Ultra off -- for a model that offers it;
+    /// `* fast: This model does not come with a fast mode.` otherwise.
+    fn fast(&mut self) {
+        self.speed_command(SpeedCommand::Fast);
+    }
+
+    /// `/ultrafast [on|off|status]` (`handleUltrafast`,
+    /// `session_commands.zig:704-731`): bare or `status` says what was asked
+    /// for -- `requested: on` -- `on` and `off` ask, and anything else is the
+    /// usage line, an error with no topic.
+    fn ultrafast(&mut self, argument: &str) {
+        let command = match argument.to_ascii_lowercase().as_str() {
+            "" | "status" => SpeedCommand::Status,
+            "on" => SpeedCommand::Ultra(true),
+            "off" => SpeedCommand::Ultra(false),
+            _ => {
+                self.write_notice(&notice::Notice::error("", ULTRAFAST_USAGE));
+                return;
+            }
+        };
+        self.speed_command(command);
+    }
+
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
     /// conversation's last reply onto the clipboard, raw.
     ///
@@ -6745,9 +6927,11 @@ impl Shell {
         self.request_change(ModelChange {
             name: resolved.unwrap_or_else(|| query.to_string()),
             effort: None,
+            speed: None,
             picker: false,
             announced,
             next_turn: self.turn_pending(),
+            provider: self.provider,
         });
     }
 
@@ -6763,20 +6947,135 @@ impl Shell {
     /// **A control message, never refused** ([`TurnControl::Model`]): a change
     /// typed while a turn runs and a prompt waits is put aside by the runtime
     /// and applied between the two, rather than refused as a full queue. The
-    /// band's own record of the model and the effort moves with the
+    /// band's own record of the model, the effort and the speed moves with the
     /// announcement, and is moved again -- to the same values -- by the
     /// runtime's answer.
+    ///
+    /// **By the runtime's rule, against the same rows**: a picker's choice is
+    /// held to what the model's row offers
+    /// ([`TurnSettings::after_pick`], `selectModelFromPicker`), and a query
+    /// that changed the model turns both switches off
+    /// ([`TurnSettings::after_query`], `setResolvedModel`). The rows are the
+    /// ones the runtime sent, every one of them
+    /// (`super::worker`'s `in_menu_order`), so the two sides cannot decide
+    /// differently over a row only one of them holds.
     fn request_change(&mut self, change: ModelChange) {
         if change.announced {
+            let settings = if change.picker {
+                let entry = self.catalog_row(&change.name);
+                self.settings
+                    .after_pick(change.effort.as_ref(), change.speed, entry)
+            } else {
+                self.settings.after_query(change.name != self.model)
+            };
             self.model = change.name.clone();
-            if let Some(effort) = &change.effort {
-                self.effort = effort.clone();
-            }
-            let line = switched(change.next_turn, &self.model, &self.effort);
+            self.settings = settings;
+            self.fast_bound = true;
+            let line = switched(change.next_turn, &self.model, &self.settings);
             self.announce(notice::Notice::neutral("", line));
             self.render.request(Reason::Footer);
         }
         self.work.control(TurnControl::Model(change));
+    }
+
+    /// Decides one speed command now, or holds it until the catalog that
+    /// decides it has been read ([`Self::held_speed`]).
+    ///
+    /// **Decided here, on the band**, where the catalog rows and the
+    /// announcement are, so it is said the moment it is given, as upstream's
+    /// is -- a turn streaming or not; the runtime is handed the switches as
+    /// they are to be ([`TurnControl::Speed`]) and applies them before the
+    /// next turn. Only the commands a row decides wait for one: Fast on and
+    /// Ultra on. Off needs no row, and neither does what was asked for -- but
+    /// they wait behind one that is held, so the order given is the order said.
+    fn speed_command(&mut self, command: SpeedCommand) {
+        let needs_row = match command {
+            SpeedCommand::Fast => !self.settings.fast,
+            SpeedCommand::Ultra(on) => on,
+            SpeedCommand::Status => false,
+        };
+        let unknown = matches!(
+            self.catalog_known,
+            CatalogKnown::Unasked | CatalogKnown::Asked | CatalogKnown::Wanted
+        );
+        if !self.held_speed.is_empty() || (needs_row && unknown) {
+            self.held_speed.push(command);
+            self.want_catalog();
+            return;
+        }
+        self.decide_speed(command);
+    }
+
+    /// Decides the speed commands held for the catalog, now that this side
+    /// has its answer -- rows, or the news that there are none to read.
+    fn settle_speed(&mut self) {
+        for command in std::mem::take(&mut self.held_speed) {
+            self.decide_speed(command);
+        }
+    }
+
+    /// One speed command against the model in force's row, said and handed
+    /// to the runtime (`applyFastMode`, `applyUltrafastMode`,
+    /// `session_commands.zig:753-859`).
+    fn decide_speed(&mut self, command: SpeedCommand) {
+        let entry = self.catalog_row(&self.model).cloned();
+        let after = match command {
+            SpeedCommand::Fast => self.settings.after_fast(entry.as_ref()),
+            SpeedCommand::Ultra(on) => self.settings.after_ultrafast(on, entry.as_ref()),
+            SpeedCommand::Status => {
+                let asked = if self.settings.ultrafast {
+                    "requested: on"
+                } else {
+                    "requested: off"
+                };
+                self.announce(notice::Notice::neutral("ultrafast", asked));
+                return;
+            }
+        };
+        let Some(after) = after else {
+            self.announce(match command {
+                SpeedCommand::Fast => notice::Notice::neutral("fast", NO_FAST_MODE),
+                SpeedCommand::Ultra(_) | SpeedCommand::Status => {
+                    notice::Notice::warning("ultrafast", NO_ULTRA_MODE)
+                }
+            });
+            return;
+        };
+        self.settings = after;
+        // Upstream writes the binding beside every speed change.
+        self.fast_bound = true;
+        let (topic, said) = match command {
+            SpeedCommand::Fast => ("fast", if self.settings.fast { "on" } else { "off" }),
+            SpeedCommand::Ultra(_) | SpeedCommand::Status => (
+                "ultrafast",
+                if self.settings.ultrafast {
+                    "requested on"
+                } else {
+                    "requested off"
+                },
+            ),
+        };
+        self.announce(notice::Notice::neutral(topic, said));
+        self.render.request(Reason::Footer);
+        self.work.control(TurnControl::Speed(SpeedChange {
+            fast: self.settings.fast,
+            ultrafast: self.settings.ultrafast,
+            topic,
+            provider: self.provider,
+        }));
+    }
+
+    /// The catalog's row for `model` -- its id or one of its aliases, as the
+    /// runtime's selector matches it -- when this side holds the catalog's
+    /// answer.
+    fn catalog_row(&self, model: &str) -> Option<&CatalogEntry> {
+        match self.catalog_known {
+            CatalogKnown::Loaded => self.catalog.iter().find(|entry| entry.matches(model)),
+            CatalogKnown::Unasked
+            | CatalogKnown::Asked
+            | CatalogKnown::Wanted
+            | CatalogKnown::Unread(_) => None,
+        }
     }
 
     /// Upstream's explicit form, `/model <id> <effort> [normal|fast|ultrafast]`
@@ -6787,12 +7086,14 @@ impl Shell {
     ///
     /// **The id is literal** -- never fuzzy-resolved (`paste-short-id`) -- and
     /// is judged against the catalog's row for it: the effort has to be one
-    /// the row lists or the default, and a third word may only be `normal`,
-    /// for a model that offers a speed to decline -- `fast` and `ultrafast`
-    /// are refused, because xfx sends no speed yet (`docs/parity.md`). A model
-    /// with no row in hand has no levels to choose from, as upstream's generic
-    /// capabilities have none (`capabilitiesForModel`). What is refused is
-    /// refused with upstream's usage line and the composer kept.
+    /// the row lists or the default; a third word `fast` or `ultrafast` has to
+    /// be a speed the row offers, and `normal` is refused for a model that
+    /// offers neither, there being nothing to decline
+    /// (`validateExplicitModelSelection`). With no third word the speed is
+    /// `normal`: both switches off. A model with no row in hand has no levels
+    /// and no speeds to choose from, as upstream's generic capabilities have
+    /// none (`capabilitiesForModel`). What is refused is refused with
+    /// upstream's usage line and the composer kept.
     fn explicit_model(&self, argument: &str) -> Option<Result<ModelChange, ()>> {
         let tokens: Vec<&str> = argument.split_whitespace().collect();
         // `parseExplicitModelSelection`'s order: a fifth word is refused
@@ -6820,18 +7121,24 @@ impl Shell {
         if !supported {
             return Some(Err(()));
         }
-        // The third word (`validateExplicitModelSelection`): `normal` -- no
-        // speed, which is what xfx sends -- for a model that offers one to
-        // turn down, as upstream refuses it for a model with neither; `fast`
-        // and `ultrafast` are refused, because xfx cannot send them yet.
-        if let Some(speed) = tokens.get(2) {
-            let offers_speed = entry
-                .as_ref()
-                .is_some_and(|entry| entry.facts.fast || entry.facts.ultrafast);
-            if !(speed.eq_ignore_ascii_case("normal") && offers_speed) {
-                return Some(Err(()));
+        // The third word (`parseExplicitModelSelection`,
+        // `validateExplicitModelSelection`): one of the three, and one the row
+        // offers -- `normal` being on offer wherever a speed is.
+        let speed = match tokens.get(2) {
+            None => Speed::Normal,
+            Some(word) => {
+                let Some(speed) = Speed::parse(word) else {
+                    return Some(Err(()));
+                };
+                let offered = entry.as_ref().is_some_and(|entry| {
+                    Speed::chosen_for(entry) && Speed::options(entry).contains(&speed)
+                });
+                if !offered {
+                    return Some(Err(()));
+                }
+                speed
             }
-        }
+        };
         // `selectModelFromPicker`: the effort goes with a model that lists
         // levels, and a model with none leaves the session's as it is.
         let effort = entry
@@ -6840,9 +7147,11 @@ impl Shell {
         Some(Ok(ModelChange {
             name: model.to_string(),
             effort,
+            speed: Some(speed),
             picker: true,
             announced: true,
             next_turn: self.turn_pending(),
+            provider: self.provider,
         }))
     }
 
@@ -12681,6 +12990,23 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/fast" {
+                // Decided against the model's catalog row, which this fixture
+                // has not read: asked for, and answered when it arrives.
+                assert!(
+                    document.is_empty(),
+                    "/fast answered before its row: {document:?}"
+                );
+                assert_eq!(shell.picks_up(), TurnWork::Catalog);
+                shell.apply(UiEvent::CatalogLoaded {
+                    provider: ProviderId::Gateway,
+                    entries: Vec::new(),
+                });
+                assert_eq!(
+                    shell.document().first().map(String::as_str),
+                    Some("* fast: This model does not come with a fast mode."),
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
                 assert!(
                     document
@@ -14220,6 +14546,7 @@ mod tests {
             title: title.map(str::to_string),
             turns,
             model: None,
+            settings: None,
         }
     }
 
@@ -14871,6 +15198,36 @@ mod tests {
         shell
     }
 
+    /// The capture harness's catalog with its speeds
+    /// (`scripts/fxcap/scenarios/models.json` and `models-effort.json`): astra
+    /// offers Fast and Ultra, opus Fast, and glm levels and no speed.
+    fn speed_rows() -> Vec<CatalogEntry> {
+        let mut rows = harness_rows();
+        rows[0].facts.fast = true;
+        rows[0].facts.ultrafast = true;
+        rows[1].facts.fast = true;
+        rows.push(CatalogEntry {
+            id: "zai/glm-5.2".to_string(),
+            aliases: Vec::new(),
+            name: None,
+            efforts: vec!["low".to_string(), "high".to_string()],
+            max_context: None,
+            facts: Default::default(),
+        });
+        rows
+    }
+
+    /// A 40x120 shell holding [`speed_rows`].
+    fn speed_shell() -> Fixture {
+        let mut shell = shell(40, 120);
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: speed_rows(),
+        });
+        let _ = shell.document();
+        shell
+    }
+
     /// The next model change the shell put on the control channel.
     fn change(shell: &mut Fixture) -> ModelChange {
         match shell.controlled() {
@@ -14902,6 +15259,8 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
             },
             "the model change never reached the thread that owns the session log"
         );
@@ -14917,7 +15276,10 @@ mod tests {
         // submission -- is what the band's own model becomes.
         shell.apply(UiEvent::ModelAnswered {
             model: "second-model".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: false,
@@ -14979,7 +15341,10 @@ mod tests {
         // the model the session is really in.
         shell.apply(UiEvent::ModelAnswered {
             model: in_force.clone(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Refused {
                 reason: "a model id cannot contain control characters".to_string(),
             },
@@ -15001,7 +15366,10 @@ mod tests {
         // without a word (`fx-model-fuzzy-40x120-unknown`).
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Named("low".to_string()),
+            settings: TurnSettings {
+                effort: Effort::Named("low".to_string()),
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied {
                 unverified: Some("nothing answered".to_string()),
             },
@@ -15026,7 +15394,10 @@ mod tests {
         // An unchanged model is announced the same way, as upstream's is.
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Unchanged,
             next_turn: false,
             announced: false,
@@ -15041,7 +15412,10 @@ mod tests {
         // A `-fast` id is fast by its name (`intrinsic_fast`).
         shell.apply(UiEvent::ModelAnswered {
             model: "zai/glm-5-fast".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: false,
@@ -15072,6 +15446,8 @@ mod tests {
                 picker: false,
                 announced: true,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
             }
         );
         assert_eq!(
@@ -15086,7 +15462,10 @@ mod tests {
         // not already moved, and says nothing again.
         shell.apply(UiEvent::ModelAnswered {
             model: "anthropic/claude-opus-5".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: false,
             announced: true,
@@ -15151,7 +15530,10 @@ mod tests {
         let _ = unknown.document();
         unknown.apply(UiEvent::ModelAnswered {
             model: "second-model".to_string(),
-            effort: Effort::Auto,
+            settings: TurnSettings {
+                effort: Effort::Auto,
+                ..TurnSettings::default()
+            },
             outcome: ModelAnswer::Applied { unverified: None },
             next_turn: true,
             announced: false,
@@ -15176,8 +15558,8 @@ mod tests {
             "/model anthropic/claude-opus-5 high ultrafast",
             "/model openai/gpt-6-astra xhigh fast extra",
             "/model claude-opus-5 low",
-            // xfx sends no speed yet, so a third word cannot be honoured
-            // (`docs/parity.md`, the speed column).
+            // These rows offer no speed, so `fast` asks for one the row does
+            // not offer ([`speed_shell`] is where astra offers it).
             "/model openai/gpt-6-astra xhigh fast",
         ] {
             let mut shell = harness_shell();
@@ -15201,31 +15583,46 @@ mod tests {
     }
 
     #[test]
-    fn a_third_word_is_normal_for_a_model_with_a_speed_to_decline_and_nothing_else_yet() {
-        // `validateExplicitModelSelection`: `normal` declines a speed, so it
-        // needs a model that has one; `fast` and `ultrafast` need the speed
-        // column xfx does not have yet.
-        let mut rows = harness_rows();
-        rows[1].facts.fast = true;
-        let mut shell = shell(40, 120);
-        shell.apply(UiEvent::CatalogLoaded {
-            provider: ProviderId::Gateway,
-            entries: rows,
-        });
-        let _ = shell.document();
-        pasted(&mut shell, "/model anthropic/claude-opus-5 high NORMAL");
-        shell.route_bytes(b"\r");
-        let made = change(&mut shell);
-        assert_eq!(
-            (made.name.as_str(), made.effort),
+    fn a_third_word_is_a_speed_the_model_offers_and_normal_needs_one_to_decline() {
+        // `parseExplicitModelSelection` and `validateExplicitModelSelection`
+        // (`app_input_runtime.zig:133-187`): `fast` and `ultrafast` need the
+        // matching offer, `normal` needs a model with a speed to decline, and
+        // anything else is no speed. `fx-model3-40x120-paste-ok`:
+        // `* Switched to openai/gpt-6-astra (effort: xhigh, speed: fast)`.
+        let mut shell = speed_shell();
+        for (line, speed, said_as) in [
             (
-                "anthropic/claude-opus-5",
-                Some(Effort::Named("high".to_string()))
-            )
-        );
+                "/model anthropic/claude-opus-5 high NORMAL",
+                Speed::Normal,
+                "Switched to anthropic/claude-opus-5 (effort: high, speed: normal)",
+            ),
+            (
+                "/model openai/gpt-6-astra xhigh fast",
+                Speed::Fast,
+                "Switched to openai/gpt-6-astra (effort: xhigh, speed: fast)",
+            ),
+            (
+                "/model openai/gpt-6-astra low ultrafast",
+                Speed::Ultrafast,
+                "Switched to openai/gpt-6-astra (effort: low, speed: ultrafast)",
+            ),
+        ] {
+            pasted(&mut shell, line);
+            shell.route_bytes(b"\r");
+            let made = change(&mut shell);
+            assert_eq!(made.speed, Some(speed), "{line}");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("", said_as)),
+                "{line}"
+            );
+        }
         for refused in [
-            "/model anthropic/claude-opus-5 high fast",
-            "/model openai/gpt-6-astra low normal",
+            // Opus offers Fast and not Ultra (`fx-model3 paste-bad-effort`).
+            "/model anthropic/claude-opus-5 high ultrafast",
+            // glm offers neither, so not even `normal`.
+            "/model zai/glm-5.2 low normal",
+            "/model zai/glm-5.2 low fast",
             "/model anthropic/claude-opus-5 high slow",
         ] {
             let _ = shell.document();
@@ -15235,6 +15632,12 @@ mod tests {
             assert_eq!(shell.editor.text(), refused);
             shell.shell.clear_composer();
         }
+        // Two words are `normal`: both switches off, on a model that had one.
+        let _ = shell.document();
+        pasted(&mut shell, "/model openai/gpt-6-astra high");
+        shell.route_bytes(b"\r");
+        assert_eq!(change(&mut shell).speed, Some(Speed::Normal));
+        assert!(!shell.settings.ultrafast && !shell.settings.fast);
         // A second word that is no effort is not this form at all: it is the
         // router form's, and its own refusal (`.none`).
         let _ = shell.document();
@@ -15251,7 +15654,7 @@ mod tests {
 
     #[test]
     fn an_explicit_form_that_holds_is_applied_with_its_effort_and_announced() {
-        // `fx-model3-40x120-paste-ok`, less the speed xfx cannot send yet.
+        // `fx-model3-40x120-paste-ok`'s two-word half: the speed is `normal`.
         let mut shell = harness_shell();
         pasted(&mut shell, "/model openai/gpt-6-astra xhigh");
         shell.route_bytes(b"\r");
@@ -15263,6 +15666,8 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                speed: Some(Speed::Normal),
+                provider: ProviderId::Gateway,
             }
         );
         assert_eq!(
@@ -15655,8 +16060,8 @@ mod tests {
             "{}",
             shell.hint()
         );
-        // Enter makes the change with it -- no speed column yet, so this is
-        // where it commits -- and empties the composer.
+        // Enter makes the change with it -- these rows offer no Fast, so this
+        // is where it commits -- and empties the composer.
         shell.route_bytes(b"\r");
         assert_eq!(
             change(&mut shell),
@@ -15666,6 +16071,8 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                speed: None,
+                provider: ProviderId::Gateway,
             }
         );
         assert_eq!(
@@ -15722,6 +16129,342 @@ mod tests {
         shell.route_bytes(b"\x1b[D");
         assert_eq!(shell.editor.text(), "/model anthropic/claude-opus-5");
         assert_eq!(shell.cursor().1, PROMPT_CELLS + 29);
+    }
+
+    /// The next speed change the shell put on the control channel.
+    fn speed_change(shell: &mut Fixture) -> SpeedChange {
+        match shell.controlled() {
+            Some(TurnControl::Speed(change)) => change,
+            other => panic!("expected a speed change, got {other:?}"),
+        }
+    }
+
+    /// The hint row's `⚡︎` in Ultra's yellow, the row's grey resumed after it.
+    fn ultra_marker() -> String {
+        format!(
+            "{}{}{}",
+            PALETTE.ultra(),
+            hint::SPEED_MARKER,
+            PALETTE.statusline()
+        )
+    }
+
+    #[test]
+    fn a_level_on_a_model_with_fast_opens_the_speeds_and_the_footer_previews_the_mark() {
+        // `fx-model-column-40x120-gpt-enter`, `effort-down`: Fast is marked
+        // for a model that offers it the moment its levels open, and the
+        // footer says so before anything is chosen.
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model gpt\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra ");
+        assert!(
+            shell
+                .hint()
+                .ends_with("auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            shell
+                .hint()
+                .ends_with("auto \u{b7} gpt-6-astra \u{b7} low \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        // Enter on the level opens the speeds under the next token, `fast`
+        // marked (`submitModelPicker`, `:1183`), and changes nothing yet.
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra low ");
+        assert!(shell.controlled().is_none(), "the level made the change");
+        assert_eq!(
+            column(&shell),
+            [
+                format!("{}normal", " ".repeat(32)),
+                format!("{}fast", " ".repeat(32)),
+                format!("{}ultrafast", " ".repeat(32)),
+                String::new(),
+                String::new(),
+                String::new()
+            ]
+        );
+        // Down to `ultrafast`: previewed in Ultra's yellow.
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            shell.hint().ends_with(&format!(
+                "auto \u{b7} gpt-6-astra \u{b7} low \u{b7} {}",
+                ultra_marker()
+            )),
+            "{:?}",
+            shell.hint()
+        );
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            change(&mut shell),
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(Effort::Named("low".to_string())),
+                speed: Some(Speed::Ultrafast),
+                picker: true,
+                announced: true,
+                next_turn: false,
+                provider: ProviderId::Gateway,
+            }
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to openai/gpt-6-astra (effort: low, speed: ultrafast)"
+            ))
+        );
+        assert!(shell.editor.is_empty());
+        assert_eq!(
+            shell.settings,
+            TurnSettings {
+                effort: Effort::Named("low".to_string()),
+                fast: false,
+                ultrafast: true
+            }
+        );
+        // In force now, and said in the same yellow.
+        assert!(
+            shell.hint().ends_with(&format!(
+                "auto \u{b7} gpt-6-astra \u{b7} low \u{b7} {}",
+                ultra_marker()
+            )),
+            "{:?}",
+            shell.hint()
+        );
+    }
+
+    #[test]
+    fn the_speeds_step_back_complete_and_open_on_a_space_as_upstreams_do() {
+        let mut shell = speed_shell();
+        shell.route_bytes(b"/model gpt\r\r");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra auto ");
+        // Tab writes all three tokens and keeps the column.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra auto fast");
+        assert_eq!(shell.column.pending(), Some("openai/gpt-6-astra"));
+        // Left goes back to the levels, the session's speed -- Normal --
+        // marked now, so the footer previews none.
+        shell.route_bytes(b"\x1b[D");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra ");
+        assert!(
+            shell.hint().ends_with("auto \u{b7} gpt-6-astra"),
+            "{}",
+            shell.hint()
+        );
+        // A level spelled out and a space: the speeds, for a model with any.
+        shell.route_bytes(b"high ");
+        assert_eq!(shell.editor.text(), "/model openai/gpt-6-astra high ");
+        assert_eq!(column(&shell)[2], format!("{}ultrafast", " ".repeat(33)));
+        // `normal`, typed and taken: both switches off.
+        shell.route_bytes(b"normal\r");
+        let made = change(&mut shell);
+        assert_eq!(
+            (made.effort, made.speed),
+            (Some(Effort::Named("high".to_string())), Some(Speed::Normal))
+        );
+        // A model with levels and no speed: the space after its level does
+        // nothing, and Enter on it commits (`zai/glm-5.2`, `models-effort.json`).
+        let _ = shell.document();
+        shell.route_bytes(b"/model glm\rlow ");
+        assert_eq!(shell.editor.text(), "/model zai/glm-5.2 low");
+        shell.route_bytes(b"\r");
+        let made = change(&mut shell);
+        assert_eq!((made.name.as_str(), made.speed), ("zai/glm-5.2", None));
+    }
+
+    #[test]
+    fn fast_and_ultrafast_say_upstreams_words_and_hand_the_switches_over() {
+        // `fx-fast-opus-*`, `fx-fast-unsup-*`, `fx-fast-astra-*`
+        // (account-model research §5-§6).
+        let mut shell = speed_shell();
+        shell.shell.use_model("fake/model-a");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "fast",
+                "This model does not come with a fast mode."
+            ))
+        );
+        assert!(shell.controlled().is_none(), "nothing changed");
+        shell.route_bytes(b"/fast on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        for (line, answer) in [
+            (
+                "/ultrafast\r",
+                notice::Notice::neutral("ultrafast", "requested: off"),
+            ),
+            (
+                "/ultrafast status\r",
+                notice::Notice::neutral("ultrafast", "requested: off"),
+            ),
+            (
+                "/ultrafast on\r",
+                notice::Notice::warning(
+                    "ultrafast",
+                    "Ultra mode is unavailable for this model and may increase cost.",
+                ),
+            ),
+            (
+                "/ultrafast bogus\r",
+                notice::Notice::error("", "usage: /ultrafast [on|off|status]"),
+            ),
+        ] {
+            shell.route_bytes(line.as_bytes());
+            assert_eq!(shell.document(), said(answer), "{line:?}");
+            assert!(shell.controlled().is_none(), "{line:?}");
+        }
+        shell.route_bytes(b"/ultrafast off\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested off"))
+        );
+        assert!(!speed_change(&mut shell).ultrafast);
+
+        // Opus offers Fast: on in the row's grey, then off.
+        shell.shell.use_model("anthropic/claude-opus-5");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "on"))
+        );
+        assert_eq!(
+            speed_change(&mut shell),
+            SpeedChange {
+                fast: true,
+                ultrafast: false,
+                topic: "fast",
+                provider: ProviderId::Gateway
+            }
+        );
+        assert!(
+            shell.hint().ends_with("opus 5 \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
+        shell.route_bytes(b"/fast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("fast", "off"))
+        );
+        assert!(!speed_change(&mut shell).fast);
+        assert!(shell.hint().ends_with("opus 5"), "{}", shell.hint());
+
+        // Astra offers Ultra: on in yellow; `/fast` turns it off and Fast on.
+        shell.shell.use_model("openai/gpt-6-astra");
+        let _ = change(&mut shell);
+        let _ = shell.document();
+        shell.route_bytes(b"/ultrafast on\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested on"))
+        );
+        assert!(speed_change(&mut shell).ultrafast);
+        assert!(
+            shell.hint().ends_with(&ultra_marker()),
+            "{:?}",
+            shell.hint()
+        );
+        shell.route_bytes(b"/ultrafast\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("ultrafast", "requested: on"))
+        );
+        shell.route_bytes(b"/fast\r");
+        let made = speed_change(&mut shell);
+        assert!(made.fast && !made.ultrafast, "Fast turns Ultra off");
+        assert!(
+            shell
+                .hint()
+                .ends_with("gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"),
+            "{:?}",
+            shell.hint()
+        );
+        // And a model change turns both off (`fx-fast-astra-40x120-model-change-clears`).
+        let _ = shell.document();
+        shell.shell.use_model("grok");
+        let _ = change(&mut shell);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to xai/grok-4.7 (effort: default, speed: normal)"
+            ))
+        );
+        assert!(!shell.settings.fast && !shell.settings.ultrafast);
+        assert!(shell.hint().ends_with("grok-4.7"), "{}", shell.hint());
+    }
+
+    #[test]
+    fn a_speed_command_before_the_catalog_waits_for_it_in_order_and_dies_with_the_provider() {
+        let mut shell = shell(40, 120);
+        let model = shell.shell.model.clone();
+        shell.route_bytes(b"/fast\r");
+        shell.route_bytes(b"/fast\r");
+        assert!(shell.document().is_empty(), "said before the row was read");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        let mut row = harness_rows().remove(3);
+        row.id = model;
+        row.facts.fast = true;
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![row],
+        });
+        let mut both = said(notice::Notice::neutral("fast", "on"));
+        both.extend(said(notice::Notice::neutral("fast", "off")));
+        assert_eq!(shell.document(), both, "a toggle twice is on, then off");
+        assert!(speed_change(&mut shell).fast);
+        assert!(!speed_change(&mut shell).fast);
+        // One held when the provider changes is about a model that is gone.
+        let mut other = self::shell(40, 120);
+        other.route_bytes(b"/ultrafast on\r");
+        other.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        let _ = other.document();
+        other.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Llmux,
+            retry: None,
+        });
+        assert!(other.document().is_empty(), "{:?}", other.document());
+        assert!(other.controlled().is_none());
+    }
+
+    #[test]
+    fn a_resume_puts_the_sessions_effort_and_speed_on_the_hint_row() {
+        let mut shell = speed_shell();
+        let mut replay = replay(None, Vec::new());
+        replay.model = Some("anthropic/claude-opus-5".to_string());
+        replay.settings = Some(TurnSettings {
+            effort: Effort::Named("max".to_string()),
+            fast: true,
+            ultrafast: false,
+        });
+        shell.apply(UiEvent::Resumed(replay));
+        assert!(
+            shell
+                .hint()
+                .ends_with("opus 5 \u{b7} max \u{b7} \u{26a1}\u{fe0e}"),
+            "{}",
+            shell.hint()
+        );
     }
 
     #[test]

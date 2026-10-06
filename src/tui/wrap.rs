@@ -354,12 +354,24 @@ fn cluster_width(cluster: &str) -> u16 {
 ///
 /// The tab is the one control with a width, because it is the one control a
 /// draft may hold and the painter draws it ([`TAB_WIDTH`]).
+///
+/// **A text-presentation selector does not narrow its base.** A character and
+/// U+FE0E take the cells the character takes on its own -- two for a wide one
+/// such as the hint row's `⚡︎` -- which is upstream's count
+/// (`display_width.zig:251-256`, `c1db919`; `crate::markdown::display_width`
+/// is its port) and what a terminal advances by. The width table's own answer
+/// for the pair is one cell, and a row measured by it would put whatever
+/// follows the sign a cell to the left of where the terminal paints it.
 fn cluster_cells(cluster: &str) -> usize {
     if cluster == "\t" {
         return usize::from(TAB_WIDTH);
     }
     if cluster.chars().all(char::is_control) {
         return 0;
+    }
+    let mut chars = cluster.chars();
+    if let (Some(base), Some('\u{fe0e}'), None) = (chars.next(), chars.next(), chars.next()) {
+        return unicode_width::UnicodeWidthChar::width(base).unwrap_or(0);
     }
     cluster.width()
 }
@@ -406,6 +418,24 @@ mod tests {
                 first_cluster(joined),
                 joined.graphemes(true).next(),
                 "{joined:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_text_presentation_selector_leaves_its_base_at_its_own_width() {
+        // Upstream's table (`display_width.zig:695-697`), which the markdown
+        // port carries: the painter's measure agrees with it.
+        for (text, cells) in [
+            ("\u{2600}\u{fe0e}", 1),
+            ("\u{231a}\u{fe0e}", 2),
+            ("\u{26a1}\u{fe0e}", 2),
+        ] {
+            assert_eq!(usize::from(width(text)), cells, "{text:?}");
+            assert_eq!(
+                crate::markdown::display_width::visible_width(text.as_bytes()),
+                cells,
+                "{text:?}"
             );
         }
     }

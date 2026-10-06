@@ -476,6 +476,10 @@ pub struct DurableState {
     /// The title the user gave the session, the last `session_renamed` in the
     /// log. Outranks the one derived from the first prompt ([`Self::title`]).
     pub renamed: Option<String>,
+    /// The effort and speed switches the session last recorded, or `None` for
+    /// a session that never recorded them -- a resume then keeps what the
+    /// profile says.
+    pub turn_settings: Option<crate::provider::effort::TurnSettings>,
 }
 
 impl DurableState {
@@ -495,6 +499,7 @@ impl DurableState {
             context_sources: Vec::new(),
             last_event_seq: 0,
             renamed: None,
+            turn_settings: None,
         }
     }
 
@@ -1888,6 +1893,9 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
         SessionEvent::PreferencesChanged {
             model,
             permission_mode,
+            effort,
+            fast_mode,
+            ultrafast_mode,
         } => {
             if let Some(model) = model {
                 state.model = model.clone();
@@ -1895,6 +1903,20 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
             if let Some(raw) = permission_mode {
                 state.permission_mode = PermissionMode::parse(raw)
                     .ok_or_else(|| format!("unknown permission mode `{raw}`"))?;
+            }
+            if effort.is_some() || fast_mode.is_some() || ultrafast_mode.is_some() {
+                let mut settings = state.turn_settings.clone().unwrap_or_default();
+                if let Some(raw) = effort {
+                    settings.effort = crate::provider::effort::Effort::parse(raw)
+                        .ok_or_else(|| format!("unknown reasoning effort `{raw}`"))?;
+                }
+                if let Some(on) = fast_mode {
+                    settings.fast = *on;
+                }
+                if let Some(on) = ultrafast_mode {
+                    settings.ultrafast = *on;
+                }
+                state.turn_settings = Some(settings);
             }
         }
         SessionEvent::ProjectContextRecorded { sources, .. } => {

@@ -6944,11 +6944,25 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
         "a row that is not a language model was listed"
     );
 
-    // Down to opus, Enter: applied, saved, and the footer follows it.
+    // Down to opus and Enter: this catalog lists no levels for it and it
+    // offers Fast, so the menu goes on into the speed column at `auto`, `fast`
+    // marked (`beginExactModelSelection` -> `beginModelPickerOptions`,
+    // `input_completion_runtime.zig:1227-1262`); `normal` and Enter applies
+    // it, saved, and the footer follows it.
     session.type_bytes(b"\x1b[B");
     session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} /model anthropic/claude-opus-5 auto",
+            "auto \u{b7} opus 5 \u{b7} \u{26a1}\u{fe0e}",
+        ],
+        &[],
+    );
+    session.type_bytes(b"normal\r");
     session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: normal)");
-    on_screen(&session, (40, 120), &["auto \u{b7} opus 5"], &[]);
+    on_screen(&session, (40, 120), &["auto \u{b7} opus 5"], &["\u{26a1}"]);
     // The router form, over the same catalog without asking for it again.
     session.type_bytes(b"/model grok\r");
     session.wait_for("Switched to xai/grok-4.7 (effort: default, speed: normal)");
@@ -6963,8 +6977,18 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     session.type_bytes(b"\x1b[200~/model fake/model-a high\x1b[201~\r");
     session.wait_for("usage: /model <id> <effort> [normal|fast|ultrafast]");
     session.type_bytes(&[0x15]);
+    // Typed, `/model opus` and Enter take the column's marked row, which goes
+    // on into the speed column for the same reason; Enter there takes the
+    // marked `fast`.
     session.type_bytes(b"/model opus\r");
-    session.wait_for_count("Switched to anthropic/claude-opus-5", 2);
+    on_screen(
+        &session,
+        (40, 120),
+        &["\u{2503} /model anthropic/claude-opus-5 auto"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    session.wait_for("Switched to anthropic/claude-opus-5 (effort: default, speed: fast)");
     session.type_bytes(b"say something\r");
     session.wait_for("MARKER-A-MODEL-MENU-ANSWERED");
     session.type_bytes(&[0x04]);
@@ -6983,6 +7007,11 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     assert_eq!(
         gateway.only_request().header("ai-language-model-id"),
         Some("anthropic/claude-opus-5")
+    );
+    assert_eq!(
+        gateway.only_request().json()["providerOptions"],
+        serde_json::json!({"gateway": {"speed": "fast"}}),
+        "the speed taken in the column was not sent"
     );
     assert_eq!(
         sandbox.settings().expect("a profile")["models"]["gateway"],
@@ -7256,6 +7285,114 @@ fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it
     let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     again.wait_for(READY);
     on_screen(&again, (40, 120), &["auto \u{b7} model-a \u{b7} low"], &[]);
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn the_speed_column_and_the_switches_ride_as_upstreams_provider_options() {
+    // `fx-model3-40x120-paste-ok` and the account-model research §5-§6: Enter
+    // on a level of a model that offers Fast opens the speed column, Ultra is
+    // sent as `providerOptions.gateway.only` and `providerOptions.openai.
+    // serviceTier` (`vercel_protocol.zig:478-494`), `/fast` as
+    // `providerOptions.gateway.speed` (`:469-472`), and the switches are saved
+    // where the next launch reads them back.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-A-ULTRA-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-B-FAST-ANSWERED",
+        ])),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/gpt-6-astra", "type": "language", "owned_by": "openai",
+         "released": 1_780_000_000, "tags": ["tool-use", "reasoning"],
+         "reasoning_options": [{"type": "effort", "values": ["low", "high"]}],
+         "pricing": {"input": "0.000002", "output": "0.00001", "input_cache_read": "0.0000002",
+                     "service_tiers": {"priority": {"input": "0.000004", "output": "0.00002"},
+                                       "ultrafast": {"input": "0.00006", "output": "0.0003",
+                                                     "input_cache_read": "0.000006"}}}},
+        {"id": "fake/model-a", "type": "language", "owned_by": "fake",
+         "released": 1_700_000_000, "tags": ["tool-use"]}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/model ");
+    on_screen(&session, (40, 120), &["         openai/gpt-6-astra"], &[]);
+    session.type_bytes(b"gpt\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &["                            high"],
+        &[],
+    );
+    session.type_bytes(b"\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} /model openai/gpt-6-astra auto",
+            "                                 normal",
+            "                                 fast",
+            "                                 ultrafast",
+        ],
+        &[],
+    );
+    session.type_bytes(b"\x1b[B\r");
+    session.wait_for("Switched to openai/gpt-6-astra (effort: default, speed: ultrafast)");
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-ULTRA-ANSWERED");
+    session.type_bytes(b"/fast\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "* fast: on",
+            "auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}",
+        ],
+        &[],
+    );
+    session.type_bytes(b"say more\r");
+    session.wait_for("MARKER-B-FAST-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert_eq!(
+        requests[0].json()["providerOptions"],
+        serde_json::json!({"gateway": {"only": ["openai"]}, "openai": {"serviceTier": "ultrafast"}}),
+        "{}",
+        requests[0].json()
+    );
+    assert_eq!(
+        requests[1].json()["providerOptions"],
+        serde_json::json!({"gateway": {"speed": "fast"}}),
+        "{}",
+        requests[1].json()
+    );
+    let settings = sandbox.settings().expect("a profile");
+    assert_eq!(settings["fast_mode"], true);
+    assert_eq!(settings["ultrafast_mode"], false);
+    assert_eq!(settings["fast_mode_model_bound"], true);
+
+    // The next launch is in Fast, bound to the model, and marks it.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    again.wait_for(READY);
+    on_screen(
+        &again,
+        (40, 120),
+        &["auto \u{b7} gpt-6-astra \u{b7} \u{26a1}\u{fe0e}"],
+        &[],
+    );
     again.type_bytes(&[0x04]);
     assert_eq!(again.wait_exit().code(), Some(0));
 }

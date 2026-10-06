@@ -84,6 +84,13 @@ pub fn body(request: &CompletionRequest) -> Result<String, ProtocolError> {
 /// for its own record). Sent as the catalog spells it: llmux clamps a value a
 /// backend does not take itself, and `max` -- which the Gateway's route
 /// refuses -- is one llmux's own catalog publishes.
+///
+/// **No speed is sent**, because llmux reads none from a request: its codex
+/// "fast" tier is the daemon's own setting (`src/config/schema.rs:545-550`,
+/// applied from the shape at `src/provider/codex.rs:422-437` and
+/// `src/provider/responses_request.rs:248`), and its catalog marks no model
+/// as offering Fast or Ultra -- so `/model`'s speed column never opens for a
+/// llmux model, and `/fast` says the model has none.
 pub fn body_with(
     request: &CompletionRequest,
     options: &RequestOptions,
@@ -452,12 +459,18 @@ mod tests {
                 &request,
                 &RequestOptions {
                     reasoning: Some("max".to_string()),
+                    // llmux reads no per-request speed (its codex tier is the
+                    // daemon's own `fast` setting), so these are not sent.
+                    fast: true,
+                    ultrafast: true,
                 },
             )
             .expect("valid"),
         )
         .expect("json");
         assert_eq!(max["output_config"], json!({ "effort": "max" }));
+        assert_eq!(max.get("service_tier"), None);
+        assert_eq!(max.get("providerOptions"), None);
     }
 
     #[test]

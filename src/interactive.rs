@@ -72,6 +72,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/model",
     "/permissions",
     "/copy",
+    "/fast",
+    "/ultrafast",
     "/statusline",
     "/sound",
     "/version",
@@ -248,6 +250,26 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Fast,
+        name: "/fast",
+        aliases: &[],
+        // Upstream's words and place (`commands.zig:492`): a toggle that takes
+        // nothing, so `/fast on` is no command at all.
+        summary: "toggle Fast mode when supported",
+        category: "Model",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Ultrafast,
+        name: "/ultrafast",
+        aliases: &[],
+        // Upstream's words (`commands.zig:493`); the grammar is
+        // `/ultrafast [on|off|status]`, which its refusal prints.
+        summary: "request Ultra mode when supported",
+        category: "Model",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Statusline,
         name: "/statusline",
         aliases: &[],
@@ -404,6 +426,17 @@ pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session i
      shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
      full-screen one, and `xfx --resume <last|ID>` opens it on a session";
 
+/// What `/fast` and `/ultrafast` say on this surface.
+///
+/// They choose the speed a turn asks the provider for, and only the
+/// full-screen shell asks for one: this shell sends neither a reasoning effort
+/// nor a speed with its requests. It says where the switches are, as `/stats`
+/// says where the counters are, rather than accepting a switch that would
+/// change nothing.
+pub const SPEED_ON_THE_LINE_SHELL: &str = "xfx: /fast and /ultrafast set the speed the \
+     full-screen shell asks for, and this line-oriented shell asks for none; without \
+     XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/rename` says when there is no title to give the session, or one it
 /// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
 /// words both shells use.
@@ -543,6 +576,12 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Fast mode on or off, for a model that offers it
+    /// (`toggleFastForModel`, `session_commands.zig:733-751`).
+    Fast,
+    /// Ultra mode on, off, or asked about, for a model that offers it
+    /// (`handleUltrafast`, `session_commands.zig:704-723`).
+    Ultrafast,
     /// Upstream's sound switch, which here is the terminal bell
     /// ([`crate::sound`]).
     Sound,
@@ -826,6 +865,9 @@ impl Conversation {
             self.recorder.commit(SessionEvent::PreferencesChanged {
                 model: None,
                 permission_mode: Some(mode.label().to_string()),
+                effort: None,
+                fast_mode: None,
+                ultrafast_mode: None,
             });
         }
     }
@@ -1051,6 +1093,9 @@ pub async fn run(
                     }
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Fast | Slash::Ultrafast => {
+                        writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
                     }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
@@ -1503,6 +1548,9 @@ async fn apply_model(
                     .commit(SessionEvent::PreferencesChanged {
                         model: Some(model.clone()),
                         permission_mode: None,
+                        effort: None,
+                        fast_mode: None,
+                        ultrafast_mode: None,
                     });
             }
             Ok(model)
@@ -1758,9 +1806,10 @@ mod tests {
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
-        // than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 16);
+        // since `/resume` and `/rename`, and eighteen since `/fast` and
+        // `/ultrafast`; `/provider` took `/setup`'s place rather than adding
+        // one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 18);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2051,13 +2100,20 @@ mod tests {
         // too, which is what puts the space after it when it is completed
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
-        // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // `/sound [on|off]` sets the switch a bare `/sound` toggles,
+        // `/rename <title>` names the session, and `/ultrafast [on|off|status]`
+        // asks for Ultra mode. Every other name is the whole command -- `/fast`
+        // among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/ultrafast"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }

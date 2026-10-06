@@ -783,9 +783,10 @@ pub(crate) struct ControlChannel {
     /// can stop one. Consuming it without this queue would make a cancel typed
     /// at a panel a refusal *instead of* a cancel.
     put_back: Mutex<VecDeque<TurnControl>>,
-    /// Model changes read while work was running, waiting for it to end
-    /// ([`Self::defer`]).
-    deferred: Mutex<Vec<super::bridge::ModelChange>>,
+    /// Model and speed changes read while work was running, waiting for it to
+    /// end ([`Self::defer`]): only ever [`TurnControl::Model`] and
+    /// [`TurnControl::Speed`], in the order they came.
+    deferred: Mutex<Vec<TurnControl>>,
 }
 
 impl ControlChannel {
@@ -809,13 +810,17 @@ impl ControlChannel {
     /// waiting for its answer -- **a model change answers no question**, and a
     /// prompter that treated it as the stop it is not would refuse a call the
     /// user never refused.
-    pub(crate) fn defer(&self, change: super::bridge::ModelChange) {
+    pub(crate) fn defer(&self, change: TurnControl) {
+        debug_assert!(
+            matches!(change, TurnControl::Model(_) | TurnControl::Speed(_)),
+            "only a model or a speed change waits for the work to end"
+        );
         self.deferred.guarded().push(change);
     }
 
     /// Every change put aside, oldest first, for the turn loop to apply now
     /// that the work it waited for is over.
-    pub(crate) fn take_deferred(&self) -> Vec<super::bridge::ModelChange> {
+    pub(crate) fn take_deferred(&self) -> Vec<TurnControl> {
         std::mem::take(&mut *self.deferred.guarded())
     }
 
@@ -1070,7 +1075,7 @@ impl ApprovalPrompter for TuiPrompter {
                     // the turn after this one, so it is put aside for the loop
                     // and the question stays up: answering it would refuse a
                     // call the user never refused.
-                    Some(TurnControl::Model(change)) => {
+                    Some(change @ (TurnControl::Model(_) | TurnControl::Speed(_))) => {
                         self.control.defer(change);
                         continue;
                     }
@@ -2118,6 +2123,8 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: crate::provider::ProviderId::Gateway,
         };
         tx.send(TurnControl::Model(change.clone()))
             .expect("the channel is open");
@@ -2138,7 +2145,7 @@ mod tests {
             ApprovalAnswer::Once,
             "a model change answered the question"
         );
-        assert_eq!(control.take_deferred(), vec![change]);
+        assert_eq!(control.take_deferred(), vec![TurnControl::Model(change)]);
         assert_eq!(
             control.waiting(),
             None,

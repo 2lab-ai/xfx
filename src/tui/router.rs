@@ -54,6 +54,12 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/fast`. It takes nothing: `/fast on` never reaches it ([`classify`]).
+    fn fast(&mut self);
+    /// `/ultrafast`, with the rest of the line -- already trimmed, and empty
+    /// for the status. `on`, `off` and `status` are what it means; refusing
+    /// anything else is the handler's, with upstream's usage line.
+    fn ultrafast(&mut self, argument: &str);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -164,6 +170,8 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Copy => handlers.copy(),
+        Slash::Fast => handlers.fast(),
+        Slash::Ultrafast => handlers.ultrafast(argument),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
@@ -229,6 +237,12 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn fast(&mut self) {
+            self.calls.push("fast".to_string());
+        }
+        fn ultrafast(&mut self, argument: &str) {
+            self.calls.push(format!("ultrafast {argument}"));
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -272,6 +286,8 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/fast", "fast"),
+            ("/ultrafast", "ultrafast "),
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/status", "status"),

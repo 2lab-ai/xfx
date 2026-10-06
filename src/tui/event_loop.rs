@@ -3225,6 +3225,7 @@ mod tests {
                 details: Vec::new(),
             }],
             model: None,
+            settings: None,
         }
     }
 

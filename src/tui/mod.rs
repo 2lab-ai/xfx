@@ -137,18 +137,30 @@ fn session(
     // or override outranks what a past turn happened to use. The band and the
     // runtime both read the model from the configuration, so it is restored
     // there, once, for both of them.
+    //
+    // The effort and the speed switches the session recorded come back with
+    // it whatever the profile says, as upstream's do
+    // (`restoreRuntimePreferences`, `app_session_runtime.zig:6126-6175`, which
+    // only a launch flag outranks -- xfx has none): they are the session's, and
+    // the profile's are only what the last session left. Bound to the model,
+    // because they were recorded with it.
     let restored;
     let config = match &resumed {
-        Some(resumed)
-            if config.sources.model == crate::config::SettingSource::CompiledDefault
-                && config.model != resumed.model() =>
-        {
+        Some(resumed) => {
             let mut owned = config.clone();
-            owned.model = resumed.model().to_string();
+            if config.sources.model == crate::config::SettingSource::CompiledDefault {
+                owned.model = resumed.model().to_string();
+            }
+            if let Some(settings) = resumed.settings() {
+                owned.effort = settings.effort.clone();
+                owned.fast_mode = settings.fast && !settings.ultrafast;
+                owned.ultrafast_mode = settings.ultrafast;
+                owned.fast_mode_model_bound = owned.fast_mode;
+            }
             restored = owned;
             &restored
         }
-        _ => config,
+        None => config,
     };
 
     let stdin = io::stdin();

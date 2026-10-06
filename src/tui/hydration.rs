@@ -34,6 +34,12 @@ pub(crate) struct Hydration {
     /// where the caller already shows the right one -- the launch, whose band
     /// is built from the configuration the session's model was restored into.
     pub(crate) model: Option<String>,
+    /// The effort and speed switches the runtime continues the session in --
+    /// the ones the session recorded, which a resume puts back as upstream's
+    /// does (`restoreRuntimePreferences`) -- for the hint row and for what
+    /// `/fast` and the picker start from. `None` where the caller already
+    /// holds them, as for [`Self::model`].
+    pub(crate) settings: Option<crate::provider::effort::TurnSettings>,
 }
 
 /// One turn of it.
@@ -96,6 +102,7 @@ impl Hydration {
             title: state.title(),
             turns: state.turns.iter().map(turn).collect(),
             model,
+            settings: None,
         }
     }
 }

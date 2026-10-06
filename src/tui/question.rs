@@ -1400,7 +1400,7 @@ impl QuestionRequester for TuiQuestioner {
                     // turn, so put aside for the loop, and the question stays up
                     // -- it is not the user cancelling the batch
                     // (`super::approval::ControlChannel::defer`).
-                    Some(TurnControl::Model(change)) => {
+                    Some(change @ (TurnControl::Model(_) | TurnControl::Speed(_))) => {
                         self.control.defer(change);
                         continue;
                     }
@@ -2979,6 +2979,8 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            speed: None,
+            provider: crate::provider::ProviderId::Gateway,
         };
         let sent = change.clone();
         let answers = harness.request_while(move |events_rx, control_tx, _cancel| {
@@ -2992,7 +2994,10 @@ mod tests {
                 .unwrap();
         });
         assert_eq!(answers, QuestionReply::Answered(vec!["kept".to_string()]));
-        assert_eq!(harness.control.take_deferred(), vec![change]);
+        assert_eq!(
+            harness.control.take_deferred(),
+            vec![TurnControl::Model(change)]
+        );
         assert_eq!(harness.control.waiting(), None);
     }
 
