@@ -28,7 +28,8 @@
 //! **What the document was given, as it was given it**, and nothing parsed back
 //! out of the screen. The shell tells this module about each thing it writes at
 //! the moment it writes it -- the card, the answer's text as the pacer releases
-//! it, a notice, a tool call's row, the turn's summary -- so the entries are in
+//! it, a notice, a tool call's row, a question's resolution, the turn's
+//! summary -- so the entries are in
 //! the document's own order and say what the document says. What the document
 //! is never given -- a call's arguments and its whole result -- comes from the
 //! session's journal: [`Teed`] stands between the turn and the recorder on the
@@ -481,6 +482,9 @@ enum Body {
     Line(String, Role, Kind),
     Notice(Notice),
     Usage(String),
+    /// Rows the document was given already laid out: what a question batch
+    /// leaves behind (`super::question`'s `answered_rows`).
+    Block(Vec<String>),
     /// Boxed: a call carries its arguments, its result and a reviewed change,
     /// and a record of one-line notices should not be as wide as that.
     Tool(Box<Call>),
@@ -665,6 +669,13 @@ impl FullTranscript {
 
     pub(crate) fn notice(&mut self, notice: &Notice) {
         self.push(Body::Notice(notice.clone()));
+    }
+
+    /// Rows laid out already -- a question batch's resolution -- which close
+    /// the group as any other block written into the document does.
+    pub(crate) fn block(&mut self, rows: &[String]) {
+        self.group_open = false;
+        self.push(Body::Block(rows.to_vec()));
     }
 
     /// The turn's summary under its answer.
@@ -998,25 +1009,29 @@ impl FullTranscript {
 
     fn lay_out(&self, entry: &Entry, cols: u16, palette: Palette) -> Vec<String> {
         let (kind, body) = match &entry.body {
-            Body::Prompt(text) => (Kind::Prompt, card(text, cols, palette)),
-            Body::Response(text) => (Kind::Response, answer(text, cols, palette)),
-            Body::Line(text, role, kind) => (*kind, line(text, *role, cols, palette)),
+            Body::Prompt(text) => (Some(Kind::Prompt), card(text, cols, palette)),
+            Body::Response(text) => (Some(Kind::Response), answer(text, cols, palette)),
+            Body::Line(text, role, kind) => (Some(*kind), line(text, *role, cols, palette)),
             Body::Notice(notice) => (
-                if notice.tone == Tone::Error {
+                Some(if notice.tone == Tone::Error {
                     Kind::Error
                 } else {
                     Kind::Notice
-                },
+                }),
                 notice_rows(notice, cols, palette),
             ),
-            Body::Usage(text) => (Kind::Usage, line(text, Role::Dim, cols, palette)),
-            Body::Tool(call) => (Kind::Tool, self.tool_rows(call, cols, palette)),
+            Body::Usage(text) => (Some(Kind::Usage), line(text, Role::Dim, cols, palette)),
+            Body::Tool(call) => (Some(Kind::Tool), self.tool_rows(call, cols, palette)),
+            // Upstream heads only the entries it has a kind for
+            // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), and a
+            // question's resolution is not one of them.
+            Body::Block(rows) => (None, rows.iter().map(|row| ellipsized(row, cols)).collect()),
         };
         if body.is_empty() {
             return Vec::new();
         }
         let mut rows = Vec::with_capacity(body.len() + 1);
-        if let Some(stamp) = stamp(entry.at_ms) {
+        if let (Some(kind), Some(stamp)) = (kind, stamp(entry.at_ms)) {
             let text = clip(&format!("  {stamp} \u{b7} {}", kind.label()), cols).to_string();
             rows.push(format!("{}{text}{}", palette.dim(), palette.reset()));
         }
@@ -1882,6 +1897,29 @@ mod tests {
                 "  2026-10-06 14:43:50.620 UTC \u{b7} Error",
                 "\u{2717} system: it broke",
                 "",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_questions_resolution_is_shown_as_the_document_has_it_under_no_header() {
+        // Upstream's `question_resolution` entries have no metadata kind
+        // (`metadataKind`, `full_transcript_screen.zig:5867-5895`), so no header.
+        let mut record = record();
+        record.prompt("ask me");
+        record.block(&[
+            "  1) Which database?".to_string(),
+            "     SQLite".to_string(),
+        ]);
+        let rows = screen(&record);
+        assert_eq!(
+            &rows[..5],
+            [
+                "  2026-10-06 14:43:50.620 UTC \u{b7} Prompt",
+                "\u{2503} ask me",
+                "",
+                "  1) Which database?",
+                "     SQLite",
             ]
         );
     }
