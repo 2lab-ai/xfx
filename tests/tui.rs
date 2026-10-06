@@ -2756,13 +2756,16 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
         |text| composer(text) == "\u{2503} half typed",
     );
 
-    // Up, from the only row a one-row draft has.
-    session.type_bytes(b"\x1b[A");
+    // Up, from the only row a one-row draft has: the first takes the caret
+    // to the draft's start, and the second recalls
+    // (`input_completion_runtime.zig:265-284`).
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the newest submitted line to come back", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
-    // Up again, which walks on.
-    session.type_bytes(b"\x1b[A");
+    // Up again, twice -- the recalled line's caret is at its end -- which
+    // walks on.
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the line before it to come back", |text| {
         composer(text) == "\u{2503} alpha prompt"
     });
@@ -2779,7 +2782,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
 
     // An edit ends the walk: the next step back is the newest line again, and
     // what it comes back to is the text the edit left behind.
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("a second walk to reach the newest line", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });
@@ -2787,7 +2790,7 @@ fn what_was_submitted_comes_back_and_so_does_the_draft_it_stood_aside() {
     session.wait_until("the recalled line to take the keystroke", |text| {
         composer(text) == "\u{2503} bravo prompt!"
     });
-    session.type_bytes(b"\x1b[A");
+    session.type_bytes(b"\x1b[A\x1b[A");
     session.wait_until("the walk to start from the newest line again", |text| {
         composer(text) == "\u{2503} bravo prompt"
     });

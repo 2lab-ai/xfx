@@ -1413,7 +1413,15 @@ fn commit_document(
             room,
         ) {
             Ok(()) => {
-                document = reached;
+                // **On the screen, not in the transcript.** Under a band that
+                // is already on the bottom row the rows past `room` scrolled
+                // the screen, and what they carried off the top is the
+                // terminal's scrollback now: the document ends on the row
+                // above the band, whatever the append's own count says.
+                // Counting those rows as still on it is how a band that later
+                // shrinks -- a question answered, a menu closed -- floats back
+                // down by them and leaves blank rows over the turn's own.
+                document = reached.min(u32::from(after.content_bottom));
                 Landed::All
             }
             Err(emit) => {
@@ -3075,6 +3083,80 @@ mod tests {
                 "the text after the group never landed: {written:?}"
             );
         }
+    }
+
+    #[test]
+    fn rows_an_append_scrolled_off_the_screen_are_not_counted_as_on_it() {
+        // `settings-collapse`'s `running` screen, on 24 rows: a command's group
+        // lands in the same tick as its permission question, so it is written
+        // under a band the question has already pinned to the bottom row, and
+        // the rows that do not fit scroll the screen. Those rows left the top
+        // of it: the document on the screen still ends directly above the band.
+        // When the question goes and the band shrinks back, the turn's row is
+        // the row under the group's own blank one, as upstream's is
+        // (`fx-settings-collapse-40x120-running`: the header, one blank, the
+        // activity row) -- not under two rows that are not there.
+        let mut shell = floating();
+        let mut band = Band::new();
+        let now = Instant::now();
+        let lines: Vec<String> = (1..=12).map(|n| format!("line {n}")).collect();
+        shell.write_transcript(&lines.join("\n"));
+        shell.end_transcript_line();
+        committed(&mut shell, &mut band);
+        shell.route_bytes(b"run it\r");
+        committed(&mut shell, &mut band);
+        shell.apply(UiEvent::TurnStarted);
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+
+        let [start, _] = a_call("call-1", "notes.txt");
+        shell.apply(start);
+        shell.apply(asked_inline());
+        shell.settle_band(now);
+        let written = committed(&mut shell, &mut band);
+        let frame = written
+            .find("\u{1b}[?2026h")
+            .unwrap_or_else(|| panic!("no band frame followed the append: {written:?}"));
+        assert!(
+            written[..frame].contains("1 tool call"),
+            "the group was not written before the band: {written:?}"
+        );
+        // An append writes each row on the row above the band and scrolls the
+        // screen before the next, so the last row it placed before the frame
+        // is where the group's trailing blank row stays.
+        let group_bottom = written[..frame]
+            .rfind(";1H")
+            .and_then(|end| {
+                let start = written[..end].rfind('[')? + 1;
+                written[start..end].parse::<u16>().ok()
+            })
+            .unwrap_or_else(|| panic!("the group's last row was not placed: {written:?}"));
+        assert!(
+            written.contains(&format!("\u{1b}[{};1H\n", shell.geometry.rows)),
+            "the group did not scroll the screen, so this case proves nothing: {written:?}"
+        );
+        assert_eq!(
+            shell.geometry.content_bottom, group_bottom,
+            "the band is not directly under the group: {written:?}"
+        );
+        assert!(
+            shell.document_rows() <= u32::from(shell.geometry.content_bottom),
+            "the document is counted {} rows deep on a screen whose band starts on row {}",
+            shell.document_rows(),
+            shell.geometry.band_top()
+        );
+
+        shell.reconcile_approval();
+        shell.route_bytes(b"1");
+        shell.settle_band(now);
+        committed(&mut shell, &mut band);
+
+        assert_eq!(
+            shell.geometry.activity,
+            Some(group_bottom + 1),
+            "the turn's row is not under the group's blank row: {:?}",
+            shell.geometry
+        );
     }
 
     #[test]

@@ -831,6 +831,25 @@ impl Editor {
         self.anchor = None;
     }
 
+    /// The caret to the start of the draft (`Step::Up`) or to its end
+    /// (`Step::Down`): what an arrow does on the composer's first or last row
+    /// before it is a history step (`draft_start` / `draft_end`,
+    /// `input_completion_runtime.zig:265-284`, `horizontal_navigation.zig:29-30`).
+    ///
+    /// `false` when the caret is already there, which is the arrow that steps
+    /// the history instead.
+    pub(crate) fn move_to_draft_edge(&mut self, step: Step) -> bool {
+        let edge = match step {
+            Step::Up => 0,
+            Step::Down => self.text.len(),
+        };
+        if self.cursor == edge {
+            return false;
+        }
+        self.move_to(edge);
+        true
+    }
+
     /// `count` rows up or down at once, stopping at the first or the last row:
     /// a page move (`scanRowDelta`, `visual_layout.zig:598-622`).
     ///
