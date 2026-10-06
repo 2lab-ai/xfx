@@ -26,6 +26,7 @@ use super::mutate::{CreateFolderInput, EditFileInput, WriteFileInput};
 use super::question::{AskUserQuestionInput, QuestionRequester};
 use super::read::{GlobFilesInput, GrepFilesInput, ListFilesInput, ReadFileInput};
 use super::terminal::TerminalInput;
+use super::undo::ChangeJournal;
 
 /// How much authority a tool needs before it may run.
 ///
@@ -608,6 +609,12 @@ pub type RaceInterlude = Arc<dyn Fn() + Send + Sync>;
 pub struct ToolSession {
     permissions: Mutex<PermissionSession>,
     reads: Mutex<ReadTracker>,
+    /// What `/undo` can take back ([`super::undo`]). Here, beside the read
+    /// proofs, because it is about the same thing they are -- what this
+    /// conversation has done to files -- and so it ends where they do: a
+    /// conversation `/new` drops takes its changes with it, and a resumed one
+    /// starts with none, as upstream's does.
+    changes: Mutex<ChangeJournal>,
 }
 
 impl ToolSession {
@@ -615,6 +622,7 @@ impl ToolSession {
         Self {
             permissions: Mutex::new(permissions),
             reads: Mutex::new(ReadTracker::new()),
+            changes: Mutex::new(ChangeJournal::new()),
         }
     }
 }
@@ -761,6 +769,18 @@ impl ToolContext {
     pub fn reads(&self) -> MutexGuard<'_, ReadTracker> {
         self.session
             .reads
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The changes this session's tools committed, locked
+    /// ([`super::undo::ChangeJournal`]).
+    ///
+    /// Recovered from a poisoned lock like the other two: a journal is a list
+    /// that a push or a pop leaves whole.
+    pub fn changes(&self) -> MutexGuard<'_, ChangeJournal> {
+        self.session
+            .changes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }

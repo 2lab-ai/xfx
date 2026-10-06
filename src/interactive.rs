@@ -69,10 +69,13 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/rename",
     "/provider",
     "/stats",
+    "/usage",
     "/status",
     "/model",
     "/permissions",
+    "/undo",
     "/copy",
+    "/credits",
     "/statusline",
     "/sound",
     "/workspace",
@@ -218,6 +221,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Usage,
+        name: "/usage",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:474`).
+        aliases: &["/cost"],
+        // Upstream's sentence with this product's name in it (`:474`): what
+        // it shows is what xfx itself spent.
+        summary: "show local xfx tokens, models, and spend",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Status,
         name: "/status",
         aliases: &[],
@@ -242,11 +257,31 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: true,
     },
     SlashSpec {
+        command: Slash::Undo,
+        name: "/undo",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:481`): a Session command that
+        // takes nothing.
+        summary: "undo the latest tracked file operation",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Copy,
         name: "/copy",
         aliases: &[],
         summary: "copy the last assistant response",
         category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Credits,
+        name: "/credits",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:490`).
+        aliases: &["/balance"],
+        summary: "show gateway credits balance",
+        category: "Account",
         has_args: false,
     },
     SlashSpec {
@@ -406,6 +441,17 @@ pub const PROMPT: &str = "> ";
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/usage` says on this surface.
+///
+/// Upstream's `/usage` is a dashboard in place of its footer
+/// (`commandShowUsage`, `app_commands.zig:1024-1062`), with keys that walk
+/// windows and models, and this shell reads a line at a time and has no
+/// footer. It says where the dashboard is, as `/stats` says where the
+/// counters are, rather than printing a different report under the same name.
+pub const USAGE_ON_THE_LINE_SHELL: &str = "xfx: /usage shows its dashboard in the full-screen \
+     shell, and this line-oriented shell has no footer to show it in; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
 /// What `/resume` says on this surface.
 ///
 /// Upstream's `/resume` is a picker in its footer
@@ -553,6 +599,9 @@ pub enum Slash {
     /// `ask`, `auto`, `full-access` or `reset`
     /// ([`crate::permission::slash`]).
     Permissions,
+    /// Put the file the conversation's tools changed last back as it was
+    /// before ([`crate::tools::undo`]).
+    Undo,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
@@ -562,6 +611,12 @@ pub enum Slash {
     /// What the terminal writer has done this session: upstream's five render
     /// counters.
     Stats,
+    /// What xfx itself has spent -- tokens, requests and the provider's own
+    /// cost, by model -- over the last 30 days, 7 days, 24 hours or this
+    /// session ([`crate::usage`]).
+    Usage,
+    /// What the Gateway account has left ([`crate::credits`]).
+    Credits,
     /// The configuration a turn would run under, and the live conversation's
     /// own two counts.
     Status,
@@ -1099,6 +1154,22 @@ pub async fn run(
                     Slash::Stats => {
                         writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Usage => {
+                        writeln!(io::stderr(), "{USAGE_ON_THE_LINE_SHELL}")?;
+                    }
+                    // Upstream's `credits` report, `[credits] key=value` per
+                    // field (`renderText`, `output_contracts.zig:1483-1511`),
+                    // asked of the provider the configuration names now: a
+                    // `/setup` since launch is the provider whose account this
+                    // is. A refusal goes where this shell's refusals go.
+                    Slash::Credits => {
+                        let answer = crate::credits::fetch(&config).await;
+                        if answer.is_error() {
+                            write!(io::stderr(), "{}", answer.render_text())?;
+                        } else {
+                            write!(io::stdout(), "{}", answer.render_text())?;
+                        }
+                    }
                     Slash::Resume => {
                         writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
                     }
@@ -1167,6 +1238,7 @@ pub async fn run(
                         )?;
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
+                    Slash::Undo => undo_on_the_line(conversation.as_ref())?,
                     Slash::Permissions => {
                         apply_permissions(&argument, &mut config, conversation.as_mut())?;
                     }
@@ -1785,6 +1857,22 @@ fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -
     }
 }
 
+/// `/undo` on this shell: the conversation's newest change taken back, and
+/// upstream's sentence for what became of it, on this loop's thread like
+/// everything else it does. No conversation yet is no change yet.
+fn undo_on_the_line(conversation: Option<&Conversation>) -> io::Result<()> {
+    let undone = match conversation {
+        Some(conversation) => crate::tools::mutate::undo_last(&conversation.tools),
+        None => crate::tools::undo::Undone::Nothing,
+    };
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}",
+        crate::tools::undo::TOPIC,
+        undone.sentence()
+    )
+}
+
 /// What this shell adds to `/sound`'s answer: that the switch it just moved is
 /// the full-screen shell's to ring.
 ///
@@ -1892,10 +1980,11 @@ mod tests {
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
-        // since `/resume` and `/rename`, and seventeen since `/workspace`;
+        // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
+        // since `/usage` and `/credits`, and twenty since `/workspace`;
         // `/provider` took `/setup`'s place rather than adding one, and
         // `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 17);
+        assert_eq!(SLASH_COMMANDS.len(), 20);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2043,8 +2132,6 @@ mod tests {
             "/logout",
             "/models",
             "/mcp",
-            "/undo",
-            "/usage",
             "/image",
             "/background",
         ] {
@@ -2267,7 +2354,8 @@ mod tests {
         // `/model` (`commands.zig:472-478`).
         let order: Vec<&str> = SLASH_COMMANDS.to_vec();
         let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
-        assert!(at("/provider") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/provider") < at("/stats") && at("/stats") < at("/usage"));
+        assert!(at("/usage") < at("/status"));
         assert!(at("/status") < at("/model"));
         assert!(help_text().contains("/status"), "{}", help_text());
     }
@@ -2309,6 +2397,72 @@ mod tests {
         assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
         assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
         assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
+    }
+
+    #[test]
+    fn usage_and_credits_are_upstreams_account_rows_with_their_aliases() {
+        // `commands.zig:474,490`: name, alias, sentence (xfx's name in place
+        // of upstream's in `/usage`'s) and category, and neither row
+        // `accepts_payload` -- `/credits now` is not `/credits`.
+        let usage = slash_spec(Slash::Usage);
+        assert_eq!(
+            (
+                usage.name,
+                usage.aliases,
+                usage.summary,
+                usage.category,
+                usage.has_args
+            ),
+            (
+                "/usage",
+                &["/cost"][..],
+                "show local xfx tokens, models, and spend",
+                "Account",
+                false
+            )
+        );
+        let credits = slash_spec(Slash::Credits);
+        assert_eq!(
+            (
+                credits.name,
+                credits.aliases,
+                credits.summary,
+                credits.category,
+                credits.has_args
+            ),
+            (
+                "/credits",
+                &["/balance"][..],
+                "show gateway credits balance",
+                "Account",
+                false
+            )
+        );
+        for (alias, command) in [("/cost", Slash::Usage), ("/balance", Slash::Credits)] {
+            assert_eq!(
+                classify(alias),
+                Submitted::Command {
+                    command,
+                    argument: String::new()
+                }
+            );
+            assert!(!SLASH_COMMANDS.contains(&alias), "{alias}");
+        }
+        // Upstream's order: `/copy` before `/credits` before `/statusline`
+        // (`commands.zig:484-494`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/copy") < at("/credits") && at("/credits") < at("/statusline"));
+        let help = help_text();
+        assert!(
+            help.contains("(also /cost)") && help.contains("(also /balance)"),
+            "{help}"
+        );
+    }
+
+    #[test]
+    fn usage_on_the_line_shell_points_at_the_dashboard() {
+        assert!(USAGE_ON_THE_LINE_SHELL.starts_with("xfx: /usage"));
+        assert!(USAGE_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
     }
 
     #[test]

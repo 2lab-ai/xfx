@@ -1,0 +1,28 @@
+# Requests the turn retries: two HTTP 500s with the Gateway's error shape and
+# then an answer (r*), then a second prompt the fake gateway has no turn for,
+# so every request fails with a plain-text 500 (f*). The two products' backoffs
+# differ (xfx: 250 ms, then 500 ms, three attempts; fx: about a second, growing,
+# without end), so the snaps are at times that catch xfx's row and the README
+# says which fx snap shows the same state.
+gateway interrupt-retry.json
+wait 2
+type try it
+key Enter
+wait 0.15
+snap r0.15
+wait 0.3
+snap r0.45
+wait 0.6
+snap r1.05
+wait 1.5
+snap r2.5
+type second try
+key Enter
+wait 0.15
+snap f0.15
+wait 0.4
+snap f0.55
+wait 2
+snap f2.5
+snapfull end
+gwlog
