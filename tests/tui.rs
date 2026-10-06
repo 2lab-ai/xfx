@@ -3734,8 +3734,13 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    // `/trace` writes a file and copies it: into a directory and through a
+    // tool of this case's own, never the runner's.
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
 
     // Each command with a needle out of its own answer, none of which the test
@@ -3797,6 +3802,14 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for_count("Run /help for commands", 3);
     session.type_bytes(b"/reset\r");
     session.wait_for_count("Run /help for commands", 4);
+    // A report about the session, which is a file and not a request.
+    session.type_bytes(b"/trace\r");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard."
+    } else {
+        "Trace saved at"
+    });
+    assert_eq!(clipboard.reports().len(), 1, "/trace wrote no report");
 
     // The last one, and the reason it leaves this test rather than a Ctrl-D:
     // every canonical name is then literally pinned against the zero-request
@@ -4131,10 +4144,12 @@ fn undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest()
 }
 
 #[test]
-fn an_undo_typed_while_a_turn_runs_is_done_when_the_turn_is_over() {
-    // Upstream's undo is never refused (`commandUndoLast` runs from the
-    // handler whatever the worker is doing); xfx's runtime does it once the
-    // running turn has said its last word, rather than under it.
+fn an_undo_typed_while_a_turn_runs_takes_back_what_was_newest_then_once_the_turn_is_over() {
+    // Upstream's undo is never refused and is done at the keystroke
+    // (`commandUndoLast` runs from the handler whatever the worker is doing).
+    // xfx's runtime does it once the running turn has said its last word,
+    // rather than under it -- and takes back the change that was newest when
+    // the key was pressed: here the turn's one write.
     use support::fake_gateway::{finish, sse_body, text_delta, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
         Reply::Sse(sse_body(&[
@@ -4178,6 +4193,162 @@ fn an_undo_typed_while_a_turn_runs_is_done_when_the_turn_is_over() {
         &[],
     );
     assert!(!file.exists(), "the undo was dropped with the turn");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+/// A turn that writes `a.txt`, runs a three-second command, then changes
+/// `then` -- `{"path": .., "content": ..}` for a second write -- and ends:
+/// the window an `/undo` is typed in, with a change committed on each side of
+/// it. `yolo` runs the command without a question, so nothing but the clock
+/// separates the two changes.
+fn a_change_on_each_side_of_a_pause(then: Value) -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let call = |id: &str, name: &str, input: Value| {
+        Reply::Sse(sse_body(&[
+            tool_call(id, name, input),
+            finish("tool-calls"),
+        ]))
+    };
+    vec![
+        call(
+            "w1",
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        ),
+        call(
+            "t1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 3"}),
+        ),
+        call("r1", "read_file", serde_json::json!({"path": "a.txt"})),
+        call("w2", "write_file", then),
+        Reply::Sse(content_only(&["ALL-DONE"])),
+    ]
+}
+
+/// Runs [`a_change_on_each_side_of_a_pause`] and types `/undo` inside the
+/// pause, once `a.txt` is written and before the second change can be: the
+/// session, and `a.txt`'s canonical path.
+fn undo_typed_in_the_pause(
+    sandbox: &Sandbox,
+    gateway: &FakeGateway,
+    pty: &Pty,
+    second: &str,
+) -> (Session, std::path::PathBuf) {
+    pty.resize(30, 200);
+    let mut command = tui_with(sandbox, gateway);
+    command.env("XFX_PERMISSION_MODE", "yolo");
+    let session = Session::spawn_without_taking_the_terminal(pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"change two files\r");
+    // The command's row, not the file: a write is on disk a moment before it
+    // is tracked, and its result -- the row -- is sent after both. Upstream
+    // tracks after its commit too (`publishCommittedTracker`), so a key
+    // pressed inside that moment reaches back past it there as well.
+    on_screen(
+        &session,
+        (30, 200),
+        &["Wrote a.txt", "Running sleep 3"],
+        &[],
+    );
+    let first = sandbox.workspace.join("a.txt");
+    let path = std::fs::canonicalize(&first).expect("canonicalize");
+    session.type_bytes(b"/undo\r");
+    // Inside the pause still: the second change has not been made, so the
+    // keystroke really is between the two.
+    assert_eq!(
+        std::fs::read_to_string(&first).expect("the first change"),
+        "one\n"
+    );
+    assert!(
+        !sandbox.workspace.join(second).exists(),
+        "the second change landed before the keystroke"
+    );
+    (session, path)
+}
+
+#[test]
+fn a_change_the_turn_makes_after_an_undo_is_typed_is_not_the_one_taken_back() {
+    // Upstream undoes at the keystroke, so the change it takes back is the
+    // one newest then -- `a.txt` -- and the turn's later write of `b.txt`
+    // stays. xfx does the undo once the turn is over, pinned to the keystroke.
+    let gateway = FakeGateway::start(a_change_on_each_side_of_a_pause(
+        serde_json::json!({"path": "b.txt", "content": "two\n"}),
+    ));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
+
+    on_screen(
+        &session,
+        (30, 200),
+        &[
+            "ALL-DONE",
+            &format!("* undo: Deleted {} (was newly created)", first.display()),
+        ],
+        &[],
+    );
+    assert!(!first.exists(), "the change typed at was not taken back");
+    let second = sandbox.workspace.join("b.txt");
+    assert_eq!(
+        std::fs::read_to_string(&second).expect("the later change stays"),
+        "two\n"
+    );
+    // The later change is the next `/undo`'s. Named before the key is
+    // pressed: the undo may have removed it by the time the next line runs.
+    let second = std::fs::canonicalize(&second).expect("canonicalize");
+    session.type_bytes(b"/undo\r");
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!(
+            "* undo: Deleted {} (was newly created)",
+            second.display()
+        )],
+        &[],
+    );
+    assert!(!second.exists());
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn an_undo_typed_before_the_turn_changed_the_same_file_again_takes_nothing_back() {
+    // The turn rewrote `a.txt` after the keystroke. Putting back what was
+    // there before the first write would discard the second: `Could not
+    // undo`, the file as the second write left it -- and that write is the
+    // next `/undo`'s, which puts the first one's content back.
+    let gateway = FakeGateway::start(a_change_on_each_side_of_a_pause(
+        serde_json::json!({"path": "a.txt", "content": "two\n"}),
+    ));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let (mut session, first) = undo_typed_in_the_pause(&sandbox, &gateway, &pty, "b.txt");
+
+    on_screen(
+        &session,
+        (30, 200),
+        &[
+            "ALL-DONE",
+            &format!("* undo: Could not undo {}", first.display()),
+        ],
+        &[],
+    );
+    assert_eq!(
+        std::fs::read_to_string(&first).expect("left alone"),
+        "two\n"
+    );
+    session.type_bytes(b"/undo\r");
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!("* undo: Restored {}", first.display())],
+        &[],
+    );
+    assert_eq!(std::fs::read_to_string(&first).expect("restored"), "one\n");
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
@@ -7812,4 +7983,95 @@ fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {
 
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+// ---------------------------------------------------------------------------
+// /trace
+// ---------------------------------------------------------------------------
+
+#[test]
+fn slash_trace_writes_a_private_report_and_copies_the_file_rather_than_its_text() {
+    // Upstream's own case (`tui-command-permissions.test.ts:1797-1890`) through
+    // the real binary: after a turn, `/trace` says `Trace copied to clipboard`
+    // on macOS and `Trace saved at` elsewhere; the report is a Markdown file
+    // under `$TMPDIR` that only its owner can read, and the clipboard tool was
+    // handed its path. Never a request, and never the credential.
+    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["TRACE_RENDER_DONE"]),
+    )]);
+    let clipboard = support::fake_clipboard::FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+
+    session.type_bytes(b"render the trace fixture\r");
+    // The turn is over once the session is titled by its first prompt.
+    session.wait_for("\u{1b}]2;render the trace fixture\u{7}");
+    session.type_bytes(b"/trace\r");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    let path = &reports[0];
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+    assert!(
+        name.starts_with("xfx-trace-") && name.ends_with(".md"),
+        "{name}"
+    );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "the report is readable by others: {mode:o}"
+        );
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(clipboard.copied_file().as_deref(), path.to_str());
+    } else {
+        assert_eq!(clipboard.copied_file(), None, "a file copy was tried");
+    }
+    assert_eq!(clipboard.copied(), None, "the report was copied as text");
+    let report = std::fs::read_to_string(path).expect("the report");
+    for needle in [
+        "# xfx trace\n".to_string(),
+        "\n## Summary\n".to_string(),
+        format!("\nworkspace: {}\n", sandbox.workspace.display()),
+        "\nauth: source=AI_GATEWAY_API_KEY refreshable=false\n".to_string(),
+        "\nhistory_turns: 1\n".to_string(),
+        "\n    render the trace fixture\n".to_string(),
+        "\n    TRACE_RENDER_DONE\n".to_string(),
+        "] user\n  render the trace fixture\n".to_string(),
+        "] assistant\n  TRACE_RENDER_DONE\n".to_string(),
+        "\n## Network Calls\ncalls=1 ok=1 refused=0\n".to_string(),
+    ] {
+        assert!(report.contains(&needle), "{needle:?} is not in:\n{report}");
+    }
+    assert!(
+        !report.contains(support::sandbox::TEST_KEY),
+        "the credential reached the report"
+    );
+
+    // A copy the clipboard refused names the file, as an error.
+    clipboard.fail();
+    session.type_bytes(b"/trace\r");
+    if cfg!(target_os = "macos") {
+        session.wait_for("Clipboard copy failed.");
+    } else {
+        session.wait_for_count("Trace saved at", 2);
+    }
+    assert_eq!(clipboard.reports().len(), 2);
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 1, "/trace sent a request");
 }
