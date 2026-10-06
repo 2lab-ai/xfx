@@ -58,10 +58,12 @@ const TURN_FAILURE_EXIT_CODE: u8 = 1;
 /// finished stopping -- and on two of the three that state ends by itself. The
 /// line-oriented shell's `Interrupts` returns to `Idle` at `end_turn`, so the
 /// press after the conclusion offers a fresh prompt line and it takes two more
-/// to leave (`crate::interactive`); the TUI's `Gestures` clears `asked_to_stop`
-/// at `turn_ended`, so the same press clears the draft (`crate::tui::gesture`).
-/// Only `ask`'s one-shot watcher keeps the exiting arm for the rest of the
-/// process, and there the turn's end *is* the process's. So an unconditional
+/// to leave (`crate::interactive`). Only `ask`'s one-shot watcher keeps the
+/// exiting arm for the rest of the process, and there the turn's end *is* the
+/// process's. (The TUI no longer writes this sentence: it answers a cancel with
+/// upstream's `■ Cancelled` line and says `press ctrl+c again to exit` on its
+/// hint row for exactly as long as a press would leave, `crate::tui::gesture`.)
+/// So an unconditional
 /// "press Ctrl-C again to exit immediately" was true only while the turn was
 /// still stopping, and the sentence now says exactly that rather than promising
 /// a keystroke that would, a second later, clear a draft instead.
@@ -1211,23 +1213,20 @@ mod tests {
         // The sentence itself, spelled out rather than derived, because it is a
         // policy literal three surfaces share and a test that imported it would
         // pass whatever it became. What it may not say is the thing that is
-        // false on two of those three the moment the turn concludes: an
-        // unconditional "press Ctrl-C again to exit". `interactive`'s
-        // `Interrupts` goes back to `Idle` at `end_turn` and answers the next
-        // press with a fresh prompt line; the TUI's `Gestures` clears
-        // `asked_to_stop` at `turn_ended` and answers it by clearing the draft.
-        // Each of those two modules pins its own half of that beside its own
-        // table.
+        // false the moment the turn concludes: an unconditional "press Ctrl-C
+        // again to exit". `interactive`'s `Interrupts` goes back to `Idle` at
+        // `end_turn` and answers the next press with a fresh prompt line, and
+        // pins that beside its own table. (The TUI's promise is its hint row's
+        // now, and `crate::tui::gesture` pins that one.)
         assert_eq!(
             INTERRUPT_NOTICE,
             "xfx: interrupted -- stopping the turn; another Ctrl-C before it \
              stops exits."
         );
-        // And it still fits the row it is written onto. The TUI writes it as
-        // one document line (`tui::shell::Shell::interrupt`), so a sentence
-        // that outgrew a standard terminal would spend a second row of the
-        // answer it is interrupting -- which is why the qualifier above
-        // replaced words rather than being added to them.
+        // And it still fits one row of a standard terminal: the line shell
+        // writes it under the answer it is interrupting, and a sentence that
+        // wrapped would spend a second row of it -- which is why the qualifier
+        // above replaced words rather than being added to them.
         assert!(
             INTERRUPT_NOTICE.len() <= 78,
             "the notice no longer fits one row of an 80-column terminal: {} \

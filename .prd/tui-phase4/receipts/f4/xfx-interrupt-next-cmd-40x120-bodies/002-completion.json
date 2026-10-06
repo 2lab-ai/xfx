@@ -1,0 +1,69 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "run cmd"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool-call",
+     "toolCallId": "call_1_0",
+     "toolName": "terminal",
+     "input": {
+      "action": "exec",
+      "command": "sleep 6"
+     }
+    }
+   ]
+  },
+  {
+   "role": "tool",
+   "content": [
+    {
+     "type": "tool-result",
+     "toolCallId": "call_1_0",
+     "toolName": "terminal",
+     "output": {
+      "type": "text",
+      "value": "<command>sleep 6</command>\n<cwd>.</cwd>\n<exit_code>0</exit_code>\n<stdout>\n</stdout>\n<stderr>\n</stderr>\n"
+     }
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Interrupted by user after completing 1 tool call: terminal."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may have partially executed. Do not continue this request unless the user explicitly asks to continue.\n</turn_aborted>"
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "next"
+    }
+   ]
+  }
+ ]
+}

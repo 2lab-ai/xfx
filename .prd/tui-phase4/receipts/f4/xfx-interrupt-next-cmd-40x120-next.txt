@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ddca9d9 [debug] · Run /help for commands
+
+┃ run cmd
+
+● 1 tool call · 1 command
+└ Ran sleep 6
+
+■ Cancelled · What can xfx do differently?
+
+┃ next
+
+  post command answer.
+
+  0s (↑1 ↓40)
+
+┃
+
+full access · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

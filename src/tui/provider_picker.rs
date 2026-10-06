@@ -239,17 +239,20 @@ impl ProviderPicker {
 
     /// Moves the mark one row, wrapping at both ends, and says whether there
     /// was a row to move to (`advanceSelection`, `list_window.zig:40-48`).
+    #[cfg(test)]
     pub(crate) fn step(&mut self, down: bool) -> bool {
+        self.step_by(if down { 1 } else { -1 })
+    }
+
+    /// The mark `delta` rows on, wrapping to the other end past either --
+    /// how a page key and `C-j`/`C-k` walk it too (`navigate`,
+    /// `provider_picker_runtime.zig:163-178`, through `advanceSelection`).
+    pub(crate) fn step_by(&mut self, delta: i64) -> bool {
         let count = self.rows.len();
         if count == 0 {
             return false;
         }
-        let current = self.selected % count;
-        self.selected = if down {
-            (current + 1) % count
-        } else {
-            (current + count - 1) % count
-        };
+        self.selected = super::picker::advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, MOST_ROWS);
         true
     }

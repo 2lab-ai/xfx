@@ -115,12 +115,14 @@ impl MenuAction {
     /// picker swallows without meaning anything by it.
     ///
     /// Ctrl-J and Ctrl-K are upstream's too (`app_input_runtime.zig:1366-1395`,
-    /// bytes 10 and 11), and arrive here as the actions those bytes decode to
-    /// on the composer.
+    /// bytes 10 and 11), and arrive here as the actions those bytes decode to:
+    /// [`Action::ControlJ`] and [`Action::ControlK`], the keys rather than the
+    /// newline and the kill they are on the composer -- so Alt-Enter and
+    /// Super-Delete, which are those edits too, do not walk the picker.
     pub(crate) fn of(action: Action) -> Option<Self> {
         match action {
-            Action::Up | Action::KillToEnd => Some(Self::Up),
-            Action::Down | Action::InsertNewline => Some(Self::Down),
+            Action::Up | Action::ControlK => Some(Self::Up),
+            Action::Down | Action::ControlJ => Some(Self::Down),
             Action::Submit | Action::Left | Action::Right => Some(Self::Flip),
             Action::Escape => Some(Self::Close),
             _ => None,
@@ -587,12 +589,9 @@ mod tests {
     #[test]
     fn the_keys_the_picker_binds_and_nothing_else() {
         assert_eq!(MenuAction::of(Action::Up), Some(MenuAction::Up));
-        assert_eq!(MenuAction::of(Action::KillToEnd), Some(MenuAction::Up));
+        assert_eq!(MenuAction::of(Action::ControlK), Some(MenuAction::Up));
         assert_eq!(MenuAction::of(Action::Down), Some(MenuAction::Down));
-        assert_eq!(
-            MenuAction::of(Action::InsertNewline),
-            Some(MenuAction::Down)
-        );
+        assert_eq!(MenuAction::of(Action::ControlJ), Some(MenuAction::Down));
         for flip in [Action::Submit, Action::Left, Action::Right] {
             assert_eq!(MenuAction::of(flip), Some(MenuAction::Flip), "{flip:?}");
         }

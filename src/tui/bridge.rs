@@ -277,6 +277,17 @@ pub(crate) enum UiEvent {
         input: Option<u64>,
         output: Option<u64>,
     },
+    /// A request failed in a way the turn replays, and the next attempt goes
+    /// after `delay` (`crate::output::EventSink::retrying`).
+    ///
+    /// Already shaped for the row that says so ([`super::retry`]): the cause is
+    /// this crate's own word, and the diagnostic is what the server said --
+    /// which is why it is made inert like every other foreign string here.
+    Retrying {
+        cause: &'static str,
+        diagnostic: String,
+        delay: std::time::Duration,
+    },
     /// The turn is over, whichever way it went. **Terminal.**
     TurnEnded { failure: Option<String> },
     /// The conversation has been dropped: a [`TurnControl::Reset`] was acted
@@ -331,6 +342,17 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
+    /// What `/undo` did ([`TurnControl::Undo`]): upstream's `* undo: …`
+    /// notice, always neutral (`commandUndoLast`, `app_commands.zig:1285-1289`).
+    ///
+    /// **Not a [`Self::Notice`]**, and the one difference is the reason: a
+    /// notice the old conversation's work sends after a reset is dropped
+    /// (`super::shell`'s `drained`), and this one is never dropped, because a
+    /// file has changed -- or was refused -- by the time it is sent. An undo
+    /// typed before a `/new` that the runtime got to after it is still an undo
+    /// that happened, and one nobody was told of is a file that changed
+    /// invisibly.
+    Undone(super::notice::Notice),
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -415,6 +437,15 @@ impl UiEvent {
             // that exempted one field would be a rule about which field a
             // future sender puts foreign text in.
             Self::Notice(notice) => Self::Notice(super::notice::Notice {
+                tone: notice.tone,
+                topic: inert_owned(notice.topic),
+                body: inert_owned(notice.body),
+            }),
+            // The body quotes a path, which is a file's name and therefore
+            // anybody's; it arrives spelled out already
+            // (`crate::tools::undo::display_path`), and the rule here is about
+            // the channel rather than about whoever built the value.
+            Self::Undone(notice) => Self::Undone(super::notice::Notice {
                 tone: notice.tone,
                 topic: inert_owned(notice.topic),
                 body: inert_owned(notice.body),
@@ -591,6 +622,16 @@ impl UiEvent {
                     })
                     .collect(),
             }),
+            // The cause is this crate's word; the diagnostic quotes a server.
+            Self::Retrying {
+                cause,
+                diagnostic,
+                delay,
+            } => Self::Retrying {
+                cause,
+                diagnostic: inert_owned(diagnostic),
+                delay,
+            },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -778,6 +819,23 @@ pub(crate) enum TurnControl {
     /// for [`Self::Model`]'s reasons, put aside while work runs and applied
     /// between turns in the order it came with any model change.
     Speed(SpeedChange),
+    /// `/undo` ([`crate::tools::mutate::undo_last`]), answered with
+    /// [`UiEvent::Undone`].
+    ///
+    /// **A control message rather than work**, for the reason [`Self::Model`]
+    /// is one: as work it would take a place in the queue and be refused as
+    /// busy behind a waiting prompt, and upstream never refuses it
+    /// (`commandUndoLast`, `app_commands.zig:1242-1290`, runs from the
+    /// command handler whatever the worker is doing). Between turns it is done
+    /// when it is read. While work runs it is put aside and done the moment
+    /// that work has said its last word (`super::approval::ControlChannel::defer_undo`)
+    /// -- **not at once, as upstream's is**: the files a running turn is
+    /// changing are the runtime thread's to change, and an undo there,
+    /// between one call's commit and the next call's read, is exactly the
+    /// interleaving a single thread exists to rule out. The cost is that an
+    /// undo typed mid-turn takes back the newest change when the turn is over,
+    /// which may be one the turn made after it was typed.
+    Undo,
     /// `/clear`, `/new` and `/reset`: everything [`Self::Cancel`] does, and
     /// then the conversation is dropped -- the recorder closed, the tool
     /// context's grants and read proofs with it -- so the next prompt opens a
@@ -1225,11 +1283,18 @@ pub(crate) struct UiEventSink {
     /// This turn's token, not the session's: a cancelled turn stops streaming
     /// into a session that is still alive.
     cancel: CancellationToken,
+    /// The retry the next attempt is answering, for the records of that
+    /// attempt and of the recovery ([`super::retry::Retried`]).
+    retried: Option<super::retry::Retried>,
 }
 
 impl UiEventSink {
     pub(crate) fn new(events: Sender<UiEvent>, cancel: CancellationToken) -> Self {
-        Self { events, cancel }
+        Self {
+            events,
+            cancel,
+            retried: None,
+        }
     }
 }
 
@@ -1326,6 +1391,51 @@ impl EventSink for UiEventSink {
             event => self.send(event),
         }
     }
+
+    /// The row that counts down to the next attempt, told as the event it is
+    /// drawn from.
+    ///
+    /// Through the same permit every other event waits for, and its failure
+    /// dropped: a turn that was cancelled or a UI that is gone is told so by
+    /// the wait and the next emit, and this hook changes nothing about either
+    /// ([`EventSink::retrying`]).
+    ///
+    /// And the full transcript's `* recovery:` record of it, through the same
+    /// path as every other full-detail record ([`UiEvent::FullDetail`]), as
+    /// upstream records each recovery it shows (`recordRouteRecoveryNotice`,
+    /// `app_worker_runtime.zig:92-133`).
+    fn retrying(
+        &mut self,
+        error: &crate::gateway::ProviderError,
+        attempt: u32,
+        limit: u32,
+        delay: std::time::Duration,
+    ) {
+        let _ = self.send(UiEvent::Retrying {
+            cause: super::retry::cause(error),
+            diagnostic: super::retry::diagnostic(error),
+            delay,
+        });
+        let retried = super::retry::Retried::of(error, delay);
+        let _ = self.send(UiEvent::FullDetail(retried.record(attempt, limit)));
+        self.retried = Some(retried);
+    }
+
+    /// The record of the attempt the retry above was waiting for, as it
+    /// starts: upstream's second `! recovery:` for the same retry.
+    fn retry_started(&mut self, attempt: u32, limit: u32) {
+        if let Some(retried) = &self.retried {
+            let record = retried.record(attempt, limit);
+            let _ = self.send(UiEvent::FullDetail(record));
+        }
+    }
+
+    /// The `✓ recovery:` record of an attempt that got through after a retry.
+    fn recovered(&mut self, attempt: u32, limit: u32) {
+        if self.retried.take().is_some() {
+            let _ = self.send(UiEvent::FullDetail(super::retry::recovered(attempt, limit)));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1404,6 +1514,85 @@ mod tests {
             parked.recv_timeout(Duration::from_secs(5)),
             Ok(5),
             "the wakeup that arrived before the park was slept through"
+        );
+    }
+
+    #[test]
+    fn a_retry_is_the_rows_event_and_then_the_full_transcripts_recovery_record() {
+        // The row counts down on the band; the record is what the full
+        // transcript keeps of it (`recordRouteRecoveryNotice`,
+        // `app_worker_runtime.zig:92-133`), sent through the same path as F5's
+        // other records.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 503,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_secs(1));
+        drop(sink);
+        assert!(matches!(
+            rx.blocking_recv(),
+            Some(UiEvent::Retrying {
+                cause: "Provider unavailable",
+                ..
+            })
+        ));
+        let Some(UiEvent::FullDetail(record)) = rx.blocking_recv() else {
+            panic!("no recovery record followed the row");
+        };
+        assert_eq!(record.topic, "recovery");
+        assert_eq!(
+            record.body,
+            "\u{26a0} Provider unavailable \u{b7} HTTP 503 \u{b7} retrying request in 1s\n\
+             kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+             retry delay: 1s \u{b7} diagnostic: HTTP 503"
+        );
+        assert_eq!(rx.blocking_recv(), None);
+    }
+
+    #[test]
+    fn the_attempt_after_a_retry_and_its_recovery_are_recorded_too() {
+        // Upstream's sequence (`fx-interrupt-recovery-80x120-full`): the
+        // retry's record, the next attempt's as it starts -- same cause, delay
+        // and diagnostic, its own number -- then `✓ recovery:`. A turn that
+        // never retried records neither.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(UI_EVENTS);
+        let mut sink = UiEventSink::new(tx, CancellationToken::new());
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        let error = crate::gateway::ProviderError::Status {
+            subject: crate::gateway::GATEWAY_SUBJECT,
+            status: 500,
+            body: String::new(),
+            retryable: true,
+            retry_after: None,
+        };
+        sink.retrying(&error, 1, 3, Duration::from_millis(250));
+        sink.retry_started(2, 3);
+        sink.recovered(2, 3);
+        drop(sink);
+        let mut records = Vec::new();
+        while let Some(event) = rx.blocking_recv() {
+            if let UiEvent::FullDetail(record) = event {
+                records.push(record.body);
+            }
+        }
+        assert_eq!(
+            records,
+            [
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} retrying request\n\
+                 kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 2/3 \u{b7} \
+                 diagnostic: HTTP 500",
+                "\u{2713} recovered \u{b7} succeeded on attempt 2\nkind: auto_recovered \u{b7} \
+                 attempt: 2/3",
+            ]
         );
     }
 

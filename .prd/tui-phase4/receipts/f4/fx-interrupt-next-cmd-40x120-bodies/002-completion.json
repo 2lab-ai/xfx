@@ -1,0 +1,14 @@
+{
+ "note": "non-system messages only; system prompt and tools removed for size",
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "run cmd"
+    }
+   ]
+  }
+ ]
+}

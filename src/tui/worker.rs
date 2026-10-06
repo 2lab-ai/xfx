@@ -76,7 +76,7 @@ use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use super::approval::{ControlChannel, TuiPrompter};
+use super::approval::{ControlChannel, Deferred, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, SpeedChange, TurnCancel, TurnControl, TurnWork,
     UiEvent, UiEventSink,
@@ -92,7 +92,7 @@ use crate::interactive::{
     bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
 };
 use crate::output::StatusSnapshot;
-use crate::permission::PermissionSession;
+use crate::permission::{LiveAuthority, PermissionSession};
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector,
 };
@@ -213,19 +213,31 @@ pub(crate) struct WorkHandle {
     reply: LastReply,
     /// What `/status` reads, as the runtime last published it.
     status: StatusBoard,
-    /// Where a change to the session's authority goes: `/permissions` and
-    /// Shift-Tab ([`Change`]).
+    /// Where a change to the session's authority is **recorded**:
+    /// `/permissions` and Shift-Tab ([`Change`]).
     ///
-    /// **A channel of its own, not a [`TurnWork`]**, and each of the three
-    /// differences is a bug the work channel would have: a change would hold a
-    /// place in [`WORK_LIMIT`] and be refused as busy behind one waiting
-    /// prompt, it would show on the band as `queued 1`, and a Ctrl-C would drop
-    /// it with the queue ([`Queue::abandon`]) after the footer had already said
-    /// the new mode. Unbounded, like the control channel, because a keystroke
-    /// that changes the mode must never be refused for want of room. The
-    /// runtime reads it only between pieces of work (`turn_loop`), which is
-    /// what keeps a change from landing under a running turn.
+    /// The change itself is in force before this is sent -- [`Self::live`] --
+    /// and what the runtime does with the message is the durable half: the
+    /// configuration later conversations are opened from, the session log and
+    /// the profile. **A channel of its own, not a [`TurnWork`]**, and each of
+    /// the three differences is a bug the work channel would have: a change
+    /// would hold a place in [`WORK_LIMIT`] and be refused as busy behind one
+    /// waiting prompt, it would show on the band as `queued 1`, and a Ctrl-C
+    /// would drop it with the queue ([`Queue::abandon`]). Unbounded, like the
+    /// control channel, because a keystroke that changes the mode must never
+    /// be refused for want of room. The runtime reads it between pieces of
+    /// work (`turn_loop`), which is where the session log is not held by a
+    /// running turn.
     permissions: UnboundedSender<Change>,
+    /// The mode and reset count every permission session on the runtime
+    /// thread reads at each decision ([`LiveAuthority`]).
+    ///
+    /// Written here, on the UI thread, the moment the person changes it --
+    /// which is what makes a Shift-Tab to `ask` gate the *next* tool call of
+    /// the turn that is running, as upstream's does
+    /// (`yolo-permission-mode.test.ts:373-450`) -- and never by the runtime,
+    /// whose channel messages can be older than what the person chose since.
+    live: LiveAuthority,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
 }
@@ -400,19 +412,45 @@ impl WorkHandle {
         self.status.read()
     }
 
-    /// Hands the runtime a change to the session's authority, to apply before
-    /// the next piece of work it starts. Never blocks, never full.
+    /// Puts a change to the session's authority in force at once, and hands
+    /// the runtime the record of it. Never blocks, never full.
     ///
-    /// `Err` means the runtime thread is gone, which is the one thing a caller
-    /// must not paint a new mode over.
+    /// **In force before it is sent**: the mode and a reset go to
+    /// [`Self::live`], which the turn that may be running reads at its next
+    /// decision; what the runtime does with the message, between pieces of
+    /// work, is write it down. `Err` means the runtime thread is gone, which
+    /// is the one thing a caller must not paint a new mode over -- so the
+    /// check comes first and nothing moves on a refusal.
     pub(crate) fn change_permissions(&self, change: Change) -> Result<(), Rejected> {
+        if self.permissions.is_closed() {
+            return Err(Rejected::Gone);
+        }
+        match change {
+            Change::Mode(mode) => self.live.set_mode(mode),
+            Change::Reset => {
+                self.live.reset();
+            }
+            Change::Acknowledge => {}
+        }
         self.permissions.send(change).map_err(|_| Rejected::Gone)
     }
 
     /// The conversation's grants, as a bare `/permissions` lists them, from
-    /// the runtime's last publication. Never waits for the runtime.
+    /// the runtime's last publication -- or none, when a reset has happened
+    /// since it was made. Never waits for the runtime.
     pub(crate) fn grants(&self) -> Vec<String> {
-        self.grants.read()
+        let (published_at, lines) = self.grants.read();
+        if published_at < self.live.resets() {
+            Vec::new()
+        } else {
+            lines
+        }
+    }
+
+    /// Whether a reset has happened since the runtime last published, so
+    /// every grant that publication counted is out of force.
+    pub(crate) fn grants_reset_since_published(&self) -> bool {
+        self.grants.read().0 < self.live.resets()
     }
 
     /// A handle onto channels with no runtime behind them, and both receiving
@@ -461,6 +499,7 @@ impl WorkHandle {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             work_rx,
@@ -469,10 +508,18 @@ impl WorkHandle {
         )
     }
 
-    /// Stands in for the runtime's publication of the grants list.
+    /// Stands in for the runtime's publication of the grants list, as of the
+    /// reset count in force now.
     #[cfg(test)]
     pub(crate) fn publish_grants(&self, lines: Vec<String>) {
-        self.grants.publish(lines);
+        self.grants.publish(self.live.resets(), lines);
+    }
+
+    /// The live authority this handle writes, for a case that has to read
+    /// what a keystroke put in force.
+    #[cfg(test)]
+    pub(crate) fn live(&self) -> &LiveAuthority {
+        &self.live
     }
 
     /// Stands in for the runtime's own publication, for the cases that are
@@ -482,9 +529,9 @@ impl WorkHandle {
         self.status.publish(snapshot);
     }
 
-    /// Stands in for the runtime giving one place back once a piece of work
-    /// is over (`turn_loop`), for the cases that submit more than the queue
-    /// holds at once.
+    /// Stands in for the runtime giving one place back -- a piece of work
+    /// that is over (`turn_loop`), or one a cancellation dropped -- for the
+    /// cases that are about what the UI does once it has.
     #[cfg(test)]
     pub(crate) fn give_back(&self) {
         self.outstanding.fetch_sub(1, Ordering::Release);
@@ -713,6 +760,10 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    // One live authority for the session: the handle writes it, every
+    // conversation this runtime opens reads it.
+    let live = LiveAuthority::new(config.permission_mode);
+    let loops_live = live.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -734,6 +785,7 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.live = loops_live;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -766,6 +818,7 @@ pub(crate) fn spawn(
                 reply,
                 status,
                 permissions: permissions_tx,
+                live,
                 grants,
             },
             resumable: None,
@@ -919,6 +972,10 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// The mode and reset count the UI writes and every conversation's
+    /// authority reads at each decision ([`WorkHandle::change_permissions`]).
+    /// **Read here, never written**: see that field.
+    live: LiveAuthority,
 }
 
 impl Runtime {
@@ -956,6 +1013,7 @@ impl Runtime {
             fast: config.fast_mode,
             ultrafast: config.ultrafast_mode,
         };
+        let config_mode = config.permission_mode;
         Self {
             config,
             env,
@@ -969,6 +1027,7 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            live: LiveAuthority::new(config_mode),
         }
     }
 
@@ -992,7 +1051,11 @@ impl Runtime {
             self.model(),
             self.conversation.as_ref(),
         ));
-        self.grants.publish(self.grant_lines());
+        // The reset count first: a reset landing between the two reads makes
+        // this publication older than it is, never newer, and an older one is
+        // read as out of force -- the safe way to be wrong.
+        let resets = self.live.resets();
+        self.grants.publish(resets, self.grant_lines());
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -1008,18 +1071,23 @@ impl Runtime {
             .collect()
     }
 
-    /// Applies one change to the session's authority, **between turns**, and
-    /// records it; answers what the session has to be told, if anything.
+    /// Records one change to the session's authority, **between pieces of
+    /// work**; answers what the session has to be told, if anything.
     ///
-    /// Three places hold the mode and all three move together. The
-    /// configuration, because every conversation this runtime opens later is
-    /// built from it ([`Runtime::authority`]). The live conversation's
-    /// authority, because that is built **once per conversation** and not per
-    /// turn -- an "always" answer has to outlive the turn it was given in
-    /// (module header) -- so changing only the configuration would leave the
-    /// conversation the user is talking in at the mode it started with. And
-    /// the session log, as [`Runtime::resume`] records a mode that changed, so
-    /// a later resume reads what this session really ran under.
+    /// The change is already in force: the handle put it in the live
+    /// authority every decision reads ([`WorkHandle::change_permissions`]), so
+    /// a turn that was running when it was made judged its next call by it.
+    /// What is left is the record, and it is here because the session log is
+    /// held by a running turn and free only between pieces of work. The
+    /// configuration, because a conversation this runtime opens later is
+    /// opened from it and its log starts with that mode. The conversation's
+    /// own copy of the mode, and the session log, as [`Runtime::resume`]
+    /// records a mode that changed, so a later resume reads what this session
+    /// really ran under; for a reset, the forgetting of every grant given
+    /// before it, so a resume does not bring them back
+    /// ([`crate::interactive::Conversation::set_permission_mode`]). Never the
+    /// live authority: a message drained here can be older than what the
+    /// person has chosen since.
     ///
     /// The profile write is here, on this thread, rather than on the UI's: it
     /// stages a file, syncs it, renames it and syncs the directory, which is
@@ -1044,12 +1112,17 @@ impl Runtime {
             conversation.set_permission_mode(mode, change == Change::Reset);
         }
         self.publish();
-        self.persist(
+        match self.persist(
             "permission_mode",
             serde_json::Value::String(mode.label().to_string()),
-        )
-        .err()
-        .map(|reason| permissions::not_saved("permission-mode", &reason))
+        ) {
+            Ok(()) => crate::provider::profile::saved_but_shadowed(
+                "permission_mode",
+                self.config.sources.permission_mode,
+            )
+            .map(|said| super::notice::Notice::neutral("permission-mode", said)),
+            Err(reason) => Some(permissions::not_saved("permission-mode", &reason)),
+        }
     }
 
     /// Writes one key of the profile, or says why it could not.
@@ -1126,6 +1199,18 @@ impl Runtime {
         self.conversation
             .as_mut()
             .ok_or_else(|| "the conversation could not be opened".to_string())
+    }
+
+    /// `/undo` against the conversation as it stands: its newest change taken
+    /// back ([`crate::tools::mutate::undo_last`]), or nothing when there is no
+    /// conversation -- a session that has asked nothing has changed nothing,
+    /// and one `/new` or a provider switch dropped took its changes with it.
+    fn undo(&self) -> crate::tools::undo::Undone {
+        self.conversation
+            .as_ref()
+            .map_or(crate::tools::undo::Undone::Nothing, |conversation| {
+                crate::tools::mutate::undo_last(&conversation.tools)
+            })
     }
 
     /// `/rename`: the title written into the conversation's session, which is
@@ -1272,6 +1357,9 @@ impl Runtime {
     fn authority(&self) -> PermissionSession {
         PermissionSession::new(self.config.permission_mode)
             .with_prompter(Box::new(self.prompter.clone()))
+            // Read at every decision, so a change the person makes while a
+            // turn runs governs that turn's next call (`LiveAuthority`).
+            .with_live(self.live.clone())
     }
 
     /// Makes a saved session this runtime's conversation, before any work.
@@ -1642,17 +1730,8 @@ impl Runtime {
         preferences.extend(self.speed_preferences());
         match crate::provider::profile::write_preferences(path, &preferences) {
             Ok(()) => {
-                let source = self.config.sources.model;
-                (source > crate::config::SettingSource::UserGlobal).then(|| {
-                    super::notice::Notice::neutral(
-                        topic,
-                        format!(
-                            "saved to user settings (scope=user); fresh sessions here use \
-                             higher-precedence model={}",
-                            source.label()
-                        ),
-                    )
-                })
+                crate::provider::profile::saved_but_shadowed("model", self.config.sources.model)
+                    .map(|said| super::notice::Notice::neutral(topic, said))
             }
             Err(err) => Some(super::notice::Notice::error(
                 topic,
@@ -1767,6 +1846,9 @@ async fn turn_loop(
                 // one: the change is made now.
                 Some(TurnControl::Model(change)) => Taken::Model(change),
                 Some(TurnControl::Speed(change)) => Taken::Speed(change),
+                // Nothing is running, so nothing is changing the files: the
+                // undo is done now, as upstream's always is.
+                Some(TurnControl::Undo) => Taken::Undo,
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1780,11 +1862,12 @@ async fn turn_loop(
                     | TurnControl::QuestionCancelled { .. },
                 ) => Taken::Nothing,
             },
-            // **After control and before work**, and that order is the whole
-            // of "between turns": this loop is the only place a turn starts,
-            // so a change typed while one was running is applied the moment it
-            // ends and before whatever was queued behind it begins -- upstream
-            // syncs its queued prompts to a new mode the same way
+            // **After control and before work.** The change is in force
+            // already (the live authority); this is its record, and the order
+            // keeps the record ahead of whatever was queued behind it -- the
+            // configuration a conversation is opened from and the log's
+            // `preferences_changed` land before the queued prompt's turn
+            // does, as upstream syncs its queued prompts to a new mode
             // (`syncQueuedPermissionSnapshot`, `app_permission_runtime.zig`).
             change = changes.recv(), if changes_open => Taken::Change(change),
             item = queue.work.recv() => Taken::Work(item),
@@ -1815,6 +1898,10 @@ async fn turn_loop(
             }
             Taken::Speed(change) => {
                 change_speed(&mut state, change, events).await;
+                continue;
+            }
+            Taken::Undo => {
+                run_undo(&state, events, false).await;
                 continue;
             }
             Taken::Nothing => continue,
@@ -1967,6 +2054,8 @@ enum Taken {
     Model(ModelChange),
     /// `/fast` or `/ultrafast on|off`, between turns: applied now.
     Speed(SpeedChange),
+    /// `/undo`, between turns: done now.
+    Undo,
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2432,25 +2521,31 @@ async fn apply_deferred(
     queue: &mut Queue<'_>,
 ) -> Ended {
     loop {
-        let changes = control.take_deferred();
-        if changes.is_empty() {
+        let deferred = control.take_deferred();
+        if deferred.is_empty() {
             return ended;
         }
-        for change in changes {
-            let after = match change {
-                TurnControl::Model(change) => {
-                    if ended == Ended::Session && !change.announced {
-                        continue;
-                    }
-                    change_model(state, change, events, cancel, control, queue).await
+        for item in deferred {
+            let change = match item {
+                // Done whatever ended: an undo needs no socket, and the file
+                // is what the person asked about -- a `/quit` after it does
+                // not take it back.
+                Deferred::Undo { after_reset } => {
+                    run_undo(state, events, after_reset).await;
+                    continue;
                 }
-                TurnControl::Speed(change) => {
+                // The same for a speed: it needs no socket, and the band has
+                // said it already.
+                Deferred::Speed(change) => {
                     change_speed(state, change, events).await;
-                    Ended::Turn
+                    continue;
                 }
-                // Nothing else is ever put aside ([`ControlChannel::defer`]).
-                _ => Ended::Turn,
+                Deferred::Model(change) => change,
             };
+            if ended == Ended::Session && !change.announced {
+                continue;
+            }
+            let after = change_model(state, change, events, cancel, control, queue).await;
             ended = match (ended, after) {
                 (Ended::Session, _) | (_, Ended::Session) => Ended::Session,
                 (Ended::Reset(earlier), Ended::Reset(later)) => Ended::Reset(earlier.max(later)),
@@ -2482,6 +2577,37 @@ async fn change_speed(state: &mut Runtime, change: SpeedChange, events: &Sender<
     if let Some(notice) = state.save_speed(change.topic) {
         bridge::send_terminal(events, UiEvent::Notice(notice)).await;
     }
+}
+
+/// `/undo`, and what became of it (`commandUndoLast`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_commands.zig:1242-1290`): the
+/// conversation's newest change taken back ([`Runtime::undo`]) and upstream's
+/// sentence for it, neutral whatever it says, as upstream's is.
+///
+/// `after_reset` is an undo typed after a reset this runtime has not acted on
+/// yet ([`Deferred::Undo`]): it is answered for the conversation that reset
+/// starts, which has nothing to take back, and the one about to be dropped is
+/// not touched.
+///
+/// Nothing is written to the session log and nothing is said to the model:
+/// upstream's tracker is not in its session store and its conversation is not
+/// told (`change_tracker.zig`; `commandUndoLast` writes a notice and nothing
+/// else). Through `send_terminal`, like every answer about something already
+/// done: a file has changed by the time this is sent.
+async fn run_undo(state: &Runtime, events: &Sender<UiEvent>, after_reset: bool) {
+    let undone = if after_reset {
+        crate::tools::undo::Undone::Nothing
+    } else {
+        state.undo()
+    };
+    bridge::send_terminal(
+        events,
+        UiEvent::Undone(super::notice::Notice::neutral(
+            crate::tools::undo::TOPIC,
+            undone.sentence(),
+        )),
+    )
+    .await;
 }
 
 /// `/rename`, and whether it was written down (`handleRenameCommand`,
@@ -2613,8 +2739,15 @@ async fn raced_against_control<F: Future>(
                 // `/model`, `/fast` or `/ultrafast` while this work runs: for
                 // the turn after it, so put aside until it is over
                 // ([`ControlChannel::defer`]). Nothing here stops.
-                Some(change @ (TurnControl::Model(_) | TurnControl::Speed(_))) => {
-                    control.defer(change)
+                Some(TurnControl::Model(change)) => control.defer(change),
+                Some(TurnControl::Speed(change)) => control.defer_speed(change),
+                // `/undo` while this work runs: put aside the same way
+                // ([`TurnControl::Undo`] says why not at once), and marked when
+                // a reset has already been read here -- that undo was typed in
+                // the conversation the reset starts, which has changed nothing
+                // yet, rather than in the one it drops once this work is over.
+                Some(TurnControl::Undo) => {
+                    control.defer_undo(matches!(ended, Ended::Reset(_)));
                 }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
@@ -2972,6 +3105,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -3030,6 +3164,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -3067,6 +3202,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -3422,6 +3558,7 @@ mod tests {
             reply: LastReply::default(),
             status: StatusBoard::unpublished(),
             permissions: mpsc::unbounded_channel().0,
+            live: LiveAuthority::new(PermissionMode::Auto),
             grants: Grants::default(),
         };
         drop(work_rx);
@@ -3568,8 +3705,25 @@ mod tests {
             profile_text(&state),
             "{\n  \"permission_mode\": \"yolo\"\n}\n"
         );
-        // A conversation opened after it is opened in it.
-        assert_eq!(state.authority().mode(), PermissionMode::Yolo);
+        // A conversation opened after it starts its log in it.
+        assert_eq!(
+            PermissionSession::new(state.config.permission_mode).mode(),
+            PermissionMode::Yolo
+        );
+        // And the record never writes the live authority: a message drained
+        // here can be older than what the person has chosen since, and the
+        // handle -- the UI -- is the one that says what is in force.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        state.live = handle.live().clone();
+        handle
+            .change_permissions(Change::Mode(PermissionMode::Ask))
+            .expect("alive");
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            None
+        );
+        assert_eq!(state.authority().mode(), PermissionMode::Ask);
+        assert_eq!(handle.live().mode(), PermissionMode::Ask);
 
         // The same mode again changes nothing the log has to record.
         let before = log_text(&state);
@@ -3596,15 +3750,245 @@ mod tests {
                 state.config.workspace_root.join("a.txt").to_string_lossy(),
             ));
         state.publish();
-        assert_eq!(grants.read(), vec![" - write_file -> a.txt".to_string()]);
+        assert_eq!(grants.read().1, vec![" - write_file -> a.txt".to_string()]);
 
         assert_eq!(state.change_permissions(Change::Reset), None);
         let conversation = state.conversation.as_ref().expect("still open");
         assert_eq!(conversation.tools.permissions().mode(), PermissionMode::Ask);
         assert!(conversation.tools.permissions().grants().is_empty());
-        assert!(grants.read().is_empty(), "the board still lists the grant");
+        assert!(
+            grants.read().1.is_empty(),
+            "the board still lists the grant"
+        );
         assert_eq!(state.config.permission_mode, PermissionMode::Ask);
         assert!(profile_text(&state).contains(r#""permission_mode": "ask""#));
+    }
+
+    #[test]
+    fn a_reset_is_written_down_so_a_resume_does_not_bring_the_grants_back() {
+        // Upstream's reset clears its session grants (`permission_engine.clear`,
+        // `app_permission_runtime.zig:144-159`) and never persisted them, so a
+        // resumed upstream session has none. xfx persists them; so the clearing
+        // is persisted too, and a grant given *after* the reset -- mid-turn,
+        // for a target the log already listed -- survives it.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = PermissionMode::Ask;
+        let store = open_store(&config).expect("a store");
+        let (events, _seen) = mpsc::channel(8);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        for id in 1..=3 {
+            control_tx
+                .send(TurnControl::Answer {
+                    id: super::super::approval_readiness::ApprovalId(id),
+                    answer: ApprovalAnswer::Always,
+                    feedback: None,
+                })
+                .expect("the channel is open");
+        }
+        let prompter = TuiPrompter::new(
+            events,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+        );
+        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        handle.live().set_mode(PermissionMode::Ask);
+        state.live = handle.live().clone();
+        let model = state.model().to_string();
+        state.conversation = Some(
+            open_conversation(
+                &state.store,
+                &state.config,
+                &model,
+                state.authority(),
+                None,
+                &CancelToken::new(),
+            )
+            .expect("open a conversation"),
+        );
+        let plan = |name: &str| {
+            MutationPlan::new(
+                MutationKind::Write,
+                workspace.path().join(name),
+                name.to_string(),
+                TargetScope::PrimaryWorkspace,
+                Preimage::Absent,
+                b"x\n".to_vec(),
+            )
+        };
+        let (kept, withdrawn) = (plan("kept.txt"), plan("withdrawn.txt"));
+        let always = |state: &mut Runtime, plan: &MutationPlan| {
+            let conversation = state.conversation.as_mut().expect("open");
+            let decided = conversation
+                .tools
+                .permissions()
+                .decide_with_feedback(ProposedAction::Mutation(plan))
+                .decision;
+            assert_eq!(
+                decided,
+                PolicyDecision::Allow {
+                    source: AllowSource::InteractiveAlways
+                }
+            );
+        };
+        // Two "always" answers, written down at the end of their turn.
+        always(&mut state, &kept);
+        always(&mut state, &withdrawn);
+        record_grants(state.conversation.as_mut().expect("open"));
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("open")
+                .recorder
+                .state()
+                .grants
+                .len(),
+            2
+        );
+
+        // The reset, as the UI makes it mid-turn: in force at once ...
+        handle.change_permissions(Change::Reset).expect("alive");
+        assert!(state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grants()
+            .is_empty());
+        // ... so the same turn asks again, and is told "always" again for one.
+        always(&mut state, &kept);
+        // The turn ends: the log already lists that target, so nothing is new.
+        record_grants(state.conversation.as_mut().expect("open"));
+        // Between pieces of work the runtime writes the reset down.
+        assert_eq!(state.change_permissions(Change::Reset), None);
+        let conversation = state.conversation.as_ref().expect("open");
+        let key = |plan: &MutationPlan| ProposedAction::Mutation(plan).target();
+        assert_eq!(
+            conversation.recorder.state().grants,
+            vec![Grant::new("write_file", key(&kept))],
+            "the log does not say what the person is left with"
+        );
+        assert!(log_text(&state).contains(r#""kind":"permission_grants_cleared""#));
+
+        // And a resume reads exactly that.
+        let id = conversation.recorder.id().clone();
+        state.conversation = None;
+        let resumed = Resumption::open(&state.config, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+        assert_eq!(
+            resumed.session.state().grants,
+            vec![Grant::new("write_file", key(&kept))],
+            "a resume brought a reset grant back"
+        );
+    }
+
+    #[test]
+    fn a_mode_a_higher_layer_outranks_is_saved_and_says_so_in_upstreams_words() {
+        // `appendShadowedUserSource` (`session_commands.zig:225-236`): the write
+        // happened, and a fresh session here will still start in what the
+        // environment -- or this workspace's own entry -- says.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let env = Environment::new(
+            Some(home.path().to_path_buf()),
+            BTreeMap::from([("XFX_PERMISSION_MODE".to_string(), "ask".to_string())]),
+        );
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = state
+            .change_permissions(Change::Mode(PermissionMode::Auto))
+            .expect("the shadow is said");
+        assert_eq!(
+            said,
+            super::super::notice::Notice::neutral(
+                "permission-mode",
+                "saved to user settings (scope=user); fresh sessions here use \
+                 higher-precedence permission_mode=process_override"
+            )
+        );
+        assert_eq!(
+            profile_text(&state),
+            "{\n  \"permission_mode\": \"auto\"\n}\n"
+        );
+
+        // A workspace entry outranks the global key the same way.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let root = workspace.path().canonicalize().expect("a workspace");
+        // Through the writer, so the profile home is born owner-only, as the
+        // session store requires of it.
+        crate::provider::profile::write_preference(
+            &home.path().join(".xfx").join("settings.json"),
+            &["workspaces"],
+            serde_json::json!({root.to_string_lossy(): {"permission_mode": "ask"}}),
+        )
+        .expect("seed");
+        let env = Environment::new(Some(home.path().to_path_buf()), BTreeMap::new());
+        let config = RuntimeConfig::load_with(&env, workspace.path()).expect("load");
+        assert_eq!(
+            config.sources.permission_mode,
+            crate::config::SettingSource::UserWorkspace
+        );
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
+        let said = state
+            .change_permissions(Change::Reset)
+            .expect("the shadow is said");
+        assert!(
+            said.body
+                .ends_with("higher-precedence permission_mode=user_workspace"),
+            "{said:?}"
+        );
+
+        // Nothing above the profile: nothing to say, as before.
+        let (_home, _workspace, mut state) = recording();
+        assert_eq!(
+            state.change_permissions(Change::Mode(PermissionMode::Ask)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_keystroke_puts_the_mode_and_a_reset_in_force_before_the_runtime_hears_of_it() {
+        let (handle, _work, _control, mut changes) = WorkHandle::detached_with_changes();
+        let live = handle.live().clone();
+        assert_eq!(live.mode(), PermissionMode::Auto);
+        handle
+            .change_permissions(Change::Mode(PermissionMode::Yolo))
+            .expect("alive");
+        assert_eq!(live.mode(), PermissionMode::Yolo, "not in force at once");
+        handle.publish_grants(vec![" - write_file -> a.txt".to_string()]);
+        assert_eq!(handle.grants().len(), 1);
+        assert!(!handle.grants_reset_since_published());
+        handle.change_permissions(Change::Reset).expect("alive");
+        assert_eq!((live.mode(), live.resets()), (PermissionMode::Ask, 1));
+        assert!(handle.grants().is_empty(), "a reset grant is still listed");
+        assert!(handle.grants_reset_since_published());
+        handle
+            .change_permissions(Change::Acknowledge)
+            .expect("alive");
+        assert_eq!(live.mode(), PermissionMode::Ask);
+        assert_eq!(
+            std::iter::from_fn(|| changes.try_recv().ok()).collect::<Vec<_>>(),
+            vec![
+                Change::Mode(PermissionMode::Yolo),
+                Change::Reset,
+                Change::Acknowledge
+            ],
+            "the record of each change, in the order they were made"
+        );
+        // A runtime that is gone: refused, and nothing moved.
+        drop(changes);
+        assert_eq!(
+            handle.change_permissions(Change::Mode(PermissionMode::Yolo)),
+            Err(Rejected::Gone)
+        );
+        assert_eq!(live.mode(), PermissionMode::Ask);
     }
 
     #[test]
@@ -3621,7 +4005,7 @@ mod tests {
             .permissions()
             .grant(Grant::new("terminal", "printf '\u{1b}[2J' in /w"));
         state.publish();
-        let listed = grants.read();
+        let listed = grants.read().1;
         assert_eq!(listed.len(), 1);
         assert!(!listed[0].contains('\u{1b}'), "{listed:?}");
         assert!(listed[0].starts_with(" - terminal -> printf"), "{listed:?}");
@@ -4661,6 +5045,7 @@ mod tests {
                 reply: LastReply::default(),
                 status: StatusBoard::unpublished(),
                 permissions: mpsc::unbounded_channel().0,
+                live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
             },
             resumable: None,
@@ -5193,7 +5578,7 @@ mod tests {
         ));
         assert!(stops.is_empty(), "a model change stopped the work");
         assert_eq!(ended, Ended::Turn);
-        assert_eq!(control.take_deferred(), vec![TurnControl::Model(asked)]);
+        assert_eq!(control.take_deferred(), vec![Deferred::Model(asked)]);
         assert!(control.take_deferred().is_empty(), "taken twice");
     }
 
@@ -5216,7 +5601,7 @@ mod tests {
             outstanding: &outstanding,
             taken: 0,
         };
-        control.defer(TurnControl::Model(ModelChange {
+        control.defer(ModelChange {
             name: "kept/model".to_string(),
             effort: None,
             picker: true,
@@ -5224,8 +5609,8 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: ProviderId::Gateway,
-        }));
-        control.defer(TurnControl::Model(ModelChange {
+        });
+        control.defer(ModelChange {
             name: "unresolved".to_string(),
             effort: None,
             picker: false,
@@ -5233,7 +5618,7 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: ProviderId::Gateway,
-        }));
+        });
         let ended = on_a_runtime(apply_deferred(
             &mut state,
             Ended::Session,
@@ -5545,6 +5930,207 @@ mod tests {
             .expect("resumed");
         assert_eq!(state.settings, chosen);
         assert_eq!(replay.settings, Some(chosen));
+    }
+
+    /// Runs one tool call through the conversation's own tools, as a turn's
+    /// step would.
+    fn ran(state: &Runtime, name: &str, input: serde_json::Value) -> crate::tools::ToolResult {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        crate::tools::Registry::builtin()
+            .execute(
+                &ToolCall {
+                    id: format!("call-{name}"),
+                    name: name.to_string(),
+                    input,
+                },
+                &conversation.tools,
+            )
+            .expect("an advertised tool")
+    }
+
+    /// `name` as the conversation's tools locate it.
+    fn in_workspace(state: &Runtime, name: &str) -> std::path::PathBuf {
+        state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .tools
+            .scope()
+            .primary()
+            .join(name)
+    }
+
+    /// The body of the next event, which has to be `/undo`'s answer, neutral.
+    fn undo_said(events: &mut Receiver<UiEvent>) -> String {
+        match events.try_recv() {
+            Ok(UiEvent::Undone(notice)) => {
+                assert_eq!(notice.topic, "undo");
+                assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+                notice.body
+            }
+            other => panic!("not an undo's answer: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_undo_takes_back_the_conversations_newest_change_and_says_so() {
+        let (_home, _workspace, state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        let made = ran(
+            &state,
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        );
+        assert!(made.ok, "{}", made.output);
+
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists(), "the created file is still there");
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_session_that_has_asked_nothing_has_nothing_to_undo() {
+        let (_home, _workspace, state) = a_runtime_that_can_open_one();
+        assert!(state.conversation.is_none());
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_reset_or_a_resume_leaves_the_changes_before_it_behind() {
+        // Upstream clears its tracker on the transition `/new`, `/clear`,
+        // `/reset` and `/resume` share (`app_session_runtime.zig:1922`, `:1999`),
+        // and its own resume test is answered `Nothing to undo.` with the files
+        // as they were (`tests/e2e/tui-resume.test.ts:6029-6037`).
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .to_string();
+
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        assert!(matches!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Fresh { through: 0 })
+        ));
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+
+        state
+            .resume_by_id(&id, &CancelToken::new())
+            .expect("the session resumes");
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("still there"),
+            "made\n"
+        );
+    }
+
+    #[test]
+    fn an_undo_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones() {
+        // Put aside, never a stop. Ahead of a reset it is about the
+        // conversation that reset drops; behind one it is about the
+        // conversation the reset starts.
+        for (messages, after_reset) in [
+            (vec![TurnControl::Undo], false),
+            (
+                vec![TurnControl::Undo, TurnControl::Reset { through: 0 }],
+                false,
+            ),
+            (
+                vec![TurnControl::Reset { through: 0 }, TurnControl::Undo],
+                true,
+            ),
+        ] {
+            let (control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let resets = messages
+                .iter()
+                .filter(|message| matches!(message, TurnControl::Reset { .. }))
+                .count();
+            for message in messages {
+                control_tx.send(message).expect("alive");
+            }
+            let mut stops = Vec::new();
+            let _ = on_a_runtime(raced_against_control(
+                async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                },
+                &control,
+                |through| stops.push(through),
+            ));
+            assert_eq!(stops.len(), resets, "an undo stopped the work");
+            assert_eq!(
+                control.take_deferred(),
+                vec![Deferred::Undo { after_reset }]
+            );
+        }
+    }
+
+    #[test]
+    fn an_undo_put_aside_is_done_once_the_work_is_over_even_when_the_session_is() {
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        // One typed behind a reset: answered for the fresh conversation, and
+        // the change it would have reached is left alone.
+        control.defer_undo(true);
+        // One typed before it, and a `/quit` after both: still done.
+        control.defer_undo(false);
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists());
     }
 
     fn settings(home: &std::path::Path) -> serde_json::Value {
@@ -6251,6 +6837,191 @@ mod tests {
             name: name.to_string(),
             input,
         }
+    }
+
+    /// A provider that, before answering its `at`-th request, makes the
+    /// change the person would make mid-turn -- through the UI's own call,
+    /// on the handle that shares the runtime's live authority.
+    ///
+    /// The hook stands where the keystroke lands in production: after the
+    /// turn's first tool call has been judged and run, before its second one
+    /// is. Made from inside the turn rather than from another thread so the
+    /// case is about *what the second call is judged by*, not about a race.
+    struct ChangesMidTurn<'a> {
+        script: ScriptedProvider,
+        handle: &'a WorkHandle,
+        at: usize,
+        change: Option<Change>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::gateway::Provider for ChangesMidTurn<'_> {
+        async fn stream(
+            &self,
+            request: &crate::gateway::protocol::CompletionRequest,
+            deltas: &mut dyn crate::gateway::DeltaSink,
+        ) -> Result<Completion, crate::gateway::ProviderError> {
+            if self.script.requests() == self.at {
+                if let Some(change) = self.change {
+                    self.handle
+                        .change_permissions(change)
+                        .expect("the runtime is listening");
+                }
+            }
+            self.script.stream(request, deltas).await
+        }
+    }
+
+    /// One turn of two steps, each writing one file, under a session opened
+    /// the way `ready` opens one -- `Runtime::authority` -- in `mode`, with the
+    /// band answering "no" to anything it is asked; when `granted`, the
+    /// session already holds an "always" for both writes; `change`, if any,
+    /// made between the two steps. Answers which files exist afterwards,
+    /// whether the band was asked, and the mode in force at the end.
+    fn two_writes(
+        mode: PermissionMode,
+        granted: bool,
+        change: Option<Change>,
+    ) -> (bool, bool, bool, PermissionMode) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = mode;
+        let store = open_store(&config).expect("a store");
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        // The band's "no", waiting for the question the second call asks.
+        control_tx
+            .send(TurnControl::Answer {
+                id: super::super::approval_readiness::ApprovalId(1),
+                answer: ApprovalAnswer::Deny,
+                feedback: None,
+            })
+            .expect("the channel is open");
+        let cancel = Cancellation::new(CancelToken::new());
+        let prompter = TuiPrompter::new(
+            events_tx.clone(),
+            ControlChannel::new(control_rx),
+            cancel.clone(),
+        );
+        let mut state = Runtime::new(config, store, prompter, a_questioner());
+        // The UI's handle and the runtime share one live authority, as
+        // `spawn` makes them.
+        let (handle, _work, _control, _changes) = WorkHandle::detached_with_changes();
+        handle.live().set_mode(mode);
+        state.live = handle.live().clone();
+        let scope = crate::workspace::AccessScope::primary_only(workspace.path()).expect("a scope");
+        let mut authority = state.authority();
+        if granted {
+            // Keyed as a grant is: the write's canonical absolute target.
+            let root = workspace.path().canonicalize().expect("a workspace");
+            for name in ["first.txt", "second.txt"] {
+                authority.grant(Grant::new(
+                    "write_file",
+                    root.join(name).to_string_lossy().into_owned(),
+                ));
+            }
+        }
+        let tools = crate::tools::ToolContext::new(scope).with_permissions(authority);
+
+        let provider = ChangesMidTurn {
+            script: ScriptedProvider::new(vec![
+                calls(vec![call(
+                    "call-1",
+                    "write_file",
+                    serde_json::json!({"path": "first.txt", "content": "one\n"}),
+                )]),
+                calls(vec![call(
+                    "call-2",
+                    "write_file",
+                    serde_json::json!({"path": "second.txt", "content": "two\n"}),
+                )]),
+                answers("done"),
+            ]),
+            handle: &handle,
+            at: 1,
+            change,
+        };
+        let turn = cancel.turn();
+        let request = TurnRequest {
+            model: "vendor/model".to_string(),
+            prompt: "write two files".to_string(),
+            history: Vec::new(),
+            max_steps: 4,
+            max_attempts: 1,
+            cancel: turn.mirror.clone(),
+            tools,
+        };
+        let mut sink = UiEventSink::new(events_tx.clone(), turn.token.clone());
+        let outcome = on_a_runtime(crate::agent::run_turn(request, &provider, &mut sink));
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(
+            provider.script.requests(),
+            3,
+            "the turn did not run to its end"
+        );
+        let mut asked = false;
+        while let Ok(event) = events_rx.try_recv() {
+            asked |= matches!(event, UiEvent::Approval(_));
+        }
+        (
+            workspace.path().join("first.txt").exists(),
+            workspace.path().join("second.txt").exists(),
+            asked,
+            handle.live().mode(),
+        )
+    }
+
+    #[test]
+    fn a_switch_to_ask_mid_turn_gates_that_turns_next_tool_call() {
+        // Upstream's `Shift+Tab tightening to ask gates a later tool call in
+        // the active turn` (`yolo-permission-mode.test.ts:452-530`): the
+        // person who switches to `ask` to stop a runaway turn is protected
+        // from the very next call, not from the next turn.
+        let (first, second, asked, mode) = two_writes(
+            PermissionMode::Auto,
+            false,
+            Some(Change::Mode(PermissionMode::Ask)),
+        );
+        assert!(
+            first,
+            "the call before the switch was judged by the new mode"
+        );
+        assert!(asked, "the call after the switch was not put to the band");
+        assert!(
+            !second,
+            "the call after the switch to ask ran without anybody saying yes"
+        );
+        assert_eq!(mode, PermissionMode::Ask);
+
+        // The control: with no switch, `auto` writes both -- so the case above
+        // is about the switch and not about `auto` refusing the second write.
+        let (first, second, asked, mode) = two_writes(PermissionMode::Auto, false, None);
+        assert!(first && second, "auto did not admit both writes");
+        assert!(!asked, "auto asked the band");
+        assert_eq!(mode, PermissionMode::Auto);
+    }
+
+    #[test]
+    fn a_reset_mid_turn_takes_the_grants_away_from_that_turns_next_call() {
+        // A reset is `ask` and no grants, at once: in an `ask` session that
+        // had already been told "always" for both writes, the second is asked
+        // about again -- a grant outranks the mode, so only the grants going
+        // can make it ask.
+        let (first, second, asked, mode) =
+            two_writes(PermissionMode::Ask, true, Some(Change::Reset));
+        assert!(first, "the grant before the reset was not honoured");
+        assert!(asked, "the call after the reset was not put to the band");
+        assert!(
+            !second,
+            "a grant the reset took away still allowed the call"
+        );
+        assert_eq!(mode, PermissionMode::Ask);
+
+        // The control: the same session with no reset writes both unasked.
+        let (first, second, asked, _) = two_writes(PermissionMode::Ask, true, None);
+        assert!(first && second, "the grants did not admit both writes");
+        assert!(!asked);
     }
 
     /// One session that can run turns the way the worker runs them, kept whole

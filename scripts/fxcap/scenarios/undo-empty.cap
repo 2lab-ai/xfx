@@ -1,0 +1,10 @@
+# /undo with nothing tracked, then with an argument it does not take.
+wait 3
+type /undo
+key Enter
+wait 1.5
+snap bare
+type /undo now
+key Enter
+wait 1.5
+snap extra

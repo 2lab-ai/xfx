@@ -193,6 +193,17 @@ pub enum SessionEvent {
     ToolFeedback { call_id: String, text: String },
     /// An approval the user gave for the rest of the session.
     PermissionGrantRecorded { tool: String, target: String },
+    /// `/permissions reset`: every approval recorded before this one is
+    /// withdrawn, so a resume does not give it back.
+    ///
+    /// Upstream's reset clears its session grants (`permission_engine.clear`,
+    /// `app_permission_runtime.zig:144-159`), which upstream never persists;
+    /// xfx persists them ([`Self::PermissionGrantRecorded`]), so it persists
+    /// their withdrawal. Added under [`EVENT_SCHEMA_VERSION`] 1 like
+    /// [`Self::ToolFeedback`], for the reason given there: a new binary reads
+    /// every old log, and an older binary refuses this frame as an unknown
+    /// variant -- forward but not backward across a session that was reset.
+    PermissionGrantsCleared,
     /// Tokens the provider reported for the turn that is ending. Added to the
     /// running totals; absent is "the provider did not say", not zero.
     UsageRecorded {
@@ -231,6 +242,7 @@ impl SessionEvent {
             Self::ToolResult { .. } => "tool_result",
             Self::ToolFeedback { .. } => "tool_feedback",
             Self::PermissionGrantRecorded { .. } => "permission_grant_recorded",
+            Self::PermissionGrantsCleared => "permission_grants_cleared",
             Self::UsageRecorded { .. } => "usage_recorded",
             Self::TurnConcluded { .. } => "turn_concluded",
             Self::SessionRenamed { .. } => "session_renamed",
@@ -550,6 +562,7 @@ mod tests {
                 tool: "t".to_string(),
                 target: "x".to_string(),
             },
+            SessionEvent::PermissionGrantsCleared,
             SessionEvent::UsageRecorded {
                 input_tokens: None,
                 output_tokens: Some(1),

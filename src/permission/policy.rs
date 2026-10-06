@@ -19,6 +19,8 @@
 
 use std::fmt;
 use std::io::{self, IsTerminal, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::config::PermissionMode;
 
@@ -500,6 +502,97 @@ impl ApprovalPrompter for TtyPrompter {
 }
 
 // ---------------------------------------------------------------------------
+// the live authority
+// ---------------------------------------------------------------------------
+
+/// The mode a person has chosen, and how many times they have reset, shared
+/// between the thread that hears the keystroke and every session it governs.
+///
+/// Upstream's tool calls read the root permission mode **at the moment each
+/// one is judged** (`agentSnapshotRootPermissionMode`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_callbacks.zig:976-979`), so a
+/// Shift-Tab to `ask` in the middle of a turn gates that turn's next call
+/// (`tests/e2e/yolo-permission-mode.test.ts:373-450`). A session that copied
+/// the mode when it was built could not do that; one holding this reads it
+/// per decision.
+///
+/// **One word, and lock-free, for two reasons.** The session's own lock is
+/// held across an approval prompt (`decide_with_feedback` asks while the tool
+/// holds it), so the thread that answers the prompt must never be the thread
+/// that waits for that lock: a change of mode made through it would deadlock
+/// against the question it is trying to stop. And the mode and the reset count
+/// travel together, so a reset -- `ask` *and* every earlier grant gone -- is
+/// one store that no reader can see half of.
+#[derive(Debug, Clone)]
+pub struct LiveAuthority(Arc<AtomicU64>);
+
+/// Where the mode sits in the word; the reset count is the rest of it.
+const MODE_BITS: u32 = 8;
+const MODE_MASK: u64 = (1 << MODE_BITS) - 1;
+
+impl LiveAuthority {
+    /// A live authority in `mode`, never reset.
+    pub fn new(mode: PermissionMode) -> Self {
+        Self(Arc::new(AtomicU64::new(Self::pack(mode, 0))))
+    }
+
+    /// The mode in force now.
+    pub fn mode(&self) -> PermissionMode {
+        Self::unpack(self.0.load(Ordering::Acquire)).0
+    }
+
+    /// How many resets have happened. Grants given before the latest one are
+    /// no longer in force anywhere this authority is attached.
+    pub fn resets(&self) -> u64 {
+        Self::unpack(self.0.load(Ordering::Acquire)).1
+    }
+
+    /// Puts every attached session in `mode`, from its next decision on.
+    pub fn set_mode(&self, mode: PermissionMode) {
+        let _ = self
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
+                Some(Self::pack(mode, Self::unpack(word).1))
+            });
+    }
+
+    /// `/permissions reset`: `ask`, and every grant given so far out of force,
+    /// in one store. Answers the new reset count.
+    pub fn reset(&self) -> u64 {
+        let previous = self
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |word| {
+                Some(Self::pack(
+                    PermissionMode::Ask,
+                    Self::unpack(word).1.saturating_add(1),
+                ))
+            })
+            .unwrap_or_else(|word| word);
+        Self::unpack(previous).1.saturating_add(1)
+    }
+
+    fn pack(mode: PermissionMode, resets: u64) -> u64 {
+        let code = match mode {
+            PermissionMode::Ask => 0,
+            PermissionMode::Auto => 1,
+            PermissionMode::Yolo => 2,
+        };
+        (resets.min(u64::MAX >> MODE_BITS) << MODE_BITS) | code
+    }
+
+    fn unpack(word: u64) -> (PermissionMode, u64) {
+        let mode = match word & MODE_MASK {
+            1 => PermissionMode::Auto,
+            2 => PermissionMode::Yolo,
+            // `ask` for the code it is, and for any code this build did not
+            // write: the restrictive reading is the safe one.
+            _ => PermissionMode::Ask,
+        };
+        (mode, word >> MODE_BITS)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // the session
 // ---------------------------------------------------------------------------
 
@@ -519,6 +612,13 @@ pub struct PermissionSession {
     /// `None` for a turn nothing is recording, where "always" really does mean
     /// "until this command exits".
     durable_session: Option<String>,
+    /// The mode and reset count a person can change while this session is
+    /// in use ([`LiveAuthority`]), when a front end attached one.
+    live: Option<LiveAuthority>,
+    /// The reset count [`Self::grants`] were given under. Grants from an
+    /// earlier count are out of force the moment the live count moves past
+    /// it, and dropped by the next `&mut` call.
+    grants_epoch: u64,
 }
 
 impl PermissionSession {
@@ -534,7 +634,22 @@ impl PermissionSession {
             prompter: None,
             ledger: AuthorityLedger::new(),
             durable_session: None,
+            live: None,
+            grants_epoch: 0,
         }
+    }
+
+    /// The same session, governed by `live` from its next decision on: its
+    /// mode is read from it at every decision, and a reset there takes every
+    /// grant given before it out of force at once.
+    ///
+    /// The grants already held count as given under the reset count `live`
+    /// has now, which is what lets a resumed session restore its log's grants
+    /// after attaching.
+    pub fn with_live(mut self, live: LiveAuthority) -> Self {
+        self.grants_epoch = live.resets();
+        self.live = Some(live);
+        self
     }
 
     /// The same session with a way to ask the user.
@@ -575,8 +690,13 @@ impl PermissionSession {
         }
     }
 
+    /// The mode the next decision is made in: the live one when a front end
+    /// attached one, this session's own otherwise.
     pub fn mode(&self) -> PermissionMode {
-        self.mode
+        match &self.live {
+            Some(live) => live.mode(),
+            None => self.mode,
+        }
     }
 
     /// Puts this session in `mode` from its next decision on.
@@ -584,31 +704,67 @@ impl PermissionSession {
     /// What `/permissions <mode>` and Shift-Tab change on a conversation that
     /// already exists: the grants, the rules, the prompter and the ledger are
     /// the conversation's and stay, as upstream's `setMode` changes only the
-    /// engine's mode (`app_permission_runtime.zig:73-85`). Called between turns
-    /// and never under one -- the caller's rule (`crate::tui`'s worker) -- so no
-    /// authority already issued was judged under a mode that has since moved.
+    /// engine's mode (`app_permission_runtime.zig:73-85`).
+    ///
+    /// **This session's own copy only.** A session with a [`LiveAuthority`]
+    /// takes its mode from that, which the front end has already moved; the
+    /// copy is what a session without one decides with, and what one with one
+    /// is recorded as when it is written down.
     pub fn set_mode(&mut self, mode: PermissionMode) {
         self.mode = mode;
     }
 
-    /// Forgets every "always" this session has been given, returning how many.
+    /// Forgets every "always" given before the reset being applied, returning
+    /// how many.
     ///
     /// `/permissions reset`'s second half (`permission_engine.clear`,
-    /// `app_permission_runtime.zig:144-159`): the in-memory grants go, so the
-    /// next action that needed one is asked about again. The configured rules
-    /// are not grants and are kept.
+    /// `app_permission_runtime.zig:144-159`): the grants go, so the next action
+    /// that needed one is asked about again. The configured rules are not
+    /// grants and are kept.
+    ///
+    /// Without a [`LiveAuthority`] every grant this session holds predates the
+    /// reset, and all of them go. With one, the reset already happened there --
+    /// and took every earlier grant out of force at that moment -- so what goes
+    /// here is exactly those: an "always" the person gave *after* resetting,
+    /// in the turn that was running when they did, is theirs and stays.
     pub fn clear_grants(&mut self) -> usize {
+        if self.live.is_some() {
+            return self.sync_grants();
+        }
         std::mem::take(&mut self.grants).len()
     }
 
-    /// The approvals this session has been given, in the order they were given.
+    /// Drops the grants a reset on the live authority has taken out of
+    /// force, returning how many.
+    fn sync_grants(&mut self) -> usize {
+        let Some(live) = &self.live else {
+            return 0;
+        };
+        let now = live.resets();
+        if now == self.grants_epoch {
+            return 0;
+        }
+        self.grants_epoch = now;
+        std::mem::take(&mut self.grants).len()
+    }
+
+    /// The approvals in force, in the order they were given.
+    ///
+    /// None at all once the live authority has been reset since they were
+    /// given: what a reset took away is gone from every answer this session
+    /// gives -- a decision, a listing, a count -- from the moment it happened,
+    /// not from the next time something mutable touched this session.
     pub fn grants(&self) -> &[Grant] {
-        &self.grants
+        match &self.live {
+            Some(live) if live.resets() != self.grants_epoch => &[],
+            _ => &self.grants,
+        }
     }
 
     /// Records an approval directly. Used by the approval flow and by a caller
     /// restoring a session's grants.
     pub fn grant(&mut self, grant: Grant) {
+        self.sync_grants();
         if !self
             .grants
             .iter()
@@ -629,9 +785,11 @@ impl PermissionSession {
     /// session grant, which outranks whatever the mode would have said -- so a
     /// user who wrote a rule is never overruled by a default.
     pub fn evaluate(&self, action: ProposedAction<'_>) -> PolicyDecision {
+        // Read once, so the two places below cannot see two different modes.
+        let mode = self.mode();
         // `yolo` is documented as skipping policy, so it skips policy. Honoring
         // rules here would make the flag mean something narrower than it says.
-        if self.mode == PermissionMode::Yolo {
+        if mode == PermissionMode::Yolo {
             return PolicyDecision::Allow {
                 source: AllowSource::Yolo,
             };
@@ -661,13 +819,17 @@ impl PermissionSession {
                 source: AllowSource::ConfiguredRule,
             };
         }
-        if self.grants.iter().any(|grant| grant.matches(tool, &target)) {
+        if self
+            .grants()
+            .iter()
+            .any(|grant| grant.matches(tool, &target))
+        {
             return PolicyDecision::Allow {
                 source: AllowSource::SessionGrant,
             };
         }
 
-        match self.mode {
+        match mode {
             PermissionMode::Yolo => PolicyDecision::Allow {
                 source: AllowSource::Yolo,
             },
@@ -694,6 +856,7 @@ impl PermissionSession {
     /// path that never asked anybody -- a rule, a grant, `auto`, `yolo` -- has
     /// no sentence to carry and says so with `feedback: None`.
     pub fn decide_with_feedback(&mut self, action: ProposedAction<'_>) -> Decided {
+        self.sync_grants();
         match self.evaluate(action) {
             PolicyDecision::Prompt => self.ask(action),
             decision => Decided {
@@ -793,9 +956,9 @@ impl fmt::Debug for PermissionSession {
     /// presence is printed rather than its identity.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PermissionSession")
-            .field("mode", &self.mode)
+            .field("mode", &self.mode())
             .field("rules", &self.rules)
-            .field("grants", &self.grants)
+            .field("grants", &self.grants())
             .field("has_prompter", &self.prompter.is_some())
             .field("ledger", &self.ledger)
             .field("durable_session", &self.durable_session)
@@ -929,6 +1092,94 @@ mod tests {
             "a cleared grant is asked about again"
         );
         assert_eq!(session.clear_grants(), 0);
+    }
+
+    #[test]
+    fn a_live_mode_decides_the_next_action_of_a_session_already_in_use() {
+        // `agentSnapshotRootPermissionMode` (`app_callbacks.zig:976-979`): the
+        // mode is read at the decision, so a change made elsewhere -- the UI
+        // thread, mid-turn -- governs the very next call.
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let live = LiveAuthority::new(PermissionMode::Auto);
+        let session = PermissionSession::new(PermissionMode::Auto).with_live(live.clone());
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::AutoMode
+            }
+        );
+        live.set_mode(PermissionMode::Ask);
+        assert_eq!(session.mode(), PermissionMode::Ask);
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt,
+            "a session in use kept the mode it was built in"
+        );
+        live.set_mode(PermissionMode::Yolo);
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Allow {
+                source: AllowSource::Yolo
+            }
+        );
+        // The session's own copy is what it is recorded as, never what it
+        // decides with while a live authority is attached.
+        let mut session = session;
+        session.set_mode(PermissionMode::Auto);
+        assert_eq!(session.mode(), PermissionMode::Yolo);
+        assert_eq!(live.resets(), 0);
+    }
+
+    #[test]
+    fn a_live_reset_takes_every_earlier_grant_out_of_force_at_once() {
+        let plan = write_plan(TargetScope::PrimaryWorkspace);
+        let live = LiveAuthority::new(PermissionMode::Ask);
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_live(live.clone());
+        // Restored before anything is reset, as a resume restores its log's.
+        session.grant(Grant::new("write_file", "/w/a.txt"));
+        assert_eq!(session.grants().len(), 1);
+        live.set_mode(PermissionMode::Yolo);
+
+        // One store: `ask`, and the grant gone -- with no `&mut` call between.
+        assert_eq!(live.reset(), 1);
+        assert_eq!(session.mode(), PermissionMode::Ask);
+        assert!(
+            session.grants().is_empty(),
+            "a reset grant was still listed"
+        );
+        assert_eq!(
+            session.evaluate(ProposedAction::Mutation(&plan)),
+            PolicyDecision::Prompt,
+            "a reset grant still allowed the action"
+        );
+
+        // An "always" given after the reset is the person's and stays: a
+        // later application of the same reset drops only what predates it.
+        session.grant(Grant::new("terminal", "ls in /w"));
+        assert_eq!(session.grants(), [Grant::new("terminal", "ls in /w")]);
+        assert_eq!(session.clear_grants(), 0);
+        assert_eq!(session.grants().len(), 1);
+
+        // A second reset takes that one too.
+        assert_eq!(live.reset(), 2);
+        assert!(session.grants().is_empty());
+        assert_eq!(session.clear_grants(), 1);
+    }
+
+    #[test]
+    fn a_session_attached_after_a_reset_keeps_what_it_is_given() {
+        // `bind_conversation` restores a resumed log's grants after the
+        // authority is attached; they belong to the reset count in force then.
+        let live = LiveAuthority::new(PermissionMode::Auto);
+        live.reset();
+        live.reset();
+        let mut session = PermissionSession::new(PermissionMode::Ask).with_live(live.clone());
+        session.grant(Grant::new("edit_file", "/w/b.txt"));
+        assert_eq!(session.grants().len(), 1);
+        assert_eq!(live.mode(), PermissionMode::Ask);
+        live.set_mode(PermissionMode::Auto);
+        assert_eq!(live.resets(), 2, "a mode change is not a reset");
+        assert_eq!(session.grants().len(), 1);
     }
 
     #[test]
