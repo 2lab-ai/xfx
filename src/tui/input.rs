@@ -129,6 +129,18 @@ pub(crate) enum Action {
     Right,
     Up,
     Down,
+    /// Up and Down with Shift held: `CSI 1;<mask> A/B` and the kitty arrow
+    /// reports with a mask that has Shift in it.
+    ///
+    /// Upstream reads them as a selection move (`extend_selection`), which
+    /// only a question's freeform field gives a meaning of its own -- the
+    /// choice above or below, where the plain arrows walk the field's rows
+    /// (`src/ui/input/runtime.zig:175-188`, `input_question_runtime.zig:150-185`,
+    /// `c1db919`). Everywhere else they are the arrows they always were here:
+    /// the shell folds them back before any other surface sees them
+    /// (`super::shell::Shell`'s `unshifted`).
+    SelectUp,
+    SelectDown,
     Home,
     End,
     WordLeft,
@@ -861,11 +873,15 @@ fn csi(params: &[u8], final_byte: u8) -> Input {
 /// arrow table, and the one a keypad arrow is resolved through as well
 /// ([`kitty_key`]).
 ///
-/// Shift is dropped along with the selection it would have extended, so what
-/// is left is "ctrl or alt means by word".
+/// Shift is dropped from Left and Right along with the selection it would have
+/// extended, so what is left there is "ctrl or alt means by word". On Up and
+/// Down it is kept, as [`Action::SelectUp`] and [`Action::SelectDown`].
 fn cursor(letter: u8, mask: u8) -> Action {
     let word = mask & (ALT | CTRL) != 0;
+    let shifted = mask & SHIFT != 0;
     match letter {
+        b'A' if shifted => Action::SelectUp,
+        b'B' if shifted => Action::SelectDown,
         b'A' => Action::Up,
         b'B' => Action::Down,
         b'C' if word => Action::WordRight,
@@ -1724,7 +1740,7 @@ mod tests {
             (b"\x1b[57399;5u", Input::Action(Action::Ignore)),
             (b"\x1b[57417u", Input::Action(Action::Left)),
             (b"\x1b[57418;5u", Input::Action(Action::WordRight)),
-            (b"\x1b[57419;2u", Input::Action(Action::Up)),
+            (b"\x1b[57419;2u", Input::Action(Action::SelectUp)),
             (b"\x1b[57423u", Input::Action(Action::Home)),
             (b"\x1b[57424u", Input::Action(Action::End)),
             (b"\x1b[57414u", Input::Action(Action::Submit)),
@@ -2142,9 +2158,17 @@ mod tests {
             );
         }
         // The two shapes that are keys, including the shift modifier that is
-        // dropped down to a plain move.
+        // dropped down to a plain move -- on Left and Right; on Up and Down it
+        // is the selection move a question's field binds.
         assert_eq!(decode(b"\x1b[C"), vec![Input::Action(Action::Right)]);
         assert_eq!(decode(b"\x1b[1;2C"), vec![Input::Action(Action::Right)]);
+        assert_eq!(decode(b"\x1b[1;2A"), vec![Input::Action(Action::SelectUp)]);
+        assert_eq!(
+            decode(b"\x1b[1;2B"),
+            vec![Input::Action(Action::SelectDown)]
+        );
+        assert_eq!(decode(b"\x1b[1;6A"), vec![Input::Action(Action::SelectUp)]);
+        assert_eq!(decode(b"\x1b[1;5A"), vec![Input::Action(Action::Up)]);
         assert_eq!(decode(b"\x1b[1;5C"), vec![Input::Action(Action::WordRight)]);
         assert_eq!(decode(b"\x1b[1;16D"), vec![Input::Action(Action::WordLeft)]);
         assert_eq!(decode(b"\x1b[1;5H"), vec![Input::Action(Action::Home)]);

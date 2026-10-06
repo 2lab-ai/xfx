@@ -2300,9 +2300,10 @@ fn operating_system_command(
 /// and agreeing.
 ///
 /// The vocabulary is [`super::pacer`]'s allowlist: groups of a reset or the
-/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 7 9 22 23 24 29`,
+/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 9 22 23 24 29`,
 /// which this model does not carry because no cell comparison is made about
-/// it -- nor reverse video `7`, a composer selection's), one foreground colour
+/// it -- nor reverse video `7`/`27`, a draft's caret cell and a composer
+/// selection), one foreground colour
 /// (`38;5;n`, `38;2;r;g;b`), or the file picker's
 /// background and its close (`48;5;n`, `48;2;r;g;b`, `49`) -- read whole and
 /// range-checked like a foreground, and carried no further than the text
@@ -2318,7 +2319,7 @@ fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
     while let Some(part) = parts.next() {
         match part {
             "0" | "39" => pen = Some(Color::Default),
-            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "29" | "49" => {}
+            "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "49" => {}
             "48" => {
                 let wanted = match parts.next() {
                     Some("5") => 1,
@@ -2599,8 +2600,16 @@ mod tests {
             wire_color("1;8", 0).is_err(),
             "nor hidden behind an admitted group"
         );
-        // Reverse video is: a composer selection is painted in it.
-        assert_eq!(wire_color("7", 0).ok(), Some(None));
+        // Reverse video is: upstream's one-cell caret in a draft it paints
+        // (`question_ui.zig:323-399`, `approval_ui.zig:1655-1675`), and a
+        // composer selection. An attribute and not a pen, like bold, and the
+        // reset in front of it is the default pen.
+        assert_eq!(wire_color("7", 0).expect("reverse"), None);
+        assert_eq!(wire_color("27", 0).expect("its close"), None);
+        assert_eq!(
+            wire_color("0;7", 0).expect("a reset, then reverse"),
+            Some(Color::Default)
+        );
         assert_eq!(wire_color("1", 0).expect("an attribute"), None);
         assert_eq!(wire_color("22", 0).expect("its close"), None);
         assert_eq!(

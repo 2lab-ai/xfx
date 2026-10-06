@@ -700,6 +700,7 @@ mod fault;
 mod file_index;
 mod file_picker;
 mod frame;
+mod freeform;
 mod full_transcript;
 mod gesture;
 mod grid;

@@ -527,23 +527,27 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 /// * a reset or a foreground default: `0`, `39`, and the bare `CSI m`;
 /// * a text attribute and its close: bold/dim `1`/`2`/`22`, italic `3`/`23`,
 ///   underline `4`/`24`, strike `9`/`29` -- what the assistant's markdown,
-///   the welcome line's brand and a statusline label are written in;
+///   the welcome line's brand and a statusline label are written in -- and
+///   reverse video `7`/`27`, the one-cell caret upstream paints in a draft it
+///   owns (`writeSelectedFreeformOptionLines`, `question_ui.zig:323-399`;
+///   `writeApprovalDraft`, `approval_ui.zig:1655-1675`) and the composer's
+///   selection (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
+///   `super::theme::Palette::reverse`);
 /// * `38 ; 5 ; <n>` -- a 256-colour foreground;
 /// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground;
 /// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
 ///   background the band paints, the `@` file picker's marked row
 ///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
 ///   and its close;
-/// * `7` -- reverse video, which is how the composer shows a selection
-///   (`appendLayoutUnit`, `input_presentation.zig:995-1021`;
-///   `super::theme::Palette::reverse`), closed by the reset after it.
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible and `blink` makes it move.
-/// None of them is in upstream's assistant or footer text, and an allowlist
-/// wider than what is emitted is untested surface. A background would repaint
-/// the width an `EL` erases, which is why `super::grid` closes every attribute
-/// before it writes one.
+/// invisible and `blink` makes it move. None of them is in upstream's
+/// assistant or footer text, and an allowlist wider than what is emitted is
+/// untested surface. A background would repaint the width an `EL` erases,
+/// which is why `super::grid` closes every attribute before it writes one.
+/// Reverse video is admitted only because upstream's footer does paint it --
+/// a caret cell, a selected run, closed on the same row -- and provider text
+/// never reaches here with an escape in it (`super::bridge::inert`).
 /// [`SgrState`] models every attribute this admits, so a row that ends with
 /// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
@@ -559,7 +563,8 @@ fn is_palette_sgr(text: &str) -> bool {
     let mut params = params.split(';');
     while let Some(group) = params.next() {
         match group {
-            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "29" | "39" | "49" => {}
+            "0" | "1" | "2" | "3" | "4" | "7" | "9" | "22" | "23" | "24" | "27" | "29" | "39"
+            | "49" => {}
             "38" | "48" => {
                 // The number of parameters each colour shape carries after its
                 // selector. Each one a terminal reads as a number, and nothing
@@ -1356,8 +1361,13 @@ mod tests {
             "\u{1b}[9m",
             "\u{1b}[29m",
             "\u{1b}[39m",
-            // A selection in the composer.
+            // Upstream's one-cell caret in a draft it paints itself, spelled
+            // as its wire writes it (a reset, then reverse) and closed; and a
+            // selection in the composer, the same `7`.
             "\u{1b}[7m",
+            "\u{1b}[0;7m",
+            "\u{1b}[27m",
+            "\u{1b}[1;7m",
             // The file picker's marked row: its background, in both
             // notations, and the background's close.
             "\u{1b}[48;5;239m",
@@ -1371,7 +1381,7 @@ mod tests {
             );
         }
         // Every one of these is a well-formed SGR the grammar accepts, and none
-        // of them is a shape this crate writes. The first four are the ones
+        // of them is a shape this crate writes. The first three are the ones
         // with a cost on a shared screen; the rest are well-formed colours in
         // spellings the palette does not use, or one of those hidden inside an
         // otherwise admitted group.

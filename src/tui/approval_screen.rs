@@ -977,9 +977,12 @@ mod tests {
         }
         let rows = screen.rows(80, 24);
         let (row, column) = screen.caret(80, 24);
+        // The caret's cell is painted, after the draft (upstream's reverse
+        // video, `approval_ui.zig:1662-1672`; claim changed: it was the
+        // terminal's caret alone).
         assert_eq!(
             rows[usize::from(row) - 1],
-            "  ❯ 1  Apply once, use capitals"
+            "  ❯ 1  Apply once, use capitals "
         );
         assert_eq!(column, 19 + 12);
     }

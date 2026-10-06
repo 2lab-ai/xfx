@@ -193,6 +193,11 @@ pub(crate) struct Grid {
     /// method below relies on: [`Grid::span`] is the only place a row becomes
     /// an index range.
     cells: Vec<Cell>,
+    /// What each row is, `rows` long, as its writer recorded it
+    /// ([`Grid::set_kind`]): what a theme report repaints a row's cells as
+    /// ([`Grid::retint_document`]). Moved with the cells by every scroll, and
+    /// plain again wherever a row is erased.
+    kinds: Vec<DocumentRow>,
 }
 
 impl Grid {
@@ -202,6 +207,7 @@ impl Grid {
             rows,
             cols,
             cells: vec![Cell::Empty; usize::from(rows) * usize::from(cols)],
+            kinds: vec![DocumentRow::Plain; usize::from(rows)],
         }
     }
 
@@ -217,6 +223,8 @@ impl Grid {
         self.cells.clear();
         self.cells
             .resize(usize::from(rows) * usize::from(cols), Cell::Empty);
+        self.kinds.clear();
+        self.kinds.resize(usize::from(rows), DocumentRow::Plain);
     }
 
     pub(crate) fn rows(&self) -> u16 {
@@ -260,6 +268,27 @@ impl Grid {
         for cell in &mut self.cells[span] {
             *cell = Cell::Empty;
         }
+        self.set_kind(line, DocumentRow::Plain);
+    }
+
+    /// Records what row `line` is, as its writer says
+    /// (`super::transcript::Append::kinds`). A row with no such line is
+    /// nothing to record.
+    pub(crate) fn set_kind(&mut self, line: u16, kind: DocumentRow) {
+        if let Some(slot) = line
+            .checked_sub(1)
+            .and_then(|index| self.kinds.get_mut(usize::from(index)))
+        {
+            *slot = kind;
+        }
+    }
+
+    /// What row `line` was recorded as, and plain for a row with no record.
+    pub(crate) fn kind(&self, line: u16) -> DocumentRow {
+        line.checked_sub(1)
+            .and_then(|index| self.kinds.get(usize::from(index)))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Puts `row`'s text on row `line`, and blanks the rest of it.
@@ -352,9 +381,10 @@ impl Grid {
     /// Three things make it narrow enough to be safe on rows nobody repaints:
     ///
     /// * **Only a [`Cell::Lead`] this crate's palette recognises.** The colour
-    ///   is asked of the cell, within the kind of row its first cell says it is
-    ///   on -- a tool group's rows share one dark grey with a turn's summary
-    ///   and part ways on a light screen ([`DocumentRow`]) -- and
+    ///   is asked of the cell, within the kind of row it was recorded on when
+    ///   it was written -- a tool group's rows and an answered question's
+    ///   answer share one dark grey with a turn's summary and part ways on a
+    ///   light screen ([`DocumentRow`]) -- and
     ///   [`Palette::document_retint_in`] answers `None` for every one it did
     ///   not paint -- so an [`Cell::Empty`] cell, a continuation, the user's own
     ///   echo and whatever the terminal was holding before xfx ran are all
@@ -377,16 +407,10 @@ impl Grid {
             let Some(span) = self.span(line) else {
                 continue;
             };
-            // Read before any cell of it moves: what kind of row this is is
-            // said by its first cell as it was painted ([`DocumentRow`]).
-            let row = match self.cells.get(span.start) {
-                Some(Cell::Lead { grapheme, sgr, .. }) => {
-                    sgr.color().map_or(DocumentRow::Plain, |colour| {
-                        palette.document_row(grapheme, colour)
-                    })
-                }
-                _ => DocumentRow::Plain,
-            };
+            // What its writer recorded the row as ([`DocumentRow`]), not what
+            // its first cell looks like: an answer row and a summary open with
+            // the same painted blank.
+            let row = self.kind(line);
             for cell in &mut self.cells[span] {
                 let Cell::Lead { sgr, .. } = cell else {
                     continue;
@@ -446,6 +470,8 @@ impl Grid {
         let width = usize::from(self.cols);
         self.cells.drain(..moved * width);
         self.cells.resize(height * width, Cell::Empty);
+        self.kinds.drain(..moved.min(self.kinds.len()));
+        self.kinds.resize(height, DocumentRow::Plain);
     }
 
     /// Writes the bytes that turn this grid into `target`, and says how many
@@ -1018,6 +1044,11 @@ mod tests {
     const BODY_LIGHT: &str = "\u{1b}[38;5;235m";
     const NOTICE_DARK: &str = "\u{1b}[38;5;250m";
     const NOTICE_LIGHT: &str = "\u{1b}[38;5;241m";
+    const SUMMARY_DARK: &str = "\u{1b}[38;5;245m";
+    const SUMMARY_LIGHT: &str = "\u{1b}[38;5;247m";
+    const ANSWER_LIGHT: &str = "\u{1b}[38;5;241m";
+    const LABEL_DARK: &str = "\u{1b}[38;5;252m";
+    const LABEL_LIGHT: &str = "\u{1b}[38;5;238m";
 
     #[test]
     fn a_retinted_row_is_the_row_a_fresh_paint_in_the_new_palette_would_leave() {
@@ -1042,6 +1073,69 @@ mod tests {
             "",
             "the retinted rows are not the rows the other palette would paint"
         );
+    }
+
+    #[test]
+    fn a_row_is_retinted_as_what_its_writer_recorded_it_as() {
+        // An answered question's answer and a turn's summary are the same dark
+        // grey, 245, and part on a light screen -- 241 and 247 -- and both open
+        // with a painted blank, so only the record the writer left with the
+        // row can tell them apart.
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, &format!("{SUMMARY_DARK}     SQLite{RESET}"), &geometry);
+        grid.set_kind(3, DocumentRow::Answer);
+        grid.place_row(4, &format!("{SUMMARY_DARK}  5s (3 4){RESET}"), &geometry);
+        // A question's `■ Cancelled`: the mark in the outcome grey is not a
+        // tool group's stopped call, whatever its first cell looks like.
+        grid.place_row(
+            5,
+            &format!("{LABEL_DARK}\u{25a0}{RESET} Cancelled {SUMMARY_DARK}x{RESET}"),
+            &geometry,
+        );
+        assert_eq!(grid.kind(3), DocumentRow::Answer);
+        assert_eq!(grid.kind(5), DocumentRow::Plain);
+        grid.retint_document(10, &light());
+
+        let mut expected = Grid::blank(geometry.rows, geometry.cols);
+        expected.place_row(3, &format!("{ANSWER_LIGHT}     SQLite{RESET}"), &geometry);
+        expected.place_row(4, &format!("{SUMMARY_LIGHT}  5s (3 4){RESET}"), &geometry);
+        expected.place_row(
+            5,
+            &format!("{LABEL_LIGHT}\u{25a0}{RESET} Cancelled {SUMMARY_LIGHT}x{RESET}"),
+            &geometry,
+        );
+        assert_eq!(diffed(&grid, &expected), "");
+    }
+
+    #[test]
+    fn a_rows_record_moves_with_it_and_goes_with_its_cells() {
+        let geometry = geometry();
+        let mut grid = Grid::blank(geometry.rows, geometry.cols);
+        grid.place_row(3, "answer", &geometry);
+        grid.set_kind(3, DocumentRow::Answer);
+        grid.scroll_up(1);
+        assert_eq!(
+            grid.kind(2),
+            DocumentRow::Answer,
+            "the record stayed behind"
+        );
+        assert_eq!(grid.kind(3), DocumentRow::Plain);
+        assert_eq!(grid.kind(geometry.rows), DocumentRow::Plain);
+        // A row written over or erased is a new row, with no record until its
+        // writer gives it one.
+        grid.place_row(2, "something else", &geometry);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        grid.set_kind(2, DocumentRow::ToolGroup);
+        grid.erase_row(2);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        grid.set_kind(2, DocumentRow::Answer);
+        grid.resize(geometry.rows, geometry.cols);
+        assert_eq!(grid.kind(2), DocumentRow::Plain);
+        // Nothing to record outside the grid, and nothing to read there.
+        grid.set_kind(0, DocumentRow::Answer);
+        grid.set_kind(geometry.rows + 1, DocumentRow::Answer);
+        assert_eq!(grid.kind(0), DocumentRow::Plain);
     }
 
     #[test]

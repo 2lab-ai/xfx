@@ -246,10 +246,8 @@ const RESET: &str = "\u{1b}[0m";
 /// [`BODY`] is not [`HINT`]: the hint row is the band's, and this row is the
 /// document's, where a theme report has to find it. Two of the document's
 /// roles share a number with it in one mode each ([`DIM`]'s `245` in the dark,
-/// [`NOTICE`]'s `241` in the light), and an answer row opens with nothing a
-/// [`DocumentRow`] can be told by -- a turn's summary opens with the same
-/// painted blank -- so a retinted answer cell is taken to whichever of the
-/// two is listed first ([`Palette::document_retint`]).
+/// [`NOTICE`]'s `241` in the light), so a report finds it by the row it is on,
+/// which is recorded as one ([`DocumentRow::Answer`]).
 ///
 /// The fourteenth is upstream's `red_style` **on the hint row**: the one-time
 /// full-access warning flush with its last column
@@ -287,24 +285,30 @@ const ANSWER: usize = 12;
 const DANGER: usize = 13;
 const SELECTED: usize = 14;
 
-/// What kind of document row a theme report is repainting, read off the row's
-/// first cell ([`Palette::document_row`]).
+/// What kind of document row a theme report is repainting, **recorded with
+/// the row when it was written** (`super::transcript::Append::kinds`, kept per
+/// line by `super::grid::Grid`).
 ///
-/// A report recognises a cell by the colour it holds, and two of xfx's
+/// A report recognises a cell by the colour it holds, and three of xfx's
 /// document colours are **one grey on a dark screen and two on a light one**:
-/// the statusline grey a tool group's rows are written in and the dim grey of
-/// a turn's summary are both 245 on dark, and 241 and 247 on light. A cell
-/// cannot say which it is; the row it is on can, because a tool group's rows
-/// open with marks nothing else in the document opens with. So the row is
-/// asked first, and the cell's colour is answered within it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// the statusline grey a tool group's rows and an answered question's answer
+/// are written in, and the dim grey of a turn's summary, are all 245 on dark,
+/// and 241, 241 and 247 on light. A cell cannot say which it is, and neither
+/// can the cell a row opens with -- an answer row opens with the same painted
+/// blank a summary does. The writer can, so the row carries it, and the cell's
+/// colour is answered within it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum DocumentRow {
-    /// Every row that is not a tool group's.
+    /// Every row that is none of the below.
+    #[default]
     Plain,
     /// A tool group's header (`●`) or one of its call rows (`├`, `└`).
     ToolGroup,
     /// A cancelled call's own line under its group (`■`).
     ToolStopped,
+    /// The answer under an answered question, in the document's record of a
+    /// question batch ([`ANSWER`]).
+    Answer,
 }
 
 impl Palette {
@@ -403,11 +407,13 @@ impl Palette {
         self.subtitle()
     }
 
-    /// Reverse video and nothing else: a selection in the composer
-    /// (`appendLayoutUnit`, `input_presentation.zig:995-1021`, which writes
-    /// `ESC[7m` before a selected unit and the reset after it). The same in
-    /// every mode and at every depth, because it names no colour -- it swaps
-    /// the two the terminal already has.
+    /// Reverse video and nothing else: the one-cell caret upstream paints in a
+    /// draft it owns (`question_ui.zig:323-399`, `approval_ui.zig:1662`), and a
+    /// selection in the composer (`appendLayoutUnit`,
+    /// `input_presentation.zig:995-1021`, which writes `ESC[7m` before a
+    /// selected unit and the reset after it). The same in every mode and at
+    /// every depth, because it names no colour -- it swaps the two the
+    /// terminal already has.
     pub(crate) fn reverse(&self) -> &'static str {
         "\u{1b}[7m"
     }
@@ -458,11 +464,10 @@ impl Palette {
     /// What this palette repaints an **already painted** document cell in, or
     /// `None` for a cell it has nothing to say about.
     ///
-    /// Six of the roles reach the document -- the answer text (`BODY`),
-    /// xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
-    /// outcome notice's label ([`Self::notice_label`]), a cancelled tool
-    /// call's mark ([`Self::warning`]) and an answered question's answer
-    /// ([`Self::answer`]) -- and a cell is
+    /// Five of the roles reach a plain document row -- the answer text
+    /// (`BODY`), xfx's own lines ([`Self::notice`]), the quiet rows (`DIM`), an
+    /// outcome notice's label ([`Self::notice_label`]) and a cancelled tool
+    /// call's mark ([`Self::warning`]) -- and a cell is
     /// recognised by the colour it is *holding*, in **either** mode, at this
     /// palette's own depth. Both sides map onto the mode in force rather than
     /// old-to-new, and that is what makes a run of reports converge: a chained
@@ -483,12 +488,11 @@ impl Palette {
         // (`HINT`, the same grey `BODY` names), the quiet rows -- the
         // welcome line's version, a turn's summary and a cancelled notice's
         // label (`DIM`) -- the label of a notice that reports an outcome
-        // (`LABEL`), bold or not, a cancelled tool call's `■` (`WARNING`),
-        // the same grey under another name, and an answered question's answer
-        // (`ANSWER`). **Last**, because each of its numbers is another role's
-        // in one mode: listed earlier it would take every dark `DIM` cell and
-        // every light `NOTICE` cell for its own.
-        let role = [NOTICE, BODY, DIM, LABEL, WARNING, ANSWER]
+        // (`LABEL`), bold or not, and a cancelled tool call's `■` (`WARNING`),
+        // the same grey under another name. An answered question's answer is
+        // not here: it is only ever on a row recorded as one
+        // ([`DocumentRow::Answer`]), where it is answered alone.
+        let role = [NOTICE, BODY, DIM, LABEL, WARNING]
             .into_iter()
             .find(|&role| {
                 [Mode::Dark, Mode::Light]
@@ -499,27 +503,6 @@ impl Palette {
             return None;
         }
         Some(self.paint(role))
-    }
-
-    /// Which kind of document row opens with `grapheme` painted in `colour`
-    /// ([`DocumentRow`]).
-    ///
-    /// The mark **and** the grey it is painted in, in either mode: a row the
-    /// user's shell left on the screen that happens to open with `├` holds
-    /// no colour of this crate's, and is a plain row -- whose cells this
-    /// palette then leaves alone.
-    pub(crate) fn document_row(&self, grapheme: &str, colour: Color) -> DocumentRow {
-        let painted = |role: usize| {
-            [Mode::Dark, Mode::Light]
-                .into_iter()
-                .any(|mode| self.shade(role, mode) == Some(colour))
-        };
-        match grapheme {
-            "\u{25cf}" if painted(HINT) => DocumentRow::ToolGroup,
-            "\u{251c}" | "\u{2514}" if painted(STATUSLINE) => DocumentRow::ToolGroup,
-            "\u{25a0}" if painted(WARNING) => DocumentRow::ToolStopped,
-            _ => DocumentRow::Plain,
-        }
     }
 
     /// [`Self::document_retint`], for a cell on a row of the kind given.
@@ -542,6 +525,7 @@ impl Palette {
             DocumentRow::Plain => return self.document_retint(colour),
             DocumentRow::ToolGroup => &[STATUSLINE, HINT, COMMAND, NOTICE],
             DocumentRow::ToolStopped => &[WARNING, HINT, TOOL, COMMAND, NOTICE],
+            DocumentRow::Answer => &[ANSWER],
         };
         let role = roles.iter().copied().find(|&role| {
             [Mode::Dark, Mode::Light]
@@ -1054,22 +1038,36 @@ mod tests {
         };
         assert_eq!(dark.answer(), "\u{1b}[38;5;245m");
         assert_eq!(light.answer(), "\u{1b}[38;5;241m");
-        // A cell holding it is one a report repaints. Each of its numbers is
-        // another document role's in one mode, and the cell carries only its
-        // colour, so the earlier-listed role is what it is taken to: a dark
-        // `245` becomes the light quiet grey, a light `241` the dark notice
-        // grey. Pinned, so that moving `ANSWER` up the list -- which would
-        // take every quiet row and every notice for an answer -- fails here.
+        // On a row recorded as an answer, the cell is the answer's, both ways
+        // -- not the quiet grey a dark `245` is on a plain row, nor the notice
+        // grey a light `241` is.
         assert_eq!(
-            light.document_retint(Color::Indexed(245)),
+            light.document_retint_in(DocumentRow::Answer, Color::Indexed(245)),
+            Some("\u{1b}[38;5;241m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Answer, Color::Indexed(241)),
+            Some("\u{1b}[38;5;245m")
+        );
+        assert_eq!(
+            dark.document_retint_in(DocumentRow::Answer, Color::Indexed(245)),
+            None
+        );
+        // And a plain row keeps the roles it always had: a dark `245` is a
+        // summary's, a light `241` a notice's.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Plain, Color::Indexed(245)),
             Some("\u{1b}[38;5;247m")
         );
         assert_eq!(
-            dark.document_retint(Color::Indexed(241)),
+            dark.document_retint_in(DocumentRow::Plain, Color::Indexed(241)),
             Some("\u{1b}[38;5;250m")
         );
-        assert_eq!(dark.document_retint(Color::Indexed(245)), None);
-        assert_eq!(light.document_retint(Color::Indexed(241)), None);
+        // A colour this crate did not paint on an answer row is left alone.
+        assert_eq!(
+            light.document_retint_in(DocumentRow::Answer, Color::Indexed(250)),
+            None
+        );
     }
 
     #[test]
@@ -1226,33 +1224,11 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_groups_row_is_known_by_its_mark_in_the_grey_xfx_paints_it() {
-        let dark = Palette {
-            mode: Mode::Dark,
-            depth: Depth::Ansi256,
-        };
-        assert_eq!(
-            dark.document_row("\u{25cf}", Color::Indexed(235)),
-            DocumentRow::ToolGroup
-        );
-        assert_eq!(
-            dark.document_row("\u{251c}", Color::Indexed(245)),
-            DocumentRow::ToolGroup
-        );
-        assert_eq!(
-            dark.document_row("\u{25a0}", Color::Indexed(238)),
-            DocumentRow::ToolStopped
-        );
-        // A `├` the user's own shell left, in its own colour, is a plain row --
-        // and a plain row's 245 is the summary's.
-        assert_eq!(
-            dark.document_row("\u{251c}", Color::Default),
-            DocumentRow::Plain
-        );
-        assert_eq!(
-            dark.document_row("a", Color::Indexed(245)),
-            DocumentRow::Plain
-        );
+    fn a_tool_groups_row_answers_its_colours_as_the_groups() {
+        // The row's kind is recorded when it is written (the group's
+        // `kinds`), not read off its first cell -- which is what let a
+        // question's `■ Cancelled` row, in the outcome grey, pass for a tool
+        // group's stopped call.
         let light = Palette {
             mode: Mode::Light,
             depth: Depth::Ansi256,
