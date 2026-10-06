@@ -1,0 +1,16 @@
+# /image on a catalog row tagged tool-use only: fx takes its vision-tool route
+# (the model answers text, so the forced call is missing); xfx refuses the
+# model before any request.
+gateway image-turns.json
+work image-ws
+wait 3
+type /image shot.png
+key Enter
+wait 1.5
+snap attached
+type  what is in this image?
+key Enter
+wait 5
+snap sent
+snapfull end
+gwlog

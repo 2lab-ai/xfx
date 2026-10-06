@@ -2009,7 +2009,22 @@ async fn turn_loop(
         };
         let ended = match item {
             TurnWork::Submit(prompt) => {
-                run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
+                run_turn(
+                    &mut state,
+                    prompt,
+                    Vec::new(),
+                    events,
+                    &cancel,
+                    &control,
+                    &mut queue,
+                )
+                .await
+            }
+            TurnWork::Attached { prompt, images } => {
+                run_turn(
+                    &mut state, prompt, images, events, &cancel, &control, &mut queue,
+                )
+                .await
             }
             // Both of these open a socket, so both are work rather than control
             // messages, and both owe **exactly one** terminal event -- which is
@@ -2251,6 +2266,7 @@ enum Ended {
 async fn run_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
@@ -2276,7 +2292,7 @@ async fn run_turn(
     steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, events, &turn,
+        state, prompt, images, events, &turn,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2815,9 +2831,53 @@ async fn raced_against_control<F: Future>(
 }
 
 /// One turn, exactly as `xfx ask` runs one. `Some` is why it did not finish.
+/// Why a turn carrying an image may not be sent to the model in force, or
+/// `None` when it may.
+///
+/// **On the Gateway, the catalog decides** (`image_input_support`,
+/// `vercel-labs/fx@c1db9191 src/core/config/model_capabilities.zig:96-104`): a
+/// row tagged `vision` and `file-input` both reads images inline; a row without
+/// them would be upstream's second route, a forced `vision` tool call answered
+/// by another model, which xfx does not have ([`crate::image::NOT_NATIVE`]); and
+/// a model the catalog does not list -- or a catalog that could not be read --
+/// is one whose support nobody can vouch for
+/// ([`crate::image::CAPABILITY_UNKNOWN`]). The catalog is read for it like the
+/// effort's: once, raced against this turn's cancellation, and told to the UI.
+///
+/// **On llmux, the daemon decides.** Its catalog has no capability field
+/// (`2lab-ai/llmux@4b3d4a4 src/catalog.rs:1227`), so the image is sent and a
+/// model that cannot read it is the daemon's 400, reported as any refusal it
+/// sends is.
+async fn image_refusal(
+    state: &mut Runtime,
+    events: &Sender<UiEvent>,
+    turn: &TurnCancel,
+) -> Option<String> {
+    if state.config.provider != ProviderId::Gateway {
+        return None;
+    }
+    let fresh = tokio::select! {
+        biased;
+        () = turn.token.cancelled() => false,
+        fresh = state.load_catalog() => fresh,
+    };
+    if turn.token.is_cancelled() {
+        return Some(crate::agent::TurnError::Cancelled.to_string());
+    }
+    if fresh {
+        let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+    }
+    match state.selector.entry(state.selector.model()) {
+        Some(entry) if entry.facts.image_input => None,
+        Some(_) => Some(crate::image::NOT_NATIVE.to_string()),
+        None => Some(crate::image::CAPABILITY_UNKNOWN.to_string()),
+    }
+}
+
 async fn one_turn(
     state: &mut Runtime,
     prompt: String,
+    images: Vec<crate::image::Image>,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
 ) -> Option<String> {
@@ -2846,6 +2906,25 @@ async fn one_turn(
         };
         if fresh {
             let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
+    }
+    // **Whether the model reads images, before anything is sent or written.**
+    // A turn whose prompt -- or whose history, which every request re-sends --
+    // carries one goes inline only to a model the catalog tags `vision` and
+    // `file-input`; any other is refused here, with upstream's words, and no
+    // request leaves (`visionPolicy`, `orchestrator.zig:5971-5986`, `:7147-7158`).
+    let carries_images = !images.is_empty()
+        || state.conversation.as_ref().is_some_and(|conversation| {
+            conversation
+                .recorder
+                .state()
+                .turns
+                .iter()
+                .any(|turn| !turn.images.is_empty())
+        });
+    if carries_images {
+        if let Some(refusal) = image_refusal(state, events, turn).await {
+            return Some(refusal);
         }
     }
     let options = state.request_options();
@@ -2904,6 +2983,7 @@ async fn one_turn(
     }
 
     let request = TurnRequest {
+        images,
         model,
         prompt,
         history: replay.messages,
@@ -4318,6 +4398,7 @@ mod tests {
         let ended = on_a_runtime(run_turn(
             &mut state,
             "hello".to_string(),
+            Vec::new(),
             &events_tx,
             &cancel,
             &control,
@@ -4507,6 +4588,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -4607,6 +4689,7 @@ mod tests {
             let mut turn = std::pin::pin!(run_turn(
                 &mut state,
                 "anything".to_string(),
+                Vec::new(),
                 &events,
                 &cancel,
                 &control,
@@ -6877,6 +6960,7 @@ mod tests {
         };
         let turn = cancel.turn();
         let request = TurnRequest {
+            images: Vec::new(),
             model: "vendor/model".to_string(),
             prompt: "write two files".to_string(),
             history: Vec::new(),
@@ -7040,6 +7124,7 @@ mod tests {
         ) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "anything".to_string(),
                 history: Vec::new(),
@@ -7110,6 +7195,7 @@ mod tests {
         fn plain_turn(&mut self, provider: &ScriptedProvider) -> Ran {
             let turn = self.cancel.turn();
             let request = TurnRequest {
+                images: Vec::new(),
                 model: "vendor/model".to_string(),
                 prompt: "and now".to_string(),
                 history: Vec::new(),

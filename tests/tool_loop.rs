@@ -1382,6 +1382,7 @@ fn final_step(text: &str) -> ScriptedStep {
 
 fn turn(prompt: &str, tools: ToolContext) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),
@@ -1871,6 +1872,7 @@ fn asking_context(tree: &Tree, limits: ToolLimits, prompter: ScriptedAmender) ->
 /// A turn that carries `tools` and can be stopped through `cancel`.
 fn asking_turn(prompt: &str, tools: ToolContext, cancel: CancelToken) -> TurnRequest {
     TurnRequest {
+        images: Vec::new(),
         model: "vendor/model".to_string(),
         prompt: prompt.to_string(),
         history: Vec::new(),
@@ -2413,6 +2415,9 @@ fn replay_shape(messages: &[Message]) -> Vec<String> {
                         (ResultStatus::Failure, _) => format!("{call_id} error"),
                     },
                     ContentPart::RawBlocks(_) => "raw".to_string(),
+                    ContentPart::Image { media_type, .. } => {
+                        format!("image {}", media_type.label())
+                    }
                 })
                 .collect();
             format!("{}: {}", message.role.label(), parts.join(" | "))
@@ -2979,6 +2984,9 @@ fn told(messages: &[Message]) -> Vec<String> {
                     ContentPart::ToolCall(call) => format!("call {}", call.id),
                     ContentPart::ToolResult { call_id, .. } => format!("result {call_id}"),
                     ContentPart::RawBlocks(_) => "raw".to_string(),
+                    ContentPart::Image { media_type, .. } => {
+                        format!("image {}", media_type.label())
+                    }
                 })
                 .collect();
             format!("{}: {}", message.role.label(), parts.join(" | "))

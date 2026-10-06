@@ -1,0 +1,86 @@
+# /image (/img) and /images on a model whose catalog row reads images
+# (tool-use, vision, file-input): every refusal, the badge, the badges kept
+# under a command typed after them, Ctrl-U dropping one, the prompt that sends
+# them, the request after it re-sending them, and a resume re-sending them
+# again. `huge.png` is 21 MiB with a PNG signature, made at launch.
+models models-image.json
+gateway image-turns.json
+work image-ws
+sparsepng huge.png 22020096
+wait 3
+type /image
+key Enter
+wait 1
+snap bare
+type /image nope.png
+key Enter
+wait 1
+snap missing
+type /image notes.txt
+key Enter
+wait 1
+snap unsupported
+type /image huge.png
+key Enter
+wait 1
+snap toolarge
+type /image pics
+key Enter
+wait 1
+snap directory
+type /images
+key Enter
+wait 1
+snap images-empty
+type /image shot.png
+key Enter
+wait 1.5
+snap attached
+type  /images
+key Enter
+wait 1
+snap images-listed
+type  /images clear
+key Enter
+wait 1
+snap images-cleared
+type /image shot.png
+key Enter
+wait 1
+key C-u
+wait 0.5
+snap cu
+type /images
+key Enter
+wait 1
+snap images-after-cu
+type /img shot.png
+key Enter
+wait 1
+type /image shot.png
+key Enter
+wait 1
+snap two-attached
+type  what is in this image?
+key Enter
+wait 4
+snap sent
+type describe it again
+key Enter
+wait 4
+snap again
+keep
+type /quit
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+snap resumed
+type once more
+key Enter
+wait 4
+snap resumed-sent
+snapfull end
+gwlog
+home end

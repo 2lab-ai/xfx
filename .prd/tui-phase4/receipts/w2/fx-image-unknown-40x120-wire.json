@@ -1,0 +1,17 @@
+[
+ {
+  "request": "001-title.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #1] what is in this image?"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "none"
+  },
+  "tool_names": []
+ }
+]

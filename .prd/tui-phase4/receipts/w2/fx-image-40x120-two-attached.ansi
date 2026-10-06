@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;252m✗ [38;5;250musage: /image <path>[39m
+
+[38;5;252m✗ images:[38;5;250m image file not found
+
+[38;5;252m✗ images:[38;5;250m unsupported image type[39m
+
+[38;5;252m✗ images:[38;5;250m image exceeds the 20 MiB limit[39m
+
+[38;5;252m✗ images:[38;5;250m failed to attach image: NotRegularFile[39m
+
+[38;5;250m* images: no pending images[39m
+
+[38;5;250m* images: attached image: shot.png[39m
+
+[38;5;250m* images: 1 pending[39m
+  [38;5;250m - shot.png (image/png)[39m
+
+[38;5;250m* images: cleared pending images[39m
+
+[38;5;250m* images: attached image: shot.png[39m
+
+[38;5;250m* images: no pending images[39m
+
+[38;5;250m* images: attached image: shot.png[39m
+
+[38;5;250m* images: attached image: shot.png[39m
+
+[38;5;255m┃[39m ]8;;file://<scratch>/work/shot.png\[Image 3][Image 4]]8;;\
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+

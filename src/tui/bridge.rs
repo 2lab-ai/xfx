@@ -687,6 +687,7 @@ impl UiEvent {
                     .into_iter()
                     .map(|turn| super::hydration::HydratedTurn {
                         user: inert_owned(turn.user),
+                        sent: inert_owned(turn.sent),
                         steps: turn.steps.into_iter().map(inert_step).collect(),
                         ending: match turn.ending {
                             super::hydration::Ending::Interrupted(reason) => {
@@ -704,6 +705,8 @@ impl UiEvent {
                     })
                     .collect(),
                 model: hydration.model.map(inert_owned),
+                // A number.
+                next_image: hydration.next_image,
             }),
             // The id is the store's own name for a directory, read back off a
             // listing; the failure is this crate's word.
@@ -930,6 +933,16 @@ pub(crate) struct ModelChange {
 pub(crate) enum TurnWork {
     /// Run a turn on this prompt.
     Submit(String),
+    /// Run a turn on this prompt and the images its `[Image #N]` name, in the
+    /// order they were attached.
+    ///
+    /// A variant of its own rather than a field on [`Self::Submit`]: a prompt
+    /// with nothing attached is the case every other surface and test sends,
+    /// and it stays the one-word value it always was.
+    Attached {
+        prompt: String,
+        images: Vec<crate::image::Image>,
+    },
     /// Switch to this provider: prepare, commit, reload, swap.
     ///
     /// A piece of *work* rather than a control message like `/model`'s

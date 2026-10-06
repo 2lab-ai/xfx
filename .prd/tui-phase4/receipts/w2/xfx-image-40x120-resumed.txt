@@ -1,0 +1,40 @@
+* session resumed: [Image #3][Image #4] what is in this image?
+
+┃ [Image 3][Image 4] what is in this image?
+
+  It is a small red square.
+
+  0s (↑12 ↓40)
+
+┃ describe it again
+
+  Still red.
+
+  0s (↑5 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
