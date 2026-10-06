@@ -36,7 +36,8 @@ use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{
-    NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, WritableSession,
+    validate_title, NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, TitleError,
+    WritableSession,
 };
 use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
@@ -63,6 +64,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/clear",
     "/new",
     "/reset",
+    "/resume",
+    "/rename",
     "/provider",
     "/stats",
     "/status",
@@ -70,6 +73,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/permissions",
     "/copy",
     "/statusline",
+    "/sound",
     "/version",
     "/quit",
 ];
@@ -177,6 +181,22 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Resume,
+        name: "/resume",
+        aliases: &[],
+        summary: "resume a saved session",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Rename,
+        name: "/rename",
+        aliases: &[],
+        summary: "rename the current session",
+        category: "Session",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Setup,
         name: "/provider",
         // Upstream's own alias for the same command
@@ -234,6 +254,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         // Upstream's words (`commands.zig:494`); the grammar is
         // `STATUSLINE_USAGE`, which the refusal prints.
         summary: "toggle status line segments",
+        category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Sound,
+        name: "/sound",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:495`). The bell is the one sound
+        // xfx makes, and it is a sound: what the terminal does with it -- a
+        // beep, a flash, a mark on a multiplexer's tab -- is the terminal's.
+        summary: "toggle sounds and terminal bells",
         category: "Appearance",
         has_args: true,
     },
@@ -362,6 +393,48 @@ pub const PROMPT: &str = "> ";
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/resume` says on this surface.
+///
+/// Upstream's `/resume` is a picker in its footer
+/// (`commandResumeSession`, `app_commands.zig:682-693`), and this shell has no
+/// footer to put one in: it reads a line at a time. It says where the picker
+/// is, as `/stats` says where the counters are, rather than resuming something
+/// the user did not pick.
+pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session in the full-screen \
+     shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
+     full-screen one, and `xfx --resume <last|ID>` opens it on a session";
+
+/// What `/rename` says when there is no title to give the session, or one it
+/// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
+/// words both shells use.
+pub(crate) fn title_refusal(problem: TitleError) -> &'static str {
+    match problem {
+        TitleError::Empty => "usage: /rename <title>",
+        TitleError::TooLong => "title is too long",
+        TitleError::NotPrintable => "title must be printable text",
+    }
+}
+
+/// Gives `conversation`'s session the title `title`, already validated
+/// ([`crate::session::validate_title`]), and says whether it was written down.
+///
+/// The recorder's first failure is the answer when there is one, this write's
+/// or an earlier one's: a recorder that has failed writes nothing more
+/// (`SessionRecorder::commit`), so a title it was handed afterwards is a title
+/// the log does not have.
+pub(crate) fn rename_conversation(
+    conversation: &mut Conversation,
+    title: &str,
+) -> Result<(), String> {
+    conversation.recorder.commit(SessionEvent::SessionRenamed {
+        title: title.to_string(),
+    });
+    match conversation.recorder.failure() {
+        Some(problem) => Err(problem.to_string()),
+        None => Ok(()),
+    }
+}
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -443,6 +516,13 @@ pub enum Slash {
     /// away before anything reads it (`app_session_runtime.zig:2001`), so it
     /// opens a new session exactly as the other two do.
     Reset,
+    /// Pick a saved session and continue it: the TUI's session picker
+    /// (`commandResumeSession`, `app_commands.zig:682-693`).
+    Resume,
+    /// Give the session a title of the user's own, which outranks the one its
+    /// first prompt would give it (`handleRenameCommand`,
+    /// `app_commands.zig:3815-3858`).
+    Rename,
     Model,
     /// Switch the provider a turn talks to, and record the choice.
     ///
@@ -463,6 +543,9 @@ pub enum Slash {
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
     Copy,
+    /// Upstream's sound switch, which here is the terminal bell
+    /// ([`crate::sound`]).
+    Sound,
     /// What the terminal writer has done this session: upstream's five render
     /// counters.
     Stats,
@@ -918,6 +1001,10 @@ pub async fn run(
     let mut selector = ModelSelector::new(&config);
     let mut model = selector.model().to_string();
     let mut conversation: Option<Conversation> = None;
+    // Where `/sound` stands. Read once and then moved only by `/sound`: a
+    // `/setup` re-reads the configuration, and a provider switch is not a
+    // reason for the sound to change under the user.
+    let mut sound = config.notifications;
     // Built on first use: a shell must open on a machine with no credential --
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
@@ -962,6 +1049,43 @@ pub async fn run(
                     Slash::Stats => {
                         writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Resume => {
+                        writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    // The session is opened for it when no prompt has opened
+                    // one yet, as upstream's exists from launch: a title is
+                    // something to keep, and a session renamed before anything
+                    // was asked in it is kept (`discardableOnClose`,
+                    // `app_session_runtime.zig:5702-5720`).
+                    Slash::Rename => match validate_title(&argument) {
+                        Err(problem) => {
+                            writeln!(io::stderr(), "xfx: {}", title_refusal(problem))?;
+                        }
+                        Ok(title) => {
+                            let opened = match &mut conversation {
+                                Some(existing) => Ok(existing),
+                                slot @ None => open_conversation(
+                                    &store,
+                                    &config,
+                                    &model,
+                                    crate::app::permission_session(config.permission_mode),
+                                    None,
+                                    &cancel,
+                                )
+                                .map(|opened| slot.insert(opened)),
+                            };
+                            match opened.and_then(|open| rename_conversation(open, title)) {
+                                Ok(()) => writeln!(
+                                    io::stdout(),
+                                    "[shell] session renamed to \"{title}\""
+                                )?,
+                                Err(problem) => writeln!(
+                                    io::stderr(),
+                                    "xfx: the session was not renamed: {problem}"
+                                )?,
+                            }
+                        }
+                    },
                     Slash::Model => {
                         model =
                             apply_model(&argument, &mut selector, conversation.as_mut()).await?;
@@ -1002,6 +1126,10 @@ pub async fn run(
                         &mut io::stdout(),
                         &mut io::stderr(),
                     )?,
+                    Slash::Sound => {
+                        sound =
+                            apply_sound(&argument, sound, config.user_settings_path.as_deref())?;
+                    }
                 }
                 io::stdout().flush()?;
             }
@@ -1523,6 +1651,56 @@ fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -
     }
 }
 
+/// What this shell adds to `/sound`'s answer: that the switch it just moved is
+/// the full-screen shell's to ring.
+///
+/// The bell is a byte the TUI writes through its checked frame writer, at a
+/// turn's end and when it stops to ask -- and this shell's question is asked by
+/// the prompter `xfx ask` shares, which rings nothing. So the command saves the
+/// same switch to the same file and says so, the way `/stats` here says where
+/// its counters are rather than printing zeros.
+pub const SOUND_ON_THE_LINE_SHELL: &str =
+    "the full-screen shell rings the terminal bell, and this line-oriented one rings none";
+
+/// `/sound` on this shell: the switch moved, saved, and said.
+///
+/// Saved inline, because everything this loop does is inline -- it waits on
+/// `/setup`'s socket the same way -- and in upstream's order: a save that
+/// failed is said first, on the diagnostic stream, and the level after it.
+fn apply_sound(
+    argument: &str,
+    current: crate::config::Notifications,
+    settings: Option<&std::path::Path>,
+) -> io::Result<crate::config::Notifications> {
+    let Some(request) = crate::sound::Request::parse(argument) else {
+        writeln!(io::stderr(), "xfx: {}", crate::sound::USAGE)?;
+        return Ok(current);
+    };
+    let level = request.level(current);
+    let next = level.notifications();
+    let saved = match settings {
+        Some(path) => crate::sound::save(path, level).map_err(|err| err.to_string()),
+        // Not reachable from `run`, which refuses to open without a home; said
+        // rather than assumed all the same.
+        None => Err("no home directory is set".to_string()),
+    };
+    if let Err(reason) = saved {
+        writeln!(
+            io::stderr(),
+            "xfx: {}: {}",
+            crate::sound::TOPIC,
+            crate::sound::not_saved(next != current, &reason)
+        )?;
+    }
+    writeln!(
+        io::stdout(),
+        "[shell] {}: {}; {SOUND_ON_THE_LINE_SHELL}",
+        crate::sound::TOPIC,
+        level.label()
+    )?;
+    Ok(next)
+}
+
 /// The version line `/version` prints.
 ///
 /// Visible to the crate because the TUI answers the same commands from the
@@ -1578,10 +1756,11 @@ mod tests {
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
-        // upstream's third name for the one reset -- and thirteen since
-        // `/permissions` and `/statusline`; `/provider` took `/setup`'s place
-        // rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 13);
+        // upstream's third name for the one reset -- thirteen since
+        // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
+        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
+        // than adding one, and `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 16);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1725,7 +1904,6 @@ mod tests {
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
         for deferred in [
-            "/resume",
             "/login",
             "/logout",
             "/models",
@@ -1733,7 +1911,6 @@ mod tests {
             "/undo",
             "/usage",
             "/image",
-            "/rename",
             "/background",
         ] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
@@ -1868,17 +2045,19 @@ mod tests {
 
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
-        // The three that mean something by the rest of the line: `/model <id>`
+        // The five that mean something by the rest of the line: `/model <id>`
         // picks among what a provider offers, `/provider <provider>` (or
         // `/setup <provider>`) picks the provider -- upstream's row has args
         // too, which is what puts the space after it when it is completed
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
-        // authority, and `/statusline <item>` flips a footer segment. Every
-        // other name is the whole command.
+        // authority, `/statusline <item>` flips a footer segment, and
+        // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
+        // `/rename <title>` names the session. Every other name is the whole
+        // command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline"
+                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -1988,6 +2167,57 @@ mod tests {
         assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
         assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
         assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
+    }
+
+    #[test]
+    fn sound_is_upstreams_appearance_row_and_takes_its_level() {
+        // `commands.zig:495`: the description the menu shows and the category
+        // it is filed under, and `accepts_payload` -- `/sound on` is the
+        // command with an argument, not an unknown one.
+        let sound = slash_spec(Slash::Sound);
+        assert_eq!(
+            (sound.name, sound.summary, sound.category, sound.has_args),
+            (
+                "/sound",
+                "toggle sounds and terminal bells",
+                "Appearance",
+                true
+            )
+        );
+        // Upstream's order puts it after `/copy` and before `/version`
+        // (`commands.zig:484-498`).
+        let at = |name: &str| SLASH_COMMANDS.iter().position(|n| *n == name).expect(name);
+        assert!(at("/copy") < at("/sound") && at("/sound") < at("/version"));
+        assert_eq!(
+            classify("/sound on"),
+            Submitted::Command {
+                command: Slash::Sound,
+                argument: "on".to_string()
+            }
+        );
+        assert!(help_text().contains("/sound"), "{}", help_text());
+    }
+
+    #[test]
+    fn sound_on_the_line_shell_saves_the_switch_and_says_whose_bell_it_is() {
+        let dir = tempfile::tempdir().expect("home");
+        let path = dir.path().join(".xfx").join("settings.json");
+        let on = apply_sound("", crate::config::Notifications::both(false), Some(&path))
+            .expect("toggle");
+        assert_eq!(on, crate::config::Notifications::both(true));
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("saved")).expect("json");
+        assert_eq!(
+            written,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}})
+        );
+        let off = apply_sound("off", on, Some(&path)).expect("set");
+        assert_eq!(off, crate::config::Notifications::both(false));
+        // The usage line changes nothing and writes nothing.
+        let before = std::fs::read(&path).expect("read");
+        assert_eq!(apply_sound("max", off, Some(&path)).expect("usage"), off);
+        assert_eq!(std::fs::read(&path).expect("read"), before);
+        assert!(SOUND_ON_THE_LINE_SHELL.contains("rings none"));
     }
 
     #[test]

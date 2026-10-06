@@ -1,0 +1,40 @@
+* session resumed: Renamed alpha session with a much longer title than the others
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;250m* sound: max[39m
+
+[38;5;250m* sound: off[39m
+
+[38;5;250m* sound: on[39m
+
+[38;5;252m✗ [38;5;250musage: /sound [on|off|max][39m
+
+[38;5;255m┃[39m [1msecond question[0m
+
+  Second answer, sound on.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m [1mwrite the file[0m
+
+[38;5;255m●[39m [38;5;245m1 tool call · 1 write[39m
+[38;5;245m└ Wrote c.txt +1[39m
+
+  Wrote c.txt.
+
+[38;5;245m  3s (↑4 ↓80)[39m
+
+[38;5;250m* sound: off[39m
+
+[38;5;255m┃[39m [1mfourth question[0m
+
+  Fourth answer, sound off again.
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;255m┃[39m
+
+[38;5;245mask · model-a[39m

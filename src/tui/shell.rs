@@ -88,6 +88,7 @@ use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
+use super::hydration::{Ending, HydratedStep, HydratedTurn, Hydration};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
 use super::model_menu::{self, ModelAction, ModelMenu};
@@ -100,6 +101,8 @@ use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
+use super::session_picker::{self, SessionAction, SessionPicker};
+use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
@@ -178,7 +181,12 @@ const RESUME_COMMAND: &str = "xfx --resume";
 
 /// What a resumed session with no title of its own is called
 /// (`session_display_metadata.zig:14`).
-const UNTITLED_SESSION: &str = "Untitled session";
+const UNTITLED_SESSION: &str = session_picker::UNTITLED;
+
+/// What `/resume` says while a turn is in hand, rather than opening a picker
+/// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2595`): a
+/// neutral notice under `session`.
+const RESUME_BUSY: &str = "resume is unavailable until the response finishes";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -704,6 +712,17 @@ pub(crate) struct Shell {
     /// catalog is back when it has been answered, as upstream's is
     /// (`surface_frame.zig:401`, `!modal_active`).
     help_menu: Option<HelpMenu>,
+    /// The `/resume` picker, while it is up ([`super::session_picker`]).
+    ///
+    /// The fourth occupant of the band's elastic slot, and like the catalog a
+    /// view of the composer: what is typed is its search. The catalog and it
+    /// are never both up -- each closes the other when it opens.
+    sessions: Option<SessionPicker>,
+    /// Whether the screen owes a resume's terminal reset
+    /// (`super::frame::Band::wipe`): asked by the loop, settled only by a
+    /// reset that landed ([`Self::wiped`]), and ahead of a handoff, which it
+    /// makes moot.
+    wipe: bool,
     /// `/model`'s menu, while it is up ([`super::model_menu`]).
     ///
     /// The fourth occupant of the slot, and the same kind as the catalog: a
@@ -869,6 +888,9 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// `/sound`'s two switches, the bells they owe the loop, and the saves
+    /// that keep them ([`super::sound`]).
+    sound: Sound,
     /// What the terminal writer has done this session, for `/stats`.
     ///
     /// Counted by the loop that does the writing (`super::event_loop`), which
@@ -1143,17 +1165,25 @@ impl Tally {
         let seconds = self.started.map_or(0, |started| {
             now.saturating_duration_since(started).as_secs()
         });
-        let mut line = format!("  {}", compact_duration(seconds));
         let output = self.output.unwrap_or_else(|| self.streamed.estimate());
-        if self.input != 0 || output != 0 {
-            line.push_str(&format!(
-                " (\u{2191}{} \u{2193}{})",
-                compact_tokens(self.input),
-                compact_tokens(output)
-            ));
-        }
-        line
+        summary_line(seconds, self.input, output)
     }
+}
+
+/// A turn's summary row: how long it took, and the tokens it moved when it
+/// moved any (`transcript/runtime.zig:540-547`). A live turn's and a replayed
+/// one's are this one function, so a resumed screen says what the live one
+/// said.
+fn summary_line(seconds: u64, input: u64, output: u64) -> String {
+    let mut line = format!("  {}", compact_duration(seconds));
+    if input != 0 || output != 0 {
+        line.push_str(&format!(
+            " (\u{2191}{} \u{2193}{})",
+            compact_tokens(input),
+            compact_tokens(output)
+        ));
+    }
+    line
 }
 
 /// `formatDurationCompact` (`transcript/runtime.zig:524-537`).
@@ -1191,6 +1221,8 @@ enum Slot<'a> {
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
+    /// The `/resume` picker. The same: rows, and the composer as its search.
+    Sessions(&'a SessionPicker),
     /// `/model`'s menu, the catalog's kind: rows, and the composer as its
     /// search.
     Models(&'a ModelMenu),
@@ -1229,6 +1261,14 @@ impl Shell {
         let clipboard = Clipboard::system();
         #[cfg(test)]
         let clipboard = Clipboard::searching(super::copy::NOWHERE);
+        // The profile `/sound` saves into -- except in a shell a test built,
+        // which saves nowhere unless the test hands it a file: the fixtures'
+        // homes are gone by the time a case runs, and a save would create one
+        // again wherever that was.
+        #[cfg(not(test))]
+        let settings = config.user_settings_path.clone();
+        #[cfg(test)]
+        let settings = None;
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -1298,6 +1338,8 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             help_menu: None,
+            sessions: None,
+            wipe: false,
             model_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
@@ -1335,6 +1377,7 @@ impl Shell {
             fatal: None,
             leaving: None,
             copies: Copies::new(clipboard),
+            sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
             full: FullTranscript::default(),
         }
@@ -1423,6 +1466,9 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                Some(Slot::Sessions(sessions)) => {
+                    sessions.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // The same: one layout answers its height and its rows
                 // (`composeModelMenuRow` is handed `menuRowCount`'s answer).
                 Some(Slot::Models(menu)) => {
@@ -1495,6 +1541,11 @@ impl Shell {
             Some(Slot::Catalog(_)) => self.painted(
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // The picker's, in the same grey (`input_presentation.zig:834-840`).
+            Some(Slot::Sessions(_)) => self.painted(
+                self.palette.dim(),
+                session_picker::key_help(self.geometry.cols).to_string(),
             ),
             // `/model`'s own, `tab provider` where the catalog's says
             // `tab category` (`composeCatalogMenuHintRow`,
@@ -1699,6 +1750,9 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
+        if let Some(sessions) = self.sessions.as_ref() {
+            return Some(Slot::Sessions(sessions));
+        }
         if let Some(menu) = self.model_menu.as_ref() {
             return Some(Slot::Models(menu));
         }
@@ -1853,15 +1907,13 @@ impl Shell {
     /// the title is the window's from here on, as a title the first turn had
     /// given it would be.
     ///
-    /// `title` is the store's title of the session's first prompt, read off a
-    /// log on disk, so it is made inert before it is written anywhere. A
-    /// session with none is called what upstream calls one, and the window
-    /// keeps the workspace's fallback.
+    /// `title` is the store's title of the session -- a `/rename`, or its
+    /// first prompt -- read off a log on disk, so it is made inert before it is
+    /// written anywhere. A session with none is called what upstream calls
+    /// one, and the window keeps the workspace's fallback.
     ///
-    /// Upstream replays the session's turns into the document under this line;
-    /// xfx does not yet, so the notice is what says the conversation the next
-    /// prompt continues is the saved one.
-    pub(crate) fn resumed(&mut self, title: Option<String>) {
+    /// The first line of [`Self::hydrate`], which writes the turns under it.
+    fn resumed(&mut self, title: Option<String>) {
         let title = title
             .map(|title| super::bridge::inert(&title).trim().to_string())
             .filter(|title| !title.is_empty());
@@ -1872,6 +1924,125 @@ impl Shell {
         if title.is_some() {
             self.session_title = title;
             self.retitle();
+        }
+    }
+
+    /// Replays a saved session onto the screen, as upstream's resume does
+    /// (`hydrateResumedSession`, `app_session_runtime.zig:2368-2470`): the
+    /// resume notice, then every turn as the live one was shown -- the card,
+    /// the answer through the presenter, the tool group, the summary row.
+    ///
+    /// `wipe` is the picker's case: the screen **and its scrollback** are reset
+    /// first (`finishLiveSessionResume` → `requestTerminalReset`,
+    /// `app_session_runtime.zig:1926-1929`), so nothing of the session that
+    /// was is left above the one that is. A launch's resume does not reset
+    /// anything (`commitStartupResumeReplayAnchor`, and
+    /// `tui-resume.test.ts:330-400`, which keeps every row the shell printed
+    /// before `fx --resume`): the launch has already pushed the shell's output
+    /// into scrollback, and the replay starts on the screen it left. Neither
+    /// writes the welcome line (`app_bootstrap_runtime.zig:619`, written only
+    /// when nothing is being resumed).
+    ///
+    /// Written straight into the transcript rather than through the pacer: a
+    /// conversation that already happened is not streamed again.
+    pub(crate) fn hydrate(&mut self, replay: Hydration, wipe: bool) {
+        // Whatever the screen still owed the conversation being replaced: a
+        // tail the pacer holds, the lines behind it, a presenter's open block,
+        // a tool group. None of it belongs above the session that replaces it.
+        self.pacer.forget();
+        self.marks.clear();
+        self.emitted = self.enqueued;
+        self.markdown.reset();
+        self.answer = Answer::default();
+        self.group = ToolGroup::default();
+        self.trailer.clear();
+        self.abandoned.clear();
+        self.prompts.clear();
+        self.tally = Tally::default();
+        self.context_used = None;
+        self.forget_session_title();
+        if wipe {
+            // The rows a recolour or a handoff was owed against are about to
+            // be erased, scrollback and all.
+            self.retint_debt = false;
+            self.handoff = None;
+            self.wipe = true;
+            self.transcript = Transcript::new(self.geometry.cols);
+            // And the full transcript is the document's record: the session
+            // it recorded is not on this screen any more, the replayed one is
+            // -- recorded below by the same writes that put it on the screen
+            // ([`Self::record`], [`Self::write_answer`], [`Self::write_notice`]).
+            self.close_full_transcript();
+            self.full = FullTranscript::default();
+        }
+        if let Some(model) = replay.model {
+            self.model = model;
+        }
+        self.resumed(replay.title);
+        for turn in replay.turns {
+            self.replay_turn(turn);
+        }
+        self.render.request(Reason::Footer);
+    }
+
+    /// One saved turn, through what each live event reaches
+    /// ([`Self::apply`]): the card, the presenter, the tool group's marks, the
+    /// amendment row, the conclusion.
+    fn replay_turn(&mut self, turn: HydratedTurn) {
+        self.run_mark(Mark::Card(turn.user.clone()));
+        let mut streamed = Estimator::default();
+        for step in turn.steps {
+            match step {
+                HydratedStep::Text(text) => {
+                    streamed.consume(&text);
+                    self.write_answer(&text);
+                }
+                HydratedStep::ToolStart { id, shown } => {
+                    self.run_mark(Mark::ToolStart { id, shown });
+                }
+                HydratedStep::ToolResult {
+                    id,
+                    ok,
+                    detail,
+                    outcome,
+                } => self.run_mark(Mark::ToolResult {
+                    id,
+                    ok,
+                    detail: safe_one_line(&detail, TOOL_DETAIL_BYTES),
+                    outcome,
+                    changes: None,
+                }),
+                HydratedStep::Feedback(text) => self.run_mark(Mark::Line(
+                    format!(
+                        "{AMENDMENT_PREFIX} {}",
+                        safe_one_line(&text, AMENDMENT_BYTES)
+                    ),
+                    Role::Notice,
+                )),
+            }
+        }
+        self.run_mark(Mark::TurnOver);
+        match turn.ending {
+            // In is the prompt's estimate, as a live turn's is; out is what
+            // the provider said, or the estimate of what it wrote.
+            Ending::Concluded { seconds, output } => {
+                let mut input = Estimator::default();
+                input.consume(&turn.user);
+                let output = output.unwrap_or_else(|| streamed.estimate());
+                self.run_mark(Mark::Summary(summary_line(
+                    seconds,
+                    input.estimate(),
+                    output,
+                )));
+            }
+            // The sentence the live turn ended on, as its conclusion showed it.
+            Ending::Interrupted(reason) => {
+                self.run_mark(Mark::Notice(notice::Notice::error(
+                    "system",
+                    unattributed(&reason),
+                )));
+            }
+            Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
     }
 
@@ -2186,6 +2357,11 @@ impl Shell {
                     .started
                     .is_some()
                     .then(|| self.tally.line(Instant::now()));
+                // The same fact decides the bell: `/model`, `/setup` and a
+                // catalog load end here too, and upstream rings for a turn
+                // (`postTurnEndHandler`). Owed once the answer is presented,
+                // which [`Self::settle_band`] notices.
+                self.sound.turn_ended(summary.is_some());
                 self.tally.started = None;
                 match (failure, summary) {
                     // Upstream reports a request that failed as an error under
@@ -2232,6 +2408,40 @@ impl Shell {
             UiEvent::Fresh { through } => {
                 if self.draining.is_some_and(|last| through >= last) {
                     self.draining = None;
+                }
+            }
+            // The picker's listing, if the picker is still up to take it.
+            UiEvent::Sessions(listing) => {
+                if let Some(sessions) = self.sessions.as_mut() {
+                    sessions.listed(listing);
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            // The runtime is in the picked session now: the picker and its
+            // search go, and the screen is reset and replayed.
+            UiEvent::Resumed(replay) => {
+                self.close_sessions(true);
+                self.hydrate(replay, true);
+            }
+            // The rename reached the conversation. The window takes the title
+            // now, and the notice says whether the log has it too.
+            UiEvent::Renamed { title, unsaved } => {
+                self.session_title = Some(title.clone());
+                self.retitle();
+                self.announce(match unsaved {
+                    None => notice::Notice::neutral("session", format!("renamed to \"{title}\"")),
+                    Some(problem) => notice::Notice::warning(
+                        "session",
+                        format!("renamed for this process but not saved ({problem})"),
+                    ),
+                });
+            }
+            UiEvent::ResumeFailed { id, failure } => {
+                if let Some(sessions) = self.sessions.as_mut() {
+                    sessions.failed(id, failure);
+                    self.refit();
+                    self.render.request(Reason::Modal);
                 }
             }
             // Not a row. The band is about to come down, and the message is for
@@ -2364,6 +2574,9 @@ impl Shell {
         // typed early would be told to make their window bigger.
         self.intend_approval();
         self.render.request(Reason::Modal);
+        // The turn is waiting on the user (`dispatchAttentionRequired(..,
+        // .permission)`, `app_worker_runtime.zig:766-767`).
+        self.sound.attention();
     }
 
     /// Which plane the session is composing frames for.
@@ -2773,6 +2986,42 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Offers one keystroke to the `/resume` picker, and says whether it was
+    /// taken.
+    ///
+    /// The six keys [`SessionAction::of`] names: the arrows move the mark and
+    /// **stop** at the ends (`moveVisibleItems`, `app_session_runtime.zig:538-552`),
+    /// Tab and Shift-Tab change the scope, Escape closes the picker and empties
+    /// the search, and Enter asks the runtime for the marked session. Anything
+    /// else is an edit of the search.
+    fn offer_to_sessions(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = SessionAction::of(*action) else {
+            return false;
+        };
+        let Some(sessions) = self.sessions.as_mut() else {
+            return false;
+        };
+        match request {
+            SessionAction::Up | SessionAction::Down => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                if sessions.step(request == SessionAction::Down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            SessionAction::Scope => {
+                sessions.toggle_scope();
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+            SessionAction::Close => self.close_sessions(true),
+            SessionAction::Resume => self.resume_selected(),
+        }
+        true
+    }
+
     /// Offers one keystroke to `/model`'s menu, and says whether it was taken.
     ///
     /// The six keys [`ModelAction::of`] names, and nothing else, as the
@@ -2808,6 +3057,41 @@ impl Shell {
             ModelAction::Use => self.use_marked_model(),
         }
         true
+    }
+
+    /// Enter, while the picker is up (`submitSessionPickerSelection`,
+    /// `app_input_runtime.zig:1788-1826`): the marked session, asked of the
+    /// runtime. Nothing listed, a listing still loading, or a resume already on
+    /// its way: the keystroke is spent and nothing is asked.
+    fn resume_selected(&mut self) {
+        let Some(id) = self.sessions.as_ref().and_then(SessionPicker::selected) else {
+            return;
+        };
+        match self.work.submit(TurnWork::Resume(id.clone())) {
+            Ok(()) => {
+                if let Some(sessions) = self.sessions.as_mut() {
+                    sessions.resuming(id);
+                }
+            }
+            Err(rejected) => self.refused(rejected),
+        }
+    }
+
+    /// Takes the picker down, and its search with it when `clear_query`.
+    ///
+    /// Escape clears it, as upstream's `cancelSessionMenu` does
+    /// (`app_input_runtime.zig:3300-3307`): the search was the picker's.
+    fn close_sessions(&mut self, clear_query: bool) {
+        if self.sessions.take().is_none() {
+            return;
+        }
+        if clear_query && !self.editor.is_empty() {
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
     }
 
     /// Enter, while `/model`'s menu is up (`submitModelMenuSelection`,
@@ -3056,6 +3340,14 @@ impl Shell {
         // -- and so is `/provider ll`, which opens no column under it.
         if let Some(menu) = self.model_menu.as_mut() {
             menu.set_query(self.editor.text());
+            self.picker = None;
+            self.provider_picker = None;
+            return;
+        }
+        // The same for the session picker: the draft is the session search,
+        // and `/provider ll` typed into it opens no column under it.
+        if let Some(sessions) = self.sessions.as_mut() {
+            sessions.set_query(self.editor.text());
             self.picker = None;
             self.provider_picker = None;
             return;
@@ -3569,6 +3861,8 @@ impl Shell {
         // and the caret are all somewhere else.
         self.refit();
         self.render.request(Reason::Modal);
+        // The model is waiting on the user (`app_worker_runtime.zig:1089-1097`).
+        self.sound.attention();
     }
 
     /// One keystroke, while a batch of the model's questions has the focus.
@@ -4242,6 +4536,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a `/sound` save.
+        self.settle_saves();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -4263,6 +4559,37 @@ impl Shell {
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+        // Once nothing is left to present, a turn that ended is a bell
+        // (upstream's `presentationFinished`): the reader has reached the end
+        // the provider reached a while ago.
+        if self.pacer.pending() == 0 && self.marks.is_empty() {
+            self.sound.presented();
+        }
+    }
+
+    /// Says how each `/sound` save that has finished went -- only when it
+    /// failed, as upstream reports a commit with `announce_commit=false`
+    /// (`app_commands.zig:4005-4021`): the level was said when it was typed.
+    fn settle_saves(&mut self) {
+        while let Some(saved) = self.sound.saved() {
+            if let Err(reason) = saved.outcome {
+                self.announce(notice::Notice::error(
+                    crate::sound::TOPIC,
+                    crate::sound::not_saved(saved.changed, &reason),
+                ));
+            }
+        }
+    }
+
+    /// The terminal bells the session owes, taken by the loop that writes them
+    /// (`super::event_loop`'s `commit_bells`).
+    pub(crate) fn take_bells(&mut self) -> u16 {
+        self.sound.take()
+    }
+
+    /// Bells the terminal refused without taking a byte, owed again.
+    pub(crate) fn restore_bells(&mut self, rings: u16) {
+        self.sound.restore(rings);
     }
 
     /// Says how each `/copy` that has finished went, in the order they
@@ -4488,6 +4815,26 @@ impl Shell {
         self.theme_query = true;
     }
 
+    /// Whether the screen owes a resume's terminal reset
+    /// (`super::frame::Band::wipe`). Asked rather than taken, as the handoff
+    /// is: owed until one lands.
+    pub(crate) fn owes_wipe(&self) -> bool {
+        self.wipe
+    }
+
+    /// Records that the reset landed: the screen and its scrollback are blank,
+    /// the document has no row on it, and the band floats back to the top
+    /// under the replay the resume queued. A handoff owed against the old
+    /// screen went with it.
+    pub(crate) fn wiped(&mut self) {
+        self.wipe = false;
+        self.handoff = None;
+        self.tail_unknown = false;
+        self.document_rows = 0;
+        self.refloat();
+        self.render.request(Reason::Transcript);
+    }
+
     /// Whether the screen owes a reset's scrollback handoff.
     ///
     /// Asked rather than taken: the handoff is owed until one lands
@@ -4589,6 +4936,9 @@ impl Shell {
             // them. Everything else falls through with it still up, because
             // each is a view of the draft and typing is what the draft is made
             // of.
+            if self.offer_to_sessions(&event) {
+                continue;
+            }
             if self.offer_to_catalog(&event) {
                 continue;
             }
@@ -4978,6 +5328,9 @@ impl Shell {
                 self.work.control(TurnControl::Cancel {
                     through: self.work.accepted(),
                 });
+                // The turn this stops ends with no bell: the user is here, and
+                // upstream's turn-end cue is silent for an interrupted turn.
+                self.sound.interrupted();
                 // A call that is already running is **not** settled by this
                 // keystroke, and that is the difference from upstream's
                 // `fx-interrupt-40x120-cmd-cc`, where the command is killed at
@@ -5431,8 +5784,9 @@ impl CommandHandlers for Shell {
     /// ([`crate::interactive::help_text`]); it has no band to put a catalog in.
     fn help(&mut self) {
         // The completion menu goes first: the two share the slot, and the
-        // catalog is what the user asked for.
+        // catalog is what the user asked for. So does the session picker.
         self.picker = None;
+        self.sessions = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
         // a band with no catalog in it.
@@ -5450,6 +5804,68 @@ impl CommandHandlers for Shell {
 
     fn reset(&mut self) {
         self.reset_session();
+    }
+
+    /// Opens the session picker on the current workspace
+    /// (`openSessionPickerWithScope`, `app_session_runtime.zig:2588-2650`), on
+    /// `Loading sessions…` until the runtime has read the store.
+    ///
+    /// **Refused while anything is in hand** -- a turn running, a prompt
+    /// waiting, a `/model` being answered -- with upstream's notice, at once:
+    /// the conversation a resume would replace is the one that work is
+    /// writing into. Upstream refuses while its response streams; xfx's
+    /// outstanding count is that and the prompt queued behind it, which would
+    /// otherwise run in the old conversation after the resume had switched.
+    fn resume(&mut self) {
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral("session", RESUME_BUSY));
+            return;
+        }
+        if let Err(rejected) = self.work.submit(TurnWork::Sessions) {
+            self.refused(rejected);
+            return;
+        }
+        // Everything that shares the slot goes: the picker is what the user
+        // asked for.
+        self.picker = None;
+        self.help_menu = None;
+        self.model_menu = None;
+        self.provider_picker = None;
+        self.sessions = Some(SessionPicker::open(self.editor.text()));
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// `/rename <title>` (`handleRenameCommand`, `app_commands.zig:3815-3858`).
+    ///
+    /// The title is judged here, by the store's own rule
+    /// ([`crate::session::validate_title`]), and refused at once in upstream's
+    /// words: `✗ usage: /rename <title>` with no topic for an empty one,
+    /// `✗ session: title is too long` and `✗ session: title must be printable
+    /// text` for the other two. An accepted one goes to the runtime, which
+    /// writes it into the conversation's session and answers with
+    /// [`UiEvent::Renamed`]: the window takes the title then, and the notice
+    /// says whether the log has it. A rename a Ctrl-C drops from the queue
+    /// before it runs titles nothing.
+    fn rename(&mut self, argument: &str) {
+        let title = match crate::session::validate_title(argument) {
+            Ok(title) => title.to_string(),
+            Err(problem) => {
+                let topic = if problem == crate::session::TitleError::Empty {
+                    ""
+                } else {
+                    "session"
+                };
+                self.write_notice(&notice::Notice::error(
+                    topic,
+                    interactive::title_refusal(problem),
+                ));
+                return;
+            }
+        };
+        if let Err(rejected) = self.work.submit(TurnWork::Rename(title)) {
+            self.refused(rejected);
+        }
     }
 
     fn model(&mut self, argument: &str) {
@@ -5586,6 +6002,33 @@ impl CommandHandlers for Shell {
                 clipboard::COPY_FAILED,
             ));
         }
+    }
+
+    /// Upstream's `handleNotificationsCommand` (`app_commands.zig:3974-4029`):
+    /// a bare `/sound` toggles, `on` and `off` set, both switches move together
+    /// and are saved, and the answer is `* sound: <level>`. Anything else is
+    /// `✗ usage: /sound [on|off]`, said at once like `/setup`'s refusal.
+    ///
+    /// The switches move **here**, before the save has landed, as upstream's
+    /// do: the next turn rings or not by what was typed, whatever the disk
+    /// says. The save goes to its own thread ([`super::sound`]); a save that
+    /// could not be started is said before the level, as upstream says a
+    /// failed one, and a save that fails later is said when it does
+    /// ([`Self::settle_saves`]).
+    fn sound(&mut self, argument: &str) {
+        let Some(request) = crate::sound::Request::parse(argument) else {
+            self.write_notice(&notice::Notice::error("", crate::sound::USAGE));
+            return;
+        };
+        let level = request.level(self.sound.notifications());
+        let (changed, started) = self.sound.set(level);
+        if let Err(reason) = started {
+            self.announce(notice::Notice::error(
+                crate::sound::TOPIC,
+                crate::sound::not_saved(changed, &reason),
+            ));
+        }
+        self.announce(notice::Notice::neutral(crate::sound::TOPIC, level.label()));
     }
 }
 
@@ -5962,6 +6405,10 @@ impl Shell {
             // gone: shown as usual. A provider switch or a model change that
             // completed before the cancellation reached it really did happen.
             UiEvent::Fresh { .. }
+            | UiEvent::Sessions(_)
+            | UiEvent::Resumed(_)
+            | UiEvent::ResumeFailed { .. }
+            | UiEvent::Renamed { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
@@ -6234,10 +6681,15 @@ impl Shell {
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
-            Some(Slot::Catalog(_)) | Some(Slot::Models(_)) | Some(Slot::Provider(_)) | None => 0,
+            Some(Slot::Catalog(_))
+            | Some(Slot::Sessions(_))
+            | Some(Slot::Models(_))
+            | Some(Slot::Provider(_))
+            | None => 0,
         };
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Sessions(sessions)) => sessions.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             Some(Slot::Provider(_)) => {
                 ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
@@ -11578,6 +12030,15 @@ mod tests {
                     "/help wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/resume" {
+                // The picker, in the band, waiting for the listing it asked
+                // the runtime for (`fx-sessions-40x120-resume.txt`).
+                assert!(shell.sessions.is_some(), "/resume opened no picker");
+                assert!(
+                    document.is_empty(),
+                    "/resume wrote to the document: {document:?}"
+                );
+                assert_eq!(shell.picks_up(), TurnWork::Sessions);
             } else if *name == "/statusline" {
                 assert!(
                     shell.statusline_menu.is_some(),
@@ -11797,6 +12258,297 @@ mod tests {
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
         assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    // -----------------------------------------------------------------------
+    // /sound
+    // -----------------------------------------------------------------------
+
+    /// A shell whose `/sound` starts `on` or not, and saves into `settings`.
+    fn sounding(rows: u16, on: bool, settings: Option<std::path::PathBuf>) -> Fixture {
+        let mut shell = shell(rows, 80);
+        shell.sound = Sound::new(crate::config::Notifications::both(on), settings);
+        shell
+    }
+
+    /// A profile of the case's own, and the settings file in it.
+    fn profile() -> (tempfile::TempDir, std::path::PathBuf) {
+        let home = tempfile::tempdir().expect("a home");
+        let path = home.path().join(".xfx").join("settings.json");
+        (home, path)
+    }
+
+    /// Waits for `path` to hold `expected`, or fails the case: the save is on
+    /// a thread of its own.
+    fn saved_as(path: &std::path::Path, expected: serde_json::Value) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let read = std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+            if read.as_ref() == Some(&expected) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "the file holds {read:?}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The notice a save that failed settles into, waited for.
+    fn save_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            shell.settle_band(Instant::now());
+            let released = shell.released();
+            if !released.is_empty() {
+                return released;
+            }
+            assert!(Instant::now() < deadline, "the save never said how it went");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn sound_toggles_and_sets_and_answers_with_upstreams_notice() {
+        // `fx-sound-40x120-{bare,on,off,bare2}.txt` from a session started
+        // off: `* sound: on`, `on`, `off`, and a bare toggle from off is `on`
+        // again -- every one a neutral notice, no echo, nothing saved said.
+        let (_home, path) = profile();
+        let mut shell = sounding(24, false, Some(path.clone()));
+        for (line, level) in [
+            ("/sound", "on"),
+            ("/sound on", "on"),
+            ("/sound off", "off"),
+            ("/sound", "on"),
+            ("/sound", "off"),
+            ("/sound  on ", "on"),
+        ] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::neutral("sound", level)),
+                "{line:?}"
+            );
+            assert_eq!(
+                shell.sound.notifications(),
+                crate::config::Notifications::both(level == "on"),
+                "{line:?}"
+            );
+        }
+        assert!(shell.sent.try_recv().is_err(), "/sound reached the runtime");
+        assert!(shell.editor.is_empty());
+        // Both switches, in the file the next session reads.
+        saved_as(
+            &path,
+            serde_json::json!({"notifications": {"turn_end": true, "attention_required": true}}),
+        );
+        // And a successful save says nothing more.
+        shell.settle_band(Instant::now());
+        assert!(shell.released().is_empty());
+    }
+
+    #[test]
+    fn sound_with_a_word_that_is_not_a_level_is_the_usage_line_and_moves_nothing() {
+        // `fx-sound-40x120-bogus.txt`: `✗ usage: /sound [on|off|max]`, no
+        // topic -- here without the `max` this build does not have, which is
+        // why `max` itself is one of the refusals.
+        let (_home, path) = profile();
+        let mut shell = sounding(24, true, Some(path.clone()));
+        for line in ["/sound bogus", "/sound max", "/sound ON", "/sound on off"] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(b"\r");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("", "usage: /sound [on|off]")),
+                "{line:?}"
+            );
+            assert_eq!(
+                shell.sound.notifications(),
+                crate::config::Notifications::both(true),
+                "{line:?} moved the switches"
+            );
+        }
+        shell.settle_band(Instant::now());
+        assert!(!path.exists(), "a refused level was saved");
+    }
+
+    #[test]
+    fn a_save_that_failed_says_so_after_the_level() {
+        // `reportUserSettingsFailure` (`session_commands.zig:110-133`): an
+        // error under `sound`, saying the switch is in force anyway. Upstream
+        // says it before the level because it saves before it answers; here
+        // the save is on its own thread, so it is said when the thread says.
+        let (home, path) = profile();
+        std::fs::create_dir_all(path.parent().expect("a profile")).expect("profile");
+        std::fs::write(&path, "{ not json").expect("seed");
+        let mut shell = sounding(24, false, Some(path.clone()));
+        shell.route_bytes(b"/sound\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral("sound", "on"))
+        );
+        let failed = joined(&save_settled(&mut shell));
+        assert!(
+            failed.starts_with(
+                "\u{2717} sound: active for this process but not saved to user settings ("
+            ),
+            "{failed}"
+        );
+        assert!(failed.contains("not valid JSON"), "{failed}");
+        assert_eq!(std::fs::read(&path).expect("read"), b"{ not json");
+        // The switch is in force all the same.
+        assert_eq!(
+            shell.sound.notifications(),
+            crate::config::Notifications::both(true)
+        );
+        drop(home);
+    }
+
+    #[test]
+    fn a_save_with_nowhere_to_go_is_said_before_the_level() {
+        // The one failure known before the level is said, so it is said in
+        // upstream's order. A shell a test built has no settings file.
+        let mut shell = shell(24, 80);
+        let before = shell.sound.notifications();
+        shell.route_bytes(b"/sound\r");
+        let level = if before.turn_end { "off" } else { "on" };
+        let said_rows = shell.document();
+        assert_eq!(
+            joined(&said_rows),
+            format!(
+                "\u{2717} sound: active for this process but not saved to user settings \
+                 (no home directory is set) * sound: {level}"
+            )
+        );
+    }
+
+    /// One whole turn: started, answered, ended, and presented to the end.
+    fn a_whole_turn(shell: &mut Fixture, failure: Option<&str>) {
+        let started = turn_running(shell, b"ask something\r");
+        shell.apply(UiEvent::Delta("an answer".to_string()));
+        shell.apply(UiEvent::TurnEnded {
+            failure: failure.map(str::to_string),
+        });
+        let mut now = started;
+        while shell.pacer.pending() > 0 || !shell.marks.is_empty() {
+            now += Duration::from_millis(TICK_MILLIS);
+            shell.settle_band(now);
+        }
+        shell.settle_band(now);
+    }
+
+    #[test]
+    fn a_turn_that_ends_rings_once_its_answer_is_on_the_screen() {
+        // `postTurnEndHandler` and the presentation queue
+        // (`hooks/notifications.zig:74-118`, `:224-240`): a bell for a turn
+        // that answered and for one that failed, and not before the reader has
+        // been given the end of the answer.
+        for failure in [None, Some("the provider said no")] {
+            let mut shell = sounding(24, true, None);
+            let started = turn_running(&mut shell, b"ask something\r");
+            shell.apply(UiEvent::Delta(
+                "a long enough answer to be paced".to_string(),
+            ));
+            shell.apply(UiEvent::TurnEnded {
+                failure: failure.map(str::to_string),
+            });
+            if failure.is_none() {
+                assert!(shell.pacer.pending() > 0, "nothing was left to present");
+                shell.settle_band(started);
+                assert_eq!(shell.take_bells(), 0, "rang ahead of the answer");
+            }
+            let mut now = started;
+            while shell.pacer.pending() > 0 || !shell.marks.is_empty() {
+                now += Duration::from_millis(TICK_MILLIS);
+                shell.settle_band(now);
+            }
+            shell.settle_band(now);
+            assert_eq!(shell.take_bells(), 1, "{failure:?}");
+            assert_eq!(shell.take_bells(), 0, "{failure:?} rang twice");
+        }
+    }
+
+    #[test]
+    fn a_turn_ends_in_silence_when_sound_is_off_or_the_user_stopped_it() {
+        let mut quiet = sounding(24, false, None);
+        a_whole_turn(&mut quiet, None);
+        assert_eq!(quiet.take_bells(), 0, "sound off rang");
+
+        // Ctrl-C stops the turn: its end is the user's, as upstream's
+        // `.interrupted => return` has it -- and the next turn rings again.
+        let mut shell = sounding(24, true, None);
+        let started = turn_running(&mut shell, b"ask something\r");
+        shell.route_bytes(&[0x03]);
+        shell.apply(UiEvent::TurnEnded {
+            failure: Some("the turn was cancelled".to_string()),
+        });
+        shell.settle_band(started + Duration::from_secs(5));
+        assert_eq!(shell.take_bells(), 0, "an interrupted turn rang");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 1, "the interrupt outlived its turn");
+    }
+
+    #[test]
+    fn work_that_ran_no_turn_rings_nothing() {
+        // `/model`, `/setup` and a catalog load end with the same event and
+        // ran no turn: no summary, and no bell.
+        let mut shell = sounding(24, true, None);
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.settle_band(Instant::now());
+        assert_eq!(shell.take_bells(), 0);
+    }
+
+    #[test]
+    fn a_question_that_opens_rings_at_once() {
+        // `dispatchAttentionRequired` for a permission prompt and for the
+        // model's questions (`app_worker_runtime.zig:766-767`, `:1089-1097`),
+        // and with no wait for the pacer: the turn is stopped on the user.
+        let mut shell = sounding(24, true, None);
+        turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(shell.take_bells(), 1, "the permission prompt");
+
+        let mut fixture = sounding(24, true, None);
+        turn_running(&mut fixture, b"ask me\r");
+        fixture.apply(UiEvent::Question(a_batch()));
+        assert_eq!(fixture.take_bells(), 1, "the model's question");
+
+        // On the other plane too: a change too large for the band.
+        let mut wide = sounding(40, true, None);
+        turn_running(&mut wide, b"edit the notes\r");
+        wide.apply(UiEvent::Approval(question(asked_about_a_large_change())));
+        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(wide.take_bells(), 1, "the review on the other plane");
+    }
+
+    #[test]
+    fn a_question_nobody_is_shown_or_sound_off_rings_nothing() {
+        // A screen too small refuses the question on the user's behalf; there
+        // is nobody to call.
+        let mut small = sounding(10, true, None);
+        turn_running(&mut small, b"edit the notes\r");
+        small.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(small.geometry.panel, 0);
+        assert_eq!(small.take_bells(), 0);
+
+        let mut quiet = sounding(24, false, None);
+        turn_running(&mut quiet, b"edit the notes\r");
+        quiet.apply(UiEvent::Approval(question(asked())));
+        assert_eq!(quiet.take_bells(), 0);
+    }
+
+    #[test]
+    fn sound_moves_what_the_next_turn_does() {
+        // The switch is in force from the keystroke: the turn after `/sound`
+        // rings, and the one after `/sound off` does not.
+        let mut shell = sounding(24, false, None);
+        shell.route_bytes(b"/sound\r");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 1);
+        shell.route_bytes(b"/sound off\r");
+        a_whole_turn(&mut shell, None);
+        assert_eq!(shell.take_bells(), 0);
     }
 
     #[test]
@@ -12776,7 +13528,7 @@ mod tests {
         // is the session's.
         let mut shell = shell(24, 80);
         let _ = shell.take_title();
-        shell.resumed(Some("first question alpha".to_string()));
+        shell.hydrate(replay(Some("first question alpha"), Vec::new()), false);
         assert_eq!(
             shell.document(),
             said(notice::Notice::neutral(
@@ -12799,7 +13551,7 @@ mod tests {
         // so the window stays on the workspace.
         let mut shell = shell(24, 80);
         let fallback = shell.take_title().expect("the launch owes a title");
-        shell.resumed(None);
+        shell.hydrate(replay(None, Vec::new()), false);
         assert_eq!(
             shell.document(),
             said(notice::Notice::neutral(
@@ -12812,7 +13564,10 @@ mod tests {
         // in it is a space by the time it is written.
         let mut hostile = self::shell(24, 80);
         let _ = hostile.take_title();
-        hostile.resumed(Some("evil\u{1b}]2;owned\u{7} title".to_string()));
+        hostile.hydrate(
+            replay(Some("evil\u{1b}]2;owned\u{7} title"), Vec::new()),
+            false,
+        );
         let document = hostile.document();
         assert!(
             document.iter().all(|row| !row.contains('\u{1b}')),
@@ -12824,6 +13579,526 @@ mod tests {
                 .is_some_and(|title| !title.contains('\u{1b}') && !title.contains('\u{7}')),
             "the window title carried a control"
         );
+    }
+
+    /// A saved session as the runtime hands it over, with no model to
+    /// change.
+    fn replay(title: Option<&str>, turns: Vec<HydratedTurn>) -> Hydration {
+        Hydration {
+            title: title.map(str::to_string),
+            turns,
+            model: None,
+        }
+    }
+
+    /// One saved turn that concluded.
+    fn saved(
+        user: &str,
+        steps: Vec<HydratedStep>,
+        seconds: u64,
+        output: Option<u64>,
+    ) -> HydratedTurn {
+        HydratedTurn {
+            user: user.to_string(),
+            steps,
+            ending: Ending::Concluded { seconds, output },
+        }
+    }
+
+    impl Fixture {
+        /// The document as a terminal holds it once everything owed has
+        /// landed, **with its colours** -- the bytes of each row, after the
+        /// rewrites a tool group's block makes ([`Self::written`]'s replay,
+        /// with nothing taken off).
+        fn painted_document(&mut self) -> Vec<String> {
+            let mut document: Vec<String> = Vec::new();
+            for append in self.take_pending() {
+                let settled = append.rows.len() - append.scroll.min(append.rows.len());
+                document.truncate(document.len().saturating_sub(settled));
+                document.extend(append.rows.iter().cloned());
+            }
+            document
+        }
+    }
+
+    #[test]
+    fn a_resumed_session_replays_its_turns_as_the_live_ones_were_written() {
+        // `fx-sessions-40x120-resumed.txt`: the notice, then each turn as it
+        // was shown -- the card, the answer through the presenter, the dim
+        // summary. Compared byte for byte, colours included, against the same
+        // two turns run live through the events a runtime sends.
+        let first = "ALPHA answer line one.\n\nSecond paragraph with `code`.";
+        let second = "BETA answer.";
+        let mut live = shell(40, 120);
+        for (prompt, answer) in [
+            ("first question alpha", first),
+            ("second question beta", second),
+        ] {
+            live.route_bytes(format!("{prompt}\r").as_bytes());
+            let _ = live.picks_up();
+            live.apply(UiEvent::TurnStarted);
+            live.apply(UiEvent::Delta(answer.to_string()));
+            live.apply(UiEvent::Usage {
+                input: Some(6),
+                output: Some(40),
+            });
+            live.apply(UiEvent::TurnEnded { failure: None });
+            live.shell.flush_paced();
+        }
+        let live_rows = live.painted_document();
+
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("first question alpha"),
+                vec![
+                    saved(
+                        "first question alpha",
+                        vec![HydratedStep::Text(first.to_string())],
+                        0,
+                        Some(40),
+                    ),
+                    saved(
+                        "second question beta",
+                        vec![HydratedStep::Text(second.to_string())],
+                        0,
+                        Some(40),
+                    ),
+                ],
+            ),
+            true,
+        );
+        let rows = resumed.painted_document();
+        // The notice is the one `write_notice` paints everywhere: `* ` and
+        // the topic and the body, all in the notice grey.
+        assert!(rows[0].starts_with(PALETTE.notice()), "{rows:?}");
+        assert_eq!(rows[1], "");
+        assert_eq!(
+            rows[2..],
+            live_rows[..],
+            "the replay is not the live document"
+        );
+        // And in words: upstream's rows under the notice.
+        assert_eq!(
+            rows.iter().map(|row| colourless(row)).collect::<Vec<_>>(),
+            [
+                "* session resumed: first question alpha",
+                "",
+                "\u{2503} first question alpha",
+                "",
+                "  ALPHA answer line one.",
+                "",
+                "  Second paragraph with code.",
+                "",
+                "  0s (\u{2191}6 \u{2193}40)",
+                "",
+                "\u{2503} second question beta",
+                "",
+                "  BETA answer.",
+                "",
+                "  0s (\u{2191}5 \u{2193}40)",
+                "",
+            ]
+        );
+        assert!(resumed.owes_wipe(), "the picker's resume reset nothing");
+        assert_eq!(
+            resumed.take_title().as_deref(),
+            Some("first question alpha")
+        );
+    }
+
+    #[test]
+    fn ctrl_o_after_a_resume_shows_the_replayed_session_and_not_the_one_it_replaced() {
+        // Upstream's full transcript after a resume holds the saved turns
+        // (`tui-resume.test.ts:900-960`). The replay goes through the writes
+        // the record is kept by, so the record is the replayed document.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"MARKER-OLD prompt\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("MARKER-OLD answer".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        let _ = shell.written();
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            vec![saved(
+                "first question alpha",
+                vec![HydratedStep::Text("ALPHA answer line one.".to_string())],
+                0,
+                Some(40),
+            )],
+        )));
+        let document: Vec<String> = shell.written();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell).join("\n");
+        assert!(screen.contains("first question alpha"), "{screen}");
+        assert!(screen.contains("ALPHA answer line one."), "{screen}");
+        assert!(screen.contains("session resumed"), "{screen}");
+        assert!(!screen.contains("MARKER-OLD"), "{screen}");
+        assert!(
+            !document.iter().any(|row| row.contains("MARKER-OLD")),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
+        let read = crate::tools::Registry::builtin()
+            .spec("read_file")
+            .expect("read_file")
+            .shown(&serde_json::json!({"path": "notes.txt"}));
+        let mut live = shell(40, 120);
+        live.route_bytes(b"look\r");
+        let _ = live.picks_up();
+        live.apply(UiEvent::TurnStarted);
+        live.apply(UiEvent::Delta("Looking.".to_string()));
+        live.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        live.apply(tool_result("c1", "read_file", true, "notes.txt"));
+        live.apply(tool_start(
+            "c2",
+            "read_file",
+            serde_json::json!({"path": "gone.txt"}),
+        ));
+        live.apply(tool_result(
+            "c2",
+            "read_file",
+            false,
+            "no such path: `gone.txt`",
+        ));
+        live.apply(UiEvent::Delta("Done.".to_string()));
+        live.apply(UiEvent::TurnEnded { failure: None });
+        live.shell.flush_paced();
+        let live_rows = live.painted_document();
+
+        let mut resumed = shell(40, 120);
+        resumed.hydrate(
+            replay(
+                Some("look"),
+                vec![
+                    saved(
+                        "look",
+                        vec![
+                            HydratedStep::Text("Looking.".to_string()),
+                            HydratedStep::ToolStart {
+                                id: "c1".to_string(),
+                                shown: read.clone(),
+                            },
+                            HydratedStep::ToolResult {
+                                id: "c1".to_string(),
+                                ok: true,
+                                detail: String::new(),
+                                outcome: CallOutcome::Finished,
+                            },
+                            HydratedStep::ToolStart {
+                                id: "c2".to_string(),
+                                shown: crate::tools::Shown {
+                                    target: Some("gone.txt".to_string()),
+                                    ..read
+                                },
+                            },
+                            HydratedStep::ToolResult {
+                                id: "c2".to_string(),
+                                ok: false,
+                                detail: "no such path: `gone.txt`".to_string(),
+                                outcome: CallOutcome::Finished,
+                            },
+                            HydratedStep::Text("Done.".to_string()),
+                        ],
+                        0,
+                        None,
+                    ),
+                    HydratedTurn {
+                        user: "and then".to_string(),
+                        steps: Vec::new(),
+                        ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
+                    },
+                ],
+            ),
+            false,
+        );
+        let rows = resumed.painted_document();
+        // The live turn's summary estimated what streamed, as the replay
+        // does when the log recorded no usage: the same row.
+        assert_eq!(rows[2..2 + live_rows.len()], live_rows[..], "{rows:?}");
+        let words: Vec<String> = rows.iter().map(|row| colourless(row)).collect();
+        assert!(
+            words.contains(&"\u{25cf} 2 tool calls \u{b7} 2 read \u{b7} 1 failed".to_string()),
+            "{words:?}"
+        );
+        // The stopped turn: its card and the sentence it ended on, under
+        // `system` as the live conclusion was, and no summary.
+        assert_eq!(
+            words[2 + live_rows.len()..],
+            [
+                "\u{2503} and then",
+                "",
+                "\u{2717} system: the turn was cancelled",
+                "",
+            ]
+        );
+        assert!(!resumed.owes_wipe(), "a launch's resume reset the terminal");
+    }
+
+    #[test]
+    fn resume_opens_the_picker_lists_what_the_runtime_read_and_enter_asks_for_the_marked_one() {
+        use super::super::session_picker::{ListedSession, Listing, ResumeFailure};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        shell.work.give_back();
+        let band = shell.band_rows();
+        assert!(
+            band.iter()
+                .any(|row| visible_text(row) == "  Loading sessions\u{2026}"),
+            "{band:?}"
+        );
+        let session = |id: &str, title: &str| ListedSession {
+            id: id.to_string(),
+            title: Some(title.to_string()),
+            workspace: "/x/work".to_string(),
+            updated_at_ms: 0,
+            turns: 1,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![
+                session("b", "second question beta"),
+                session("a", "first question alpha"),
+            ],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        let band: Vec<String> = shell
+            .band_rows()
+            .iter()
+            .map(|row| visible_text(row))
+            .collect();
+        assert!(
+            band.contains(&"Sessions 2  [Current workspace]  All workspaces".to_string()),
+            "{band:?}"
+        );
+        assert_eq!(
+            band.last().map(String::as_str),
+            Some("\u{2191}\u{2193} navigate     tab scope     enter resume     esc close")
+        );
+        // Down, Down: the mark stops on the last row; typing narrows.
+        shell.route_bytes(b"\x1b[B\x1b[B");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        // A second Enter while that is on its way asks for nothing.
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a second resume was asked for"
+        );
+        shell.work.give_back();
+        shell.apply(UiEvent::ResumeFailed {
+            id: "a".to_string(),
+            failure: ResumeFailure::OpenElsewhere,
+        });
+        let band: Vec<String> = shell
+            .band_rows()
+            .iter()
+            .map(|row| visible_text(row))
+            .collect();
+        assert!(
+            band.contains(
+                &"  This session is open in another xfx. Close it there, then press enter to retry."
+                    .to_string()
+            ),
+            "{band:?}"
+        );
+        // Enter retries; the runtime answers with the session, and the picker,
+        // its search and the old screen go.
+        shell.route_bytes(b"first");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        assert!(shell.sessions.is_none());
+        assert!(shell.editor.is_empty(), "the search outlived the picker");
+        assert!(shell.owes_wipe());
+        assert_eq!(shell.geometry.panel, 0);
+    }
+
+    #[test]
+    fn a_resume_with_nothing_searched_gives_the_band_its_rows_back() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: vec![ListedSession {
+                id: "a".to_string(),
+                title: Some("first question alpha".to_string()),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            }],
+            all: Vec::new(),
+            now_ms: 0,
+        })));
+        assert!(shell.geometry.panel > 0);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("a".to_string()));
+        shell.apply(UiEvent::Resumed(replay(
+            Some("first question alpha"),
+            Vec::new(),
+        )));
+        assert!(shell.sessions.is_none());
+        assert_eq!(shell.geometry.panel, 0, "the picker's rows outlived it");
+        // The band is the idle one again: composer, blank row, hint row.
+        assert_eq!(shell.band_rows().len(), 3, "{:?}", shell.band_rows());
+    }
+
+    #[test]
+    fn escape_closes_the_picker_and_its_search_and_tab_switches_the_scope() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/resume\r");
+        let _ = shell.picks_up();
+        let elsewhere = ListedSession {
+            id: "o".to_string(),
+            title: Some("elsewhere".to_string()),
+            workspace: "/y/other".to_string(),
+            updated_at_ms: 0,
+            turns: 2,
+        };
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            current: Vec::new(),
+            all: vec![elsewhere],
+            now_ms: 0,
+        })));
+        let band: Vec<String> = shell
+            .band_rows()
+            .iter()
+            .map(|row| visible_text(row))
+            .collect();
+        assert!(
+            band.contains(&"  No sessions found.".to_string()),
+            "{band:?}"
+        );
+        // Enter on nothing does nothing.
+        shell.route_bytes(b"\r");
+        assert!(shell.sent.try_recv().is_err());
+        assert!(shell.sessions.is_some());
+        // Shift-Tab is the other scope too.
+        shell.route_bytes(b"\x1b[Z");
+        let band: Vec<String> = shell
+            .band_rows()
+            .iter()
+            .map(|row| visible_text(row))
+            .collect();
+        assert!(
+            band.contains(&"Sessions 1  Current workspace  [All workspaces]".to_string()),
+            "{band:?}"
+        );
+        // The search is the composer; Escape takes both down.
+        shell.route_bytes(b"zzz");
+        assert_eq!(shell.editor.text(), "zzz");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.sessions.is_none());
+        assert!(shell.editor.is_empty(), "the search outlived the picker");
+        assert_eq!(shell.geometry.panel, 0);
+    }
+
+    #[test]
+    fn resume_is_refused_while_a_turn_is_in_hand_and_opens_nothing() {
+        // `fx-busy-40x120-resume-while-streaming.txt`.
+        let mut shell = shell(40, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        shell.route_bytes(b"/resume\r");
+        assert!(
+            shell.sessions.is_none(),
+            "a picker opened over a running turn"
+        );
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session",
+                "resume is unavailable until the response finishes"
+            ))
+        );
+    }
+
+    #[test]
+    fn rename_refuses_in_upstreams_words_and_titles_the_window_at_once() {
+        // `fx-basic-40x120-rename-empty.txt` and `-rename-title.txt`.
+        let mut shell = shell(24, 120);
+        let _ = shell.take_title();
+        shell.route_bytes(b"/rename\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("", "usage: /rename <title>"))
+        );
+        assert_eq!(shell.document(), Vec::<String>::new());
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "an empty title reached the runtime"
+        );
+        shell.route_bytes(format!("/rename {}\r", "x".repeat(241)).as_bytes());
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error("session", "title is too long"))
+        );
+        CommandHandlers::rename(&mut *shell, "a\tb");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "session",
+                "title must be printable text"
+            ))
+        );
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "a refused title titled the window"
+        );
+
+        shell.route_bytes(b"/rename   My Title  \r");
+        assert_eq!(shell.picks_up(), TurnWork::Rename("My Title".to_string()));
+        shell.work.give_back();
+        assert_eq!(
+            shell.take_title(),
+            None,
+            "titled before the runtime renamed it"
+        );
+        shell.apply(UiEvent::Renamed {
+            title: "My Title".to_string(),
+            unsaved: None,
+        });
+        assert_eq!(shell.take_title().as_deref(), Some("My Title"));
+        assert_eq!(
+            visible_text(&shell.document()[0]),
+            "* session: renamed to \"My Title\""
+        );
+        // A store that refused: the title is this process's, and the warning
+        // says so (`app_commands.zig:3833-3846`).
+        shell.apply(UiEvent::Renamed {
+            title: "Kept here".to_string(),
+            unsaved: Some("cannot record the `session_renamed` session event".to_string()),
+        });
+        assert_eq!(shell.take_title().as_deref(), Some("Kept here"));
+        assert_eq!(
+            visible_text(&shell.document()[0]),
+            "! session: renamed for this process but not saved \
+             (cannot record the `session_renamed` session event)"
+        );
+        // A first turn afterwards does not retitle it: the user's title
+        // outranks the prompt's, as it does in the store.
+        turn_running(&mut shell, b"first question alpha\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
     }
 
     #[test]
@@ -15526,7 +16801,11 @@ mod tests {
     fn escape_closes_the_catalog_and_its_search_without_arming_the_clear() {
         let mut shell = with_catalog(40, 120);
         shell.route_bytes(b"ses");
-        assert_eq!(menu(&shell).len(), 2 + 4, "/clear, /new, /reset and /copy");
+        assert_eq!(
+            menu(&shell).len(),
+            2 + 6,
+            "/clear, /new, /reset, /resume, /rename and /copy"
+        );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.help_menu.is_none());
