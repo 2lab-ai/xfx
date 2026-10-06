@@ -35,7 +35,8 @@ use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
 use xfx::output::{Event, RecordingSink};
 use xfx::permission::{
-    ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse, PermissionSession,
+    ApprovalAnswer, ApprovalDiff, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
+    PermissionSession,
 };
 use xfx::provider::Wire;
 use xfx::session::store::DurableState;
@@ -1782,6 +1783,78 @@ impl TurnJournal for RecordingJournal {
     fn record(&mut self, event: SessionEvent) {
         self.events.push(event);
     }
+}
+
+/// The kinds of what a turn recorded, and the changes it handed over between
+/// them as `change`.
+#[derive(Default)]
+struct ChangeJournal {
+    kinds: Vec<&'static str>,
+    changes: Vec<(String, ApprovalDiff)>,
+}
+
+impl TurnJournal for ChangeJournal {
+    fn record(&mut self, event: SessionEvent) {
+        self.kinds.push(event.kind());
+    }
+
+    fn change_made(&mut self, call_id: &str, change: &ApprovalDiff) {
+        self.kinds.push("change");
+        self.changes.push((call_id.to_string(), change.clone()));
+    }
+}
+
+#[tokio::test]
+async fn a_change_a_turn_made_is_handed_to_the_journal_after_its_result_with_no_approval() {
+    // The full transcript shows the diff of every change, reviewed or not;
+    // `yolo` reviews none. The read records nothing of the kind, and the log
+    // a session keeps is the same with or without the change beside it.
+    let tree = Tree::new();
+    tree.write("notes.md", "old\n");
+    let provider = ScriptedProvider::new(vec![
+        calls_step(vec![
+            read_call("r", "notes.md"),
+            write_call("w", "notes.md", "new\n"),
+        ]),
+        final_step("rewritten"),
+    ]);
+    let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
+    let mut sink = RecordingSink::new();
+    let mut journal = ChangeJournal::default();
+    run_turn_saved(
+        turn("rewrite the note", tools),
+        ProjectContext::none(),
+        &provider,
+        &mut sink,
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+
+    assert_eq!(
+        fs::read_to_string(tree.root().join("notes.md")).expect("the written file"),
+        "new\n"
+    );
+    assert_eq!(
+        journal.kinds,
+        [
+            "user_message",
+            "assistant_message",
+            "tool_result",
+            "tool_result",
+            "change",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded",
+        ]
+    );
+    assert_eq!(journal.changes.len(), 1);
+    let (call_id, change) = &journal.changes[0];
+    assert_eq!(call_id, "w");
+    assert_eq!(
+        (change.before.as_str(), change.after.as_str()),
+        ("old\n", "new\n")
+    );
 }
 
 /// A context in `ask` mode whose approvals are answered by `prompter`.

@@ -1,4 +1,4 @@
-x𝒇x v0.1.0-26bc0df [debug] · Run /help for commands
+x𝒇x v0.1.0-575ea48 [debug] · Run /help for commands
 
 ┃ run the checks
 
@@ -20,7 +20,7 @@ x𝒇x v0.1.0-26bc0df [debug] · Run /help for commands
     2. Yes, and don't ask again for this exact command
     3. No
   2 = allow every future run of exactly `echo boom; echo err >&2; exit 3` in . for the rest of this session, and in
-  every later `xfx ask --resume-id 1791310184679-866590da2e27eb34` of this saved session
+  every later `xfx ask --resume-id 1791318030456-84a763a9b1724b97` of this saved session
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
