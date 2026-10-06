@@ -28,7 +28,10 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 
 | Row | Status | Evidence |
 |---|---|---|
-| F1 | open | R1 capture: fx starts under the shell cursor with a header; xfx is bottom-anchored with a divider |
+| F1 | closed (R2) | `scripts/fxcap/capture.sh {fx,xfx} startup 40x120`: rows 1-5 the same (header text is xfx's own brand); band floats (fcc8e44) |
+| F5 transcript look | closed (R2) | `answered` scenario 40x120: rows 2-24 byte-identical ANSI to fx (3efe232) |
+| F5 streaming | matches fx | fx mid-stream shows only the activity row; xfx now shows lines once complete (presenter hold) |
+| F6 activity row | open | fx `  Generating (2s) (↑4 ↓61)` with a blinking bullet; xfx `• Thinking  0s` |
 | F2 | open | R1 capture: 36 vs 7 commands, different shape |
 | A1–A36 | open | inventory in `ssot.md` |
 | F3–F11 | open | — |
@@ -40,3 +43,10 @@ Each closes on a fx↔xfx capture pair at 120×40 and 80×24 plus xfx tests; sha
 - Built fx `c1db919`; captured startup, `/`, overflow and 80×24 for both binaries (receipts to follow in `receipts/`).
 - Read `footer_layout.zig`, `commands.zig:463-498`, `app_commands.zig:363-410`; wrote `ssot.md`.
 - Next: WU-A.
+
+### R2 — 2026-10-06
+
+- Default-on launch, fx chrome, statusline and welcome (a50f8a0); markdown presenter port (c753e74); transcript block renderers, byte-matched against fx's own output (71bee29).
+- Floating band (fcc8e44): `Geometry::floated`, appends fill the rows the band moved down from, resize pins the band at the bottom (Tension: fx re-renders its owned band on resize; xfx cannot know where a terminal reflowed its rows).
+- Transcript look (3efe232): rail card, markdown answer in the two-column gutter, code/table/rule blocks, dim turn summary. Test fixtures being moved to the new truth on `fix/tui-phase4-tests`.
+- Capture harness committed: `scripts/fxcap/` (isolated tmux socket, empty HOME, fake key, loopback fake gateway on an OS-picked port).
