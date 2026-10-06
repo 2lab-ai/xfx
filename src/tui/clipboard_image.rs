@@ -71,8 +71,10 @@ mod tests {
     use crate::clipboard::fake::FakeTool;
     use std::time::{Duration, Instant};
 
+    /// A minute, as `copy.rs`'s cases wait: the fake tool's first run is
+    /// assessed by macOS, which on a loaded machine outlasts ten seconds.
     fn answer(reads: &ClipboardReads) -> Read {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(read) = reads.finished() {
                 return read;

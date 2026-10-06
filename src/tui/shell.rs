@@ -15759,8 +15759,12 @@ mod tests {
 
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
+    ///
+    /// A minute, as `copy.rs`'s cases wait: a fresh fake `pbcopy`'s first run
+    /// is assessed by macOS, which on a loaded machine takes longer than ten
+    /// seconds, and these cases are about what the copy did, not its speed.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
@@ -21968,7 +21972,7 @@ mod tests {
 
     /// Turns of the loop until the selection copies have answered.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -25903,7 +25907,7 @@ mod tests {
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
