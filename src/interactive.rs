@@ -70,6 +70,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/stats",
     "/usage",
     "/status",
+    "/image",
+    "/images",
     "/model",
     "/permissions",
     "/undo",
@@ -77,6 +79,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/trace",
     "/settings",
     "/credits",
+    "/paste",
     "/fast",
     "/ultrafast",
     "/statusline",
@@ -243,6 +246,24 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: false,
     },
     SlashSpec {
+        command: Slash::Image,
+        name: "/image",
+        // Upstream's row (`commands.zig:476`): its alias, its sentence, and
+        // the category its tab is.
+        aliases: &["/img"],
+        summary: "attach an image by path",
+        category: "Media",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Images,
+        name: "/images",
+        aliases: &[],
+        summary: "manage pending image attachments",
+        category: "Media",
+        has_args: true,
+    },
+    SlashSpec {
         command: Slash::Model,
         name: "/model",
         aliases: &[],
@@ -306,6 +327,15 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         aliases: &["/balance"],
         summary: "show gateway credits balance",
         category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Paste,
+        name: "/paste",
+        aliases: &[],
+        // Upstream's sentence (`commands.zig:491`); it takes nothing.
+        summary: "attach an image from the clipboard when supported",
+        category: "Media",
         has_args: false,
     },
     SlashSpec {
@@ -507,6 +537,16 @@ pub const SPEED_ON_THE_LINE_SHELL: &str = "xfx: /fast and /ultrafast set the spe
      full-screen shell asks for, and this line-oriented shell asks for none; without \
      XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/image`, `/images` and `/paste` say on this surface.
+///
+/// An attachment is a badge in the prompt being written, and this shell reads
+/// a finished line at a time: there is no draft for an image to wait in, and
+/// a path typed here is sent to the model as the words it is. It says where the
+/// attachments are, as `/stats` and `/resume` say where theirs are.
+pub const IMAGES_ON_THE_LINE_SHELL: &str = "xfx: /image, /images and /paste attach images to the \
+     prompt being written in the full-screen shell, and this line-oriented shell has no draft to \
+     attach them to; without XFX_TUI=0, xfx opens the full-screen one";
+
 /// What `/rename` says when there is no title to give the session, or one it
 /// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
 /// words both shells use.
@@ -671,6 +711,13 @@ pub enum Slash {
     /// Ultra mode on, off, or asked about, for a model that offers it
     /// (`handleUltrafast`, `session_commands.zig:704-723`).
     Ultrafast,
+    /// Attach the image a path names to the prompt being written
+    /// ([`crate::image`]).
+    Image,
+    /// What the prompt being written has attached, or `clear` to drop it all.
+    Images,
+    /// Attach the image on the clipboard ([`crate::clipboard::Clipboard::read_image`]).
+    Paste,
     /// Write a private diagnostic report about this session and put the file
     /// on the clipboard ([`crate::trace`]).
     Trace,
@@ -1235,6 +1282,9 @@ pub async fn run(
                     Slash::Fast | Slash::Ultrafast => {
                         writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Image | Slash::Images | Slash::Paste => {
+                        writeln!(io::stderr(), "{IMAGES_ON_THE_LINE_SHELL}")?;
+                    }
                     Slash::Settings => {
                         writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
                     }
@@ -1408,6 +1458,7 @@ async fn one_turn(
         .state()
         .history_messages(config.provider.wire());
     let request = TurnRequest {
+        images: Vec::new(),
         model: model.to_string(),
         prompt,
         history: replay.messages,
@@ -2045,10 +2096,11 @@ mod tests {
         // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
         // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
         // since `/usage` and `/credits`, twenty since `/trace`, twenty-one
-        // since `/settings`, and twenty-three since `/fast` and `/ultrafast`;
-        // `/provider` took `/setup`'s place rather than adding one, and
-        // `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 23);
+        // since `/settings`, twenty-four since `/image`, `/images` and
+        // `/paste`, and twenty-six since `/fast` and `/ultrafast`; `/provider`
+        // took `/setup`'s place rather than adding one, and `/models` stays
+        // deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 26);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2191,14 +2243,7 @@ mod tests {
     #[test]
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
-        for deferred in [
-            "/login",
-            "/logout",
-            "/models",
-            "/mcp",
-            "/image",
-            "/background",
-        ] {
+        for deferred in ["/login", "/logout", "/models", "/mcp", "/background"] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
         }
     }
@@ -2338,13 +2383,14 @@ mod tests {
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
         // `/sound [on|off]` sets the switch a bare `/sound` toggles,
-        // `/rename <title>` names the session, and `/ultrafast [on|off|status]`
-        // asks for Ultra mode. `/settings` is declared to take one as
-        // upstream's row is (`commands.zig:488`), so completing it leaves the
-        // caret past a space; every argument it is given is its usage line,
-        // since upstream's only form names a setting xfx does not have. Every
-        // other name is the whole command -- `/fast` among them, a toggle
-        // (`commands.zig:492`).
+        // `/rename <title>` names the session, `/image <path>` attaches a file,
+        // `/images [clear]` lists or drops what is attached, and
+        // `/ultrafast [on|off|status]` asks for Ultra mode. `/settings` is
+        // declared to take one as upstream's row is (`commands.zig:488`), so
+        // completing it leaves the caret past a space; every argument it is
+        // given is its usage line, since upstream's only form names a setting
+        // xfx does not have. Every other name is the whole command -- `/fast`
+        // among them, a toggle (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
@@ -2355,6 +2401,8 @@ mod tests {
                     | "/sound"
                     | "/rename"
                     | "/ultrafast"
+                    | "/image"
+                    | "/images"
                     | "/settings"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
@@ -2470,6 +2518,52 @@ mod tests {
         assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
         assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
         assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
+    }
+
+    #[test]
+    fn the_media_commands_are_upstreams_rows_and_say_where_they_work() {
+        // `commands.zig:476-477`, `:491`: the names, the `/img` alias, the
+        // sentences and the Media tab.
+        for (command, name, aliases, summary, has_args) in [
+            (
+                Slash::Image,
+                "/image",
+                &["/img"][..],
+                "attach an image by path",
+                true,
+            ),
+            (
+                Slash::Images,
+                "/images",
+                &[],
+                "manage pending image attachments",
+                true,
+            ),
+            (
+                Slash::Paste,
+                "/paste",
+                &[],
+                "attach an image from the clipboard when supported",
+                false,
+            ),
+        ] {
+            let spec = slash_spec(command);
+            assert_eq!(spec.name, name);
+            assert_eq!(spec.aliases, aliases);
+            assert_eq!(spec.summary, summary);
+            assert_eq!(spec.category, "Media");
+            assert_eq!(spec.has_args, has_args);
+        }
+        assert_eq!(
+            classify("/img shot.png"),
+            Submitted::Command {
+                command: Slash::Image,
+                argument: "shot.png".to_string()
+            }
+        );
+        // This shell has no draft to attach to, and says where there is one.
+        assert!(IMAGES_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(IMAGES_ON_THE_LINE_SHELL.starts_with("xfx: /image"));
     }
 
     #[test]

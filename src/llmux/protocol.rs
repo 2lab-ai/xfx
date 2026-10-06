@@ -313,6 +313,24 @@ fn map_message(message: &crate::gateway::protocol::Message) -> WireMessage {
                 }
                 wire.results.push(block);
             }
+            // Anthropic's base64 image block, which llmux reads on a user
+            // message and nowhere else (`2lab-ai/llmux@4b3d4a4
+            // src/provider/responses_request.rs:44`, `:109-135`, `:736-830`):
+            // up to 20 MiB decoded, png/jpeg/webp/gif -- what
+            // [`crate::image`] attaches -- and never a `url` source. Whether the
+            // model behind the daemon reads images is the daemon's to say; its
+            // catalog has no field for it, so a refusal arrives as its 400.
+            ContentPart::Image { media_type, data } => wire.blocks.push(json_block([
+                ("type", Value::from("image")),
+                (
+                    "source",
+                    json_block([
+                        ("type", Value::from("base64")),
+                        ("media_type", Value::from(media_type.label())),
+                        ("data", Value::from(crate::image::base64(data))),
+                    ]),
+                ),
+            ])),
         }
     }
     wire
@@ -503,6 +521,39 @@ mod tests {
         assert_eq!(max["output_config"], json!({ "effort": "max" }));
         assert_eq!(max.get("service_tier"), None);
         assert_eq!(max.get("providerOptions"), None);
+    }
+
+    #[test]
+    fn an_image_is_anthropics_base64_block_on_the_user_message_after_its_text() {
+        let shot: std::sync::Arc<[u8]> = std::sync::Arc::from(crate::image::fixture::SHOT_PNG);
+        let request = CompletionRequest {
+            model: "fable".to_string(),
+            messages: vec![
+                crate::gateway::protocol::Message::user_with_images(
+                    "[Image #1] what?",
+                    [(crate::image::MediaType::Png, &shot)],
+                ),
+                crate::gateway::protocol::Message::assistant(Some("red"), Vec::new()),
+                crate::gateway::protocol::Message::user("and now?"),
+            ],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let parsed: Value = serde_json::from_str(&body(&request).expect("valid")).expect("json");
+        assert_eq!(
+            parsed["messages"][0],
+            json!({"role": "user", "content": [
+                {"type": "text", "text": "[Image #1] what?"},
+                {"type": "image", "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": crate::image::fixture::SHOT_PNG_BASE64,
+                }},
+            ]})
+        );
+        // Never a `url` source: the bytes travel, and nothing names a place
+        // the daemon would have to fetch them from.
+        assert!(!parsed.to_string().contains("\"url\""), "{parsed}");
     }
 
     #[test]

@@ -1,0 +1,152 @@
+[
+ {
+  "request": "001-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #3][Image #4] what is in this image?"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "read_file",
+   "glob_files",
+   "grep_files",
+   "edit_file",
+   "write_file",
+   "shell",
+   "subagent",
+   "capability_search",
+   "skill",
+   "install_skill",
+   "mcp_select_tool",
+   "mcp_features",
+   "ask_user_question",
+   "web_fetch",
+   "exa_search",
+   "read_tool_result"
+  ]
+ },
+ {
+  "request": "002-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #3][Image #4] what is in this image?"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ],
+   [
+    {
+     "type": "text",
+     "text": "describe it again"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "read_file",
+   "glob_files",
+   "grep_files",
+   "edit_file",
+   "write_file",
+   "shell",
+   "subagent",
+   "capability_search",
+   "skill",
+   "install_skill",
+   "mcp_select_tool",
+   "mcp_features",
+   "ask_user_question",
+   "web_fetch",
+   "exa_search",
+   "read_tool_result"
+  ]
+ },
+ {
+  "request": "003-completion.json",
+  "messages": [
+   [
+    {
+     "type": "text",
+     "text": "[Image #3][Image #4] what is in this image?"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    },
+    {
+     "type": "file",
+     "mediaType": "image/png",
+     "base64_bytes": 100,
+     "sha256": "3fd6e6be528c182d768563a63b65ac5a70d022149a01eeeaaa30396d75f426e0"
+    }
+   ],
+   [
+    {
+     "type": "text",
+     "text": "describe it again"
+    }
+   ],
+   [
+    {
+     "type": "text",
+     "text": "once more"
+    }
+   ]
+  ],
+  "toolChoice": {
+   "type": "auto"
+  },
+  "tool_names": [
+   "read_file",
+   "glob_files",
+   "grep_files",
+   "edit_file",
+   "write_file",
+   "shell",
+   "subagent",
+   "capability_search",
+   "skill",
+   "install_skill",
+   "mcp_select_tool",
+   "mcp_features",
+   "ask_user_question",
+   "web_fetch",
+   "exa_search",
+   "read_tool_result"
+  ]
+ }
+]

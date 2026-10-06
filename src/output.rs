@@ -1453,6 +1453,7 @@ mod tests {
     fn turn(user: &str, steps: Vec<crate::session::TurnStep>) -> crate::session::HistoryTurn {
         crate::session::HistoryTurn {
             user: user.to_string(),
+            images: Vec::new(),
             steps,
             outcome: Some(crate::session::TurnConclusion::Final {
                 finish_reason: "stop".to_string(),

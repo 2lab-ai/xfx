@@ -78,12 +78,25 @@ pub(crate) mod scans {
 
 /// What a span stands for.
 ///
-/// An enum with one variant, because the composer's other entities -- an
-/// attachment, a file reference -- are the same span with different contents,
-/// and a `Span` that assumed "paste" would have to be replaced rather than
-/// extended when one arrives.
+/// The composer's entities -- a paste, an attachment -- are the same span with
+/// different contents, which is why a `Span` never assumed "paste".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum EntityKind {
+    /// An attached image: its badge `[Image N]` stands in the draft, and the
+    /// prompt says `[Image #N]` in its place -- upstream's two spellings of one
+    /// number (`writeImageBadge` and `writeImagePlaceholder`,
+    /// `vercel-labs/fx@c1db9191 src/core/images/image_attachments.zig:1336`,
+    /// `:1376`). The badge **is** the attachment: a delete that takes it drops
+    /// the image (`kill_ring.zig:562-584`), and nothing that brings its words
+    /// back -- an undo, a yank, a recalled line -- brings the image with them
+    /// ([`super::edit_history::EditHistory::record`], [`Entities::snapshots`],
+    /// [`Entities::renumber_recalled`]).
+    Image {
+        image: Arc<crate::image::Image>,
+        /// [`crate::image::token`] of its id: what [`Entities::expand`] puts
+        /// where the badge stands.
+        token: Arc<str>,
+    },
     /// A collapsed paste: the number its summary says, the text it stands for,
     /// and how many lines that text has.
     Paste {
@@ -114,10 +127,12 @@ impl Span {
         self.start..self.end
     }
 
-    /// The text the summary stands for.
+    /// The text the summary stands for: a paste's text, or an image's
+    /// `[Image #N]`.
     pub(crate) fn text(&self) -> &Arc<str> {
         match &self.kind {
             EntityKind::Paste { text, .. } => text,
+            EntityKind::Image { token, .. } => token,
         }
     }
 
@@ -125,14 +140,28 @@ impl Span {
     pub(crate) fn id(&self) -> u32 {
         match &self.kind {
             EntityKind::Paste { id, .. } => *id,
+            EntityKind::Image { image, .. } => image.id,
         }
     }
 
-    /// How many lines the text has.
+    /// How many lines the text has; an image's token has one.
     pub(crate) fn lines(&self) -> usize {
         match &self.kind {
             EntityKind::Paste { lines, .. } => *lines,
+            EntityKind::Image { .. } => 1,
         }
+    }
+
+    /// The image this badge attaches, when it is one.
+    pub(crate) fn image(&self) -> Option<&Arc<crate::image::Image>> {
+        match &self.kind {
+            EntityKind::Paste { .. } => None,
+            EntityKind::Image { image, .. } => Some(image),
+        }
+    }
+
+    fn is_paste(&self) -> bool {
+        matches!(self.kind, EntityKind::Paste { .. })
     }
 }
 
@@ -202,16 +231,26 @@ impl Entities {
     /// the number either of them names -- and what leaves the session is their
     /// sum.
     pub(crate) fn retained(&self) -> usize {
-        self.spans.iter().fold(0usize, |bytes, span| {
-            bytes.saturating_add(span.text().len())
-        })
+        // A paste's: an image's token is a few bytes that stand for no text,
+        // and the image is not part of the draft's text budget.
+        self.spans
+            .iter()
+            .filter(|span| span.is_paste())
+            .fold(0usize, |bytes, span| {
+                bytes.saturating_add(span.text().len())
+            })
+    }
+
+    /// The images the draft attaches, in the order their badges stand in it.
+    pub(crate) fn images(&self) -> impl Iterator<Item = &Arc<crate::image::Image>> {
+        self.spans.iter().filter_map(Span::image)
     }
 
     /// Records a new entity: the caller has just put its summary into the draft
     /// at `span`'s bytes.
     pub(crate) fn register(&mut self, span: Span) {
         debug_assert!(
-            !self.by_paste.contains_key(&span.id()),
+            !span.is_paste() || !self.by_paste.contains_key(&span.id()),
             "two live blocks would answer to #{}",
             span.id()
         );
@@ -358,11 +397,32 @@ impl Entities {
         out
     }
 
+    /// `draft` with each image badge spelled as the token the prompt carries,
+    /// `[Image N]` as `[Image #N]`, and every paste left as its summary: the
+    /// text upstream's composer holds, whose estimate a turn's summary counts
+    /// (`TurnSummaryAccumulator.init`, `telemetry.zig:87-96`).
+    pub(crate) fn with_image_tokens(&self, draft: &str) -> String {
+        let mut out = String::with_capacity(draft.len());
+        let mut cut = 0usize;
+        for span in self.spans.iter().filter(|span| span.image().is_some()) {
+            out.push_str(&draft[cut..span.start]);
+            out.push_str(span.text());
+            cut = span.end;
+        }
+        out.push_str(&draft[cut..]);
+        out
+    }
+
     /// What a history entry has to remember to be able to put these blocks
     /// back.
+    ///
+    /// Pastes only. A recalled line is the words it was, and an image's badge
+    /// among them is words too: the image went with the prompt that sent it,
+    /// and a recall that brought it back would attach it twice.
     pub(crate) fn snapshots(&self) -> Vec<EntitySnapshot> {
         self.spans
             .iter()
+            .filter(|span| span.is_paste())
             .map(|span| {
                 EntitySnapshot::new(span.start, span.end, Arc::clone(span.text()), span.lines())
             })
@@ -418,7 +478,9 @@ impl Entities {
         let mut cut = 0usize;
         let mut exhausted = false;
         for span in std::mem::take(&mut self.spans) {
-            if exhausted {
+            // An image is not renumbered: it is dropped, and its badge stays
+            // as the words it is -- one image, one badge.
+            if exhausted || !span.is_paste() {
                 continue;
             }
             let Some(id) = next.checked_add(1) else {
@@ -455,7 +517,11 @@ impl Entities {
     fn reindex(&mut self) {
         self.by_paste.clear();
         for (index, span) in self.spans.iter().enumerate() {
-            self.by_paste.insert(span.id(), index);
+            // Pastes only: an image's number is another allocator's, and the
+            // two may say the same digits.
+            if span.is_paste() {
+                self.by_paste.insert(span.id(), index);
+            }
         }
     }
 }

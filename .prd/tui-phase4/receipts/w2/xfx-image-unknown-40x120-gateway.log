@@ -1,0 +1,2 @@
+[fakegw] listening 55426
+[fakegw] GET /coding-agent/v1/models bearer=yes

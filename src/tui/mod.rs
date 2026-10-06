@@ -707,6 +707,7 @@ mod approval_view;
 mod blocks;
 mod bridge;
 mod check;
+mod clipboard_image;
 mod copy;
 mod deliver;
 mod diagnostic;

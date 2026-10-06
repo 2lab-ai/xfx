@@ -212,11 +212,20 @@ impl EditHistory {
     /// has a budget of its own; then the oversized delta becomes a boundary
     /// (`edit_history.zig:86-87,99-101`); then redo is cleared and its bytes
     /// given back, the entry is pushed, and the two caps evict from the front.
-    pub(crate) fn record(&mut self, delta: Delta) {
+    pub(crate) fn record(&mut self, mut delta: Delta) {
         debug_assert!(
             !delta.is_empty(),
             "an edit that changed nothing was recorded as history"
         );
+        // **An image's badge comes back as words.** The badge is the
+        // attachment: deleting it dropped the image, as upstream's line delete
+        // does (`kill_ring.zig:562-584`), so neither an undo nor a yank of the
+        // text it stood in may attach it again -- and neither stack holds up to
+        // twenty megabytes of bytes for a badge that is gone.
+        delta.removed_entities.retain(|span| span.image().is_none());
+        delta
+            .inserted_entities
+            .retain(|span| span.image().is_none());
         let weight = delta.weight();
         if delta.kind() == DeltaKind::Kill {
             // Replaced whole, never appended to: consecutive kills do not
