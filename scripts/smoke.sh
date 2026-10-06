@@ -748,7 +748,7 @@ set +e
 python3 "$helpers/pty_shell.py" \
 	"$binary" "$workspace" "$evidence/shell-transcript.txt" \
 	"HOME=$home" "AI_GATEWAY_API_KEY=$FAKE_KEY" "XFX_GATEWAY_URL=$gateway_url" \
-	"TERM=dumb" >"$evidence/shell.out" 2>"$evidence/shell.err"
+	"TERM=dumb" "XFX_TUI=0" >"$evidence/shell.out" 2>"$evidence/shell.err"
 shell_status=$?
 set -e
 if [ "$shell_status" -eq 0 ]; then

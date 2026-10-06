@@ -879,12 +879,12 @@ mod tests {
         let geometry = geometry();
         let mut grid = Grid::blank(geometry.rows, geometry.cols);
         grid.place_row(1, "the document", &geometry);
-        grid.place_row(geometry.divider, "stale", &geometry);
+        grid.place_row(geometry.band_top(), "stale", &geometry);
         grid.paint_band(&["--".to_string()], &geometry);
 
         let mut expected = Grid::blank(geometry.rows, geometry.cols);
         expected.place_row(1, "the document", &geometry);
-        expected.place_row(geometry.divider, "--", &geometry);
+        expected.place_row(geometry.band_top(), "--", &geometry);
         assert_eq!(diffed(&grid, &expected), "");
     }
 

@@ -50,14 +50,15 @@ const MOST_ROWS: u16 = SLASH_REGISTRY.len() as u16;
 
 /// The rows the rest of the band needs before the menu may have any.
 ///
-/// The activity row, the divider, one composer row, the hint row, and one row
+/// The activity row (without its blank rows, which a tight screen drops), one
+/// composer row, the two rules the menu sits between, the hint row, and one row
 /// of the terminal's own document. Reserving them here is what makes the menu
 /// *unrefusable*: on the shortest screen a band fits on
 /// ([`super::layout::MIN_ROWS`]) this leaves one row for the menu, and
 /// `super::layout::solve_band` has an answer for that band even with a turn
 /// running -- so unlike a question, a completion never has to be refused on the
 /// user's behalf.
-const RESERVED_ROWS: u16 = 5;
+const RESERVED_ROWS: u16 = 6;
 
 /// What marks the row a completion would take.
 ///

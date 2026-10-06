@@ -103,19 +103,48 @@ use crate::provider::model::model_id_problem;
 use crate::provider::model::CatalogEntry;
 use crate::provider::ProviderId;
 
+/// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
+///
+/// The brand in the subtitle style, then the build and where the commands are
+/// listed in the dim one. A release build says its version; any other build
+/// says the revision it was built from and its channel, the channel in the
+/// hint colour -- upstream's `[dev]` tag, because a preview ships on every
+/// merge and the version alone does not identify it.
+pub(crate) fn welcome_line(palette: Palette) -> String {
+    let build = crate::build_info();
+    let version = crate::VERSION;
+    let label = match (build.channel, build.revision) {
+        ("release", _) => format!("v{version}"),
+        (channel, Some(revision)) => format!(
+            "v{version}-{} {}[{channel}]{}",
+            revision.get(..7).unwrap_or(revision),
+            palette.hint(),
+            palette.dim()
+        ),
+        (channel, None) => format!("v{version} {}[{channel}]{}", palette.hint(), palette.dim()),
+    };
+    format!(
+        "{}x\u{1d487}x{}{} {label} \u{b7} Run /help for commands{}",
+        palette.subtitle(),
+        palette.reset(),
+        palette.dim(),
+        palette.reset()
+    )
+}
+
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
 
-/// What the composer puts in front of what is typed.
-const PROMPT: &str = "> ";
+/// The rail every composer row starts with, followed by one space
+/// (`input_presentation.zig:977-992`).
+const RAIL: &str = "\u{2503}";
 
-/// What its continuation rows are written into instead: the same two cells,
-/// blank, so a wrapped row starts under the row above it rather than two
-/// columns to the left of it.
-const GUTTER: &str = "  ";
+/// The rail on the first row shown when the rows above it are scrolled out of
+/// view: the arrow takes the space's cell.
+const RAIL_HIDDEN_ABOVE: &str = "\u{2503}\u{2191}";
 
-/// How many cells [`PROMPT`] occupies, and therefore where an empty composer's
-/// caret sits.
+/// How many cells the rail and its space occupy, and therefore where an empty
+/// composer's caret sits (`visual_layout.zig:689-694`).
 const PROMPT_CELLS: u16 = 2;
 
 /// How much of a refused tool's own words a notice quotes back.
@@ -778,71 +807,97 @@ impl Shell {
     }
 
     /// The band's rows, top first, starting at the band's own top row -- the
-    /// activity row while a turn is running, and the divider otherwise.
+    /// blank row above the activity row while a turn is running, and the
+    /// composer's first row otherwise.
     ///
-    /// Exactly as many rows as the band owns: the writer places them by
-    /// counting down from the divider, so a row missing here would shift every
-    /// row below it up by one.
+    /// Exactly as many rows as the band owns, in upstream's footer order
+    /// (`paint_plan.zig:660-960`): the writer places them by counting down from
+    /// the band's top, so a row missing here would shift every row below it up
+    /// by one.
     pub(crate) fn band_rows(&self) -> Vec<String> {
         let mut rows = Vec::with_capacity(usize::from(self.geometry.band_rows()));
-        // What the turn is doing, above the rule, and only while the geometry
-        // says the band owns that row: the row's presence and its text are one
-        // fact settled together ([`Self::tick_activity`]), and a band that
-        // painted a row the geometry did not give it would push its hint row
-        // off the bottom of the screen. Painted through the same clip+reset
-        // wrapper every other band row uses, so the palette's neutral,
-        // ongoing-status colour ([`Palette::activity`]) cannot leak onto the
-        // composer or the document below it.
+        // What the turn is doing, between a blank row above it and one below
+        // it, and only while the geometry says the band owns those rows: the
+        // row's presence and its text are one fact settled together
+        // ([`Self::tick_activity`]), and a band that painted rows the geometry
+        // did not give it would push its hint row off the bottom of the screen.
+        // Painted through the same clip+reset wrapper every other band row
+        // uses, so the palette's neutral, ongoing-status colour
+        // ([`Palette::activity`]) cannot leak onto the composer.
         if self.geometry.activity.is_some() {
+            let padding = usize::from(self.geometry.activity_padding);
+            rows.extend(std::iter::repeat_n(String::new(), padding));
             rows.push(self.painted(
                 self.palette.activity(),
                 self.activity_row.clone().unwrap_or_default(),
             ));
+            rows.extend(std::iter::repeat_n(String::new(), padding));
+        }
+        // The composer's own rows, as many of them as the window shows, each
+        // behind upstream's rail: `┃` in the hint colour and a space, or `┃↑`
+        // on the first row shown when rows above it are scrolled out of view
+        // (`input_presentation.zig:977-992`).
+        let composer = self.editor.rows(self.text_cols());
+        let window = self.window(composer.len());
+        let first_shown = window.start;
+        let mut shown = 0;
+        for index in window {
+            let marker = if index == first_shown && first_shown > 0 {
+                RAIL_HIDDEN_ABOVE
+            } else {
+                RAIL
+            };
+            let gap = if marker == RAIL { " " } else { "" };
+            rows.push(format!(
+                "{}{marker}{}{gap}{}",
+                self.palette.hint(),
+                self.palette.reset(),
+                composer[index]
+            ));
+            shown += 1;
+        }
+        // A composer shorter than the rows the geometry gave it. Those rows are
+        // the band's, so they are written -- blank -- rather than left out: a
+        // row the frame does not place is a row the last frame's text stays on.
+        while shown < usize::from(self.geometry.input_rows()) {
+            rows.push(String::new());
+            shown += 1;
         }
         // The question -- or, when there is no question, the completion menu --
-        // in the rows the geometry gave the slot and only while it gave them:
-        // the block's height and the band's are one fact settled together
-        // ([`Self::refit`]), so rows painted without the geometry's agreement
-        // would push the hint row off the bottom of the screen. The order is
+        // between two rules under the composer, in the rows the geometry gave
+        // the slot and only while it gave them: the block's height and the
+        // band's are one fact settled together ([`Self::refit`]). The order is
         // the one [`Self::fit`] solved with, and it is the whole of "they are
-        // mutually exclusive": a question outranks a menu.
+        // mutually exclusive": a question outranks a menu. With no panel the
+        // bottom rule is a blank row (`paint_plan.zig:937-941`).
         if self.geometry.panel > 0 {
-            match self.slot() {
-                Some(Slot::Question(panel)) => {
-                    rows.extend(panel.rows(self.geometry.cols, self.geometry.rows));
-                }
-                Some(Slot::Ask(ask)) => {
-                    rows.extend(ask.rows(self.geometry.cols, self.geometry.rows));
-                }
-                Some(Slot::Menu(picker)) => {
-                    rows.extend(picker.rows(self.geometry.cols, self.geometry.rows));
-                }
-                None => {}
-            }
-        }
-        rows.push(self.painted(
-            self.palette.divider(),
-            std::iter::repeat_n(RULE, usize::from(self.geometry.cols)).collect(),
-        ));
-        // The composer's own rows, as many of them as the window shows, each in
-        // the gutter the marker owns.
-        let composer = self.editor.rows(self.text_cols());
-        for index in self.window(composer.len()) {
-            let marker = if index == 0 { PROMPT } else { GUTTER };
-            rows.push(format!("{marker}{}", composer[index]));
-        }
-        // A composer shorter than the band it is in. The remaining rows are the
-        // band's, so they are written -- blank -- rather than left out: a row
-        // the frame does not place is a row the last frame's text stays on.
-        // Counted against the band's own height rather than against the
-        // composer's, because the rows above the rule are the band's too.
-        while rows.len() + 1 < usize::from(self.geometry.band_rows()) {
+            rows.push(self.rule());
+            let mut panel = match self.slot() {
+                Some(Slot::Question(panel)) => panel.rows(self.geometry.cols, self.geometry.rows),
+                Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
+                Some(Slot::Menu(picker)) => picker.rows(self.geometry.cols, self.geometry.rows),
+                None => Vec::new(),
+            };
+            // Exactly the panel's rows: one that answered with fewer is padded
+            // blank, and the bottom rule stays on the row the geometry put it.
+            panel.resize(usize::from(self.geometry.panel), String::new());
+            rows.extend(panel);
+            rows.push(self.rule());
+        } else {
             rows.push(String::new());
         }
         // The hint row: what a turn will be run with, in upstream's order and
         // budgeted to the screen ([`super::hint`]).
-        rows.push(self.painted(self.palette.hint(), self.hint_row()));
+        rows.push(self.painted(self.palette.statusline(), self.hint_row()));
         rows
+    }
+
+    /// A rule across the whole screen, in the divider's colour.
+    fn rule(&self) -> String {
+        self.painted(
+            self.palette.divider(),
+            std::iter::repeat_n(RULE, usize::from(self.geometry.cols)).collect(),
+        )
     }
 
     /// `text` in one of the palette's colours, ended.
@@ -896,7 +951,7 @@ impl Shell {
         let notice = self.notice.map(|text| Notice {
             text,
             style: self.palette.notice(),
-            resume: self.palette.hint(),
+            resume: self.palette.statusline(),
         });
         hint::row(
             &Hint {
@@ -912,6 +967,7 @@ impl Shell {
                 // session, and a warning that moved left and right with the
                 // queue's depth would be one the eye has to look for.
                 right: self.escape_armed.then_some(ESCAPE_ARMED),
+                accent: (self.palette.activity(), self.palette.statusline()),
             },
             self.geometry.cols,
         )
@@ -1075,6 +1131,15 @@ impl Shell {
         if self.transcript.queue_push(text, role) {
             self.owed();
         }
+    }
+
+    /// Writes upstream's welcome line as the session's first document row, with
+    /// a blank row under it (`render.zig:181-193`, `c1db919`).
+    pub(crate) fn welcome(&mut self) {
+        let line = welcome_line(self.palette);
+        self.write_transcript_as(&line, Role::Plain);
+        self.end_transcript_line();
+        self.end_transcript_line();
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -3904,10 +3969,20 @@ mod tests {
                 return row;
             }
             let inside = row
-                .strip_prefix(PALETTE.hint())
+                .strip_prefix(PALETTE.statusline())
                 .and_then(|row| row.strip_suffix(PALETTE.reset()))
                 .unwrap_or_else(|| panic!("the hint row was not painted in the palette: {row:?}"));
-            inside.to_string()
+            // The permission mode's accent, taken off with the colour it
+            // lifts the mode out of and nothing else.
+            ["auto", "yolo"]
+                .iter()
+                .fold(inside.to_string(), |row, mode| {
+                    row.replacen(
+                        &format!("{}{mode}{}", PALETTE.activity(), PALETTE.statusline()),
+                        mode,
+                        1,
+                    )
+                })
         }
 
         /// Plays the runtime taking one piece of work off the channel, which is
@@ -3960,6 +4035,20 @@ mod tests {
         }
     }
 
+    /// A composer row holding `text`, rail and all, as the band paints it.
+    fn composer_row(text: &str) -> String {
+        format!("{}{RAIL}{} {text}", PALETTE.hint(), PALETTE.reset())
+    }
+
+    /// The first composer row shown when rows above it are scrolled away.
+    fn composer_row_below_hidden(text: &str) -> String {
+        format!(
+            "{}{RAIL_HIDDEN_ABOVE}{}{text}",
+            PALETTE.hint(),
+            PALETTE.reset()
+        )
+    }
+
     /// The divider row a `cols`-wide band paints, colour and all.
     fn divider(cols: usize) -> String {
         format!(
@@ -3996,7 +4085,20 @@ mod tests {
 
     /// One hint row, painted the way the band paints it.
     fn hint_row(text: &str) -> String {
-        format!("{}{text}{}", PALETTE.hint(), PALETTE.reset())
+        // The permission mode is lifted out of the row's grey in the accent
+        // grey, and the row's grey resumed behind it (`render.zig:235-241`).
+        let accented = ["auto", "yolo"].iter().fold(text.to_string(), |row, mode| {
+            row.replacen(
+                &format!("{mode} \u{b7} "),
+                &format!(
+                    "{}{mode}{} \u{b7} ",
+                    PALETTE.activity(),
+                    PALETTE.statusline()
+                ),
+                1,
+            )
+        });
+        format!("{}{accented}{}", PALETTE.statusline(), PALETTE.reset())
     }
 
     /// A document row with the sequences a **role** put on it taken off, and
@@ -4056,7 +4158,7 @@ mod tests {
     }
 
     #[test]
-    fn the_band_is_a_rule_the_composer_and_a_hint_row() {
+    fn the_band_is_the_composer_a_rule_and_a_hint_row() {
         let shell = shell(24, 80);
         let rows = shell.band_rows();
         assert_eq!(
@@ -4065,8 +4167,8 @@ mod tests {
             "the band's rows and its geometry disagree, so every row below the \
              first missing one is painted a row too high"
         );
-        assert_eq!(rows[0], divider(80), "the divider");
-        assert_eq!(rows[1], "> ", "the composer's prompt marker");
+        assert_eq!(rows[0], composer_row(""), "the composer's rail");
+        assert_eq!(rows[1], "", "the rule under it is blank with no menu up");
         assert_eq!(
             rows[2],
             hint_row(IDLE_HINT),
@@ -4121,7 +4223,7 @@ mod tests {
         let warning = row.find(ESCAPE_ARMED).expect("the warning is on the row");
         let before = &row[..warning];
         assert!(
-            before.rfind(PALETTE.hint()) > before.rfind(PALETTE.notice()),
+            before.rfind(PALETTE.statusline()) > before.rfind(PALETTE.notice()),
             "the warning is painted in the refusal's colour: {row:?}"
         );
         // Non-vacuous in both directions: the refusal really was cut, and it
@@ -4146,19 +4248,26 @@ mod tests {
     }
 
     #[test]
-    fn the_divider_spans_the_screen_it_was_solved_for() {
+    fn the_rules_span_the_screen_they_were_solved_for() {
         // A rule of a fixed width would leave a gap on a wide terminal and run
         // off a narrow one -- and with autowrap off, running off is silent.
+        // The two rules are drawn only while a menu is up, so one is opened.
         for cols in [20u16, 80, 200] {
-            let shell = shell(24, cols);
-            // Measured in **cells**, by the painter's own rule, because the
-            // row carries the palette now and an escape sequence is characters
-            // that cost no columns.
-            assert_eq!(
-                super::super::wrap::width(&shell.band_rows()[0]),
-                cols,
-                "the rule did not span a {cols}-column screen"
-            );
+            let mut shell = shell(24, cols);
+            shell.route_bytes(b"/");
+            let rows = shell.band_rows();
+            let rule_rows = [1, rows.len() - 2];
+            for index in rule_rows {
+                // Measured in **cells**, by the painter's own rule, because the
+                // row carries the palette and an escape sequence is characters
+                // that cost no columns.
+                assert_eq!(
+                    super::super::wrap::width(&rows[index]),
+                    cols,
+                    "the rule on row {index} did not span a {cols}-column screen: {rows:?}"
+                );
+                assert!(rows[index].starts_with(PALETTE.divider()), "{rows:?}");
+            }
         }
     }
 
@@ -4175,21 +4284,26 @@ mod tests {
             work,
         );
         let rows = shell.band_rows();
-        assert_eq!(rows.len(), 6, "divider, four composer rows, hint");
-        assert_eq!(rows[1], "> ");
+        assert_eq!(rows.len(), 6, "four composer rows, the rule, hint");
+        assert_eq!(rows[0], composer_row(""));
         assert_eq!(
-            &rows[2..5],
-            &["".to_string(), "".to_string(), "".to_string()]
+            &rows[1..5],
+            &[
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string()
+            ]
         );
     }
 
     #[test]
     fn the_caret_sits_after_the_prompt_marker_on_the_composers_first_row() {
         let shell = shell(24, 80);
-        assert_eq!(shell.cursor(), (23, 2));
+        assert_eq!(shell.cursor(), (22, 2));
         assert_eq!(
             shell.cursor().1,
-            u16::try_from(PROMPT.chars().count()).expect("the marker's width"),
+            super::super::wrap::width(RAIL) + 1,
             "the caret and the marker were measured apart, so they can drift"
         );
     }
@@ -4353,9 +4467,9 @@ mod tests {
         let _first = shell.render.begin().expect("the first frame");
 
         shell.route_bytes("hello \u{d55c}\u{ae00}".as_bytes());
-        assert_eq!(shell.band_rows()[1], "> hello \u{d55c}\u{ae00}");
+        assert_eq!(shell.band_rows()[0], composer_row("hello \u{d55c}\u{ae00}"));
         // Two cells of gutter, six of "hello ", and two apiece for the glyphs.
-        assert_eq!(shell.cursor(), (23, 12));
+        assert_eq!(shell.cursor(), (22, 12));
         assert!(
             shell.render.begin().is_some(),
             "typing asked for no frame, so the band would go on showing a \
@@ -4372,7 +4486,7 @@ mod tests {
         shell.route_bytes(b"ab");
         let _typed = shell.render.begin().expect("the frame the typing owed");
         shell.route_bytes(b"\x1b[D");
-        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.cursor(), (22, 3));
         assert!(
             shell.render.begin().is_some(),
             "the caret moved and no frame was asked for, so the terminal's \
@@ -4388,7 +4502,7 @@ mod tests {
         // control the terminal obeys into the transcript on submit.
         let mut shell = shell(24, 80);
         shell.route_bytes(b"a\tb\x00c\xc2\x9bd");
-        assert_eq!(shell.band_rows()[1], "> abcd");
+        assert_eq!(shell.band_rows()[0], composer_row("abcd"));
     }
 
     #[test]
@@ -4403,10 +4517,14 @@ mod tests {
             !shell.leaving(),
             "Ctrl-D threw away a draft instead of deleting a character"
         );
-        assert_eq!(shell.band_rows()[1], "> ello");
+        assert_eq!(shell.band_rows()[0], composer_row("ello"));
 
         shell.route_bytes(&[0x05, 0x15]);
-        assert_eq!(shell.band_rows()[1], "> ", "Ctrl-U left text behind");
+        assert_eq!(
+            shell.band_rows()[0],
+            composer_row(""),
+            "Ctrl-U left text behind"
+        );
         shell.route_bytes(&[0x04]);
         assert!(shell.leaving(), "Ctrl-D did not leave an empty composer");
     }
@@ -4430,7 +4548,7 @@ mod tests {
         shell.route_bytes(b"ab\x1b");
         shell.route_bytes(b"[D");
         shell.route_bytes(b"X");
-        assert_eq!(shell.band_rows()[1], "> aXb");
+        assert_eq!(shell.band_rows()[0], composer_row("aXb"));
     }
 
     #[test]
@@ -4444,8 +4562,8 @@ mod tests {
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"a");
         assert_eq!(
-            shell.band_rows()[1],
-            "> a",
+            shell.band_rows()[0],
+            composer_row("a"),
             "the keystroke after a settled Escape was eaten as a modifier"
         );
     }
@@ -4456,7 +4574,11 @@ mod tests {
         let _first = shell.render.begin().expect("the first frame");
         shell.route_bytes(b"ask me\r");
 
-        assert_eq!(shell.band_rows()[1], "> ", "the composer kept the text");
+        assert_eq!(
+            shell.band_rows()[0],
+            composer_row(""),
+            "the composer kept the text"
+        );
         assert_eq!(
             shell.take_pending(),
             vec![Append {
@@ -4531,7 +4653,10 @@ mod tests {
             shell.take_pending().is_empty(),
             "a newline submitted itself"
         );
-        assert_eq!(&shell.band_rows()[1..3], &["> first", "  second"]);
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("first"), composer_row("second")]
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -4554,7 +4679,10 @@ mod tests {
             shell.sent.try_recv().is_err(),
             "a pasted newline sent a prompt to the runtime"
         );
-        assert_eq!(&shell.band_rows()[1..3], &["> first line", "  second line"]);
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("first line"), composer_row("second line")]
+        );
     }
 
     #[test]
@@ -4567,8 +4695,8 @@ mod tests {
         shell.route_bytes(b"\x1b[200~a\x03b\x1b[Ac\x1b[201~");
 
         assert_eq!(
-            shell.band_rows()[1],
-            "> ab[Ac",
+            shell.band_rows()[0],
+            composer_row("ab[Ac"),
             "a control byte inside a paste was taken as the key it looks like"
         );
         assert!(
@@ -4589,8 +4717,8 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
 
         assert_eq!(
-            shell.band_rows()[1],
-            "> [Pasted text #1, 2 lines]",
+            shell.band_rows()[0],
+            composer_row("[Pasted text #1, 2 lines]"),
             "the composer was given the block rather than a summary of it"
         );
 
@@ -5473,11 +5601,11 @@ mod tests {
         assert_eq!(shell.editor.text(), "Zabc");
         // Column 3: two cells of prompt marker, then the one byte in front of
         // the caret.
-        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.cursor(), (22, 3));
 
         shell.route_bytes(&[0x1f]);
         assert_eq!(shell.editor.text(), "abc");
-        assert_eq!(shell.cursor(), (23, 2), "the caret did not go back with it");
+        assert_eq!(shell.cursor(), (22, 2), "the caret did not go back with it");
         assert_eq!(
             shell.edit_depths(),
             (3, 1),
@@ -5486,7 +5614,7 @@ mod tests {
 
         shell.act(Action::Redo, Instant::now());
         assert_eq!(shell.editor.text(), "Zabc");
-        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.cursor(), (22, 3));
         assert_eq!(shell.edit_depths(), (4, 0));
     }
 
@@ -5790,7 +5918,7 @@ mod tests {
         // has the turn's row above the divider here.
         assert_eq!(
             shell.marked(),
-            "> fresh",
+            composer_row("fresh"),
             "a paste the question interrupted leaked into the next one"
         );
     }
@@ -5829,16 +5957,16 @@ mod tests {
     #[test]
     fn the_band_grows_with_the_composer_and_shrinks_back_with_it() {
         let mut shell = shell(24, 80);
-        assert_eq!(shell.geometry.divider, 22);
+        assert_eq!(shell.geometry.input_first, 22);
         shell.route_bytes(b"one\x0atwo\x0athree");
         assert_eq!(shell.geometry.input_rows(), 3);
         assert_eq!(
-            (shell.geometry.divider, shell.geometry.content_bottom),
+            (shell.geometry.input_first, shell.geometry.content_bottom),
             (20, 19),
-            "the composer took rows from the document without moving the \
-             divider, so the band and the document overlap"
+            "the composer took rows from the document without moving its \
+             first row up, so the band and the document overlap"
         );
-        assert_eq!(shell.cursor(), (23, 7), "the caret is on the last row");
+        assert_eq!(shell.cursor(), (22, 7), "the caret is on the last row");
 
         // Back to one row, and every row number back with it. A kill takes the
         // line it is on, so what empties a three-line draft is submitting it.
@@ -5849,9 +5977,9 @@ mod tests {
             "the kill took a whole draft"
         );
         shell.route_bytes(&[0x0d]);
-        assert_eq!(shell.band_rows().len(), 3, "divider, composer, hint");
+        assert_eq!(shell.band_rows().len(), 3, "composer, rule, hint");
         assert_eq!(
-            (shell.geometry.divider, shell.geometry.content_bottom),
+            (shell.geometry.input_first, shell.geometry.content_bottom),
             (22, 21),
             "the band kept rows the document had back"
         );
@@ -5866,34 +5994,34 @@ mod tests {
         assert_eq!(crate::tui::layout::input_row_limit(12), 5);
         shell.route_bytes(b"one\x0atwo\x0athree\x0afour\x0afive");
         assert_eq!(shell.geometry.input_rows(), 5);
-        assert_eq!(shell.geometry.divider, 6);
+        assert_eq!(shell.geometry.input_first, 6);
         assert_eq!(
-            shell.band_rows()[1..6],
+            shell.band_rows()[0..5],
             [
-                "> one".to_string(),
-                "  two".to_string(),
-                "  three".to_string(),
-                "  four".to_string(),
-                "  five".to_string(),
+                composer_row("one"),
+                composer_row("two"),
+                composer_row("three"),
+                composer_row("four"),
+                composer_row("five"),
             ]
         );
 
         shell.route_bytes(b"\x0asix");
         assert_eq!(shell.geometry.input_rows(), 5, "the cap did not hold");
         assert_eq!(
-            shell.band_rows()[1..6],
+            shell.band_rows()[0..5],
             [
-                "  two".to_string(),
-                "  three".to_string(),
-                "  four".to_string(),
-                "  five".to_string(),
-                "  six".to_string(),
+                composer_row_below_hidden("two"),
+                composer_row("three"),
+                composer_row("four"),
+                composer_row("five"),
+                composer_row("six"),
             ],
             "the window did not follow the caret"
         );
         assert_eq!(
             shell.cursor(),
-            (11, 5),
+            (10, 5),
             "the caret is on the band's last composer row"
         );
     }
@@ -5915,14 +6043,19 @@ mod tests {
 
         assert_eq!(shell.geometry.input_rows(), 11, "the cap");
         let rows = shell.band_rows();
-        assert_eq!(rows[1], "  x", "the window is not showing the draft's end");
         assert_eq!(
-            rows[11], "  ",
+            rows[0],
+            composer_row_below_hidden("x"),
+            "the window is not showing the draft's end"
+        );
+        assert_eq!(
+            rows[10],
+            composer_row(""),
             "the last composer row is the empty one the caret is on: {rows:?}"
         );
         assert_eq!(
             shell.cursor(),
-            (23, 2),
+            (22, 2),
             "the caret is not on the band's last composer row"
         );
     }
@@ -5962,10 +6095,10 @@ mod tests {
         let mut shell = shell(24, 20);
         shell.route_bytes(&[b'x'; 19]);
         assert_eq!(
-            &shell.band_rows()[1..3],
-            &["> ".to_string() + &"x".repeat(18), "  x".to_string()]
+            &shell.band_rows()[0..2],
+            &[composer_row(&"x".repeat(18)), composer_row("x")]
         );
-        assert_eq!(shell.cursor(), (23, 3));
+        assert_eq!(shell.cursor(), (22, 3));
         for row in shell.band_rows() {
             assert!(
                 crate::tui::wrap::width(&row) <= 20,
@@ -6030,14 +6163,15 @@ mod tests {
     }
 
     #[test]
-    fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_divider() {
-        // The band gains a row while a turn runs, and it comes off the bottom
-        // of the document rather than moving the composer: the caret must not
-        // jump because a turn started.
+    fn a_running_turn_says_what_it_is_doing_on_the_row_above_the_composer() {
+        // The band gains three rows while a turn runs -- the activity row with
+        // a blank row on either side (`activity_placement.zig`) -- and they come
+        // off the bottom of the document rather than moving the composer: the
+        // caret must not jump because a turn started.
         let mut shell = shell(24, 80);
         let idle = shell.geometry;
         assert_eq!(idle.activity, None);
-        assert_eq!(shell.band_rows()[0], divider(80));
+        assert_eq!(shell.band_rows()[0], composer_row(""));
 
         let started = turn_running(&mut shell, b"ask something\r");
         shell.settle_band(started + Duration::from_secs(2));
@@ -6045,12 +6179,12 @@ mod tests {
         let geometry = shell.geometry;
         assert_eq!(
             geometry.activity,
-            Some(geometry.divider - 1),
-            "the row is not the one directly above the divider"
+            Some(geometry.input_first - 2),
+            "the row is not the one a blank row above the composer"
         );
-        assert_eq!(geometry.divider, idle.divider, "the divider moved");
+        assert_eq!(geometry.divider, idle.divider, "the rule moved");
         assert_eq!(geometry.input_first, idle.input_first, "the caret moved");
-        assert_eq!(geometry.content_bottom, idle.content_bottom - 1);
+        assert_eq!(geometry.content_bottom, idle.content_bottom - 3);
 
         let rows = shell.band_rows();
         assert_eq!(
@@ -6058,28 +6192,36 @@ mod tests {
             usize::from(geometry.band_rows()),
             "the band's rows and its geometry disagree: {rows:?}"
         );
-        assert!(rows[0].contains("Thinking"), "{rows:?}");
+        assert!(rows[1].contains("Thinking"), "{rows:?}");
         // The clock is the turn's own, from the settle that first measured it,
         // so this is two seconds exactly however long the rest of the test
         // takes.
-        assert!(rows[0].contains("2s"), "{rows:?}");
+        assert!(rows[1].contains("2s"), "{rows:?}");
         // Literal, not derived from `Palette::activity` itself: a check that
         // asked the accessor what it expects would pass for whatever
         // `theme.rs` happened to declare. `252` is upstream's own dark index
         // for this row (`shimmer_runtime.zig:262-291`'s
         // `permission_auto_style`, `render.zig:55,86,105`).
         assert!(
-            rows[0].starts_with("\u{1b}[38;5;252m"),
+            rows[1].starts_with("\u{1b}[38;5;252m"),
             "the activity row is not painted in the dark palette's literal \
              foreground: {rows:?}"
         );
         assert!(
-            rows[0].ends_with("\u{1b}[0m"),
+            rows[1].ends_with("\u{1b}[0m"),
             "the activity row's colour was left open: {rows:?}"
         );
-        assert_eq!(rows[1], divider(80), "the rule moved");
-        assert!(
-            !rows[2].contains('\u{1b}'),
+        assert_eq!(
+            rows[0], "",
+            "no blank row between the document and the activity row"
+        );
+        assert_eq!(
+            rows[2], "",
+            "no blank row between the activity row and the composer"
+        );
+        assert_eq!(
+            rows[3],
+            composer_row(""),
             "the activity row's colour leaked onto the composer below it: {rows:?}"
         );
         assert_eq!(rows.last().expect("a hint row"), &hint_row(IDLE_HINT));
@@ -6097,16 +6239,16 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[0].contains("Thinking") && rows[0].contains("2s"),
+            rows[1].contains("Thinking") && rows[1].contains("2s"),
             "{rows:?}"
         );
         assert!(
-            rows[0].starts_with("\u{1b}[38;5;238m"),
+            rows[1].starts_with("\u{1b}[38;5;238m"),
             "the activity row is not painted in the light palette's literal \
              foreground: {rows:?}"
         );
         assert!(
-            rows[0].ends_with("\u{1b}[0m"),
+            rows[1].ends_with("\u{1b}[0m"),
             "the activity row's colour was left open: {rows:?}"
         );
     }
@@ -6137,7 +6279,7 @@ mod tests {
         let started = turn_running(&mut shell, b"first\r");
         shell.settle_band(started + Duration::from_secs(2));
         assert!(
-            shell.band_rows()[0].contains("2s"),
+            shell.band_rows()[1].contains("2s"),
             "{:?}",
             shell.band_rows()
         );
@@ -6147,7 +6289,7 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[0].contains("3s"),
+            rows[1].contains("3s"),
             "the queued prompt restarted the running turn's clock: {rows:?}"
         );
     }
@@ -6165,7 +6307,7 @@ mod tests {
         shell.route_bytes(b"second\r");
         shell.settle_band(started + Duration::from_secs(2));
         assert!(
-            shell.band_rows()[0].contains("2s"),
+            shell.band_rows()[1].contains("2s"),
             "{:?}",
             shell.band_rows()
         );
@@ -6177,12 +6319,12 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[0].contains("0s"),
+            rows[1].contains("0s"),
             "the queued turn inherited the finished turn's clock: {rows:?}"
         );
         shell.settle_band(started + Duration::from_secs(5));
         assert!(
-            shell.band_rows()[0].contains("2s"),
+            shell.band_rows()[1].contains("2s"),
             "{:?}",
             shell.band_rows()
         );
@@ -6273,7 +6415,7 @@ mod tests {
         });
         shell.settle_band(started + Duration::from_millis(50));
         assert!(
-            shell.band_rows()[0].contains("read_file"),
+            shell.band_rows()[1].contains("read_file"),
             "{:?}",
             shell.band_rows()
         );
@@ -6286,12 +6428,12 @@ mod tests {
         });
         shell.settle_band(started + Duration::from_millis(100));
         let rows = shell.band_rows();
-        assert!(rows[0].contains("Thinking"), "{rows:?}");
-        assert!(!rows[0].contains("read_file"), "{rows:?}");
+        assert!(rows[1].contains("Thinking"), "{rows:?}");
+        assert!(!rows[1].contains("read_file"), "{rows:?}");
         // The tool was part of the turn, so the turn's clock ran through it.
         shell.settle_band(started + Duration::from_secs(4));
         assert!(
-            shell.band_rows()[0].contains("4s"),
+            shell.band_rows()[1].contains("4s"),
             "{:?}",
             shell.band_rows()
         );
@@ -6311,7 +6453,7 @@ mod tests {
         assert_eq!(shell.geometry.activity, working.activity);
         assert_eq!(shell.geometry.content_bottom, working.content_bottom);
         shell.settle_band(started + Duration::from_millis(50));
-        assert!(shell.band_rows()[0].contains("Thinking"));
+        assert!(shell.band_rows()[1].contains("Thinking"));
     }
 
     #[test]
@@ -6330,7 +6472,7 @@ mod tests {
             markers.insert(
                 shell
                     .band_rows()
-                    .first()
+                    .get(1)
                     // The row now opens with the activity role's colour
                     // (`Self::band_rows`), so the marker's own cell is past
                     // it rather than at the row's first character.
@@ -6807,11 +6949,11 @@ mod tests {
     }
 
     #[test]
-    fn a_question_takes_the_rows_above_the_rule_and_leaves_the_composer_where_it_was() {
-        // The band grows upward for a question exactly as it does for a turn:
-        // the divider, the composer and everything below stay put, and the rows
-        // come off the bottom of the document. A panel that moved the composer
-        // would make answering it start with finding where the caret went.
+    fn a_question_takes_rows_between_the_composer_and_the_rule() {
+        // Upstream's picker slot (`footer_layout.zig:85-96`): the question sits
+        // under the composer between two rules, so the bottom rule and the hint
+        // row stay put and the composer moves up by the panel and the rule that
+        // heads it. Those rows come off the bottom of the document.
         let mut shell = shell(24, 80);
         let working = {
             let started = turn_running(&mut shell, b"edit the notes\r");
@@ -6827,11 +6969,14 @@ mod tests {
             "the band did not give the question the rows it measured"
         );
         assert_eq!(shell.geometry.divider, working.divider);
-        assert_eq!(shell.geometry.input_first, working.input_first);
+        assert_eq!(
+            shell.geometry.input_first,
+            working.input_first - PANEL_ROWS - 1
+        );
         assert_eq!(shell.geometry.hint, working.hint);
         assert_eq!(
             shell.geometry.content_bottom,
-            working.content_bottom - PANEL_ROWS
+            working.content_bottom - PANEL_ROWS - 1
         );
 
         let rows = shell.band_rows();
@@ -7706,7 +7851,7 @@ mod tests {
 
     #[test]
     fn a_screen_too_small_for_the_question_cancels_it_rather_than_painting_half() {
-        let mut fixture = shell(6, 20);
+        let mut fixture = shell(7, 20);
         asking_question(&mut fixture, a_batch());
         assert!(matches!(
             fixture.control.try_recv(),
@@ -7956,7 +8101,11 @@ mod tests {
         // the refusal does whether or not anything follows it.
         assert_eq!(
             shell.hint(),
-            format!("{}{QUEUE_REJECTED}{}", PALETTE.notice(), PALETTE.hint())
+            format!(
+                "{}{QUEUE_REJECTED}{}",
+                PALETTE.notice(),
+                PALETTE.statusline()
+            )
         );
         assert!(
             shell.document().is_empty(),
@@ -8814,7 +8963,7 @@ mod tests {
         // rows here, one row at eighty.
         shell.route_bytes("x".repeat(50).as_bytes());
         assert_eq!(shell.geometry.input_rows(), 2);
-        let narrow_divider = shell.geometry.divider;
+        let narrow_top = shell.geometry.input_first;
         shell.apply(UiEvent::Delta("y".repeat(50)));
         let _ = shell.released();
 
@@ -8831,8 +8980,8 @@ mod tests {
             "the draft was re-solved against the width it no longer has"
         );
         assert!(
-            shell.geometry.divider > narrow_divider,
-            "the divider did not move when the composer stopped wrapping"
+            shell.geometry.input_first > narrow_top,
+            "the composer's first row did not move when it stopped wrapping"
         );
         // The composer's rows, as the band now paints them: one row, not two.
         let rows = shell.band_rows();
@@ -8988,7 +9137,7 @@ mod tests {
     }
 
     #[test]
-    fn a_resize_keeps_the_turns_row_above_the_divider() {
+    fn a_resize_keeps_the_turns_row_above_the_composer() {
         // The band's other height. A re-solve that defaulted it would take the
         // activity row away from a turn that is still running, and the next
         // settle would put it back -- one frame of the band jumping for every
@@ -9003,7 +9152,10 @@ mod tests {
             shell.geometry.activity.is_some(),
             "the running turn lost its row when the screen changed size"
         );
-        assert_eq!(shell.geometry.activity, Some(shell.geometry.divider - 1));
+        assert_eq!(
+            shell.geometry.activity,
+            Some(shell.geometry.input_first - 2)
+        );
     }
 
     #[test]
@@ -9064,8 +9216,8 @@ mod tests {
     // the inline slash menu
     // -----------------------------------------------------------------------
 
-    /// The band's rows above the divider: what the menu, if there is one, put
-    /// there.
+    /// The band's rows between the two rules under the composer: what the
+    /// menu, if there is one, put there. Empty while no rule is drawn.
     ///
     /// Read off the painted band rather than off the field, because the claim
     /// every case below makes is about what is on the screen -- and a menu the
@@ -9074,15 +9226,14 @@ mod tests {
     fn menu(shell: &Shell) -> Vec<String> {
         let rows = shell.band_rows();
         let rule = divider(usize::from(shell.geometry.cols));
-        let at = rows
+        let Some(first) = rows.iter().position(|row| *row == rule) else {
+            return Vec::new();
+        };
+        let last = rows
             .iter()
-            .position(|row| *row == rule)
-            .expect("the band has a divider");
-        // Past the row a running turn owns, which is above the slot rather than
-        // in it: a reader that counted it would report an idle band as one with
-        // a one-row menu on it the moment a turn started.
-        let from = usize::from(u8::from(shell.geometry.activity.is_some()));
-        rows[from..at].to_vec()
+            .rposition(|row| *row == rule)
+            .expect("a first rule is a rule");
+        rows[first + 1..last].to_vec()
     }
 
     #[test]
@@ -9138,7 +9289,7 @@ mod tests {
             "the caret left the text the user is typing"
         );
         // And the row it is on is the composer's, holding the draft.
-        assert_eq!(shell.marked(), format!("{PROMPT}/mo"));
+        assert_eq!(shell.marked(), composer_row("/mo"));
     }
 
     #[test]
@@ -9385,7 +9536,7 @@ mod tests {
         // refusing it.
         assert_eq!(
             shell.geometry.panel, 1,
-            "a six-row screen with a turn on it did not get its one menu row: {:?}",
+            "a seven-row screen with a turn on it did not get its one menu row: {:?}",
             shell.geometry
         );
         assert_eq!(menu(&shell).len(), 1, "{:?}", menu(&shell));
@@ -9409,16 +9560,16 @@ mod tests {
                 shell.geometry.hint,
                 shell.geometry.content_bottom,
             ),
-            (Some(2), 3, 4, 5, 6, 1),
-            "the six rows are not laid out as a turn, a menu, a rule, a \
-             composer and a hint with one document row left: {:?}",
+            (Some(2), 5, 6, 3, 7, 1),
+            "the seven rows are not laid out as a turn, the composer, a rule, \
+             a menu, a rule and a hint with one document row left: {:?}",
             shell.geometry
         );
 
         // The composer keeps its row and the caret stays in it.
         assert_eq!(shell.geometry.input_rows(), 1, "the composer lost its row");
-        assert_eq!(shell.cursor(), (5, PROMPT_CELLS + 1));
-        assert_eq!(shell.marked(), format!("{PROMPT}/"));
+        assert_eq!(shell.cursor(), (3, PROMPT_CELLS + 1));
+        assert_eq!(shell.marked(), composer_row("/"));
         // And the band paints exactly the rows it solved for.
         assert_eq!(
             shell.band_rows().len(),
@@ -9615,7 +9766,7 @@ mod tests {
             entries: vec![entry("fable", Some(200_000), &[])],
         });
         assert_eq!(shell.shell.context_meter(), None);
-        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+        assert!(!shell.hint().contains('%'), "{}", shell.hint());
 
         // A numerator with no denominator is not a meter either.
         let mut bare = fixture_with_no_catalog();
@@ -9625,7 +9776,7 @@ mod tests {
             output: Some(9),
         });
         assert_eq!(bare.shell.context_meter(), None);
-        assert!(!bare.hint().contains("Context"), "{}", bare.hint());
+        assert!(!bare.hint().contains('%'), "{}", bare.hint());
 
         // Both, and exactly one segment.
         shell.shell.apply(UiEvent::Usage {
@@ -9634,8 +9785,8 @@ mod tests {
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
         let row = shell.hint();
-        assert!(row.contains("Context: 12k/200k 6%"), "{row}");
-        assert_eq!(row.matches("Context:").count(), 1, "{row}");
+        assert!(row.contains("12k/200k 6%"), "{row}");
+        assert_eq!(row.matches('%').count(), 1, "{row}");
     }
 
     #[test]
@@ -9677,7 +9828,7 @@ mod tests {
             output: None,
         });
         assert_eq!(shell.shell.context_meter(), None);
-        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+        assert!(!shell.hint().contains('%'), "{}", shell.hint());
     }
 
     #[test]
@@ -9735,7 +9886,7 @@ mod tests {
             output: Some(9),
         });
         assert_eq!(shell.shell.context_meter(), Some((12_345, 200_000)));
-        assert!(shell.hint().contains("Context"), "{}", shell.hint());
+        assert!(shell.hint().contains("12k/200k"), "{}", shell.hint());
 
         shell.route_bytes(b"/new\r");
         assert_eq!(
@@ -9749,7 +9900,7 @@ mod tests {
             "the old conversation's tokens survived the session that ended"
         );
         assert_eq!(shell.shell.context_meter(), None);
-        assert!(!shell.hint().contains("Context"), "{}", shell.hint());
+        assert!(!shell.hint().contains('%'), "{}", shell.hint());
         assert_eq!(
             shell.shell.catalog.len(),
             1,
@@ -9831,26 +9982,26 @@ mod tests {
         shell.route_bytes(b"half typed");
 
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> second line");
+        assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
             shell.cursor(),
-            (23, 13),
+            (22, 13),
             "the caret is not at the end of the recalled line"
         );
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first line");
+        assert_eq!(shell.band_rows()[0], composer_row("first line"));
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> first line",
+            shell.band_rows()[0],
+            composer_row("first line"),
             "the walk wrapped past the oldest line"
         );
         shell.route_bytes(&[0x0e]);
-        assert_eq!(shell.band_rows()[1], "> second line");
+        assert_eq!(shell.band_rows()[0], composer_row("second line"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> half typed",
+            shell.band_rows()[0],
+            composer_row("half typed"),
             "the draft the walk began from was thrown away"
         );
     }
@@ -9891,7 +10042,7 @@ mod tests {
         // draft is a slash word, so the completion menu opens over the rows
         // above the rule -- and the caret staying in the composer is the same
         // claim the menu's own cases make.
-        assert_eq!(shell.marked(), "> /version");
+        assert_eq!(shell.marked(), composer_row("/version"));
     }
 
     #[test]
@@ -9912,16 +10063,16 @@ mod tests {
             "the third line was not refused, so this case proves nothing"
         );
         assert_eq!(
-            shell.band_rows()[1],
-            "> third",
+            shell.band_rows()[0],
+            composer_row("third"),
             "a refused submission threw the draft away"
         );
         // Cleared first, or the draft the refusal left standing would satisfy
         // this case without a single line having been recorded.
         shell.route_bytes(b"\x15");
-        assert_eq!(shell.band_rows()[1], "> ");
+        assert_eq!(shell.band_rows()[0], composer_row(""));
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> third");
+        assert_eq!(shell.band_rows()[0], composer_row("third"));
     }
 
     #[test]
@@ -9933,7 +10084,7 @@ mod tests {
         submitted(&mut shell, "real");
         submitted(&mut shell, "   ");
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> real");
+        assert_eq!(shell.band_rows()[0], composer_row("real"));
     }
 
     #[test]
@@ -9944,29 +10095,32 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"top\x0abottom");
-        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")]
+        );
         assert_eq!(
             shell.marked(),
-            "  bottom",
+            composer_row("bottom"),
             "the caret did not start on the draft's last row"
         );
 
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.marked(),
-            "> top",
+            composer_row("top"),
             "the arrow did not move the caret up a row of the draft"
         );
         assert_eq!(
-            &shell.band_rows()[1..3],
-            &["> top", "  bottom"],
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")],
             "an arrow inside the draft walked the history instead of the rows"
         );
 
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
-            shell.band_rows()[1],
-            "> sent",
+            shell.band_rows()[0],
+            composer_row("sent"),
             "the arrow at the first row did not reach the history"
         );
     }
@@ -9978,14 +10132,14 @@ mod tests {
         shell.route_bytes(b"half typed");
         shell.route_bytes(b"\x1b[A");
         assert_eq!(
-            shell.band_rows()[1],
-            "> sent",
+            shell.band_rows()[0],
+            composer_row("sent"),
             "the arrow at a one-row draft's only row did not reach the history"
         );
         shell.route_bytes(b"\x1b[B");
         assert_eq!(
-            shell.band_rows()[1],
-            "> half typed",
+            shell.band_rows()[0],
+            composer_row("half typed"),
             "the arrow at the last row did not bring the draft back"
         );
 
@@ -9997,14 +10151,17 @@ mod tests {
         shell.route_bytes(b"\x1b[B");
         assert_eq!(
             shell.marked(),
-            "  bottom",
+            composer_row("bottom"),
             "the arrow did not move back down"
         );
-        assert_eq!(&shell.band_rows()[1..3], &["> top", "  bottom"]);
+        assert_eq!(
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")]
+        );
         shell.route_bytes(b"\x1b[B");
         assert_eq!(
-            &shell.band_rows()[1..3],
-            &["> top", "  bottom"],
+            &shell.band_rows()[0..2],
+            &[composer_row("top"), composer_row("bottom")],
             "a Down at the last row of a draft nobody had recalled into changed it"
         );
     }
@@ -10019,8 +10176,8 @@ mod tests {
         shell.route_bytes(b"top\x0abottom");
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> sent",
+            shell.band_rows()[0],
+            composer_row("sent"),
             "C-p from the last row of a two-row draft only moved the caret"
         );
     }
@@ -10035,20 +10192,20 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
-        assert_eq!(shell.band_rows()[1], "> first!");
+        assert_eq!(shell.band_rows()[0], composer_row("first!"));
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "the walk carried on from the line the edit had left behind"
         );
         shell.route_bytes(&[0x0e]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> first!",
+            shell.band_rows()[0],
+            composer_row("first!"),
             "the edited line was not what the walk came back to"
         );
     }
@@ -10064,13 +10221,13 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
-        assert_eq!(shell.band_rows()[1], "> firs");
+        assert_eq!(shell.band_rows()[0], composer_row("firs"));
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "a deletion left the walk where it was"
         );
     }
@@ -10085,12 +10242,12 @@ mod tests {
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> second");
+        assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> first",
+            shell.band_rows()[0],
+            composer_row("first"),
             "a caret move ended the walk, so the recall began again at the newest line"
         );
     }
@@ -10107,7 +10264,7 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
@@ -10120,8 +10277,8 @@ mod tests {
 
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "the cleared composer went on walking from where the recall had reached"
         );
     }
@@ -10135,17 +10292,17 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes(b" and more");
         shell.route_bytes(b"\x1b[201~");
-        assert_eq!(shell.band_rows()[1], "> first and more");
+        assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "a pasted edit left the walk where it was"
         );
     }
@@ -10160,18 +10317,18 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
         // otherwise this case would be about the move rather than the delete.
         shell.route_bytes(&[0x01]);
         shell.route_bytes(&[0x04]);
-        assert_eq!(shell.band_rows()[1], "> irst");
+        assert_eq!(shell.band_rows()[0], composer_row("irst"));
 
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "a forward delete left the walk where it was"
         );
     }
@@ -10186,17 +10343,20 @@ mod tests {
         submitted(&mut shell, "second");
         shell.route_bytes(&[0x10]);
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> first");
+        assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
         shell.route_bytes("y".repeat(1200).as_bytes());
         shell.route_bytes(b"\x1b[201~");
-        assert_eq!(shell.band_rows()[1], "> first[Pasted text #1, 1 lines]");
+        assert_eq!(
+            shell.band_rows()[0],
+            composer_row("first[Pasted text #1, 1 lines]")
+        );
 
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> second",
+            shell.band_rows()[0],
+            composer_row("second"),
             "a collapsed paste left the walk where it was"
         );
     }
@@ -10237,17 +10397,17 @@ mod tests {
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
-            shell.band_rows()[1],
-            "> [Pasted text #1, 1 lines]",
+            shell.band_rows()[0],
+            composer_row("[Pasted text #1, 1 lines]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> earlier");
+        assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> [Pasted text #2, 1 lines]",
+            shell.band_rows()[0],
+            composer_row("[Pasted text #2, 1 lines]"),
             "the draft the walk began from did not come back, or came back \
              under a number this session had already used"
         );
@@ -10275,15 +10435,15 @@ mod tests {
         shell.route_bytes(block.as_bytes());
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(
-            shell.band_rows()[1],
-            "> [Pasted text #1, 1 lines]",
+            shell.band_rows()[0],
+            composer_row("[Pasted text #1, 1 lines]"),
             "the paste was not collapsed, so this case proves nothing"
         );
 
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> [Pasted text #1, 1 lines]",
+            shell.band_rows()[0],
+            composer_row("[Pasted text #1, 1 lines]"),
             "the recalled line is not the one whose words match the summary"
         );
         shell.route_bytes(&[0x0d]);
@@ -10309,11 +10469,11 @@ mod tests {
         );
         let _echo = shell.document();
         shell.route_bytes(&[0x10]);
-        assert_eq!(shell.band_rows()[1], "> ask me again");
+        assert_eq!(shell.band_rows()[0], composer_row("ask me again"));
         shell.route_bytes(&[0x10]);
         assert_eq!(
-            shell.band_rows()[1],
-            "> ask me again",
+            shell.band_rows()[0],
+            composer_row("ask me again"),
             "the same line sent twice running became two entries"
         );
     }
@@ -10835,12 +10995,14 @@ mod tests {
 
         let rows = shell.band_rows();
         assert!(
-            rows[0].starts_with(LIGHT.divider()) && rows[0] != divider(80),
-            "the divider was not repainted in the light palette: {:?}",
+            rows[0].starts_with(LIGHT.hint()) && rows[0] != composer_row(""),
+            "the composer's rail was not repainted in the light palette: {:?}",
             rows[0]
         );
         assert!(
-            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            rows.last()
+                .expect("a hint row")
+                .starts_with(LIGHT.statusline()),
             "the hint row was not repainted in the light palette: {rows:?}"
         );
         assert!(
@@ -10852,7 +11014,7 @@ mod tests {
         let _ = shell.render.begin();
         shell.route_bytes(WENT_DARK);
         assert!(
-            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            shell.band_rows()[0].starts_with(PALETTE.hint()),
             "the band did not come back to the dark palette"
         );
         assert!(shell.render.begin().is_some(), "the way back owed no frame");
@@ -10885,7 +11047,7 @@ mod tests {
         shell.route_bytes(WENT_LIGHT);
 
         assert!(
-            shell.band_rows()[0].starts_with(PALETTE.divider()),
+            shell.band_rows()[0].starts_with(PALETTE.hint()),
             "a locked session followed the terminal: {:?}",
             shell.band_rows()[0]
         );
@@ -10971,7 +11133,7 @@ mod tests {
             depth: super::super::theme::Depth::TrueColor,
         };
         assert!(
-            shell.band_rows()[0].starts_with(wanted.divider()),
+            shell.band_rows()[0].starts_with(wanted.hint()),
             "the flip lost the terminal's colour depth: {:?}",
             shell.band_rows()[0]
         );
@@ -11007,7 +11169,9 @@ mod tests {
         );
         let rows = shell.band_rows();
         assert!(
-            rows.last().expect("a hint row").starts_with(LIGHT.hint()),
+            rows.last()
+                .expect("a hint row")
+                .starts_with(LIGHT.statusline()),
             "the question's band was not repainted in the new palette: {rows:?}"
         );
         assert!(

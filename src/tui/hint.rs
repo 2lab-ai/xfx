@@ -104,6 +104,11 @@ pub(crate) struct Hint<'a> {
     pub(crate) notice: Option<Notice<'a>>,
     /// What to put flush with the last column, if anything.
     pub(crate) right: Option<&'a str>,
+    /// The two colours a permission mode that grants something is said in:
+    /// its own, and the row's to resume with (`render.zig:235-241`, `c1db919`:
+    /// `auto` and `full access` in `permission_auto_style`, then
+    /// `statusline_style`). Empty for a caller with no palette.
+    pub(crate) accent: (&'a str, &'a str),
 }
 
 /// A refusal, and the colours it is said in.
@@ -232,7 +237,13 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     let model = compact_model(hint.model);
     let mode = hint.mode.label();
     if leading_permission_mode_fits(limit, mode, &model) {
-        push(&mut segments, mode.to_string());
+        let (accent, resume) = hint.accent;
+        let lifted = !matches!(hint.mode, PermissionMode::Ask) && !accent.is_empty();
+        if lifted {
+            push(&mut segments, format!("{accent}{mode}{resume}"));
+        } else {
+            push(&mut segments, mode.to_string());
+        }
     }
     push(&mut segments, model);
     if let Some((used, total)) = hint.context_used {
@@ -268,7 +279,7 @@ fn leading_permission_mode_fits(limit: usize, mode: &str, model: &str) -> bool {
 }
 
 /// How much of the context window the conversation has spent
-/// (`render.zig:441-452`).
+/// (`render.zig:419-427`, `c1db919`: `{used}k/{total}k {pct}%`).
 ///
 /// Thousands, because the row has no room for six digits and nobody reads them:
 /// what the number is for is "how close am I to the end of it", and the
@@ -280,7 +291,7 @@ fn context(used: u64, total: u64) -> String {
     // number a provider can publish (`render.zig:445` guards it too), and it
     // reads as nought per cent rather than as a division.
     let percent = used.saturating_mul(100).checked_div(total).unwrap_or(0);
-    format!("Context: {}k/{}k {percent}%", used / 1000, total / 1000)
+    format!("{}k/{}k {percent}%", used / 1000, total / 1000)
 }
 
 /// How many cells `text` occupies, by the painter's own measure.
@@ -309,6 +320,7 @@ mod tests {
             context_used: None,
             notice: None,
             right: None,
+            accent: ("", ""),
         }
     }
 
@@ -339,11 +351,11 @@ mod tests {
         let queued = row.find("queued 1").expect("queued");
         let mode = row.find("ask").expect("the permission mode");
         let model = row.find("opus 4-7").expect("the model");
-        let context = row.find("Context:").expect("the context");
+        let context = row.find("12k/200k").expect("the context");
         assert!(queued < mode && mode < model && model < context, "{row:?}");
-        assert!(row.contains("Context: 12k/200k 6%"), "{row:?}");
+        assert!(row.contains("12k/200k 6%"), "{row:?}");
         assert_eq!(
-            row, "queued 1 · ask · opus 4-7 · Context: 12k/200k 6%",
+            row, "queued 1 · ask · opus 4-7 · 12k/200k 6%",
             "the segments are joined by something other than upstream's separator"
         );
     }
@@ -524,7 +536,7 @@ mod tests {
 
     #[test]
     fn a_session_that_has_measured_no_context_says_nothing_about_it() {
-        // A row that said `Context: 0k/0k 0%` would be reporting a measurement
+        // A row that said `0k/0k 0%` would be reporting a measurement
         // nobody took: no Phase-1 event carries a usage number, so the segment
         // is absent rather than zero. The formatting above and this absence are
         // both pinned, so the day a usage event arrives this is a call site
@@ -567,7 +579,7 @@ mod tests {
         // it.
         let mut hint = hint();
         hint.context_used = Some((12_000, 0));
-        assert!(row(&hint, 80).contains("Context: 12k/0k 0%"), "{hint:?}");
+        assert!(row(&hint, 80).contains("12k/0k 0%"), "{hint:?}");
     }
 
     #[test]
@@ -588,13 +600,13 @@ mod tests {
         let mut hint = hint();
         hint.context_used = Some((12_345, 200_000));
         let painted = row(&hint, 80);
-        assert!(painted.contains("Context: 12k/200k 6%"), "{painted}");
+        assert!(painted.contains("12k/200k 6%"), "{painted}");
 
         // A window of zero is a number a provider can publish, and it reads as
         // nought per cent rather than as a division.
         hint.context_used = Some((10, 0));
         let painted = row(&hint, 80);
-        assert!(painted.contains("Context: 0k/0k 0%"), "{painted}");
+        assert!(painted.contains("0k/0k 0%"), "{painted}");
     }
 
     #[test]
@@ -619,12 +631,12 @@ mod tests {
         let mut hint = hint();
         hint.context_used = Some((12_345, 200_000));
         let wide = row(&hint, 80);
-        assert!(wide.contains("Context"), "{wide}");
+        assert!(wide.contains("12k/200k"), "{wide}");
         assert!(wide.contains("opus 4-7"), "{wide}");
 
         let narrow = row(&hint, 20);
         assert!(
-            !narrow.contains("Context"),
+            !narrow.contains('%'),
             "the meter outlived a segment that matters more: {narrow}"
         );
         assert!(

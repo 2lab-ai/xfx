@@ -2040,7 +2040,11 @@ fn control_sequence(model: &mut TerminalModel, bytes: &[u8], at: usize) -> Resul
             }
             _ => return Err(Reject::new("a line erase this crate does not write", at)),
         },
-        (b' ', b'm') => model.pen = wire_color(params, at)?,
+        (b' ', b'm') => {
+            if let Some(color) = wire_color(params, at)? {
+                model.pen = color;
+            }
+        }
         (b' ', b'n') => match params {
             "6" => model.queries.push(QueryId::CursorPosition),
             _ => return Err(Reject::new("a report this crate does not ask for", at)),
@@ -2233,44 +2237,51 @@ fn operating_system_command(
     Ok(end + terminator - at)
 }
 
-/// The colour a `CSI ... m` on the wire means.
+/// The colour a `CSI ... m` on the wire leaves the pen in, or `None` for one
+/// that changes no colour.
 ///
 /// **The second of the two parsers**, and deliberately not the one
 /// [`super::pacer::SgrState::color`] is: a single shared parser would make an
 /// assembly defect cancel against itself, both sides mis-reading the same bytes
 /// and agreeing.
-fn wire_color(params: &str, at: usize) -> Result<Color, Reject> {
-    let malformed = || Reject::new("a colour outside the three shapes this crate emits", at);
-    if params.is_empty() || params == "0" {
-        return Ok(Color::Default);
+///
+/// The vocabulary is [`super::pacer`]'s allowlist: groups of a reset or the
+/// foreground default (`0`, `39`), a text attribute (`1 2 3 4 9 22 23 24 29`,
+/// which this model does not carry because no cell comparison is made about
+/// it), or one foreground colour (`38;5;n`, `38;2;r;g;b`). Anything else is a
+/// sequence this crate does not write.
+fn wire_color(params: &str, at: usize) -> Result<Option<Color>, Reject> {
+    let malformed = || Reject::new("an SGR outside the vocabulary this crate emits", at);
+    if params.is_empty() {
+        return Ok(Some(Color::Default));
     }
+    let mut pen = None;
     let mut parts = params.split(';');
-    if parts.next() != Some("38") {
-        return Err(malformed());
-    }
-    match parts.next() {
-        Some("5") => {
-            let index = parts.next().ok_or_else(malformed)?;
-            if parts.next().is_some() {
-                return Err(malformed());
-            }
-            Ok(Color::Indexed(number(index).ok_or_else(malformed)?))
+    while let Some(part) = parts.next() {
+        match part {
+            "0" | "39" => pen = Some(Color::Default),
+            "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" => {}
+            "38" => match parts.next() {
+                Some("5") => {
+                    let index = parts.next().ok_or_else(malformed)?;
+                    pen = Some(Color::Indexed(number(index).ok_or_else(malformed)?));
+                }
+                Some("2") => {
+                    let red = parts.next().ok_or_else(malformed)?;
+                    let green = parts.next().ok_or_else(malformed)?;
+                    let blue = parts.next().ok_or_else(malformed)?;
+                    pen = Some(Color::Rgb(
+                        number(red).ok_or_else(malformed)?,
+                        number(green).ok_or_else(malformed)?,
+                        number(blue).ok_or_else(malformed)?,
+                    ));
+                }
+                _ => return Err(malformed()),
+            },
+            _ => return Err(malformed()),
         }
-        Some("2") => {
-            let red = parts.next().ok_or_else(malformed)?;
-            let green = parts.next().ok_or_else(malformed)?;
-            let blue = parts.next().ok_or_else(malformed)?;
-            if parts.next().is_some() {
-                return Err(malformed());
-            }
-            Ok(Color::Rgb(
-                number(red).ok_or_else(malformed)?,
-                number(green).ok_or_else(malformed)?,
-                number(blue).ok_or_else(malformed)?,
-            ))
-        }
-        _ => Err(malformed()),
     }
+    Ok(pen)
 }
 
 /// One colour parameter: ASCII digits, and inside the range a terminal reads.
@@ -2503,17 +2514,34 @@ mod tests {
         // the rule that has to live in both decoders.
         assert!(wire_color("38;5;256", 0).is_err());
         assert!(wire_color("38;2;1;2", 0).is_err());
-        assert!(wire_color("1", 0).is_err());
         assert!(wire_color("48;5;1", 0).is_err());
+        assert!(
+            wire_color("7", 0).is_err(),
+            "reverse is not in the vocabulary"
+        );
+        assert!(
+            wire_color("1;7", 0).is_err(),
+            "nor hidden behind an admitted group"
+        );
+        assert_eq!(wire_color("1", 0).expect("an attribute"), None);
+        assert_eq!(wire_color("22", 0).expect("its close"), None);
         assert_eq!(
             wire_color("38;5;250", 0).expect("a colour"),
-            Color::Indexed(250)
+            Some(Color::Indexed(250))
+        );
+        assert_eq!(
+            wire_color("1;38;5;255", 0).expect("a bold colour"),
+            Some(Color::Indexed(255))
         );
         assert_eq!(
             wire_color("38;2;1;2;3", 0).expect("a colour"),
-            Color::Rgb(1, 2, 3)
+            Some(Color::Rgb(1, 2, 3))
         );
-        assert_eq!(wire_color("", 0).expect("a reset"), Color::Default);
+        assert_eq!(wire_color("", 0).expect("a reset"), Some(Color::Default));
+        assert_eq!(
+            wire_color("39", 0).expect("the default"),
+            Some(Color::Default)
+        );
     }
 
     #[test]

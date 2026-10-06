@@ -52,17 +52,19 @@ use std::time::Instant;
 
 use crate::cli::{Cli, Command};
 
-/// The variable that opts a bare invocation into the TUI.
+/// The variable that opts a bare invocation **out** of the TUI.
 pub const TUI_ENV: &str = "XFX_TUI";
 
 /// Whether this invocation is the one the TUI owns.
 ///
-/// A bare `xfx`, `XFX_TUI=1`, and a real terminal on both ends. Anything else --
-/// a subcommand, a pipe, an unset or different value -- is the line-oriented
-/// shell or an ordinary command, unchanged.
+/// A bare `xfx` with a real terminal on both ends, which is what a bare `fx`
+/// is upstream (`c1db919`: no flag, no variable). `XFX_TUI=0` is the one way
+/// back to the line-oriented shell on a terminal; any other value, or none, is
+/// the TUI. A subcommand or a pipe on either end is the line shell or an
+/// ordinary command, unchanged.
 pub fn should_run(cli: &Cli) -> bool {
     matches!(cli.command, Command::Interactive)
-        && std::env::var_os(TUI_ENV).is_some_and(|value| value == "1")
+        && std::env::var_os(TUI_ENV).is_none_or(|value| value != "0")
         && io::stdin().is_terminal()
         && io::stdout().is_terminal()
 }
@@ -379,6 +381,7 @@ fn hold(
     band.set_title(frame::title(&config.model));
 
     let mut shell = shell::Shell::new(config, geometry, palette, theme_locked, worker.handle());
+    shell.welcome();
     event_loop::run(
         &mut shell,
         band,

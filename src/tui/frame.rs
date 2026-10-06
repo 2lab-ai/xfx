@@ -2209,15 +2209,17 @@ mod tests {
     }
 
     fn band_rows() -> Vec<String> {
-        vec!["--".to_string(), "> ".to_string(), "hint".to_string()]
+        vec!["> ".to_string(), "--".to_string(), "hint".to_string()]
     }
 
-    /// The same band with the row a running turn puts above the divider.
+    /// The same band with the rows a running turn puts above the composer.
     fn running_rows() -> Vec<String> {
         vec![
+            String::new(),
             "\u{2022} Thinking  0s".to_string(),
-            "--".to_string(),
+            String::new(),
             "> ".to_string(),
+            "--".to_string(),
             "hint".to_string(),
         ]
     }
@@ -2259,12 +2261,12 @@ mod tests {
         /// erases pass.
         fn under_a_painted_band(geometry: &Geometry) -> Self {
             let mut lines = vec![String::new(); usize::from(geometry.rows)];
-            for line in &mut lines[usize::from(geometry.divider) - 1..] {
+            for line in &mut lines[usize::from(geometry.band_top()) - 1..] {
                 *line = "\u{2500}".repeat(usize::from(geometry.cols));
             }
             Self {
                 rows: geometry.rows,
-                divider: geometry.divider,
+                divider: geometry.band_top(),
                 lines,
                 cursor_row: 1,
                 cursor_column: 0,
@@ -2425,8 +2427,8 @@ mod tests {
             String::from_utf8(bytes).expect("utf-8"),
             "\u{1b}[?2026h\u{1b}[?25l\
              \u{1b}[22;1H\u{1b}[J\
-             \u{1b}[22;1H--\
-             \u{1b}[23;1H> \
+             \u{1b}[22;1H> \
+             \u{1b}[23;1H--\
              \u{1b}[24;1Hhint\
              \u{1b}[23;3H\
              \u{1b}[?2026l\u{1b}[?25h"
@@ -2461,19 +2463,21 @@ mod tests {
         let geometry =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         let rows = vec![
+            String::new(),
             "\u{2022} Thinking  9s".to_string(),
-            "--".to_string(),
+            String::new(),
             "> ".to_string(),
+            "--".to_string(),
             "hint".to_string(),
         ];
-        let text = String::from_utf8(band.render(&rows, &geometry, (23, 2))).expect("utf-8");
+        let text = String::from_utf8(band.render(&rows, &geometry, (22, 2))).expect("utf-8");
         let erase = text.find(ERASE_BELOW).expect("the erase");
         assert_eq!(
             &text[..erase],
-            format!("{BEGIN_FRAME}\u{1b}[21;1H"),
+            format!("{BEGIN_FRAME}\u{1b}[19;1H"),
             "the erase did not start at the band's own top row: {text:?}"
         );
-        for (line, row) in (21u16..).zip(&rows) {
+        for (line, row) in (19u16..).zip(&rows) {
             assert!(
                 text.contains(&format!("\u{1b}[{line};1H{row}")),
                 "{row:?} was not painted on row {line}: {text:?}"
@@ -2496,7 +2500,7 @@ mod tests {
             "the append aimed a row at the row above the screen: {text:?}"
         );
         assert!(
-            text.contains("\u{1b}[1;1Hrow 20"),
+            text.contains("\u{1b}[1;1Hrow 22"),
             "the document's first row is not on the screen's first row: {text:?}"
         );
         assert!(
@@ -2516,7 +2520,7 @@ mod tests {
         let text = String::from_utf8(band.render_append(1, &["fresh".to_string()], &geometry).0)
             .expect("utf-8");
         assert!(
-            text.contains("\u{1b}[20;1Hfresh"),
+            text.contains("\u{1b}[18;1Hfresh"),
             "the new row is not on the bottom row of the document: {text:?}"
         );
         assert!(
@@ -2822,8 +2826,8 @@ mod tests {
         // transcript, so what is not in scrollback is gone. Asserted against a
         // screen rather than against bytes, because "the row reached the
         // terminal's document" is a claim about what the bytes *did*.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
-        assert_eq!(geometry.divider, 4, "three document rows");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
+        assert_eq!(geometry.band_top(), 5, "four document rows");
         let rows: Vec<String> = (1..=5).map(|row| format!("row{row}")).collect();
 
         let mut band = Band::new();
@@ -2837,7 +2841,7 @@ mod tests {
         );
         assert_eq!(
             screen.visible_document(),
-            vec!["row3", "row4", "row5"],
+            vec!["row2", "row3", "row4", "row5"],
             "the screen does not end on the tail of the answer"
         );
         assert_eq!(
@@ -2911,7 +2915,7 @@ mod tests {
         // Three scrolls for the three new rows, and one placement per row the
         // screen still holds: the whole document area, plus the three that
         // scrolled in under it.
-        let area = usize::from(geometry.divider) - 1;
+        let area = usize::from(geometry.band_top()) - 1;
         assert_eq!(
             scrolls_and_placements(&bytes, &geometry),
             (3, area + 3),
@@ -2934,13 +2938,13 @@ mod tests {
         // row an appended line lands on holds the divider's rule. Writing a
         // shorter line over it without an erase leaves the rest of the rule
         // behind -- on a document row nothing will ever repaint.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
         screen.feed(&band.render_append(1, &["ok".to_string()], &geometry).0);
         assert_eq!(
             screen.visible_document(),
-            vec!["", "", "ok"],
+            vec!["", "", "", "ok"],
             "the band's rule survived into the document"
         );
     }
@@ -2952,7 +2956,7 @@ mod tests {
         // hold the answer. Every row must be in the document exactly once, in
         // order -- which is the one property that a lost scroll, a duplicated
         // repaint, and an off-by-one placement each break differently.
-        let geometry = crate::tui::layout::solve(6, 20, 1).expect("the smallest band");
+        let geometry = crate::tui::layout::solve(7, 20, 1).expect("the smallest band");
         let mut transcript = crate::tui::transcript::Transcript::new(geometry.cols);
         let mut band = Band::new();
         let mut screen = Screen::under_a_painted_band(&geometry);
@@ -3665,7 +3669,7 @@ mod tests {
         // Rows 6 to 9, each cleared to its end, and **before** the band's own
         // rows are repainted: the erasures are the first thing in the frame.
         let mut expected = String::from(BEGIN_FRAME);
-        for line in short.divider - 4..short.divider {
+        for line in short.band_top() - 4..short.band_top() {
             expected.push_str(&released(line));
         }
         assert!(
@@ -3711,7 +3715,7 @@ mod tests {
         band.commit(&mut screen, &band_rows(), &short, (11, 2))
             .expect("the next frame");
         let text = String::from_utf8(screen.written).expect("utf-8");
-        for line in short.divider - 4..short.divider {
+        for line in short.band_top() - 4..short.band_top() {
             assert!(
                 text.contains(&released(line)),
                 "row {line} was never erased on the frame that landed: {text:?}"
@@ -3770,23 +3774,23 @@ mod tests {
         let idle = geometry();
         let mut band = Band::new();
         let mut screen = Counted::default();
-        band.commit(&mut screen, &running_rows(), &running, (23, 2))
+        band.commit(&mut screen, &running_rows(), &running, (22, 2))
             .expect("a frame while a turn runs");
-        assert_eq!(band.painted_top(), Some(21));
+        assert_eq!(band.painted_top(), Some(19));
 
         screen.written.clear();
         let (commit, rows) = crate::tui::grid::rows_compared(|| {
-            band.commit(&mut screen, &band_rows(), &idle, (23, 2))
+            band.commit(&mut screen, &band_rows(), &idle, (22, 2))
         });
         commit.expect("the frame that ends the turn");
         assert_eq!(
-            rows, 4,
-            "the frame did not read exactly the row it gave back and the band's own three"
+            rows, 6,
+            "the frame did not read exactly the three rows it gave back and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
                 .expect("utf-8")
-                .contains(&released(21)),
+                .contains(&released(20)),
             "the row the band gave back was never erased"
         );
     }
@@ -3807,12 +3811,12 @@ mod tests {
 
         screen.written.clear();
         let (commit, rows) = crate::tui::grid::rows_compared(|| {
-            band.commit(&mut screen, &running_rows(), &running, (23, 2))
+            band.commit(&mut screen, &running_rows(), &running, (22, 2))
         });
         commit.expect("the frame that starts the turn");
         assert_eq!(
-            rows, 4,
-            "the frame did not read exactly the row it took and the band's own three"
+            rows, 6,
+            "the frame did not read exactly the three rows it took and the band's own three"
         );
         assert!(
             String::from_utf8(screen.written)
@@ -3935,7 +3939,7 @@ mod tests {
         let _painted = band.render(&vec![String::new(); 7], &tall, (11, 2));
         // The band has given the rows back: what is on them is the document's
         // problem now, and this append is the next thing written.
-        screen.divider = short.divider;
+        screen.divider = short.band_top();
 
         screen.feed(&band.render_append(1, &["ok".to_string()], &short).0);
         assert_eq!(
@@ -3967,8 +3971,8 @@ mod tests {
         let ended = crate::tui::layout::solve_with(12, 40, 1, false).expect("the turn over");
         assert_eq!(
             ended.band_top() - running.band_top(),
-            1,
-            "the activity row is the one row the band gives back here"
+            3,
+            "the activity row and its two blank rows are what the band gives back here"
         );
 
         let mut band = Band::new();
@@ -3984,7 +3988,7 @@ mod tests {
         // A committed band, so there is a recorded top to give back. Its own
         // bytes are not fed to the screen -- `render`'s frame is a different
         // instrument's subject, and this one models what an *append* does.
-        band.commit(&mut sink, &band_rows(), &running, (running.divider + 1, 3))
+        band.commit(&mut sink, &band_rows(), &running, (running.input_first, 3))
             .expect("the band while the turn runs");
         assert_eq!(band.painted_top(), Some(running.band_top()));
 
@@ -4038,7 +4042,7 @@ mod tests {
         };
         let mut screen = Screen::under_a_painted_band(&tall);
         screen.divider = tall.band_top();
-        band.commit(&mut sink, &band_rows(), &tall, (tall.divider + 1, 3))
+        band.commit(&mut sink, &band_rows(), &tall, (tall.input_first, 3))
             .expect("the tall band");
 
         // Two rows of answer, in the document, under the tall band.
@@ -4575,9 +4579,9 @@ mod tests {
         let running =
             crate::tui::layout::solve_with(24, 80, 1, true).expect("a band with a turn in it");
         assert_eq!(
-            running.band_top() + 1,
+            running.band_top() + 3,
             idle.band_top(),
-            "the turn's row did not grow the band, so this case proves nothing"
+            "the turn's rows did not grow the band, so this case proves nothing"
         );
 
         let mut band = Band::new();

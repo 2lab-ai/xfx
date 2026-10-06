@@ -70,6 +70,10 @@ impl Sandbox {
         for key in CONTROLLED_VARS {
             command.env_remove(key);
         }
+        // A bare `xfx` on a terminal is the TUI. The controlled environment
+        // pins the line shell, because that is what every suite but
+        // `tests/tui.rs` drives through its pty; the TUI suite opts back in.
+        command.env("XFX_TUI", "0");
     }
 
     /// A command wired to a scripted local Gateway.

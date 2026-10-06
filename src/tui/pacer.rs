@@ -520,31 +520,23 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 
 /// Whether `text` is one of the shapes the band's own painters emit.
 ///
-/// **The render allowlist, narrowed to the palette that exists**
-/// ([`super::theme`]), which is a foreground colour and the reset that ends it:
+/// **The render allowlist, narrowed to upstream's text vocabulary**
+/// (`c1db919`: `core/agent/presentation/ansi.zig`, `core/shared/theme.zig`):
+/// one SGR made of groups, each of which is one of
 ///
-/// * `CSI 38 ; 5 ; <n> m` -- a 256-colour foreground.
-/// * `CSI 38 ; 2 ; <r> ; <g> ; <b> m` -- a direct-colour foreground.
-/// * `CSI 0 m`, and the bare `CSI m` that means the same thing.
+/// * a reset or a foreground default: `0`, `39`, and the bare `CSI m`;
+/// * a text attribute and its close: bold/dim `1`/`2`/`22`, italic `3`/`23`,
+///   underline `4`/`24`, strike `9`/`29` -- what the assistant's markdown,
+///   the welcome line's brand and a statusline label are written in;
+/// * `38 ; 5 ; <n>` -- a 256-colour foreground;
+/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground.
 ///
-/// Task 13 left the whole SGR vocabulary trusted because there was no palette
-/// yet to narrow it to, and said so in the note this replaces. There is one
-/// now, and it emits three shapes -- so the set a row may carry is those three.
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
 /// invisible, `blink` makes it move, `reverse` and a background colour repaint
-/// the whole width of it. None of them can reach a row from a Phase-1 path --
-/// `super::bridge::inert` spaces a provider's escapes at the channel -- but an
-/// allowlist wider than what is emitted is untested surface, and that is the
-/// only argument it has to answer.
-///
-/// **Widening obligation.** Two things will need this set to grow, and both
-/// must grow it deliberately: Task 16, if a hint-row segment wants an intensity
-/// (upstream's identity tag is `CSI 1 ; 38 ; 5 ; 255 m`, `render.zig:31`), and
-/// whatever admits a provider's own colour to the document -- the `colored and
-/// hyperlinked TTY output` row of `docs/parity.md` calls that out of scope
-/// today. Until then [`SgrState`] models attributes this will not render, which
-/// fails in the safe direction: an attribute that is dropped is a row that is
-/// plainer than it could be, never a terminal doing something nobody asked for.
+/// the whole width of it. None of them is in upstream's assistant or footer
+/// text, and an allowlist wider than what is emitted is untested surface.
+/// [`SgrState`] models every attribute this admits, so a row that ends with
+/// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
     let Some(body) = text.strip_prefix("\u{1b}[") else {
         return false;
@@ -552,32 +544,36 @@ fn is_palette_sgr(text: &str) -> bool {
     let Some(params) = body.strip_suffix('m') else {
         return false;
     };
-    let mut params = params.split(';');
-    let Some(first) = params.next() else {
-        return false;
-    };
-    // The number of parameters each shape carries after its first, and `0`
-    // for the two spellings of a reset.
-    let wanted = match first {
-        "" | "0" => 0,
-        "38" => match params.next() {
-            Some("5") => 1,
-            Some("2") => 3,
-            _ => return false,
-        },
-        _ => return false,
-    };
-    let mut seen = 0usize;
-    for param in params {
-        // A parameter a terminal reads as a number, and nothing else: an empty
-        // one is a zero to a terminal, and a `38;5;` with the index left off is
-        // not a colour this crate would write.
-        if param.is_empty() || !param.bytes().all(|byte| byte.is_ascii_digit()) {
-            return false;
-        }
-        seen += 1;
+    if params.is_empty() {
+        return true;
     }
-    seen == wanted
+    let mut params = params.split(';');
+    while let Some(group) = params.next() {
+        match group {
+            "0" | "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "39" => {}
+            "38" => {
+                // The number of parameters each colour shape carries after its
+                // selector. Each one a terminal reads as a number, and nothing
+                // else: an empty one is a zero to a terminal, and a `38;5;`
+                // with the index left off is not a colour this crate writes.
+                let wanted = match params.next() {
+                    Some("5") => 1,
+                    Some("2") => 3,
+                    _ => return false,
+                };
+                for _ in 0..wanted {
+                    match params.next() {
+                        Some(param)
+                            if !param.is_empty()
+                                && param.bytes().all(|byte| byte.is_ascii_digit()) => {}
+                        _ => return false,
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// How many bytes the escape sequence at the head of `text` takes, complete or
@@ -1337,6 +1333,20 @@ mod tests {
             "\u{1b}[38;2;88;88;88m",
             "\u{1b}[0m",
             "\u{1b}[m",
+            // Upstream's text vocabulary: the welcome line's brand, the
+            // markdown's bold, dim, italic, underline and strike, their
+            // closes, and the foreground default.
+            "\u{1b}[1m",
+            "\u{1b}[1;38;5;255m",
+            "\u{1b}[2m",
+            "\u{1b}[22m",
+            "\u{1b}[3m",
+            "\u{1b}[23m",
+            "\u{1b}[4m",
+            "\u{1b}[24m",
+            "\u{1b}[9m",
+            "\u{1b}[29m",
+            "\u{1b}[39m",
         ] {
             assert_eq!(
                 colour_at(painted),
@@ -1346,16 +1356,16 @@ mod tests {
         }
         // Every one of these is a well-formed SGR the grammar accepts, and none
         // of them is a shape this crate writes. The first four are the ones
-        // with a cost on a shared screen; the last two are well-formed colours
-        // in spellings the palette does not use.
+        // with a cost on a shared screen; the rest are well-formed colours in
+        // spellings the palette does not use, or one of those hidden inside an
+        // otherwise admitted group.
         for refused in [
             "\u{1b}[5m",
             "\u{1b}[7m",
             "\u{1b}[8m",
             "\u{1b}[48;5;196m",
-            "\u{1b}[1m",
             "\u{1b}[31m",
-            "\u{1b}[1;38;5;255m",
+            "\u{1b}[1;7m",
             "\u{1b}[38;5m",
             "\u{1b}[38;5;m",
             "\u{1b}[38;2;1;2m",

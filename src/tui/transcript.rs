@@ -712,18 +712,41 @@ fn freeze(tail: &mut String, roles: &mut Roles, open_rows: &mut usize, cols: u16
 /// **Wrapped first and painted second**, and the order is the claim: the rows
 /// are measured from the text alone, so a role costs no cell and moves no
 /// break. What the sequences are added to is the row that measurement produced.
+///
+/// **A line that carries its own sequences is made row-by-row whole.** xfx's
+/// own styled lines -- the welcome line, the assistant's rendered markdown --
+/// are [`Role::Plain`] text with SGR inside, and a wrap can fall inside a run.
+/// A terminal's pen survives a `CUP`, so a row handed over as its bytes would
+/// colour the start of the next row with whatever the last one left open --
+/// and the output check (`super::check`) would refuse the frame, rightly. So
+/// each such row opens with the state its line had reached where it begins
+/// (`super::pacer::SgrState`, the same model the wire checker reads colours
+/// with), and closes whatever is still open at the point the painter cuts.
 fn texts(text: &str, roles: &Roles, cols: u16, palette: Palette) -> Vec<String> {
+    let styled = text.contains('\u{1b}');
+    let mut state = super::pacer::SgrState::default();
+    let mut seen = 0usize;
     wrap::wrap(text, cols)
         .into_iter()
         .map(|row| {
             let slice = &text[row.start..row.end];
-            paint(
-                slice,
-                roles,
-                row.start,
-                drawn(slice, row.width, cols),
-                palette,
-            )
+            let cut = drawn(slice, row.width, cols);
+            let plain = roles.only(row.start..row.end) == Some(Role::Plain);
+            if !(styled && plain) {
+                return paint(slice, roles, row.start, cut, palette);
+            }
+            state.observe(&text[seen.min(row.start)..row.start]);
+            let reopen = state.reopen();
+            let (shown, past) = slice.split_at(cut);
+            state.observe(shown);
+            let close = if state.reopen().is_empty() {
+                ""
+            } else {
+                palette.reset()
+            };
+            state.observe(past);
+            seen = row.end;
+            format!("{reopen}{shown}{close}{past}")
         })
         .collect()
 }
@@ -1458,15 +1481,21 @@ mod tests {
     #[test]
     fn plain_text_is_handed_over_as_the_bytes_it_arrived_as() {
         // The user's echo, and anything else that is not xfx's to colour: a
-        // palette is available at every one of these writes and none of it may
-        // reach the row. The sequence is a fixture for "these bytes are not
-        // touched" rather than a claim about what arrives here.
+        // palette is available at every one of these writes and none of its
+        // roles may reach the row. The text's own bytes are kept; the one
+        // thing added is the reset that closes a sequence the row left open,
+        // because a terminal's pen survives the `CUP` to the next row.
         let mut transcript = Transcript::new(80);
         let rows = transcript
             .push_as("what the user typed \u{1b}[31m", Role::Plain, DARK_256)
             .rows;
 
-        assert_eq!(rows, vec!["what the user typed \u{1b}[31m".to_string()]);
+        assert_eq!(
+            rows,
+            vec!["what the user typed \u{1b}[31m\u{1b}[0m".to_string()]
+        );
+        assert!(!rows[0].contains(DARK_256.body()));
+        assert!(!rows[0].contains(DARK_256.notice()));
     }
 
     #[test]

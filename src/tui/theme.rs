@@ -198,8 +198,14 @@ const RESET: &str = "\u{1b}[0m";
 /// Spelled as a role of its own rather than read off [`HINT`], because the two
 /// are the same colour and not the same decision: a phase that retints the hint
 /// row must not silently retint every row of the document with it.
-const DARK: [u8; 5] = [240, 255, 250, 252, 255];
-const LIGHT: [u8; 5] = [250, 235, 241, 238, 235];
+///
+/// The sixth and seventh are upstream's `statusline_style` and `dim_style`
+/// (`core/shared/theme.zig`, `c1db919`): the grey the hint row's text is
+/// written in, with the permission mode lifted out of it in the activity
+/// row's grey (`permission_auto_style`), and the grey the welcome line's
+/// version and the transcript's turn summary are written in.
+const DARK: [u8; 7] = [240, 255, 250, 252, 255, 245, 245];
+const LIGHT: [u8; 7] = [250, 235, 241, 238, 235, 241, 247];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -207,6 +213,8 @@ const HINT: usize = 1;
 const NOTICE: usize = 2;
 const ACTIVITY: usize = 3;
 const BODY: usize = 4;
+const STATUSLINE: usize = 5;
+const DIM: usize = 6;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -242,6 +250,26 @@ impl Palette {
     /// handed over rather than repainted with the band.
     pub(crate) fn body(&self) -> &'static str {
         self.paint(BODY)
+    }
+
+    /// The hint row's own text (`statusline_style`).
+    pub(crate) fn statusline(&self) -> &'static str {
+        self.paint(STATUSLINE)
+    }
+
+    /// Secondary text: the welcome line's version, a turn's summary.
+    pub(crate) fn dim(&self) -> &'static str {
+        self.paint(DIM)
+    }
+
+    /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
+    pub(crate) fn subtitle(&self) -> &'static str {
+        match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[1;38;5;255m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[1;38;5;235m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;238;238;238m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;38;38;38m",
+        }
     }
 
     /// What ends a run, in either mode and at either depth.
@@ -336,6 +364,8 @@ fn ansi256(index: u8) -> &'static str {
         238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
+        245 => "\u{1b}[38;5;245m",
+        247 => "\u{1b}[38;5;247m",
         250 => "\u{1b}[38;5;250m",
         252 => "\u{1b}[38;5;252m",
         255 => "\u{1b}[38;5;255m",
@@ -366,6 +396,8 @@ fn truecolor(index: u8) -> &'static str {
         238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
+        245 => "\u{1b}[38;2;138;138;138m",
+        247 => "\u{1b}[38;2;158;158;158m",
         250 => "\u{1b}[38;2;188;188;188m",
         252 => "\u{1b}[38;2;208;208;208m",
         255 => "\u{1b}[38;2;238;238;238m",

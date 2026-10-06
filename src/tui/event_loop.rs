@@ -1792,7 +1792,7 @@ mod tests {
     /// the reason every needle in this crate's tests is: a test that read the
     /// constant it is checking would pass for whatever that module happened to
     /// declare.
-    const COMPOSER_MARKER: &str = "> ";
+    const COMPOSER_MARKER: &str = "\u{2503}";
 
     fn screen() -> FlakyScreen {
         FlakyScreen {
@@ -4209,8 +4209,8 @@ mod tests {
              longer exists: {text:?}"
         );
         assert!(
-            text.contains(&"\u{2500}".repeat(100)),
-            "the divider was not repainted across the wider screen: {text:?}"
+            text.contains("\u{1b}[28;1H\u{1b}[38;5;255m\u{2503}"),
+            "the composer was not repainted on the taller screen's composer row: {text:?}"
         );
 
         // And exactly one of them: the damage is answered by the frame that
@@ -4817,7 +4817,7 @@ mod tests {
         .expect("the frame after the screen grew back");
         let text = String::from_utf8(out.written.clone()).expect("utf-8");
         assert!(
-            text.contains("> z"),
+            text.contains("\u{2503}\u{1b}[0m z"),
             "the frame the keystroke asked for never arrived: {text:?}"
         );
     }
@@ -4907,7 +4907,7 @@ mod tests {
         let start = Instant::now();
         assert!(!shell.blind(), "a fresh session cannot be painted on");
 
-        for size in [(30, 100), (24, 80), (6, 20), (40, 132)] {
+        for size in [(30, 100), (24, 80), (7, 20), (40, 132)] {
             shell.render.mark_resize(start);
             resolve_resize(
                 &mut shell,
@@ -4996,7 +4996,7 @@ mod tests {
             "the answer released mid-drag was dropped: {text:?}"
         );
         assert!(
-            text.contains("> z"),
+            text.contains("\u{2503}\u{1b}[0m z"),
             "the keystroke typed mid-drag was dropped: {text:?}"
         );
     }
@@ -5201,9 +5201,9 @@ mod tests {
         shell.settle_band(now);
         let running_top = shell.geometry.band_top();
         assert_eq!(
-            running_top + 1,
+            running_top + 3,
             idle_top,
-            "the turn's row did not grow the band, so this case proves nothing"
+            "the turn's rows did not grow the band, so this case proves nothing"
         );
 
         out.written.clear();
