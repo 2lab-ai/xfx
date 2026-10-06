@@ -2499,6 +2499,18 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // `/settings`' effort row: the effort is the session's from here on, and
+    // that is all -- the band chose it, wrote it and said so
+    // ([`ModelChange::effort_only`]). Recorded in the session, where a resume
+    // reads it back. Whatever the provider: the effort is global.
+    if change.effort_only {
+        if let Some(effort) = change.effort {
+            state.settings.effort = effort;
+            state.record_settings();
+            state.publish();
+        }
+        return Ended::Turn;
+    }
     // **Chosen under another provider**: put aside while a `/provider` switch
     // ran, and read after it. Upstream refuses the switch while work is busy
     // and applies a model change at once, so its end state is the change made
@@ -5586,6 +5598,7 @@ mod tests {
                 announced: false,
                 next_turn,
                 provider: ProviderId::Gateway,
+                effort_only: false,
             },
         )
     }
@@ -5674,6 +5687,7 @@ mod tests {
                 next_turn: false,
                 speed: None,
                 provider: ProviderId::Gateway,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -5716,6 +5730,46 @@ mod tests {
         );
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
+        // band wrote `effort` and said so; the runtime only takes it up. The
+        // model stays, and the profile is not touched -- in particular no
+        // `models` entry is written for a model some other layer chose.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let model = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "something/else".to_string(),
+                effort: Some(high.clone()),
+                speed: None,
+                picker: false,
+                announced: true,
+                next_turn: false,
+                // Whatever provider it names: the effort is global.
+                provider: ProviderId::Llmux,
+                effort_only: true,
+            },
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(state.settings.effort, high);
+        assert_eq!(
+            recorded(&state).map(|settings| settings.effort),
+            Some(high.clone()),
+            "a resume would not read it back"
+        );
+        assert_eq!(state.model(), model, "the model moved");
+        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
 
     #[test]
@@ -5803,6 +5857,7 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: ProviderId::Gateway,
+            effort_only: false,
         };
         control_tx
             .send(TurnControl::Model(asked.clone()))
@@ -5848,6 +5903,7 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: ProviderId::Gateway,
+            effort_only: false,
         });
         control.defer(ModelChange {
             name: "unresolved".to_string(),
@@ -5857,6 +5913,7 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: ProviderId::Gateway,
+            effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
             &mut state,
@@ -5927,6 +5984,7 @@ mod tests {
                 announced: true,
                 next_turn: false,
                 provider: ProviderId::Gateway,
+                effort_only: false,
             };
         ran_change(
             &mut state,
@@ -6079,6 +6137,7 @@ mod tests {
                 announced: true,
                 next_turn: true,
                 provider: ProviderId::Llmux,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -6109,6 +6168,7 @@ mod tests {
                 announced: false,
                 next_turn: true,
                 provider: ProviderId::Llmux,
+                effort_only: false,
             },
         );
         assert_eq!(state.model(), before);

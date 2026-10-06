@@ -2178,6 +2178,7 @@ mod tests {
             next_turn: true,
             speed: None,
             provider: crate::provider::ProviderId::Gateway,
+            effort_only: false,
         };
         tx.send(TurnControl::Model(change.clone()))
             .expect("the channel is open");
@@ -2223,6 +2224,7 @@ mod tests {
             announced: true,
             next_turn: true,
             provider: crate::provider::ProviderId::Gateway,
+            effort_only: false,
         };
         let speed = super::super::bridge::SpeedChange {
             fast: true,

@@ -75,6 +75,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/undo",
     "/copy",
     "/trace",
+    "/settings",
     "/credits",
     "/fast",
     "/ultrafast",
@@ -284,6 +285,18 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "copy a private diagnostic trace",
         category: "Product",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Settings,
+        name: "/settings",
+        aliases: &[],
+        // Upstream's words (`commands.zig:488`). It takes an argument there
+        // (`startup-scrollback`) and is filed so here too, so completing it
+        // leaves the caret past a space as upstream's popup does; xfx answers
+        // any argument with `SETTINGS_USAGE`.
+        summary: "browse and update settings",
+        category: "Appearance",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Credits,
@@ -525,6 +538,22 @@ pub(crate) fn rename_conversation(
     }
 }
 
+/// What `/settings` says to anything after its name (`writeSettingsUsage`,
+/// `session_commands.zig:1129-1135`), without upstream's `startup-scrollback`
+/// form: that setting chooses at launch whether the shell's earlier output is
+/// pushed into scrollback (`prepareStartupViewport`, `app_lifecycle.zig:966-988`),
+/// and xfx always pushes it -- there is no other value to set.
+pub const SETTINGS_USAGE: &str = "usage: /settings";
+
+/// What `/settings` says on this surface.
+///
+/// Upstream's `/settings` is a menu in its footer (`commandHandleSettings`,
+/// `app_commands.zig:2022-2041`), and this shell has no footer to put one in.
+/// It says where the menu is, as `/resume` says where its picker is.
+pub const SETTINGS_ON_THE_LINE_SHELL: &str = "xfx: /settings browses and changes settings in \
+     the full-screen shell, and this line-oriented shell has no menu; without XFX_TUI=0, xfx \
+     opens the full-screen one";
+
 /// What every `/statusline` notice is filed under, on both surfaces.
 pub const STATUSLINE_TOPIC: &str = "statusline";
 
@@ -664,6 +693,10 @@ pub enum Slash {
     /// TUI, one item flipped by name on either surface, and the choice kept in
     /// the profile (`statusLine.{context,session,workspace}`).
     Statusline,
+    /// Every preference the session can change, by category, in one menu
+    /// that changes each in place: the TUI's settings menu
+    /// (`commandHandleSettings`, `app_commands.zig:2022-2041`).
+    Settings,
     Version,
     Quit,
 }
@@ -1201,6 +1234,9 @@ pub async fn run(
                     }
                     Slash::Fast | Slash::Ultrafast => {
                         writeln!(io::stderr(), "{SPEED_ON_THE_LINE_SHELL}")?;
+                    }
+                    Slash::Settings => {
+                        writeln!(io::stderr(), "{SETTINGS_ON_THE_LINE_SHELL}")?;
                     }
                     // The session is opened for it when no prompt has opened
                     // one yet, as upstream's exists from launch: a title is
@@ -2008,10 +2044,11 @@ mod tests {
         // upstream's third name for the one reset -- thirteen since
         // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
         // since `/resume` and `/rename`, seventeen since `/undo`, nineteen
-        // since `/usage` and `/credits`, twenty since `/trace`, and twenty-two
-        // since `/fast` and `/ultrafast`; `/provider` took `/setup`'s place
-        // rather than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 22);
+        // since `/usage` and `/credits`, twenty since `/trace`, twenty-one
+        // since `/settings`, and twenty-three since `/fast` and `/ultrafast`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 23);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2302,8 +2339,12 @@ mod tests {
         // authority, `/statusline <item>` flips a footer segment, and
         // `/sound [on|off]` sets the switch a bare `/sound` toggles,
         // `/rename <title>` names the session, and `/ultrafast [on|off|status]`
-        // asks for Ultra mode. Every other name is the whole command -- `/fast`
-        // among them, a toggle (`commands.zig:492`).
+        // asks for Ultra mode. `/settings` is declared to take one as
+        // upstream's row is (`commands.zig:488`), so completing it leaves the
+        // caret past a space; every argument it is given is its usage line,
+        // since upstream's only form names a setting xfx does not have. Every
+        // other name is the whole command -- `/fast` among them, a toggle
+        // (`commands.zig:492`).
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
@@ -2314,6 +2355,7 @@ mod tests {
                     | "/sound"
                     | "/rename"
                     | "/ultrafast"
+                    | "/settings"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }

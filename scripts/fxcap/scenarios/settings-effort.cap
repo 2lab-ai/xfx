@@ -1,0 +1,55 @@
+# /settings' Reasoning effort row (D2b's effort, in plan since 87c9ed9), on a
+# model whose catalog row lists levels (`zai/glm-5.2`: low, high): the row's
+# choices, Right round them and the saves, then a model with no levels
+# (`fake/model-a`), where the row is its value alone. Down is counted per
+# binary: fx lists Fast and Ultra between them, xfx does not.
+# fx's harness launches it with FX_SOUND=0; xfx is given the same start.
+xfx: env XFX_SOUND=off
+models models-effort.json
+fx: seed settings-effort-seed-fx.json
+xfx: seed settings-effort-seed-xfx.json
+nomodel
+wait 2.5
+type /model
+key Enter
+wait 1.5
+key Escape
+wait 0.5
+type /settings
+key Enter
+wait 1
+snap bare
+key Down Down Down Down Down Down
+wait 0.3
+snap marked
+key Right
+wait 1
+snap right1
+home right1
+key Right
+wait 1
+snap right2
+home right2
+key Right
+wait 1
+snap right3
+home right3
+key Left
+wait 1
+snap left
+home left
+key Escape
+wait 0.5
+type /model fake/model-a
+key Enter
+wait 1.2
+type /settings
+key Enter
+wait 1
+key Down Down Down Down Down Down
+wait 0.3
+snap no-levels
+key Right
+wait 1
+snap no-levels-right
+home no-levels-right

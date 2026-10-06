@@ -1,0 +1,53 @@
+=== ~/.fx/backups/settings.json.backup.1791319917299-0000000000000001-875338ef0b76a0d46aa97e1825401d98 (59 bytes)
+{"sandbox":"none","permission_mode":"ask","permission":{}}
+
+=== ~/.fx/continue/86587fddfbc47c9d4bc871b0e30e6b67dc230e9c5e7595d2efa33be3cde58ab2 (13 bytes)
+NQvic3bjbaFX
+
+=== ~/.fx/history.jsonl (255 bytes)
+{"schema_version":1,"timestamp_ms":1791319912896,"workspace_root":"<scratch>/work","text":"look"}
+{"schema_version":1,"timestamp_ms":1791319915949,"workspace_root":"<scratch>/work","text":"/settings"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/NQvic3bjbaFX/events.jsonl (2783 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791319912941,"event":{"user":{"text":"look","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791319912941,"event":{"tool_call":{"call_id":"call_2_0","tool_name":"read_file","arguments_json":"{\"path\":\"a.txt\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791319912941,"event":{"tool_call":{"call_id":"call_2_1","tool_name":"read_file","arguments_json":"{\"path\":\"b.txt\"}","argument_integrity":"valid","provisional_id":null,"provider_result":null,"final_identity":"valid","provenance":"fx_local"}}}
+{"schema_version":3,"seq":4,"timestamp_ms":1791319912941,"event":{"tool_result":{"call_id":"call_2_0","tool_name":"read_file","status":"success","artifact_ref":"result-read_file-c6c2baa1c8dcfad4-6fe44567a08a8916.txt","tool_image_handle":null,"output_bytes":84,"stored_bytes":84,"completeness":"complete","preview":"<path>a.txt</path>\n<content>\n1\talpha line 1\n2\talpha line 2\n3\talpha line 3\n</content>","provider_native":false,"created_at_ms":1791319912936,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":5,"timestamp_ms":1791319912941,"event":{"tool_result":{"call_id":"call_2_1","tool_name":"read_file","status":"success","artifact_ref":"result-read_file-cfcc9acfac8c0513-41835be25c8a102c.txt","tool_image_handle":null,"output_bytes":61,"stored_bytes":61,"completeness":"complete","preview":"<path>b.txt</path>\n<content>\n1\tbeta one\n2\tbeta two\n</content>","provider_native":false,"created_at_ms":1791319912936,"permission_feedback":[],"committed_file_presentation":null,"command_replay_ref":null,"command_replay_bytes":null,"command_process_presentation":null,"terminal_action_presentation":null}}}
+{"schema_version":3,"seq":6,"timestamp_ms":1791319912941,"event":{"assistant":{"text":"Read both.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":7,"timestamp_ms":1791319912941,"event":{"turn_completed":{"files":[{"path":"a.txt","new_path":null,"tool_call_id":"call_2_0","tool_name":"read_file","action":"read","status":"success","model_view_covers_full_file":true,"stale":false},{"path":"b.txt","new_path":null,"tool_call_id":"call_2_1","tool_name":"read_file","action":"read","status":"success","model_view_covers_full_file":true,"stale":false}],"turn_summary":{"started_at_ms":1791319912897,"completed_at_ms":1791319912936,"thinking_duration_ms":17,"turn_duration_ms":39,"token_progress":{"input_tokens":1,"output_tokens":80,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/NQvic3bjbaFX/owner.live (43 bytes)
+{"pid":24933,"opened_at_ms":1791319910853}
+
+=== ~/.fx/sessions/NQvic3bjbaFX/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":1,"rules":[]}
+=== ~/.fx/sessions/NQvic3bjbaFX/session.json (385 bytes)
+{"schema_version":4,"id":"NQvic3bjbaFX","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791319910853,"updated_at_ms":1791319912941,"conversation_language":"und-Latn","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"title":"look","subagent_child":false}
+=== ~/.fx/sessions/NQvic3bjbaFX/session.lock (0 bytes)
+=== ~/.fx/sessions/NQvic3bjbaFX/tool-results/result-read_file-c6c2baa1c8dcfad4-6fe44567a08a8916.txt (84 bytes)
+<path>a.txt</path>
+<content>
+1	alpha line 1
+2	alpha line 2
+3	alpha line 3
+</content>
+=== ~/.fx/sessions/NQvic3bjbaFX/tool-results/result-read_file-cfcc9acfac8c0513-41835be25c8a102c.txt (61 bytes)
+<path>b.txt</path>
+<content>
+1	beta one
+2	beta two
+</content>
+=== ~/.fx/sessions/NQvic3bjbaFX/usage-v2.json (538 bytes)
+{"schema_version":1,"session_id":"NQvic3bjbaFX","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":3,"settled_through_sequence":2,"api_duration_ms":28,"wall_duration_ms":2082,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/settings.json (86 bytes)
+{"sandbox":"none","permission_mode":"ask","permission":{},"collapse_tool_calls":true}
+
+=== ~/.fx/settings.lock (0 bytes)
+=== ~/.fx/usage.jsonl (265 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791319912914}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791319912913,"completeness":"incomplete"}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791319912935,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)

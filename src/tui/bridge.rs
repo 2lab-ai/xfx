@@ -917,6 +917,13 @@ pub(crate) struct ModelChange {
     /// and not to the provider the switch left in force (`super::worker`'s
     /// `change_model`).
     pub(crate) provider: crate::provider::ProviderId,
+    /// The effort alone: `/settings`' `Reasoning effort` row, which keeps the
+    /// model and leaves the runtime nothing to select, load or write
+    /// (`selectEffortFromSettings`, `session_commands.zig:882-884`) -- the band
+    /// has written `effort` itself and said so. Carried as a model change so
+    /// it waits behind a running turn exactly as one does, and keeps its place
+    /// among them.
+    pub(crate) effort_only: bool,
 }
 
 /// `/fast` or `/ultrafast on|off`, as the band decided it
