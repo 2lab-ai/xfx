@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ hello
+
+  Ready.
+
+  0s (↑2 ↓40)
+
+* allowlist: added command: "printf *" (scope=local)
+
+┃ run the command
+
+● 1 tool call · 1 command
+└ Ran printf allowed-by-rule
+
+  Ran it.
+
+  0s (↑4 ↓80)
+
+* permissions: mode=ask
+  configured rules:
+   - allow bash -> printf *
+  session grants: (none)
+  usage: /permissions [ask|auto|full-access|reset]
+         /permissions remember <allow|deny> <tool-name> <arguments-json>
+         /permissions revoke <rule-id>
+
+* permissions: saved-session permission rules: none
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+

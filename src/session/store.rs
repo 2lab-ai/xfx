@@ -2161,6 +2161,12 @@ impl SessionRecorder {
         self.session.id()
     }
 
+    /// Where this session's saved-session permission rules are kept
+    /// (`crate::permission::session_rules`), beside its log.
+    pub fn permission_rules_path(&self) -> std::path::PathBuf {
+        crate::permission::session_rules::path_in(&self.store.session_dir(self.session.id()))
+    }
+
     pub fn state(&self) -> &DurableState {
         self.session.state()
     }

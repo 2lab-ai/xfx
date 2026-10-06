@@ -1,0 +1,24 @@
+=== ~/.xfx/history.jsonl (1949 bytes)
+{"schema_version":1,"timestamp_ms":1791326626833,"workspace_root":"<scratch>/work","text":"/allowlist add tool read"}
+{"schema_version":1,"timestamp_ms":1791326627811,"workspace_root":"<scratch>/work","text":"/allowlist add tool write_file"}
+{"schema_version":1,"timestamp_ms":1791326628587,"workspace_root":"<scratch>/work","text":"/allowlist add tool nonsense"}
+{"schema_version":1,"timestamp_ms":1791326629688,"workspace_root":"<scratch>/work","text":"/allowlist add web-fetch-domain Example.COM"}
+{"schema_version":1,"timestamp_ms":1791326630705,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
+{"schema_version":1,"timestamp_ms":1791326633129,"workspace_root":"<scratch>/work","text":"/allowlist remove command \"nope\""}
+{"schema_version":1,"timestamp_ms":1791326634172,"workspace_root":"<scratch>/work","text":"/allowlist view local"}
+{"schema_version":1,"timestamp_ms":1791326635390,"workspace_root":"<scratch>/work","text":"/allowlist local reset tools"}
+{"schema_version":1,"timestamp_ms":1791326636374,"workspace_root":"<scratch>/work","text":"/allowlist local reset all"}
+{"schema_version":1,"timestamp_ms":1791326637434,"workspace_root":"<scratch>/work","text":"/allowlist user add url https://example.com/*"}
+{"schema_version":1,"timestamp_ms":1791326638440,"workspace_root":"<scratch>/work","text":"/allowlist view effective"}
+{"schema_version":1,"timestamp_ms":1791326640583,"workspace_root":"<scratch>/work","text":"/allowlist user reset all"}
+{"schema_version":1,"timestamp_ms":1791326641545,"workspace_root":"<scratch>/work","text":"/allowlist view"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (78 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {}
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

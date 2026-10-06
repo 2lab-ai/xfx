@@ -726,6 +726,20 @@ pub struct MutationPlan {
     /// beside the excerpt rather than replacing it: the band still asks its
     /// one-line question whichever surface reviews the change.
     diff: Option<ApprovalDiff>,
+    /// What a configured rule is matched against, in upstream's order: the
+    /// target, its parent, then every other directory this change creates,
+    /// deepest first (`assembleFileTargetDrafts`, `permissions.zig:738-801`),
+    /// each canonical and workspace-relative ([`super::rules::rule_path`]).
+    ///
+    /// Set by the executor that resolved the path, because only it knows which
+    /// directories exist and how the filesystem spells them. Not part of the
+    /// fingerprint: it is a reading of the same target, for policy.
+    rule_targets: Option<Vec<Vec<u8>>>,
+    /// What a saved-session rule's key binds besides the plan's own fields:
+    /// the call's typed input and the identity of the directory the change is
+    /// made in ([`super::policy::ProposedAction::state_key`]). Set by the
+    /// executor; a plan without it matches no saved rule.
+    state_binding: Option<Vec<u8>>,
     fingerprint: ContentHash,
 }
 
@@ -764,8 +778,38 @@ impl MutationPlan {
             after,
             excerpt: None,
             diff: None,
+            rule_targets: None,
+            state_binding: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, bound to `binding` for a saved-session rule's key
+    /// ([`Self::state_binding`]).
+    pub fn with_state_binding(mut self, binding: Vec<u8>) -> Self {
+        self.state_binding = Some(binding);
+        self
+    }
+
+    /// The call's typed input and its directory's identity, as the executor
+    /// bound them, or `None`.
+    pub fn state_binding(&self) -> Option<&[u8]> {
+        self.state_binding.as_deref()
+    }
+
+    /// The same plan, judged by rules against `targets`
+    /// ([`Self::rule_targets`]).
+    pub fn with_rule_targets(mut self, targets: Vec<Vec<u8>>) -> Self {
+        self.rule_targets = Some(targets);
+        self
+    }
+
+    /// Every path a configured rule is matched against for this change, as
+    /// the executor resolved them -- or `None` for a plan built without them,
+    /// which policy refuses to judge against a table rather than guess at
+    /// from the display name: a spelling is not a file.
+    pub fn rule_targets(&self) -> Option<&[Vec<u8>]> {
+        self.rule_targets.as_deref()
     }
 
     /// The same plan, carrying the before/after a prompt will show.

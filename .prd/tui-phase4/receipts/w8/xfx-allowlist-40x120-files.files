@@ -1,0 +1,28 @@
+=== ~/.xfx/history.jsonl (1451 bytes)
+{"schema_version":1,"timestamp_ms":1791326581572,"workspace_root":"<scratch>/work","text":"/allowlist"}
+{"schema_version":1,"timestamp_ms":1791326582614,"workspace_root":"<scratch>/work","text":"/allowlist view"}
+{"schema_version":1,"timestamp_ms":1791326583659,"workspace_root":"<scratch>/work","text":"/allowlist add command \"git *\""}
+{"schema_version":1,"timestamp_ms":1791326584698,"workspace_root":"<scratch>/work","text":"/allowlist user add url https://example.com/*"}
+{"schema_version":1,"timestamp_ms":1791326585722,"workspace_root":"<scratch>/work","text":"/allowlist view effective"}
+{"schema_version":1,"timestamp_ms":1791326586775,"workspace_root":"<scratch>/work","text":"/allowlist view local"}
+{"schema_version":1,"timestamp_ms":1791326587842,"workspace_root":"<scratch>/work","text":"/allowlist view user"}
+{"schema_version":1,"timestamp_ms":1791326589556,"workspace_root":"<scratch>/work","text":"/allowlist remove command \"git *\""}
+{"schema_version":1,"timestamp_ms":1791326590814,"workspace_root":"<scratch>/work","text":"/allowlist local reset"}
+{"schema_version":1,"timestamp_ms":1791326591936,"workspace_root":"<scratch>/work","text":"/allowlist bogus"}
+
+=== ~/.xfx/history.lock (0 bytes)
+=== ~/.xfx/settings.json (187 bytes)
+{
+  "workspaces": {
+    "<scratch>/work": {
+      "permission": {}
+    }
+  },
+  "permission": {
+    "url": {
+      "https://example.com/*": "allow"
+    }
+  }
+}
+
+=== ~/.xfx/settings.lock (0 bytes)

@@ -1,0 +1,20 @@
+# W8 `/allowlist`: a local table emptied by its last remove still shadows the
+# user table, and says so.
+wait 2
+type /allowlist add command "x"
+key Enter
+wait 1
+type /allowlist remove command "x"
+key Enter
+wait 1
+home empty-table
+type /allowlist user add url https://example.com/*
+key Enter
+wait 1
+type /allowlist view effective
+key Enter
+wait 1
+type /allowlist view user
+key Enter
+wait 1
+snap after
