@@ -248,6 +248,41 @@ impl ToolChoice {
     }
 }
 
+/// What a session asks of every request beside the prompt: today, the
+/// reasoning effort.
+///
+/// **Held by the provider rather than carried by the request**
+/// ([`super::Provider::set_options`]), because it is a property of the session
+/// and not of one prompt: `/model`'s effort column sets it once, and every
+/// request after that -- a turn's first and each tool round after it -- carries
+/// it until it is set again. A field on [`CompletionRequest`] would have to be
+/// threaded through the agent loop that builds one per round, for a value none
+/// of that loop reads.
+///
+/// `reasoning` is already decided: the effort the session is in, **if** the
+/// model in force lists it (`crate::provider::effort::Effort::for_request`).
+/// Each wire spells it its own way.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RequestOptions {
+    /// The effort level to ask for, as the catalog names it; `None` asks for
+    /// nothing and the provider decides.
+    pub reasoning: Option<String>,
+}
+
+/// The effort the Gateway's language-model route is sent for `label`.
+///
+/// The route validates against its own tiers and refuses `max`, which the
+/// catalog still advertises for some models, so `max` is sent as `xhigh`, the
+/// highest it takes (`reasoningWireValue`, `vercel_protocol.zig:302-308`,
+/// `c1db919`; upstream's commit `09ec38c2`).
+fn reasoning_wire_value(label: &str) -> &str {
+    if label == "max" {
+        "xhigh"
+    } else {
+        label
+    }
+}
+
 /// Everything one Gateway completion request carries.
 #[derive(Debug, Clone)]
 pub struct CompletionRequest {
@@ -329,8 +364,18 @@ impl CompletionRequest {
     /// Validation happens here, in the one place that produces bytes, so an
     /// invalid prompt cannot reach the network by taking a different path.
     pub fn body(&self) -> Result<String, ProtocolError> {
+        self.body_with(&RequestOptions::default())
+    }
+
+    /// [`body`](Self::body), with what the session asks of every request
+    /// ([`RequestOptions`]).
+    ///
+    /// The effort is a top-level `reasoning` string after `toolChoice`, the
+    /// key and the place upstream writes it (`buildGatewayRequestBodyValidated`,
+    /// `vercel_protocol.zig:376-379`), and absent when there is none to ask for.
+    pub fn body_with(&self, options: &RequestOptions) -> Result<String, ProtocolError> {
         self.validate()?;
-        Ok(serde_json::to_string(&WireRequest(self))
+        Ok(serde_json::to_string(&WireRequest(self, options))
             .expect("a validated request is always serializable"))
     }
 
@@ -383,14 +428,17 @@ impl CompletionRequest {
 }
 
 /// The request body, written in upstream's key order.
-struct WireRequest<'a>(&'a CompletionRequest);
+struct WireRequest<'a>(&'a CompletionRequest, &'a RequestOptions);
 
 impl Serialize for WireRequest<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(3))?;
+        let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("prompt", &WireMessages(&self.0.messages))?;
         map.serialize_entry("tools", &self.0.tools)?;
         map.serialize_entry("toolChoice", &ToolChoiceBody(self.0.tool_choice))?;
+        if let Some(reasoning) = &self.1.reasoning {
+            map.serialize_entry("reasoning", reasoning_wire_value(reasoning))?;
+        }
         map.end()
     }
 }
@@ -658,6 +706,54 @@ mod tests {
         assert_eq!(FinishReason::parse_unified("tool_calls"), None);
         assert_eq!(FinishReason::parse_unified("content_filter"), None);
         assert_eq!(FinishReason::parse_unified(""), None);
+    }
+
+    #[test]
+    fn an_effort_is_a_top_level_reasoning_string_after_tool_choice_and_max_goes_as_xhigh() {
+        // `buildGatewayRequestBodyValidated` (`vercel_protocol.zig:376-379`,
+        // `c1db919`): `"reasoning":"<label>"` after `toolChoice`, and the v4
+        // route's own top tier for an advertised `max`.
+        let request = CompletionRequest {
+            model: "m".to_string(),
+            messages: vec![Message::user("go")],
+            tools: Vec::new(),
+            tool_choice: ToolChoice::Auto,
+        };
+        let plain = request.body().expect("valid");
+        assert!(!plain.contains("reasoning"), "{plain}");
+        assert_eq!(
+            request
+                .body_with(&RequestOptions::default())
+                .expect("valid"),
+            plain,
+            "asking for nothing changed the body"
+        );
+        let low = request
+            .body_with(&RequestOptions {
+                reasoning: Some("low".to_string()),
+            })
+            .expect("valid");
+        assert!(
+            low.ends_with(r#""toolChoice":{"type":"auto"},"reasoning":"low"}"#),
+            "{low}"
+        );
+        let max = request
+            .body_with(&RequestOptions {
+                reasoning: Some("max".to_string()),
+            })
+            .expect("valid");
+        assert!(max.ends_with(r#""reasoning":"xhigh"}"#), "{max}");
+        // An invalid prompt is refused whatever is asked beside it.
+        let empty = CompletionRequest {
+            messages: Vec::new(),
+            ..request
+        };
+        assert_eq!(
+            empty.body_with(&RequestOptions {
+                reasoning: Some("low".to_string()),
+            }),
+            Err(ProtocolError::EmptyPrompt)
+        );
     }
 
     #[test]

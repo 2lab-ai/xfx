@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3c32971 [debug] · Run /help for commands
+
+* Switched to zai/glm-5.2 (effort: low, speed: normal)
+
+┃ say something
+
+  MARKER-EFFORT-TURN
+
+  0s (↑4 ↓40)
+
+* Switched to zai/glm-5.2 (effort: high, speed: normal)
+
+✗ usage: /model <id> <effort> [normal|fast|ultrafast]
+
+* Switched to fake/model-a (effort: high, speed: normal)
+
+┃ high
+
+  MARKER-PROMPT-AFTER-THE-SPACE
+
+  0s (↑1 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

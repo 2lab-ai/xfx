@@ -10,8 +10,8 @@ key Enter
 wait 1.2
 type /model grok
 wait 0.5
-fx: key Escape
-fx: wait 0.4
+key Escape
+wait 0.4
 key Enter
 wait 0.8
 snap during

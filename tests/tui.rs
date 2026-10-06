@@ -373,6 +373,19 @@ fn last_frame(text: &str) -> Option<&str> {
     Some(&text[begins..ends])
 }
 
+/// The end of a frame that leaves the cursor off: the full transcript's,
+/// whose screen has no caret (`paint_plan.zig:1047`).
+const FRAME_END_HIDDEN: &str = "\u{1b}[?2026l";
+
+/// The last complete frame, if it ended with the cursor left off -- `None`
+/// while it is still open or when it showed the cursor.
+fn last_hidden_frame(text: &str) -> Option<&str> {
+    let begins = text.rfind(FRAME_BEGIN)?;
+    let ends = text[begins..].find(FRAME_END_HIDDEN)? + begins;
+    let shown = text[ends..].starts_with(FRAME_END);
+    (!shown).then_some(&text[begins..ends])
+}
+
 /// The whole interactive mode sequence, in order (`terminal.zig:4-13`).
 ///
 /// Spelled out here rather than imported: `src/tui/term.rs` is not visible to
@@ -3869,10 +3882,15 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
     );
 
     // Tab completes it, with the room its argument needs, and the menu goes.
+    // What takes the band's slot then is `/model`'s own inline column, under
+    // the argument position the completion made room for, as upstream's does
+    // (`fx-model-40x120-space`) -- this gateway publishes no catalog, so it
+    // says it could not load one.
     session.type_bytes(b"\t");
     let completed = session.wait_until("the completed name in the composer", |text| {
         Screen::painted(text, 24, 80).is_some_and(|screen| {
-            screen.divider().is_none() && screen.find("\u{2503} /model").is_some()
+            screen.find("\u{2503} /model").is_some()
+                && screen.find("unable to load models").is_some()
         })
     });
     let screen = Screen::painted(&completed, 24, 80).expect("a painted frame");
@@ -3884,6 +3902,7 @@ fn a_slash_word_opens_a_menu_that_completes_without_taking_the_caret() {
 
     // And the completed command runs on the next Return -- one command, one
     // Return, because the menu gets out of Enter's way rather than taking it.
+    // The column has no model to take, so the Return is the composer's:
     // `/model` with nothing after it is `/model`'s own menu, whose key help
     // only it says; Escape takes it down, which the hint row painted back
     // shows has settled.
@@ -4924,12 +4943,13 @@ fn ctrl_o_shows_what_a_tool_read_on_the_other_plane_and_gives_the_band_back_with
     session.wait_for("keep me");
 
     session.type_bytes(&[0x0f]);
+    // A frame that ends with the cursor still off: the screen has no caret.
     let text = session.wait_until("one complete frame of the full transcript", |text| {
         text.contains(ENTERS_ALTERNATE)
-            && last_frame(text)
+            && last_hidden_frame(text)
                 .is_some_and(|frame| frame.contains(FULL_FOOTER) && frame.contains(ONLY_IN_FULL))
     });
-    let frame = last_frame(&text).expect("the wait returns on a complete frame");
+    let frame = last_hidden_frame(&text).expect("the wait returns on a complete frame");
     assert!(
         frame.contains("Read notes.txt"),
         "the call's row: {frame:?}"
@@ -7052,8 +7072,13 @@ fn a_bare_model_on_the_gateway_lists_its_catalog_asked_with_the_turns_key() {
     session.wait_for("Switched to xai/grok-4.7 (effort: default, speed: normal)");
     session.type_bytes(b"/model nonexistent-xyz\r");
     session.wait_for("Switched to nonexistent-xyz (effort: default, speed: normal)");
-    // Two words is upstream's usage line, and the text stays in the composer.
-    session.type_bytes(b"/model fake/model-a high\r");
+    // An explicit form the model cannot take is upstream's usage line, and
+    // the text stays in the composer. **Pasted**, as upstream's capture of it
+    // is (`fx-model3-40x120-paste-bad-effort`): typed key by key, the space
+    // after the exact id is the inline column's, which makes the change for a
+    // model with no levels and sends `high` as a prompt
+    // (`fx-model2-40x120-explicit-bad-effort`).
+    session.type_bytes(b"\x1b[200~/model fake/model-a high\x1b[201~\r");
     session.wait_for("usage: /model <id> <effort> [normal|fast|ultrafast]");
     session.type_bytes(&[0x15]);
     session.type_bytes(b"/model opus\r");
@@ -7254,6 +7279,150 @@ fn xfx_sound_off_keeps_a_session_silent() {
 // ---------------------------------------------------------------------------
 // /copy
 // ---------------------------------------------------------------------------
+
+#[test]
+fn the_effort_column_sends_its_level_to_the_gateway_and_the_next_launch_keeps_it() {
+    // `fx-model-40x120-gpt-enter`: `/model ` and a space open the models under
+    // the argument, Enter on astra opens its levels, Down and Enter take
+    // `low` -- announced, on the footer, sent as the v4 route's top-level
+    // `reasoning` (`vercel_protocol.zig:376-379`), and written to the profile
+    // where the next launch reads it.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-A-EFFORT-ANSWERED",
+        ])),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
+            "MARKER-B-EFFORT-ANSWERED",
+        ])),
+    ])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/gpt-6-astra", "type": "language", "owned_by": "openai",
+         "released": 1_780_000_000, "tags": ["tool-use", "reasoning"],
+         "reasoning_options": [{"type": "effort", "values": ["low", "medium", "high", "xhigh"]}]},
+        {"id": "fake/model-a", "type": "language", "owned_by": "fake",
+         "released": 1_700_000_000, "tags": ["tool-use"]}
+    ]}));
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+
+    session.type_bytes(b"/model ");
+    on_screen(
+        &session,
+        (40, 120),
+        &["         openai/gpt-6-astra", "         fake/model-a"],
+        &[],
+    );
+    session.type_bytes(b"gpt\r");
+    on_screen(
+        &session,
+        (40, 120),
+        &[
+            "\u{2503} /model openai/gpt-6-astra",
+            "                            default",
+            "                            xhigh",
+        ],
+        &[],
+    );
+    session.type_bytes(b"\x1b[B\r");
+    session.wait_for("Switched to openai/gpt-6-astra (effort: low, speed: normal)");
+    on_screen(
+        &session,
+        (40, 120),
+        &["auto \u{b7} gpt-6-astra \u{b7} low"],
+        &[],
+    );
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-EFFORT-ANSWERED");
+    // A model that lists no levels is sent none, and the session keeps its
+    // effort for the next one that does.
+    session.type_bytes(b"\x1b[200~/model fake/model-a\x1b[201~\r");
+    session.wait_for("Switched to fake/model-a (effort: low, speed: normal)");
+    session.type_bytes(b"say more\r");
+    session.wait_for("MARKER-B-EFFORT-ANSWERED");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let requests = gateway.requests();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    assert_eq!(
+        requests[0].json()["reasoning"],
+        "low",
+        "{}",
+        requests[0].json()
+    );
+    assert_eq!(
+        requests[1].json().get("reasoning"),
+        None,
+        "a level was sent to a model that lists none: {}",
+        requests[1].json()
+    );
+    let settings = sandbox.settings().expect("a profile");
+    assert_eq!(settings["effort"], "low");
+    assert_eq!(settings["models"]["gateway"], "fake/model-a");
+
+    // The next launch starts in it. No catalog has been read yet, so nothing
+    // says this model does not take the level and the footer shows it, as
+    // upstream's does while its catalog is loading
+    // (`active_capabilities_pending`) -- upstream loads one at launch, xfx
+    // when something first needs it.
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    again.wait_for(READY);
+    on_screen(&again, (40, 120), &["auto \u{b7} model-a \u{b7} low"], &[]);
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn a_level_chosen_on_llmux_rides_as_output_config_effort() {
+    // llmux reads an effort from Anthropic's `output_config.effort` on every
+    // route it serves (`2lab-ai/llmux@4b3d4a4 src/provider/codex.rs:387-420`,
+    // `src/provider/grok.rs:327-345`, `src/proxy/forward.rs:488-505`), so the
+    // effort column's level is sent there.
+    use support::fake_llmux::CatalogModel;
+    let catalog = support::fake_llmux::described_catalog(&[CatalogModel {
+        id: "claude-fable-5[1m]",
+        aliases: &["fable"],
+        efforts: &["low", "high", "max"],
+        max_context: None,
+    }]);
+    let daemon = support::fake_llmux::FakeLlmux::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_llmux::anthropic_answer(&["MARKER-A-LLMUX-EFFORT"]),
+    )])
+    .with_catalog(catalog);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, {
+        let mut command = sandbox.command_with_llmux(&daemon);
+        command.env("XFX_TUI", "1");
+        command.env_remove("TMUX");
+        command
+    });
+    session.wait_for(READY);
+    session.type_bytes(b"/model ");
+    on_screen(&session, (40, 120), &["         claude-fable-5[1m]"], &[]);
+    session.type_bytes(b"\r");
+    on_screen(&session, (40, 120), &["max"], &[]);
+    session.type_bytes(b"max\r");
+    session.wait_for("Switched to claude-fable-5[1m] (effort: max, speed: normal)");
+    session.type_bytes(b"say something\r");
+    session.wait_for("MARKER-A-LLMUX-EFFORT");
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let request = daemon.only_message_request().json();
+    assert_eq!(request["model"], "claude-fable-5[1m]");
+    assert_eq!(
+        request["output_config"],
+        serde_json::json!({"effort": "max"}),
+        "{request}"
+    );
+}
 
 #[test]
 fn slash_copy_puts_the_reply_on_the_clipboard_as_the_model_wrote_it() {

@@ -78,7 +78,8 @@ use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSend
 
 use super::approval::{ControlChannel, TuiPrompter};
 use super::bridge::{
-    self, Cancellation, ModelAnswer, TurnCancel, TurnControl, TurnWork, UiEvent, UiEventSink,
+    self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
+    UiEventSink,
 };
 use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
@@ -370,6 +371,13 @@ impl WorkHandle {
     /// that may be in the middle of a turn.
     pub(crate) fn last_reply(&self) -> Option<Arc<str>> {
         self.reply.get()
+    }
+
+    /// Gives one place back, as the runtime does once a piece of work has said
+    /// its last word -- or has been dropped by an interrupt.
+    #[cfg(test)]
+    pub(crate) fn finished_one(&self) {
+        self.outstanding.fetch_sub(1, Ordering::Release);
     }
 
     /// Makes `reply` the conversation's last reply, as the runtime would after
@@ -880,6 +888,12 @@ struct Runtime {
     /// because its fetcher is that provider's endpoint and its model is that
     /// provider's model.
     selector: ModelSelector,
+    /// The session's reasoning effort: one value for every model, carried
+    /// across a model change and a provider switch alike, as upstream's
+    /// `app.effort` is (`crate::provider::effort`). Whether a turn *sends* it
+    /// is decided per turn, against the catalog's row for the model in force
+    /// ([`Runtime::request_options`]).
+    effort: crate::provider::effort::Effort,
     /// Where the conversation's last reply is published for `/copy`
     /// ([`Runtime::publish_reply`]).
     reply: LastReply,
@@ -922,6 +936,7 @@ impl Runtime {
     ) -> Self {
         let selector = ModelSelector::new(&config);
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
+        let effort = config.effort.clone();
         Self {
             config,
             env,
@@ -931,6 +946,7 @@ impl Runtime {
             prompter,
             questioner,
             selector,
+            effort,
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
@@ -1371,6 +1387,50 @@ impl Runtime {
         from_state(self.selector.ensure_catalog().await)
     }
 
+    /// Loads the catalog if nothing has asked for it yet, and says whether this
+    /// call is the one that did -- which is when the UI has to be told
+    /// ([`Runtime::catalog_event`]), because its rows are what the band
+    /// resolves a query and fills the effort column from.
+    async fn load_catalog(&mut self) -> bool {
+        let unasked = matches!(self.selector.catalog(), CatalogState::NotLoaded);
+        self.selector.ensure_catalog().await;
+        unasked && !matches!(self.selector.catalog(), CatalogState::NotLoaded)
+    }
+
+    /// What the UI is told about the catalog as it stands: its rows, bounded
+    /// and in the menu's order; no rows, for a provider with none; or that it
+    /// could not be read, and whether asking again could help.
+    fn catalog_event(&self) -> UiEvent {
+        let provider = self.config.provider;
+        match from_state(self.selector.catalog()) {
+            CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
+            // The provider has no catalog; nothing went wrong, and the menu
+            // says there is nothing in it.
+            CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
+                provider,
+                entries: Vec::new(),
+            },
+            CatalogAnswer::Unread(_) => UiEvent::CatalogUnread {
+                provider,
+                retry: self.selector.failure_retry(),
+            },
+        }
+    }
+
+    /// What every request of the next turn asks for beside its prompt: the
+    /// session's effort, **if** the catalog lists it for the model in force
+    /// (`Effort::for_request`; `resolveProviderOptionsForCapabilities`,
+    /// `model_capabilities.zig:194-206`). A model the catalog does not
+    /// describe -- not listed, or no catalog read -- is sent none, which is
+    /// upstream's fallback (`capabilitiesForModel` knows no levels).
+    fn request_options(&self) -> crate::gateway::protocol::RequestOptions {
+        crate::gateway::protocol::RequestOptions {
+            reasoning: self
+                .effort
+                .for_request(self.selector.entry(self.selector.model())),
+        }
+    }
+
     /// What `/model <query>` means, with the line shell's own meaning.
     ///
     /// **The decision is [`ModelSelector::apply`]'s and is not remade here.**
@@ -1387,7 +1447,18 @@ impl Runtime {
     /// *provider* a prompt goes to is decided by the configuration, and a front
     /// end that could change it would be a second place that decides.
     fn use_model(&mut self, name: &str) -> ModelOutcome {
-        let outcome = self.selector.apply(ModelRequest::Select(name));
+        self.apply_model(ModelRequest::Select(name))
+    }
+
+    /// [`Runtime::use_model`] for an id the band already settled -- a row, a
+    /// literal id, a query it resolved -- which is applied as written
+    /// ([`ModelRequest::Exact`]).
+    fn use_exact_model(&mut self, id: &str) -> ModelOutcome {
+        self.apply_model(ModelRequest::Exact(id))
+    }
+
+    fn apply_model(&mut self, request: ModelRequest<'_>) -> ModelOutcome {
+        let outcome = self.selector.apply(request);
         // **Only a selection is written down.** A refusal changed nothing and
         // an unchanged model is not a change; a log entry for either would be
         // read back by every later resume as a preference this session never
@@ -1406,35 +1477,50 @@ impl Runtime {
     }
 
     /// Records `model` as the configured provider's in the profile
-    /// (`models.<provider>`), and says what is worth saying about it.
+    /// (`models.<provider>`), and the `effort` chosen with it when there was
+    /// one, and says what is worth saying about it.
     ///
-    /// Through [`crate::provider::profile::write_preference`], the one writer
-    /// every command that changes one preference shares, and **on this
-    /// thread**: a settings write is a read, a staged file and a rename, none
-    /// of which the thread holding the terminal may wait on. Read back at the
-    /// next launch by [`RuntimeConfig::load_with`], which ranks it as upstream
-    /// does: the environment over the profile over the compiled default.
+    /// Through [`crate::provider::profile::write_preferences`], the one writer
+    /// every command that changes a preference shares -- **one** transaction
+    /// for the pair, under the settings lock -- and **on this thread**: a
+    /// settings write is a read, a staged file and a rename, none of which the
+    /// thread holding the terminal may wait on. Read back at the next launch by
+    /// [`RuntimeConfig::load_with`], which ranks the model as upstream does:
+    /// the environment over the profile over the compiled default. The effort
+    /// is the profile's alone ([`crate::config::EFFORT_KEY`]).
     ///
     /// `None` -- nothing to say -- is the ordinary case, as upstream's benign
     /// `saved to user settings` line is dropped when the caller has announced
     /// the change (`reportUserSettingsCommit`, `session_commands.zig:27-85`).
-    /// Said: that a layer above the profile will still decide what a fresh
-    /// session uses (upstream's words), or that the write failed and the model
-    /// holds for this process only. A session with no home has no profile to
-    /// write and says nothing about one.
-    fn save_model(&self, model: &str) -> Option<super::notice::Notice> {
+    /// Said, under upstream's label for how the change was made (`model
+    /// picker` or `model`, `:914`, `:1187`): that a layer above the profile
+    /// will still decide what a fresh session uses (upstream's words), or that
+    /// the write failed and the change holds for this process only. A session
+    /// with no home has no profile to write and says nothing about one.
+    fn save_change(
+        &self,
+        model: &str,
+        effort: Option<&crate::provider::effort::Effort>,
+        picker: bool,
+    ) -> Option<super::notice::Notice> {
         let path = self.config.user_settings_path.as_ref()?;
-        let key = [crate::config::MODELS_KEY, self.config.provider.label()];
-        match crate::provider::profile::write_preference(
-            path,
-            &key,
-            serde_json::Value::String(model.to_string()),
-        ) {
+        let topic = if picker { "model picker" } else { "model" };
+        let model_key = [crate::config::MODELS_KEY, self.config.provider.label()];
+        let effort_key = [crate::config::EFFORT_KEY];
+        let mut preferences: Vec<(&[&str], serde_json::Value)> =
+            vec![(&model_key, serde_json::Value::String(model.to_string()))];
+        if let Some(effort) = effort {
+            preferences.push((
+                &effort_key,
+                serde_json::Value::String(effort.label().to_string()),
+            ));
+        }
+        match crate::provider::profile::write_preferences(path, &preferences) {
             Ok(()) => {
                 let source = self.config.sources.model;
                 (source > crate::config::SettingSource::UserGlobal).then(|| {
                     super::notice::Notice::neutral(
-                        "model",
+                        topic,
                         format!(
                             "saved to user settings (scope=user); fresh sessions here use \
                              higher-precedence model={}",
@@ -1444,7 +1530,7 @@ impl Runtime {
                 })
             }
             Err(err) => Some(super::notice::Notice::error(
-                "model",
+                topic,
                 format!("active for this process but not saved to user settings ({err})"),
             )),
         }
@@ -1552,6 +1638,9 @@ async fn turn_loop(
                 // The same, and the conversation goes too -- at once, because
                 // nothing is running to wait for.
                 Some(TurnControl::Reset { through }) => Taken::Reset(through),
+                // Nothing is running, so the turn after this moment is the next
+                // one: the change is made now.
+                Some(TurnControl::Model(change)) => Taken::Model(change),
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1584,6 +1673,20 @@ async fn turn_loop(
                 drop_conversation(&mut state, events, through).await;
                 continue;
             }
+            Taken::Model(change) => {
+                let ended =
+                    change_model(&mut state, change, events, &cancel, &control, &mut queue).await;
+                // A change waiting on the catalog can be overtaken by anything
+                // the channel carries, and a model change read meanwhile is put
+                // aside like one read during a turn.
+                match apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await
+                {
+                    Ended::Session => return settled(state, changes),
+                    Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
+                    Ended::Turn => {}
+                }
+                continue;
+            }
             Taken::Nothing => continue,
             Taken::Shutdown => return settled(state, changes),
             Taken::Change(Some(change)) => {
@@ -1606,12 +1709,6 @@ async fn turn_loop(
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
-            TurnWork::Model { name, next_turn } => {
-                run_model(
-                    &mut state, &name, next_turn, events, &cancel, &control, &mut queue,
-                )
-                .await
-            }
             TurnWork::Submit(prompt) => {
                 run_turn(&mut state, prompt, events, &cancel, &control, &mut queue).await
             }
@@ -1660,6 +1757,11 @@ async fn turn_loop(
         // about a queue on a dead runtime would be a lie the `Gone` arm exists
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
+        // The model changes asked for while it ran, **now** -- after its last
+        // word and before anything queued behind it is taken, so the prompt
+        // that waited is the first turn to run in the model the band said it
+        // would ([`TurnControl::Model`]).
+        let ended = apply_deferred(&mut state, ended, events, &cancel, &control, &mut queue).await;
         match ended {
             Ended::Session => return settled(state, changes),
             // A reset reached this work while it ran: the work has said its
@@ -1731,6 +1833,8 @@ enum Taken {
     /// The user reset the session: [`Self::Abandon`], and the conversation
     /// dropped with it.
     Reset(usize),
+    /// `/model`, between turns: applied now.
+    Model(ModelChange),
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2000,52 +2104,71 @@ async fn run_setup(
     }
 }
 
-/// Applies one `/model <query>` and tells the UI what the selector made of it.
+/// Applies one `/model` change ([`TurnControl::Model`]) and tells the UI what
+/// became of it.
 ///
-/// **The catalog first, when none is loaded yet**: upstream resolves a query
-/// against the catalog it holds and fetches it when it holds none
-/// (`resolveModelQuery`, `session_commands.zig:1147-1166`), so `/model opus`
-/// typed before the menu was ever opened still finds `anthropic/claude-opus-5`.
-/// The load is the selector's once-per-provider one -- a second `/model` asks
-/// no socket -- and it is raced against the control channel like
-/// `run_catalog`'s, because it is the one piece of this that waits on a
-/// network. A Ctrl-C while it waits stops the selection with everything queued
-/// behind it, and nothing is applied: the user stopped this piece of work.
+/// **A query the band could not resolve goes to the catalog first**, when none
+/// is in hand: upstream resolves a query against the catalog it holds and
+/// fetches it when it holds none (`resolveModelQuery`,
+/// `session_commands.zig:1147-1166`), so `/model opus` typed before any list
+/// was loaded still finds `anthropic/claude-opus-5`. This is `/model`, so a
+/// load that failed is asked again ([`ModelSelector::retry_after_failure`]),
+/// and the rows that arrive go to the UI as well, which is what lets the next
+/// change be resolved -- and announced -- on the band. The load is raced
+/// against the control channel, because it is the one piece of this that
+/// waits on a network: a Ctrl-C while it waits stops it with everything queued
+/// behind it, and nothing is applied -- nothing was said about it either.
 ///
-/// Then the selection, and **the profile write, here on the runtime thread**
-/// ([`Runtime::save_model`]): `/setup`'s file discipline, off the thread that
-/// holds the terminal.
+/// **A change the band resolved is applied as it stands**, with no socket: the
+/// band named the id and has already said `Switched to` it, and an id spelled
+/// exactly resolves to itself.
 ///
-/// The answer goes through [`bridge::send_terminal`] rather than `send_ui`, for
-/// the reason a provider switch's does: by the time it is sent the change has
-/// been made and written into the session log, and a cancellation that dropped
-/// the one event saying so would leave the band showing a model the session is
-/// no longer in.
-async fn run_model(
+/// Then the selection, the effort chosen with it, and **the profile write,
+/// here on the runtime thread** ([`Runtime::save_change`]): `/setup`'s file
+/// discipline, off the thread that holds the terminal. The answer goes through
+/// [`bridge::send_terminal`] rather than `send_ui`, for the reason a provider
+/// switch's does: by the time it is sent the change has been made and written
+/// into the session log, and a cancellation that dropped the one event saying
+/// so would leave the band showing a model the session is no longer in.
+async fn change_model(
     state: &mut Runtime,
-    name: &str,
-    next_turn: bool,
+    change: ModelChange,
     events: &Sender<UiEvent>,
     cancel: &Cancellation,
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
-    let turn = cancel.turn();
-    let ((), ended) = raced_against_control(
-        async {
-            state.selector.ensure_catalog().await;
-        },
-        control,
-        |through| {
+    let mut ended = Ended::Turn;
+    if !change.announced {
+        state.selector.retry_after_failure();
+        let turn = cancel.turn();
+        let (fresh, raced) = raced_against_control(state.load_catalog(), control, |through| {
             turn.cancel();
             queue.abandon(through);
-        },
-    )
-    .await;
-    if turn.token.is_cancelled() {
-        return ended;
+        })
+        .await;
+        if turn.token.is_cancelled() {
+            return raced;
+        }
+        ended = raced;
+        if fresh {
+            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
     }
-    let outcome = state.use_model(name);
+    let outcome = if change.announced {
+        state.use_exact_model(&change.name)
+    } else {
+        state.use_model(&change.name)
+    };
+    // The effort goes with the model it was chosen for, and only when the
+    // model was taken: a refusal changed nothing.
+    let effort = match &outcome {
+        ModelOutcome::Selected { .. } | ModelOutcome::Unchanged { .. } => change.effort.clone(),
+        ModelOutcome::Refused { .. } | ModelOutcome::Reported { .. } => None,
+    };
+    if let Some(effort) = &effort {
+        state.effort = effort.clone();
+    }
     state.publish();
     let (answered, chosen) = match outcome {
         ModelOutcome::Selected {
@@ -2061,7 +2184,7 @@ async fn run_model(
     // Written for an unchanged model too, as upstream writes it
     // (`setResolvedModel` persists whatever it resolved): the operator named
     // this model, and the profile is where a later launch reads that.
-    let saved = chosen.and_then(|model| state.save_model(&model));
+    let saved = chosen.and_then(|model| state.save_change(&model, effort.as_ref(), change.picker));
     bridge::send_terminal(
         events,
         UiEvent::ModelAnswered {
@@ -2069,8 +2192,10 @@ async fn run_model(
             // rather than echoed from the request: on a refusal that is the
             // standing model, and it is the one the band must show.
             model: state.model().to_string(),
+            effort: state.effort.clone(),
             outcome: answered,
-            next_turn,
+            next_turn: change.next_turn,
+            announced: change.announced,
         },
     )
     .await;
@@ -2080,6 +2205,43 @@ async fn run_model(
         bridge::send_terminal(events, UiEvent::Notice(notice)).await;
     }
     ended
+}
+
+/// Applies the model changes put aside while a piece of work ran
+/// ([`ControlChannel::defer`]), oldest first, and says what ended.
+///
+/// `ended` is what the work itself ended with. A session that is over still
+/// applies a change the band already announced -- it needs no socket, and the
+/// profile is where the operator's choice outlives the process -- and drops
+/// one that would have had to load a catalog first.
+async fn apply_deferred(
+    state: &mut Runtime,
+    mut ended: Ended,
+    events: &Sender<UiEvent>,
+    cancel: &Cancellation,
+    control: &ControlChannel,
+    queue: &mut Queue<'_>,
+) -> Ended {
+    loop {
+        let changes = control.take_deferred();
+        if changes.is_empty() {
+            return ended;
+        }
+        for change in changes {
+            if ended == Ended::Session && !change.announced {
+                continue;
+            }
+            let after = change_model(state, change, events, cancel, control, queue).await;
+            ended = match (ended, after) {
+                (Ended::Session, _) | (_, Ended::Session) => Ended::Session,
+                (Ended::Reset(earlier), Ended::Reset(later)) => Ended::Reset(earlier.max(later)),
+                (Ended::Reset(through), Ended::Turn) | (Ended::Turn, Ended::Reset(through)) => {
+                    Ended::Reset(through)
+                }
+                (Ended::Turn, Ended::Turn) => Ended::Turn,
+            };
+        }
+    }
 }
 
 /// `/rename`, and whether it was written down (`handleRenameCommand`,
@@ -2120,26 +2282,25 @@ async fn run_catalog(
     queue: &mut Queue<'_>,
 ) -> Ended {
     let turn = cancel.turn();
-    let provider = state.config.provider;
-    let (loaded, ended) = raced_against_control(state.catalog(), control, |through| {
-        turn.cancel();
-        queue.abandon(through);
-    })
+    // `/model`'s menu or column is what asked, which is the gesture upstream's
+    // failure text says to repeat (`retry /model.`): a load that failed is
+    // asked again here, and only here and in `change_model`.
+    state.selector.retry_after_failure();
+    let ((), ended) = raced_against_control(
+        async {
+            state.catalog().await;
+        },
+        control,
+        |through| {
+            turn.cancel();
+            queue.abandon(through);
+        },
+    )
     .await;
     // Through `send_ui`: a catalog whose turn was cancelled is a list nobody
     // is waiting for any more, and the conclusion below still closes the item
     // either way.
-    let answer = match loaded {
-        CatalogAnswer::Rows(entries) => UiEvent::CatalogLoaded { provider, entries },
-        // The provider has no catalog; nothing went wrong, and the menu says
-        // there is nothing in it.
-        CatalogAnswer::NoneAdvertised => UiEvent::CatalogLoaded {
-            provider,
-            entries: Vec::new(),
-        },
-        CatalogAnswer::Unread(_) => UiEvent::CatalogUnread { provider },
-    };
-    let _ = bridge::send_ui(events, &turn.token, answer).await;
+    let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
     bridge::send_terminal(events, UiEvent::TurnEnded { failure: None }).await;
     ended
 }
@@ -2209,6 +2370,10 @@ async fn raced_against_control<F: Future>(
                     // later prompt to belong to.
                     stop(usize::MAX);
                 }
+                // `/model` while this work runs: for the turn after it, so put
+                // aside until it is over ([`ControlChannel::defer`]). Nothing
+                // here stops.
+                Some(TurnControl::Model(change)) => control.defer(change),
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -2259,6 +2424,29 @@ async fn one_turn(
     if let Err(message) = state.ready(&turn.mirror) {
         return Some(message);
     }
+    // **The effort, before anything is sent.** Whether this model takes it is
+    // the catalog's answer, so a session in a level with no catalog read yet --
+    // a launch whose profile carries one -- reads it now: once, raced against
+    // the turn's own cancellation so a Ctrl-C does not wait out a slow
+    // Gateway, and told to the UI, whose footer and columns read the same rows.
+    // A session in the default asks for nothing and costs no socket.
+    if !state.effort.is_default() {
+        let fresh = tokio::select! {
+            biased;
+            () = turn.token.cancelled() => false,
+            fresh = state.load_catalog() => fresh,
+        };
+        if fresh {
+            let _ = bridge::send_ui(events, &turn.token, state.catalog_event()).await;
+        }
+    }
+    let options = state.request_options();
+    state
+        .provider
+        .as_ref()
+        .expect("the bundle was just built")
+        .stream
+        .set_options(options);
     // Read before the conversation is borrowed, and read from the selector that
     // owns it: the model this turn is sent under is the model `/model` last
     // applied, whatever the configuration said at launch.
@@ -2328,7 +2516,15 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
-    let outcome = run_turn_saved(request, context, provider, &mut sink, &mut journal).await;
+    // And each request the turn settles, as the full transcript's `* network:`
+    // record (`super::full_transcript::Networked`).
+    let provider = super::full_transcript::Networked::new(
+        provider,
+        state.config.provider.label(),
+        events.clone(),
+        turn.token.clone(),
+    );
+    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -3243,12 +3439,11 @@ mod tests {
         // Upstream syncs a new mode into the prompts already queued
         // (`syncQueuedPermissionSnapshot`); here the loop takes changes before
         // work, so whatever was waiting starts under the mode the user chose
-        // after it was typed. Observed through a queued `/model`, which writes
+        // after it was typed. Observed through a queued `/rename`, which writes
         // its own line into the same log: the change's line has to come first.
-        let (_home, _workspace, mut state) = recording();
-        state
-            .selector
-            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
+        // (A queued `/model` used to be the witness; a model change is a
+        // control message now, and takes no place in the queue.)
+        let (_home, _workspace, state) = recording();
         let log = state
             .store
             .sessions_dir()
@@ -3264,10 +3459,7 @@ mod tests {
             .join(crate::session::store::EVENTS_FILE);
         let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
         work_tx
-            .try_send(TurnWork::Model {
-                name: "second-model".into(),
-                next_turn: false,
-            })
+            .try_send(TurnWork::Rename("queued-witness-title".into()))
             .expect("room");
         let (changes_tx, mut changes) = mpsc::unbounded_channel::<Change>();
         changes_tx
@@ -3290,10 +3482,10 @@ mod tests {
         let mode = log
             .find(r#""permission_mode":"ask""#)
             .unwrap_or_else(|| panic!("the change never reached the log: {log}"));
-        let model = log
-            .find(r#""model":"second-model""#)
+        let work = log
+            .find("queued-witness-title")
             .unwrap_or_else(|| panic!("the work never ran: {log}"));
-        assert!(mode < model, "the queued work ran before the change: {log}");
+        assert!(mode < work, "the queued work ran before the change: {log}");
     }
 
     #[test]
@@ -4314,17 +4506,11 @@ mod tests {
         // what was submitted after it is a new intention and stays.
         let (handle, mut work_rx, _unused) = WorkHandle::detached();
         handle
-            .submit(TurnWork::Model {
-                name: "dropped".into(),
-                next_turn: false,
-            })
+            .submit(TurnWork::Submit("dropped".into()))
             .expect("idle");
         let through = handle.accepted();
         handle
-            .submit(TurnWork::Model {
-                name: "kept".into(),
-                next_turn: false,
-            })
+            .submit(TurnWork::Submit("kept".into()))
             .expect("one may wait");
         let mut queue = Queue {
             work: &mut work_rx,
@@ -4335,10 +4521,7 @@ mod tests {
         assert_eq!(handle.outstanding(), 1);
         assert_eq!(
             queue.work.try_recv(),
-            Ok(TurnWork::Model {
-                name: "kept".into(),
-                next_turn: false,
-            }),
+            Ok(TurnWork::Submit("kept".into())),
             "a submission past the reset's count was dropped with it"
         );
 
@@ -4520,9 +4703,24 @@ mod tests {
         ));
     }
 
-    /// Runs one `/model` the way the loop runs it, and hands back what it told
-    /// the UI.
+    /// Runs one `/model` the way the loop runs it -- a query typed with nothing
+    /// resolved on the band -- and hands back what it told the UI.
     fn ran_model(state: &mut Runtime, name: &str, next_turn: bool) -> Vec<UiEvent> {
+        ran_change(
+            state,
+            ModelChange {
+                name: name.to_string(),
+                effort: None,
+                picker: false,
+                announced: false,
+                next_turn,
+            },
+        )
+    }
+
+    /// Runs one model change the way the loop runs it, and hands back what it
+    /// told the UI.
+    fn ran_change(state: &mut Runtime, change: ModelChange) -> Vec<UiEvent> {
         let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
         let (_control_tx, control_rx) = mpsc::unbounded_channel();
         let control = ControlChannel::new(control_rx);
@@ -4534,8 +4732,8 @@ mod tests {
             outstanding: &outstanding,
             taken: 0,
         };
-        let ended = on_a_runtime(run_model(
-            state, name, next_turn, &events_tx, &cancel, &control, &mut queue,
+        let ended = on_a_runtime(change_model(
+            state, change, &events_tx, &cancel, &control, &mut queue,
         ));
         assert_eq!(ended, Ended::Turn);
         let mut said = Vec::new();
@@ -4543,6 +4741,254 @@ mod tests {
             said.push(event);
         }
         said
+    }
+
+    /// A catalog that never answers: upstream's `transport` failure, which it
+    /// asks again about.
+    struct Unreachable;
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Unreachable {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            Err(crate::provider::model::CatalogError::Gateway {
+                detail: "connection refused".to_string(),
+                retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+            })
+        }
+    }
+
+    /// A catalog that answers with `entries`, and counts how often it was asked.
+    struct Answering {
+        entries: Vec<CatalogEntry>,
+        asked: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl crate::provider::model::ModelCatalog for Answering {
+        async fn fetch(&self) -> Result<Vec<CatalogEntry>, crate::provider::model::CatalogError> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            Ok(self.entries.clone())
+        }
+    }
+
+    /// One catalog row offering `efforts`.
+    fn leveled(id: &str, efforts: &[&str]) -> CatalogEntry {
+        CatalogEntry {
+            efforts: efforts.iter().map(|effort| effort.to_string()).collect(),
+            ..published(id)
+        }
+    }
+
+    #[test]
+    fn a_change_the_band_announced_is_applied_with_its_effort_and_saved_as_one_write() {
+        // `selectModelFromPicker`: the model and the level go together, in one
+        // write, under upstream's `model picker` -- and the answer says
+        // nothing the band has not already said.
+        let (home, workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let low = crate::provider::effort::Effort::Named("low".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "openai/gpt-6-astra".to_string(),
+                effort: Some(low.clone()),
+                picker: true,
+                announced: true,
+                next_turn: false,
+            },
+        );
+        assert_eq!(
+            said,
+            [UiEvent::ModelAnswered {
+                model: "openai/gpt-6-astra".to_string(),
+                effort: low.clone(),
+                // The fixture's Gateway has no credential, so no catalog to
+                // check against: applied, and no caveat.
+                outcome: ModelAnswer::Applied { unverified: None },
+                next_turn: false,
+                announced: true,
+            }]
+        );
+        assert_eq!(state.effort, low);
+        assert_eq!(
+            settings(home.path()),
+            serde_json::json!({"theme": "dark", "effort": "low",
+                               "models": {"gateway": "openai/gpt-6-astra"}})
+        );
+        // The next launch starts in it.
+        let reloaded = config(home.path(), workspace.path());
+        assert_eq!(reloaded.effort, low);
+        assert_eq!(reloaded.model, "openai/gpt-6-astra");
+
+        // A router-form change leaves the effort as it is, and does not write
+        // it: it changed only the model (`setResolvedModel`).
+        let said = ran_model(&mut state, "acme/one", false);
+        let UiEvent::ModelAnswered { effort, .. } = &said[0] else {
+            panic!("{said:?}");
+        };
+        assert_eq!(effort, &low, "a model change dropped the session's effort");
+        assert_eq!(settings(home.path())["effort"], "low");
+        assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn a_query_with_no_catalog_in_hand_loads_it_retrying_a_failure_and_tells_the_ui() {
+        // `/model opus` before any list was read: the catalog first, so the
+        // query resolves -- and its rows go to the band too, which is what
+        // lets the next change be resolved and announced there. A load that
+        // failed is asked again, because this is `/model`.
+        let (_home, _workspace, mut state) = recording();
+        let asked = Arc::new(AtomicUsize::new(0));
+        state.selector.set_fetcher_for_test(Box::new(Answering {
+            entries: vec![published("anthropic/claude-opus-5")],
+            asked: Arc::clone(&asked),
+        }));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        let said = ran_model(&mut state, "opus", false);
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "the failure was not asked again"
+        );
+        assert!(
+            matches!(&said[0], UiEvent::CatalogLoaded { entries, .. } if entries.len() == 1),
+            "{said:?}"
+        );
+        assert!(
+            matches!(&said[1], UiEvent::ModelAnswered { model, announced: false, .. }
+                if model == "anthropic/claude-opus-5"),
+            "{said:?}"
+        );
+        // Loaded now: the next query asks no socket and sends no rows again.
+        let said = ran_model(&mut state, "opus", false);
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        assert!(
+            matches!(&said[0], UiEvent::ModelAnswered { .. }),
+            "{said:?}"
+        );
+    }
+
+    #[test]
+    fn a_turn_sends_the_effort_only_to_a_model_the_catalog_says_takes_it() {
+        // `resolveProviderOptionsForCapabilities`: nothing for the default,
+        // the level for a model that lists it, and nothing for a model that
+        // does not -- or that no catalog read describes.
+        let (_home, _workspace, mut state) = recording();
+        let options = |state: &Runtime| state.request_options().reasoning;
+        assert_eq!(options(&state), None, "the default asks for nothing");
+        state.effort = crate::provider::effort::Effort::Named("high".to_string());
+        assert_eq!(options(&state), None, "no catalog describes the model");
+        let model = state.model().to_string();
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                &model,
+                &["low", "high"],
+            )]));
+        assert_eq!(options(&state), Some("high".to_string()));
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(&model, &["low"])]));
+        assert_eq!(options(&state), None, "a level the model does not list");
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![leveled(
+                "other/model",
+                &["high"],
+            )]));
+        assert_eq!(options(&state), None, "another model's levels");
+    }
+
+    #[test]
+    fn a_model_change_while_work_runs_is_put_aside_and_stops_nothing() {
+        // `TurnControl::Model` read during a turn: the turn keeps the model it
+        // began with, nothing it was doing is stopped, and the change waits
+        // for the loop to apply between this and the next piece of work.
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let asked = ModelChange {
+            name: "next/model".to_string(),
+            effort: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+        };
+        control_tx
+            .send(TurnControl::Model(asked.clone()))
+            .expect("alive");
+        let mut stops = Vec::new();
+        let (_, ended) = on_a_runtime(raced_against_control(
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            },
+            &control,
+            |through| stops.push(through),
+        ));
+        assert!(stops.is_empty(), "a model change stopped the work");
+        assert_eq!(ended, Ended::Turn);
+        assert_eq!(control.take_deferred(), vec![asked]);
+        assert!(control.take_deferred().is_empty(), "taken twice");
+    }
+
+    #[test]
+    fn a_change_put_aside_is_applied_before_the_next_piece_of_work_and_survives_the_end() {
+        // Applied by the loop after the work ends: with the session going on,
+        // and -- for one the band already announced -- with the session over
+        // too, because the profile is where the choice outlives the process.
+        // One the band could not resolve needs a catalog, and a session that
+        // is over does not open a socket for it.
+        let (home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        control.defer(ModelChange {
+            name: "kept/model".to_string(),
+            effort: None,
+            picker: true,
+            announced: true,
+            next_turn: true,
+        });
+        control.defer(ModelChange {
+            name: "unresolved".to_string(),
+            effort: None,
+            picker: false,
+            announced: false,
+            next_turn: true,
+        });
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert_eq!(state.model(), "kept/model");
+        assert_eq!(settings(home.path())["models"]["gateway"], "kept/model");
+        assert!(matches!(
+            events_rx.try_recv(),
+            Ok(UiEvent::ModelAnswered { model, .. }) if model == "kept/model"
+        ));
+        assert!(
+            events_rx.try_recv().is_err(),
+            "the unresolved one was applied"
+        );
     }
 
     fn settings(home: &std::path::Path) -> serde_json::Value {
@@ -4566,8 +5012,10 @@ mod tests {
             said,
             [UiEvent::ModelAnswered {
                 model: "acme/one".to_string(),
+                effort: crate::provider::effort::Effort::Auto,
                 outcome: ModelAnswer::Applied { unverified: None },
                 next_turn: false,
+                announced: false,
             }],
             "a write nothing outranks says nothing of its own"
         );
@@ -4592,8 +5040,10 @@ mod tests {
             said,
             [UiEvent::ModelAnswered {
                 model: "acme/one".to_string(),
+                effort: crate::provider::effort::Effort::Auto,
                 outcome: ModelAnswer::Unchanged,
                 next_turn: true,
+                announced: false,
             }]
         );
         assert_eq!(
@@ -4689,14 +5139,16 @@ mod tests {
                 UiEvent::TurnEnded { failure: None }
             ]
         );
-        // Unread: the menu's failure, and no failed turn.
-        state
-            .selector
-            .set_catalog_for_test(CatalogState::Failed("nothing answered".to_string()));
+        // Unread: the menu's failure -- and whether asking again could help
+        // -- and no failed turn.
+        state.selector.set_fetcher_for_test(Box::new(Unreachable));
         assert_eq!(
             catalog(&mut state),
             [
-                UiEvent::CatalogUnread { provider },
+                UiEvent::CatalogUnread {
+                    provider,
+                    retry: Some(crate::provider::model::CatalogRetry::Unreachable),
+                },
                 UiEvent::TurnEnded { failure: None }
             ]
         );

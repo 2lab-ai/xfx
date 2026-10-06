@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-3c32971 [debug] · Run /help for commands
+
+* Switched to zai/glm-5.2 (effort: low, speed: normal)
+
+┃
+
+auto · glm-5.2 · low
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

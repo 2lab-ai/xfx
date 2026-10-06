@@ -630,6 +630,9 @@ impl TurnMachine {
                 ok: result.ok,
                 output: result.output.clone(),
             });
+            if let Some(change) = &result.change {
+                journal.change_made(&call.id, change);
+            }
             // A call that failed is said as one on the wire, as upstream says
             // every result whose status is a failure (`error-text`,
             // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).

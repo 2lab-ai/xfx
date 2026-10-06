@@ -1,0 +1,5 @@
+fx model-effort 001-title.json: last user text='say something'; beside prompt and tools: {"maxOutputTokens": 128, "toolChoice": {"type": "none"}}
+fx model-effort 002-completion.json: last user text='say something'; beside prompt and tools: {"headers": {"user-agent": "fx/0.0.13"}, "providerOptions": {"gateway": {"caching": "auto"}}, "reasoning": "low", "toolChoice": {"type": "auto"}}
+fx model-effort 003-completion.json: last user text='high'; beside prompt and tools: {"providerOptions": {"gateway": {"caching": "auto"}}, "toolChoice": {"type": "auto"}}
+xfx model-effort 001-completion.json: last user text='say something'; beside prompt and tools: {"reasoning": "low", "toolChoice": {"type": "auto"}}
+xfx model-effort 002-completion.json: last user text='high'; beside prompt and tools: {"toolChoice": {"type": "auto"}}
