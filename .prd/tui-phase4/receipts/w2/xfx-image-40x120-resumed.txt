@@ -4,7 +4,7 @@
 
   It is a small red square.
 
-  1s (↑12 ↓40)
+  0s (↑12 ↓40)
 
 ┃ describe it again
 

@@ -26,10 +26,14 @@ bytes, sha256 `3fd6e6be528c…`), `notes.txt` (text) and a directory `pics/`.
   `osascript`, then the same with `clipimage image-ws/shot.png`, `/images` after
   the badges, and a prompt.
 
-The xfx binary is `target/debug/xfx` built at `edafd5d` (this branch with
-`plan/tui-phase4` at `d76c10a` merged, `e7139fc`, and the replay-summary fix on
-top); its banner says `v0.1.0-edafd5d`. fx is the c1db919 build (banner
-`v0.0.13`).
+The xfx binary is `target/debug/xfx` built at `694eb48`: this branch with
+`plan/tui-phase4` at `acdb2b5` merged (W1 `/usage`, W3 `/trace`, D4d
+`/settings` among what came in); its banner says `v0.1.0-694eb48`. fx is the
+c1db919 build (banner `v0.0.13`). Every capture here was taken on that tree
+with that harness. Two earlier sets -- at `edafd5d` (plan `d76c10a`) and
+before the replay-summary fix -- said the same thing row for row, apart from
+the banner, wall-clock seconds, and the replayed summary's `↑11` the fix
+changed to fx's `↑12`.
 
 ## What was added to capture.sh
 
@@ -46,7 +50,11 @@ top); its banner says `v0.1.0-edafd5d`. fx is the c1db919 build (banner
   fx runs `osascript` on its UI thread for `/paste`; without the warm-up its
   first `/paste` landed after the scenario's snap (the slash menu was still up
   1.5 s after Enter), because macOS assesses a new executable the first time it
-  runs.
+  runs. W3 (`/trace`) made the same fix on plan; the merge keeps its
+  `osascript warm-up` and one shim for both units: `clipfail on` makes it exit
+  1, a clipboard-image script writes the `clipimage` file (and is never kept
+  for W3's `clipfile`), and any other call is kept for `clipfile` as W3's
+  was.
 
 The other shims (`open`, `pbcopy`, `pbpaste`, `afplay`), `FX_NO_OPEN_BROWSER=1`
 and the fx sound guard are unchanged; every fx run ended with all seven chime
@@ -87,10 +95,10 @@ means rows 2-40.
 | `cu` (attach, then Ctrl-U) | composer empty | same | Identical, `.txt` and `.ansi`. |
 | `images-after-cu` (`/images`) | `* images: no pending images` | same | Identical, `.txt` and `.ansi`: deleting the badge dropped the attachment. |
 | `two-attached` (`/img shot.png`, then `/image shot.png` typed after its badge) | two `attached image: shot.png` notices, composer `┃ [Image 3][Image 4]` | same | `.txt` identical, numbers included -- #1 cleared and #2 dropped are never reused. `.ansi` identical but the link. |
-| `sent` (` what is in this image?`) | card `┃ [Image 3][Image 4] what is in this image?`, the answer, `0s (↑12 ↓40)` | same, `1s (↑12 ↓40)` | `.txt` identical but the summary's wall-clock seconds (the capture host was loaded; a turn that takes 0.1 s rounds either way). `↑12` is the estimate of `[Image #3][Image #4] what is in this image?`, the prompt the model was sent, as fx counts it. `.ansi`: the card is bold on both; only the link differs. |
+| `sent` (` what is in this image?`) | card `┃ [Image 3][Image 4] what is in this image?`, the answer, `0s (↑12 ↓40)` | same | `.txt` identical (an earlier run on a loaded host said `1s` here: a summary's seconds are wall-clock). `↑12` is the estimate of `[Image #3][Image #4] what is in this image?`, the prompt the model was sent, as fx counts it. `.ansi`: the card is bold on both; only the link differs. |
 | `again` (`describe it again`) | the second turn | the same rows, two blank rows more between `┃ describe it again` and `Still red.` | **Differs, and not in this unit.** The second turn runs on a full screen; the activity row grows the band and carries the document up (`Band::carry_document`), and the rows it gives back when the turn ends are blank -- the band geometry F1's receipt describes for a closed approval (`receipts/f1/README.md`, "Blank rows after a closed approval"). This turn carries no image. The two extra rows push one more row of the top into scrollback, which is why `end.full` has one more leftover row above the resume. |
-| `resumed` (relaunch, resume) | `* session resumed: [Image #3][Image #4] what is in this image?`, then the two turns replayed, the first card `┃ [Image 3][Image 4] what is in this image?` with `0s (↑12 ↓40)` | same, `1s (↑12 ↓40)` | `.txt` identical but the seconds. The resume notice names the session by its first prompt as the log holds it (tokens), the replayed card shows badges, and the summary counts the prompt that was sent (fixed in `edafd5d`; it said `↑11` before, the count of the badges). |
-| `resumed-sent` (`once more`) | the third turn | same | Identical but the seconds. |
+| `resumed` (relaunch, resume) | `* session resumed: [Image #3][Image #4] what is in this image?`, then the two turns replayed, the first card `┃ [Image 3][Image 4] what is in this image?` with `0s (↑12 ↓40)` | same | `.txt` identical; `.ansi` but the replayed card's link (fx links a replayed badge too). The resume notice names the session by its first prompt as the log holds it (tokens), the replayed card shows badges, and the summary counts the prompt that was sent (fixed in `edafd5d`; it said `↑11` before, the count of the badges). |
+| `resumed-sent` (`once more`) | the third turn | same | `.txt` identical; `.ansi` but the first card's link. |
 
 Wire (`fx-image-40x120-wire.json`, `xfx-image-40x120-wire.json`): three
 completion requests on each side, and their user messages are **the same**:
@@ -141,7 +149,7 @@ Wire: fx a title request and one completion request (`toolChoice`
 | `paste` (`/paste`, `clipimage`) | `┃ [Image 1]`, **no notice** | same | `.txt` identical. `.ansi`: fx links the badge to the session copy (`file://<scratch>/home/.fx/sessions/<id>/images/image-1-….bin`); xfx draws no link. |
 | `ctrl-v` (Ctrl-V, `clipimage`) | `┃ [Image 1][Image 2]`, no notice | same | `.txt` identical; `.ansi` but the links. |
 | `images` (` /images`) | `* images: 2 pending` / `   - image-1-3fd6e6be528c182d.bin (image/png)` / `   - image-2-3fd6e6be528c182d.bin (image/png)` | same | `.txt` identical: a clipboard image is named by its session copy on both. `.ansi` but the links. |
-| `sent` (`what is this?`) | card `┃ [Image 1][Image 2] what is this?`, answer, `0s (↑10 ↓40)` | same, `1s (↑10 ↓40)` | Identical but the seconds and the links. |
+| `sent` (`what is this?`) | card `┃ [Image 1][Image 2] what is this?`, answer, `0s (↑10 ↓40)` | same, `1s (↑10 ↓40)` | Identical but the summary's wall-clock seconds and the links. |
 
 Wire: one completion request on each side with the same user message --
 `[Image #1][Image #2] what is this?` and two `image/png` file parts decoding to
