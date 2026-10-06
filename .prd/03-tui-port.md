@@ -2,7 +2,8 @@
 
 Status: **Phases 1 and 2 of the MVS ladder below are in the binary. Phase 3 is in the preview channel
 only, in no stable release: items 18, 19, 20, 20b and 22 are implemented, item 17's CSI-u key matrix is
-promoted, and items 21 and 23 are implemented in part. Item 21's self-check is a per-vector output preflight
+promoted, and items 21 and 23 meet the Phase 3 carrier's acceptance (P3-COMMIT, P3-THEME) while staying
+*in part against upstream* (named in each item). Item 21's self-check is a per-vector output preflight
 and the writes under it are **counted**, so a write the screen takes only part of is measured and contained
 rather than unreadable; its partial-write **recovery** covers the two repaints whose whole intended content
 is in hand -- the primary band's frame and a repaint of the alternate plane the session already owns -- and
@@ -728,7 +729,8 @@ binary and scenarios 13-21 drive them against a release binary on a real termina
     (`6c42131`) is now that same function's other spelling rather than a hand-kept letter table.
 
 **Phase 3 — depth. In the preview channel only, in no stable release. Items 18, 19, 20, 20b and 22
-are implemented, and items 21 and 23 only in part — item 21's self-check, its counted-delivery
+are implemented, and items 21 and 23 meet the carrier's acceptance while staying in part against
+upstream — item 21's self-check, its counted-delivery
 containment and the recovery of two repaints (the primary band's frame and a repaint of the owned
 alternate plane) exist; retention exists only as the bounded prefix
 adaptation item 21 names below and not as the upstream reuse, and the rest is not**, and every
@@ -791,7 +793,8 @@ exact boundary.
     `src/tui/approval_amendment.rs`, `src/tui/approval.rs` and `src/agent/machine.rs`.
 21. Commit self-check (feed written bytes back into a shadow clone and compare) + partial-write
     recovery + frame retention. **The self-check half is implemented.** **Partial-write recovery is
-    implemented in part** — for the two repaints whose whole intended content is in hand, and for no
+    implemented for the carrier's acceptance and in part against upstream** — for the two
+    repaints whose whole intended content is in hand, and for no
     other write (the per-path table below). The primary band's was externally reviewed with no
     MUST-FIX and independently confirmed on a real terminal's direct-launch tmux arm (2026-10-06;
     [`06-qa-harness.md`](06-qa-harness.md)) and on herdr's interactive-shell arm, where every
@@ -1022,7 +1025,7 @@ exact boundary.
     kept and no forced repaint or real-IO guarantee -- an improvement on the prior release figures,
     but not itself a released or accepted measurement.
 23. Live theme monitor (mode 2031 / DSR `?996n`) with transcript re-tint and pacer buffer patch.
-    **Partial, preview channel only**: mode 2031 enable/restore is paired in both tmux and native
+    **Meets the carrier's acceptance (P3-THEME); partial against upstream, preview channel only**: mode 2031 enable/restore is paired in both tmux and native
     launch, and the launch probe itself sequences OSC 11 → `?996n` → CPR. A SIGCONT arms an
     outbound `?996n` query, delivered on a checked counted paint tick even under alt-screen or
     blind; the `997;1`/`997;2` reply is decoded before focus and consumed on input, with
