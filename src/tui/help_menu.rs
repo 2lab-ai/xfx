@@ -797,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
+    fn the_catalog_opens_with_its_header_a_blank_row_and_every_command_it_has_room_for() {
         let menu = HelpMenu::open("");
         // Upstream shows at most twenty at once (`max_visible_items`); past
         // that the window scrolls, so a longer registry fills it and no more.

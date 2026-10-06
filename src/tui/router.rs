@@ -106,6 +106,10 @@ pub(crate) trait CommandHandlers {
     fn images(&mut self, argument: &str);
     /// `/paste`: the clipboard's image. It takes nothing.
     fn paste(&mut self);
+    /// `/allowlist`, with the rest of the line -- already trimmed, and empty
+    /// when there was none, which lists the rules in force. What it may be is
+    /// `crate::permission::allowlist::Request::parse`'s to say.
+    fn allowlist(&mut self, argument: &str);
     /// `/settings`, with the rest of the line -- already trimmed, and empty
     /// when there was none. Empty opens the settings menu; anything else is
     /// its usage line, because xfx answers none of upstream's argument forms.
@@ -190,6 +194,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
+        Slash::Allowlist => handlers.allowlist(argument),
         Slash::Undo => handlers.undo(),
         Slash::Copy => handlers.copy(),
         Slash::Image => handlers.image(argument),
@@ -313,6 +318,9 @@ mod tests {
         fn paste(&mut self) {
             self.calls.push("paste".to_string());
         }
+        fn allowlist(&mut self, argument: &str) {
+            self.calls.push(format!("allowlist {argument}"));
+        }
         fn settings(&mut self, argument: &str) {
             self.calls.push(format!("settings {argument}"));
         }
@@ -350,6 +358,7 @@ mod tests {
             ("/image", "image "),
             ("/images", "images "),
             ("/paste", "paste"),
+            ("/allowlist", "allowlist "),
             ("/settings", "settings "),
             ("/undo", "undo"),
         ];
