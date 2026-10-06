@@ -1,0 +1,25 @@
+# W8: a rule is in force for the next tool call without a restart. In `ask`,
+# a turn opens the session; then `/allowlist add command "printf *"` and a
+# turn whose model runs `printf allowed-by-rule` -- no question, the command
+# runs, and the bare `/permissions` lists the configured rule.
+fx: gateway allowlist-turn-fx.json
+xfx: gateway allowlist-turn-xfx.json
+fx: env FX_PERMISSION_MODE=ask
+xfx: env XFX_PERMISSION_MODE=ask
+wait 2
+type hello
+key Enter
+wait 2
+type /allowlist add command "printf *"
+key Enter
+wait 1
+snap added
+type run the command
+key Enter
+wait 3
+snap ran
+type /permissions
+key Enter
+wait 1
+snap listed
+home files

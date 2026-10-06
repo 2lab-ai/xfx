@@ -1,0 +1,40 @@
+[1m[38;5;255m𝒇x[0m[38;5;245m v0.0.13 · Run /help for commands[39m
+
+[38;5;250m* allowlist: added tool read: "*" (scope=local)[39m
+
+[38;5;250m* allowlist: added tool edit: "*" (scope=local)[39m
+
+[38;5;252m✗ [38;5;250musage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>[39m
+
+[38;5;250m* allowlist: added web-fetch-domain: "domain:example.com" (scope=local)[39m
+
+[38;5;250m* allowlist: added command: "git *" (scope=local)[39m
+
+[38;5;250m* allowlist: added command: "git *" (scope=local)[39m
+
+[38;5;255m┃[39m
+
+[38;5;252mauto[38;5;245m · model-a[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

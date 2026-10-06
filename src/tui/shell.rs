@@ -107,6 +107,7 @@ use super::question::{self, QuestionPanel, QuestionRequest};
 use super::recall::Recall;
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
+use super::rule_confirm::RuleConfirm;
 use super::session_picker::{self, SessionAction, SessionPicker};
 use super::settings::{self, Setting, SettingsAction, SettingsMenu};
 use super::sound::Sound;
@@ -995,6 +996,10 @@ pub(crate) struct Shell {
     /// question outranks it in [`Self::slot`] and takes the keys while it is
     /// up; the picker is back when it has been answered.
     statusline_menu: Option<statusline::Menu>,
+    /// A `/permissions remember` or `revoke` waiting to be confirmed
+    /// ([`super::rule_confirm`]). It owns the focus and the composer's rows,
+    /// as a question does, and outranks everything but a question.
+    rule_confirm: Option<RuleConfirm>,
     /// The workspace's path and the Git branch its `HEAD` was last read on,
     /// for the workspace segment ([`super::statusline::Workspace`]).
     workspace_identity: statusline::Workspace,
@@ -1513,6 +1518,9 @@ enum Slot<'a> {
     /// **not** the same thing: it grants nothing and its answer is text
     /// ([`super::question`]).
     Ask(&'a QuestionPanel),
+    /// A rule change waiting to be confirmed. It owns the focus and the
+    /// composer's rows.
+    Rule(&'a RuleConfirm),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
     /// The `/settings` menu. Rows, and the composer as its search; it binds
@@ -1725,6 +1733,7 @@ impl Shell {
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
+            rule_confirm: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
                 // branch has no reason to open a file for it.
@@ -1881,6 +1890,9 @@ impl Shell {
                 Some(Slot::Ask(ask)) => {
                     ask.painted(self.geometry.cols, self.geometry.rows, &self.palette)
                 }
+                Some(Slot::Rule(confirm)) => {
+                    confirm.rows(self.geometry.cols, self.geometry.rows, Some(&self.palette))
+                }
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for: one layout answers both
                 // (`composeHelpMenuRow` is handed `menuRowCount`'s answer).
@@ -1981,6 +1993,9 @@ impl Shell {
                 self.palette.dim(),
                 picker::key_help(self.geometry.cols).to_string(),
             ),
+            // `1–2 choose    enter confirm    esc cancel`
+            // (`cap/fx-permissions3-40x120-remember-prompt`).
+            Some(Slot::Rule(_)) => RuleConfirm::hint(self.geometry.cols, &self.palette),
             // The catalog's own key help, in the same dim grey
             // (`composeHelpMenuHintRow`, `input_presentation.zig:696-721`) --
             // except while a Ctrl-C would leave, which the catalog says in the
@@ -2277,6 +2292,9 @@ impl Shell {
         if let Some(ask) = self.ask.as_ref() {
             return Some(Slot::Ask(ask));
         }
+        if let Some(confirm) = self.rule_confirm.as_ref() {
+            return Some(Slot::Rule(confirm));
+        }
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
@@ -2367,6 +2385,11 @@ impl Shell {
                     .caret(cols, rows)
                     .unwrap_or_else(|| (ask.caret_row(cols, rows), 0));
                 return (self.geometry.panel_first().saturating_add(row), column);
+            }
+            // A rule change waiting to be confirmed: on its marked choice.
+            if let Some(confirm) = self.rule_confirm.as_ref() {
+                let row = confirm.marked_row(self.geometry.cols, self.geometry.rows);
+                return (self.geometry.panel_first().saturating_add(row), 0);
             }
             // The `/statusline` picker has the focus too, and no composer row
             // to leave a caret in: it goes to the start of the marked row,
@@ -4743,6 +4766,83 @@ impl Shell {
 
     /// One keystroke, while the `/statusline` picker has the focus.
     ///
+    /// One keystroke to a rule change waiting to be confirmed: `1` or Enter
+    /// on `Confirm` makes it and says how it went, `2` or Enter on `Cancel`
+    /// says it was cancelled, Escape closes it saying nothing
+    /// (`submitRuleManagementChoice`, `input_approval_runtime.zig:255-327`;
+    /// `cap/fx-permissions3-40x120-remember-esc`), and the arrows move the
+    /// mark. Everything else is swallowed, as the approval band swallows it.
+    fn offer_to_rule_confirm(&mut self, event: Input) {
+        use super::rule_confirm::{Key, Reply};
+        let key = match event {
+            Input::Text(character) => Key::Digit(character),
+            Input::Action(Action::Up | Action::ControlP) => Key::Up,
+            Input::Action(Action::Down | Action::HistoryNext) => Key::Down,
+            Input::Action(Action::Submit) => Key::Enter,
+            Input::Action(Action::Escape) => Key::Escape,
+            Input::Action(Action::Redraw) => {
+                self.external_damage();
+                return;
+            }
+            _ => return,
+        };
+        let Some(confirm) = self.rule_confirm.as_mut() else {
+            return;
+        };
+        match confirm.apply(key) {
+            Reply::Ignored => {}
+            Reply::Moved => self.render.request(Reason::Modal),
+            Reply::Dismiss => self.close_rule_confirm(),
+            Reply::Cancel => {
+                self.close_rule_confirm();
+                self.announce(notice::Notice::neutral(
+                    crate::permission::slash::TOPIC,
+                    crate::permission::slash::CANCELLED,
+                ));
+            }
+            Reply::Confirm => {
+                let confirmation = confirm.confirmation().clone();
+                self.close_rule_confirm();
+                let (tone, body) = crate::permission::slash::confirm(&confirmation);
+                self.announce(allowlist_notice(
+                    tone,
+                    crate::permission::slash::TOPIC,
+                    body,
+                ));
+            }
+        }
+    }
+
+    /// Prepares `tool(arguments)` for a saved-session rule, on this thread and
+    /// running nothing: the workspace this shell is in, the shipped limits,
+    /// and the configured table in force, so a change a configured rule
+    /// denies cannot be remembered as allowed. Its own session, in `ask`, with
+    /// no grants and no prompter: preparing asks nobody anything.
+    fn prepare_rule_action(
+        &self,
+        tool: &str,
+        arguments: &serde_json::Value,
+    ) -> Result<crate::tools::RuleAction, String> {
+        let scope = crate::workspace::AccessScope::primary_only(&self.workspace)
+            .map_err(|err| err.to_string())?;
+        let context = crate::tools::ToolContext::new(scope).with_permissions(
+            // `ask`, whatever the session's mode, as upstream prepares a rule
+            // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
+            // access no table is consulted, and a change a configured rule
+            // denies must not be remembered as allowed.
+            crate::permission::PermissionSession::new(PermissionMode::Ask)
+                .with_live_rules(self.work.rules().clone()),
+        );
+        crate::tools::prepare_rule_action(tool, arguments, &context)
+    }
+
+    /// Takes the rule confirmation down and gives the composer its rows back.
+    fn close_rule_confirm(&mut self) {
+        self.rule_confirm = None;
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Enter, Left and
     /// Right flip the marked item **silently** -- the row is the answer, and
     /// nothing reaches the document unless the write failed
@@ -6977,6 +7077,12 @@ impl Shell {
             // -- a letter, a Ctrl-C, a Ctrl-D -- as upstream's compact menus
             // do (`routeActiveModalInput`, `app_input_runtime.zig:1366-1395`).
             // Escape is the way out, and then the keys mean what they mean.
+            // A rule change waiting to be confirmed has the focus the same
+            // way, and swallows what it does not bind.
+            if self.rule_confirm.is_some() {
+                self.offer_to_rule_confirm(event);
+                continue;
+            }
             if self.statusline_menu.is_some() {
                 self.offer_to_statusline(event);
                 continue;
@@ -8363,12 +8469,47 @@ impl CommandHandlers for Shell {
     /// ([`Self::choose_mode`]) and answered here at once, as upstream answers
     /// it; anything else is the usage line.
     fn permissions(&mut self, argument: &str) {
-        use crate::permission::slash::Request;
-        match Request::parse(argument) {
+        use crate::permission::slash::{self, Managed, Request};
+        let request = Request::parse(argument);
+        let rules_path = self.work.saved_rules_path();
+        let managed = slash::manage(
+            &request,
+            rules_path.as_deref(),
+            self.asking(),
+            |tool, arguments| self.prepare_rule_action(tool, arguments),
+        );
+        if let Some(managed) = managed {
+            match managed {
+                Managed::Say { tone, topic, body } => {
+                    self.announce(allowlist_notice(tone, topic, body));
+                }
+                Managed::Confirm(confirmation) => {
+                    // The slot's other occupants close, as a question's
+                    // arrival closes them: one thing at a time has the focus.
+                    self.picker = None;
+                    self.help_menu = None;
+                    self.statusline_menu = None;
+                    self.settings_menu = None;
+                    self.usage_menu = None;
+                    self.rule_confirm = Some(RuleConfirm::new(confirmation));
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            return;
+        }
+        match request {
+            Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage => {
+                unreachable!("`manage` answers every rule-management form")
+            }
             Request::Show => {
                 let grants = self.work.grants();
-                self.announce(permissions::status(self.mode, &grants));
-                self.announce(permissions::saved_rules());
+                let rules = self.work.rules().current();
+                self.announce(permissions::status(self.mode, &rules, &grants));
+                self.announce(match slash::saved_rules_at(rules_path.as_deref()) {
+                    Ok(body) => permissions::saved_rules(&body),
+                    Err(reason) => notice::Notice::error(slash::TOPIC, reason),
+                });
             }
             Request::Select(mode) => {
                 if self.choose_mode(Change::Mode(mode), mode) {
@@ -8381,6 +8522,32 @@ impl CommandHandlers for Shell {
                 }
             }
             Request::Usage => self.announce(permissions::usage()),
+        }
+    }
+
+    /// Upstream's `/allowlist` (`handleAllowlist`,
+    /// `session_commands.zig:396-444`): one transcript notice per answer, and
+    /// a table read back from the file put in force for the very next tool
+    /// call -- of a turn already running too -- through the live handle every
+    /// conversation decides with ([`WorkHandle::rules`]).
+    ///
+    /// Done here, on the thread that holds the terminal, as `/statusline`'s
+    /// write is and as upstream's is: the write is a read, a change and a
+    /// rename of one small file under the settings lock, and the answer is
+    /// owed before the next keystroke is read.
+    fn allowlist(&mut self, argument: &str) {
+        use crate::permission::allowlist;
+        let outcome = allowlist::run(
+            argument,
+            self.settings_path.as_deref(),
+            &self.workspace,
+            |name| crate::tools::ADVERTISED_TOOLS.contains(&name),
+        );
+        if let Some(table) = outcome.in_force {
+            self.work.rules().replace(table);
+        }
+        for answer in outcome.answers {
+            self.announce(allowlist_notice(answer.tone, answer.topic, answer.body));
         }
     }
 
@@ -9428,6 +9595,7 @@ impl Shell {
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Column) => model_column::height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
+            Some(Slot::Rule(confirm)) => confirm.height(cols, rows),
             Some(Slot::Usage(dashboard)) => dashboard.height(rows, cols),
             Some(Slot::Catalog(_))
             | Some(Slot::Settings(_))
@@ -9478,7 +9646,7 @@ impl Shell {
         // model's own batch alike: upstream's question replaces the composer
         // rather than sitting under it ([`layout::fits_approval`];
         // `fx-question-40x120-q1`), so the band is solved with none.
-        if self.panel.is_some() || self.ask.is_some() {
+        if self.panel.is_some() || self.ask.is_some() || matches!(slot, Some(Slot::Rule(_))) {
             return layout::solve_band(rows, cols, 0, activity, fixed)
                 .map(|geometry| geometry.floated(self.document_rows));
         }
@@ -9670,6 +9838,21 @@ impl Shell {
     #[cfg(test)]
     pub(crate) fn tail_rows(&self) -> usize {
         self.transcript.tail_rows()
+    }
+}
+
+/// A transcript notice in one of the tones `/allowlist` and `/permissions`
+/// answer in.
+fn allowlist_notice(
+    tone: crate::permission::allowlist::Tone,
+    topic: &str,
+    body: impl Into<String>,
+) -> notice::Notice {
+    use crate::permission::allowlist::Tone;
+    match tone {
+        Tone::Neutral => notice::Notice::neutral(topic, body),
+        Tone::Warning => notice::Notice::warning(topic, body),
+        Tone::Error => notice::Notice::error(topic, body),
     }
 }
 
@@ -16474,8 +16657,7 @@ mod tests {
 
     #[test]
     fn a_bare_permissions_is_upstreams_two_notices_and_changes_nothing() {
-        // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
-        // name `remember` and `revoke`, which xfx does not have.
+        // `cap/fx-permissions-40x120-bare.txt`.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
         shell.route_bytes(b"/permissions\r");
         assert_eq!(
@@ -16485,6 +16667,9 @@ mod tests {
                 "  configured rules: (none)".to_string(),
                 "  session grants: (none)".to_string(),
                 "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                "         /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                    .to_string(),
+                "         /permissions revoke <rule-id>".to_string(),
                 String::new(),
                 "* permissions: saved-session permission rules: none".to_string(),
                 String::new(),
@@ -16518,6 +16703,269 @@ mod tests {
                 "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
             ],
             "{document:?}"
+        );
+    }
+
+    /// A 40x120 shell over a profile the test keeps alive, so `/allowlist`
+    /// has a file to write.
+    fn allowlist_shell() -> (tempfile::TempDir, tempfile::TempDir, Fixture) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let (work, sent, control, _changes) = WorkHandle::detached_with_changes();
+        let fixture = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        (home, workspace, fixture)
+    }
+
+    #[test]
+    fn an_allowlist_change_is_one_notice_and_in_force_for_the_next_decision() {
+        use crate::permission::{ConfiguredRule, RuleAction};
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist add command \"git *\"\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* allowlist: added command: \"git *\" (scope=local)".to_string(),
+                String::new(),
+            ]
+        );
+        // The handle every conversation decides with holds it now: the next
+        // tool call is judged by it without a restart (trap (d)).
+        assert_eq!(
+            shell.work.rules().current().rules(),
+            &[ConfiguredRule::new("bash", "git *", RuleAction::Allow)]
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "nothing went to the runtime"
+        );
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert_eq!(
+            document[..4],
+            [
+                "* permissions: mode=auto".to_string(),
+                "  configured rules:".to_string(),
+                "   - allow bash -> git *".to_string(),
+                "  session grants: (none)".to_string(),
+            ],
+            "{document:?}"
+        );
+    }
+
+    /// `row` with every SGR sequence taken out: what a confirmation's rows
+    /// say, whatever they are painted in.
+    fn sgr_free(row: &str) -> String {
+        let mut out = String::with_capacity(row.len());
+        let mut rest = row;
+        while let Some(at) = rest.find("\u{1b}[") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            match after.find('m') {
+                Some(end) => rest = &after[end + 1..],
+                None => {
+                    rest = "";
+                }
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A shell whose runtime has published a saved session's rule store, in
+    /// a workspace the test keeps.
+    fn remembering_shell() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        std::path::PathBuf,
+        Fixture,
+    ) {
+        let (home, workspace, shell) = allowlist_shell();
+        let session = home.path().join("session");
+        std::fs::create_dir_all(&session).expect("a session directory");
+        let rules = crate::permission::session_rules::path_in(&session);
+        shell.work.publish_saved_rules(Some(rules.clone()));
+        (home, workspace, rules, shell)
+    }
+
+    #[test]
+    fn remember_needs_a_saved_session_and_says_so_in_upstreams_words() {
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a\",\"content\":\"x\"}\r",
+        );
+        shell.route_bytes(b"/permissions revoke 1\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "✗ permissions: saved-session permission rules require an active saved session"
+                    .to_string(),
+                String::new(),
+                "✗ permissions: saved-session permission rules require an active saved session"
+                    .to_string(),
+                String::new(),
+            ]
+        );
+        assert!(shell.rule_confirm.is_none());
+    }
+
+    #[test]
+    fn remember_opens_upstreams_confirmation_and_enter_keeps_the_rule() {
+        let (_home, workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(
+            b"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}\r",
+        );
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        let at = band
+            .iter()
+            .position(|row| row.contains("Permission needed · Choose one"))
+            .expect("the confirmation is up");
+        assert!(band[at].ends_with("Permission rule"), "{band:?}");
+        assert_eq!(band[at + 2], "  Remember allow for this saved session?");
+        assert_eq!(
+            band[at + 3],
+            "  Confirm this exact saved-session permission rule. The action will not run."
+        );
+        // `sha256("x")`'s first eight bytes, as upstream shows them.
+        assert_eq!(
+            band[at + 4],
+            "  $ write_file a.txt preimage=absent after=2d711642b726b044"
+        );
+        assert_eq!(band[at + 6], "  ❯ 1. Confirm");
+        assert_eq!(band[at + 7], "    2. Cancel");
+        assert_eq!(
+            sgr_free(shell.band_rows().last().expect("a hint row")),
+            "1–2 choose    enter confirm    esc cancel"
+        );
+        assert!(
+            !workspace.path().join("a.txt").exists(),
+            "the action did not run"
+        );
+        shell.route_bytes(b"\r");
+        assert!(shell.rule_confirm.is_none());
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission rule updated".to_string(),
+                String::new(),
+            ]
+        );
+        let state = crate::permission::session_rules::load(&rules).expect("the store");
+        assert_eq!(state.rules.len(), 1);
+        assert_eq!(
+            state.rules[0].display,
+            "write_file a.txt preimage=absent after=2d711642b726b044"
+        );
+        // Listed under the bare command, and revoked through the same band.
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert!(
+            document.contains(&"* permissions: saved-session permission rules (1):".to_string()),
+            "{document:?}"
+        );
+        assert!(document.contains(
+            &"  1 allow write_file a.txt preimage=absent after=2d711642b726b044".to_string()
+        ));
+        shell.route_bytes(b"/permissions revoke 1\r");
+        let band: Vec<String> = shell.band_rows().iter().map(|row| sgr_free(row)).collect();
+        assert!(band.contains(&"  Revoke this saved-session permission rule?".to_string()));
+        assert!(band.contains(
+            &"  Confirm revocation of this stored rule. No current action will be prepared or run."
+                .to_string()
+        ));
+        shell.route_bytes(b"1");
+        assert!(crate::permission::session_rules::load(&rules)
+            .expect("the store")
+            .rules
+            .is_empty());
+        assert_eq!(
+            shell.document().iter().rev().nth(1).map(String::as_str),
+            Some("* permissions: saved-session permission rule updated")
+        );
+    }
+
+    #[test]
+    fn escape_closes_the_confirmation_silently_and_two_says_cancelled() {
+        let (_home, _workspace, rules, mut shell) = remembering_shell();
+        shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
+        assert!(shell.rule_confirm.is_some());
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.rule_confirm.is_none(), "Escape closes it");
+        assert!(shell.document().is_empty(), "{:?}", shell.document());
+        shell.route_bytes(b"/permissions remember deny create_folder {\"path\":\"d\"}\r");
+        shell.route_bytes(b"2");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: saved-session permission change cancelled".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(!rules.exists(), "nothing was kept");
+    }
+
+    #[test]
+    fn a_remember_that_cannot_be_prepared_or_a_revoke_of_nothing_says_why() {
+        let (_home, _workspace, _rules, mut shell) = remembering_shell();
+        for line in [
+            &b"/permissions remember allow bash {\"command\":\"ls\"}\r"[..],
+            b"/permissions remember allow write_file not-json\r",
+            b"/permissions remember allow read_file {\"path\":\"a\"}\r",
+        ] {
+            shell.route_bytes(line);
+        }
+        shell.route_bytes(b"/permissions revoke 99\r");
+        shell.route_bytes(b"/permissions revoke abc\r");
+        let prepared =
+            "✗ permissions: could not prepare that exact permission action without executing it";
+        assert_eq!(
+            shell.document(),
+            vec![
+                prepared.to_string(),
+                String::new(),
+                prepared.to_string(),
+                String::new(),
+                prepared.to_string(),
+                String::new(),
+                "! permissions: saved-session permission rule not found".to_string(),
+                String::new(),
+                "✗ usage: /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                    .to_string(),
+                "         /permissions revoke <rule-id>".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_allowlist_refusal_and_a_listing_are_said_in_upstreams_tones() {
+        let (_home, _workspace, mut shell) = allowlist_shell();
+        shell.route_bytes(b"/allowlist bogus\r");
+        shell.route_bytes(b"/allowlist add tool web_fetch\r");
+        shell.route_bytes(b"/allowlist\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "✗ usage: /allowlist [view [effective|local|user]|[local|user] add|remove|reset ...]"
+                    .to_string(),
+                String::new(),
+                "✗ usage: /allowlist add [command|tool|url|web-fetch-domain] <pattern>".to_string(),
+                String::new(),
+                "* allowlist: effective persistent allow rules: (none)".to_string(),
+                String::new(),
+            ]
         );
     }
 
@@ -16628,20 +17076,18 @@ mod tests {
 
     #[test]
     fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing() {
-        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic.
-        // `remember` and `revoke` are upstream's and answered the same way.
+        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic, and
+        // its two continuation rows.
         let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
-        for typed in [
-            "bogus",
-            "remember allow write_file {}",
-            "revoke 1",
-            "reset now",
-        ] {
+        for typed in ["bogus", "reset now", "full"] {
             shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
             assert_eq!(
                 shell.document(),
                 vec![
                     "\u{2717} usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                    "         /permissions remember <allow|deny> <tool-name> <arguments-json>"
+                        .to_string(),
+                    "         /permissions revoke <rule-id>".to_string(),
                     String::new(),
                 ],
                 "{typed}"

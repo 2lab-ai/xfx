@@ -1,0 +1,33 @@
+=== ~/.fx/continue/0901bde432532a7388dee01689f1e1e3130531f7d7dcaafc04e7c43370a63399 (13 bytes)
+PeEbF_pzEgwa
+
+=== ~/.fx/history.jsonl (1081 bytes)
+{"schema_version":1,"timestamp_ms":1791326727848,"workspace_root":"<scratch>/work","text":"hello"}
+{"schema_version":1,"timestamp_ms":1791326729892,"workspace_root":"<scratch>/work","text":"/permissions remember allow write_file {\"path\":\"a.txt\",\"content\":\"x\"}"}
+{"schema_version":1,"timestamp_ms":1791326732239,"workspace_root":"<scratch>/work","text":"/permissions remember deny write_file {\"path\":\"b.txt\",\"content\":\"y\"}"}
+{"schema_version":1,"timestamp_ms":1791326734871,"workspace_root":"<scratch>/work","text":"/permissions"}
+{"schema_version":1,"timestamp_ms":1791326735982,"workspace_root":"<scratch>/work","text":"/permissions revoke 1"}
+{"schema_version":1,"timestamp_ms":1791326738766,"workspace_root":"<scratch>/work","text":"/permissions revoke 99"}
+{"schema_version":1,"timestamp_ms":1791326739792,"workspace_root":"<scratch>/work","text":"/permissions remember"}
+
+=== ~/.fx/history.lock (0 bytes)
+=== ~/.fx/sessions/PeEbF_pzEgwa/events.jsonl (589 bytes)
+{"schema_version":3,"seq":1,"timestamp_ms":1791326728223,"event":{"user":{"text":"hello","images":[],"work_id":null}}}
+{"schema_version":3,"seq":2,"timestamp_ms":1791326728223,"event":{"assistant":{"text":"Hello.","provider_replay":null,"standalone_response":false}}}
+{"schema_version":3,"seq":3,"timestamp_ms":1791326728223,"event":{"turn_completed":{"files":[],"turn_summary":{"started_at_ms":1791326727869,"completed_at_ms":1791326728199,"thinking_duration_ms":70,"turn_duration_ms":330,"token_progress":{"input_tokens":2,"output_tokens":40,"input_exact":false,"output_exact":true}}}}}
+
+=== ~/.fx/sessions/PeEbF_pzEgwa/owner.live (43 bytes)
+{"pid":11543,"opened_at_ms":1791326725643}
+
+=== ~/.fx/sessions/PeEbF_pzEgwa/permissions.json (51 bytes)
+{"schema_version":2,"next_generation":3,"rules":[]}
+=== ~/.fx/sessions/PeEbF_pzEgwa/session.json (386 bytes)
+{"schema_version":4,"id":"PeEbF_pzEgwa","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","created_at_ms":1791326725595,"updated_at_ms":1791326728223,"conversation_language":"und-Latn","provider":"gateway","model":"spacexai/grok-4.7","effort":"auto","fast_mode":false,"title":"hello","subagent_child":false}
+=== ~/.fx/sessions/PeEbF_pzEgwa/session.lock (0 bytes)
+=== ~/.fx/sessions/PeEbF_pzEgwa/usage-v2.json (539 bytes)
+{"schema_version":1,"session_id":"PeEbF_pzEgwa","snapshot":{"schema_version":3,"billing":"incomplete","api_duration_complete":true,"wall_duration_complete":true,"code_complete":true,"next_sequence":2,"settled_through_sequence":1,"api_duration_ms":184,"wall_duration_ms":2609,"total_cost":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0,"request_count":0,"billable_web_search_calls":0,"lines_added":0,"lines_removed":0,"models":[],"pending":[],"publication_backlog":[],"incidents":[]}}
+=== ~/.fx/usage.jsonl (167 bytes)
+{"schema_version":1,"kind":"coverage","started_at_ms":1791326728194}
+{"schema_version":1,"kind":"incident","occurred_at_ms":1791326728185,"completeness":"incomplete"}
+
+=== ~/.fx/usage.lock (0 bytes)
