@@ -10,7 +10,7 @@ the model asks, 24 for the approval readiness gate, 25 for an amended approval, 
 convergence and 27 for the live theme re-tint. 26 and 26b are QA-only rows with no numbered item of
 their own in that PRD's ladder; 27 is not -- it is the **report-only half** of item 23 in
 [`03-tui-port.md`](03-tui-port.md), "Live theme monitor (mode 2031 / DSR `?996n`) with transcript
-re-tint", whose own status there is partial, local and not published. The remaining Phase-3 rows are
+re-tint", whose own status there is partial and in the preview channel only. The remaining Phase-3 rows are
 still specification, which they say where they are listed.
 
 **Registered is not qualified, and neither is shipped.** A row being in the runner's two lists means
@@ -167,8 +167,8 @@ Each scenario names its oracle level. Phases match [`03-tui-port.md`](03-tui-por
 | 11 | Ctrl-C as a byte | 1+3 | `0x03` cancels a running turn; a second exits 130; terminal restored in both |
 | 12 | Theme detection | 1+2 | OSC 11 queried at start; a dark and a light fixture response each select the matching palette (assert cell attributes, not a log line) |
 
-**Phase 2 — surfaces**, and the Phase-3 rows that have shipped: the table is the registration's own
-order, and a shipped row listed under a phase that has not finished would be a row nothing runs.
+**Phase 2 — surfaces**, and the Phase-3 rows that are registered: the table is the registration's own
+order, and a registered row listed under a phase that has not finished would be a row nothing runs.
 
 | # | Scenario | Oracle | Passes when |
 |---|---|---|---|
@@ -204,18 +204,19 @@ transition -- is a separate in-crate test,
 not something either PTY row drives, and neither substitutes for the other
 ([`03-tui-port.md`](03-tui-port.md) item 22). Commit self-check **recovery** under an injected
 partial write (1+2) is no longer wholly planned: the containment half of that row is driven by 3c
-above, and 3d now drives recovery too, but only for the primary band's `Partial` -- local, uncommitted,
-and unaccepted pending independent confirmation (see 3d and the paragraphs below). Every other
-`Partial` -- document, carry, clear, query, alternate screen -- stays exactly as planned and fatal.
+above, and 3d now drives recovery too, but only for the primary band's `Partial` -- in the preview
+channel only, and independently confirmed on the direct-launch tmux arm (see the
+paragraphs below). Every other `Partial` -- document, carry, clear, query, alternate screen -- is contained and
+ends the session with the diagnostic.
 Live theme switch re-tints the transcript (2) is registered as row 27 above, for the report-only half
 only: the report arrives because the harness types it, and the monitor that would let a terminal
-volunteer one is local and unpublished, so this item is likewise local, uncommitted and unaccepted
-pending independent confirmation.
+volunteer one is in the preview channel only; scenario 27 drives it on release binaries, and no
+independent emulator run has sent a live theme change.
 
 **Theme monitor status, beside the row above.** The mode-2031 monitor half itself (paired
 enable/restore; a SIGCONT arms an outbound `?996n` query delivered on a checked counted paint tick,
-and the `997;n` reply is decoded before focus and consumed on input) is implemented locally and not
-published -- see item 23 in [`03-tui-port.md`](03-tui-port.md). What **is** tracked in the table
+and the `997;n` reply is decoded before focus and consumed on input) is in the preview
+channel only -- see item 23 in [`03-tui-port.md`](03-tui-port.md). What **is** tracked in the table
 above is row 27, and only the report half of the feature: its 51 checks cover the visible-band
 completed body/notice roundtrip, Plain-rendered echo rows, and the draft/caret/history invariants --
 full detail is asserted only dark-to-light, with the light-to-dark return asserting
@@ -229,7 +230,7 @@ accord: every report in row 27 is one the harness typed. So that table's count (
 797/0, row 27 among them) is this suite's own local regression green and is not a qualification of
 the theme monitor, nor a claim that any published build carries it.
 
-**The self-check's first half now exists in the working tree, and it is deliberately not a scenario
+**The self-check's first half is in the preview channel, and it is deliberately not a scenario
 here.** The per-vector output preflight of item 21 in [`03-tui-port.md`](03-tui-port.md) refuses a
 vector *before* it is written, and what proves it is `src/tui/check.rs`'s own cases plus the tamper
 cases in `src/tui/frame.rs` and `src/tui/term.rs`, where a real emitter's bytes are altered at a
@@ -251,8 +252,26 @@ because no measurement here can — is that the terminal's own parser recovered:
 only after cleanup, so it shows what the rebuild painted, not a resync proven from the terminal's
 side. So what stays planned, in full, is recovery for every `Partial` outside the primary band:
 document, carry, clear, query and alternate-screen writes are exactly as unreadable and un-replayed
-as before, and the primary-band recovery 3d now measures is itself local, uncommitted and unaccepted
-pending independent confirmation on a real terminal (item 21 in [`03-tui-port.md`](03-tui-port.md)).
+as before, and each is contained and ends the session with the diagnostic below (item 21 in
+[`03-tui-port.md`](03-tui-port.md)).
+
+**Independent real-terminal confirmation, 2026-10-06.** An external subagent drove frozen release
+binaries on the direct-launch tmux arm and compared every `termios` word exactly, with nothing
+masked: the control exited 0; partial-frame-once exited 0 -- a torn 248-byte prefix, the fixed
+cleanup, a complete rebuilt frame, and input working afterwards; partial-frame and frame-refusal
+each exited 1; all four left `termios` byte-identical. Frame-refusal left `last-tui-error.json` as
+`{"schema":1,"reason":"exhausted","error_kind":"Uncategorized","errno":5}` and partial-frame as
+`{"schema":1,"reason":"partial","error_kind":"Other","errno":null}`. An earlier run in a tmux pane
+with an interactive shell read the kernel-state bit `PENDIN` (`0x20000000`) as 1 before and 0 after.
+That is recorded as an environment observation: a non-xfx reference program that makes the identical
+restore call and writes the same mode/restore escape bytes reproduces it, the process's own readback
+right after the restore shows `PENDIN`=1, and under herdr the same xfx run left every `termios` word,
+`PENDIN` included, exactly equal. The same independent agent then drove `72cdea8` release binaries on herdr, typed into an
+interactive shell with `PENDIN` already 1: control (u-form Ctrl-U cleared the draft, u-form
+Ctrl-D on the empty draft exited 0), partial-frame-once (exit 0), partial-frame (exit 1),
+frame-refusal (exit 1) and a double Escape (draft cleared, exit 0) -- every `termios` word,
+`PENDIN` included, equal before and after in all five.
+None of this establishes the terminal's own parser resync.
 
 **A diagnostic record exists beside this and does not move that boundary.** After the same
 restoration attempt, a session `event_loop::disposed` ended on either road is written,
@@ -260,7 +279,8 @@ independently of the torn screen, as a fixed four-field `last-tui-error.json`
 (`src/tui/diagnostic.rs`; item 21 in [`03-tui-port.md`](03-tui-port.md)). It is proven by that
 module's own cases and by native, `fault-injection`-gated PTY tests plus one unconditional positive
 control in `tests/tui.rs` -- in-crate/native evidence, not a row in the table above, so this suite's
-33-scenario/797-check green is not evidence for it, and adding a tracked scenario for it is still open
+33-scenario/797-check green is not evidence for it (the independent run above observed it on release
+binaries), and adding a tracked scenario for it is still open
 if this row is ever revisited. It names which road a session left by; it is **containment's record,
 not containment itself, and not the recovery 3d now tracks**.
 

@@ -1,0 +1,25 @@
+variant=setonly set=1b5b3e343b326d1b5b3e31751b5b3f32303034681b5b3f376c1b5b3f32303331681b5b32323b3274 restore=- | wrapper lflag 0x200005cb->0x5cb exact=False diffs={"lflag": {"after": "0x5cb", "before": "0x200005cb"}} status=0
+  step saved                        t=0.0     lflag=0x200005cb  pendin=1 fionread=0
+  step after_raw                    t=0.0001  lflag=0x43        pendin=0 fionread=0
+  step after_set_bytes              t=0.0001  lflag=0x43        pendin=0 fionread=0
+  step after_read                   t=0.0953  lflag=0x43        pendin=0 fionread=0
+  step after_restore                t=0.0953  lflag=0x5cb       pendin=0 fionread=0
+  step late_after_raw_tcsanow       t=1.6038  lflag=0x43        pendin=0 fionread=0
+  step late_after_read              t=1.8094  lflag=0x43        pendin=0 fionread=0
+  step final_after_restore_tcsanow  t=1.8095  lflag=0x5cb       pendin=0 fionread=0
+  read t=0.0952 hex=78
+  polls: 1:0.1988/P0/F0 2:0.3054/P0/F0 3:0.3969/P0/F0 4:0.5054/P0/F0 5:0.6029/P0/F0 6:0.7054/P0/F0 7:0.8/P0/F0 8:0.8969/P0/F0 9:1.0019/P0/F0 10:1.104/P0/F0 11:1.2032/P0/F0 12:1.305/P0/F0 13:1.4055/P0/F0 14:1.4956/P0/F0 15:1.6038/P0/F0
+  LATE: none
+variant=restoreonly set=- restore=1b5b32333b32741b5b3e343b306d1b5b3c751b5b3f323030346c1b5b3f323033316c1b5b3f37681b5b3f323568 | wrapper lflag 0x200005cb->0x5cb exact=False diffs={"lflag": {"after": "0x5cb", "before": "0x200005cb"}} status=0
+  step saved                        t=0.0     lflag=0x200005cb  pendin=1 fionread=0
+  step after_raw                    t=0.0001  lflag=0x43        pendin=0 fionread=0
+  step after_read                   t=0.0905  lflag=0x43        pendin=0 fionread=0
+  step after_restore_bytes          t=0.0906  lflag=0x43        pendin=0 fionread=0
+  step after_restore                t=0.0906  lflag=0x5cb       pendin=0 fionread=0
+  step late_after_raw_tcsanow       t=1.5913  lflag=0x43        pendin=0 fionread=0
+  step late_after_read              t=1.7993  lflag=0x43        pendin=0 fionread=0
+  step final_after_restore_tcsanow  t=1.7994  lflag=0x5cb       pendin=0 fionread=0
+  read t=0.0905 hex=78
+  polls: 1:0.1965/P0/F0 2:0.3004/P0/F0 3:0.3975/P0/F0 4:0.4929/P0/F0 5:0.5983/P0/F0 6:0.7045/P0/F0 7:0.801/P0/F0 8:0.8976/P0/F0 9:1.0007/P0/F0 10:1.0977/P0/F0 11:1.1912/P0/F0 12:1.2975/P0/F0 13:1.4006/P0/F0 14:1.4932/P0/F0 15:1.5912/P0/F0
+  LATE: none
+NOTE: no split runs - neither A nor B showed late input (FIONREAD 0 at all polls, late read empty).

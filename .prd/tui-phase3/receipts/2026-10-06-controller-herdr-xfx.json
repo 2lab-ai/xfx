@@ -1,0 +1,90 @@
+{
+ "after": {
+  "cc": [
+   4,
+   255,
+   255,
+   127,
+   23,
+   21,
+   18,
+   255,
+   3,
+   28,
+   26,
+   25,
+   17,
+   19,
+   22,
+   15,
+   1,
+   0,
+   20,
+   255
+  ],
+  "cflag": "0x4b00",
+  "iflag": "0x2b02",
+  "ispeed": 9600,
+  "lflag": "0x200005cb",
+  "oflag": "0x3",
+  "ospeed": 9600,
+  "pendin": true,
+  "proc": {
+   "pgrp": 42575,
+   "pid": 51019,
+   "sid": 40765,
+   "tcpgrp": 42575
+  },
+  "winsize": {
+   "cols": 60,
+   "rows": 40,
+   "xpixel": 0,
+   "ypixel": 0
+  }
+ },
+ "before": {
+  "cc": [
+   4,
+   255,
+   255,
+   127,
+   23,
+   21,
+   18,
+   255,
+   3,
+   28,
+   26,
+   25,
+   17,
+   19,
+   22,
+   15,
+   1,
+   0,
+   20,
+   255
+  ],
+  "cflag": "0x4b00",
+  "iflag": "0x2b02",
+  "ispeed": 9600,
+  "lflag": "0x200005cb",
+  "oflag": "0x3",
+  "ospeed": 9600,
+  "pendin": true,
+  "proc": {
+   "pgrp": 42575,
+   "pid": 42581,
+   "sid": 40765,
+   "tcpgrp": 42575
+  },
+  "winsize": {
+   "cols": 60,
+   "rows": 40,
+   "xpixel": 0,
+   "ypixel": 0
+  }
+ },
+ "status": "0",
+ "trial": "controller H-xfx, herdr interactive, xfx 72cdea8 sha256 b9d1885a"
+}
