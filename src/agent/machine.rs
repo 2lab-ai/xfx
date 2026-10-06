@@ -275,6 +275,14 @@ pub struct TurnMachine {
     /// spans several steps answers with all of them, because that is what the
     /// user watched arrive.
     output: String,
+    /// The text a step delivered before it failed, when one did.
+    ///
+    /// Recorded as the turn's last assistant step when the turn ends on that
+    /// failure ([`Self::run_journaled`]), because it is what the user read and
+    /// what upstream keeps: the next request carries the partial answer, closed
+    /// by the sentence that says it ended early (`session.zig:3057-3069`;
+    /// `crate::session::store`'s `close_interrupted`).
+    partial: String,
     steps: u32,
     finalized: bool,
 }
@@ -292,6 +300,7 @@ impl TurnMachine {
             user,
             suffix: Vec::new(),
             output: String::new(),
+            partial: String::new(),
             steps: 0,
             finalized: false,
         }
@@ -372,11 +381,25 @@ impl TurnMachine {
                     },
                 });
             }
-            Err(err) => journal.record(SessionEvent::TurnConcluded {
-                outcome: TurnConclusion::Interrupted {
-                    reason: err.to_string(),
-                },
-            }),
+            Err(err) => {
+                // The answer the failed step had put in front of the user, as
+                // the turn's last step: the conclusion closes it.
+                let partial = std::mem::take(&mut self.partial);
+                if !partial.is_empty() {
+                    journal.record(SessionEvent::AssistantMessage {
+                        text: partial,
+                        tool_calls: Vec::new(),
+                        raw_content: Vec::new(),
+                        responses_state: Vec::new(),
+                        wire: None,
+                    });
+                }
+                journal.record(SessionEvent::TurnConcluded {
+                    outcome: TurnConclusion::Interrupted {
+                        reason: err.to_string(),
+                    },
+                })
+            }
         }
 
         // The only place a terminal event is written. One match, two arms, no
@@ -607,8 +630,14 @@ impl TurnMachine {
                 ok: result.ok,
                 output: result.output.clone(),
             });
-            self.suffix
-                .push(Message::tool_result(&call.id, &call.name, result.output));
+            // A call that failed is said as one on the wire, as upstream says
+            // every result whose status is a failure (`error-text`,
+            // `vercel-labs/fx@c1db9191 src/gateway/vercel_protocol.zig:742-747`).
+            self.suffix.push(if result.ok {
+                Message::tool_result(&call.id, &call.name, result.output)
+            } else {
+                Message::tool_error(&call.id, &call.name, result.output)
+            });
 
             // Buffered here, delivered after the loop. Directly after the
             // result push, so only a call that actually ran and was answered
@@ -783,10 +812,14 @@ impl TurnMachine {
             let mut deltas = StepDeltas {
                 events: &mut *events,
                 delivered: false,
+                text: String::new(),
                 error: None,
             };
             let outcome = provider.stream(&request, &mut deltas).await;
             let delivered = deltas.delivered;
+            // What reached the user, kept for a turn that ends here; a step
+            // that completes records its own text instead.
+            self.partial = std::mem::take(&mut deltas.text);
             // A sink failure is reported as itself rather than as whatever the
             // provider made of it, so a closed stdout is never read as a
             // protocol failure.
@@ -795,7 +828,10 @@ impl TurnMachine {
             }
 
             match outcome {
-                Ok(completion) => return Ok(completion),
+                Ok(completion) => {
+                    self.partial.clear();
+                    return Ok(completion);
+                }
                 Err(err) => {
                     // `delivered` is the decisive fact: once part of an answer
                     // is in front of the user, a replay would produce a second
@@ -856,6 +892,8 @@ impl TurnMachine {
 struct StepDeltas<'a> {
     events: &'a mut dyn EventSink,
     delivered: bool,
+    /// The text the user was shown, in order -- only what was emitted.
+    text: String,
     /// The first write failure, kept so the turn can report it as its own.
     error: Option<io::Error>,
 }
@@ -867,7 +905,10 @@ impl DeltaSink for StepDeltas<'_> {
             text: text.to_string(),
         };
         match self.events.emit(&event) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.text.push_str(text);
+                Ok(())
+            }
             Err(err) => {
                 let reported = io::Error::new(err.kind(), err.to_string());
                 if self.error.is_none() {

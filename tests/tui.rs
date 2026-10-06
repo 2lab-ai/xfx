@@ -3117,6 +3117,155 @@ fn ctrl_c_is_a_byte_that_cancels_the_turn_and_a_second_one_exits_130() {
 }
 
 #[test]
+fn the_request_after_an_interrupt_says_the_last_turn_ended_early_as_upstreams_does() {
+    // fx's next request after a stopped answer
+    // (`fx-interrupt-40x120-bodies/003-completion.json`): the partial answer,
+    // a blank line and `The previous response ended before completion.`, then
+    // a `<turn_aborted>` user message, then the new prompt
+    // (`vercel-labs/fx@c1db9191 src/core/session/session.zig:52-64`,
+    // `:2695-2747`). Red before: the request carried the two prompts and
+    // nothing of the stopped turn.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            // A paragraph of its own, so it is on the screen while the turn
+            // still hangs: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
+            support::fake_gateway::text_delta("a", "MARKER-PARTIAL\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["MARKER-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"stream please\r");
+    session.wait_for("MARKER-PARTIAL");
+    session.type_bytes(&[0x03]);
+    session.wait_for(CANCELLED);
+
+    session.type_bytes(b"next\r");
+    session.wait_for("MARKER-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<(String, String)> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .map(|message| {
+            let text = message["content"]
+                .as_array()
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part["text"].as_str())
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            (
+                message["role"].as_str().unwrap_or_default().to_string(),
+                text,
+            )
+        })
+        .collect();
+    assert_eq!(
+        prompt,
+        vec![
+            ("user".to_string(), "stream please".to_string()),
+            (
+                "assistant".to_string(),
+                "MARKER-PARTIAL\n\n\n\nThe previous response ended before completion.".to_string()
+            ),
+            (
+                "user".to_string(),
+                "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands \
+                 may have partially executed. Do not continue this request unless the user \
+                 explicitly asks to continue.\n</turn_aborted>"
+                    .to_string()
+            ),
+            ("user".to_string(), "next".to_string()),
+        ],
+        "{body:#}"
+    );
+}
+
+#[test]
+fn the_request_after_a_cancelled_question_answers_it_aborted_as_upstreams_does() {
+    // After a question the user cancelled, fx's next request carries the
+    // call, its result as `{"type":"error-text","value":"aborted by user"}`
+    // and the `<turn_aborted>` message, and nothing else of the turn
+    // (`vercel-labs/fx@c1db9191 src/core/session/session.zig:52-64`,
+    // `:2701-2747`; `src/gateway/vercel_protocol.zig:742-747`). Red before:
+    // the result went as `"type":"text"` and an assistant message after it
+    // said the question was a tool call that completed.
+    use support::fake_gateway::{finish, sse_body, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "q1",
+                "ask_user_question",
+                serde_json::json!({ "questions": [{
+                    "question": "Deploy now?",
+                    "options": [{ "label": "Yes" }, { "label": "No" }],
+                }] }),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::Sse(support::fake_gateway::content_only(&["MARKER-NEXT"])),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(24, 80);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"ask me\r");
+    session.wait_for("Deploy now?");
+    session.type_bytes(&[0x03]);
+    session.wait_for("Cancelled");
+
+    session.type_bytes(b"next\r");
+    session.wait_for("MARKER-NEXT");
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<serde_json::Value> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .cloned()
+        .collect();
+    let roles: Vec<&str> = prompt
+        .iter()
+        .map(|message| message["role"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        roles,
+        ["user", "assistant", "tool", "user", "user"],
+        "{body:#}"
+    );
+    assert_eq!(prompt[1]["content"][0]["type"], "tool-call", "{body:#}");
+    assert_eq!(
+        prompt[2]["content"][0]["output"],
+        serde_json::json!({ "type": "error-text", "value": "aborted by user" }),
+        "{body:#}"
+    );
+    assert_eq!(
+        prompt[3]["content"][0]["text"],
+        "<turn_aborted>\nThe previous turn ended before completion. Any tools or commands may \
+         have partially executed. Do not continue this request unless the user explicitly asks \
+         to continue.\n</turn_aborted>",
+        "{body:#}"
+    );
+    assert_eq!(prompt[4]["content"][0]["text"], "next", "{body:#}");
+}
+
+#[test]
 fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() {
     // The contract in one line: after the interrupt notice, nothing else
     // starts. The runtime is held by a turn that never ends -- `SseThenHang`
