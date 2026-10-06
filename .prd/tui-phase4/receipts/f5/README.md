@@ -20,9 +20,9 @@ product's own (`fulltranscript-fx.json` / `-xfx.json`: fx's `shell`/`run` is xfx
 (`second`), Ctrl-O (`full2`), **Ctrl-C** (`full2-cc`), Ctrl-O (`full3`), **Ctrl-O** (`full3-close`).
 Scratch paths are replaced with `<scratch>`; request bodies are not committed.
 
-Re-captured on xfx after `plan/tui-phase4` (`2870b42`: C2, F3, D4b) was merged in (`cbbc1f8`), 40x120:
-every `.ansi` identical to the committed one with the build revision, the session id and the
-timestamps masked.
+Re-captured on xfx at the branch tip after `plan/tui-phase4` was merged in (`3ade8cb`, plan at
+`dc0c137`: C2, F3, D4b, D2a, T1), 40x120: all 15 `.ansi` identical to the committed ones with the
+build revision, the session id, the summary's seconds and the timestamps masked.
 
 Every completion the turns file scripts was requested on both (`*-gateway.log`: fx 6 + a title call,
 xfx 6).
