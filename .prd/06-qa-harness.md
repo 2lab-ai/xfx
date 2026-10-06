@@ -208,7 +208,7 @@ partial write (1+2) is no longer wholly planned: the containment half of that ro
 above, 3d drives the primary band's recovery and 3e the recovery of a repaint of the alternate plane
 the session already owns -- the two repaints whose whole intended content is in hand -- in the
 preview channel only; the primary band's is independently confirmed on the direct-launch tmux arm
-(see the paragraphs below) and the alternate plane's is not yet. Every other `Partial` is contained
+(see the paragraphs below) and on herdr, the alternate plane's on herdr. Every other `Partial` is contained
 and ends the session with the diagnostic (the per-path table below).
 Live theme switch re-tints the transcript (2) is registered as row 27 above, for the report-only half
 only: the report arrives because the harness types it, and the monitor that would let a terminal
@@ -243,8 +243,8 @@ why the claim cannot be restated as a scenario here. The scenarios above must no
 beside them mutates the **emitter**, which is a different question from what the terminal did with
 the bytes — so neither of the two is an injected partial write, and neither closes this row.
 **An injected partial write is now driven, and between 3c, 3d and 3e it closes the containment half
-of the row and drives recovery for the two repaints whose content is in hand, but still not the
-row.** Scenario 3c above puts a real prefix of a real frame on a real terminal and asserts what this
+of the row and drives recovery for the two repaints whose content is in hand; what it leaves is the parser-resync
+claim, which no measurement here can make.** Scenario 3c above puts a real prefix of a real frame on a real terminal and asserts what this
 product does about the prefix itself: the vector is never offered again and no frame was ever
 completed. With its cleanup segment now refused by fixture, 3c's own exit is fatal and asserts
 nothing further. Scenario 3d then drives the primary band's recovery -- the exact `CAN`+`BEL`, OSC 8
@@ -285,7 +285,12 @@ right after the restore shows `PENDIN`=1, and under herdr the same xfx run left 
 interactive shell with `PENDIN` already 1: control (u-form Ctrl-U cleared the draft, u-form
 Ctrl-D on the empty draft exited 0), partial-frame-once (exit 0), partial-frame (exit 1),
 frame-refusal (exit 1) and a double Escape (draft cleared, exit 0) -- every `termios` word,
-`PENDIN` included, equal before and after in all five.
+`PENDIN` included, equal before and after in all five. With `7dbd1a0` binaries and this harness's own
+fixture serving 3e's script on herdr's interactive arm, the same agent drove the alternate-plane
+recovery: control and partial-alternate-once each exited 0 with the edit applied only after the
+answer and the question still answerable after the walk step that tears it, partial-alternate exited 1
+with the edit not applied and the `partial` record -- every `termios` word equal in all three. On herdr
+the tear is observed on the screen only; 3e carries the byte-level proof.
 None of this establishes the terminal's own parser resync.
 
 **A diagnostic record exists beside this and does not move that boundary.** After the same

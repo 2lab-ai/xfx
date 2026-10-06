@@ -796,8 +796,10 @@ exact boundary.
     MUST-FIX and independently confirmed on a real terminal's direct-launch tmux arm (2026-10-06;
     [`06-qa-harness.md`](06-qa-harness.md)) and on herdr's interactive-shell arm, where every
     `termios` word stayed equal; the repaint of the owned alternate plane is proven by in-crate cases,
-    `fault-injection` PTY tests and the release-binary row 3e, and has no independent real-terminal
-    run yet. **Frame retention
+    `fault-injection` PTY tests and the release-binary row 3e, and was independently confirmed on
+    herdr's interactive-shell arm (2026-10-06, `7dbd1a0`: once exit 0 with the question still
+    answerable, persistent exit 1 with the edit not applied, every `termios` word equal; the tear is
+    screen-observed there, 3e carries the byte-level proof). **Frame retention
     exists as one bounded adaptation and not as the upstream reuse.** None of this item is in a stable
     release. An ordinary primary
     commit reuses the adopted shadow's own cells above the top the band released *before* this
@@ -964,9 +966,10 @@ exact boundary.
     reported count equal to the prefix on the wire, and a `partial` report; its grids are rebuilt
     with the prefix and the cleanup cut out of the stream, so they make no parser-resync claim
     either. Recovery itself is no longer bare specification: the primary-band implementation is
-    independently confirmed on the direct-launch tmux arm, the alternate-plane one is not yet, and
-    neither closes this item — every other `Partial` is contained and fatal, and retention is the
-    bounded prefix adaptation.
+    independently confirmed on the direct-launch tmux arm and on herdr, the alternate-plane one on
+    herdr. That meets the Phase 3 carrier's acceptance for this row (P3-COMMIT); against upstream the
+    item stays in part — every other `Partial` is contained and fatal for the reason the per-path
+    table gives, and retention is the bounded prefix adaptation, not the retained-body reuse.
     **Diagnostic record, beside both halves above and neither of them:** the road a session left
     by -- `Partial` or an exhausted `Rejected`/`ZeroProgress`, as `event_loop::disposed` marks it,
     or `Partial` as `event_loop::recover_tear` marks a recoverable repaint whose recovery failed or

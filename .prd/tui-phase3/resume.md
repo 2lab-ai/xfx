@@ -44,7 +44,7 @@ no-stubs, no-secrets, identity, preview-contract; both release builds; preflight
 
 ## Boundaries that still hold
 
-- Recovery is the primary band's `Partial` only; parser resync on a real terminal is not claimed.
+- Recovery covers the two whole-surface repaints (primary band frame, owned alternate screen); every other `Partial` is contained for the reason in `03` item 21's table; parser resync on a real terminal is not claimed.
 - No kernel-source investigation of PENDIN by any route; the API safeguard result recorded in R179 stands.
 - Preview channel only. No `v*` tag, no stable release, no production deploy without the user.
 - The user's llmux daemon and default tmux server are not restarted or modified; fixtures use fake credentials and loopback.
