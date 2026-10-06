@@ -453,7 +453,10 @@ fn hold(
     // are the document, on the screen the launch's push left.
     match replay {
         Some(replay) => shell.hydrate(replay, false),
-        None => shell.welcome(),
+        None => {
+            shell.welcome();
+            shell.session_assembled();
+        }
     }
     let code = event_loop::run(
         &mut shell,

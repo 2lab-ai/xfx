@@ -83,6 +83,7 @@ use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
+use super::frame::Caret;
 use super::full_transcript::{self, FullTranscript};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::help_menu::{self, HelpAction, HelpMenu};
@@ -1040,13 +1041,11 @@ pub(crate) enum ScreenOwner {
     /// The alternate buffer: a question with a change too large for the band
     /// to show, or the full transcript (`C-o`, [`super::full_transcript`]).
     ///
-    /// Named for its first occupant. Both are the same plane to everything
-    /// that reads this -- the loop that takes and gives it back, the exit, the
+    /// One variant for both: they are the same plane to everything that
+    /// reads this -- the loop that takes and gives it back, the exit, the
     /// panic hook -- and which of the two is on it is the shell's own
-    /// business ([`Shell::screen_rows`]), so the second occupant shares the
-    /// variant rather than adding a state every one of those readers would
-    /// have to be taught means the same plane.
-    Approval,
+    /// business ([`Shell::screen_rows`]).
+    Alternate,
 }
 
 /// A question composed for the surface it belongs on, before anything is
@@ -2040,6 +2039,18 @@ impl Shell {
         self.end_transcript_line();
     }
 
+    /// The full transcript's record of the session a fresh launch assembled,
+    /// as upstream writes one for a fresh session and none for a resumed one
+    /// (`writeSessionAssemblyNotice`, `app_bootstrap_runtime.zig:640-642`).
+    /// The document is not given it (`visibility = .full_only`).
+    pub(crate) fn session_assembled(&mut self) {
+        self.full.full_detail(full_transcript::session_record(
+            self.provider.label(),
+            &self.model,
+            crate::tools::ADVERTISED_TOOLS,
+        ));
+    }
+
     /// Says that this session continues a saved one, as upstream's resume does
     /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
     /// notice under `session resumed` whose body is the session's title, and
@@ -2127,10 +2138,37 @@ impl Shell {
     /// One saved turn, through what each live event reaches
     /// ([`Self::apply`]): the card, the presenter, the tool group's marks, the
     /// amendment row, the conclusion.
+    ///
+    /// The full transcript is filled by the same writes, and given what the
+    /// screen never shows -- each call's arguments and whole result -- before
+    /// them, to wait for their rows ([`full_transcript::details_of`]). Its
+    /// entries carry the log's times, as upstream's replay stamps them
+    /// (`setCreatedAtMs`, `app_session_runtime.zig:4753-4810`): the turn's
+    /// start for the card and what it did on the way, its conclusion for the
+    /// answer after its last call and the summary.
     fn replay_turn(&mut self, turn: HydratedTurn) {
+        for (call_id, detail) in turn.details {
+            // Made inert here as the channel would have: a launch's replay is
+            // handed over without crossing it.
+            self.full.observe(&UiEvent::ToolDetail {
+                call_id,
+                detail: detail.made_inert(),
+            });
+        }
+        // A turn the log has no conclusion for keeps its start throughout.
+        let concluded = turn.concluded_at_ms.unwrap_or(turn.started_at_ms);
+        self.full.stamp_with(Some(turn.started_at_ms));
+        let concluding = turn
+            .steps
+            .iter()
+            .rposition(|step| !matches!(step, HydratedStep::Text(_)))
+            .map_or(0, |last| last + 1);
         self.run_mark(Mark::Card(turn.user.clone()));
         let mut streamed = Estimator::default();
-        for step in turn.steps {
+        for (index, step) in turn.steps.into_iter().enumerate() {
+            if index == concluding {
+                self.full.stamp_with(Some(concluded));
+            }
             match step {
                 HydratedStep::Text(text) => {
                     streamed.consume(&text);
@@ -2160,6 +2198,7 @@ impl Shell {
                 )),
             }
         }
+        self.full.stamp_with(Some(concluded));
         self.run_mark(Mark::TurnOver);
         match turn.ending {
             // In is the prompt's estimate, as a live turn's is; out is what
@@ -2183,6 +2222,7 @@ impl Shell {
             }
             Ending::Unconcluded => self.run_mark(Mark::EndOfLine),
         }
+        self.full.stamp_with(None);
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -2338,7 +2378,7 @@ impl Shell {
             // The full transcript's alone, and taken above
             // ([`Self::full_transcript_sees`]): nothing of it is written into
             // the document.
-            UiEvent::ToolDetail { .. } => {}
+            UiEvent::ToolDetail { .. } | UiEvent::FullDetail(_) => {}
             // The switch is **done** by the time this arrives: the file is
             // written, the configuration has been re-read from it, and the
             // runtime has swapped. So every field here is adopted rather than
@@ -2692,7 +2732,7 @@ impl Shell {
         // hazard where the next edit reads it rather than adding a branch no
         // test can drive honestly.
         debug_assert!(
-            !(self.owner == ScreenOwner::Approval && self.alternate.is_some()),
+            !(self.owner == ScreenOwner::Alternate && self.alternate.is_some()),
             "a second question took a plane the first one is still on"
         );
         match composed {
@@ -2709,7 +2749,7 @@ impl Shell {
             // the band the restore repaints when the answer gives it back.
             Asked::Alternate(screen) => {
                 self.alternate = Some(screen);
-                self.owner = ScreenOwner::Approval;
+                self.owner = ScreenOwner::Alternate;
             }
         }
         self.asked_id = Some(id);
@@ -2787,15 +2827,24 @@ impl Shell {
     }
 
     /// Where the caret goes on that plane: the marked choice, or the full
-    /// transcript's footer.
+    /// transcript's footer. The cases read it; the loop paints
+    /// [`Self::screen_caret`].
+    #[cfg(test)]
     pub(crate) fn screen_cursor(&self) -> (u16, u16) {
+        self.screen_caret().at
+    }
+
+    /// The same, and whether it is shown: a question's caret is, on the
+    /// choice or in the amendment the keys go to; the full transcript's is
+    /// not, as upstream's is not (`paint_plan.zig:1047`).
+    pub(crate) fn screen_caret(&self) -> Caret {
         if let Some(screen) = self.alternate.as_ref() {
-            return screen.caret(self.geometry.cols, self.geometry.rows);
+            return Caret::from(screen.caret(self.geometry.cols, self.geometry.rows));
         }
         if self.full.is_open() {
-            return self.full.caret(self.geometry.rows);
+            return Caret::hidden(self.full.caret(self.geometry.rows));
         }
-        (1, 0)
+        Caret::from((1, 0))
     }
 
     /// Gives the plane back without answering the question on it.
@@ -2834,7 +2883,7 @@ impl Shell {
         // uses: the loop pays what the primary plane owes, takes the plane in
         // the same write, and gives it back whole (`super::event_loop`'s
         // `paint_alternate`).
-        self.owner = ScreenOwner::Approval;
+        self.owner = ScreenOwner::Alternate;
         self.render.request(Reason::Modal);
     }
 
@@ -2851,18 +2900,24 @@ impl Shell {
     }
 
     /// One keystroke while the full transcript is up
-    /// (`input_full_transcript_runtime.zig:147-198`).
-    fn view_full_transcript(&mut self, event: Input) {
+    /// (`input_full_transcript_runtime.zig:147-198`), and whether the screen
+    /// took it.
+    ///
+    /// Text and pasted bytes are never the screen's: upstream's map names
+    /// none, and they reach its composer, hidden behind the screen, as they
+    /// reach this one -- the draft is there when the screen closes.
+    fn view_full_transcript(&mut self, event: &Input) -> bool {
         let Input::Action(action) = event else {
-            // Text and pasted bytes: there is no composer on this screen.
-            return;
+            return false;
         };
         let (cols, rows) = (self.geometry.cols, self.geometry.rows);
-        match self.full.key(action, cols, rows, self.palette) {
+        match self.full.key(*action, cols, rows, self.palette) {
             full_transcript::Reply::Close => self.close_full_transcript(),
             full_transcript::Reply::Moved => self.render.request(Reason::Modal),
-            full_transcript::Reply::Nothing => {}
+            full_transcript::Reply::Held => {}
+            full_transcript::Reply::Unbound => return false,
         }
+        true
     }
 
     /// What the full transcript keeps of an event the document is not shown,
@@ -4566,13 +4621,16 @@ impl Shell {
 
     /// One of them.
     fn run_mark(&mut self, mark: Mark) {
-        self.record(&mark);
         // Anything that is not the answer ends the answer's block. A notice
         // ends only the rows already written: the line the presenter is still
         // holding goes on under it ([`Self::write_notice`]).
         if !matches!(mark, Mark::Notice(_)) {
             self.close_answer();
         }
+        // After the answer's close, which is the document's order: what the
+        // presenter was holding is written -- and recorded
+        // ([`Self::present`]) -- before the mark's own write.
+        self.record(&mark);
         match mark {
             Mark::Card(text) => self.write_card(&text),
             Mark::Summary(line) => {
@@ -5143,7 +5201,7 @@ impl Shell {
             self.retint_debt = true;
         }
         self.render.request(Reason::Footer);
-        if self.slot().is_some() || self.owner == ScreenOwner::Approval {
+        if self.slot().is_some() || self.owner == ScreenOwner::Alternate {
             self.render.request(Reason::Modal);
         }
     }
@@ -5305,13 +5363,14 @@ impl Shell {
                 self.retint(mode);
                 continue;
             }
-            // The full transcript, while it is up, has every key: the ones it
-            // binds move it or close it, and the rest are swallowed rather
-            // than typed into a composer nobody can see. It cannot be up with
-            // a question -- a question closes it ([`Self::full_transcript_sees`])
-            // and it does not open over one ([`Self::open_full_transcript`]).
-            if self.full.is_open() {
-                self.view_full_transcript(event);
+            // The full transcript, while it is up, has the keys it binds;
+            // everything else goes where it would have gone with the screen
+            // closed -- the composer, the band's menus -- as upstream routes
+            // it (`app_input_runtime.zig:973-994`, `:1013-1044`). It cannot
+            // be up with a question: a question closes it
+            // ([`Self::full_transcript_sees`]) and it does not open over one
+            // ([`Self::open_full_transcript`]).
+            if self.full.is_open() && self.view_full_transcript(&event) {
                 continue;
             }
             // Whatever is in front of the user has the focus while it is up,
@@ -6070,7 +6129,6 @@ impl Shell {
 
     /// Released answer text, through the presenter.
     fn write_answer(&mut self, text: &str) {
-        self.full.answer(text);
         for event in self.markdown.feed(text) {
             self.present(event);
         }
@@ -6078,6 +6136,7 @@ impl Shell {
 
     /// One thing the presenter completed, in the shape upstream gives it.
     fn present(&mut self, event: markdown::Event) {
+        self.full.presented(&event);
         let cols = self.geometry.cols;
         match event {
             markdown::Event::Text(text) => self.write_prose(&text),
@@ -6936,6 +6995,7 @@ impl Shell {
             | UiEvent::ToolStart { .. }
             | UiEvent::ToolResult { .. }
             | UiEvent::ToolDetail { .. }
+            | UiEvent::FullDetail(_)
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Usage { .. } => true,
@@ -7629,7 +7689,7 @@ mod tests {
         /// grid; reading it off the band would be reading a coordinate against
         /// the wrong screen.
         fn marked(&self) -> String {
-            if self.shell.screen_owner() == ScreenOwner::Approval {
+            if self.shell.screen_owner() == ScreenOwner::Alternate {
                 let row = usize::from(self.shell.screen_cursor().0);
                 return self
                     .shell
@@ -10547,7 +10607,7 @@ mod tests {
             lines_below: 0,
         });
         shell.apply(UiEvent::Approval(question(request)));
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         delivered(&mut shell);
 
         shell.decide(Input::Text('1'), Instant::now());
@@ -10604,7 +10664,7 @@ mod tests {
             lines_below: 0,
         });
         wide.apply(UiEvent::Approval(question(request)));
-        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(wide.screen_owner(), ScreenOwner::Alternate);
         delivered(&mut wide);
         wide.decide(Input::Text('1'), Instant::now());
         assert_eq!(
@@ -10659,7 +10719,7 @@ mod tests {
         // about something the user is not looking at.
         let mut shell = shell(24, 80);
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert!(
             !shell.screen_rows().is_empty(),
             "the plane has nothing on it, so this case proves nothing"
@@ -11159,7 +11219,7 @@ mod tests {
         shell.settle_band(started);
         assert_eq!(
             shell.screen_owner(),
-            ScreenOwner::Approval,
+            ScreenOwner::Alternate,
             "a change the band cannot show was left for the band to show"
         );
         delivered(&mut shell);
@@ -11215,7 +11275,7 @@ mod tests {
             shell.route_bytes(b"a draft");
             shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
             shell.settle_band(started);
-            assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
             assert_eq!(
                 shell.marked(),
                 "  ❯ 1  Apply once",
@@ -11255,7 +11315,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Duration::from_millis(100));
@@ -11284,7 +11344,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
 
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert_eq!(
             shell.controlled(),
             None,
@@ -11324,7 +11384,7 @@ mod tests {
                 shell.settle_band(started);
                 assert_eq!(
                     shell.screen_owner(),
-                    ScreenOwner::Approval,
+                    ScreenOwner::Alternate,
                     "a {rows}x{cols} screen refused a question the plane can show"
                 );
                 assert_eq!(
@@ -11352,7 +11412,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         let painted = shell.band_rows().join("\n");
         assert!(
@@ -11438,7 +11498,7 @@ mod tests {
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.release_screen();
 
@@ -11484,7 +11544,7 @@ mod tests {
             first,
             "`C-n` did not walk back"
         );
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
     }
 
     #[test]
@@ -13090,7 +13150,7 @@ mod tests {
         let mut wide = sounding(40, true, None);
         turn_running(&mut wide, b"edit the notes\r");
         wide.apply(UiEvent::Approval(question(asked_about_a_large_change())));
-        assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(wide.screen_owner(), ScreenOwner::Alternate);
         assert_eq!(wide.take_bells(), 1, "the review on the other plane");
     }
 
@@ -14174,6 +14234,9 @@ mod tests {
             user: user.to_string(),
             steps,
             ending: Ending::Concluded { seconds, output },
+            started_at_ms: 0,
+            concluded_at_ms: None,
+            details: Vec::new(),
         }
     }
 
@@ -14316,6 +14379,96 @@ mod tests {
     }
 
     #[test]
+    fn a_resumed_turn_fills_the_full_transcript_with_its_calls_details_at_the_logs_times() {
+        // Upstream's resume replays a call through the adapters a live one
+        // went through, its output included (`writeCompletedToolResult`,
+        // `app_session_runtime.zig:4970-5030`), and stamps the turn's entries
+        // with its start and its conclusion (`setCreatedAtMs`, `:4753-4810`).
+        let input = serde_json::json!({"path": "notes.txt"});
+        let shown = crate::tools::Registry::builtin()
+            .spec("read_file")
+            .expect("read_file")
+            .shown(&input);
+        let steps = vec![
+            crate::session::TurnStep::Assistant {
+                text: "Looking.".to_string(),
+                tool_calls: vec![crate::session::RecordedToolCall {
+                    id: "c1".into(),
+                    name: "read_file".into(),
+                    input,
+                }],
+                raw_content: Vec::new(),
+                responses_state: Vec::new(),
+                wire: None,
+            },
+            crate::session::TurnStep::ToolResult {
+                call_id: "c1".into(),
+                tool: "read_file".into(),
+                ok: true,
+                output:
+                    "<path>notes.txt</path>\n<content>\n1\tONLY-IN-THE-LOG\u{1b}[2J\n</content>"
+                        .into(),
+            },
+        ];
+        let mut turn = saved(
+            "look",
+            vec![
+                HydratedStep::Text("Looking.".to_string()),
+                HydratedStep::ToolStart {
+                    id: "c1".into(),
+                    shown,
+                },
+                HydratedStep::ToolResult {
+                    id: "c1".into(),
+                    ok: true,
+                    detail: String::new(),
+                    outcome: CallOutcome::Finished,
+                },
+                HydratedStep::Text("Done.".to_string()),
+            ],
+            2,
+            Some(40),
+        );
+        // 2026-10-02 00:00:00 UTC, and two seconds later.
+        turn.started_at_ms = 1_790_899_200_000;
+        turn.concluded_at_ms = Some(1_790_899_202_000);
+        turn.details = full_transcript::details_of(&steps);
+        let mut shell = shell(40, 120);
+        shell.hydrate(replay(Some("look"), vec![turn]), false);
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let headers: Vec<&str> = screen
+            .iter()
+            .filter(|row| row.contains(" UTC \u{b7} "))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            headers[1..],
+            [
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Prompt",
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:00.000 UTC \u{b7} Tool",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Response",
+                "  2026-10-02 00:00:02.000 UTC \u{b7} Usage",
+            ],
+            "{screen:#?}"
+        );
+        // What the read returned, which the document never showed -- made
+        // inert, as a live turn's would be at the channel.
+        assert!(
+            screen.contains(&"\u{2502}  1    ONLY-IN-THE-LOG [2J".to_string()),
+            "{screen:#?}"
+        );
+        assert!(
+            !shell
+                .written()
+                .iter()
+                .any(|row| row.contains("ONLY-IN-THE-LOG")),
+            "the document was given what only the full transcript shows"
+        );
+    }
+
+    #[test]
     fn a_replayed_tool_group_is_the_live_group_and_a_stopped_turn_ends_on_its_reason() {
         let read = crate::tools::Registry::builtin()
             .spec("read_file")
@@ -14389,6 +14542,9 @@ mod tests {
                         user: "and then".to_string(),
                         steps: Vec::new(),
                         ending: Ending::Interrupted("xfx: the turn was cancelled".to_string()),
+                        started_at_ms: 0,
+                        concluded_at_ms: None,
+                        details: Vec::new(),
                     },
                 ],
             ),
@@ -20038,7 +20194,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
@@ -20160,7 +20316,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
 
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
@@ -20424,7 +20580,7 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         let _ = shell.document();
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.decide(Input::Action(Action::Tab), Instant::now());
         type_at_the_question(&mut shell, "rename the flag first");
         let before = shell.marked();
@@ -20631,6 +20787,170 @@ mod tests {
     }
 
     #[test]
+    fn the_full_transcript_keeps_a_notice_mid_answer_as_an_entry_before_the_line_it_interrupted() {
+        // `fx-fulltranscript-notice-40x120-full-top`: Response `Opening line…`,
+        // the refusal, the version, and **one** Response holding the whole
+        // paragraph and the closing line -- upstream's presenter keeps the
+        // line it is in and its notice is an entry beside it
+        // (`store.zig:1343-1390`). Recorded from the raw text, the record
+        // cut the paragraph at each notice: `…word110 word` | Error |
+        // `111 … ` | Notice | `…`.
+        let mut shell = shell(40, 120);
+        let start = Instant::now();
+        let words: Vec<String> = (10..=19)
+            .chain(100..=139)
+            .map(|n| format!("word{n}"))
+            .collect();
+        let paragraph = format!("MARKER-A {}", words.join(" "));
+        let (said, unsaid) = paragraph.split_at(paragraph.find("word111").expect("a word") + 4);
+        shell.apply(UiEvent::Delta(format!(
+            "Opening line of the answer.\n\n{said}"
+        )));
+        for at in 1..=3000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+        }
+        shell.route_bytes(b"/notacommand\r");
+        let (said_more, unsaid) = unsaid.split_at(unsaid.find("word122").expect("a word"));
+        shell.apply(UiEvent::Delta(said_more.to_string()));
+        for at in 3000 / TICK_MILLIS..=6000 / TICK_MILLIS {
+            shell.settle_band(start + Duration::from_millis(at * TICK_MILLIS));
+        }
+        shell.route_bytes(b"/version\r");
+        // Ended by a blank line, so the presenter gives the closing line up
+        // without a turn's end.
+        shell.apply(UiEvent::Delta(format!(
+            "{unsaid}\n\nClosing line of the answer.\n\n"
+        )));
+        shell.shell.flush_paced();
+        shell.route_bytes(b"\x0f");
+
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Response", "Error", "Notice", "Response"],
+            "{screen:#?}"
+        );
+        let second = screen
+            .iter()
+            .rposition(|row| row.ends_with(" UTC \u{b7} Response"))
+            .expect("the second response");
+        assert_eq!(
+            screen[second + 1..second + 7],
+            // Each wrapped row with the space it broke on hung past it, as
+            // the document's rows are.
+            [
+                format!("  MARKER-A {} ", words[..15].join(" ")),
+                format!("  {} ", words[15..29].join(" ")),
+                format!("  {} ", words[29..43].join(" ")),
+                format!("  {}", words[43..].join(" ")),
+                String::new(),
+                "  Closing line of the answer.".to_string(),
+            ],
+            "{screen:#?}"
+        );
+        let first = screen
+            .iter()
+            .position(|row| row.ends_with(" UTC \u{b7} Response"))
+            .expect("the first response");
+        assert_eq!(screen[first + 1], "  Opening line of the answer.");
+        assert_eq!(screen[first + 2], "");
+    }
+
+    #[test]
+    fn a_fresh_launchs_session_record_is_on_the_full_transcript_and_nowhere_else() {
+        // `writeSessionAssemblyNotice` (`app_bootstrap_runtime.zig:640-642`),
+        // `visibility = .full_only`: under the welcome on the screen, never in
+        // the document.
+        let mut shell = shell(40, 120);
+        let before = shell.written();
+        shell.session_assembled();
+        assert_eq!(shell.written(), before, "the document was given the record");
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let at = screen
+            .iter()
+            .position(|row| row.starts_with("* session: "))
+            .expect("the session record");
+        assert!(
+            screen[at - 1].ends_with(" UTC \u{b7} Notice"),
+            "{screen:#?}"
+        );
+        assert_eq!(
+            screen[at],
+            format!(
+                "* session: provider: {} \u{b7} model: {} \u{b7} effort: auto",
+                shell.provider.label(),
+                shell.model
+            )
+        );
+        // Wrapped at the screen's width, two columns in, as upstream's
+        // `+7` / `more)` is at 120 columns.
+        assert_eq!(
+            screen[at + 1..at + 4],
+            [
+                format!(
+                    "  tools: {} advertised ({}, +1 ",
+                    crate::tools::ADVERTISED_TOOLS.len(),
+                    crate::tools::ADVERTISED_TOOLS[..8].join(", ")
+                ),
+                "  more)".to_string(),
+                "  mcp: none".to_string(),
+            ]
+        );
+        // A reset starts the record again without it, as upstream's clear
+        // drops its records (`transcript/runtime.zig:4967`).
+        shell.route_bytes(b"\x0f");
+        shell.route_bytes(b"/new\r");
+        shell.route_bytes(b"\x0f");
+        assert!(
+            !full_screen(&shell)
+                .iter()
+                .any(|row| row.starts_with("* session: ")),
+            "{:#?}",
+            full_screen(&shell)
+        );
+    }
+
+    #[test]
+    fn an_unfinished_line_before_a_call_is_recorded_above_the_call_as_the_document_writes_it() {
+        // The presenter gives a line up at a call's start (`run_mark`'s
+        // `close_answer`), so the document has `Looking.` above the group;
+        // the record follows the document's order, and `Done.` is an answer
+        // of its own under the group rather than more of the first.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"look\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnStarted);
+        shell.apply(UiEvent::Delta("Looking.".to_string()));
+        shell.apply(tool_start(
+            "c1",
+            "read_file",
+            serde_json::json!({"path": "notes.txt"}),
+        ));
+        shell.apply(tool_result("c1", "read_file", true, "notes.txt"));
+        shell.apply(UiEvent::Delta("Done.".to_string()));
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        shell.shell.flush_paced();
+        shell.route_bytes(b"\x0f");
+        let screen = full_screen(&shell);
+        let kinds: Vec<&str> = screen
+            .iter()
+            .filter_map(|row| row.split_once(" UTC \u{b7} ").map(|(_, kind)| kind))
+            .collect();
+        assert_eq!(
+            kinds,
+            ["Prompt", "Response", "Tool", "Response", "Usage"],
+            "{screen:#?}"
+        );
+        assert!(screen.contains(&"  Looking.".to_string()), "{screen:#?}");
+        assert!(screen.contains(&"  Done.".to_string()), "{screen:#?}");
+    }
+
+    #[test]
     fn a_notice_inside_an_answer_keeps_its_own_colour_and_its_own_place() {
         // Ordering and colour together: the notice belongs at the point the
         // answer had reached when it happened (`Shell::mark`), and the answer
@@ -20791,7 +21111,7 @@ mod tests {
             a_turn_that_ran_a_command(&mut shell);
             let _ = shell.written();
             shell.route_bytes(b"\x0f");
-            assert_eq!(shell.screen_owner(), ScreenOwner::Approval, "{close:?}");
+            assert_eq!(shell.screen_owner(), ScreenOwner::Alternate, "{close:?}");
             let screen = full_screen(&shell);
             assert_eq!(screen.len(), 40);
             assert_eq!(screen[37], format!("\u{2503} {}", full_transcript::FOOTER));
@@ -20896,7 +21216,11 @@ mod tests {
     }
 
     #[test]
-    fn the_page_and_arrow_keys_move_the_screen_and_nothing_else_reaches_the_composer() {
+    fn the_screens_keys_move_it_and_every_other_key_reaches_the_hidden_composer_as_upstreams() {
+        // Upstream's map binds the page keys, the arrows, Escape, Ctrl-C and
+        // Ctrl-O (`input_full_transcript_runtime.zig:147-198`); everything
+        // else -- Home and End included -- goes on to its composer behind the
+        // screen (`app_input_runtime.zig:973-994`), and so it does here.
         let mut shell = shell(24, 80);
         for index in 0..20 {
             shell.apply(UiEvent::Notice(notice::Notice::neutral(
@@ -20916,29 +21240,37 @@ mod tests {
         assert_eq!(full_screen(&shell), tail, "PgDn did not come back");
         shell.route_bytes(b"\x1b[A");
         assert_ne!(full_screen(&shell), tail, "Up did not move the screen");
-        shell.route_bytes(b"\x1b[F");
-        assert_eq!(full_screen(&shell), tail, "End did not go to the tail");
-        shell.route_bytes(b"\x1b[H");
-        assert!(
-            full_screen(&shell)[0].ends_with(" UTC \u{b7} Notice"),
-            "Home"
-        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(full_screen(&shell), tail, "Down did not come back");
 
-        // Text, Enter, Backspace and a paste: nothing of it is the draft's,
-        // and nothing is sent.
-        shell.route_bytes(b"typed\r\x7f");
-        shell.route_bytes(b"\x1b[200~pasted\x1b[201~");
+        // Home, End and text: the screen stays where it is and the composer
+        // takes them -- the caret to the start, `more ` typed there.
+        shell.route_bytes(b"\x1b[Hmore \x1b[F!");
+        assert_eq!(full_screen(&shell), tail, "a composer key moved the screen");
+        assert!(shell.full.is_open(), "a composer key closed the screen");
+        assert_eq!(shell.editor.text(), "more draft!");
+        // A paste is the composer's too.
+        shell.route_bytes(b"\x1b[200~ pasted\x1b[201~");
+        assert_eq!(shell.editor.text(), "more draft! pasted");
+        assert!(shell.sent.try_recv().is_err(), "nothing was submitted yet");
+
+        // Enter submits it, from behind the screen, and the screen shows the
+        // prompt it sent as soon as the document is given it.
+        shell.route_bytes(b"\r");
         assert!(
-            shell.sent.try_recv().is_err(),
-            "a key on the screen sent work"
+            matches!(shell.sent.try_recv(), Ok(TurnWork::Submit(_))),
+            "Enter behind the screen did not submit"
+        );
+        assert!(shell.full.is_open());
+        assert!(
+            full_screen(&shell)
+                .iter()
+                .any(|row| row == "\u{2503} more draft! pasted"),
+            "{:?}",
+            full_screen(&shell)
         );
         shell.route_bytes(b"\x0f");
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
-        assert_eq!(
-            shell.editor.text(),
-            "draft",
-            "the draft did not survive the screen"
-        );
     }
 
     #[test]
@@ -20948,10 +21280,10 @@ mod tests {
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"\x0f");
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         assert!(
             shell.screen_rows().join("\n").contains("Permission needed"),
             "the plane did not go to the question"
@@ -21016,7 +21348,7 @@ mod tests {
     fn the_exit_gives_back_a_plane_the_full_transcript_was_holding() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"\x0f");
-        assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
+        assert_eq!(shell.screen_owner(), ScreenOwner::Alternate);
         shell.release_screen();
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(!shell.full.is_open());

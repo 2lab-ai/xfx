@@ -19,6 +19,6 @@
     [38;5;245m3[39m  Don't apply
   [38;5;245m2 = allow every future edit_file to `a.txt` for the rest of this session,[39m
   [38;5;245mwhatever its contents, and in every later `xfx ask --resume-id[39m
-  [38;5;245m1791310208227-9cc280b29ae3b525` of this saved session[39m
+  [38;5;245m1791317934157-505c79d7e683a362` of this saved session[39m
 [38;5;240m────────────────────────────────────────────────────────────────────────────────
 [39m  [38;5;245m1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel[39m

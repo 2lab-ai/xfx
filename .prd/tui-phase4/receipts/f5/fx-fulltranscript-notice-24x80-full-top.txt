@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+  2026-10-06 20:19:14.325 UTC · Notice
+* session: provider: gateway · model: fake/model-a · effort: auto
+  system prompt: ready · 5900 bytes
+  tools: 15 advertised (read_file, glob_files, grep_files, edit_file,
+  write_file, shell, subagent, capability_search, +7 more)
+  skills: loading
+  mcp: none
+
+  2026-10-06 20:19:21.826 UTC · Notice
+* network: provider: gateway · model: fake/model-a · 5504ms
+  finish: stop
+  tokens: 1200 in · 40 out
+
+  2026-10-06 20:19:16.310 UTC · Prompt
+┃ stream a long answer please
+
+  2026-10-06 20:19:16.323 UTC · Response
+  Opening line of the answer.
+
+┃ full detail · ctrl+o close · pgup/pgdn scroll · esc close
+
+auto · model-a
