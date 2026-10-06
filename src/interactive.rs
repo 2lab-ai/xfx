@@ -31,7 +31,9 @@ use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SAN
 use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
+use crate::session::{
+    NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, WritableSession,
+};
 use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -543,7 +545,40 @@ pub(crate) fn open_conversation(
             },
         )
         .map_err(|err| err.to_string())?;
-    let permissions = permissions.with_durable_session(session.id().as_str());
+    Ok(bind_conversation(
+        store,
+        session,
+        scope,
+        permissions,
+        questioner,
+        cancel,
+    ))
+}
+
+/// Binds an open session to the authority its tools run under.
+///
+/// [`open_conversation`]'s second half, and the whole of what continuing a
+/// saved session needs once `SessionStore::resume` has handed it back (the
+/// TUI's `xfx --resume`, `crate::tui::worker`): the grants the session's log
+/// already holds go back into the authority, as `xfx ask --resume` restores
+/// them, so an "always" answered last time is not asked again. A session this
+/// shell just created has none, so for it the loop adds nothing.
+///
+/// Infallible on purpose: the two things that can fail -- the scope and the
+/// session -- are the caller's to have in hand already, which is what lets a
+/// resumed session be refused before the terminal is taken.
+pub(crate) fn bind_conversation(
+    store: &SessionStore,
+    session: WritableSession,
+    scope: AccessScope,
+    permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Conversation {
+    let mut permissions = permissions.with_durable_session(session.id().as_str());
+    for grant in &session.state().grants {
+        permissions.grant(grant.clone());
+    }
     let recorder = SessionRecorder::new(store.clone(), session);
     let mut tools = ToolContext::new(scope)
         .with_permissions(permissions)
@@ -551,7 +586,7 @@ pub(crate) fn open_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Ok(Conversation { recorder, tools })
+    Conversation { recorder, tools }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ first question alpha
+
+  QUIT-ANSWER line one.
+
+  Second paragraph.
+
+  0s (↑6 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
