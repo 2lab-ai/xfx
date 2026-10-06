@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-fccf131 [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mexplain the plan please[0m
+
+  Here is a short answer.
+
+  It has [1mbold[0m text, [38;5;245minline code[39m, and a list:
+
+  [2m• [0mfirst item
+  [2m• [0msecond item
+
+  [2m─ rust ────────────[0m
+  [38;5;252mfn[39m main() {
+      println!([38;5;250m"hi"[39m);
+  }
+  [2m───────────────────[0m
+
+  Done.
+
+[38;5;245m  2s (↑6 ↓40)[39m
+
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mUsage[0m  [38;5;245m30 days[39m  [38;5;245m7 days[39m  [1m[38;5;255m[24 hours][0m  [38;5;245mSession[39m
+[38;5;245mPartial data · some usage may be missing[39m
+
+[38;5;245m  0 tokens        $0.00 spent      0 requests[39m
+[38;5;245m  0 input         0 output         Reasoning unavailable[39m
+[38;5;245m  0 cache read    0 cache write[39m
+
+[1m[38;5;252mModels 0[0m
+[38;5;245m  Model[39m    [38;5;245mTokens    Share    Spend[39m
+[38;5;245m  No model usage in this scope.[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245mtab scope     ↑↓ model     enter expand     r refresh     esc close[39m
+
+
+
+
+
+

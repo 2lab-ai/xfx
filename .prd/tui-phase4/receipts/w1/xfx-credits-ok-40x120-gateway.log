@@ -1,0 +1,3 @@
+[fakegw] listening 49324
+[fakegw] GET /coding-agent/v1/credits bearer=yes
+[fakegw] GET /coding-agent/v1/credits bearer=yes

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+* credits: balance=42.17
+  used=7.83
+  plan=pro
+
+* credits: balance=42.17
+  used=7.83
+  plan=pro
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
