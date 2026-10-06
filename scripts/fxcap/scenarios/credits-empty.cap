@@ -1,0 +1,8 @@
+# An answer with none of the three fields.
+credits credits-empty.json
+wait 2
+type /credits
+key Enter
+wait 2
+snap after
+gwlog

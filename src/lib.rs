@@ -5,6 +5,7 @@
 //!
 //! - [`cli`]: the closed command grammar and help metadata
 //! - [`config`]: settings discovery, precedence, credentials, and diagnostics
+//! - [`credits`]: what the Gateway account has left, for `/credits`
 //! - [`output`]: immutable snapshots and the text/JSON/JSONL renderers
 //! - [`gateway`]: the provider contract, the Gateway wire shape, and bounded SSE
 //! - [`workspace`]: the roots a turn may read, canonical path proofs, and the
@@ -14,7 +15,9 @@
 //! - [`tools`]: the closed registry, its schemas, and its executors
 //! - [`agent`]: the bounded turn state machine and its exactly-once finalizer
 //! - [`session`]: the durable event log, its published boundary, and resume
+//! - [`usage`]: what xfx itself has spent, added up by window for `/usage`
 //! - [`interactive`]: the line-oriented shell a bare `xfx` runs
+//! - [`trace`]: `/trace`'s private diagnostic report, for both shells
 //! - [`tui`]: the opt-in raw-mode shell `XFX_TUI=1` runs in its place
 //! - [`app`]: composition and dispatch
 //!
@@ -27,6 +30,7 @@ pub mod app;
 pub mod cli;
 pub mod clipboard;
 pub mod config;
+pub mod credits;
 pub mod gateway;
 pub mod interactive;
 pub mod llmux;
@@ -37,8 +41,10 @@ pub mod provider;
 pub mod session;
 pub mod sound;
 pub mod tools;
+pub mod trace;
 #[cfg(unix)]
 pub mod tui;
+pub mod usage;
 pub mod workspace;
 
 /// The product version.

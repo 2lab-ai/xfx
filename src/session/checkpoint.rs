@@ -291,7 +291,7 @@ fn range(text: &mut String, prefix: char, first: usize, last: usize) {
 mod tests {
     use super::*;
 
-    /// The turn of `fx-probe2`'s summary capture: one read, its note, one
+    /// The shape of `receipts/w4`'s compacted turn: one read, its note, one
     /// fact.
     fn probe() -> Compacted {
         Compacted {
@@ -319,8 +319,8 @@ mod tests {
 
     #[test]
     fn the_text_is_upstreams_for_a_payload_that_is_not_saved() {
-        // fx c1db919's request after `/compact` (fx-probe2 gwlog, request
-        // 009), less the "Saved word for word" line upstream writes only for
+        // fx c1db919's request after `/compact` (`receipts/w4/README.md`,
+        // "The next request"), less the "Saved word for word" line upstream writes only for
         // a session whose turns a model can open again (`appendSavedLine`).
         let expected = "<compacted_conversation>\nThis is the earlier part of this conversation, \
 compacted. The user's messages and the assistant's final replies shown here are exact. What the \
@@ -334,7 +334,8 @@ F1 (T1): notes.txt holds SEED_VALUE_42\n\n</compacted_conversation>\n";
 
     #[test]
     fn a_turn_with_no_work_shows_only_its_exact_messages() {
-        // fx-probe's request 007: a text-only turn compacted with no model call.
+        // A text-only turn compacted with no model call
+        // (`receipts/w4/fx-compact-text`).
         let compacted = Compacted {
             entries: Vec::new(),
             turns: vec![CompactedTurn {

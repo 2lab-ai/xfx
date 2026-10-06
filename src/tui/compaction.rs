@@ -258,7 +258,7 @@ mod tests {
         let now = Instant::now();
         let mut compaction = Compaction::began(false);
         compaction.tick(now);
-        // fx-probe2 `c-0.3s`: `• Compacting (0s)`, the marker lit.
+        // `receipts/w4/fx-compact-40x120-compacting-1.9s`: the marker lit.
         assert_eq!(
             running(&compaction, now, 0),
             "<\u{2022}>< Preparing compaction (0s)>"
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(
             running(&compaction, now + Duration::from_millis(1800), 10),
             " < Compacting (1s)>",
-            "dark phase: the marker cell blank (`c-1.8s`)"
+            "dark phase: the marker cell blank (`-compacting-0.4s`)"
         );
         compaction.stopping();
         assert!(running(&compaction, now, 0).contains("Stopping compaction (0s)"));

@@ -2028,7 +2028,8 @@ mod tests {
         }
     }
 
-    /// fx-probe2's first turn: one read, then the answer.
+    /// The first turn of `receipts/w4`'s `compact` scenario: one read, then
+    /// the answer.
     fn read_turn(seq: u64) -> HistoryTurn {
         HistoryTurn {
             user: "question one".to_string(),
@@ -2117,6 +2118,7 @@ mod tests {
             provider_detail: None,
             raw_content: Vec::new(),
             wire: Wire::VercelGateway,
+            billing: None,
         })
     }
 
@@ -2205,8 +2207,9 @@ mod tests {
 
     #[test]
     fn two_turns_compact_the_older_and_five_keep_the_newest_four() {
-        // fx-probe: five text turns with no window known, the oldest compacted
-        // and the newest four kept (request 007).
+        // With no window known the newest four are kept and anything older
+        // compacted; two turns compact one (`receipts/w4/fx-compact-text`,
+        // request 4: the first turn compacted, the second as it was).
         let two = vec![said("one", "ONE", 2), said("two", "TWO", 5)];
         assert_eq!(
             choose(&two, &Size::default()).map(|w| w.map(|w| w.cut)),
@@ -2308,7 +2311,8 @@ mod tests {
         // The conversation's model at its lowest effort (`model.zig:138`).
         assert_eq!(request.model, "anthropic/claude-opus-5");
         assert_eq!(options.reasoning.as_deref(), Some("low"));
-        // fx-probe2's request 008, with xfx's answers to the two parts of it
+        // fx's notes request (`receipts/w4`, the `compact` scenario's request
+        // 5), with xfx's answers to the two parts of it
         // that depend on saved records.
         let expected = "[Turn 1]\n[User]\nquestion one\n\n[Tool call T1: read_file]\n\
 {\"path\":\"notes.txt\"}\n\n[Tool result T1: read_file]\n1\tseed notes line one\n2\tSEED_VALUE_42\n\n\n\

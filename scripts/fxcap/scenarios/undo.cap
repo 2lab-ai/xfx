@@ -1,0 +1,29 @@
+# /undo after two turns that change one file: `a.txt` created as `one`, then
+# read and overwritten with `two` (the read is xfx's: its `write_file` refuses
+# to replace a file the session has not read, and fx's takes it as well). Then
+# /undo three times: Restored, Deleted (was newly created), Nothing to undo.
+gateway undo-turns.json
+wait 3
+type write one please
+key Enter
+wait 5
+type write two please
+key Enter
+wait 5
+snap before-undo
+workls before-undo
+type /undo
+key Enter
+wait 1.5
+snap undo1
+workls after-undo1
+type /undo
+key Enter
+wait 1.5
+snap undo2
+workls after-undo2
+type /undo
+key Enter
+wait 1.5
+snap undo3
+workls after-undo3

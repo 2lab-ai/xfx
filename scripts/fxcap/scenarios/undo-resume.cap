@@ -1,0 +1,23 @@
+# Two committed writes, the session left and resumed: /undo has nothing to
+# take back, and the file is as the second write left it.
+gateway undo-turns.json
+wait 3
+type write one please
+key Enter
+wait 5
+type write two please
+key Enter
+wait 5
+keep
+type /quit
+wait 0.5
+key Enter
+wait 2
+fx: relaunch --resume-last
+xfx: relaunch --resume last
+wait 5
+type /undo
+key Enter
+wait 1.5
+snap resumed-undo
+workls after-resumed-undo

@@ -1,6 +1,6 @@
 # W4 `/compact` — fx `c1db919` vs xfx, 40x120
 
-Three scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
+Four scenarios, driven identically on both binaries by `scripts/fxcap/capture.sh` (isolated tmux
 socket, empty `HOME`, fake key, loopback fake gateway, the desktop shims and fx's sound guard kept),
 with one turns file each that both products read (`read_file` takes `{"path"}` on both):
 
@@ -12,17 +12,21 @@ FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-cancel 40x120 <ou
 scripts/fxcap/capture.sh                            xfx compact-cancel 40x120 <out>
 FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-fail   40x120 <out>
 scripts/fxcap/capture.sh                            xfx compact-fail   40x120 <out>
+FX_BIN=<fx c1db919 build> scripts/fxcap/capture.sh fx  compact-text   40x120 <out>
+scripts/fxcap/capture.sh                            xfx compact-text   40x120 <out>
 ```
 
-Every scenario seeds the same two turns on the `compact-ws` workspace: `first question` → a
+The first three scenarios seed the same two turns on the `compact-ws` workspace: `first question` → a
 `read_file notes.txt` → `ANSWER-ONE: the notes are read.`, then `second question` →
 `ANSWER-TWO: noted.` The read is what makes the compaction ask the model for notes: a turn with no
 work besides its message and reply is compacted from its exact texts alone, with no request, on both
 (`Plan.needsNotes`, `summarize.zig:937-945`). The turns file reserves the next scripted turn for the
 notes request, as a well-formed reply with a `Turn 1` heading so neither product asks a follow-up.
 
-Scratch paths are replaced with `<scratch>`. Request bodies are not committed; the two texts that
-matter are quoted below from them. The xfx binary is the debug build of this branch.
+Scratch paths are replaced with `<scratch>`. Request bodies are not committed; the texts that
+matter are quoted below from them. The xfx captures were retaken on this branch with
+`plan/tui-phase4` at `42a4597` merged in; against the first take (`6fb6e42`) they differ only in the
+banner's revision, a turn summary's second and the marker's blink phase.
 
 ## What every snap shares
 
@@ -134,6 +138,21 @@ The notes request is refused (400), and refused again.
 Both gateway logs show the notes request twice (`status 400`, `status 400`): the conversation's
 model, then the other family (`fallbackModel`, `model.zig:75-77`; xfx's request carries
 `anthropic/claude-sonnet-5`, asserted in `tests/tui.rs`).
+
+## `compact-text`
+
+Two text-only turns, then `/compact`, then `third question`.
+
+| snap | fx | xfx | result |
+|---|---|---|---|
+| `compacted` | no row by 0.4 s, document unchanged | same | **match**: nothing to ask, so the compaction is immediate and silent. |
+| `next-turn` | `ANSWER-THREE.` | same | **match**. |
+
+Neither gateway log has a notes request: three completions, the third (`third question`) carrying
+the compacted first turn -- `Turn 1\nUser 1:\nfirst question\n\nAssistant 1, final reply:\n
+ANSWER-ONE: plain text.` -- then `second question` and `third question` (`Plan.needsNotes`,
+`summarize.zig:937-945`: no work, no rule candidate). The compacted texts are identical but for fx's
+`Saved word for word: turn M1. …` line, as above.
 
 ## Not captured here, and where it is proven instead
 

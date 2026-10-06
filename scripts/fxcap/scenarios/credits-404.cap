@@ -1,0 +1,16 @@
+# No credits answer configured: the fake gateway's 404 `not found`, then the
+# alias, then an argument the command does not take.
+wait 2
+type /credits
+key Enter
+wait 2
+snap after
+type /balance
+key Enter
+wait 2
+snap balance
+type /credits now
+key Enter
+wait 1.5
+snap arg
+gwlog

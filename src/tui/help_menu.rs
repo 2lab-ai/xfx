@@ -770,13 +770,13 @@ mod tests {
         assert_eq!(found("general"), in_category("General"));
         assert_eq!(
             found("SESSION"),
-            ["/new", "/reset", "/resume", "/rename", "/copy", "/compact"]
+            ["/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
-            ["/clear", "/new", "/reset", "/resume", "/rename", "/copy", "/compact"]
+            ["/clear", "/new", "/reset", "/resume", "/rename", "/undo", "/copy", "/compact"]
         );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
@@ -799,7 +799,9 @@ mod tests {
     #[test]
     fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
         let menu = HelpMenu::open("");
-        let count = SLASH_REGISTRY.len();
+        // Every command, up to upstream's twenty at once (`max_visible_items`):
+        // twenty-one since `/compact`, so `All` pages as upstream's 36 do.
+        let count = SLASH_REGISTRY.len().min(MOST_ITEMS);
         assert_eq!(
             usize::from(menu.height(40, 0)),
             2 + count,
@@ -828,7 +830,7 @@ mod tests {
                 SLASH_REGISTRY[1].summary
             )
         );
-        assert_eq!(shown(&rows), by_category());
+        assert_eq!(shown(&rows), by_category()[..count]);
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
             assert_eq!(summary_column(row), column, "{row:?}");

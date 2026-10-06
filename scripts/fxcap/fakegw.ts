@@ -1,8 +1,16 @@
 // Loopback fake AI Gateway for side-by-side fx/xfx captures.
-// Usage: [FAKEGW_MODELS=<catalog.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
+// Usage: [FAKEGW_MODELS=<catalog.json>] [FAKEGW_CREDITS=<credits.json>] bun fakegw.ts <port> <script.json> [bodies-dir]
 // script.json: array of turns. Each turn is
 //   {chunks?: string[], delayMs?: number, tool?: {id?, name, input}, tools?: [{id?, name, input}],
-//    status?: number, body?: string, hangMs?: number}
+//    status?: number, body?: string, hangMs?: number,
+//    billing?: {gen, slug, cost, input?, output?, cacheRead?, cacheWrite?, reasoning?}}
+// `billing` is what the Gateway sends for a turn it billed, and what both binaries need before
+// they count one: a `response-metadata` event with the billing time ahead of the text, and a
+// finish whose usage has the cache and reasoning counts and whose `providerMetadata.gateway`
+// names the canonical slug, the cost (a decimal string) and the generation id
+// (vercel-labs/fx@c1db9191 src/gateway/client.zig:3313-3395, :3428-3456).
+// FAKEGW_CREDITS names the JSON served for GET /coding-agent/v1/credits; without it that path
+// answers 404 `not found`, which is the answer a capture of the error notice needs.
 // `tools` is several tool calls in one step, and `chunks` beside a tool or tools is text the
 // step says before its calls. `status` answers with that HTTP status (and `body`); `hangMs` holds
 // the stream open that long before its last event (for interrupt captures).
@@ -18,6 +26,19 @@ const log = (m: string) => console.log(`[fakegw] ${m}`);
 
 function finish(reason = "stop") {
   return { type: "finish", finishReason: { unified: reason, raw: reason }, usage: { inputTokens: { total: 1200 }, outputTokens: { total: 40 } } };
+}
+
+// The finish of a turn the Gateway billed: the usage it was billed on, and who billed it for what.
+function billedFinish(reason: string, b: any) {
+  return {
+    type: "finish",
+    finishReason: { unified: reason, raw: reason },
+    usage: {
+      inputTokens: { total: b.input ?? 1200, cacheRead: b.cacheRead ?? 0, cacheWrite: b.cacheWrite ?? 0 },
+      outputTokens: { total: b.output ?? 40, reasoning: b.reasoning ?? 0 },
+    },
+    providerMetadata: { gateway: { routing: { canonicalSlug: b.slug }, cost: b.cost, generationId: b.gen } },
+  };
 }
 
 async function keep(kind: string, body: string) {
@@ -36,6 +57,13 @@ const server = Bun.serve({
       // The model catalog: FAKEGW_MODELS names a scenario file to serve
       // (`capture.sh`'s `models` verb), so both binaries list the same one.
       // Logged with whether a bearer came with it -- never the bearer.
+      // The credits balance (`credits` verb): the scenario's answer, or the 404 an account
+      // without one gets. Logged like the catalog: whether a bearer came, never the bearer.
+      if (url.pathname.endsWith("/credits")) {
+        log(`GET ${url.pathname}${url.search} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
+        if (process.env.FAKEGW_CREDITS) return new Response(await Bun.file(process.env.FAKEGW_CREDITS).text(), { headers: { "content-type": "application/json" } });
+        return new Response("not found", { status: 404 });
+      }
       if (url.pathname.endsWith("/models")) {
         log(`GET ${url.pathname} bearer=${req.headers.get("authorization")?.startsWith("Bearer ") ? "yes" : "no"}`);
         if (process.env.FAKEGW_MODELS) return new Response(await Bun.file(process.env.FAKEGW_MODELS).text(), { headers: { "content-type": "application/json" } });
@@ -63,10 +91,12 @@ const server = Bun.serve({
     if (!turn) return new Response("unexpected request", { status: 500 });
     if (turn.status) return new Response(turn.body ?? `fake status ${turn.status}`, { status: turn.status });
     const events: object[] = [];
+    if (turn.billing) events.push({ type: "response-metadata", modelId: turn.billing.slug, timestamp: new Date().toISOString() });
     for (const c of turn.chunks ?? []) events.push({ type: "text-delta", id: "answer_1", delta: c });
     const tools = turn.tools ?? (turn.tool ? [turn.tool] : []);
     tools.forEach((t: any, i: number) => events.push({ type: "tool-call", toolCallId: t.id ?? `call_${seq}_${i}`, toolName: t.name, input: t.input }));
-    events.push(finish(tools.length ? "tool-calls" : "stop"));
+    const reason = tools.length ? "tool-calls" : "stop";
+    events.push(turn.billing ? billedFinish(reason, turn.billing) : finish(reason));
     return sse(events, turn.delayMs ?? 0, turn.hangMs ?? 0);
   },
 });
