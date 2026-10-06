@@ -12,7 +12,7 @@ scripts/fxcap/capture.sh {fx,xfx} model-busy-known 40x120 <dir>   # the same, af
 
 `model-column`, `model-effort` and `model-busy-known` are new in this unit. `model-router` and `model-busy` now press Escape for both binaries (xfx has the column too). One harness change: `capture.sh` points xfx at the fake gateway's `/v4/ai/language-model`, as it always pointed fx, because xfx's default chat route is now v4 (`gateway::DEFAULT_CHAT_URL`). The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and `FX_NO_OPEN_BROWSER=1` are unchanged.
 
-`fx` is the c1db919 build. `xfx` is `target/debug/xfx` built from this branch on `plan/tui-phase4` (`dc0c137`). Each snap has a `.txt` and an `.ansi` (`capture-pane -e`). "Rows identical" counts the non-blank screen rows **after the banner** that are byte-equal in the two `.ansi` files; the banner is xfx's brand line (WU-A). `wire.txt` lists every request body's keys other than `prompt` and `tools`, from the `gwlog` of `model-effort` and `model-router`; the bodies themselves are not kept. Both binaries were started once before the captured set: the first run of a freshly built xfx in an earlier set took longer than the scenario's 2.5 s to come up and lost `/model` to it -- re-run, it matched; the files here are the warmed set.
+`fx` is the c1db919 build. `xfx` is `target/debug/xfx` built from this branch after merging `plan/tui-phase4` (`f0b1caa`) -- merge `0e9fb64`, the banner's revision. Each snap has a `.txt` and an `.ansi` (`capture-pane -e`). The settings dumps (`*.files`) are plan's `home <label>` verb: every file under the run's HOME, its size, and the bytes of the settings files. "Rows identical" counts the non-blank screen rows **after the banner** that are byte-equal in the two `.ansi` files; the banner is xfx's brand line (WU-A). `wire.txt` lists every request body's keys other than `prompt` and `tools`, from the `gwlog` of `model-effort` and `model-router`; the bodies themselves are not kept. Both binaries were started once before the captured set: the first run of a freshly built xfx in an earlier set took longer than the scenario's 2.5 s to come up and lost `/model` to it -- re-run, it matched; the files here are the warmed set. The same five scenarios were captured on the branch before the merge (`dc0c137` plus this unit): every snap below read the same then, except the two `model-busy-known` snaps and `model-busy after`, which carried plan's since-fixed notice split and last-cell loss (T2).
 
 **Sanitized**: every file was scanned for the run directory (`fxcap.*`), home and temp paths, and the fake key. None matched; the harness's own `.log` files, which name the output paths, are not copied.
 
@@ -40,15 +40,17 @@ scripts/fxcap/capture.sh {fx,xfx} model-busy-known 40x120 <dir>   # the same, af
 | `model-router usage` | **8 of 8** | none -- D2a's 5 of 8: xfx now shows the inline column under the kept text too (`no matching models`) |
 | `model-router exact` | **6 of 6** | none |
 | `model-busy during` | 1 of 5 | no catalog read yet in xfx: the band cannot resolve `grok`, so the change goes as typed and the runtime announces it after the turn; the column's catalog request waits behind the turn (`queued 1`). fx announces at once. See below. |
-| `model-busy after` | 3 of 10 | the same line, byte-equal, after the answer instead of above it; and the last-cell rows (below) |
-| `model-busy-known during` | 1 of 10 | with the catalog read, xfx says `* Next turn will use xai/grok-4.7 (effort: default, speed: normal)` at once and its footer reads `auto · grok-4.7`, as fx's do, and nothing is queued. The line lands under the two rows of the answer already committed rather than above the answer: see below. |
-| `model-busy-known after` | 1 of 12 | the answer split round the notice; the last-cell rows |
+| `model-busy after` | 3 of 10 | the same line, byte-equal, after the answer instead of above it; the answer rows themselves are byte-equal |
+| `model-busy-known during` | **5 of 5** | none: with the catalog read (the menu opened and closed first), `* Next turn will use xai/grok-4.7 (effort: default, speed: normal)` at once above the streaming answer, footer `auto · grok-4.7`, nothing queued -- D2a's `queued 1 · auto · model-a` |
+| `model-busy-known after` | **9 of 9** | none |
 
 ## The wire
 
 `wire.txt`. The turn after `low` was chosen for `zai/glm-5.2` carries the top-level `"reasoning":"low"` after `"toolChoice"` from both binaries, on `/v4/ai/language-model`. The turn after the change to `fake/model-a` (no levels) carries none from either, with the session's effort still `high`. fx's bodies also carry `providerOptions.gateway.caching:"auto"` and a `headers.user-agent`, and fx asks for a session title: features of other units, unchanged here. llmux is not captured (fx has no llmux); `tests/tui.rs`'s `a_level_chosen_on_llmux_rides_as_output_config_effort` pins `"output_config":{"effort":"max"}` on its wire, the field llmux reads (`2lab-ai/llmux@4b3d4a4 src/provider/codex.rs:387-420`, `src/provider/grok.rs:327-345`, `src/proxy/forward.rs:488-505`).
 
 ## Settings after each write
+
+Both homes hold a `settings.lock` (0 bytes) beside `settings.json` after the first write (`*-end.files`): the cross-process lock every xfx preference write now takes, under fx's name.
 
 | After | fx `~/.fx/settings.json` | xfx `~/.xfx/settings.json` |
 |---|---|---|
@@ -62,6 +64,4 @@ The effort is global and carried across the change to a model without levels, in
 
 - **`⚡︎` in the footer's preview** (`gpt-enter`, `effort-down`, `menu-enter`): fx preselects Fast in its speed column for a model that offers it and previews it. xfx has no speed column, sends no speed, and so previews none. The speed column, `/fast` and `/ultrafast` are the next unit's (D2c).
 - **A query typed mid-turn before any catalog is read** (`model-busy`): fx fetches the catalog on its UI thread to resolve the word and says `Next turn will use` at once. xfx's UI thread may not wait on a socket, so a word it cannot resolve goes to the runtime as typed, and the runtime -- busy with the turn -- resolves and announces it when the turn ends. The change itself is a control message now and takes no place in the queue; the `queued 1` is the column's catalog request, which is work and waits behind the turn. Once the catalog has been read (`model-busy-known`, or any session that has opened `/model` once) the change is resolved and announced at once, as fx's is. Recorded in `ssot.md` §Tensions.
-- **Where the mid-turn announcement lands** (`model-busy-known`): fx writes it above the answer it interrupts; xfx writes it into the document under the rows of the answer already committed, splitting the answer round it. That is how any notice written mid-stream lands in xfx today, not something `/model` decides -- the unit fixing notices mid-stream (T2) owns it.
-- **A full-width answer row loses its last cell** (`model-busy after`, `model-busy-known after`: `word3`/`word4` where fx has `word32`/`word49`): plan's, reported in D2a, being fixed in T2.
 - **The banner**: xfx's brand line (WU-A).

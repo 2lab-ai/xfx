@@ -1,4 +1,4 @@
-== ./.xfx/settings.json
+=== ~/.xfx/settings.json (80 bytes)
 {
   "models": {
     "gateway": "nonexistent-xyz"
@@ -6,3 +6,4 @@
   "provider": "gateway"
 }
 
+=== ~/.xfx/settings.lock (0 bytes)

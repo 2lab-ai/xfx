@@ -1,9 +1,0 @@
-== ./.fx/backups/settings.json.backup.1791316900031-0000000000000001-7c0c15bf627f5e7d1cd1ffdd1223af67
-{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
-
-== ./.fx/backups/settings.json.backup.1791316902544-0000000000000002-ba9a22d50eef39bc59263264c5c03b1c
-{"models":{"gateway":"anthropic/claude-opus-5"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
-
-== ./.fx/settings.json
-{"models":{"gateway":"nonexistent-xyz"},"provider":"gateway","fast_mode":false,"ultrafast_mode":false,"fast_mode_model_bound":true}
-

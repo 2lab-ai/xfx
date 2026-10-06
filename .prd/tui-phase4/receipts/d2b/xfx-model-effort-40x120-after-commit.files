@@ -1,4 +1,4 @@
-== ./.xfx/settings.json
+=== ~/.xfx/settings.json (95 bytes)
 {
   "effort": "low",
   "models": {
@@ -7,3 +7,4 @@
   "provider": "gateway"
 }
 
+=== ~/.xfx/settings.lock (0 bytes)

@@ -1,9 +1,0 @@
-== ./.xfx/settings.json
-{
-  "effort": "high",
-  "models": {
-    "gateway": "zai/glm-5.2"
-  },
-  "provider": "gateway"
-}
-

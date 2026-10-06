@@ -1,0 +1,21 @@
+=== ~/.xfx/sessions/1791318406405-fa2826ae9be70344/events.jsonl (1555 bytes)
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":1,"event_id":"3ebbd69d4ea136befc9a03399cffffb9","timestamp_ms":1791318406405,"event":{"kind":"session_started","id":"1791318406405-fa2826ae9be70344","origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"zai/glm-5.2","permission_mode":"auto"}}
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":2,"event_id":"8b9387ac45e6b6fb8c971dd1bdb7a445","timestamp_ms":1791318406421,"event":{"kind":"project_context_recorded","sources":[],"bytes":0}}
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":3,"event_id":"3d27ce0ebfc6a99a5a7f3446dafe4fe0","timestamp_ms":1791318406434,"event":{"kind":"user_message","text":"say something"}}
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":4,"event_id":"aa7d25793784df0a71912750aa25c438","timestamp_ms":1791318406449,"event":{"kind":"assistant_message","text":"MARKER-EFFORT-TURN","tool_calls":[]}}
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":5,"event_id":"f409efed43535ca82f8861d6638a7662","timestamp_ms":1791318406462,"event":{"kind":"usage_recorded","input_tokens":1200,"output_tokens":40}}
+{"schema_version":1,"log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","seq":6,"event_id":"1263f6e85a7900b135678f6924a45120","timestamp_ms":1791318406475,"event":{"kind":"turn_concluded","outcome":{"kind":"final","finish_reason":"stop","steps":1}}}
+
+=== ~/.xfx/sessions/1791318406405-fa2826ae9be70344/session.json (622 bytes)
+{"schema_version":1,"storage_format":"event_log_v1","id":"1791318406405-fa2826ae9be70344","log_generation":"f360fff39cc64f6a5f6122e2c5cd9bc0","created_at_ms":1791318406405,"updated_at_ms":1791318406475,"origin_workspace_root":"<scratch>/work","workspace_root":"<scratch>/work","model":"zai/glm-5.2","permission_mode":"auto","title":"say something","history_turns":1,"permission_grants":0,"total_input_tokens":1200,"total_output_tokens":40,"last_event_seq":6,"event_log_bytes":1555,"event_log_sha256":"d0c142fd0c5a59e89a695588d14c52b4e9d42a365baea5f97d38c10296577168"}
+
+=== ~/.xfx/settings.json (96 bytes)
+{
+  "effort": "high",
+  "models": {
+    "gateway": "zai/glm-5.2"
+  },
+  "provider": "gateway"
+}
+
+=== ~/.xfx/settings.lock (0 bytes)
