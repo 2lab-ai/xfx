@@ -35,9 +35,12 @@ pub(crate) const MIN_ROWS: u16 = 7;
 /// The narrowest screen a band fits on.
 pub(crate) const MIN_COLS: u16 = 20;
 
-/// The blank rows the activity row keeps from the document above it and from
-/// the composer below it, one each (`activity_placement.zig`) -- on a screen
-/// with room for them. A screen without it keeps the row and drops the blanks.
+/// The blank row the activity row keeps from the composer below it
+/// (`footer_gap_after_activity`, `frame_layout.zig:62-75`) -- on a screen with
+/// room for it. A screen without it keeps the row and drops the blank. There is
+/// none above: the gap there is the document's own, the blank row every block
+/// of the transcript ends on (`gap_above_activity` is the gap between a user
+/// turn and the answer, which xfx's card already wrote).
 const ACTIVITY_PADDING: u16 = 1;
 
 /// Every row number the band is painted from, one-based as the terminal counts.
@@ -76,11 +79,10 @@ pub(crate) struct Geometry {
 impl Geometry {
     /// The band's top row, and therefore the row an exit clears from.
     ///
-    /// The blank row above the activity row while a turn is running, and the
-    /// composer's first row otherwise.
+    /// The activity row while a turn is running, and the composer's first row
+    /// otherwise.
     pub(crate) fn band_top(&self) -> u16 {
-        self.activity
-            .map_or(self.input_first, |row| row - self.activity_padding)
+        self.activity.unwrap_or(self.input_first)
     }
 
     /// The panel's first row, or the bottom rule when there is no panel.
@@ -219,10 +221,7 @@ fn solve_padded(
         Some(padding) => Some(input_first.checked_sub(padding + 1)?),
         None => None,
     };
-    let band_top = match activity {
-        Some(row) => row.checked_sub(activity_padding)?,
-        None => input_first,
-    };
+    let band_top = activity.unwrap_or(input_first);
     let content_bottom = band_top.checked_sub(1)?;
     // A band tall enough to leave no document at all is refused rather than
     // clamped: the caller asked for rows the screen does not have, and silently
