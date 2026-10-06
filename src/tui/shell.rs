@@ -3675,8 +3675,8 @@ impl Shell {
     /// Prepares `tool(arguments)` for a saved-session rule, on this thread and
     /// running nothing: the workspace this shell is in, the shipped limits,
     /// and the configured table in force, so a change a configured rule
-    /// denies cannot be remembered as allowed. Its own session, with no
-    /// grants and no prompter: preparing asks nobody anything.
+    /// denies cannot be remembered as allowed. Its own session, in `ask`, with
+    /// no grants and no prompter: preparing asks nobody anything.
     fn prepare_rule_action(
         &self,
         tool: &str,
@@ -3685,7 +3685,11 @@ impl Shell {
         let scope = crate::workspace::AccessScope::primary_only(&self.workspace)
             .map_err(|err| err.to_string())?;
         let context = crate::tools::ToolContext::new(scope).with_permissions(
-            crate::permission::PermissionSession::new(self.mode)
+            // `ask`, whatever the session's mode, as upstream prepares a rule
+            // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
+            // access no table is consulted, and a change a configured rule
+            // denies must not be remembered as allowed.
+            crate::permission::PermissionSession::new(PermissionMode::Ask)
                 .with_live_rules(self.work.rules().clone()),
         );
         crate::tools::prepare_rule_action(tool, arguments, &context)

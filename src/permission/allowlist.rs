@@ -527,8 +527,7 @@ pub enum Tone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
     pub tone: Tone,
-    /// `allowlist`, or empty for a usage line, or `settings` for a file that
-    /// could not be read at all.
+    /// `allowlist`, or empty for a usage line.
     pub topic: &'static str,
     pub body: String,
 }
@@ -755,27 +754,20 @@ fn reset_outcome(
     }
 }
 
-/// `writeAllowlistStatus` (`:987-1045`): the file is read afresh and what it
-/// says is put in force, then the table asked about is listed.
+/// `writeAllowlistStatus` (`:987-1045`): the file is read afresh, what it
+/// says is put in force, and the table asked about is listed.
 ///
-/// A file that cannot be read says so under `settings`, as upstream's load
-/// error does (`writeSettingsLoadError`, `:1137-1141`), and the table in force
-/// becomes the empty one -- what upstream's engine holds once its reload of a
-/// broken file found no rules, and what this workspace's next launch would
-/// hold.
+/// Read as a launch reads it: a file or a table in it that does not read
+/// contributes no rules, and that is what is put in force and listed --
+/// upstream's view replaces its engine's rules with whatever its reload found
+/// (`replaceEffectivePermissionRules`, `:1009`), returning early only for an
+/// unsafe or unsupported profile path (`:993-1006`), which xfx's reader has
+/// no counterpart of. What this workspace's next launch would hold, then, and
+/// nothing a broken file can make wider than that.
 fn view_outcome(view: View, settings: Option<&Path>, workspace_root: &Path) -> Outcome {
-    let tables = match read_back(settings, workspace_root) {
-        Ok(tables) => tables,
-        Err(reason) => {
-            return Outcome {
-                answers: vec![Answer::new(
-                    Tone::Error,
-                    "settings",
-                    format!("Failed to load settings: {reason}"),
-                )],
-                in_force: Some(RuleSet::default()),
-            }
-        }
+    let tables = match settings {
+        Some(path) => crate::config::read_permission_tables_as_loaded(path, workspace_root).0,
+        None => PermissionTables::default(),
     };
     let rules = match view {
         View::Effective => tables.effective(),
@@ -1480,16 +1472,16 @@ mod tests {
             profile.file()["workspaces"][profile.key()],
             json!({"permission": {"bash": {"ls": "allow"}}})
         );
-        // A listing of a file that cannot be read says so, and nothing is in
-        // force any more -- what the next launch would read.
+        // A listing of a file that does not read lists what a launch would
+        // load from it -- nothing -- and puts that in force, as upstream's
+        // view replaces its engine's rules with what its reload found.
         std::fs::write(&profile.settings, "{not json").unwrap();
         let viewed = profile.run("view");
         assert_eq!(viewed.in_force, Some(RuleSet::default()));
-        assert_eq!(viewed.answers[0].tone, Tone::Error);
-        assert_eq!(viewed.answers[0].topic, "settings");
-        assert!(viewed.answers[0]
-            .body
-            .starts_with("Failed to load settings: "));
+        assert_eq!(
+            (viewed.answers[0].tone, viewed.answers[0].body.as_str()),
+            (Tone::Neutral, "effective persistent allow rules: (none)")
+        );
     }
 
     #[test]

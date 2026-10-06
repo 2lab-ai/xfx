@@ -98,7 +98,9 @@ pub struct RuleAction {
 ///
 /// The tools a rule can be about are the ones a decision is made for: the
 /// three changes and the command. A change is refused when a configured rule
-/// denies it (upstream's `PermissionStatePreparationDenied`), and a change
+/// denies it (upstream's `PermissionStatePreparationDenied`) -- which the
+/// caller's session must be in `ask` to see, as upstream's preflight is, since
+/// full access consults no table -- and a change
 /// that would do nothing -- a folder already there -- has nothing to prepare.
 /// Every refusal is a sentence for the log; the person is told upstream's one
 /// line ([`crate::permission::slash::NOT_PREPARED`]).

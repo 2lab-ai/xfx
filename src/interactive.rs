@@ -1622,7 +1622,11 @@ fn apply_permissions(
         let scope =
             AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
         let context = ToolContext::new(scope).with_permissions(
-            PermissionSession::new(config.permission_mode).with_live_rules(rules.clone()),
+            // `ask`, whatever the session's mode, as upstream prepares a rule
+            // (`.permission_mode = .ask`, `tool_admission.zig:2286`): in full
+            // access no table is consulted, and a change a configured rule
+            // denies must not be remembered as allowed.
+            PermissionSession::new(PermissionMode::Ask).with_live_rules(rules.clone()),
         );
         crate::tools::prepare_rule_action(tool, arguments, &context)
     });

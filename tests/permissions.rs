@@ -4142,3 +4142,50 @@ fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_tha
     // Preparing ran nothing.
     assert!(tree.entries(".").is_empty());
 }
+
+#[test]
+fn a_rule_is_prepared_in_ask_so_full_access_cannot_remember_a_change_a_table_denies() {
+    // Upstream prepares under `.permission_mode = .ask` whatever the live mode
+    // (`tool_admission.zig:2286`). A context in full access consults no table,
+    // so a caller that prepared in it would remember an allow for a change a
+    // configured rule denies; the decision would still refuse it (a configured
+    // deny is consulted before a saved rule), and the two shells prepare in
+    // `ask`.
+    let tree = Tree::new();
+    let table_denies = table(&[("edit", "secret/*", RuleAction::Deny)]);
+    let asking = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(session(PermissionMode::Ask).with_rules(table_denies.clone()));
+    let arguments = json!({"path": "secret/a", "content": "x"});
+    assert!(xfx::tools::prepare_rule_action("write_file", &arguments, &asking).is_err());
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    let yolo = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(session(PermissionMode::Yolo).with_rules(table_denies.clone()));
+    let action =
+        xfx::tools::prepare_rule_action("write_file", &arguments, &yolo).expect("prepared");
+    session_rules::update(
+        &rules,
+        &session_rules::Event::Set {
+            key: action.key,
+            display: action.display,
+            decision: Decision::Allow,
+            expected: None,
+        },
+    )
+    .unwrap();
+    let deciding = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table_denies)
+                .with_session_rules(&rules),
+        );
+    let refused = call(&deciding, "write_file", arguments);
+    assert!(
+        refused
+            .output
+            .contains("a configured permission rule denies"),
+        "{}",
+        refused.output
+    );
+    assert!(!tree.root().join("secret").exists());
+}

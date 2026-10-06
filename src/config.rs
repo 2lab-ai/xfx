@@ -1552,6 +1552,20 @@ pub fn read_permission_tables(
     settings: &Path,
     workspace_root: &Path,
 ) -> Result<PermissionTables, String> {
+    let (tables, diagnostics) = read_permission_tables_as_loaded(settings, workspace_root);
+    match diagnostics.first() {
+        Some(diagnostic) => Err(diagnostic.detail()),
+        None => Ok(tables),
+    }
+}
+
+/// The tables a launch would load from the profile at `settings` -- a file or
+/// a table that does not read contributes nothing, as at launch -- and the
+/// diagnostics that say what was dropped.
+pub fn read_permission_tables_as_loaded(
+    settings: &Path,
+    workspace_root: &Path,
+) -> (PermissionTables, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
     let read = read_layer(settings, ConfigLayer::User, &mut diagnostics);
     let mut tables = PermissionTables::default();
@@ -1566,10 +1580,7 @@ pub fn read_permission_tables(
             }
         }
     }
-    match diagnostics.first() {
-        Some(diagnostic) => Err(diagnostic.detail()),
-        None => Ok(tables),
-    }
+    (tables, diagnostics)
 }
 
 /// One profile layer's permission table, when it has a readable one.
