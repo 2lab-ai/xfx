@@ -29,9 +29,14 @@ unchanged.
 The xfx binary is `target/debug/xfx` built from this branch's merge commit; its
 banner says `b9c5591` because `build.rs` recorded the revision the worktree was
 created at. After `plan/tui-phase4` was merged again (D4b `/statusline`, F3),
-both xfx scenarios were retaken on `c904947`, and again on `8dffe21` after D2a
-`/model` and T1: every `.txt`, `.ansi` and `.files` is byte-identical to the
-ones here apart from the welcome line's revision. Sanitized: the only run path in any file is the workspace root in
+both xfx scenarios were retaken on `c904947`, on `8dffe21` after D2a `/model`
+and T1, and on `6a70012` after F5, D3 and T2: every `.txt`, `.ansi` and
+`.files` is byte-identical to the ones here apart from the welcome line's
+revision -- except, on `6a70012` only, `esc.ansi`, whose hint row no longer
+carries `esc again to clear`. That cue lives for `CLEAR_WINDOW` (500 ms,
+`src/tui/gesture.rs:67`) and the scenario snaps 0.5 s after the key, so
+whether it is still up is a race the snap loses under load; no code on the
+Escape path changed. Sanitized: the only run path in any file is the workspace root in
 fx's `history.jsonl` and `session.json`, already `<scratch>/work`; no capture
 names a scratch directory.
 
@@ -51,7 +56,7 @@ explained below.
 |---|---|---|---|
 | `bare` | `* permissions: mode=auto`, `configured rules: (none)`, `session grants: (none)`, the 3-row usage; blank; `* permissions: saved-session permission rules: none`; footer `auto · model-a` | the same with a 1-row usage | Identical but the two usage rows (`/permissions remember …`, `/permissions revoke …`): xfx has no saved-session rule store, so it does not advertise the forms that manage one. Every row `\e[38;5;250m`; footer `\e[38;5;252mauto\e[38;5;245m · model-a\e[39m` on both. |
 | `down1` | unchanged screen | unchanged screen | Identical (normalised). Down at an empty composer does nothing visible on either. |
-| `esc` | unchanged; footer `auto · model-a` | footer `auto · model-a … esc again to clear` | **Differs, not this unit's surface**: xfx arms the double-Escape clear on an empty composer; fx does not (`!draftHasState` disarms and returns, `app_input_runtime.zig:3210-3213`). Pre-existing gesture behaviour; reported, not changed here. |
+| `esc` | unchanged; footer `auto · model-a` | footer `auto · model-a … esc again to clear` | **Differs, not this unit's surface**: xfx arms the double-Escape clear on an empty composer; fx does not (`!draftHasState` disarms and returns, `app_input_runtime.zig:3210-3213`). Pre-existing gesture behaviour; reported, not changed here. The snap is 0.5 s after the key and the cue's window is 500 ms, so a retake can catch it gone. |
 | `auto` | `* permissions: mode set to auto` | same | Identical. `settings.json` after: fx `{"permission_mode":"auto"}` + `\n` (27 bytes); xfx `{\n  "permission_mode": "auto"\n}\n` (32 bytes). |
 | `full` | `\e[38;5;252m! permissions:\e[38;5;250m mode set to full access`; footer `\e[38;5;252mfull access\e[38;5;245m · model-a\e[39m` + padding + `\e[38;5;252mFull access enabled: fx permission checks disabled`, flush with column 120 | the same with `xfx` in the warning, so it starts at column 70 instead of 71 | Notice identical. Footer: same mode accent, same 252 warning flush right, ending at column 120 on both; the sentence names this product (one column longer). One SGR nuance: fx closes the row colour (`\e[39m`) before the padding, xfx keeps 245 over the padding spaces -- no visible cell differs. `settings.json` after: fx `{"permission_mode":"yolo","yolo_acknowledged":true}` (52 bytes), xfx `{\n  "permission_mode": "yolo",\n  "yolo_acknowledged": true\n}\n` (61 bytes). Both recorded the acknowledgement with the first full-access frame. |
 | `ask` | `* permissions: mode set to ask`; footer `\e[38;5;245mask · model-a\e[39m` | same | Identical. `settings.json`: fx 51 bytes, xfx 60 bytes, both `ask` + `yolo_acknowledged: true`. |
