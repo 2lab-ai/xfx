@@ -67,7 +67,7 @@ Upstream's command union is `src/core/cli/cli_surface.zig:58-84`.
 ## Interactive shell commands
 
 Upstream's slash palette is the ~40 entries in `src/builtins/commands.zig:414-457`.
-xfx's shell owns the eleven below and nothing else; `scripts/check-no-stubs.sh`
+xfx's shell owns the thirteen below and nothing else; `scripts/check-no-stubs.sh`
 reconciles them against `SLASH_COMMANDS` in `src/interactive.rs`, in both
 directions.
 
@@ -77,8 +77,8 @@ on it, and the same script reconciles those aliases against the notes of the
 row of the command they name -- both ways, so a name the shell answers with no
 row is a failure and a row claiming an alias the shell does not answer is a
 failure too. There is exactly one today, `/exit` on `/quit`, and it is why the
-canonical count is eleven while the number of names the parser accepts is
-twelve.
+canonical count is thirteen while the number of names the parser accepts is
+fourteen.
 
 | Surface | Kind | Status | Notes and upstream evidence |
 |---|---|---|---|
