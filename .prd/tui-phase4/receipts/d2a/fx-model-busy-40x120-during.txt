@@ -4,7 +4,7 @@
 
 * Next turn will use xai/grok-4.7 (effort: default, speed: normal)
 
-  Generating (2s) (↑4 ↓57)
+  Generating (2s) (↑4 ↓59)
 
 ┃
 

@@ -1,8 +1,7 @@
-./.xfx/settings.json
 == ./.xfx/settings.json
 {
   "models": {
-    "gateway": "nonexistent-xyz"
+    "gateway": "xai/grok-4.7"
   },
   "provider": "gateway"
 }

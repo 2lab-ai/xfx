@@ -2,7 +2,7 @@ x𝒇x v0.1.0-b9c5591 [debug] · Run /help for commands
 
 ┃ say something
 
-• Generating (2s) (↑4 ↓49)
+• Generating (2s) (↑4 ↓51)
 
 ┃
 

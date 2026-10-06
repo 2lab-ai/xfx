@@ -9,11 +9,11 @@ scripts/fxcap/capture.sh {fx,xfx} model-busy   40x120 <dir>   # /model while a t
 scripts/fxcap/capture.sh {fx,xfx} model-empty  40x120 <dir>   # a catalog with no language model
 ```
 
-All four scenarios are new in this unit, and so are four harness verbs (`capture.sh`'s header): `models <file>` (the fake gateway serves it as `GET /coding-agent/v1/models` and logs `bearer=yes|no`, never the bearer), `seed` now writes the binary's **own** profile owner-only (`~/.fx` or `~/.xfx`), `nomodel` (no `FX_MODEL`/`XFX_MODEL`, so the model is read from the seeded profile and no process override shadows a save), and `home <label>` (the HOME's file list and every JSON/JSONL in it). The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and `FX_NO_OPEN_BROWSER=1` are unchanged.
+All four scenarios are new in this unit, and so are three harness verbs (`capture.sh`'s header): `models <file>` (the fake gateway serves it as `GET /coding-agent/v1/models` and logs `bearer=yes|no`, never the bearer), `nomodel` (no `FX_MODEL`/`XFX_MODEL`, so the model is read from the seeded profile and no process override shadows a save), and `seed` now writing the binary's **own** profile owner-only (`~/.fx` or `~/.xfx`). The settings dumps (`*.home`) are `plan/tui-phase4`'s `home <label>` verb (D4b's): every `settings.json` under the run's HOME and fx's backups of it, each backup being the file as it stood before one write. The shims (`open`, `pbcopy`, `pbpaste`, `afplay`, `osascript`) and `FX_NO_OPEN_BROWSER=1` are unchanged.
 
-`fx` is the c1db919 build. `xfx` is `target/debug/xfx` built from this branch's working tree just before the commit, so its banner names the parent commit (`v0.1.0-b9c5591`). Each snap has a `.txt` (text) and an `.ansi` (`capture-pane -e`). "Rows identical" counts the non-blank screen rows **after the banner** that are byte-equal in the two `.ansi` files; the banner is xfx's brand line (WU-A) and differs in every snap.
+`fx` is the c1db919 build. `xfx` is `target/debug/xfx` built from this branch after merging `plan/tui-phase4` (2870b42) -- merge `e391d21`; its banner still says `v0.1.0-b9c5591` for the build-script reason under "Found". Each snap has a `.txt` (text) and an `.ansi` (`capture-pane -e`). "Rows identical" counts the non-blank screen rows **after the banner** that are byte-equal in the two `.ansi` files; the banner is xfx's brand line (WU-A) and differs in every snap.
 
-**Sanitized**: every file was scanned for the run directory, home and temp paths, and the fake key. The run directory appeared only in fx's and xfx's own session/history JSON inside the `home-*` dumps (workspace roots); each occurrence of `/private/tmp/claude-501/fxcap.<id>` was replaced by `<scratch>`. The key appears nowhere: the gateway logs say `bearer=yes`.
+**Sanitized**: every file was scanned for the run directory (`fxcap.*`), home and temp paths, and the fake key, and every match would have become `<scratch>`. None matched -- the `.home` dumps carry settings only, and the gateway logs say `bearer=yes` rather than the bearer -- so the files are the captures as written.
 
 ## Verdicts, 40x120
 
@@ -38,11 +38,11 @@ All four scenarios are new in this unit, and so are four harness verbs (`capture
 | `model-empty open` | **7 of 7** | none: `Models 0  [All]`, `No models available.`, the note |
 | `model-empty esc` | **2 of 2** | none |
 | `model-busy during` | 2 of 5 | fx says `* Next turn will use xai/grok-4.7 …` at once and its footer already reads `grok-4.7`; xfx's footer reads `queued 1 · auto · model-a` -- the change waits on the work queue behind the running turn. |
-| `model-busy after` | 6 of 9 | Same line, `* Next turn will use xai/grok-4.7 (effort: default, speed: normal)`, byte-equal -- fx's above the answer, xfx's under it, when the turn ended and the change was applied. The two remaining rows differ in one character: see "Found" below. |
+| `model-busy after` | 7 of 9 | Same line, `* Next turn will use xai/grok-4.7 (effort: default, speed: normal)`, byte-equal -- fx's above the answer, xfx's under it, when the turn ended and the change was applied. The two remaining rows differ in one character: see "Found" below. |
 
 ## Settings after each write
 
-fx writes one line; xfx writes the profile's pretty JSON through `provider::profile::write_preference` (staged `0600` file and a rename), keeping every other key -- here the seeded `provider`.
+fx writes one line; xfx writes the profile's pretty JSON through `provider::profile::write_preference` (staged `0600` file and a rename, `plan/tui-phase4`'s since D4b), keeping every other key -- here the seeded `provider`. Both start from the seed `{"models":{"gateway":"fake/model-a"},"provider":"gateway"}` (fx's first backup in each `.home` is exactly that).
 
 | After | fx `~/.fx/settings.json` | xfx `~/.xfx/settings.json` |
 |---|---|---|
@@ -50,7 +50,7 @@ fx writes one line; xfx writes the profile's pretty JSON through `provider::prof
 | `model-router opus` | `{"models":{"gateway":"anthropic/claude-opus-5"},…}` | `"gateway": "anthropic/claude-opus-5"` |
 | `model-router unknown` | `{"models":{"gateway":"nonexistent-xyz"},…}` | `"gateway": "nonexistent-xyz"` |
 | `model-router` end (exact grok) | `{"models":{"gateway":"xai/grok-4.7"},…}` | `"gateway": "xai/grok-4.7"` |
-| `model-busy` end | `{"models":{"gateway":"xai/grok-4.7"},…}` | `"gateway": "xai/grok-4.7"`, and the session log's `preferences_changed` (seq 7) lands after `turn_concluded` (seq 6) |
+| `model-busy` end | `{"models":{"gateway":"xai/grok-4.7"},…}` | `"gateway": "xai/grok-4.7"` |
 
 The usage line writes nothing in either. fx's `fast_mode`, `ultrafast_mode` and `fast_mode_model_bound` are not written: xfx has no Fast or Ultra mode to record.
 
@@ -65,9 +65,9 @@ Gateway logs: one `GET /coding-agent/v1/models bearer=yes` per xfx run; fx asks 
 - **A failed load** says `Unable to load models.` in xfx whatever the failure; fx says `Could not reach AI Gateway; retry /model.` for a retryable one (`retryableFailureText`, `:435-443`). xfx loads a provider's catalog once per process and does not retry, so "retry" would be a promise it does not keep. Not captured (the fake gateway always answers).
 - **The banner**: xfx's brand line (WU-A).
 
-## Re-captured after merging `plan/tui-phase4` (2c09164)
+## Captured before and after the merges
 
-Every xfx scenario was captured again from the merged tree (`5559524`) and compared with the files here: all 20 xfx snaps are byte-identical after the banner, except `model-busy`'s activity row (`• Generating` against ` Generating`, the marker's blink phase) and its elapsed seconds (`6s` against `7s`). The files kept are the pre-merge ones.
+The first set was taken from the branch's own commit (`1ba6a21`), and every scenario again after each merge of `plan/tui-phase4` (2c09164, then 2870b42). The xfx snaps were byte-identical after the banner across all three, except `model-busy`'s activity row (`• Generating` against ` Generating`, the marker's blink phase) and its elapsed seconds. The files here are the last set, so the `.home` dumps are in plan's format.
 
 ## Found, not fixed
 
