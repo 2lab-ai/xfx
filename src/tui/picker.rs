@@ -131,13 +131,18 @@ pub(crate) enum Rank {
 
 /// What kind of completion the composer is asking for.
 ///
-/// One variant, and it is an `enum` rather than a `bool` because
-/// [`Dismissed`] remembers *which* kind was dismissed: a file or an at-mention
-/// trigger added later must not inherit the dismissal of a slash one.
+/// An `enum` rather than a `bool` because [`Dismissed`] remembers *which*
+/// kind was dismissed: the `@` file picker's trigger must not inherit the
+/// dismissal of a slash one, nor the other way round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Trigger {
     /// The draft is one word beginning with `/`.
     Slash,
+    /// The caret is in an `@` word (`super::file_picker::query_at`). Upstream
+    /// asks for it before the slash word (`inlinePickerTriggerKind`,
+    /// `picker_state.zig:233-242`), and the two cannot both hold: an `@` that
+    /// starts a word needs a separator before it, and a slash word has none.
+    File,
 }
 
 impl Trigger {
@@ -220,8 +225,10 @@ impl PickerAction {
     /// keystrokes that go on meaning what they mean.
     pub(crate) fn of(action: super::input::Action) -> Option<Self> {
         match action {
-            super::input::Action::Up => Some(Self::Up),
-            super::input::Action::Down => Some(Self::Down),
+            // `C-k` and `C-j` walk a menu that is up (`routePickerControlByte`,
+            // `app_input_runtime.zig:1220-1235`).
+            super::input::Action::Up | super::input::Action::ControlK => Some(Self::Up),
+            super::input::Action::Down | super::input::Action::ControlJ => Some(Self::Down),
             super::input::Action::Tab => Some(Self::Complete),
             super::input::Action::Submit => Some(Self::Submit),
             super::input::Action::Escape => Some(Self::Escape),
@@ -336,6 +343,13 @@ impl Picker {
         self.trigger
     }
 
+    /// Which match is marked, and how many there are: what a session's cases
+    /// read a move off.
+    #[cfg(test)]
+    pub(crate) fn marked(&self) -> (usize, usize) {
+        (self.selected, self.matches.len())
+    }
+
     /// The menu's shape on a screen `terminal_rows` tall
     /// (`slashMenuLayoutForCounts`).
     ///
@@ -415,6 +429,26 @@ impl Picker {
             PickerAction::Submit => PickerOutcome::Run(self.matches[self.selected].label),
             PickerAction::Escape => PickerOutcome::Dismiss,
         }
+    }
+
+    /// Moves the mark a page of `rows` (`routeComposerVertical` with `page`,
+    /// `input_completion_runtime.zig:209-262`): past either end it goes to the
+    /// other end however far it was asked to go, as upstream's
+    /// `advanceSelection` does with any delta (`list_window.zig:40-48`).
+    pub(crate) fn page(&mut self, down: bool, rows: u16) {
+        let count = self.matches.len();
+        let rows = usize::from(rows.max(1));
+        self.selected = if down {
+            let next = self.selected + rows;
+            if next >= count {
+                0
+            } else {
+                next
+            }
+        } else {
+            self.selected.checked_sub(rows).unwrap_or(count - 1)
+        };
+        self.window_start = edge_start(self.window_start, count, self.selected, MOST_COMMAND_ROWS);
     }
 
     /// Moves the mark one row, wrapping at both ends, and scrolls the window

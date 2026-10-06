@@ -81,8 +81,10 @@ use super::blocks;
 use super::bridge::{self, ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
-use super::editor::{self, Editor};
+use super::editor::{self, Editor, Step as EditorStep};
 use super::entity::{Entities, EntityKind};
+use super::file_index::Files;
+use super::file_picker::{self, FilePicker};
 use super::gesture::{Escape, Gestures, Interrupt, INTERRUPTED_EXIT_CODE};
 use super::help_menu::{self, HelpAction, HelpMenu};
 use super::hint::{self, Hint, Notice};
@@ -688,6 +690,24 @@ pub(crate) struct Shell {
     /// it is for is that the *next* keystroke does not re-open what Escape just
     /// closed.
     dismissed: Dismissed,
+    /// The `@` file picker, while the caret is in an `@` word
+    /// ([`super::file_picker`]).
+    ///
+    /// The slash menu's sibling in the slot, and the same kind of thing: a
+    /// view of the draft that takes only the keys it binds. Never both: an `@`
+    /// word and a slash word cannot be the draft at once
+    /// ([`super::picker::Trigger::File`]), and [`Self::reconcile_picker`] asks
+    /// for this one first, as upstream does.
+    file_picker: Option<FilePicker>,
+    /// Where the picker's rows come from: the workspace index and the last
+    /// directory browsed, each read on a worker thread
+    /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
+    files: Files,
+    /// The space the last file completion put after its path, while the caret
+    /// is still right after it: a space typed then is that one rather than a
+    /// second (`markFileCompletionSeparator`, `input_completion_runtime.zig:940-946`;
+    /// `tests/e2e/tui-file-picker.test.ts:2005`).
+    separator: Option<usize>,
     /// The `/help` catalog, while it is up ([`super::help_menu`]).
     ///
     /// The third occupant of the band's elastic slot, and like the completion
@@ -999,6 +1019,8 @@ enum Slot<'a> {
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
+    /// The `@` file picker. It owns nothing but rows either.
+    Files(&'a FilePicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -1090,6 +1112,12 @@ impl Shell {
             owner: ScreenOwner::Primary,
             picker: None,
             dismissed: Dismissed::default(),
+            file_picker: None,
+            files: Files::new(
+                config.workspace_root.clone(),
+                std::env::var_os("HOME").map(std::path::PathBuf::from),
+            ),
+            separator: None,
             help_menu: None,
             activity_row: None,
             clearing: false,
@@ -1195,6 +1223,14 @@ impl Shell {
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
+                // Under the `@`, in the rows the geometry gave it -- the same
+                // number its own height asked for.
+                Some(Slot::Files(files)) => files.rows(
+                    self.file_picker_column(files),
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    self.palette,
+                ),
                 None => Vec::new(),
             };
             // Exactly the panel's rows: one that answered with fewer is padded
@@ -1383,6 +1419,9 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
+        if let Some(files) = self.file_picker.as_ref() {
+            return Some(Slot::Files(files));
+        }
         self.picker.as_ref().map(Slot::Menu)
     }
 
@@ -1444,6 +1483,23 @@ impl Shell {
     /// How wide the composer's *text* is: the screen without the gutter.
     fn text_cols(&self) -> u16 {
         self.geometry.cols.saturating_sub(PROMPT_CELLS).max(1)
+    }
+
+    /// The one-based column the file picker's rows start in: the `@`'s, when
+    /// it is on the caret's row, and the composer's left edge otherwise
+    /// (`projectedAnchorColumn`, `visual_layout.zig:704-712`).
+    fn file_picker_column(&self, files: &FilePicker) -> u16 {
+        let cols = self.text_cols();
+        let (at_row, at_column) = self.editor.point_of(files.query().at, cols);
+        let column = if at_row == self.editor.point(cols).0 {
+            at_column
+        } else {
+            0
+        };
+        PROMPT_CELLS
+            .saturating_add(column)
+            .saturating_add(1)
+            .min(self.geometry.cols)
     }
 
     /// Which of a `rows`-row composer's rows the band is showing.
@@ -2263,6 +2319,126 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Offers one keystroke to the `@` file picker, and says whether it was
+    /// taken.
+    ///
+    /// The keys upstream binds while the picker owns the composer's surface
+    /// (`app_input_runtime.zig:1497-1501`, `:1582-1589`, `:1220-1235`;
+    /// `input_completion_runtime.zig:209-262`): the arrows, `C-j`/`C-k` and the
+    /// page keys walk the list -- with nothing in it they are spent and do
+    /// nothing, rather than moving a caret the user is not looking at -- Tab
+    /// and Enter choose, Escape closes. Everything else is an edit of the
+    /// draft and goes on to the composer with the picker still up, which is
+    /// what makes it a search.
+    fn offer_to_files(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(files) = self.file_picker.as_mut() else {
+            return false;
+        };
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match action {
+            Action::Up | Action::ControlK => -1,
+            Action::Down | Action::ControlJ => 1,
+            Action::PageUp => -page,
+            Action::PageDown => page,
+            Action::Tab => {
+                match files.marked().cloned() {
+                    Some(found) => self.complete_file(&found),
+                    // Nothing to choose: a picker that could not read is
+                    // asked to read again (`autocompleteFilePickerSelection`,
+                    // `input_completion_runtime.zig:877-889`).
+                    None if files.shown() == file_picker::Shown::Unavailable => {
+                        self.files.retry();
+                        self.refresh_file_picker();
+                    }
+                    None => {}
+                }
+                return true;
+            }
+            Action::Submit => {
+                return match files.enter() {
+                    file_picker::Enter::Accept(found) => {
+                        self.complete_file(&found);
+                        true
+                    }
+                    // Nothing matched: the line goes as typed, and the
+                    // keystroke goes on to send it.
+                    file_picker::Enter::Submit => false,
+                    file_picker::Enter::Wait => true,
+                };
+            }
+            Action::Escape => {
+                self.dismiss_picker();
+                return true;
+            }
+            _ => return false,
+        };
+        if files.step(delta) {
+            self.render.request(Reason::Modal);
+        }
+        true
+    }
+
+    /// Puts a chosen path in the draft in place of the `@` word
+    /// ([`super::file_picker::completion`]).
+    ///
+    /// One edit, so one undo takes it back. Refused whole -- by the prompt's
+    /// budget or because the word runs into a pasted block -- it changes
+    /// nothing, exactly as a keystroke the budget refuses does.
+    fn complete_file(&mut self, found: &super::file_index::Found) {
+        let Some(files) = self.file_picker.as_ref() else {
+            return;
+        };
+        let chosen =
+            file_picker::completion(self.editor.text(), files.query(), found, files.indexed());
+        let removed = chosen.range.end - chosen.range.start;
+        if !paste::fits(
+            self.editor.text().len().saturating_sub(removed),
+            self.editor.retained(),
+            chosen.text.len(),
+        ) {
+            return;
+        }
+        let Some(delta) = self.editor.replace(
+            chosen.range.start,
+            chosen.range.end,
+            &chosen.text,
+            chosen.caret,
+        ) else {
+            return;
+        };
+        // A file's completion leaves the caret past its separator, so the
+        // picker closes on the way through; a directory's leaves it at the
+        // end of the path, so the picker goes on, listing that directory.
+        self.amended(Some(delta));
+        self.separator = chosen.separator;
+    }
+
+    /// Asks the source again for the open picker's rows, and owes a frame if
+    /// they changed.
+    fn refresh_file_picker(&mut self) {
+        let Some(files) = self.file_picker.as_mut() else {
+            return;
+        };
+        let Some(lookup) = files.lookup().map(str::to_string) else {
+            return;
+        };
+        if files.settle(self.files.lookup(&lookup)) {
+            self.render.request(Reason::Modal);
+        }
+    }
+
+    /// Takes in whatever the file workers have finished, once a turn of the
+    /// loop: an index or a directory listing arrives on its own thread's
+    /// clock, so this is where the picker hears about it.
+    fn settle_files(&mut self) {
+        if self.files.poll() {
+            self.refresh_file_picker();
+        }
+    }
+
     /// Offers one keystroke to the completion menu, and says whether it was
     /// taken.
     ///
@@ -2282,6 +2458,20 @@ impl Shell {
         let Input::Action(action) = event else {
             return false;
         };
+        // A page of the menu at a time (`routeComposerVertical` with `page`,
+        // `input_completion_runtime.zig:209-262`): a page is the composer's
+        // row cap, as it is for the caret.
+        if matches!(action, Action::PageUp | Action::PageDown) {
+            let Some(picker) = self.picker.as_mut() else {
+                return false;
+            };
+            picker.page(
+                matches!(action, Action::PageDown),
+                layout::input_row_limit(self.geometry.rows),
+            );
+            self.render.request(Reason::Modal);
+            return true;
+        }
         let Some(request) = PickerAction::of(*action) else {
             return false;
         };
@@ -2359,10 +2549,15 @@ impl Shell {
     /// Silent when there is none, so every caller can say "there is no menu
     /// now" without first asking whether there was one.
     fn dismiss_picker(&mut self) {
-        let Some(picker) = self.picker.take() else {
+        let trigger = if self.file_picker.take().is_some() {
+            Some(Trigger::File)
+        } else {
+            self.picker.take().map(|picker| picker.trigger())
+        };
+        let Some(trigger) = trigger else {
             return;
         };
-        self.dismissed.dismiss(picker.trigger());
+        self.dismissed.dismiss(trigger);
         // The band just gave the menu's rows back to the document.
         self.refit();
         self.render.request(Reason::Modal);
@@ -2383,12 +2578,47 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
+            self.file_picker = None;
             return;
         }
-        if !self.dismissed.admits(Trigger::of(self.editor.text())) {
+        // The `@` word first, as upstream asks (`inlinePickerTriggerKind`,
+        // `picker_state.zig:233-242`).
+        let file = file_picker::query_at(self.editor.text(), self.editor.caret());
+        let trigger = if file.is_some() {
+            Some(Trigger::File)
+        } else {
+            Trigger::of(self.editor.text())
+        };
+        if !self.dismissed.admits(trigger) {
             self.picker = None;
+            self.file_picker = None;
             return;
         }
+        if let Some(query) = file {
+            self.picker = None;
+            // The same word, typed to the same point: the list and its mark
+            // stay as they are. A caret moved inside the word is a different
+            // query, as an edit is.
+            if self
+                .file_picker
+                .as_ref()
+                .is_some_and(|open| *open.query() == query)
+            {
+                return;
+            }
+            // A picker opening is an episode, and an episode reads the
+            // workspace again (`prepareFilePicker`'s `refresh_requested`).
+            if self.file_picker.is_none() {
+                self.files.begin_episode();
+            }
+            let mut files = FilePicker::open(query);
+            if let Some(lookup) = files.lookup().map(str::to_string) {
+                files.settle(self.files.lookup(&lookup));
+            }
+            self.file_picker = Some(files);
+            return;
+        }
+        self.file_picker = None;
         // Rebuilt only when the query really changed: an arrow key that moved
         // the caret inside the same word must not put the mark back on the
         // first row.
@@ -3150,6 +3380,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // So is a file index or a directory listing.
+        self.settle_files();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -3443,6 +3675,9 @@ impl Shell {
             if self.offer_to_catalog(&event) {
                 continue;
             }
+            if self.offer_to_files(&event) {
+                continue;
+            }
             if self.offer_to_picker(&event) {
                 continue;
             }
@@ -3469,6 +3704,17 @@ impl Shell {
     /// upstream flashes the composer (`input_limit_rejection.zig:4-23`) and
     /// this phase does not, which `docs/parity.md` records.
     fn type_character(&mut self, character: char) {
+        // The space a file completion just added, typed again: it is the same
+        // space, so the draft keeps one (`tests/e2e/tui-file-picker.test.ts:2005`).
+        if character == ' ' {
+            if let Some(at) = self.separator.take() {
+                if self.editor.caret() == at + 1
+                    && self.editor.text().as_bytes().get(at) == Some(&b' ')
+                {
+                    return;
+                }
+            }
+        }
         let mut encoded = [0u8; 4];
         let typed = character.encode_utf8(&mut encoded);
         // **Against the prompt's budget, not the composer's.** What the draft
@@ -3590,10 +3836,28 @@ impl Shell {
             Action::Backspace
             | Action::Delete
             | Action::DeleteWordLeft
+            | Action::DeleteWordRight
             | Action::KillToEnd
+            | Action::ControlK
             | Action::KillToStart => {
                 let delta = self.editor.apply(action, self.text_cols());
                 self.amended(delta);
+            }
+            // A page of composer rows, as far as the draft goes and no
+            // further: unlike the arrows, a page at the edge of the draft is
+            // not a history step (`input_completion_runtime.zig:257`,
+            // `if (page or extend_selection) return`). A page is the
+            // composer's row cap, the most rows it is ever shown in.
+            Action::PageUp | Action::PageDown => {
+                let step = if matches!(action, Action::PageUp) {
+                    EditorStep::Up
+                } else {
+                    EditorStep::Down
+                };
+                let page = usize::from(layout::input_row_limit(self.geometry.rows));
+                if self.editor.move_rows(step, page, self.text_cols()) {
+                    self.moved();
+                }
             }
             // The two keys that are the composer's until the caret has nowhere
             // left to go, and the history's exactly there.
@@ -3636,8 +3900,14 @@ impl Shell {
             // deletes do: through the budget. `C-j` inserts a newline and
             // nothing else (`super::editor::Editor::apply`), so routing it
             // here is the same edit with the same question asked first.
-            Action::InsertNewline => self.type_character('\n'),
-            Action::Submit => self.submit(),
+            Action::InsertNewline | Action::ControlJ => self.type_character('\n'),
+            // A backslash right before the caret is a line that goes on, not a
+            // line to send (`app_input_runtime.zig:1612`): the Return turns it
+            // into the line break, as one edit.
+            Action::Submit => match self.editor.continue_line() {
+                Some(delta) => self.amended(Some(delta)),
+                None => self.submit(),
+            },
             // Ctrl-C. With `ISIG` cleared the terminal generates no `SIGINT`,
             // so this byte is the only Ctrl-C a TUI session sees -- and what it
             // means is the line-oriented shell's rule, decided in
@@ -4223,6 +4493,7 @@ impl CommandHandlers for Shell {
         // The completion menu goes first: the two share the slot, and the
         // catalog is what the user asked for.
         self.picker = None;
+        self.file_picker = None;
         self.help_menu = Some(HelpMenu::open(self.editor.text()));
         // [`Self::run_command`] re-solved the band before routing here, for
         // a band with no catalog in it.
@@ -4688,6 +4959,9 @@ impl Shell {
     /// re-solved: the rows it takes are rows of the band, so a geometry solved
     /// from the menu the last keystroke wanted would put the divider a row out.
     fn moved(&mut self) {
+        // Whatever this keystroke was, it was not the space typed straight
+        // after a completion -- that one never gets here.
+        self.separator = None;
         self.reconcile_picker();
         self.refit();
         self.render.request(Reason::Footer);
@@ -4752,10 +5026,24 @@ impl Shell {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
-            Some(Slot::Catalog(_)) | None => 0,
+            Some(Slot::Catalog(_)) | Some(Slot::Files(_)) | None => 0,
         };
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            // Upstream's budget for a list (`activeListPickerReservedRows`)
+            // leaves no room for a running turn's row, which xfx's band puts
+            // above the composer; on a screen that short the list gives way
+            // first, down to the one row it never goes below.
+            Some(Slot::Files(_)) => {
+                let room = rows
+                    .saturating_sub(
+                        input_rows
+                            .saturating_add(4)
+                            .saturating_add(u16::from(activity)),
+                    )
+                    .max(1);
+                FilePicker::height(rows, input_rows.saturating_sub(1)).min(room)
+            }
             _ => fixed,
         };
         // **The composer gives way to the question, one row at a time.** A
@@ -11799,6 +12087,479 @@ mod tests {
                 assert_eq!(shell.geometry.input_rows(), 1, "{name}");
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // the `@` file picker
+    // -----------------------------------------------------------------------
+
+    /// A shell working in `workspace`, which outlives it (the plain fixture's
+    /// workspace is gone by the time a case runs).
+    fn shell_in(rows: u16, cols: u16, workspace: &std::path::Path) -> Fixture {
+        let home = tempfile::tempdir().expect("a home");
+        let (work, sent, control) = WorkHandle::detached();
+        Fixture {
+            shell: Shell::new(
+                &config(home.path(), workspace),
+                crate::tui::layout::solve(rows, cols, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        }
+    }
+
+    /// The research captures' `ws2` workspace, and a shell working in it.
+    fn in_ws2(rows: u16, cols: u16) -> (tempfile::TempDir, Fixture) {
+        let workspace = super::super::file_index::tests::seeded();
+        let shell = shell_in(rows, cols, workspace.path());
+        (workspace, shell)
+    }
+
+    /// Turns of the loop until the picker has rows or says why it has none --
+    /// the index is built on a worker thread, and a turn is what hears it land.
+    fn listed(shell: &mut Fixture) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            shell.settle_band(Instant::now());
+            if shell
+                .file_picker
+                .as_ref()
+                .is_some_and(|files| files.shown() != file_picker::Shown::Loading)
+            {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        panic!("the file list never arrived");
+    }
+
+    /// The band rows between the two rules under the composer.
+    fn listed_rows(shell: &Fixture) -> Vec<String> {
+        let rows = shell.band_rows();
+        let first = usize::from(shell.geometry.input_rows()) + 1;
+        rows[first..first + usize::from(shell.geometry.panel)].to_vec()
+    }
+
+    /// One of the list's rows as the band paints it: `indent` columns in, the
+    /// marked one on the grey bar and the rest in the dim grey.
+    fn file_row(indent: usize, text: &str, marked: bool) -> String {
+        let style = if marked {
+            PALETTE.selected()
+        } else {
+            PALETTE.dim().to_string()
+        };
+        format!("{}{style}{text}{}", " ".repeat(indent), PALETTE.reset())
+    }
+
+    #[test]
+    fn an_at_opens_the_file_list_under_the_composer_and_leaves_the_hint_row() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        let rows = shell.band_rows();
+        // `fx-composer-40x120-at.ansi`: the composer, a rule, six rows two
+        // columns in with the first on the grey bar, a rule -- and the hint
+        // row as it was, because upstream's file picker has no key help.
+        assert_eq!(rows[0], composer_row("@"));
+        assert_eq!(rows[1], divider(120));
+        assert_eq!(
+            listed_rows(&shell),
+            [
+                file_row(2, "Cargo.toml", true),
+                file_row(2, "README.md", false),
+                file_row(2, "docs/", false),
+                file_row(2, "docs/guide.md", false),
+                file_row(2, "src/", false),
+                file_row(2, "src/deep/", false),
+            ]
+        );
+        assert_eq!(rows[8], divider(120));
+        assert_eq!(rows[9], hint_row(IDLE_HINT));
+        // The caret stays in the composer: the list is a view of it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS + 1)
+        );
+    }
+
+    #[test]
+    fn the_list_says_it_is_indexing_until_the_index_lands() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        // Nothing is adopted until a turn of the loop polls the worker.
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!("  {}indexing files...{}", PALETTE.dim(), PALETTE.reset())
+        );
+        // Enter while there is nothing to choose yet sends nothing and
+        // chooses nothing.
+        shell.route_bytes(b"\r");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a draft was sent from a loading list"
+        );
+        assert_eq!(shell.editor.text(), "@");
+    }
+
+    #[test]
+    fn a_query_narrows_the_list_and_bolds_what_it_matched() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@sch");
+        listed(&mut shell);
+        // `fx-composer-40x120-at-sch.ansi`: one row, the rest blank.
+        let selected = PALETTE.selected();
+        assert_eq!(
+            listed_rows(&shell),
+            [
+                format!(
+                    "  {selected}src/deep/\u{1b}[1msch\u{1b}[0m{selected}ed.rs{}",
+                    PALETTE.reset()
+                ),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_later_at_puts_the_rows_under_itself_and_down_and_tab_choose() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"see @src/");
+        listed(&mut shell);
+        // `fx-composer-40x120-at-dir.txt`: the `@` is in column 7, so the rows
+        // are six columns in, and `src/` is browsed rather than searched.
+        assert_eq!(
+            listed_rows(&shell)[..3],
+            [
+                file_row(6, "src/deep/", true),
+                file_row(6, "src/lib.rs", false),
+                file_row(6, "src/main.rs", false),
+            ]
+        );
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(listed_rows(&shell)[1], file_row(6, "src/lib.rs", true));
+        // `fx-composer-40x120-at-tab.txt`: Tab puts the path in, with the space
+        // after it, and the list closes because the caret has left the word.
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "see @src/lib.rs ");
+        assert!(shell.file_picker.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn enter_puts_the_path_in_and_only_a_second_enter_sends_it() {
+        let (_workspace, mut shell) = in_ws2(40, 120);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        // `fx-composer-40x120-at-enter.txt`.
+        assert_eq!(shell.editor.text(), "@docs/guide.md ");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the first Return sent the line"
+        );
+        shell.route_bytes(b"\r");
+        // The mention is the text: no attachment, no rewriting
+        // (`fx-composer-40x120-bodies/002-completion.json`). Upstream sends
+        // the trailing space too; every prompt this crate sends is trimmed
+        // (`crate::interactive::classify`), this one included.
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "@docs/guide.md"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn one_undo_takes_a_completion_back_to_what_was_typed() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@docs/guide.md ");
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "@gui");
+    }
+
+    #[test]
+    fn a_directory_choice_keeps_the_list_up_on_that_directory() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@src");
+        listed(&mut shell);
+        // `src` is its own name exactly, which outranks everything else; the
+        // three letters it matched are bold on the bar.
+        let selected = PALETTE.selected();
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!(
+                "  {selected}\u{1b}[1msrc\u{1b}[0m{selected}/{}",
+                PALETTE.reset()
+            )
+        );
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "@src/");
+        listed(&mut shell);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "src/deep/", true));
+    }
+
+    #[test]
+    fn escape_closes_the_list_until_the_caret_leaves_the_word() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@sch");
+        listed(&mut shell);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        // `fx-composer-40x120-at-esc.txt`: the text stays, the list goes, and
+        // the hint row says nothing about a second Escape.
+        assert!(shell.file_picker.is_none());
+        assert_eq!(shell.editor.text(), "@sch");
+        assert_eq!(shell.hint(), IDLE_HINT);
+        shell.route_bytes(b"e");
+        assert!(
+            shell.file_picker.is_none(),
+            "the next letter of the word opened it again"
+        );
+        // A new `@` word is a new trigger.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@");
+        assert!(shell.file_picker.is_some());
+    }
+
+    #[test]
+    fn an_unmatched_mention_is_sent_by_enter() {
+        // `tests/e2e/tui-file-picker.test.ts:1142`.
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"review @definitely-not-present");
+        listed(&mut shell);
+        assert_eq!(
+            listed_rows(&shell)[0],
+            format!(
+                "         {}no matching files{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        shell.route_bytes(b"\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "review @definitely-not-present"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_j_and_k_walk_the_list_and_alt_enter_is_still_a_newline() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(listed_rows(&shell)[1], file_row(2, "README.md", true));
+        assert_eq!(shell.editor.text(), "@", "C-j put a newline under a list");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(listed_rows(&shell)[0], file_row(2, "Cargo.toml", true));
+        // Alt-Enter is not `C-j`: a newline, which ends the word and the list.
+        shell.route_bytes(b"\x1b\r");
+        assert_eq!(shell.editor.text(), "@\n");
+        assert!(shell.file_picker.is_none());
+    }
+
+    #[test]
+    fn control_j_and_k_walk_the_slash_menu_too_and_are_edits_without_one() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        let (first, _) = shell.picker.as_ref().expect("a menu").marked();
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, first + 1);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, first);
+        // With no menu up they are the composer's newline and kill.
+        let mut shell = super::tests::shell(24, 80);
+        shell.route_bytes(b"ab");
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(shell.editor.text(), "");
+        shell.route_bytes(&[0x19]);
+        assert_eq!(
+            shell.editor.text(),
+            "ab",
+            "C-k no longer killed into the slot"
+        );
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(shell.editor.text(), "ab\n");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_list_a_page_and_wraps_past_its_end() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        let page = usize::from(layout::input_row_limit(24));
+        assert_eq!(page, 11);
+        // Nine rows: a page down from the first is past the end, so the mark
+        // goes to the other end (`advanceSelection`).
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("Cargo.toml")
+        );
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(
+            shell
+                .file_picker
+                .as_ref()
+                .and_then(|files| files.marked())
+                .map(|found| found.path.as_str()),
+            Some("src/main.rs")
+        );
+        assert_eq!(shell.editor.text(), "@");
+    }
+
+    #[test]
+    fn a_space_typed_right_after_a_completion_is_the_one_it_added() {
+        // `tests/e2e/tui-file-picker.test.ts:2005`.
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b" @REA");
+        assert_eq!(shell.editor.text(), "@docs/guide.md @REA");
+        // Only straight after it: a space typed later is a space.
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"@gui");
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        shell.route_bytes(b"\x1b[D\x1b[C ");
+        assert_eq!(shell.editor.text(), "@docs/guide.md  ");
+    }
+
+    #[test]
+    fn a_choice_in_the_middle_of_a_line_reuses_the_space_after_it() {
+        // `tests/e2e/tui-file-picker.test.ts:2038`.
+        let (workspace, _) = in_ws2(24, 80);
+        std::fs::write(workspace.path().join("first-file.txt"), "first").expect("a file");
+        let mut shell = shell_in(24, 80, workspace.path());
+        shell.route_bytes(b"Read @first- suffix");
+        for _ in 0.." suffix".len() {
+            shell.route_bytes(b"\x1b[D");
+        }
+        listed(&mut shell);
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "Read @first-file.txt suffix");
+        assert_eq!(shell.editor.caret(), "Read @first-file.txt ".len());
+    }
+
+    #[test]
+    fn a_question_dismisses_the_file_list() {
+        let (_workspace, mut shell) = in_ws2(24, 80);
+        shell.route_bytes(b"@");
+        listed(&mut shell);
+        shell.dismiss_picker();
+        assert!(shell.file_picker.is_none());
+        // Dismissed, not dropped: the same word does not bring it back.
+        shell.route_bytes(b"s");
+        assert!(shell.file_picker.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // composer keys upstream has (`surfaces.md` §5.2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_trailing_backslash_turns_return_into_a_line_break() {
+        // `fx-composer-40x120-multiline.txt`: `line3\` and Enter is a new row,
+        // not a prompt ending in a backslash (`app_input_runtime.zig:1612`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"line3\\");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "line3\n");
+        assert!(shell.sent.try_recv().is_err());
+        // One edit: one undo puts the backslash back.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "line3\\");
+        // A backslash that is not right before the caret is text.
+        shell.route_bytes(b"x\r");
+        match shell.picks_up() {
+            TurnWork::Submit(prompt) => assert_eq!(prompt, "line3\\x"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn alt_b_and_alt_f_move_by_word_in_their_escape_spelling() {
+        // `fx-composer-40x120-alt-b.txt`: `Xhello world ` then Alt-b and `Y`.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"Xhello world ");
+        shell.route_bytes(b"\x1bb");
+        shell.route_bytes(b"Y");
+        assert_eq!(shell.editor.text(), "Xhello Yworld ");
+        // Alt-f goes to the end of the word (`moveWordRight`), not to the
+        // start of the next one (`fx-filepicker-keys-40x120-alt-f`).
+        shell.route_bytes(b"\x1bf");
+        shell.route_bytes(b"Z");
+        assert_eq!(shell.editor.text(), "Xhello YworldZ ");
+    }
+
+    #[test]
+    fn alt_d_deletes_the_word_to_the_right_without_killing_it() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"hello, world");
+        shell.route_bytes(&[0x01]);
+        shell.route_bytes(b"\x1bd");
+        // The word and the separators after it (`wordRightRange`).
+        assert_eq!(shell.editor.text(), "world");
+        assert_eq!(shell.cursor().1, PROMPT_CELLS);
+        // Ctrl-Delete is the same key.
+        shell.route_bytes(b"\x1b[3;5~");
+        assert_eq!(shell.editor.text(), "");
+        // A deletion, not a kill: `C-y` has nothing to yank.
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "");
+        // And one undo per deletion.
+        shell.route_bytes(&[0x1f]);
+        assert_eq!(shell.editor.text(), "world");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_caret_a_page_and_never_into_history() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"earlier\r");
+        let _sent = shell.picks_up();
+        for line in ["one", "two", "three"] {
+            shell.route_bytes(line.as_bytes());
+            shell.route_bytes(&[0x0a]);
+        }
+        shell.route_bytes(b"four");
+        assert_eq!(shell.editor.point(shell.text_cols()).0, 3);
+        shell.route_bytes(b"\x1b[5~");
+        // Row 0, as near the column the caret had as the row reaches.
+        assert_eq!(shell.editor.point(shell.text_cols()), (0, 3));
+        // At the top a page is nothing at all -- not the prompt before.
+        shell.route_bytes(b"\x1b[5~");
+        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(shell.editor.point(shell.text_cols()).0, 3);
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(shell.editor.text(), "one\ntwo\nthree\nfour");
+    }
+
+    #[test]
+    fn a_page_key_moves_the_slash_menu_a_page() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/");
+        let (_, count) = shell.picker.as_ref().expect("a menu").marked();
+        shell.route_bytes(b"\x1b[5~");
+        // Up from the first row by a page is past the start: the last row.
+        assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, count - 1);
     }
 
     // -----------------------------------------------------------------------

@@ -221,8 +221,13 @@ const RESET: &str = "\u{1b}[0m";
 /// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
 /// none. Band and review-plane rows only -- never the document -- so a theme
 /// report has nothing of it to retint ([`Palette::document_retint`]).
-const DARK: [u8; 9] = [240, 255, 250, 252, 255, 245, 245, 252, 252];
-const LIGHT: [u8; 9] = [250, 235, 241, 238, 235, 241, 247, 238, 238];
+///
+/// The tenth is the foreground of the `@` file picker's marked row, upstream's
+/// `approval_button_inactive_style` (`theme.zig:96` dark, `:139` light): the
+/// hint grey over a background of its own ([`Palette::selected`]). Band rows
+/// only, so nothing of it is in the document for a theme report to find.
+const DARK: [u8; 10] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 255];
+const LIGHT: [u8; 10] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 237];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -234,6 +239,7 @@ const STATUSLINE: usize = 5;
 const DIM: usize = 6;
 const LABEL: usize = 7;
 const DIFF: usize = 8;
+const SELECTED: usize = 9;
 
 impl Palette {
     /// The rule between the document and the band.
@@ -314,6 +320,27 @@ impl Palette {
     /// names no colour.
     pub(crate) fn bold(&self) -> &'static str {
         "\u{1b}[1m"
+    }
+
+    /// The `@` file picker's marked row: a grey bar behind the hint grey
+    /// (`approval_button_inactive_style`, `theme.zig:96` dark and `:139` light;
+    /// `composeFilePickerOptionRow`, `picker_presentation.zig:827-849`).
+    ///
+    /// The background first and the foreground after it, in upstream's order.
+    /// The background is spelled per pair here rather than put in the table,
+    /// because the table is foregrounds and this is the one background the
+    /// band paints; the foreground is the table's [`SELECTED`]. What ends it is
+    /// [`Self::reset`], which closes the background with everything else -- and
+    /// `super::grid` closes every attribute before an `EL`, so the bar never
+    /// bleeds into the rest of the row.
+    pub(crate) fn selected(&self) -> String {
+        let background = match (self.mode, self.depth) {
+            (Mode::Dark, Depth::Ansi256) => "\u{1b}[48;5;239m",
+            (Mode::Light, Depth::Ansi256) => "\u{1b}[48;5;251m",
+            (Mode::Dark, Depth::TrueColor) => "\u{1b}[48;2;78;78;78m",
+            (Mode::Light, Depth::TrueColor) => "\u{1b}[48;2;198;198;198m",
+        };
+        format!("{background}{}", self.paint(SELECTED))
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
@@ -421,6 +448,7 @@ impl Palette {
 fn ansi256(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;5;235m",
+        237 => "\u{1b}[38;5;237m",
         238 => "\u{1b}[38;5;238m",
         240 => "\u{1b}[38;5;240m",
         241 => "\u{1b}[38;5;241m",
@@ -453,6 +481,7 @@ fn ansi256(index: u8) -> &'static str {
 fn truecolor(index: u8) -> &'static str {
     match index {
         235 => "\u{1b}[38;2;38;38;38m",
+        237 => "\u{1b}[38;2;58;58;58m",
         238 => "\u{1b}[38;2;68;68;68m",
         240 => "\u{1b}[38;2;88;88;88m",
         241 => "\u{1b}[38;2;98;98;98m",
@@ -717,6 +746,9 @@ mod tests {
             // `theme.zig:86-88` / `:129-131`: an outcome notice's label.
             (Mode::Dark, LABEL, 252, 208),
             (Mode::Light, LABEL, 238, 68),
+            // `theme.zig:96` / `:139`: the file picker's marked row.
+            (Mode::Dark, SELECTED, 255, 238),
+            (Mode::Light, SELECTED, 237, 58),
         ] {
             assert_eq!(
                 level,
@@ -758,6 +790,47 @@ mod tests {
         // accessor to confirm about itself.
         assert_eq!(dark.activity(), "\u{1b}[38;2;208;208;208m");
         assert_eq!(light.activity(), "\u{1b}[38;2;68;68;68m");
+    }
+
+    #[test]
+    fn the_file_pickers_marked_row_is_a_grey_bar_behind_the_hint_grey() {
+        // `theme.zig:96` dark and `:139` light, background first as upstream
+        // writes it; the direct spellings are the same indices on the ramp
+        // (`239` is 78, `251` is 198, `255` is 238, `237` is 58).
+        for (mode, depth, wanted) in [
+            (
+                Mode::Dark,
+                Depth::Ansi256,
+                "\u{1b}[48;5;239m\u{1b}[38;5;255m",
+            ),
+            (
+                Mode::Light,
+                Depth::Ansi256,
+                "\u{1b}[48;5;251m\u{1b}[38;5;237m",
+            ),
+            (
+                Mode::Dark,
+                Depth::TrueColor,
+                "\u{1b}[48;2;78;78;78m\u{1b}[38;2;238;238;238m",
+            ),
+            (
+                Mode::Light,
+                Depth::TrueColor,
+                "\u{1b}[48;2;198;198;198m\u{1b}[38;2;58;58;58m",
+            ),
+        ] {
+            assert_eq!(
+                Palette { mode, depth }.selected(),
+                wanted,
+                "{mode:?} {depth:?}"
+            );
+        }
+        // A band colour: nothing the document holds is ever repainted into it.
+        let dark = Palette {
+            mode: Mode::Dark,
+            depth: Depth::Ansi256,
+        };
+        assert_eq!(dark.document_retint(Color::Indexed(237)), None);
     }
 
     #[test]

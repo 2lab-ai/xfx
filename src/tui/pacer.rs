@@ -529,12 +529,18 @@ pub(crate) fn colour_at(text: &str) -> Option<usize> {
 ///   underline `4`/`24`, strike `9`/`29` -- what the assistant's markdown,
 ///   the welcome line's brand and a statusline label are written in;
 /// * `38 ; 5 ; <n>` -- a 256-colour foreground;
-/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground.
+/// * `38 ; 2 ; <r> ; <g> ; <b>` -- a direct-colour foreground;
+/// * `48 ; 5 ; <n>`, `48 ; 2 ; <r> ; <g> ; <b>` and `49` -- the one
+///   background the band paints, the `@` file picker's marked row
+///   (`approval_button_inactive_style`, `super::theme::Palette::selected`),
+///   and its close.
 ///
 /// The attributes this drops are the ones with a cost: `conceal` makes a row
-/// invisible, `blink` makes it move, `reverse` and a background colour repaint
-/// the whole width of it. None of them is in upstream's assistant or footer
-/// text, and an allowlist wider than what is emitted is untested surface.
+/// invisible, `blink` makes it move, `reverse` repaints the whole width of it.
+/// None of them is in upstream's assistant or footer text, and an allowlist
+/// wider than what is emitted is untested surface. A background would repaint
+/// the width an `EL` erases, which is why `super::grid` closes every attribute
+/// before it writes one.
 /// [`SgrState`] models every attribute this admits, so a row that ends with
 /// one open is closed and reopened like a colour is.
 fn is_palette_sgr(text: &str) -> bool {
@@ -550,8 +556,8 @@ fn is_palette_sgr(text: &str) -> bool {
     let mut params = params.split(';');
     while let Some(group) = params.next() {
         match group {
-            "0" | "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "39" => {}
-            "38" => {
+            "0" | "1" | "2" | "3" | "4" | "9" | "22" | "23" | "24" | "29" | "39" | "49" => {}
+            "38" | "48" => {
                 // The number of parameters each colour shape carries after its
                 // selector. Each one a terminal reads as a number, and nothing
                 // else: an empty one is a zero to a terminal, and a `38;5;`
@@ -1347,6 +1353,11 @@ mod tests {
             "\u{1b}[9m",
             "\u{1b}[29m",
             "\u{1b}[39m",
+            // The file picker's marked row: its background, in both
+            // notations, and the background's close.
+            "\u{1b}[48;5;239m",
+            "\u{1b}[48;2;78;78;78m",
+            "\u{1b}[49m",
         ] {
             assert_eq!(
                 colour_at(painted),
@@ -1363,7 +1374,9 @@ mod tests {
             "\u{1b}[5m",
             "\u{1b}[7m",
             "\u{1b}[8m",
-            "\u{1b}[48;5;196m",
+            "\u{1b}[41m",
+            "\u{1b}[48;5m",
+            "\u{1b}[48;2;1;2m",
             "\u{1b}[31m",
             "\u{1b}[1;7m",
             "\u{1b}[38;5m",

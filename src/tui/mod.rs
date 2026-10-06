@@ -693,6 +693,8 @@ mod entity;
 mod event_loop;
 #[cfg(feature = "fault-injection")]
 mod fault;
+mod file_index;
+mod file_picker;
 mod frame;
 mod gesture;
 mod grid;

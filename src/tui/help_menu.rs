@@ -128,8 +128,10 @@ impl HelpAction {
     pub(crate) fn of(action: super::input::Action) -> Option<Self> {
         use super::input::Action;
         match action {
-            Action::Up => Some(Self::Up),
-            Action::Down => Some(Self::Down),
+            // `C-k` and `C-j` walk it too (`routePickerControlByte`,
+            // `app_input_runtime.zig:1220-1235`, through `routeHelpMenuMove`).
+            Action::Up | Action::ControlK => Some(Self::Up),
+            Action::Down | Action::ControlJ => Some(Self::Down),
             Action::Tab => Some(Self::NextCategory),
             Action::BackTab => Some(Self::PreviousCategory),
             Action::Submit => Some(Self::Open),

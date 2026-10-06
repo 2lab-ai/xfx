@@ -743,6 +743,7 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
             | Key::Delete
             | Key::DeleteWordLeft
             | Key::KillToEnd
+            | Key::ControlK
             | Key::KillToStart
             | Key::Undo
             | Key::Redo
