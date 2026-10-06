@@ -1,0 +1,6 @@
+== ./.fx/backups/settings.json.backup.1791313037336-0000000000000001-496474bff49715225c5ebb5a957354f3
+{"models":{"gateway":"fake/model-a"},"provider":"gateway"}
+
+== ./.fx/settings.json
+{"models":{"gateway":"fake/model-a"},"provider":"gateway","credential_source":"ai_gateway_api_key"}
+
