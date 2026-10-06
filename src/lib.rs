@@ -29,6 +29,7 @@ pub mod config;
 pub mod gateway;
 pub mod interactive;
 pub mod llmux;
+pub mod markdown;
 pub mod output;
 pub mod permission;
 pub mod provider;
