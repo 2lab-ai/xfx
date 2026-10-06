@@ -1063,7 +1063,7 @@ impl FullTranscript {
         {
             group.cancel_running();
         }
-        let block = group.redraw(palette, &[]).unwrap_or_default();
+        let block = group.expanded(palette);
         let mut rows = Vec::new();
         if position == 0 {
             if let Some(header) = block.first() {
@@ -1103,7 +1103,7 @@ impl FullTranscript {
                     rows.extend(railed(status, " ", cols, palette));
                 }
             }
-            Some(Detail::Result(text)) if !text.is_empty() => {
+            Some(Detail::Result(text)) if !text.is_empty() && call.reports_its_result() => {
                 rows.extend(railed(text, "  ", cols, palette));
             }
             _ => {}
@@ -1117,6 +1117,30 @@ impl FullTranscript {
 }
 
 impl Call {
+    /// Whether what the tool said back is shown under the call.
+    ///
+    /// Not for a file change that was made, refused by the user or stopped:
+    /// its row already says which (`Edited a.txt +1 / -1`, `Denied file`), and
+    /// what it changed is the diff -- upstream shows a change's arguments or
+    /// its diff and never a sentence about it (`fx-approvals-cc-40x120-full`,
+    /// `fx-fulltranscript-40x120-full`). A change the tool itself refused
+    /// keeps its reason, as a failed read does.
+    fn reports_its_result(&self) -> bool {
+        let changes_a_file = matches!(
+            self.shown.presentation.activity,
+            Activity::Write | Activity::Edit
+        );
+        !changes_a_file
+            || matches!(
+                self.state,
+                State::Finished {
+                    ok: false,
+                    outcome: Outcome::Finished,
+                    ..
+                }
+            )
+    }
+
     /// Whether the transcript's group draws a row for this call
     /// (`super::toolgroup`'s `ToolGroup::start` and `Call::visible`): not for
     /// a question, which is never part of a group, and not for a file change
@@ -1583,6 +1607,25 @@ mod tests {
     }
 
     #[test]
+    fn a_calls_row_is_the_groups_in_the_default_foreground_with_its_command_words_coloured() {
+        // `fx-fulltranscript-40x120-full.ansi` row 13 against `-end.ansi` row
+        // 9: the inline row is the statusline grey throughout, the full
+        // screen's is the default foreground with the shell's words in 252.
+        let mut record = record();
+        record.tool_started("c", &command("echo boom; exit 3"));
+        record.tool_finished("c", true, "", Outcome::Exited(3), None);
+        let rows = record.rows(120, 40, DARK, "");
+        assert_eq!(
+            rows[1],
+            "\u{1b}[38;5;255m\u{25cf}\u{1b}[0m \u{1b}[38;5;245m1 tool call \u{b7} 1 command \u{b7} 1 failed\u{1b}[0m"
+        );
+        assert_eq!(
+            rows[2],
+            "\u{2514} Exited 3 \u{1b}[38;5;252mecho\u{1b}[39m boom\u{1b}[38;5;252m;\u{1b}[39m \u{1b}[38;5;252mexit\u{1b}[39m 3\u{1b}[0m"
+        );
+    }
+
+    #[test]
     fn a_group_shows_its_header_over_its_first_call_and_each_call_under_its_own_header() {
         // `fx-tools-single-40x120-full` rows 13-30.
         let mut record = record();
@@ -1732,6 +1775,30 @@ mod tests {
             !plain.iter().any(|row| row.contains("content:")),
             "the arguments were listed beside the diff that covers them: {plain:?}"
         );
+    }
+
+    #[test]
+    fn a_file_change_says_nothing_under_its_row_but_a_refusal_of_its_own() {
+        // `fx-fulltranscript-40x120-full`: `├ Edited a.txt +1 / -1` and its
+        // diff, with no `Edited a.txt` sentence between them.
+        let input = json!({"path": "a.txt", "old_string": "a", "new_string": "b"});
+        let shown = crate::tools::mutate::EDIT_FILE.shown(&input);
+        let said = |ok: bool, outcome: Outcome| {
+            let mut record = record();
+            record.tool_started("e", &shown);
+            record.observe(&UiEvent::ToolDetail {
+                call_id: "e".into(),
+                detail: Detail::Result("the tool's sentence".into()),
+            });
+            record.tool_finished("e", ok, "the tool's sentence", outcome, None);
+            screen(&record)
+                .iter()
+                .any(|row| row == "\u{2502}  the tool's sentence")
+        };
+        assert!(!said(true, Outcome::Finished), "a change that was made");
+        assert!(!said(false, Outcome::Denied), "a change the user refused");
+        assert!(!said(true, Outcome::Unchanged), "a change of nothing");
+        assert!(said(false, Outcome::Finished), "a change the tool refused");
     }
 
     #[test]
