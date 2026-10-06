@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ ask me
+
+  1) What should happen first?
+     line-one
+     xy!
+     line-three
+
+  Got it.
+
+  5s (↑2 ↓80)
+
+┃ ask again
+
+■ Cancelled
+
+┃
+
+auto · model-a
+
+
+
+
