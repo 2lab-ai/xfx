@@ -4225,8 +4225,17 @@ fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // repaint the hint row" as "the hint row no longer says it", and lets this
     // wait through while the place is still held -- which is exactly the
     // refusal it exists to avoid.
+    //
+    // **And read the status row, not whatever is last on the screen.** Between
+    // the panel closing and the band's next frame, the bottom rows still hold
+    // the panel's own key help, which never said `queued`; an absence read off
+    // that row passed while the place was still held. The status row names the
+    // mode, so the wait asks for it to be back and to have lost `queued`.
     session.wait_until("the runtime to give the queued place back", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| !screen.above_hint(0).contains("queued"))
+        Screen::painted(text, 24, 80).is_some_and(|screen| {
+            let hint = screen.above_hint(0);
+            hint.contains("ask ·") && !hint.contains("queued")
+        })
     });
 
     // A prompt typed *after* the interrupt is a new intention and still runs.
