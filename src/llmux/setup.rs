@@ -261,7 +261,7 @@ async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
     };
 
     // Check that GET / returns "llmux" to identify the daemon.
-    let root = fetch_root(base).await.map_err(&refuse)?;
+    let root = fetch_root(base).await.map_err(refuse)?;
     if root.trim() != ROOT_BODY {
         return Err(refuse(format!(
             "`GET /` answered {:?} rather than `{ROOT_BODY}`, so something else is on this port",

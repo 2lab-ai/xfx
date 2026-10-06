@@ -211,6 +211,8 @@ impl WorkHandle {
         }
         // The claim and the test are one operation: two keystrokes cannot both
         // find the last place free.
+        // fetch_update is renamed try_update in Rust 1.99; kept for the 1.96 MSRV.
+        #[allow(deprecated)]
         if self
             .outstanding
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {

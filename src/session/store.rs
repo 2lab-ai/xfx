@@ -1533,7 +1533,7 @@ impl SessionStore {
                     envelope.event_id
                 )));
             }
-            apply(&mut state, &envelope).map_err(&corrupt)?;
+            apply(&mut state, &envelope).map_err(corrupt)?;
             expected_seq += 1;
         }
         if expected_seq - 1 != manifest.last_event_seq {

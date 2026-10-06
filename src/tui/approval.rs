@@ -1121,6 +1121,8 @@ impl TuiPrompter {
     /// left over from that one is accepted as a permission decision about this
     /// one. A question that cannot be given an identity is not asked at all.
     fn mint(&self) -> Option<ApprovalId> {
+        // fetch_update is renamed try_update in Rust 1.99; kept for the 1.96 MSRV.
+        #[allow(deprecated)]
         self.next
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
                 held.checked_add(1)
