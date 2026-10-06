@@ -312,12 +312,83 @@ impl MutationKind {
 
 /// Which authorized root a target sits under.
 ///
-/// `--add-dir` grants reading. Writing into an added root is a separate
-/// decision, and `auto` does not make it.
+/// **Both are written to alike.** An added root -- `ask --add-dir`, or one
+/// `/workspace add` saved -- is a root the user put the session in, and
+/// upstream admits a write contained in one exactly as it admits one in the
+/// primary: containment is what makes a target "reversible", and a contained
+/// target bypasses review in auto (`vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:665-679`; the e2e `write_trusted_added`
+/// and "captured commands write through an active added root",
+/// `tests/e2e/file-tool-paths.test.ts:912-951`, `:1170-1179`). What auto does
+/// *not* write, in either, is [`MutationPlan::sensitive_auto_write_target`].
+/// The distinction is kept because it is a fact about the plan a reader may
+/// want, and because the fingerprint already commits to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetScope {
     PrimaryWorkspace,
     AdditionalRoot,
+}
+
+/// The component runs upstream will not let auto write without review,
+/// wherever they sit (`sensitiveAutoWriteTarget`, `vercel-labs/fx@c1db9191
+/// src/core/tooling/tool_admission.zig:680-694`), verbatim and in its order.
+///
+/// Each is a file that decides what runs later with the user's authority -- a
+/// login shell's startup file, a launch agent, an SSH trust list, a git hook
+/// or git's own configuration -- so a write there is not "reversible" in the
+/// sense the rest of a root is: by the time anybody reverses it, it has run.
+/// Upstream sends these to its classifier; xfx's auto has no reviewer to send
+/// them to, so it refuses them and leaves the decision to `ask`.
+const SENSITIVE_AUTO_WRITE_SEQUENCES: &[&[&str]] = &[
+    &[".git", "hooks"],
+    &[".git", "config"],
+    &[".git", "config.worktree"],
+    &[".ssh", "authorized_keys"],
+    &[".ssh", "config"],
+    &["Library", "LaunchAgents"],
+    &["Library", "LaunchDaemons"],
+    &[".config", "autostart"],
+    &[".config", "fish", "config.fish"],
+    &[".zshrc"],
+    &[".bashrc"],
+    &[".bash_profile"],
+    &[".profile"],
+];
+
+/// The first of [`SENSITIVE_AUTO_WRITE_SEQUENCES`] that appears in `path` as
+/// consecutive components, joined with `/` for a sentence.
+///
+/// Upstream's scan (`pathContainsComponentSequence`, `tool_admission.zig:696-718`):
+/// one pass over the components, a run restarted at the first element when a
+/// component breaks it. **Case-blind** where upstream's is exact, for the
+/// reason [`crate::workspace::path::is_protected_write_directory`] is: on a
+/// case-insensitive volume `.ZSHRC` is `.zshrc`, and the exact comparison would
+/// be a check a path could spell its way around. It refuses more, never less.
+fn sensitive_sequence(path: &Path) -> Option<String> {
+    let components: Vec<&str> = path
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(name) => name.to_str(),
+            _ => None,
+        })
+        .collect();
+    SENSITIVE_AUTO_WRITE_SEQUENCES
+        .iter()
+        .find(|expected| {
+            let mut matched = 0;
+            for component in &components {
+                if component.eq_ignore_ascii_case(expected[matched]) {
+                    matched += 1;
+                    if matched == expected.len() {
+                        return true;
+                    }
+                } else {
+                    matched = usize::from(component.eq_ignore_ascii_case(expected[0]));
+                }
+            }
+            false
+        })
+        .map(|expected| expected.join("/"))
 }
 
 /// What was at the target when the plan was prepared.
@@ -830,6 +901,14 @@ impl MutationPlan {
 
     pub fn scope(&self) -> TargetScope {
         self.scope
+    }
+
+    /// The configuration file this plan would change that auto does not
+    /// change on its own, named as the components that make it one -- `.zshrc`,
+    /// `.git/hooks` -- or `None` for an ordinary file. Judged on the canonical
+    /// target, in whichever root it is ([`TargetScope`]).
+    pub fn sensitive_auto_write_target(&self) -> Option<String> {
+        sensitive_sequence(&self.target)
     }
 
     pub fn preimage(&self) -> &Preimage {

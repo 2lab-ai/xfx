@@ -25,6 +25,11 @@
 #                          workspace before launch
 #   githead <branch>       makes the workspace a checkout on <branch>: a
 #                          `.git/HEAD` naming it, and nothing else
+#   dir <name> [<from>]    a directory beside the workspace, <run>/<name>, made
+#                          before launch -- empty, or a copy of scenarios/<from>
+#                          -- so `/workspace add ../<name>` names a directory
+#                          inside the run and nowhere else (a plain name: no
+#                          `/`, not `.` or `..`)
 #   wait <seconds>
 #   type <text>            literal keys
 #   paste <text>           a bracketed paste (printf %b escapes)
@@ -126,6 +131,13 @@ main() {
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$scenarios/${line#work }/." "$run/work/"
     [[ $line == githead\ * ]] && { mkdir -p "$run/work/.git"; printf 'ref: refs/heads/%s\n' "${line#githead }" > "$run/work/.git/HEAD"; }
+    if [[ $line == dir\ * ]]; then
+      local name from
+      read -r name from <<< "${line#dir }"
+      case $name in ''|.|..|*/*) echo "dir takes a plain name, not $name" >&2; exit 2 ;; esac
+      mkdir -p "$run/$name"
+      [[ -n $from ]] && cp -R "$scenarios/$from/." "$run/$name/"
+    fi
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
   # Port 0: the OS picks a free one, and the gateway says which.
@@ -190,7 +202,7 @@ $xfx_model $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work|models|nomodel|githead) ;;
+      ''|'#'*|gateway|env|seed|work|models|nomodel|githead|dir) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;

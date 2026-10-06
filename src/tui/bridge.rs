@@ -330,6 +330,19 @@ pub(crate) enum UiEvent {
         title: String,
         unsaved: Option<String>,
     },
+    /// A `/workspace` change reached the runtime: what it says, and -- when it
+    /// happened -- the saved directories now in force, for the picker and the
+    /// `@` index the band keeps. **Terminal**, like every answer to a piece of
+    /// work.
+    ///
+    /// Structured rather than a notice alone for the reason [`Self::Renamed`]
+    /// is: the band's copy of the directories changes only for a change that
+    /// happened, and a change a Ctrl-C dropped from the queue before it ran is
+    /// not one.
+    Workspace {
+        notice: super::notice::Notice,
+        access: Option<crate::workspace::access::WorkspaceAccess>,
+    },
     /// The runtime cannot continue. **Terminal.**
     Fatal(String),
 }
@@ -642,6 +655,20 @@ impl UiEvent {
                 title: inert_owned(title),
                 unsaved: unsaved.map(inert_owned),
             },
+            // The notice quotes paths, which are the filesystem's words. The
+            // directories travel as paths rather than text: the picker spells
+            // each one through `access::terminal_safe` when it paints it,
+            // which writes a control character out as its code point -- a
+            // stronger rule than this one, and the one upstream paints a path
+            // by (`encodeTerminalSafe`).
+            Self::Workspace { notice, access } => Self::Workspace {
+                notice: super::notice::Notice {
+                    tone: notice.tone,
+                    topic: inert_owned(notice.topic),
+                    body: inert_owned(notice.body),
+                },
+                access,
+            },
             Self::Fatal(text) => Self::Fatal(inert_owned(text)),
         }
     }
@@ -852,6 +879,16 @@ pub(crate) enum TurnWork {
     /// prompt has. Answered with a notice: renamed, or renamed here and not
     /// saved.
     Rename(String),
+    /// Make one `/workspace` change ([`UiEvent::Workspace`]).
+    ///
+    /// Work rather than control because it changes the scope a turn's tools
+    /// run in, so it must land **between** turns -- upstream refuses it while
+    /// anything runs or waits (`tryBeginWorkspaceMutation`,
+    /// `app_commands.zig:219-222`), and so does the band before it sends one --
+    /// and because a prompt typed after it must run in the scope it made: the
+    /// queue is what orders the two. It writes the profile, which the thread
+    /// holding the terminal does not wait on.
+    Workspace(crate::workspace::access::Action),
 }
 
 /// The session's cancellation: an awaitable token and the atomic the transport

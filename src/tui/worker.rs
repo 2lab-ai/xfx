@@ -81,6 +81,7 @@ use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
 };
+use super::notice::Notice;
 use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
@@ -89,7 +90,8 @@ use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
 use crate::interactive::{
-    bind_conversation, open_conversation, rename_conversation, status_snapshot, Conversation,
+    bind_conversation, conversation_scope, open_conversation, rename_conversation, status_snapshot,
+    Conversation,
 };
 use crate::output::StatusSnapshot;
 use crate::permission::{LiveAuthority, PermissionSession};
@@ -99,6 +101,7 @@ use crate::provider::model::{
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{SessionEvent, SessionId, SessionStore, WritableSession};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// How long the UI keeps painting what the worker has already produced before
@@ -840,7 +843,7 @@ impl Resumption {
         config: &RuntimeConfig,
         selector: &crate::session::Selector,
     ) -> io::Result<Self> {
-        let scope = AccessScope::primary_only(&config.workspace_root).map_err(io::Error::other)?;
+        let scope = conversation_scope(config).map_err(io::Error::other)?;
         let store = open_store(config)?;
         let resumed = store
             .resume(selector, &config.workspace_root)
@@ -961,6 +964,16 @@ struct Runtime {
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// The directories `/workspace` saved for this workspace, each as the real
+    /// path it was when it was read: at launch, from the profile, and after
+    /// each change, from what the change read back.
+    ///
+    /// The **identities** a turn's scope is made of ([`Runtime::ready`]),
+    /// looked at again before every turn and never resolved again: a saved
+    /// directory that has since become a link to somewhere else is out of the
+    /// scope rather than the somewhere else in it
+    /// (`crate::workspace::AccessScope::with_observed_roots`).
+    workspace: WorkspaceAccess,
 }
 
 impl Runtime {
@@ -995,6 +1008,8 @@ impl Runtime {
         let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         let effort = config.effort.clone();
         let config_mode = config.permission_mode;
+        let workspace =
+            WorkspaceAccess::load(&config.workspace_root, &config.additional_directories);
         Self {
             config,
             env,
@@ -1009,6 +1024,7 @@ impl Runtime {
             board,
             grants: Grants::default(),
             live: LiveAuthority::new(config_mode),
+            workspace,
         }
     }
 
@@ -1156,6 +1172,18 @@ impl Runtime {
                 mirror,
             )?);
         }
+        // **The scope this turn runs in**, made now from the saved directories
+        // that are still themselves ([`Runtime::workspace`]): a `/workspace`
+        // change between turns is in force from the next one, and a directory
+        // that vanished or was swapped for a link since is not.
+        let scope = self
+            .workspace
+            .refreshed()
+            .scope(&self.config.workspace_root)
+            .map_err(|err| err.to_string())?;
+        if let Some(conversation) = self.conversation.as_mut() {
+            conversation.tools.set_scope(scope);
+        }
         Ok(())
     }
 
@@ -1195,6 +1223,43 @@ impl Runtime {
     fn rename(&mut self, title: &str, mirror: &CancelToken) -> Result<(), String> {
         let conversation = self.conversation(mirror)?;
         rename_conversation(conversation, title)
+    }
+
+    /// One `/workspace` change, between turns, and what the band is told of
+    /// it (`handleWorkspaceCommand`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:245-328`).
+    ///
+    /// The profile is changed and read back ([`workspace_access::execute`]);
+    /// what was read back is what the next turn's scope is made of
+    /// ([`Runtime::ready`]) -- this runs only between turns, so no tool call
+    /// sees half of it -- and what a conversation `/new` opens is made of. A
+    /// change the profile did not take changes nothing here either, as
+    /// upstream's durable-or-nothing rule has it.
+    fn change_workspace(&mut self, action: &workspace_access::Action) -> UiEvent {
+        let primary = self.config.workspace_root.clone();
+        let updated = match workspace_access::execute(
+            &primary,
+            self.config.user_settings_path.as_deref(),
+            &self.workspace,
+            action,
+        ) {
+            Ok(updated) => updated,
+            Err(failure) => {
+                return UiEvent::Workspace {
+                    notice: Notice::error(workspace_access::TOPIC, failure.message()),
+                    access: None,
+                }
+            }
+        };
+        self.config.additional_directories = updated.access.saved();
+        self.workspace = updated.access.clone();
+        UiEvent::Workspace {
+            notice: Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+            ),
+            access: Some(updated.access),
+        }
     }
 
     /// What a `/resume` picker lists, read now: both scopes, newest first,
@@ -1261,8 +1326,7 @@ impl Runtime {
     ) -> Result<super::hydration::Hydration, super::session_picker::ResumeFailure> {
         use super::session_picker::ResumeFailure;
         let id = crate::session::SessionId::parse(id).map_err(|_| ResumeFailure::Unavailable)?;
-        let scope = AccessScope::primary_only(&self.config.workspace_root)
-            .map_err(|_| ResumeFailure::Unavailable)?;
+        let scope = conversation_scope(&self.config).map_err(|_| ResumeFailure::Unavailable)?;
         let resumed = self
             .store
             .resume_without_waiting(
@@ -1423,6 +1487,12 @@ impl Runtime {
         self.config = reloaded;
         self.config.permission_mode = mode;
         self.config.yolo_acknowledged = acknowledged;
+        // The directories too: the file was read again, and what it saves
+        // for this workspace is what a turn runs in.
+        self.workspace = WorkspaceAccess::load(
+            &self.config.workspace_root,
+            &self.config.additional_directories,
+        );
         // The model comes back with it, because the selector is where the model
         // is: rebuilding it from the reloaded configuration is what makes the
         // switch's model the one the file now says rather than the one the
@@ -1808,6 +1878,11 @@ async fn turn_loop(
             }
             TurnWork::Rename(title) => {
                 run_rename(&mut state, &title, events, &cancel.mirror()).await;
+                Ended::Turn
+            }
+            TurnWork::Workspace(action) => {
+                let answer = state.change_workspace(&action);
+                bridge::send_terminal(events, answer).await;
                 Ended::Turn
             }
         };
@@ -5857,6 +5932,109 @@ mod tests {
             .expect("open the store");
         let runtime = Runtime::with_environment(config, env, store, a_prompter(), a_questioner());
         (home, workspace, runtime)
+    }
+
+    /// The roots a conversation's next turn runs in, besides the workspace.
+    fn turn_roots(state: &mut Runtime) -> Vec<std::path::PathBuf> {
+        state.ready(&CancelToken::new()).expect("a conversation");
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .scope()
+            .additional_roots()
+            .to_vec()
+    }
+
+    #[test]
+    fn a_workspace_change_is_saved_and_in_force_from_the_next_turn() {
+        let (home, workspace, mut state) = a_runtime_that_can_open_one();
+        let extra = tempfile::tempdir().expect("extra");
+        let extra_path = extra.path().canonicalize().expect("canonical");
+        assert!(turn_roots(&mut state).is_empty());
+
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add(extra.path().to_string_lossy().into_owned()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+        assert_eq!(notice.topic, "workspace");
+        assert!(
+            notice
+                .body
+                .contains("saved_changed=true runtime_changed=true"),
+            "{}",
+            notice.body
+        );
+        assert_eq!(
+            access.expect("in force").saved(),
+            [extra_path.to_string_lossy().into_owned()]
+        );
+        // The open conversation's next turn, and the profile a launch reads.
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra_path));
+        let reloaded = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), BTreeMap::new()),
+            workspace.path(),
+        )
+        .expect("load");
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra_path.to_string_lossy().into_owned()]
+        );
+
+        let UiEvent::Workspace { notice, access } =
+            state.change_workspace(&workspace_access::Action::Clear)
+        else {
+            panic!("not a workspace answer");
+        };
+        assert!(
+            notice.body.ends_with("additional directories: (none)"),
+            "{}",
+            notice.body
+        );
+        assert!(access.expect("in force").entries().is_empty());
+        assert!(turn_roots(&mut state).is_empty());
+    }
+
+    #[test]
+    fn a_refused_workspace_change_changes_nothing() {
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let UiEvent::Workspace { notice, access } = state.change_workspace(
+            &workspace_access::Action::Add("../no-such-directory".to_string()),
+        ) else {
+            panic!("not a workspace answer");
+        };
+        assert_eq!(notice.tone, super::super::notice::Tone::Error);
+        assert_eq!(
+            notice.body,
+            "Workspace update rejected: directory does not exist"
+        );
+        assert!(access.is_none());
+        assert!(state.config.additional_directories.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_directory_swapped_for_a_link_is_out_of_the_next_turn() {
+        // Resolved once, when it was added, and never again: the turn after
+        // the swap does not run in the link's target.
+        let (_home, _workspace, mut state) = a_runtime_that_can_open_one();
+        let base = tempfile::tempdir().expect("base");
+        let base = base.path().canonicalize().expect("canonical");
+        let extra = base.join("extra");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&extra).expect("extra");
+        std::fs::create_dir(&elsewhere).expect("elsewhere");
+        state.change_workspace(&workspace_access::Action::Add(
+            extra.to_string_lossy().into_owned(),
+        ));
+        assert_eq!(turn_roots(&mut state), std::slice::from_ref(&extra));
+
+        std::fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("swap");
+        assert!(turn_roots(&mut state).is_empty());
     }
 
     #[test]

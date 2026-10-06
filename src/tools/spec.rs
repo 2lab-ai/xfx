@@ -723,6 +723,19 @@ impl ToolContext {
         &self.scope
     }
 
+    /// Puts the conversation in `scope` from its next tool call on: what a
+    /// `/workspace` change does to a conversation already open.
+    ///
+    /// Only between turns -- the caller's rule, which upstream's is too
+    /// (`tryBeginWorkspaceMutation`, `vercel-labs/fx@c1db9191
+    /// src/core/app/app_commands.zig:219-222`). Grants and read proofs stay:
+    /// both are keyed by a canonical path, so one for a file in a root that has
+    /// left the scope is never reached again -- the path is refused before
+    /// policy is asked -- and one for a root that comes back is the same file.
+    pub fn set_scope(&mut self, scope: AccessScope) {
+        self.scope = scope;
+    }
+
     pub fn limits(&self) -> &ToolLimits {
         &self.limits
     }

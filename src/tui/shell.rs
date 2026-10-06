@@ -112,6 +112,7 @@ use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
+use super::workspace_menu::{self, MenuAction as WorkspaceAction};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig, StatusLine, StatusLineItem};
 use crate::interactive::{self, Submitted};
@@ -124,6 +125,7 @@ use crate::provider::model::{resolve_in_order, CatalogEntry, CatalogRetry};
 use crate::provider::ProviderId;
 use crate::session::store::title_of;
 use crate::tools::{LineChanges, Outcome as CallOutcome, Shown};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 
 /// Upstream's welcome line, for this binary (`render.zig:160-193`, `c1db919`).
 ///
@@ -846,6 +848,16 @@ pub(crate) struct Shell {
     /// question outranks it in [`Self::slot`] and takes the keys while it is
     /// up; the picker is back when it has been answered.
     statusline_menu: Option<statusline::Menu>,
+    /// The directories `/workspace` saved for this workspace, as the runtime
+    /// last put them in force: the profile's at launch, and what each change
+    /// read back since ([`UiEvent::Workspace`]). The band's copy, for the
+    /// picker, `/workspace list` and the `@` index; the scope a tool runs in
+    /// is the runtime's, made from the same list.
+    workspace_access: WorkspaceAccess,
+    /// The `/workspace` picker, while it is up ([`super::workspace_menu`]): a
+    /// focus like the `/statusline` picker, the composer row hidden while it
+    /// is.
+    workspace_menu: Option<workspace_menu::Menu>,
     /// The workspace's path and the Git branch its `HEAD` was last read on,
     /// for the workspace segment ([`super::statusline::Workspace`]).
     workspace_identity: statusline::Workspace,
@@ -1297,6 +1309,17 @@ use super::activity::compact_tokens;
 
 /// Bold on, and every attribute off: what upstream's card puts around the
 /// submitted text (`user_message_card.zig:319-325`).
+/// The directories the `@` index walks besides the workspace: the ones a
+/// turn's scope would hold -- the available saved directories that are still
+/// themselves, less any inside the workspace or inside another
+/// ([`WorkspaceAccess::scope`]) -- in the order they were saved.
+fn index_roots(primary: &std::path::Path, access: &WorkspaceAccess) -> Vec<std::path::PathBuf> {
+    access
+        .scope(primary)
+        .map(|scope| scope.additional_roots().to_vec())
+        .unwrap_or_default()
+}
+
 const BOLD: &str = "\u{1b}[1m";
 const RESET: &str = "\u{1b}[0m";
 
@@ -1314,6 +1337,9 @@ enum Slot<'a> {
     Ask(&'a QuestionPanel),
     /// The `/statusline` picker. It owns the focus and the composer's rows.
     Statusline(&'a statusline::Menu),
+    /// The `/workspace` picker. The same kind: the focus, and the composer's
+    /// rows.
+    Workspace(&'a workspace_menu::Menu),
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
@@ -1473,10 +1499,17 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             file_picker: None,
-            files: Files::new(
-                config.workspace_root.clone(),
-                std::env::var_os("HOME").map(std::path::PathBuf::from),
-            ),
+            files: {
+                let mut files = Files::new(
+                    config.workspace_root.clone(),
+                    std::env::var_os("HOME").map(std::path::PathBuf::from),
+                );
+                files.set_extra_roots(index_roots(
+                    &config.workspace_root,
+                    &WorkspaceAccess::load(&config.workspace_root, &config.additional_directories),
+                ));
+                files
+            },
             separator: None,
             model_draft: None,
             recalled_slash: false,
@@ -1489,6 +1522,11 @@ impl Shell {
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
+            workspace_access: WorkspaceAccess::load(
+                &config.workspace_root,
+                &config.additional_directories,
+            ),
+            workspace_menu: None,
             workspace_identity: {
                 // Read now only when it is on: a session that never shows the
                 // branch has no reason to open a file for it.
@@ -1632,6 +1670,14 @@ impl Shell {
                     self.statusline,
                     self.palette,
                 ),
+                // The same, with the directories in force.
+                Some(Slot::Workspace(menu)) => menu.rows(
+                    self.geometry.cols,
+                    self.geometry.panel,
+                    &self.workspace,
+                    self.workspace_access.entries(),
+                    self.palette,
+                ),
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
@@ -1719,6 +1765,11 @@ impl Shell {
             Some(Slot::Statusline(_)) => self.painted(
                 self.palette.dim(),
                 statusline::key_help(self.geometry.cols).to_string(),
+            ),
+            // And the `/workspace` picker's (`input_presentation.zig:782-786`).
+            Some(Slot::Workspace(_)) => self.painted(
+                self.palette.dim(),
+                workspace_menu::key_help(self.geometry.cols).to_string(),
             ),
             _ => self.painted(self.palette.statusline(), self.hint_row()),
         }
@@ -1946,6 +1997,9 @@ impl Shell {
         if let Some(menu) = self.statusline_menu.as_ref() {
             return Some(Slot::Statusline(menu));
         }
+        if let Some(menu) = self.workspace_menu.as_ref() {
+            return Some(Slot::Workspace(menu));
+        }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
@@ -2029,6 +2083,11 @@ impl Shell {
             // which is what Enter and the arrows act on.
             if let Some(menu) = self.statusline_menu.as_ref() {
                 let row = menu.marked_row(self.geometry.panel);
+                return (self.geometry.panel_first().saturating_add(row), 0);
+            }
+            // The `/workspace` picker's the same way.
+            if let Some(menu) = self.workspace_menu.as_ref() {
+                let row = menu.marked_row(self.geometry.panel, self.workspace_access.entries());
                 return (self.geometry.panel_first().saturating_add(row), 0);
             }
         }
@@ -2702,6 +2761,14 @@ impl Shell {
             UiEvent::Resumed(replay) => {
                 self.close_sessions(true);
                 self.hydrate(replay, true);
+            }
+            // A `/workspace` change reached the runtime: the directories it
+            // put in force, when it did, and what it says either way.
+            UiEvent::Workspace { notice, access } => {
+                if let Some(access) = access {
+                    self.adopt_workspace(access);
+                }
+                self.announce(notice);
             }
             // The rename reached the conversation. The window takes the title
             // now, and the notice says whether the log has it too.
@@ -3917,6 +3984,7 @@ impl Shell {
         }
         if self.help_menu.is_some()
             || self.statusline_menu.is_some()
+            || self.workspace_menu.is_some()
             || self.sessions.is_some()
             || self.full.is_open()
         {
@@ -3969,6 +4037,69 @@ impl Shell {
                 self.refit();
                 self.render.request(Reason::Modal);
             }
+        }
+    }
+
+    /// One keystroke, while the `/workspace` picker has the focus.
+    ///
+    /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Escape closes
+    /// it; **Enter puts the marked choice's command in the composer and runs
+    /// nothing** (`prepareWorkspaceMenuCommand`, `app_input_runtime.zig:2580-2609`):
+    /// the draft is replaced by it, the picker closes, and the user submits
+    /// the line -- or edits it, or throws it away. A command the composer
+    /// cannot hold leaves the picker as it was, as upstream's does.
+    fn offer_to_workspace(&mut self, event: Input) {
+        let Input::Action(action) = event else {
+            return;
+        };
+        let Some(request) = WorkspaceAction::of(action) else {
+            return;
+        };
+        let Some(menu) = self.workspace_menu.as_mut() else {
+            return;
+        };
+        match request {
+            WorkspaceAction::Up | WorkspaceAction::Down => {
+                menu.step(
+                    request == WorkspaceAction::Down,
+                    self.workspace_access.entries(),
+                );
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Use => {
+                let command = menu.command(self.workspace_access.entries());
+                // The whole draft replaced, its blocks with it -- the editor
+                // keeps what it had when the command is past its cap -- and
+                // a boundary in the undo history, as at every whole-draft
+                // replacement ([`Self::recall`]).
+                if !self.editor.set_text(&command, Entities::new()) {
+                    return;
+                }
+                self.workspace_menu = None;
+                self.edit_history.boundary();
+                self.edited(None);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+            WorkspaceAction::Close => {
+                self.workspace_menu = None;
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
+        }
+    }
+
+    /// The directories in force are now `access`: the band's copy, and the
+    /// roots the `@` index walks besides the workspace (`install`'s
+    /// `refreshFileIndex`, `app_workspace_runtime.zig:131-147`).
+    fn adopt_workspace(&mut self, access: WorkspaceAccess) {
+        self.files
+            .set_extra_roots(index_roots(&self.workspace, &access));
+        self.workspace_access = access;
+        if self.workspace_menu.is_some() {
+            // A list of another length is a picker of another height.
+            self.refit();
+            self.render.request(Reason::Modal);
         }
     }
 
@@ -5853,6 +5984,11 @@ impl Shell {
                 self.offer_to_statusline(event);
                 continue;
             }
+            // The `/workspace` picker the same way.
+            if self.workspace_menu.is_some() {
+                self.offer_to_workspace(event);
+                continue;
+            }
             // And the catalog or the completion menu -- never both -- takes
             // the keys it binds, before the editor and before the gestures see
             // them. Everything else falls through with it still up, because
@@ -7001,6 +7137,7 @@ impl CommandHandlers for Shell {
             self.picker = None;
             self.file_picker = None;
             self.help_menu = None;
+            self.workspace_menu = None;
             self.statusline_menu = Some(statusline::Menu::open());
             // [`Self::run_command`] re-solved the band before routing here,
             // for a band with a composer in it.
@@ -7013,6 +7150,62 @@ impl CommandHandlers for Shell {
             return;
         };
         self.set_statusline(item, !self.statusline.get(item), true);
+    }
+
+    /// Upstream's `commandHandleWorkspace` and `handleWorkspaceCommand`
+    /// (`app_commands.zig:2119-2152`, `:245-328`).
+    ///
+    /// **Bare**, the saved directories are looked at again -- only while
+    /// nothing runs, as upstream's refresh is (`refreshWorkspaceAvailabilityForList`,
+    /// `:224-230`) -- and the picker opens on `Add directory…` in place of the
+    /// composer, the menus that share its slot closed. **`list`** says the
+    /// snapshot. **A change** is the runtime's to make, because it changes the
+    /// scope a turn runs in: while a turn runs or one waits it is refused at
+    /// once with upstream's neutral notice, and otherwise it goes as work,
+    /// answered by [`UiEvent::Workspace`] with the snapshot -- or the refusal --
+    /// and the directories now in force. **Anything else** is upstream's usage
+    /// line, an error with no topic.
+    fn workspace(&mut self, argument: &str) {
+        let action = match workspace_access::parse(argument) {
+            Ok(action) => action,
+            Err(()) => {
+                self.write_notice(&notice::Notice::error("", workspace_access::USAGE));
+                return;
+            }
+        };
+        let Some(action) = action else {
+            if self.work.outstanding() == 0 {
+                let refreshed = self.workspace_access.refreshed();
+                if refreshed != self.workspace_access {
+                    self.adopt_workspace(refreshed);
+                }
+            }
+            if argument.is_empty() {
+                self.picker = None;
+                self.file_picker = None;
+                self.help_menu = None;
+                self.statusline_menu = None;
+                self.workspace_menu = Some(workspace_menu::Menu::open());
+                self.refit();
+                self.render.request(Reason::Modal);
+            } else {
+                self.write_notice(&notice::Notice::neutral(
+                    workspace_access::TOPIC,
+                    workspace_access::snapshot(&self.workspace, &self.workspace_access, None),
+                ));
+            }
+            return;
+        };
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral(
+                workspace_access::TOPIC,
+                workspace_access::BUSY,
+            ));
+            return;
+        }
+        if let Err(rejected) = self.work.submit(TurnWork::Workspace(action)) {
+            self.refused(rejected);
+        }
     }
 
     /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
@@ -7580,6 +7773,7 @@ impl Shell {
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
             | UiEvent::Renamed { .. }
+            | UiEvent::Workspace { .. }
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
@@ -7859,6 +8053,9 @@ impl Shell {
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Column) => model_column::height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
+            Some(Slot::Workspace(_)) => {
+                workspace_menu::Menu::height(rows, self.workspace_access.entries())
+            }
             Some(Slot::Catalog(_))
             | Some(Slot::Sessions(_))
             | Some(Slot::Models(_))
@@ -7913,7 +8110,7 @@ impl Shell {
         // screen too short for all five -- with a turn's row above it, say --
         // it shows the marked item and as much around it as fits
         // ([`statusline::Menu::rows`]), down to the one row every band has.
-        if matches!(slot, Some(Slot::Statusline(_))) {
+        if matches!(slot, Some(Slot::Statusline(_)) | Some(Slot::Workspace(_))) {
             return (1..=fixed)
                 .rev()
                 .find_map(|panel| layout::solve_band(rows, cols, 0, activity, panel))
@@ -13194,8 +13391,8 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, `/help`, `/model`, `/provider` and a bare `/statusline`
-            // the ones whose answer is in the band, and the reset's three names answer
+            // a row, `/help`, `/model`, `/provider`, a bare `/statusline` and a
+            // bare `/workspace` the ones whose answer is in the band, and the reset's three names answer
             // with a fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
             // every other one says something, as a notice.
             if *name == "/quit" {
@@ -13244,6 +13441,18 @@ mod tests {
                 assert!(
                     document.is_empty(),
                     "/statusline wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/workspace" {
+                // A bare `/workspace` is upstream's compact picker
+                // (`cap/fx-workspace-40x120-bare`), in the band too.
+                assert!(
+                    shell.workspace_menu.is_some(),
+                    "/workspace opened no picker"
+                );
+                assert!(
+                    document.is_empty(),
+                    "/workspace wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
@@ -20404,6 +20613,285 @@ mod tests {
             output: None,
         });
         assert_eq!(shell.shell.context_meter(), Some((7, Some(200_000))));
+    }
+
+    // -----------------------------------------------------------------------
+    // `/workspace`: the picker, the text forms, and the runtime's answer
+    // -----------------------------------------------------------------------
+
+    /// The profile under `root` with `dirs` saved for its workspace, and the
+    /// workspace's real path.
+    fn workspace_profile(root: &std::path::Path, dirs: &[&std::path::Path]) -> std::path::PathBuf {
+        let workspace = root.join("work");
+        std::fs::create_dir_all(&workspace).expect("a workspace");
+        let key = workspace.canonicalize().expect("canonical");
+        let profile = root.join("home").join(".xfx");
+        std::fs::create_dir_all(&profile).expect("a profile");
+        let saved: Vec<String> = dirs
+            .iter()
+            .map(|dir| {
+                dir.canonicalize()
+                    .expect("canonical")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        std::fs::write(
+            profile.join("settings.json"),
+            serde_json::json!({"workspaces": {key.to_string_lossy(): {"additional_directories": saved}}})
+                .to_string(),
+        )
+        .expect("a profile");
+        key
+    }
+
+    #[test]
+    fn a_bare_workspace_opens_upstreams_picker_in_place_of_the_composer() {
+        // `cap/fx-workspace-40x120-bare`: the rule, `Workspace`, a blank, the
+        // two pinned rows, a blank, `❯ Add directory…`, the rule and the key
+        // help -- and nothing written, nothing sent.
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.document().is_empty(), "the picker wrote a notice");
+        assert!(shell.workspace_menu.is_some());
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept its row");
+        assert_eq!(shell.geometry.panel, 6);
+        let rows = shell.band_rows();
+        assert_eq!(rows[0], divider(120));
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        assert_eq!(
+            uncoloured_rows(&rows[1..7]),
+            [
+                "Workspace".to_string(),
+                String::new(),
+                format!("  Primary                   {primary}"),
+                "  Additional directories    0 / 16".to_string(),
+                String::new(),
+                "\u{276f} Add directory\u{2026}             Grant access to another directory"
+                    .to_string(),
+            ]
+        );
+        assert_eq!(rows[7], divider(120));
+        assert_eq!(
+            rows[8],
+            format!(
+                "{}\u{2191}\u{2193} navigate     enter use     esc close{}",
+                PALETTE.dim(),
+                PALETTE.reset()
+            )
+        );
+        assert_eq!(shell.cursor(), (shell.geometry.panel_first() + 5, 0));
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/workspace reached the runtime"
+        );
+        assert_eq!(profile_at(root.path()), "", "opening it wrote the profile");
+    }
+
+    #[test]
+    fn enter_on_a_choice_writes_its_command_into_the_composer_and_runs_nothing() {
+        // `cap/fx-workspace2-40x120-add-row-enter`, `-dir-enter`,
+        // `cap/fx-workspace3-40x120-clear-prefill`; fx e2e
+        // `tui-slash-menu.test.ts:2340-2373`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+
+        for (downs, command) in [
+            (0, "/workspace add ".to_string()),
+            (1, format!("/workspace remove {}", extra.display())),
+            (2, "/workspace clear".to_string()),
+        ] {
+            shell.route_bytes(b"/workspace\r");
+            assert_eq!(shell.geometry.panel, 8, "{command}");
+            for _ in 0..downs {
+                shell.route_bytes(b"\x1b[B");
+            }
+            shell.route_bytes(b"\r");
+            assert!(shell.workspace_menu.is_none(), "{command}");
+            assert_eq!(shell.editor.text(), command);
+            assert!(shell.sent.try_recv().is_err(), "{command} ran");
+            assert!(shell.document().is_empty(), "{command} said something");
+            assert!(
+                shell.band_rows().contains(&composer_row(&command)),
+                "{command}: {:?}",
+                shell.band_rows()
+            );
+            // Ctrl-U empties it, as the e2e does between the two.
+            shell.route_bytes(&[0x15]);
+            assert!(shell.editor.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_workspace_pickers_keys_wrap_swallow_and_close() {
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let marked = |shell: &Fixture| {
+            shell
+                .workspace_menu
+                .expect("up")
+                .command(shell.workspace_access.entries())
+        };
+        // Up from the first wraps to the last; Ctrl-J and Ctrl-K walk too.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(marked(&shell), "/workspace clear");
+        shell.route_bytes(&[0x0a]);
+        assert_eq!(marked(&shell), "/workspace add ");
+        shell.route_bytes(&[0x0b]);
+        assert_eq!(marked(&shell), "/workspace clear");
+        // Letters, Left and Right, a Ctrl-C: swallowed, picker still up.
+        shell.route_bytes(b"x\x1b[C\x1b[D");
+        shell.route_bytes(&[0x03]);
+        assert!(shell.workspace_menu.is_some());
+        assert!(shell.editor.is_empty());
+        assert_eq!(marked(&shell), "/workspace clear");
+        escape(&mut shell);
+        assert!(shell.workspace_menu.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        assert!(shell.document().is_empty());
+    }
+
+    #[test]
+    fn a_saved_directory_is_listed_and_counted_from_the_profile_at_launch() {
+        // `cap/fx-workspace2-40x120-picker-one`.
+        let root = tempfile::tempdir().expect("a root");
+        let extra = root.path().join("extra");
+        std::fs::create_dir_all(&extra).expect("extra");
+        workspace_profile(root.path(), &[&extra]);
+        let extra = extra.canonicalize().expect("canonical");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace\r");
+        let rows = uncoloured_rows(&shell.band_rows()[1..9]);
+        assert_eq!(rows[3], "  Additional directories    1 / 16");
+        assert_eq!(
+            rows[6],
+            format!("  {}    Active \u{b7} Saved", extra.display())
+        );
+        assert_eq!(
+            rows[7].trim_end(),
+            format!(
+                "  Clear saved directories{}Remove every saved additional directory",
+                " ".repeat(extra.to_string_lossy().len() + 4 - 23)
+            )
+        );
+    }
+
+    #[test]
+    fn workspace_list_says_the_snapshot_and_bad_words_say_the_usage() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        let primary = shell.workspace.to_string_lossy().into_owned();
+        shell.route_bytes(b"/workspace list\r");
+        assert_eq!(
+            shell.document(),
+            [
+                format!("* workspace: primary={primary}"),
+                "  saved_suppressed=false limit=16".to_string(),
+                "  additional directories: (none)".to_string(),
+                String::new(),
+            ]
+        );
+        for typed in [
+            "/workspace bogus\r",
+            "/workspace add\r",
+            "/workspace add   \r",
+        ] {
+            shell.route_bytes(typed.as_bytes());
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error(
+                    "",
+                    "usage: /workspace [add PATH|remove PATH|clear]"
+                )),
+                "{typed:?}"
+            );
+        }
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refusal reached the runtime"
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_goes_to_the_runtime_and_its_answer_is_said_and_kept() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut shell = shell_at_home(root.path(), 40, 120);
+        shell.route_bytes(b"/workspace add ../extra\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Workspace(workspace_access::Action::Add("../extra".to_string()))
+        );
+        assert!(
+            shell.document().is_empty(),
+            "the band answered for the runtime"
+        );
+
+        let entries =
+            WorkspaceAccess::load(&shell.workspace.clone(), &["/somewhere/extra".to_string()]);
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::neutral("workspace", "primary=/w\nadditional directories:"),
+            access: Some(entries.clone()),
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            [
+                "* workspace: primary=/w".to_string(),
+                "  additional directories:".to_string(),
+                String::new(),
+            ]
+        );
+        // A refusal says so and keeps the directories as they were.
+        shell.apply(UiEvent::Workspace {
+            notice: notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist",
+            ),
+            access: None,
+        });
+        assert_eq!(shell.workspace_access, entries);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "workspace",
+                "Workspace update rejected: directory does not exist"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_workspace_change_is_refused_while_a_turn_is_in_hand() {
+        // `tryBeginWorkspaceMutation` (`app_commands.zig:219-222`): no change
+        // while anything runs or waits, and upstream's neutral sentence.
+        let mut shell = shell(40, 120);
+        let _ = turn_running(&mut shell, b"stream one\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/workspace clear\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "workspace",
+                "Workspace changes are unavailable until the active and queued work finishes."
+            ))
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "the change was queued anyway"
+        );
+        // The snapshot and the picker are not changes, and still answer.
+        shell.route_bytes(b"/workspace list\r");
+        assert!(shell.document()[0].starts_with("* workspace: primary="));
+        shell.route_bytes(b"/workspace\r");
+        assert!(shell.workspace_menu.is_some());
     }
 
     // -----------------------------------------------------------------------

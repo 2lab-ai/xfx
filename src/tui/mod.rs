@@ -736,6 +736,7 @@ mod theme;
 mod toolgroup;
 mod transcript;
 mod worker;
+mod workspace_menu;
 mod wrap;
 
 #[cfg(test)]

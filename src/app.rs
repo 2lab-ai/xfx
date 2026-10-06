@@ -340,7 +340,23 @@ async fn run_ask(
     // The authority the turn's tools will run under, resolved before anything
     // else. A directory the user named but xfx cannot use is a mistake in the
     // invocation, and reporting it here costs no credential and no round trip.
-    let scope = match AccessScope::new(&config.workspace_root, &request.add_dirs) {
+    //
+    // **The saved directories too**, as upstream's `ask` has them
+    // (`vercel-labs/fx@c1db9191 src/core/cli/cli_ask.zig:1193`, the launch's
+    // saved and command-line entries in one scope): one `/workspace add`
+    // means the same directory to every surface. A saved one that is not
+    // there is skipped rather than failing the turn -- it is not something
+    // this invocation named.
+    let saved = crate::workspace::access::WorkspaceAccess::load(
+        &config.workspace_root,
+        &config.additional_directories,
+    );
+    let roots = request
+        .add_dirs
+        .iter()
+        .map(PathBuf::as_path)
+        .chain(saved.active_roots());
+    let scope = match AccessScope::new(&config.workspace_root, roots) {
         Ok(scope) => scope,
         Err(err) => {
             let mut sink: Box<dyn EventSink> = if request.json {

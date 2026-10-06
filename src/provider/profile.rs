@@ -227,6 +227,41 @@ fn write_preferences_within(
     write_document(path, body.as_bytes())
 }
 
+/// One read, change and rename of the settings document, under the same two
+/// locks [`write_preferences`] takes, for a change that is not "set these
+/// keys".
+///
+/// `/workspace` is the one that needs it: it **removes** keys as well as
+/// setting them, and an entry it empties has to leave the file rather than
+/// stay behind as `{}` (`removeWorkspaceIfEmpty`, `vercel-labs/fx@c1db9191
+/// src/core/config/settings_store.zig:1498-1505`). A second writer beside this
+/// one would be a second place a concurrent key could be lost.
+///
+/// `edit` says whether it changed the document, and **nothing is written when
+/// it did not**: the file stays byte-identical, which is what lets a caller
+/// report `saved_changed=false` and mean it. An `Err` from `edit` is returned
+/// as it is, with nothing written.
+pub fn edit_document<E: From<io::Error>>(
+    path: &Path,
+    edit: impl FnOnce(&mut Map<String, Value>) -> Result<bool, E>,
+) -> Result<bool, E> {
+    let _in_process = WRITERS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = parent_of(path)?;
+    create_private_dir(dir)?;
+    let _across_processes = SettingsLock::acquire(dir, SETTINGS_LOCK_DEADLINE)?;
+    let mut document = read_existing(path)?;
+    if !edit(&mut document)? {
+        return Ok(false);
+    }
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())?;
+    Ok(true)
+}
+
 /// How long a settings write waits for another process's `settings.lock`
 /// before it gives up: upstream's two seconds (`settings_store.zig:19`).
 const SETTINGS_LOCK_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2000);

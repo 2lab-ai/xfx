@@ -40,6 +40,7 @@ use crate::session::{
     WritableSession,
 };
 use crate::tools::{QuestionRequester, ToolContext};
+use crate::workspace::access::{self as workspace_access, WorkspaceAccess};
 use crate::workspace::{AccessScope, ProjectContext};
 
 /// Every slash command the shell accepts, in the order `/help` lists them.
@@ -74,6 +75,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/copy",
     "/statusline",
     "/sound",
+    "/workspace",
     "/version",
     "/quit",
 ];
@@ -266,6 +268,17 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         // beep, a flash, a mark on a multiplexer's tab -- is the terminal's.
         summary: "toggle sounds and terminal bells",
         category: "Appearance",
+        has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Workspace,
+        name: "/workspace",
+        aliases: &[],
+        // Upstream's row whole (`commands.zig:496`); the grammar is
+        // `crate::workspace::access::parse`, whose refusal is upstream's
+        // usage line.
+        summary: "manage additional workspace directories",
+        category: "Workspace",
         has_args: true,
     },
     SlashSpec {
@@ -556,6 +569,10 @@ pub enum Slash {
     /// TUI, one item flipped by name on either surface, and the choice kept in
     /// the profile (`statusLine.{context,session,workspace}`).
     Statusline,
+    /// The directories a session may work in besides the workspace, saved in
+    /// the profile: a picker in the TUI, `list`, `add`, `remove` and `clear`
+    /// on either surface ([`crate::workspace::access`]).
+    Workspace,
     Version,
     Quit,
 }
@@ -908,7 +925,7 @@ pub(crate) fn open_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Result<Conversation, String> {
-    let scope = AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
+    let scope = conversation_scope(config)?;
     let session = store
         .create(
             SessionId::generate(),
@@ -930,6 +947,19 @@ pub(crate) fn open_conversation(
         questioner,
         cancel,
     ))
+}
+
+/// The scope a conversation opened under `config` runs in: the workspace,
+/// and every directory `/workspace` saved for it that is still there
+/// ([`crate::workspace::access`]).
+///
+/// One function for every place a conversation is opened -- a first prompt, a
+/// `/rename` before one, a resumed session on either surface -- so a saved
+/// directory cannot be in force in one of them and missing from another.
+pub(crate) fn conversation_scope(config: &RuntimeConfig) -> Result<AccessScope, String> {
+    WorkspaceAccess::load(&config.workspace_root, &config.additional_directories)
+        .scope(&config.workspace_root)
+        .map_err(|err| err.to_string())
 }
 
 /// Binds an open session to the authority its tools run under.
@@ -1150,6 +1180,13 @@ pub async fn run(
                         sound =
                             apply_sound(&argument, sound, config.user_settings_path.as_deref())?;
                     }
+                    Slash::Workspace => workspace_on_the_line(
+                        &argument,
+                        &mut config,
+                        conversation.as_mut(),
+                        &mut io::stdout(),
+                        &mut io::stderr(),
+                    )?,
                 }
                 io::stdout().flush()?;
             }
@@ -1666,6 +1703,73 @@ fn statusline_on_the_line(
     )
 }
 
+/// `/workspace` on this shell.
+///
+/// There is no band to put upstream's picker in, so a bare `/workspace` is
+/// `/workspace list`: the snapshot, its rows under one `[shell] workspace:`
+/// line. A change is made at once -- this loop runs no turn while it reads a
+/// line, which is the whole of upstream's "between turns" rule here -- and an
+/// open conversation is put in the new scope before the next prompt is read.
+/// A refusal is upstream's sentence on standard error.
+fn workspace_on_the_line(
+    argument: &str,
+    config: &mut RuntimeConfig,
+    conversation: Option<&mut Conversation>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> io::Result<()> {
+    let primary = config.workspace_root.clone();
+    let current = WorkspaceAccess::load(&primary, &config.additional_directories);
+    let action = match workspace_access::parse(argument) {
+        Err(()) => return writeln!(err, "xfx: {}", workspace_access::USAGE),
+        Ok(None) => {
+            let body = workspace_access::snapshot(&primary, &current.refreshed(), None);
+            return workspace_said(out, &body);
+        }
+        Ok(Some(action)) => action,
+    };
+    let updated = match workspace_access::execute(
+        &primary,
+        config.user_settings_path.as_deref(),
+        &current,
+        &action,
+    ) {
+        Ok(updated) => updated,
+        Err(failure) => {
+            return writeln!(
+                err,
+                "xfx: {}: {}",
+                workspace_access::TOPIC,
+                failure.message()
+            )
+        }
+    };
+    config.additional_directories = updated.access.saved();
+    if let Some(conversation) = conversation {
+        match updated.access.scope(&primary) {
+            Ok(scope) => conversation.tools.set_scope(scope),
+            Err(problem) => writeln!(err, "xfx: {}: {problem}", workspace_access::TOPIC)?,
+        }
+    }
+    workspace_said(
+        out,
+        &workspace_access::snapshot(&primary, &updated.access, Some(&updated.mutation)),
+    )
+}
+
+/// A `/workspace` snapshot on this shell: the first row after the topic, the
+/// rest two columns in, as the TUI's notice continues its rows.
+fn workspace_said(out: &mut dyn Write, body: &str) -> io::Result<()> {
+    for (index, line) in body.lines().enumerate() {
+        if index == 0 {
+            writeln!(out, "[shell] {}: {line}", workspace_access::TOPIC)?;
+        } else {
+            writeln!(out, "[shell]   {line}")?;
+        }
+    }
+    Ok(())
+}
+
 /// `/copy` on this shell: the conversation's last reply onto the clipboard,
 /// and one line saying how that went ([`crate::clipboard`]).
 ///
@@ -1787,10 +1891,11 @@ mod tests {
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
         // upstream's third name for the one reset -- thirteen since
-        // `/permissions` and `/statusline`, fourteen since `/sound`, and sixteen
-        // since `/resume` and `/rename`; `/provider` took `/setup`'s place rather
-        // than adding one, and `/models` stays deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 16);
+        // `/permissions` and `/statusline`, fourteen since `/sound`, sixteen
+        // since `/resume` and `/rename`, and seventeen since `/workspace`;
+        // `/provider` took `/setup`'s place rather than adding one, and
+        // `/models` stays deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 17);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -2081,13 +2186,20 @@ mod tests {
         // too, which is what puts the space after it when it is completed
         // (`commands.zig:472`) -- `/permissions <mode|reset>` picks the
         // authority, `/statusline <item>` flips a footer segment, and
-        // `/sound [on|off]` sets the switch a bare `/sound` toggles, and
-        // `/rename <title>` names the session. Every other name is the whole
-        // command.
+        // `/sound [on|off]` sets the switch a bare `/sound` toggles,
+        // `/rename <title>` names the session, and `/workspace
+        // [list|add PATH|remove PATH|clear]` keeps the added directories.
+        // Every other name is the whole command.
         for spec in SLASH_REGISTRY {
             let takes_one = matches!(
                 spec.name,
-                "/model" | "/provider" | "/permissions" | "/statusline" | "/sound" | "/rename"
+                "/model"
+                    | "/provider"
+                    | "/permissions"
+                    | "/statusline"
+                    | "/sound"
+                    | "/rename"
+                    | "/workspace"
             );
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
@@ -2295,6 +2407,97 @@ mod tests {
             &workspace,
         )
         .expect("load a configuration")
+    }
+
+    /// `/workspace <argument>` on this shell: what it printed on each stream.
+    fn workspace_said_on(argument: &str, config: &mut RuntimeConfig) -> (String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        workspace_on_the_line(argument, config, None, &mut out, &mut err).expect("write");
+        (
+            String::from_utf8(out).expect("utf-8"),
+            String::from_utf8(err).expect("utf-8"),
+        )
+    }
+
+    #[test]
+    fn the_line_shell_lists_adds_and_keeps_a_workspace_directory() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let primary = config.workspace_root.clone();
+        let extra = primary.parent().expect("a parent").join("extra");
+        std::fs::create_dir(&extra).expect("extra");
+
+        let (out, err) = workspace_said_on("", &mut config);
+        assert_eq!(err, "");
+        assert_eq!(
+            out,
+            format!(
+                "[shell] workspace: primary={}\n\
+                 [shell]   saved_suppressed=false limit=16\n\
+                 [shell]   additional directories: (none)\n",
+                primary.display()
+            )
+        );
+
+        let (out, err) = workspace_said_on("add ../extra", &mut config);
+        assert_eq!(err, "");
+        assert!(
+            out.contains(
+                "\n[shell]   add ../extra saved_changed=true runtime_changed=true \
+                 launch_flag_can_restore=false\n"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.ends_with(&format!(
+                "[shell]    - {} saved=true command_line=false available=true active=true\n",
+                extra.display()
+            )),
+            "{out}"
+        );
+        // In force for the next conversation this shell opens, and for the
+        // next launch.
+        assert_eq!(
+            conversation_scope(&config)
+                .expect("a scope")
+                .additional_roots(),
+            std::slice::from_ref(&extra)
+        );
+        let reloaded = config_under(root.path());
+        assert_eq!(
+            reloaded.additional_directories,
+            [extra.to_string_lossy().into_owned()]
+        );
+        assert_eq!(
+            conversation_scope(&reloaded)
+                .expect("a scope")
+                .additional_roots(),
+            [extra]
+        );
+
+        let (out, err) = workspace_said_on("clear", &mut config);
+        assert_eq!(err, "");
+        assert!(
+            out.ends_with("[shell]   additional directories: (none)\n"),
+            "{out}"
+        );
+        assert!(config.additional_directories.is_empty());
+    }
+
+    #[test]
+    fn the_line_shell_refuses_a_workspace_change_in_upstreams_words() {
+        let root = tempfile::tempdir().expect("a root");
+        let mut config = config_under(root.path());
+        let (out, err) = workspace_said_on("bogus", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(err, "xfx: usage: /workspace [add PATH|remove PATH|clear]\n");
+        let (out, err) = workspace_said_on("add ../missing", &mut config);
+        assert_eq!(out, "");
+        assert_eq!(
+            err,
+            "xfx: workspace: Workspace update rejected: directory does not exist\n"
+        );
+        assert!(config.additional_directories.is_empty());
     }
 
     /// `/statusline <argument>` on this shell: what it printed on each stream.
