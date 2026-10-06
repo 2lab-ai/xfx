@@ -22446,8 +22446,12 @@ mod tests {
     }
 
     /// Turns of the loop until the selection copies have answered.
+    ///
+    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
+    /// which macOS assesses on its first run -- past ten seconds at load 60,
+    /// where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -26381,8 +26385,10 @@ mod tests {
 
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
+    ///
+    /// A minute, for the reason `copies_settled` gives.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
