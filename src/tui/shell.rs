@@ -812,13 +812,16 @@ pub(crate) struct Shell {
     /// and so are the cancelled work starting late rather than a new turn
     /// ([`UiEvent::TurnStarted`]).
     cancel_covers: usize,
-    /// The retry the turn is waiting on, while it is ([`super::retry`]).
+    /// What the activity row says about the turn's recovery, while it says
+    /// anything ([`super::retry::Row`]).
     ///
     /// It replaces the activity row rather than sitting beside it, as
-    /// upstream's recovery label does (`worker_status.zig:41-49`), and it goes
-    /// the moment the turn shows any sign of having got through -- an answer,
-    /// a tool, a question -- or of being over.
-    retry: Option<super::retry::Standing>,
+    /// upstream's recovery label does (`worker_status.zig:41-49`): a retry's
+    /// label until the step it retried has got through, then `✓ recovered ·
+    /// attempt N` for a moment -- through whatever the turn does next, a tool
+    /// included (`fx-interrupt-recovered-40x120-rec-1.4`) -- and nothing once
+    /// the turn is over.
+    retry: Option<super::retry::Row>,
     /// How many submissions are waiting behind the one in flight, as of the
     /// last settle. Cached for the same reason [`Self::escape_armed`] is.
     queued: usize,
@@ -1020,6 +1023,10 @@ pub(crate) struct Shell {
     /// re-solved from exactly this field, so the row's presence and its text
     /// cannot disagree.
     activity_row: Option<String>,
+    /// The rows a recovery's label wraps onto under [`Self::activity_row`],
+    /// up to two (`max_static_status_activity_rows`, `render_input.zig:406`).
+    /// Re-solved into the geometry with the row, as the row is.
+    activity_more: Vec<String>,
     /// Whether the screen owes a reset's scrollback handoff
     /// (`super::frame::Band::hand_off`), and how many blank rows the document
     /// it hands off ends on.
@@ -1652,6 +1659,7 @@ impl Shell {
             provider_picker: None,
             provider_dismissed: false,
             activity_row: None,
+            activity_more: Vec::new(),
             handoff: None,
             tail_unknown: false,
             draining: None,
@@ -1698,19 +1706,33 @@ impl Shell {
         if self.geometry.activity.is_some() {
             let padding = usize::from(self.geometry.activity_padding);
             rows.push(self.activity_row.clone().unwrap_or_default());
-            // A waiting prompt's rows, between the turn's blank row and a
-            // blank row of their own -- when the band was solved with them
-            // ([`layout::solve_band_with_banner`]), which is the only way the
-            // padding is that tall.
+            // A recovery's wrapped rows under it, then the turn's blank row,
+            // then a waiting prompt's rows and a blank row of their own --
+            // each only when the band was solved with it
+            // ([`layout::solve_band_tall`]). The padding is how tall the
+            // band was solved, and [`Self::fit`] tries the three shapes in
+            // this order, so the first shape the padding matches is the one
+            // it chose.
             let banner = self.banner_rows(self.geometry.cols);
-            if !banner.is_empty() && padding == banner.len() + 2 {
+            let more = self.activity_more.len();
+            let with_banner =
+                |more: usize| !banner.is_empty() && padding == more + banner.len() + 2;
+            let (more, show_banner) = if more > 0 && with_banner(more) {
+                (more, true)
+            } else if more > 0 && padding == more + 1 {
+                (more, false)
+            } else {
+                (0, with_banner(0))
+            };
+            rows.extend(self.activity_more.iter().take(more).cloned());
+            if show_banner {
                 rows.push(String::new());
                 for row in banner {
                     rows.push(self.painted(self.palette.dim(), row));
                 }
                 rows.push(String::new());
             } else {
-                rows.extend(std::iter::repeat_n(String::new(), padding));
+                rows.extend(std::iter::repeat_n(String::new(), padding - more));
             }
         }
         // The composer's own rows, as many of them as the window shows, each
@@ -2631,8 +2653,10 @@ impl Shell {
             // ([`Self::cancel_turn`]).
             UiEvent::Delta(text) => {
                 if !self.cancelling {
-                    // The attempt got through: the answer is the evidence.
-                    self.retry = None;
+                    // A retried answer arriving leaves the row as it is:
+                    // upstream's says the retry until the step has got
+                    // through (`fx-interrupt-recovered-40x120-slow-2.8`), and
+                    // then says that ([`UiEvent::Recovered`]).
                     self.stream(&text);
                 }
             }
@@ -2644,10 +2668,20 @@ impl Shell {
                 delay,
             } => {
                 if !self.cancelling {
-                    self.retry = Some(super::retry::Standing {
+                    self.retry = Some(super::retry::Row::Retrying(super::retry::Standing {
                         cause,
                         diagnostic,
                         deadline: Instant::now() + delay,
+                    }));
+                    self.render.request(Reason::Footer);
+                }
+            }
+            // The retried step got through: said for a moment, from now.
+            UiEvent::Recovered { attempt } => {
+                if !self.cancelling {
+                    self.retry = Some(super::retry::Row::Recovered {
+                        attempt,
+                        until: Instant::now() + super::retry::RECOVERED_VISIBLE,
                     });
                     self.render.request(Reason::Footer);
                 }
@@ -2668,7 +2702,6 @@ impl Shell {
                 if !self.cancelling {
                     self.activity.set(Work::Tool { name: tool });
                 }
-                self.retry = None;
                 self.mark(Mark::ToolStart { id: call_id, shown });
             }
             UiEvent::ToolResult {
@@ -2862,7 +2895,6 @@ impl Shell {
             // focus, and the clock that stops while it is up -- follows from
             // this one field being `Some`.
             UiEvent::Approval(asked) => {
-                self.retry = None;
                 self.ask(asked.id, asked.request);
             }
             // The same three facts for a question the **model** asked: the
@@ -2870,7 +2902,6 @@ impl Shell {
             // not is an approval -- nothing is granted, and refusing it denies
             // nothing ([`super::question`]).
             UiEvent::Question(request) => {
-                self.retry = None;
                 self.ask_question(request);
             }
             UiEvent::TurnEnded { failure } => {
@@ -5918,21 +5949,37 @@ impl Shell {
         // A retry the turn is waiting on is the row, whole, in the warning
         // grey and with no marker (`fx-retry-40x120-r0.6.ansi`:
         // `ESC[38;5;252m⚠ Provider unavailable · … · retrying request in 1s`),
-        // counting down on this clock.
-        let row = match self.retry.as_ref() {
-            _ if self.modal() => None,
-            Some(standing) if self.activity.working() => {
-                Some(self.painted(self.palette.warning(), standing.label(now)))
+        // counting down on this clock; a recovery is `✓ recovered · attempt
+        // N` in `green_style`, which is the same grey in both palettes
+        // (`theme.zig:87`, `:130`). Either one too wide for the screen goes on
+        // up to two rows more, as upstream's does (`fx-interrupt-retry-24x80-
+        // r0.15`: `  request in 1s` under the label), each row painted and
+        // closed on its own.
+        let said = self
+            .retry
+            .as_ref()
+            .and_then(|row| row.label(now).map(|label| (label, row.keeps_tail())));
+        let (row, more) = match said {
+            _ if self.modal() => (None, Vec::new()),
+            Some((label, keep_tail)) if self.activity.working() => {
+                let mut rows = super::retry::wrapped(&label, self.geometry.cols, keep_tail)
+                    .into_iter()
+                    .map(|row| self.painted(self.palette.warning(), row));
+                let first = rows.next();
+                (first, rows.collect())
             }
-            _ => self.activity.row(
-                now,
-                self.phase,
-                self.geometry.cols,
-                (self.tally.input, output),
-                colours,
+            _ => (
+                self.activity.row(
+                    now,
+                    self.phase,
+                    self.geometry.cols,
+                    (self.tally.input, output),
+                    colours,
+                ),
+                Vec::new(),
             ),
         };
-        if row == self.activity_row {
+        if row == self.activity_row && more == self.activity_more {
             // A phase that turned over without changing the row is not a frame:
             // the band is repainted whole, and twenty of those a second for a
             // row that says the same thing is a cost paid on every link.
@@ -5941,8 +5988,10 @@ impl Shell {
         // A row that appeared or went away is a row the band gained or gave
         // back, so the geometry is re-solved before the frame is asked for --
         // `refit` is what moves the divider, and the caret with it.
-        let appeared = row.is_some() != self.activity_row.is_some();
+        let appeared =
+            row.is_some() != self.activity_row.is_some() || more.len() != self.activity_more.len();
         self.activity_row = row;
+        self.activity_more = more;
         if appeared {
             self.refit();
         }
@@ -8039,6 +8088,7 @@ impl Shell {
             | UiEvent::ToolFeedback { .. }
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
+            | UiEvent::Recovered { .. }
             | UiEvent::Usage { .. } => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
@@ -8429,20 +8479,33 @@ impl Shell {
         } else {
             0
         };
+        // **And a recovery's rows under the turn's**, when its label wraps: the
+        // band grows by them, as upstream's activity block does
+        // (`activityProjectionRows`, `render_input.zig:689-697`). Given up
+        // before the waiting prompt's when the screen cannot hold both, and
+        // the first row is then the label cut at the screen's edge.
+        let more = if activity {
+            u16::try_from(self.activity_more.len()).unwrap_or(0)
+        } else {
+            0
+        };
+        let tries: &[(u16, u16)] = &[(more, banner), (more, 0), (0, banner)];
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
-                (banner > 0)
-                    .then(|| {
-                        layout::solve_band_with_banner(
+                tries
+                    .iter()
+                    .filter(|(more, banner)| *more > 0 || *banner > 0)
+                    .find_map(|&(more, banner)| {
+                        layout::solve_band_tall(
                             rows,
                             cols,
                             input_rows,
                             panel(input_rows),
+                            more,
                             banner,
                         )
                     })
-                    .flatten()
                     .or_else(|| {
                         layout::solve_band(rows, cols, input_rows, activity, panel(input_rows))
                     })
@@ -13932,10 +13995,14 @@ mod tests {
     #[test]
     fn a_retry_the_turn_waits_on_is_the_activity_row_counting_down() {
         // `fx-retry-40x120-r0.6`: the row, whole, in the warning grey, no
-        // marker; `-r1.3`: the count gone once the attempt is under way;
-        // `-r2.0`: the answer, and the row the turn's own again.
+        // marker; `-r1.3`: the count gone once the attempt is under way. Claim
+        // changed: the retried answer arriving leaves the row as it is
+        // (`fx-interrupt-recovered-40x120-slow-2.8`), and the row is
+        // `✓ recovered · attempt 2` once the step has got through, for 1.5 s
+        // (`worker_status.zig:5`, `fx-interrupt-recovered-40x120-rec-1.4`),
+        // then the turn's own again.
         let mut shell = running("try it");
-        // The capture's width: at 80 columns the label is cut, as upstream's is.
+        // The capture's width: at 80 columns the label wraps, as upstream's does.
         shell.resize(40, 120);
         let now = Instant::now();
         shell.apply(UiEvent::Retrying {
@@ -13951,18 +14018,90 @@ mod tests {
         );
         assert_eq!(PALETTE.warning(), "\u{1b}[38;5;252m");
         shell.settle_band(now + Duration::from_secs(1));
-        assert_eq!(
-            shell.activity_row.as_deref(),
-            Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()).as_str())
-        );
+        let waiting = Some(format!("{}{label}{}", PALETTE.warning(), PALETTE.reset()));
+        assert_eq!(shell.activity_row, waiting);
 
         shell.apply(UiEvent::Delta("Recovered answer.".to_string()));
         shell.settle_band(now + Duration::from_secs(1));
+        assert_eq!(
+            shell.activity_row, waiting,
+            "the answer arriving took the row"
+        );
+
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        // Read after the event, whose moment begins when it is applied.
+        let recovered = Instant::now();
+        shell.settle_band(recovered);
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{}\u{2713} recovered \u{b7} attempt 2{}",
+                    PALETTE.warning(),
+                    PALETTE.reset()
+                )
+                .as_str()
+            )
+        );
+        shell.settle_band(recovered + super::super::retry::RECOVERED_VISIBLE);
         let row = shell.activity_row.clone().expect("the turn's row");
         assert!(
             uncoloured(&row).contains("Generating"),
-            "the retry outlived the answer that ended it: {row:?}"
+            "the recovery outlived its moment: {row:?}"
         );
+    }
+
+    #[test]
+    fn escape_at_a_retry_arms_the_interrupt_as_upstreams_does_for_a_retry() {
+        // Upstream's Escape pauses a recovery only while it is waiting for
+        // connectivity (`pauseActiveRecovery`, `input_interrupt_runtime.zig`:
+        // `isConnectivityWaitActive`, set only for `waiting_for_connectivity`,
+        // `worker_runtime.zig:884-888`), the unbudgeted wait a lost connection
+        // gets (`model_response_recovery.zig:166-180`). Every retry this turn
+        // makes is a budgeted one, and over those upstream's Escape goes on to
+        // the interrupt gesture (`app_input_runtime.zig:3163-3176`): armed by
+        // the first, the turn stopped by the second.
+        let mut shell = running("try it");
+        shell.apply(UiEvent::Retrying {
+            cause: "Connection lost",
+            diagnostic: "connection refused".to_string(),
+            delay: Duration::from_secs(2),
+        });
+        let now = Instant::now();
+        shell.consume(vec![Input::Action(Action::Escape)], now);
+        shell.settle_band(now);
+        assert!(shell.controlled().is_none(), "one Escape stopped the turn");
+        assert!(shell.interrupt_armed, "the first Escape armed nothing");
+        shell.consume(
+            vec![Input::Action(Action::Escape)],
+            now + Duration::from_millis(300),
+        );
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Cancel { .. })
+        ));
+        assert!(shell.retry.is_none());
+    }
+
+    #[test]
+    fn a_recovery_stays_through_the_tool_it_led_to_and_goes_with_the_turn() {
+        // `fx-interrupt-recovered-40x120-rec-1.4`: `✓ recovered · attempt 2`
+        // over the running command's row; the turn's end clears it
+        // (`clear_recovered_route`, `runtime.zig:6471`).
+        let mut shell = running("run it");
+        shell.resize(40, 120);
+        let now = Instant::now();
+        shell.apply(UiEvent::Recovered { attempt: 2 });
+        shell.apply(tool_start(
+            "1",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "sleep 4"}),
+        ));
+        shell.settle_band(now);
+        let row = shell.activity_row.clone().expect("a row");
+        assert_eq!(uncoloured(&row), "\u{2713} recovered \u{b7} attempt 2");
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert!(shell.retry.is_none(), "the recovery outlived its turn");
     }
 
     #[test]
@@ -14010,18 +14149,44 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_row_is_cut_to_the_screen_with_its_colour_closed() {
+    fn a_retry_row_too_wide_wraps_onto_the_band_as_upstreams_does() {
+        // Renamed, claim changed (was `a_retry_row_is_cut_to_the_screen_with_
+        // its_colour_closed`): `fx-interrupt-retry-24x80-r0.15` -- the label
+        // broken at the last space that fits, `  request in 1s` under it, each
+        // row painted and closed on its own, and the band a row taller.
         let mut shell = running("try it");
-        shell.resize(24, 40);
+        shell.resize(24, 80);
+        let before = shell.geometry;
         shell.apply(UiEvent::Retrying {
             cause: "Provider unavailable",
-            diagnostic: "HTTP 500: unexpected request".to_string(),
-            delay: Duration::from_secs(2),
+            diagnostic: "HTTP 500 \u{b7} server_error: upstream exploded".to_string(),
+            delay: Duration::from_millis(900),
         });
         shell.settle_band(Instant::now());
-        let row = shell.activity_row.clone().expect("a row");
-        assert!(row.ends_with(PALETTE.reset()), "{row:?}");
-        assert_eq!(super::super::wrap::width(&row), 40, "{row:?}");
+        let warning = PALETTE.warning();
+        let reset = PALETTE.reset();
+        assert_eq!(
+            shell.activity_row.as_deref(),
+            Some(
+                format!(
+                    "{warning}\u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: upstream \
+                     exploded \u{b7} retrying{reset}"
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(
+            shell.activity_more,
+            [format!("{warning}  request in 1s{reset}")]
+        );
+        assert_eq!(shell.geometry.activity_padding, before.activity_padding + 1);
+        let band = shell.band_rows();
+        let at = band
+            .iter()
+            .position(|row| row.contains("retrying"))
+            .expect("the row");
+        assert_eq!(band[at + 1], format!("{warning}  request in 1s{reset}"));
+        assert_eq!(band[at + 2], "", "{band:#?}");
     }
 
     #[test]
