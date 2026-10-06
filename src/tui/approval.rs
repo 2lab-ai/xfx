@@ -783,9 +783,28 @@ pub(crate) struct ControlChannel {
     /// can stop one. Consuming it without this queue would make a cancel typed
     /// at a panel a refusal *instead of* a cancel.
     put_back: Mutex<VecDeque<TurnControl>>,
-    /// Model changes read while work was running, waiting for it to end
-    /// ([`Self::defer`]).
-    deferred: Mutex<Vec<super::bridge::ModelChange>>,
+    /// Model changes and undos read while work was running, waiting for it
+    /// to end ([`Self::defer`], [`Self::defer_undo`]), in the order they were
+    /// read.
+    deferred: Mutex<Vec<Deferred>>,
+}
+
+/// One message put aside while work ran, for the turn loop once it is over.
+///
+/// One queue for both rather than one each, so they are done in the order the
+/// person typed them: a `/model` then an `/undo` are answered in that order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Deferred {
+    /// [`TurnControl::Model`].
+    Model(super::bridge::ModelChange),
+    /// [`TurnControl::Undo`].
+    ///
+    /// `after_reset` when the loop had already read a `/new`, `/clear` or
+    /// `/reset` aimed at the same work: that reset drops the conversation
+    /// once the work is over, and an undo typed after it is about the
+    /// conversation it leaves -- which has changed nothing yet -- rather than
+    /// the one it drops.
+    Undo { after_reset: bool },
 }
 
 impl ControlChannel {
@@ -810,12 +829,23 @@ impl ControlChannel {
     /// prompter that treated it as the stop it is not would refuse a call the
     /// user never refused.
     pub(crate) fn defer(&self, change: super::bridge::ModelChange) {
-        self.deferred.guarded().push(change);
+        self.deferred.guarded().push(Deferred::Model(change));
     }
 
-    /// Every change put aside, oldest first, for the turn loop to apply now
-    /// that the work it waited for is over.
-    pub(crate) fn take_deferred(&self) -> Vec<super::bridge::ModelChange> {
+    /// Puts an `/undo` aside until the work that is running ends
+    /// ([`TurnControl::Undo`]).
+    ///
+    /// Not [`Self::give_back`], for the reason [`Self::defer`] is not: the
+    /// loop must not act on it while the work runs, and **an undo answers no
+    /// question** -- a prompter that took it for a stop would refuse a call
+    /// the user never refused.
+    pub(crate) fn defer_undo(&self, after_reset: bool) {
+        self.deferred.guarded().push(Deferred::Undo { after_reset });
+    }
+
+    /// Everything put aside, oldest first, for the turn loop to do now that
+    /// the work it waited for is over.
+    pub(crate) fn take_deferred(&self) -> Vec<Deferred> {
         std::mem::take(&mut *self.deferred.guarded())
     }
 
@@ -1072,6 +1102,14 @@ impl ApprovalPrompter for TuiPrompter {
                     // call the user never refused.
                     Some(TurnControl::Model(change)) => {
                         self.control.defer(change);
+                        continue;
+                    }
+                    // `/undo` typed while this question is up: done once the
+                    // turn is over, and the question stays up -- it refuses
+                    // nothing ([`ControlChannel::defer_undo`]). Above the
+                    // `stop` catch-all for the reason the arm before it is.
+                    Some(TurnControl::Undo) => {
+                        self.control.defer_undo(false);
                         continue;
                     }
                     // A cancel (Escape at the panel, or an interrupt) or a
@@ -2138,12 +2176,58 @@ mod tests {
             ApprovalAnswer::Once,
             "a model change answered the question"
         );
-        assert_eq!(control.take_deferred(), vec![change]);
+        assert_eq!(control.take_deferred(), vec![Deferred::Model(change)]);
         assert_eq!(
             control.waiting(),
             None,
             "the change was handed on as a stop"
         );
+    }
+
+    #[test]
+    fn an_undo_at_a_question_is_put_aside_and_the_question_stays_up() {
+        // `/undo` typed while a permission question waits: the prompter's
+        // catch-all treats anything it does not know as a stop and refuses
+        // the call, so without an arm of its own an undo would deny a change
+        // the user never denied. It goes aside for the loop, in typed order
+        // with a model change, and the question is answered by its own answer.
+        let (tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let change = super::super::bridge::ModelChange {
+            name: "next/model".to_string(),
+            effort: None,
+            picker: false,
+            announced: true,
+            next_turn: true,
+        };
+        tx.send(TurnControl::Undo).expect("the channel is open");
+        tx.send(TurnControl::Model(change.clone()))
+            .expect("the channel is open");
+        tx.send(TurnControl::Answer {
+            id: ApprovalId(1),
+            answer: ApprovalAnswer::Once,
+            feedback: None,
+        })
+        .expect("the channel is open");
+        let (events, _seen) = mpsc::channel(4);
+        let mut prompter = TuiPrompter::new(
+            events,
+            Arc::clone(&control),
+            Cancellation::new(crate::gateway::CancelToken::new()),
+        );
+        assert_eq!(
+            prompter.request(&request("edit_file")).expect("an answer"),
+            ApprovalAnswer::Once,
+            "an undo answered the question"
+        );
+        assert_eq!(
+            control.take_deferred(),
+            vec![
+                Deferred::Undo { after_reset: false },
+                Deferred::Model(change)
+            ]
+        );
+        assert_eq!(control.waiting(), None, "the undo was handed on as a stop");
     }
 
     #[test]

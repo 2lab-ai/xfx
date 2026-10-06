@@ -3671,6 +3671,9 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
     session.wait_for("history_turns=0");
+    // The runtime's answer: nothing has been changed yet.
+    session.type_bytes(b"/undo\r");
+    session.wait_for("Nothing to undo.");
     // A reset answers with a fresh screen: the welcome line again, once per
     // reset, after the one the launch wrote.
     session.type_bytes(b"/new\r");
@@ -3935,6 +3938,136 @@ fn a_reset_mid_turn_cancels_the_turn_rather_than_waiting_for_it() {
         vec!["second".to_string()],
         "the prompt after the reset carried the cancelled conversation"
     );
+}
+
+/// A turn that writes `a.txt`, then one that reads it and writes it again --
+/// fx's own `/undo` receipt (`fx-undo-40x120`), with the read xfx's
+/// `write_file` needs before it replaces a file.
+fn two_writes() -> Vec<support::fake_gateway::Reply> {
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
+    let call = |id: &str, name: &str, input: Value| {
+        Reply::Sse(sse_body(&[
+            tool_call(id, name, input),
+            finish("tool-calls"),
+        ]))
+    };
+    vec![
+        call(
+            "w1",
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        ),
+        Reply::Sse(content_only(&["wrote one"])),
+        call("r1", "read_file", serde_json::json!({"path": "a.txt"})),
+        call(
+            "w2",
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "two\n"}),
+        ),
+        Reply::Sse(content_only(&["wrote two"])),
+    ]
+}
+
+#[test]
+fn undo_takes_back_the_newest_change_one_at_a_time_and_a_reset_leaves_the_rest() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1242-1290`: `Restored`, then
+    // `Deleted … (was newly created)`, then `Nothing to undo.` -- here
+    // interrupted by a `/new` after the first, which leaves the creation
+    // behind as upstream's reset does (`app_session_runtime.zig:1999`).
+    let gateway = FakeGateway::start(two_writes());
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 200);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"write one please\r");
+    session.wait_for("wrote one");
+    session.type_bytes(b"write two please\r");
+    session.wait_for("wrote two");
+    let file = sandbox.workspace.join("a.txt");
+    assert_eq!(std::fs::read_to_string(&file).expect("written"), "two\n");
+    let path = std::fs::canonicalize(&file).expect("canonicalize");
+
+    session.type_bytes(b"/undo\r");
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!("* undo: Restored {}", path.display())],
+        &[],
+    );
+    assert_eq!(std::fs::read_to_string(&file).expect("restored"), "one\n");
+
+    session.type_bytes(b"/new\r");
+    session.wait_for_count("Run /help for commands", 2);
+    session.type_bytes(b"/undo\r");
+    on_screen(&session, (30, 200), &["* undo: Nothing to undo."], &[]);
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("left alone"),
+        "one\n",
+        "the reset's fresh conversation took back the old one's change"
+    );
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        5,
+        "an undo reached the model, or a turn did not run"
+    );
+}
+
+#[test]
+fn an_undo_typed_while_a_turn_runs_is_done_when_the_turn_is_over() {
+    // Upstream's undo is never refused (`commandUndoLast` runs from the
+    // handler whatever the worker is doing); xfx's runtime does it once the
+    // running turn has said its last word, rather than under it.
+    use support::fake_gateway::{finish, sse_body, text_delta, tool_call, Reply};
+    let gateway = FakeGateway::start(vec![
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "w1",
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"}),
+            ),
+            finish("tool-calls"),
+        ])),
+        Reply::SseThenHang(vec![sse_body(&[text_delta("d", "STILL-RUNNING\n\n")])]),
+    ]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    pty.resize(30, 200);
+    let mut session =
+        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    session.wait_for(READY);
+    session.type_bytes(b"make a file\r");
+    session.wait_for("STILL-RUNNING");
+    let file = sandbox.workspace.join("a.txt");
+    let path = std::fs::canonicalize(&file).expect("the turn wrote it");
+
+    session.type_bytes(b"/undo\r");
+    // Not refused and not done under the turn: the composer took it, and the
+    // file is still there while the turn runs. The wait is what keeps this
+    // from being vacuous -- the runtime reads a control message within a
+    // poll of its arrival, so an undo done at once would be done by now.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    on_screen(&session, (30, 200), &["STILL-RUNNING"], &["* undo:"]);
+    assert!(file.exists(), "the undo ran under the running turn");
+
+    session.type_bytes(&[0x03]);
+    on_screen(
+        &session,
+        (30, 200),
+        &[&format!(
+            "* undo: Deleted {} (was newly created)",
+            path.display()
+        )],
+        &[],
+    );
+    assert!(!file.exists(), "the undo was dropped with the turn");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
 }
 
 #[test]
