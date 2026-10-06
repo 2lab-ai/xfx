@@ -56,6 +56,8 @@ use crate::gateway::protocol::{
 };
 use crate::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use crate::output::{Event, EventSink};
+
+use super::steering::Steering;
 use crate::session::{RecordedToolCall, SessionEvent, TurnConclusion};
 use crate::tools::Registry;
 use crate::workspace::ProjectContext;
@@ -283,8 +285,20 @@ pub struct TurnMachine {
     /// by the sentence that says it ended early (`session.zig:3057-3069`;
     /// `crate::session::store`'s `close_interrupted`).
     partial: String,
+    /// What the person sends into the turn while it runs, when the caller
+    /// lets them ([`Self::with_steering`]).
+    steering: Option<Steering>,
     steps: u32,
     finalized: bool,
+}
+
+/// How one model step ended.
+enum Stepped {
+    /// The provider completed it.
+    Completed(Completion),
+    /// A steer cut it short (`crate::agent::steering`): `partial` is the
+    /// answer as far as it had got, and the turn goes on with the steer.
+    Steered { partial: String },
 }
 
 impl TurnMachine {
@@ -301,9 +315,17 @@ impl TurnMachine {
             suffix: Vec::new(),
             output: String::new(),
             partial: String::new(),
+            steering: None,
             steps: 0,
             finalized: false,
         }
+    }
+
+    /// The same machine, taking the prompts the person sends into it while
+    /// it runs, at upstream's boundaries ([`crate::agent::steering`]).
+    pub fn with_steering(mut self, steering: Steering) -> Self {
+        self.steering = Some(steering);
+        self
     }
 
     /// The same machine, carrying `context` as its static system message.
@@ -446,7 +468,33 @@ impl TurnMachine {
                 });
             }
 
-            let completion = self.step(provider, events).await?;
+            let completion = match self.step(provider, events).await? {
+                Stepped::Completed(completion) => completion,
+                // Cut short by a steer: the answer as far as it got is the
+                // assistant's message, and the turn goes on with the steer
+                // (`append_immediate_steering_after_cancel`,
+                // `orchestrator.zig:240-261`) -- no `ended before completion`,
+                // because it did not end (`fx-interrupt-steer-40x120-bodies/
+                // 004-completion.json`).
+                Stepped::Steered { partial } => {
+                    self.steps += 1;
+                    self.output.push_str(&partial);
+                    if !partial.is_empty() {
+                        journal.record(SessionEvent::AssistantMessage {
+                            text: partial.clone(),
+                            tool_calls: Vec::new(),
+                            raw_content: Vec::new(),
+                            responses_state: Vec::new(),
+                            wire: None,
+                        });
+                        self.suffix
+                            .push(Message::assistant(Some(&partial), Vec::new()));
+                    }
+                    let steers = self.waiting_steers(false);
+                    self.tell_steers(steers, events, journal);
+                    continue;
+                }
+            };
             self.steps += 1;
             self.output.push_str(&completion.text);
 
@@ -465,6 +513,23 @@ impl TurnMachine {
                 // The answering step's own evidence, recorded through the same
                 // guard the tool-calling step uses.
                 record_assistant(journal, &completion);
+                // **The last boundary a steer can reach the turn at**: one sent
+                // while this answer arrived is told now, after it, and the turn
+                // goes on (`append_pending_steering_after_assistant`,
+                // `orchestrator.zig:215-238`). Finding none closes the turn to
+                // steers, so a prompt sent from here on is the next turn's.
+                if completion.finish_reason != FinishReason::ToolCalls {
+                    let steers = self.waiting_steers(true);
+                    if !steers.is_empty() {
+                        self.suffix.push(if completion.raw_content.is_empty() {
+                            Message::assistant(Some(&completion.text), Vec::new())
+                        } else {
+                            Message::assistant_raw(completion.raw_content.clone(), Vec::new())
+                        });
+                        self.tell_steers(steers, events, journal);
+                        continue;
+                    }
+                }
                 return match completion.finish_reason {
                     FinishReason::ToolCalls => Err(TurnError::EmptyToolCallFinish),
                     // `stop`, `length`, `content-filter`, and `other` all end
@@ -490,9 +555,64 @@ impl TurnMachine {
                 });
             }
 
-            self.execute_tool_calls(&completion, events, journal)
-                .await?;
+            // A steer sent while the calls run waits for their results
+            // (`hasSteeringWaitBoundaryLocked`, `worker_runtime.zig:1688`), and
+            // until then the person may still take it back.
+            if let Some(steering) = &self.steering {
+                steering.tool_running(true);
+            }
+            let ran = self.execute_tool_calls(&completion, events, journal).await;
+            if let Some(steering) = &self.steering {
+                steering.tool_running(false);
+            }
+            ran?;
+            // After the results, before the next request
+            // (`observe_steering_boundary`, `orchestrator.zig:157-178`).
+            let steers = self.waiting_steers(false);
+            self.tell_steers(steers, events, journal);
         }
+    }
+
+    /// What the person has sent into the turn and the turn has not yet told
+    /// the model, taken now. `last` is the model's answer's boundary, where
+    /// finding nothing closes the turn to steers ([`Steering::take_or_close`]).
+    ///
+    /// A turn the person has stopped takes none: the stop outranks the steer,
+    /// and the band drops it with the queue.
+    fn waiting_steers(&self, last: bool) -> Vec<crate::agent::Steer> {
+        let Some(steering) = &self.steering else {
+            return Vec::new();
+        };
+        if self.request.cancel.is_cancelled() {
+            return Vec::new();
+        }
+        if last {
+            steering.take_or_close()
+        } else {
+            steering.take()
+        }
+    }
+
+    /// Tells the model `steers`: each as a user message in upstream's wrapper,
+    /// recorded as the words the person typed, and announced to whoever shows
+    /// the turn.
+    fn tell_steers(
+        &mut self,
+        steers: Vec<crate::agent::Steer>,
+        events: &mut dyn EventSink,
+        journal: &mut dyn TurnJournal,
+    ) {
+        if steers.is_empty() {
+            return;
+        }
+        for steer in &steers {
+            self.suffix
+                .push(Message::user(crate::agent::steering::message(&steer.text)));
+            journal.record(SessionEvent::Steered {
+                text: steer.text.clone(),
+            });
+        }
+        events.steered(&steers);
     }
 
     /// Runs one step's tool calls and extends the conversation with the result.
@@ -810,10 +930,18 @@ impl TurnMachine {
         &mut self,
         provider: &dyn Provider,
         events: &mut dyn EventSink,
-    ) -> Result<Completion, TurnError> {
+    ) -> Result<Stepped, TurnError> {
         let request = self.completion_request();
         let mut attempt = 0u32;
         loop {
+            // A steer already waiting is told before anything is sent: a
+            // request the model would answer without it is a request spent on
+            // a question the person has since changed.
+            if self.steering.as_ref().is_some_and(Steering::pending) {
+                return Ok(Stepped::Steered {
+                    partial: String::new(),
+                });
+            }
             if attempt >= self.request.max_attempts {
                 return Err(TurnError::AttemptLimit {
                     limit: self.request.max_attempts,
@@ -830,7 +958,30 @@ impl TurnMachine {
                 text: String::new(),
                 error: None,
             };
-            let outcome = provider.stream(&request, &mut deltas).await;
+            // Raced against a steer, which cuts the answer where it has got
+            // to: the stream is dropped -- and its connection with it -- and
+            // what was delivered of it is the assistant's message. The stream
+            // is preferred when both are ready: an answer that has completed
+            // takes the steer at its own boundary instead.
+            let outcome = match self.steering.clone() {
+                Some(steering) => {
+                    tokio::select! {
+                        biased;
+                        outcome = provider.stream(&request, &mut deltas) => Some(outcome),
+                        () = steering.arrived() => None,
+                    }
+                }
+                None => Some(provider.stream(&request, &mut deltas).await),
+            };
+            let Some(outcome) = outcome else {
+                if let Some(err) = deltas.error.take() {
+                    return Err(TurnError::Sink(err));
+                }
+                self.partial.clear();
+                return Ok(Stepped::Steered {
+                    partial: std::mem::take(&mut deltas.text),
+                });
+            };
             let delivered = deltas.delivered;
             // What reached the user, kept for a turn that ends here; a step
             // that completes records its own text instead.
@@ -848,7 +999,7 @@ impl TurnMachine {
                     if attempt > 1 {
                         events.recovered(attempt, self.request.max_attempts);
                     }
-                    return Ok(completion);
+                    return Ok(Stepped::Completed(completion));
                 }
                 Err(err) => {
                     // `delivered` is the decisive fact: once part of an answer

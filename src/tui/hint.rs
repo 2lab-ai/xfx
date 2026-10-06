@@ -11,8 +11,7 @@
 //!
 //! * **The order is upstream's, and the order is a priority.** A missing
 //!   credential leads, because nothing else on the row matters on a machine
-//!   where every turn will refuse; then what is already queued, then the
-//!   permission mode, the model, the session title, the context meter and the
+//!   where every turn will refuse; then the permission mode, the model, the session title, the context meter and the
 //!   workspace (`buildHintLine`, `render.zig:440-470`). Left is more important
 //!   than right, which is what makes "drop from the right" the right rule for a
 //!   screen too narrow to hold everything -- the segments that survive are the
@@ -85,8 +84,6 @@ pub(crate) struct Hint<'a> {
     /// Whether the configured provider has nothing to authenticate with, in
     /// which case every turn this session runs will refuse.
     pub(crate) missing_credential: bool,
-    /// How many submissions are waiting behind the one in flight.
-    pub(crate) queued: usize,
     /// How much authority a turn will have before it has to ask.
     pub(crate) mode: PermissionMode,
     /// The model a turn will talk to, as configured -- provider prefix and all.
@@ -275,11 +272,6 @@ fn segments(hint: &Hint<'_>, limit: usize) -> Vec<String> {
     if hint.missing_credential {
         push(&mut segments, MISSING_CREDENTIAL.to_string());
     }
-    if hint.queued > 0 {
-        // `queued 1` in upstream's own words (`render.zig:419-422`), and the
-        // whole difference between a queue and a surprise.
-        push(&mut segments, format!("queued {}", hint.queued));
-    }
     let model = compact_model(hint.model);
     // The word a person reads (`permissionModeStatusLabel`,
     // `render.zig:235-241`): `full access`, not the `yolo` the settings file
@@ -374,7 +366,6 @@ mod tests {
     fn hint() -> Hint<'static> {
         Hint {
             missing_credential: false,
-            queued: 0,
             mode: PermissionMode::Ask,
             model: "anthropic/claude-opus-4-7",
             effort: None,
@@ -408,18 +399,18 @@ mod tests {
 
     #[test]
     fn the_segments_are_in_upstreams_order() {
+        // Claim changed: no `queued N` first -- upstream's row has no queue
+        // segment (`buildStatuslineItems`, `app_render_runtime.zig:875-899`).
         let mut hint = hint();
-        hint.queued = 1;
         hint.context_used = Some((12_000, Some(200_000)));
         let row = row(&hint, 200);
-        let queued = row.find("queued 1").expect("queued");
         let mode = row.find("ask").expect("the permission mode");
         let model = row.find("opus 4-7").expect("the model");
         let context = row.find("12k/200k").expect("the context");
-        assert!(queued < mode && mode < model && model < context, "{row:?}");
+        assert!(mode < model && model < context, "{row:?}");
         assert!(row.contains("12k/200k 6%"), "{row:?}");
         assert_eq!(
-            row, "queued 1 · ask · opus 4-7 · 12k/200k 6%",
+            row, "ask · opus 4-7 · 12k/200k 6%",
             "the segments are joined by something other than upstream's separator"
         );
     }
@@ -672,8 +663,7 @@ mod tests {
         // kept its separator would show a `·` with one side missing.
         let mut hint = hint();
         hint.model = "anthropic/";
-        hint.queued = 2;
-        assert_eq!(row(&hint, 80), "queued 2 · ask");
+        assert_eq!(row(&hint, 80), "ask");
     }
     #[test]
     fn the_meter_says_both_numbers_and_the_percentage_between_them() {

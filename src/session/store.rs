@@ -403,6 +403,9 @@ pub enum TurnStep {
     /// opens a turn here, and one opened mid-batch would leave the results still
     /// to come with no call ahead of them.
     ToolFeedback { call_id: String, text: String },
+    /// A prompt the person sent into the turn while it ran
+    /// ([`SessionEvent::Steered`]), in the words they typed.
+    Steered { text: String },
 }
 
 /// What the model is told after a turn that did not finish, before the next
@@ -675,6 +678,15 @@ impl DurableState {
                         // one it is dropped with the group, rather than
                         // arriving as a user message about a result the model
                         // was never shown.
+                        pending.push(Message::user(text.clone()));
+                    }
+                    // The person's words as a user message of their own, as
+                    // upstream's history replays a steer: plain, not in the
+                    // wrapper the model was given live (`fx-interrupt-steer-
+                    // 40x120-bodies/005-completion.json`: `user "what are you
+                    // doing"`). Delivered only after every result of its step,
+                    // so it goes out with the group.
+                    TurnStep::Steered { text } => {
                         pending.push(Message::user(text.clone()));
                     }
                 }
@@ -2146,6 +2158,11 @@ fn apply(state: &mut DurableState, envelope: &EventEnvelope) -> Result<(), Strin
                     call_id: call_id.clone(),
                     text: text.clone(),
                 });
+        }
+        SessionEvent::Steered { text } => {
+            open_turn(state, "a steer")?
+                .steps
+                .push(TurnStep::Steered { text: text.clone() });
         }
         SessionEvent::PermissionGrantRecorded { tool, target } => {
             let grant = Grant::new(tool.clone(), target.clone());

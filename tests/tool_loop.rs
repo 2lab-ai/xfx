@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 use tempfile::TempDir;
 
-use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
+use xfx::agent::{run_turn, run_turn_saved, Steering, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
     Completion, CompletionRequest, ContentPart, FinishReason, Message, ResultStatus, Role,
@@ -2891,6 +2891,190 @@ async fn a_cancelled_multi_call_batch_drops_every_buffered_sentence() {
         ],
         "{:#?}",
         replay.messages
+    );
+}
+
+/// A provider that sends a steer into the turn during its call `at`
+/// (0-based), as the person would while that request was answering -- and,
+/// when `hang`, streams `PARTIAL ` and then never answers that call, as a
+/// long answer the steer cuts short.
+struct SteeredProvider {
+    inner: ScriptedProvider,
+    steering: Steering,
+    at: usize,
+    text: &'static str,
+    hang: bool,
+    calls: std::cell::Cell<usize>,
+}
+
+#[async_trait::async_trait(?Send)]
+impl Provider for SteeredProvider {
+    async fn stream(
+        &self,
+        request: &CompletionRequest,
+        deltas: &mut dyn DeltaSink,
+    ) -> Result<Completion, ProviderError> {
+        let call = self.calls.get();
+        self.calls.set(call + 1);
+        if call == self.at {
+            if self.hang {
+                self.inner.seen.borrow_mut().push(request.clone());
+                deltas.text_delta("PARTIAL ").map_err(ProviderError::Sink)?;
+                assert!(self.steering.offer(1, self.text.to_string()));
+                return std::future::pending().await;
+            }
+            assert!(self.steering.offer(1, self.text.to_string()));
+        }
+        self.inner.stream(request, deltas).await
+    }
+}
+
+/// Runs `steps` with a steer sent during call `at`, and hands back the
+/// requests, the journal and the steers the sink was told were taken.
+async fn steered_turn(
+    tree: &Tree,
+    steps: Vec<ScriptedStep>,
+    at: usize,
+    hang: bool,
+) -> (Vec<CompletionRequest>, RecordingJournal, Vec<Event>) {
+    let steering = Steering::new();
+    steering.open();
+    let provider = SteeredProvider {
+        inner: ScriptedProvider::new(steps),
+        steering: steering.clone(),
+        at,
+        text: "change tone",
+        hang,
+        calls: std::cell::Cell::new(0),
+    };
+    let mut sink = RecordingSink::new();
+    let mut journal = RecordingJournal::default();
+    xfx::agent::TurnMachine::new(turn("go", context(tree)))
+        .with_steering(steering)
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await
+        .expect("the turn completes");
+    (provider.inner.requests(), journal, sink.events().to_vec())
+}
+
+/// Each message as `role: text`, results by their call, for a case about the
+/// order the model is told things in.
+fn told(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| {
+            let parts: Vec<String> = message
+                .content
+                .iter()
+                .map(|part| match part {
+                    ContentPart::Text { text } => text.clone(),
+                    ContentPart::ToolCall(call) => format!("call {}", call.id),
+                    ContentPart::ToolResult { call_id, .. } => format!("result {call_id}"),
+                    ContentPart::RawBlocks(_) => "raw".to_string(),
+                })
+                .collect();
+            format!("{}: {}", message.role.label(), parts.join(" | "))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_steer_cuts_a_tool_free_answer_and_the_turn_goes_on_with_it() {
+    // `fx-interrupt-steer-40x120-bodies/004-completion.json`: the answer as far
+    // as it got, then the steer in upstream's wrapper -- no `ended before
+    // completion`, no `<turn_aborted>` (e2e `tui-interrupt-recovery.test.ts:
+    // 291`). One turn, two requests.
+    let tree = Tree::new();
+    let (requests, journal, _) =
+        steered_turn(&tree, vec![final_step("steered answer.")], 0, true).await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: PARTIAL ".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
+    );
+    assert_eq!(
+        journal.kinds(),
+        [
+            "user_message",
+            "assistant_message",
+            "steered",
+            "assistant_message",
+            "usage_recorded",
+            "turn_concluded"
+        ]
+    );
+    // A later turn is told the steer as the person typed it
+    // (`fx-interrupt-steer-40x120-bodies/005-completion.json`).
+    let state = replayed(&journal.events, tree.root());
+    assert_eq!(
+        told(&state.history_messages(Wire::VercelGateway).messages),
+        [
+            "user: go",
+            "assistant: PARTIAL ",
+            "user: change tone",
+            "assistant: steered answer."
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_steer_sent_while_a_tool_runs_is_told_after_its_results() {
+    // `fx-interrupt-steer-40x120-bodies/006-completion.json`: the call, its
+    // result, then the steer -- inside the same turn.
+    let tree = Tree::new();
+    tree.write("notes.md", "alpha\n");
+    let (requests, _, events) = steered_turn(
+        &tree,
+        vec![
+            calls_step(vec![read_call("c1", "notes.md")]),
+            final_step("after steer."),
+        ],
+        0,
+        false,
+    )
+    .await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: call c1".to_string(),
+            "tool: result c1".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::ToolResult { .. })),
+        "the call never ran"
+    );
+}
+
+#[tokio::test]
+async fn a_steer_that_arrives_with_the_answer_is_told_after_it_and_the_turn_goes_on() {
+    // `append_pending_steering_after_assistant` (`orchestrator.zig:215-238`):
+    // the model's answer, then the steer, and another request.
+    let tree = Tree::new();
+    let (requests, _, _) = steered_turn(
+        &tree,
+        vec![final_step("first answer."), final_step("second answer.")],
+        0,
+        false,
+    )
+    .await;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        told(&requests[1].messages),
+        [
+            "user: go".to_string(),
+            "assistant: first answer.".to_string(),
+            format!("user: {}", xfx::agent::steering::message("change tone")),
+        ]
     );
 }
 

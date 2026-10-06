@@ -7,7 +7,9 @@
 //! exactly one conclusion is journaled.
 
 pub mod machine;
+pub mod steering;
 pub mod types;
 
 pub use machine::{allows_step, run_turn, run_turn_saved, TurnMachine};
+pub use steering::{Steer, Steering};
 pub use types::{NoJournal, TurnError, TurnJournal, TurnOutcome, TurnRequest};

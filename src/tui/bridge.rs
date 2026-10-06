@@ -287,6 +287,11 @@ pub(crate) enum UiEvent {
         diagnostic: String,
         delay: std::time::Duration,
     },
+    /// The turn took these steers -- prompts the person sent into it while it
+    /// ran -- and the model is being told them (`crate::agent::steering`): the
+    /// band writes each one's card now, at its delivery, as upstream writes a
+    /// steer's (`append_user_feedback`, `worker_runtime.zig:1233-1240`).
+    Steered { ids: Vec<u64> },
     /// A retried request got through on `attempt`
     /// (`crate::output::EventSink::recovered`): the row says so for a moment
     /// ([`super::retry::Row::Recovered`]).
@@ -614,6 +619,8 @@ impl UiEvent {
             },
             // A count. There is nothing here a terminal can be made to obey.
             Self::Recovered { attempt } => Self::Recovered { attempt },
+            // Numbers the band gave out.
+            Self::Steered { ids } => Self::Steered { ids },
             Self::TurnEnded { failure } => Self::TurnEnded {
                 failure: failure.map(inert_owned),
             },
@@ -712,6 +719,7 @@ fn inert_step(step: super::hydration::HydratedStep) -> super::hydration::Hydrate
             outcome,
         },
         HydratedStep::Feedback(text) => HydratedStep::Feedback(inert_owned(text)),
+        HydratedStep::Steer(text) => HydratedStep::Steer(inert_owned(text)),
     }
 }
 
@@ -1344,6 +1352,13 @@ impl EventSink for UiEventSink {
             let record = retried.record(attempt, limit);
             let _ = self.send(UiEvent::FullDetail(record));
         }
+    }
+
+    /// Which of the band's steers the turn took.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = self.send(UiEvent::Steered {
+            ids: steers.iter().map(|steer| steer.id).collect(),
+        });
     }
 
     /// The row that says an attempt got through after a retry, and its

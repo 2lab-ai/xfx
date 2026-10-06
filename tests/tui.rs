@@ -110,18 +110,7 @@ const FRAME_END: &str = "\u{1b}[?2026l\u{1b}[?25h";
 /// to solve.
 const BAND_TOP: &str = "\u{1b}[3;1H";
 
-/// What the hint row of a fresh session says: the permission mode a turn will
-/// run under and the model it will run against.
-///
-/// Spelled out rather than imported, for the reason [`MODE_SET`] is: a needle
-/// that read the constants it is checking (`config::DEFAULT_MODEL`, the
-/// compiled-in permission mode) would pass for whatever those modules happened
-/// to declare. **No colour in it**: the palette's depth depends on what the
-/// machine running this suite claims ([`depth_of_the_test_machine`]), and the
-/// row's text does not.
-const HINT: &str = "auto · glm-5.2";
-
-/// The same row in a session with no credential at all, which is every sandbox
+/// The hint row in a session with no credential at all, which is every sandbox
 /// that was not wired to a gateway: the call to action leads, because nothing
 /// else on the row matters on a machine where every turn will refuse.
 const HINT_WITHOUT_A_CREDENTIAL: &str = "run `xfx setup` · auto · glm-5.2";
@@ -2874,73 +2863,86 @@ fn a_submitted_prompt_runs_one_turn_and_the_answer_lands_in_the_document() {
 }
 
 #[test]
-fn a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept() {
-    // Against a **running** worker, which is the only place the claim can be
-    // tested: the work channel's one slot is emptied the instant the runtime
-    // takes the prompt, so from here on the channel says "room" for the whole
-    // length of the turn. A session that asked it would accept every later
-    // prompt silently and run each one as a surprise when the last ended.
+fn a_prompt_sent_while_an_answer_streams_cuts_it_and_the_turn_goes_on_with_it() {
+    // Renamed, claim changed (was `a_second_prompt_may_wait_and_a_third_is_
+    // refused_with_its_text_kept`): a prompt sent while the model answers is
+    // upstream's steer, not a queued turn (e2e `tui-interrupt-recovery.test.ts:
+    // 291`). The answer is cut where it had got to, the turn goes on, and its
+    // next request carries the cut answer and the prompt in upstream's wrapper
+    // (`fx-interrupt-steer-40x120-bodies/004-completion.json`) -- no
+    // `<turn_aborted>`, no `ended before completion`. The queue's own limit is
+    // the band's (`super::shell`'s unit cases).
     //
-    // What the session holds instead is `worker::WORK_LIMIT`: the turn in
-    // flight, and one prompt waiting where the band says `queued 1`. The third
-    // is refused on the hint row with its text left in the composer.
-    //
-    // `SseThenHang` is what keeps the first turn running: the body arrives, the
-    // connection does not close, and the turn is still in flight while the
-    // other two prompts are typed.
-    let gateway = FakeGateway::start(vec![support::fake_gateway::Reply::SseThenHang(vec![
-        support::fake_gateway::sse_body(&[support::fake_gateway::text_delta(
-            "d",
-            // A paragraph of its own, so the presenter writes it while the turn
-            // is still running: a line reaches the screen once the presenter
-            // has seen what follows it (`Shell::write_answer`), and a turn that
-            // hangs never closes.
-            "FIRST-TURN-RUNNING\n\n",
-        )]),
-    ])]);
+    // `SseThenHang` keeps the first answer running: the body arrives, the
+    // connection does not close.
+    let gateway = FakeGateway::start(vec![
+        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
+            // A paragraph of its own, so the presenter writes it while the
+            // turn is still running.
+            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
+        ])]),
+        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&["STEERED-ANSWER"])),
+    ]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
     let mut session =
         Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
     session.wait_for(READY);
-
     session.type_bytes(b"first\r");
-
-    // Response-only: the answer's own text, so the turn is provably under way
-    // rather than merely submitted.
     session.wait_for("FIRST-TURN-RUNNING");
 
     session.type_bytes(b"second\r");
-    // Response-only as well: nothing this test types contains it, and the band
-    // is the only thing that writes it. A queue nobody can see is the "queued
-    // into a surprise" this row exists to rule out.
-    session.wait_for("queued 1");
-
-    session.type_bytes(b"third\r");
-    session.wait_for("one prompt is already queued");
-    // The draft was not thrown away with the refusal. Raw mode has `ECHO`
-    // clear, so these six cells on the terminal are the composer painting them
-    // and not the line discipline echoing what was typed.
-    session.wait_for("third");
-
-    // Three presses: with a draft in the composer over a running turn, the
-    // first takes the draft and nothing else (upstream's `handleSemanticCtrlC`,
-    // `app_input_runtime.zig:1677-1681`), the second stops the turn and arms
-    // the exit, the third leaves.
-    session.type_bytes(&[0x03, 0x03, 0x03]);
-    assert_eq!(session.wait_exit().code(), Some(130));
-
-    assert_eq!(
-        gateway.request_count(),
-        1,
-        "a prompt the user was refused, or one they had to wait for, reached \
-         the wire anyway"
+    session.wait_for("STEERED-ANSWER");
+    on_screen(
+        &session,
+        (24, 80),
+        &["FIRST-TURN-RUNNING", "\u{2503} second", "STEERED-ANSWER"],
+        &[CANCELLED],
     );
-    let sent = user_messages(&gateway.only_request().json());
-    assert!(
-        !sent.iter().any(|message| message.contains("third")),
-        "the refused prompt is in the one request that was made: {sent:?}"
+    session.type_bytes(b"/quit\r");
+    assert_eq!(session.wait_exit().code(), Some(0));
+
+    assert_eq!(gateway.request_count(), 2, "the steer was not one request");
+    let body = gateway.requests()[1].json();
+    let prompt: Vec<(String, String)> = body["prompt"]
+        .as_array()
+        .expect("a prompt")
+        .iter()
+        .filter(|message| message["role"] != "system")
+        .map(|message| {
+            let text = message["content"]
+                .as_array()
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|part| part["text"].as_str())
+                        .collect::<String>()
+                })
+                .unwrap_or_default();
+            (
+                message["role"].as_str().unwrap_or_default().to_string(),
+                text,
+            )
+        })
+        .collect();
+    assert_eq!(
+        prompt,
+        vec![
+            ("user".to_string(), "first".to_string()),
+            (
+                "assistant".to_string(),
+                "FIRST-TURN-RUNNING\n\n".to_string()
+            ),
+            (
+                "user".to_string(),
+                "<user_steering>\nApply this live user update to the current task. Continue \
+                 working unless the user asks you to stop, the task is complete, or a genuine \
+                 blocker prevents progress.\n\nsecond\n</user_steering>"
+                    .to_string()
+            ),
+        ],
+        "{body:#}"
     );
 }
 
@@ -3394,84 +3396,54 @@ fn escape_twice_stops_a_running_command_and_its_group_at_once_as_upstreams_does(
 }
 
 #[test]
-fn an_interrupt_drops_the_prompt_that_was_waiting_rather_than_running_it_next() {
-    // The contract in one line: after the interrupt notice, nothing else
-    // starts. The runtime is held by a turn that never ends -- `SseThenHang`
-    // writes its body and does not hang up -- so the second prompt is provably
-    // *waiting* rather than run and forgotten, and the gateway is scripted with
-    // a second reply nobody should ever see.
+fn an_interrupt_drops_the_steer_that_was_waiting_rather_than_delivering_it() {
+    // Renamed, claim changed (was `an_interrupt_drops_the_prompt_that_was_
+    // waiting_rather_than_running_it_next`): a prompt sent while a command
+    // runs is a steer waiting for its results, shown as `┋ <prompt>`
+    // (`fx-interrupt-steer-40x120-steer-tool`). Ctrl-C stops the command and
+    // the turn, and the steer goes with them: said on the screen, and never
+    // in a request.
+    use support::fake_gateway::{content_only, finish, sse_body, tool_call, Reply};
     let gateway = FakeGateway::start(vec![
-        support::fake_gateway::Reply::SseThenHang(vec![support::fake_gateway::sse_body(&[
-            // A paragraph of its own: see `a_second_prompt_may_wait_and_a_third_is_refused_with_its_text_kept`.
-            support::fake_gateway::text_delta("d", "FIRST-TURN-RUNNING\n\n"),
-        ])]),
-        support::fake_gateway::Reply::Sse(support::fake_gateway::content_only(&[
-            "MARKER-THE-QUEUE-RAN-ANYWAY",
+        Reply::Sse(sse_body(&[
+            tool_call(
+                "call-0",
+                "terminal",
+                serde_json::json!({ "action": "exec", "command": "sleep 30" }),
+            ),
+            finish("tool-calls"),
         ])),
+        Reply::Sse(content_only(&["MARKER-THE-STEER-RAN-ANYWAY"])),
     ]);
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     pty.resize(24, 80);
-    let mut session =
-        Session::spawn_without_taking_the_terminal(&pty, tui_with(&sandbox, &gateway));
+    let mut command = tui_with(&sandbox, &gateway);
+    command.env("XFX_PERMISSION_MODE", "yolo");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
     session.wait_for(READY);
-    session.type_bytes(b"first\r");
-    session.wait_for("FIRST-TURN-RUNNING");
-    session.type_bytes(b"second\r");
-    session.wait_for("queued 1");
+    session.type_bytes(b"run it\r");
+    on_screen(&session, (24, 80), &["Running sleep 30"], &[]);
+    session.type_bytes(b"change tone\r");
+    on_screen(&session, (24, 80), &["\u{250b} change tone"], &[]);
 
     session.type_bytes(&[0x03]);
-    // Response-only, and both halves of the keystroke: the turn was asked to
-    // stop, and what was queued behind it goes too.
-    session.wait_for(CANCELLED);
     session.wait_for("dropping what was queued");
-    // Still alive: one Ctrl-C is a cancellation, not an exit.
+    on_screen(
+        &session,
+        (24, 80),
+        &["\u{25a0} Cancelled sleep 30"],
+        &["\u{250b} change tone"],
+    );
     assert!(matches!(session.state(), Wait::Running));
-
-    // The band has stopped announcing a queue that no longer exists. Asserted
-    // as the *frame* a hint row without a queue makes -- the row ending in the
-    // session's own identity before the caret goes back to an empty composer --
-    // and counted from the whole settled stream below rather than waited for,
-    // because that is also what every frame before the queue looked like.
     session.type_bytes(&[0x04]);
     assert_eq!(session.wait_exit().code(), Some(0));
-    let text = session.settled_text();
-    let queued = text.rfind("queued 1").expect("the queue was announced");
-    // The model segment's own bytes and the row's end: the permission mode in
-    // front of it is painted in its accent, so the row is not one contiguous
-    // needle on the wire. Wherever the band is by then -- the document has
-    // grown under it -- the caret goes back to the composer's third column.
-    let cleared = text
-        .match_indices(" \u{b7} glm-5.2\u{1b}[0m\u{1b}[")
-        .map(|(at, needle)| (at, &text[at + needle.len()..]))
-        .filter(|(_, rest)| {
-            rest.split_once(";3H")
-                .is_some_and(|(row, _)| !row.is_empty() && row.bytes().all(|b| b.is_ascii_digit()))
-        })
-        .map(|(at, _)| at)
-        .last()
-        .expect("a frame whose hint row says nothing about a queue");
-    assert!(
-        queued < cleared,
-        "the band was still saying `queued 1` after the interrupt dropped it"
-    );
-    assert_eq!(
-        Screen::painted(&text, 24, 80)
-            .expect("a complete frame")
-            .above_hint(0),
-        HINT,
-        "the last hint row the band painted is not the session's own"
-    );
-
     assert_eq!(
         gateway.request_count(),
         1,
-        "the queued prompt started by itself after the user stopped everything"
+        "the steer reached the wire after the user stopped everything"
     );
-    assert!(
-        !text.contains("MARKER-THE-QUEUE-RAN-ANYWAY"),
-        "the second reply was delivered, so the queued prompt ran: {text:?}"
-    );
+    assert!(!session.text().contains("MARKER-THE-STEER-RAN-ANYWAY"));
 }
 
 #[test]
@@ -4405,8 +4377,8 @@ fn an_answer_lands_even_with_a_prompt_already_queued() {
     session.wait_for(READY);
     session.type_bytes(b"edit the notes\r");
     session.type_bytes(b"queued while deciding\r");
-    // Response-only: the band is the only thing that writes it.
-    session.wait_for("queued 1");
+    // (Claim changed: the hint row no longer says `queued 1` -- upstream's has
+    // no queue segment -- so the case no longer waits for it.)
     session.wait_for(PERMISSION_TITLE);
 
     session.type_bytes(b"1");
@@ -4558,7 +4530,6 @@ fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     // Queued before the question appears, because the panel takes the focus
     // when it does.
     session.type_bytes(b"queued while deciding\r");
-    session.wait_for("queued 1");
     session.wait_for(PERMISSION_TITLE);
 
     // A lone ESC: the decoder settles it as Escape once nothing follows it.
@@ -4571,40 +4542,30 @@ fn escape_at_a_question_denies_the_call_stops_the_turn_and_drops_the_queue() {
     session.wait_for("dropping what was queued");
 
     // Both notices above are written by the **UI** thread at the keystroke, so
-    // neither says the runtime has acted yet. This does: the band stops saying
-    // `queued 1` when the place that prompt was holding is given back, and only
-    // `Queue::abandon` on the runtime thread gives it back. Waited for rather
-    // than assumed, because the prompt below needs the room -- a submission
-    // made while the session still holds two is refused on the hint row and
-    // never sent, which is how this case flaked before the wait was here.
-    //
-    // **Read off the hint row, not off a frame's bytes.** A frame is a
-    // difference from what the terminal already holds (`src/tui/grid.rs`), so a
-    // frame that does not mention `queued` is the overwhelmingly common case:
-    // the activity marker blinking writes one cell and says nothing about the
-    // hint row, which has not changed and is therefore not written. Asking a
-    // single frame for the *absence* of a word reads "this frame did not
-    // repaint the hint row" as "the hint row no longer says it", and lets this
-    // wait through while the place is still held -- which is exactly the
-    // refusal it exists to avoid.
-    //
-    // **And read the status row, not whatever is last on the screen.** Between
-    // the panel closing and the band's next frame, the bottom rows still hold
-    // the panel's own key help, which never said `queued`; an absence read off
-    // that row passed while the place was still held. The status row names the
-    // mode, so the wait asks for it to be back and to have lost `queued`.
-    session.wait_until("the runtime to give the queued place back", |text| {
-        Screen::painted(text, 24, 80).is_some_and(|screen| {
-            let hint = screen.above_hint(0);
-            hint.contains("ask ·") && !hint.contains("queued")
-        })
-    });
-
+    // neither says the runtime has acted yet -- and the place the waiting
+    // prompt held is given back only by `Queue::abandon` on the runtime
+    // thread. A prompt sent before then is refused on the hint row with its
+    // draft kept, so the case sends it until it is taken. (Claim changed: this
+    // used to wait for the hint row to stop saying `queued 1`, which upstream's
+    // row never says.)
     // A prompt typed *after* the interrupt is a new intention and still runs.
     // Waiting for its answer is the synchronisation the assertion below needs:
     // the work channel is first-in-first-out, so by the time this has been
     // answered the queued prompt has either run or been dropped.
-    session.type_bytes(b"after the interrupt\r");
+    session.type_bytes(b"after the interrupt");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !gateway
+        .requests()
+        .iter()
+        .any(|request| request.json().to_string().contains("after the interrupt"))
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the prompt after the interrupt was never taken"
+        );
+        session.type_bytes(b"\r");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
     session.wait_for("AFTER-THE-INTERRUPT");
 
     // (a) The call was denied: the edit never happened.

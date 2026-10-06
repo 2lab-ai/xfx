@@ -822,9 +822,6 @@ pub(crate) struct Shell {
     /// included (`fx-interrupt-recovered-40x120-rec-1.4`) -- and nothing once
     /// the turn is over.
     retry: Option<super::retry::Row>,
-    /// How many submissions are waiting behind the one in flight, as of the
-    /// last settle. Cached for the same reason [`Self::escape_armed`] is.
-    queued: usize,
     /// What the turn is doing, and how long it has been doing it.
     activity: Activity,
     /// Which phase of the activity row's blink the band is on.
@@ -1101,6 +1098,12 @@ pub(crate) struct Shell {
     /// as upstream delivers a steer (`fx-steer-40x120-steer-done`) -- never at
     /// the keystroke, in the middle of the answer it was typed under.
     prompts: VecDeque<(u64, Option<String>, Option<String>)>,
+    /// The prompts sent into the running turn and not yet taken by it
+    /// ([`crate::agent::steering`]), oldest first: the number the runtime
+    /// knows each by, the prompt as the model is given it, and its card.
+    /// Shown in the band as upstream shows a steer (`┋ <prompt>`), and each
+    /// card written when the turn takes it ([`UiEvent::Steered`]).
+    steers: Vec<(u64, String, String)>,
     /// The title of the session this conversation is recorded in, once its
     /// first turn has finished -- upstream's cached session title
     /// (`ensureCachedSessionTitle`, `app_session_runtime.zig:3640-3655`), which
@@ -1618,7 +1621,6 @@ impl Shell {
             cancel_owed: None,
             cancel_covers: 0,
             retry: None,
-            queued: 0,
             activity: Activity::new(),
             phase: 0,
             panel: None,
@@ -1672,6 +1674,7 @@ impl Shell {
             trailer: Vec::new(),
             tally: Tally::default(),
             prompts: VecDeque::new(),
+            steers: Vec::new(),
             session_title: None,
             turn_title: None,
             title_owed: true,
@@ -2000,7 +2003,6 @@ impl Shell {
         let (model, effort) = self.hinted_model();
         let mut hint = Hint {
             missing_credential: self.missing_credential,
-            queued: self.queued,
             mode: self.mode,
             model: &model,
             effort: effort.as_ref().map(Effort::display),
@@ -2503,6 +2505,7 @@ impl Shell {
                     ),
                     Role::Notice,
                 )),
+                HydratedStep::Steer(text) => self.run_mark(Mark::Card(text)),
             }
         }
         self.full.stamp_with(Some(concluded));
@@ -2675,6 +2678,26 @@ impl Shell {
                     }));
                     self.render.request(Reason::Footer);
                 }
+            }
+            // The turn took these steers: each leaves the band and its card is
+            // written now -- behind whatever of the answer the pacer still
+            // holds, and after the line the answer was in the middle of, which
+            // the card closes (`fx-interrupt-steer-40x120-steer-stream`: the
+            // cut answer's words, then `┃ what are you doing`).
+            UiEvent::Steered { ids } => {
+                let mut delivered = Vec::new();
+                self.steers.retain(|(id, _, card)| {
+                    let taken = ids.contains(id);
+                    if taken {
+                        delivered.push(card.clone());
+                    }
+                    !taken
+                });
+                for card in delivered {
+                    self.echo(&card);
+                }
+                self.refit();
+                self.render.request(Reason::Footer);
             }
             // The retried step got through: said for a moment, from now.
             UiEvent::Recovered { attempt } => {
@@ -2982,6 +3005,12 @@ impl Shell {
                 self.retry = None;
                 self.pacer.finish();
                 self.gestures.turn_ended();
+                // A steer the turn never took -- sent after its last answer
+                // had looked for one, or into a turn that failed first -- is
+                // an ordinary prompt now, for the turn after, as upstream
+                // runs a prompt that missed its turn (`handoff`,
+                // `worker_runtime.zig:1196-1206`).
+                self.hand_on_steers();
                 // A column that wanted the catalog while this held the queue
                 // asks for it now, rather than on the next keystroke.
                 if self.catalog_known == CatalogKnown::Wanted
@@ -5778,11 +5807,6 @@ impl Shell {
         self.settle_files();
         // And so is a `/sound` save.
         self.settle_saves();
-        let queued = self.work.queued();
-        if queued != self.queued {
-            self.queued = queued;
-            self.render.request(Reason::Footer);
-        }
         // **Nothing in hand is nothing that can still answer a cancel.** The
         // runtime reads a cancellation at the top of its loop before it takes
         // the next item (`super::worker`'s `turn_loop`, `biased`), so a prompt
@@ -6507,6 +6531,14 @@ impl Shell {
                     self.moved();
                     return;
                 }
+                // Up at an empty composer, outside a walk, takes back the
+                // newest steer that still waits for a tool's results, into the
+                // composer to be edited -- before the history is walked
+                // (`restoreQueuedSteerToComposer`, `input_completion_runtime.
+                // zig:290-310`; e2e `tui-interrupt-recovery.test.ts:393`).
+                if matches!(action, Action::Up) && self.retract_steer() {
+                    return;
+                }
                 let step = if matches!(action, Action::Up) {
                     HistoryStep::Previous
                 } else {
@@ -6835,7 +6867,13 @@ impl Shell {
         // is dropping exactly these and the count is on its way to zero: what
         // the user is owed a sentence about is what was waiting when they
         // pressed the key.
-        let waiting = self.work.queued() > 0;
+        let waiting = self.work.queued() > 0 || !self.steers.is_empty();
+        // The steers go with the turn they were sent into, as the queue goes
+        // with it: before the stop is sent, so the turn cannot take one on
+        // its way out.
+        self.work.drop_steers();
+        let steered = !self.steers.is_empty();
+        self.steers.clear();
         // Quoting what has been submitted **so far** is what keeps the drop
         // from reaching past this keystroke: a prompt typed while this message
         // is still in flight is a new intention, and the runtime is told
@@ -6853,6 +6891,8 @@ impl Shell {
         if waiting {
             self.prompts.clear();
             // The waiting prompt's rows go with it.
+            self.refit();
+        } else if steered {
             self.refit();
         }
         // A prompt the runtime took before it read this is still to say it
@@ -7102,6 +7142,24 @@ impl Shell {
         // records and derives its own title from -- not of the composer's
         // summary of a paste.
         let title = title_of(&prompt);
+        // **Into the turn that is running**, as upstream's steer
+        // (`admitInteractivePrompt`, `worker_runtime.zig:1080-1104`): the turn
+        // takes it at its next boundary -- at once over an answer, after a
+        // tool's results, after the model's answer -- and its card is written
+        // then ([`UiEvent::Steered`]). Not into a turn the person has stopped,
+        // and not into one that has taken its last steer: then it is an
+        // ordinary prompt, for the turn after.
+        if self.activity.working() && !self.cancelling {
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.take_draft();
+                self.edited(None);
+                self.steers.push((id, prompt, text.to_string()));
+                self.refit();
+                self.render.request(Reason::Footer);
+                self.gestures.submitted();
+                return;
+            }
+        }
         // Whether it will wait behind a turn that is running -- the turn the
         // activity row is about, as upstream's steer waits on an active
         // operation. Work the session has stopped or reset is not one: a
@@ -7133,6 +7191,62 @@ impl Shell {
             }
             Err(rejected) => self.refused(rejected),
         }
+    }
+
+    /// Takes the newest steer back into an empty composer, while the turn has
+    /// not taken it (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`):
+    /// only one waiting on a tool's results, and only from an empty composer
+    /// outside a history walk. `true` when one came back.
+    fn retract_steer(&mut self) -> bool {
+        if !self.editor.is_empty() || self.history.walking() {
+            return false;
+        }
+        let Some(steer) = self.work.retract_steer() else {
+            return false;
+        };
+        let Some(at) = self.steers.iter().position(|(id, _, _)| *id == steer.id) else {
+            return false;
+        };
+        let (_, prompt, card) = self.steers.remove(at);
+        if !self.editor.set_text(&prompt, Entities::new()) {
+            // Past what a composer holds: sent back into the turn rather than
+            // lost (the paste it came from was summarized in the band).
+            if let Some(id) = self.work.steer(prompt.clone()) {
+                self.steers.insert(at, (id, prompt, card));
+            }
+            return false;
+        }
+        self.edit_history.boundary();
+        self.edited(None);
+        self.refit();
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Sends on, as ordinary prompts, the steers the turn ended without taking
+    /// ([`Self::steers`]), each waiting in the band for its own turn as a
+    /// prompt submitted behind a running one does. One the queue has no room
+    /// for goes back into an empty composer rather than nowhere.
+    fn hand_on_steers(&mut self) {
+        for (_, prompt, card) in std::mem::take(&mut self.steers) {
+            match self.work.submit(TurnWork::Submit(prompt.clone())) {
+                Ok(()) => {
+                    let mut estimate = Estimator::default();
+                    estimate.consume(&card);
+                    self.prompts
+                        .push_back((estimate.estimate(), title_of(&prompt), Some(card)));
+                }
+                Err(rejected) => {
+                    if self.editor.is_empty() {
+                        let _ = self.editor.set_text(&prompt, Entities::new());
+                        self.edited(None);
+                    }
+                    self.refused(rejected);
+                }
+            }
+        }
+        self.refit();
+        self.render.request(Reason::Footer);
     }
 
     /// What a submission the runtime would not take costs.
@@ -8014,7 +8128,10 @@ impl Shell {
         self.forget_catalog_request();
         // The prompts the cancellation drops, and the turn it stops, will
         // title nothing: none of them belongs to the session that starts now.
+        // Nor will a steer sent into that turn.
         self.prompts.clear();
+        self.work.drop_steers();
+        self.steers.clear();
         self.forget_session_title();
         self.tally = Tally::default();
         self.activity.end();
@@ -8089,6 +8206,7 @@ impl Shell {
             | UiEvent::Notice(_)
             | UiEvent::Retrying { .. }
             | UiEvent::Recovered { .. }
+            | UiEvent::Steered { .. }
             | UiEvent::Usage { .. } => true,
             // A question the cancelled turn asked before it heard about the
             // cancellation. **Refused on the user's behalf rather than
@@ -8522,7 +8640,9 @@ impl Shell {
     fn banner_rows(&self, cols: u16) -> Vec<String> {
         let width = usize::from(cols.saturating_sub(2)).max(1);
         let mut rows = Vec::new();
-        for (_, _, card) in &self.prompts {
+        let steers = self.steers.iter().map(|(_, _, card)| Some(card));
+        let waiting = self.prompts.iter().map(|(_, _, card)| card.as_ref());
+        for card in steers.chain(waiting) {
             let Some(card) = card else {
                 continue;
             };
@@ -8952,9 +9072,13 @@ mod tests {
     /// the row is there to say.
     const IDLE_HINT: &str = "run `xfx setup` · auto · glm-5.2";
 
-    /// The same row with `queued N` in its place in the order.
-    fn queued_hint(depth: usize) -> String {
-        format!("run `xfx setup` · queued {depth} · auto · glm-5.2")
+    /// The same row with a prompt waiting: unchanged, because upstream's hint
+    /// row has no queue segment (`buildStatuslineItems`,
+    /// `app_render_runtime.zig:875-899`; `fx-interrupt-steer-40x120-steer-tool`)
+    /// -- the waiting prompt is its `┋` row in the band. Kept as a name so
+    /// each case still says it was asked with a prompt waiting.
+    fn queued_hint(_depth: usize) -> String {
+        IDLE_HINT.to_string()
     }
 
     /// The same row with the double-Escape warning flush against the last
@@ -13705,6 +13829,122 @@ mod tests {
         shell.settle_band(Instant::now());
         let _ = shell.take_pending();
         shell
+    }
+
+    #[test]
+    fn a_prompt_sent_while_a_turn_runs_goes_into_it_and_its_card_waits_for_delivery() {
+        // Upstream's steer (`fx-interrupt-steer-40x120-steer-tool`): the prompt
+        // is the band's `┋` row while the turn holds it, holds no place in the
+        // queue, and its card is written when the turn takes it
+        // (`-steer-done`: `┃ change tone` under the command's row).
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        let _ = shell.take_pending();
+        shell.route_bytes(b"change tone\r");
+        assert!(steering.pending(), "the prompt never reached the turn");
+        assert!(
+            shell.work.outstanding() <= 1,
+            "the steer took a place in the queue"
+        );
+        assert_eq!(shell.editor.text(), "", "the draft stayed");
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .band_rows()
+                .iter()
+                .any(|row| uncoloured(row) == "\u{250b} change tone"),
+            "{:#?}",
+            shell.band_rows()
+        );
+        assert!(
+            !shell
+                .document()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the card was written at the keystroke"
+        );
+
+        let taken = steering.take();
+        shell.apply(UiEvent::Steered {
+            ids: taken.iter().map(|steer| steer.id).collect(),
+        });
+        shell.settle_band(Instant::now());
+        let document = shell.released();
+        assert!(
+            document
+                .iter()
+                .any(|row| uncoloured(row) == "\u{2503} change tone"),
+            "{document:#?}"
+        );
+        assert!(
+            !shell
+                .band_rows()
+                .iter()
+                .any(|row| row.contains("change tone")),
+            "the steer stayed in the band after delivery"
+        );
+    }
+
+    #[test]
+    fn up_takes_back_a_steer_waiting_on_a_tool_and_not_one_that_cut_an_answer() {
+        // `tui-interrupt-recovery.test.ts:393` and `popQueuedSteerForEdit`
+        // (`worker_runtime.zig:1340-1386`): only while a tool runs, only at an
+        // empty composer.
+        let mut answering = running("run it");
+        let steering = answering.work.steering();
+        steering.open();
+        answering.route_bytes(b"change tone\r");
+        // Up walks the history instead, as upstream's does when nothing can
+        // be taken back.
+        answering.route_bytes(b"\x1b[A");
+        assert!(steering.pending(), "a steer that cut an answer came back");
+        assert_eq!(answering.steers.len(), 1);
+
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"change tone\r");
+        steering.tool_running(true);
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "change tone");
+        assert!(
+            !steering.pending(),
+            "the steer was taken back and still sent"
+        );
+        assert!(shell.steers.is_empty());
+        // Edited and sent again: a steer once more.
+        shell.route_bytes(b" and keep it short\r");
+        assert_eq!(
+            steering.take().first().map(|steer| steer.text.clone()),
+            Some("change tone and keep it short".to_string())
+        );
+    }
+
+    #[test]
+    fn a_steer_the_turn_never_took_is_the_next_prompt_and_a_stop_drops_it() {
+        let mut shell = running("run it");
+        let steering = shell.work.steering();
+        steering.open();
+        shell.route_bytes(b"later\r");
+        // The turn ended without taking it (the runtime closes the box first).
+        steering.close();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.picks_up(), TurnWork::Submit("later".to_string()));
+        assert!(shell.steers.is_empty());
+
+        let mut stopped = running("run it");
+        let steering = stopped.work.steering();
+        steering.open();
+        stopped.route_bytes(b"never\r");
+        stopped.route_bytes(&[0x03]);
+        assert!(!steering.pending(), "a stopped turn kept the steer");
+        assert!(stopped.steers.is_empty());
+        assert!(
+            stopped.document().iter().any(|row| row.contains("queue")),
+            "the drop was not said: {:#?}",
+            stopped.document()
+        );
     }
 
     #[test]

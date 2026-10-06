@@ -67,7 +67,7 @@
 use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -83,7 +83,7 @@ use super::bridge::{
 };
 use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{Steer, Steering, TurnMachine, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
@@ -249,6 +249,15 @@ pub(crate) struct WorkHandle {
     /// drops the queue; a flag raised between turns is reset by the next one
     /// ([`super::bridge::Cancellation::turn`]).
     stop: CancelToken,
+    /// The running turn's steers, shared with the runtime
+    /// ([`crate::agent::steering`]): **in force before anything is sent**, as
+    /// [`Self::stop`] is, because the person's half -- taking a steer back
+    /// while a tool runs -- has to know, under one lock, that the turn has
+    /// not taken it already. Never a [`TurnWork`]: a steer holds no place in
+    /// [`WORK_LIMIT`].
+    steering: Steering,
+    /// The number the last steer was sent under.
+    steers: Arc<AtomicU64>,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -383,6 +392,31 @@ impl WorkHandle {
     /// refusal is decided from cannot drift apart.
     pub(crate) fn queued(&self) -> usize {
         self.outstanding().saturating_sub(1)
+    }
+
+    /// Sends `text` into the running turn ([`crate::agent::steering`]), under
+    /// the number this returns -- or `None` when no turn is taking steers, and
+    /// the prompt is an ordinary one for the next turn.
+    pub(crate) fn steer(&self, text: String) -> Option<u64> {
+        let id = self.steers.fetch_add(1, Ordering::Relaxed) + 1;
+        self.steering.offer(id, text).then_some(id)
+    }
+
+    /// Takes back the newest steer while it still waits for a tool's results
+    /// (`popQueuedSteerForEdit`, `worker_runtime.zig:1340-1386`).
+    pub(crate) fn retract_steer(&self) -> Option<Steer> {
+        self.steering.retract()
+    }
+
+    /// Drops every steer still waiting, as a stop or a reset does.
+    pub(crate) fn drop_steers(&self) {
+        self.steering.drop_pending();
+    }
+
+    /// The steering this handle sends into, as the runtime holds it.
+    #[cfg(test)]
+    pub(crate) fn steering(&self) -> Steering {
+        self.steering.clone()
     }
 
     /// Tells a turn that is already running something. Never blocks, never
@@ -520,6 +554,8 @@ impl WorkHandle {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
                 stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
             },
             work_rx,
             control_rx,
@@ -785,6 +821,8 @@ pub(crate) fn spawn(
     let loops_live = live.clone();
     let session_cancel = cancel.clone();
     let stop = cancel.mirror();
+    let steering = Steering::new();
+    let loops_steering = steering.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
         .spawn(move || {
@@ -806,6 +844,7 @@ pub(crate) fn spawn(
             state.reply = loops_reply;
             state.grants = publishes_grants;
             state.live = loops_live;
+            state.steering = loops_steering;
             if let Some(resumed) = resumed {
                 state.resume(resumed, &session_cancel.mirror());
                 // A resumed conversation's last reply is `/copy`'s from the
@@ -841,6 +880,8 @@ pub(crate) fn spawn(
                 live,
                 grants,
                 stop,
+                steering,
+                steers: Arc::new(AtomicU64::new(0)),
             },
             resumable: None,
         },
@@ -989,6 +1030,11 @@ struct Runtime {
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
     live: LiveAuthority,
+    /// Where the prompts the person sends into a running turn wait for it
+    /// ([`crate::agent::steering`]): opened for each turn, handed to its
+    /// machine, closed when it ends. The band holds the same one
+    /// ([`WorkHandle::steer`]).
+    steering: Steering,
 }
 
 impl Runtime {
@@ -1037,6 +1083,7 @@ impl Runtime {
             board,
             grants: Grants::default(),
             live: LiveAuthority::new(config_mode),
+            steering: Steering::new(),
         }
     }
 
@@ -2059,6 +2106,12 @@ async fn run_turn(
     // row nobody drew ends nothing. The result is discarded because there is
     // nothing this function could do about it: the turn still owes its terminal
     // event either way.
+    // Steers are taken from the moment the band can see this turn running
+    // until it ends: opened before the row starts, closed before the
+    // conclusion goes, so a steer the turn never took is one the band still
+    // holds when it hears the turn is over ([`super::shell`]'s `TurnEnded`).
+    let steering = state.steering.clone();
+    steering.open();
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
         state, prompt, events, &turn,
@@ -2075,6 +2128,7 @@ async fn run_turn(
         queue.abandon(through);
     })
     .await;
+    steering.close();
     // **Before the conclusion goes**, so that a `/copy` typed once the UI has
     // shown this turn ending copies this turn's reply. Published again after
     // the work is over ([`turn_loop`]), which is the copy that covers every
@@ -2620,7 +2674,12 @@ async fn one_turn(
         events.clone(),
         turn.token.clone(),
     );
-    let outcome = run_turn_saved(request, context, &provider, &mut sink, &mut journal).await;
+    // `run_turn_saved`'s machine, taking the person's steers as it runs.
+    let outcome = TurnMachine::new(request)
+        .with_context(context)
+        .with_steering(state.steering.clone())
+        .run_journaled(&provider, &mut sink, &mut journal)
+        .await;
 
     // Approvals the user gave in the band become durable after the turn, once,
     // so an "always" answered here survives to the next resume -- the same step
@@ -2853,6 +2912,8 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
                 stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
             },
             resumable: None,
         };
@@ -2913,6 +2974,8 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
                 stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
             },
             resumable: None,
         };
@@ -2952,6 +3015,8 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
                 stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
             },
             resumable: None,
         };
@@ -3309,6 +3374,8 @@ mod tests {
             live: LiveAuthority::new(PermissionMode::Auto),
             grants: Grants::default(),
             stop: CancelToken::new(),
+            steering: Steering::new(),
+            steers: Arc::new(AtomicU64::new(0)),
         };
         drop(work_rx);
         assert_eq!(
@@ -4797,6 +4864,8 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 grants: Grants::default(),
                 stop: CancelToken::new(),
+                steering: Steering::new(),
+                steers: Arc::new(AtomicU64::new(0)),
             },
             resumable: None,
         };

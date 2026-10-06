@@ -730,6 +730,12 @@ pub enum SessionStepRow {
         /// would hide the half of the exchange the user wrote.
         text: String,
     },
+    /// A prompt the person sent into the turn while it ran, which the turn
+    /// took (`crate::agent::steering`).
+    Steer {
+        /// What they typed, clipped like every other recorded text.
+        text: String,
+    },
 }
 
 /// One recorded turn, bounded for display.
@@ -832,6 +838,9 @@ impl SessionDetailSnapshot {
                             call_id: clip_text(&one_line(call_id)),
                             text: clip_text(text),
                         },
+                        TurnStep::Steered { text } => SessionStepRow::Steer {
+                            text: clip_text(text),
+                        },
                     })
                     .collect(),
                 outcome: turn.outcome.as_ref().map(flatten_conclusion),
@@ -930,6 +939,11 @@ impl SessionDetailSnapshot {
                     // is all that is left of which one it answered.
                     SessionStepRow::Feedback { call_id, text } => out.push_str(&format!(
                         "[turn] index={index} role=feedback call_id={call_id} text={}\n",
+                        one_line(text)
+                    )),
+                    // The person's own row, as a prompt is.
+                    SessionStepRow::Steer { text } => out.push_str(&format!(
+                        "[turn] index={index} role=steer text={}\n",
                         one_line(text)
                     )),
                 }
@@ -1126,6 +1140,15 @@ pub trait EventSink {
     /// retry. A hook for the same reason, and with the same promise.
     fn recovered(&mut self, attempt: u32, limit: u32) {
         let _ = (attempt, limit);
+    }
+
+    /// The turn took these prompts the person sent into it while it ran
+    /// (`crate::agent::steering`), and the model is about to be told them. A
+    /// hook rather than an [`Event`] for the reason [`Self::retrying`] is: only
+    /// the full-screen session can send a prompt into a running turn, and only
+    /// it shows one arriving.
+    fn steered(&mut self, steers: &[crate::agent::Steer]) {
+        let _ = steers;
     }
 }
 
