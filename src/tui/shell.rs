@@ -94,6 +94,7 @@ use super::model_menu::{self, ModelAction, ModelMenu};
 use super::notice::{self, unattributed};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
+use super::permissions::{self, Change};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
 use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
@@ -470,10 +471,21 @@ pub(crate) struct Shell {
     model: String,
     /// How much authority a turn will have before it has to ask.
     ///
-    /// Read once and never changed: the mode is settled by the configuration
-    /// and no command in the palette moves it -- the slash names are the line
-    /// shell's and none of them is `/permission`.
+    /// Read from the configuration at startup, and moved by `/permissions` and
+    /// Shift-Tab ([`Self::choose_mode`]) **the moment the runtime has been
+    /// handed the change** -- which is what the hint row says from then on. The
+    /// runtime applies it before the next turn starts and not under one that
+    /// is running (`super::worker`'s `turn_loop`), so while a turn is in
+    /// flight this is the mode the *next* one will have.
     mode: PermissionMode,
+    /// The one-time full-access warning on the hint row, and how much of its
+    /// time on the screen is left (`super::permissions::Warning`).
+    warning: permissions::Warning,
+    /// Whether this person has been shown that warning: the profile's
+    /// `yolo_acknowledged` at startup, and set the first time it is on the
+    /// screen here. Once true it stays true, which is what makes the warning
+    /// once per person rather than once per session.
+    acknowledged: bool,
     /// Whether the configured provider has nothing to authenticate with.
     ///
     /// Asked of the **provider** rather than of one field
@@ -1242,6 +1254,16 @@ impl Shell {
             },
             model: config.model.clone(),
             mode: config.permission_mode,
+            // A session that **starts** in full access owes the warning too
+            // (`initializeYoloWarning`, `app_permission_runtime.zig:86-88`).
+            warning: {
+                let mut warning = permissions::Warning::default();
+                if config.permission_mode == PermissionMode::Yolo && !config.yolo_acknowledged {
+                    warning.arm();
+                }
+                warning
+            },
+            acknowledged: config.yolo_acknowledged,
             missing_credential: !crate::provider::credential_ready(config.provider, config),
             provider: config.provider,
             catalog: Vec::new(),
@@ -1586,7 +1608,19 @@ impl Shell {
                 // keystroke would do rather than another fact about the
                 // session, and a warning that moved left and right with the
                 // queue's depth would be one the eye has to look for.
-                right: self.escape_armed.then_some(ESCAPE_ARMED),
+                //
+                // Otherwise the slot is the full-access warning's, while it
+                // has time on the screen left ([`Self::warning_shown`]), in
+                // upstream's `red_style` grey.
+                right: self
+                    .escape_armed
+                    .then_some(ESCAPE_ARMED)
+                    .or_else(|| self.warning_shown()),
+                right_style: if self.escape_armed {
+                    ""
+                } else {
+                    self.palette.danger()
+                },
                 accent: (self.palette.activity(), self.palette.statusline()),
             },
             self.geometry.cols,
@@ -4201,6 +4235,9 @@ impl Shell {
             self.escape_armed = armed;
             self.render.request(Reason::Footer);
         }
+        // After the Escape: an armed one takes the slot the warning is in, and
+        // the warning's clock must not run on a row that is not showing it.
+        self.tick_warning(now);
         // What the turn is doing, on the row above the divider. Before the
         // pacer, because the row's arrival and departure move the divider and
         // an append measured against the other band would be placed a row out.
@@ -4819,11 +4856,17 @@ impl Shell {
                     self.amended(delta);
                 }
             }
+            // Shift-Tab reaches here only with no question, catalog or menu
+            // up -- each is offered every keystroke first, and the catalog
+            // binds it -- which is upstream's own order: the menus that cycle
+            // a category take it, and otherwise it is the permission mode
+            // (`app_input_runtime.zig:1175-1185`).
+            Action::BackTab => self.cycle_mode(),
             // The full transcript (`input_full_transcript_runtime.zig:83-99`).
             Action::ToggleTranscript => self.open_full_transcript(),
             // The page keys are the full transcript's, and the composer has no
             // page of its own.
-            Action::Tab | Action::BackTab | Action::PageUp | Action::PageDown | Action::Ignore => {}
+            Action::Tab | Action::PageUp | Action::PageDown | Action::Ignore => {}
         }
     }
 
@@ -5425,6 +5468,37 @@ impl CommandHandlers for Shell {
         self.use_provider(argument);
     }
 
+    /// Upstream's `/permissions` (`handlePermissions`,
+    /// `session_commands.zig:367-394`, then `writeSessionPermissionRules`,
+    /// `app_commands.zig:776-811`, when bare).
+    ///
+    /// Bare, it says what is in force -- the mode this shell holds, and the
+    /// grants as the runtime last published them -- and that xfx keeps no
+    /// saved-session rules. A mode or `reset` is handed to the runtime
+    /// ([`Self::choose_mode`]) and answered here at once, as upstream answers
+    /// it; anything else is the usage line.
+    fn permissions(&mut self, argument: &str) {
+        use crate::permission::slash::Request;
+        match Request::parse(argument) {
+            Request::Show => {
+                let grants = self.work.grants();
+                self.announce(permissions::status(self.mode, &grants));
+                self.announce(permissions::saved_rules());
+            }
+            Request::Select(mode) => {
+                if self.choose_mode(Change::Mode(mode), mode) {
+                    self.announce(permissions::selected(mode));
+                }
+            }
+            Request::Reset => {
+                if self.choose_mode(Change::Reset, PermissionMode::Ask) {
+                    self.announce(permissions::reset());
+                }
+            }
+            Request::Usage => self.announce(permissions::usage()),
+        }
+    }
+
     /// Upstream's `commandHandleStatusline` (`app_commands.zig:2094-2107`):
     /// bare, the picker opens on its first row in place of the composer, and
     /// the menus that share its slot close; with an item, that item flips and
@@ -5474,6 +5548,91 @@ impl CommandHandlers for Shell {
 }
 
 impl Shell {
+    /// Hands the runtime a change to the session's authority and, once it has
+    /// it, moves this shell's own idea of the mode -- the hint row -- to
+    /// `mode`. Answers whether it did.
+    ///
+    /// **Not a [`TurnWork`]**: see [`WorkHandle::change_permissions`] for the
+    /// three ways that channel would get this wrong. A runtime that is gone has
+    /// nothing to apply a mode to, so the row keeps the mode it had and the
+    /// refusal says why.
+    ///
+    /// The warning follows the mode, as upstream's `updateYoloWarningForMode`
+    /// does (`app_permission_runtime.zig:168-176`): armed on the way into full
+    /// access for someone who has not seen it yet, and taken down on the way
+    /// out.
+    fn choose_mode(&mut self, change: Change, mode: PermissionMode) -> bool {
+        if let Err(rejected) = self.work.change_permissions(change) {
+            self.refused(rejected);
+            return false;
+        }
+        self.mode = mode;
+        if mode == PermissionMode::Yolo && !self.acknowledged {
+            self.warning.arm();
+        } else {
+            self.warning.clear();
+        }
+        self.render.request(Reason::Footer);
+        true
+    }
+
+    /// Shift-Tab with nothing in front of the composer that binds it: the next
+    /// mode round ask, auto, full access (`toggleMode`,
+    /// `app_permission_runtime.zig:135-142`), with no notice -- upstream's key
+    /// says it on the hint row and nowhere else.
+    fn cycle_mode(&mut self) {
+        let next = crate::permission::slash::next(self.mode);
+        self.choose_mode(Change::Mode(next), next);
+    }
+
+    /// The full-access warning, if the hint row carries it now: the sentence,
+    /// or its compact form on a row too narrow for the sentence, or nothing.
+    ///
+    /// Upstream's `dangerStatusText` (`input_presentation.zig:574-592`): a
+    /// question, a pending approval, an armed Escape and a refusal on the row
+    /// all own the row and keep the warning off it, and a menu or the catalog
+    /// replaces the row with its key help (`paint_plan.zig:946-972`). The
+    /// clock ([`permissions::Warning::observe`]) is asked with this same
+    /// answer, so the time spent is time the person could see it.
+    fn warning_shown(&self) -> Option<&'static str> {
+        if !self.warning.active() || self.mode != PermissionMode::Yolo {
+            return None;
+        }
+        if self.slot().is_some() || self.modal() || self.notice.is_some() || self.escape_armed {
+            return None;
+        }
+        // Nor while the other buffer owns the screen -- a question's review or
+        // the full transcript -- where the band is not painted at all
+        // (`yolo_warning_visible`, `app_render_runtime.zig:1833-1834`).
+        if self.owner != ScreenOwner::Primary {
+            return None;
+        }
+        let cols = usize::from(self.geometry.cols);
+        [permissions::WARNING, permissions::WARNING_COMPACT]
+            .into_iter()
+            .find(|text| usize::from(super::wrap::width(text)) <= cols)
+    }
+
+    /// One look at the warning's clock, from [`Self::settle_band`].
+    ///
+    /// The first time it is on the screen is the moment the person has been
+    /// shown it, and that is recorded at once (`noteFrameCommitted`,
+    /// `app_permission_runtime.zig:99-111`) -- once, whether the write works or
+    /// not: a failed write is said by the runtime, and a second attempt per
+    /// frame would be a write per frame.
+    fn tick_warning(&mut self, now: Instant) {
+        let shown = self.warning_shown().is_some();
+        if shown && !self.acknowledged {
+            self.acknowledged = true;
+            // A runtime that is gone has nothing to write with, and this is
+            // not a keystroke anybody is owed a refusal for.
+            let _ = self.work.change_permissions(Change::Acknowledge);
+        }
+        if self.warning.observe(now, shown) {
+            self.render.request(Reason::Footer);
+        }
+    }
+
     /// `/model`, as upstream answers it.
     ///
     /// **Bare, it opens the menu** (`openModelBrowseCatalog`,
@@ -6366,7 +6525,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("the hint row was not painted in the palette: {row:?}"));
             // The permission mode's accent, taken off with the colour it
             // lifts the mode out of and nothing else.
-            ["auto", "yolo"]
+            ["auto", "full access"]
                 .iter()
                 .fold(inside.to_string(), |row, mode| {
                     row.replacen(
@@ -11596,6 +11755,459 @@ mod tests {
         snapshot
     }
 
+    // -----------------------------------------------------------------------
+    // `/permissions` and Shift-Tab
+    // -----------------------------------------------------------------------
+
+    /// A 40x120 shell in `mode`, whose person has or has not been shown the
+    /// full-access warning, and the runtime end of the channel a change to the
+    /// session's authority goes down.
+    fn permissions_shell(
+        mode: PermissionMode,
+        acknowledged: bool,
+    ) -> (Fixture, UnboundedReceiver<Change>) {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut config = config(home.path(), workspace.path());
+        config.permission_mode = mode;
+        config.yolo_acknowledged = acknowledged;
+        let (work, sent, control, changes) = WorkHandle::detached_with_changes();
+        let fixture = Fixture {
+            shell: Shell::new(
+                &config,
+                crate::tui::layout::solve(40, 120, 1).expect("a band"),
+                PALETTE,
+                false,
+                work,
+            )
+            .anchored(),
+            sent,
+            control,
+        };
+        (fixture, changes)
+    }
+
+    /// Every change the shell has handed the runtime so far, in order.
+    fn changes_sent(changes: &mut UnboundedReceiver<Change>) -> Vec<Change> {
+        std::iter::from_fn(|| changes.try_recv().ok()).collect()
+    }
+
+    #[test]
+    fn a_bare_permissions_is_upstreams_two_notices_and_changes_nothing() {
+        // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
+        // name `remember` and `revoke`, which xfx does not have.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/permissions\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: mode=auto".to_string(),
+                "  configured rules: (none)".to_string(),
+                "  session grants: (none)".to_string(),
+                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                String::new(),
+                "* permissions: saved-session permission rules: none".to_string(),
+                String::new(),
+            ]
+        );
+        assert!(changes_sent(&mut changes).is_empty());
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "it was handed to the runtime"
+        );
+        assert_eq!(shell.work.outstanding(), 0, "it took a place in the queue");
+    }
+
+    #[test]
+    fn a_bare_permissions_lists_the_grants_the_runtime_published() {
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.work.publish_grants(vec![
+            " - write_file -> notes.md".to_string(),
+            " - terminal -> ls in /w".to_string(),
+        ]);
+        shell.route_bytes(b"/permissions\r");
+        let document = shell.document();
+        assert_eq!(
+            document[..6],
+            [
+                "* permissions: mode=ask".to_string(),
+                "  configured rules: (none)".to_string(),
+                "  session grants:".to_string(),
+                "   - write_file -> notes.md".to_string(),
+                "   - terminal -> ls in /w".to_string(),
+                "  usage: /permissions [ask|auto|full-access|reset]".to_string(),
+            ],
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn each_mode_word_reaches_the_runtime_and_is_said_as_upstream_says_it() {
+        // `cap/fx-permissions-40x120-{auto,full,ask}.txt`, and every spelling
+        // of the third mode upstream reads (`types.zig:2396-2403`).
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        for (typed, mode, said, row) in [
+            (
+                "auto",
+                PermissionMode::Auto,
+                "* permissions: mode set to auto",
+                "auto · ",
+            ),
+            (
+                "full-access",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "ask",
+                PermissionMode::Ask,
+                "* permissions: mode set to ask",
+                "ask · ",
+            ),
+            (
+                "yolo",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "Full Access",
+                PermissionMode::Yolo,
+                "! permissions: mode set to full access",
+                "full access · ",
+            ),
+            (
+                "AUTO",
+                PermissionMode::Auto,
+                "* permissions: mode set to auto",
+                "auto · ",
+            ),
+        ] {
+            shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                vec![said.to_string(), String::new()],
+                "{typed}"
+            );
+            assert_eq!(
+                changes_sent(&mut changes),
+                vec![Change::Mode(mode)],
+                "{typed}"
+            );
+            assert!(shell.hint().contains(row), "{typed}: {:?}", shell.hint());
+            // Nothing went down the work channel: a mode change is not queued
+            // work and holds no place a prompt could need.
+            assert!(shell.sent.try_recv().is_err(), "{typed}");
+            assert_eq!(shell.work.outstanding(), 0, "{typed}");
+        }
+    }
+
+    #[test]
+    fn the_full_access_notice_is_upstreams_warning_tone() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 14:
+        // `ESC[38;5;252m! permissions:ESC[38;5;250m mode set to full access`.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Auto, true);
+        shell.route_bytes(b"/permissions full-access\r");
+        // The transcript closes each run it writes; what reaches the screen
+        // is the label grey over the glyph and the topic, then the body's.
+        let painted: Vec<String> = shell
+            .take_pending()
+            .into_iter()
+            .flat_map(|append| append.rows)
+            .map(|row| row.replace(PALETTE.reset(), ""))
+            .collect();
+        assert!(
+            painted.iter().any(|row| row
+                == &format!(
+                    "{label}! {label}permissions:{body} mode set to full access",
+                    label = PALETTE.notice_label(),
+                    body = PALETTE.notice()
+                )),
+            "{painted:?}"
+        );
+    }
+
+    #[test]
+    fn reset_is_ask_and_says_the_grants_went() {
+        // `cap/fx-permissions-40x120-reset.txt`.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Yolo, true);
+        shell.route_bytes(b"/permissions reset\r");
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* permissions: permissions reset to ask, session grants cleared".to_string(),
+                String::new(),
+            ]
+        );
+        assert_eq!(changes_sent(&mut changes), vec![Change::Reset]);
+        assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
+        shell.route_bytes(b"/permissions RESET\r");
+        assert_eq!(changes_sent(&mut changes), vec![Change::Reset]);
+    }
+
+    #[test]
+    fn an_argument_nobody_understands_is_the_usage_line_and_changes_nothing() {
+        // `cap/fx-permissions-40x120-bogus.txt`: `✗ usage: …`, no topic.
+        // `remember` and `revoke` are upstream's and answered the same way.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, true);
+        for typed in [
+            "bogus",
+            "remember allow write_file {}",
+            "revoke 1",
+            "reset now",
+        ] {
+            shell.route_bytes(format!("/permissions {typed}\r").as_bytes());
+            assert_eq!(
+                shell.document(),
+                vec![
+                    "\u{2717} usage: /permissions [ask|auto|full-access|reset]".to_string(),
+                    String::new(),
+                ],
+                "{typed}"
+            );
+        }
+        assert!(changes_sent(&mut changes).is_empty());
+        assert!(shell.hint().contains("auto · "), "{:?}", shell.hint());
+    }
+
+    #[test]
+    fn shift_tab_cycles_ask_auto_full_access_and_says_it_only_on_the_row() {
+        // `toggleMode` (`app_permission_runtime.zig:135-142`): no notice, the
+        // hint row at once, and the same change a typed mode makes.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        let mut seen = Vec::new();
+        for _ in 0..3 {
+            shell.route_bytes(b"\x1b[Z");
+            seen.push(shell.hint());
+        }
+        assert!(seen[0].contains("auto · "), "{seen:?}");
+        assert!(seen[1].contains("full access · "), "{seen:?}");
+        assert!(seen[2].contains("ask · "), "{seen:?}");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![
+                Change::Mode(PermissionMode::Auto),
+                Change::Mode(PermissionMode::Yolo),
+                Change::Mode(PermissionMode::Ask),
+            ]
+        );
+        assert!(
+            shell.document().is_empty(),
+            "a key said something in the document"
+        );
+        // The kitty spelling is the same key.
+        shell.route_bytes(b"\x1b[9;2u");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Auto)]
+        );
+    }
+
+    #[test]
+    fn shift_tab_belongs_to_the_catalog_while_it_is_up_and_to_the_draft_never() {
+        // The catalog binds it (a category back), as upstream's does first
+        // (`app_input_runtime.zig:1176`); a draft is left as it was.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.route_bytes(b"/help\r");
+        shell.route_bytes(b"\x1b[Z");
+        assert!(
+            changes_sent(&mut changes).is_empty(),
+            "the catalog let it through"
+        );
+        assert_eq!(shell.mode, PermissionMode::Ask);
+
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        shell.route_bytes(b"half a thought");
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Auto)]
+        );
+        assert_eq!(shell.editor.text(), "half a thought", "the draft moved");
+    }
+
+    #[test]
+    fn a_mode_the_runtime_cannot_take_leaves_the_row_alone_and_says_why() {
+        let (mut shell, changes) = permissions_shell(PermissionMode::Ask, true);
+        drop(changes);
+        shell.route_bytes(b"/permissions auto\r");
+        shell.route_bytes(b"\x1b[Z");
+        assert!(shell.hint().contains("ask · "), "{:?}", shell.hint());
+        let document = shell.document();
+        assert!(
+            !document.iter().any(|row| row.contains("mode set to")),
+            "a change nobody applied was announced: {document:?}"
+        );
+        assert!(
+            document.iter().any(|row| row.contains(GONE_NOTICE)),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn the_mode_is_lifted_out_of_the_row_as_upstream_lifts_it() {
+        // `cap/fx-permissions-40x120-{full,ask}.ansi`: `full access` and `auto`
+        // in 252 then back to the row's 245; `ask` in the row's own.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Ask, true);
+        let raw = |shell: &mut Fixture| {
+            shell.settle_band(Instant::now());
+            shell.band_rows().last().cloned().expect("a hint row")
+        };
+        let row = raw(&mut shell);
+        assert!(row.starts_with(PALETTE.statusline()), "{row:?}");
+        assert!(row.contains(" · ask · "), "{row:?}");
+        assert!(!row.contains(PALETTE.activity()), "{row:?}");
+        shell.route_bytes(b"/permissions full-access\r");
+        let row = raw(&mut shell);
+        assert!(
+            row.contains(&format!(
+                " · {}full access{} · ",
+                PALETTE.activity(),
+                PALETTE.statusline()
+            )),
+            "{row:?}"
+        );
+    }
+
+    #[test]
+    fn full_access_shows_its_warning_once_and_for_four_seconds_on_the_screen() {
+        // `cap/fx-permissions-40x120-full.ansi`, row 18: flush with the last
+        // column, in upstream's `red_style` grey. Shown the first time this
+        // person is in full access, recorded the moment it is shown
+        // (`noteFrameCommitted`), and gone after 4 s of being seen.
+        let (mut shell, mut changes) = permissions_shell(PermissionMode::Auto, false);
+        assert!(!shell.hint().contains(permissions::WARNING));
+        shell.route_bytes(b"/permissions full-access\r");
+        let started = Instant::now();
+        shell.settle_band(started);
+        let row = shell.band_rows().last().cloned().expect("a hint row");
+        assert!(
+            row.ends_with(&format!(
+                "{}{}{}",
+                PALETTE.danger(),
+                permissions::WARNING,
+                PALETTE.reset()
+            )),
+            "{row:?}"
+        );
+        assert_eq!(
+            super::super::wrap::width(&unpainted(
+                &row.replace(PALETTE.statusline(), "")
+                    .replace(PALETTE.activity(), "")
+            )),
+            120
+        );
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Yolo), Change::Acknowledge],
+            "the warning was shown and not recorded as shown"
+        );
+        shell.settle_band(started + Duration::from_millis(3_999));
+        assert!(shell.warning_shown().is_some(), "gone before its time");
+        shell.settle_band(started + Duration::from_millis(4_000));
+        assert!(shell.warning_shown().is_none(), "still up after 4 s");
+        assert!(!shell.hint().contains("Full access"));
+        // Once per person: back out and in again, and it is not shown again,
+        // and nothing more is recorded.
+        shell.route_bytes(b"\x1b[Z");
+        shell.route_bytes(b"\x1b[Z\x1b[Z");
+        assert!(shell.hint().contains("full access · "));
+        assert!(!shell.hint().contains("Full access"));
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![
+                Change::Mode(PermissionMode::Ask),
+                Change::Mode(PermissionMode::Auto),
+                Change::Mode(PermissionMode::Yolo),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_person_already_warned_is_not_warned_again_and_one_never_warned_is_at_launch() {
+        let (mut warned, mut changes) = permissions_shell(PermissionMode::Ask, true);
+        warned.route_bytes(b"/permissions full-access\r");
+        assert!(!warned.hint().contains("Full access"));
+        assert_eq!(
+            changes_sent(&mut changes),
+            vec![Change::Mode(PermissionMode::Yolo)]
+        );
+
+        // A session that starts in full access owes it too
+        // (`initializeYoloWarning`).
+        let (mut launched, mut changes) = permissions_shell(PermissionMode::Yolo, false);
+        assert!(
+            launched.hint().ends_with(permissions::WARNING),
+            "{:?}",
+            launched.hint()
+        );
+        assert_eq!(changes_sent(&mut changes), vec![Change::Acknowledge]);
+        // And leaving full access takes it down at once.
+        launched.route_bytes(b"\x1b[Z");
+        assert!(!launched.hint().contains("Full access"));
+    }
+
+    #[test]
+    fn the_warning_waits_behind_whatever_owns_the_row_without_spending_its_time() {
+        // Upstream pauses it behind a menu (`yolo-permission-mode.test.ts:322-
+        // 336`): the time spent is time it was seen.
+        let (mut shell, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        let at = |millis: u64| Instant::now() + Duration::from_millis(millis);
+        let started = at(0);
+        let after = |millis: u64| started + Duration::from_millis(millis);
+        shell.settle_band(started);
+        assert!(shell.warning_shown().is_some());
+        // The loop settles after every read, so the catalog taking the row is
+        // seen a tick after the key, not ten seconds later.
+        shell.route_bytes(b"/help\r");
+        assert!(
+            shell.warning_shown().is_none(),
+            "the catalog's row carried it"
+        );
+        shell.settle_band(after(100));
+        shell.settle_band(after(10_000));
+        // Taken down the way the catalog is left, then seen again.
+        shell.help_menu = None;
+        shell.settle_band(after(10_000));
+        assert!(
+            shell.warning_shown().is_some(),
+            "time behind the catalog was spent"
+        );
+        // 100 ms were spent before the catalog: 3.9 s are left, not 4.
+        shell.settle_band(after(13_800));
+        assert!(shell.warning_shown().is_some());
+        shell.settle_band(after(13_900));
+        assert!(shell.warning_shown().is_none(), "it outlived its 4 s");
+        // The full transcript owns the other buffer and the band is not
+        // painted under it, so it pauses the clock too.
+        let (mut under, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        under.settle_band(started);
+        assert!(under.warning_shown().is_some());
+        under.route_bytes(b"\x0f");
+        assert!(
+            under.full.is_open(),
+            "Ctrl-O did not open the full transcript"
+        );
+        assert!(
+            under.warning_shown().is_none(),
+            "seen under the full transcript"
+        );
+        // Seen hidden on the loop's next tick, as the catalog was above.
+        under.settle_band(after(100));
+        under.settle_band(after(20_000));
+        under.close_full_transcript();
+        under.settle_band(after(20_000));
+        assert!(
+            under.warning_shown().is_some(),
+            "time under the full transcript was spent"
+        );
+        // And the narrow form on a row too narrow for the sentence.
+        let (mut narrow, _changes) = permissions_shell(PermissionMode::Yolo, false);
+        narrow.geometry = crate::tui::layout::solve(24, 40, 1).expect("a band");
+        assert_eq!(narrow.warning_shown(), Some(permissions::WARNING_COMPACT));
+    }
+
     #[test]
     fn status_is_one_neutral_notice_of_what_the_runtime_last_published() {
         // `fx-basic-40x120-status.txt`: `* status: model=…` and one `k=v` row
@@ -14634,12 +15246,20 @@ mod tests {
             "{rows:?}"
         );
         assert_eq!(rows[1], "", "the blank row under the header");
+        // The summary at 2 + the widest name + 4, the widest read off the
+        // registry: `/permissions` moved it, and the next long name will.
+        let widest = crate::interactive::SLASH_REGISTRY
+            .iter()
+            .map(|spec| spec.name.len())
+            .max()
+            .expect("a registry");
         assert_eq!(
             rows[2],
             format!(
-                "  {bright}/help{reset}          {bright}show available slash commands{reset}",
+                "  {bright}/help{reset}{gap}{bright}show available slash commands{reset}",
                 bright = PALETTE.subtitle(),
-                reset = PALETTE.reset()
+                reset = PALETTE.reset(),
+                gap = " ".repeat(widest + 4 - "/help".len()),
             )
         );
         assert_eq!(
@@ -14768,8 +15388,19 @@ mod tests {
         shell.route_bytes(b"\x1b[A");
         let rows = menu(&shell);
         let last = rows.len() - 1;
+        // The last in the catalog's order: the last category's last command.
+        let final_name = crate::interactive::SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| {
+                crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category)
+            })
+            .last()
+            .expect("a registry")
+            .name;
         assert!(
-            rows[last].starts_with(&format!("  {}/statusline", PALETTE.subtitle())),
+            rows[last].starts_with(&format!("  {}{final_name}", PALETTE.subtitle())),
             "Up from the first row is the last: {rows:?}"
         );
         shell.route_bytes(b"\x1b[B");
