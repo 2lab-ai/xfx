@@ -968,7 +968,11 @@ pub(crate) fn bind_conversation(
     questioner: Option<Arc<dyn QuestionRequester>>,
     cancel: &CancelToken,
 ) -> Conversation {
-    let mut permissions = permissions.with_durable_session(session.id().as_str());
+    let mut permissions = permissions
+        .with_durable_session(session.id().as_str())
+        .with_session_rules(crate::permission::session_rules::path_in(
+            &store.session_dir(session.id()),
+        ));
     for grant in &session.state().grants {
         permissions.grant(grant.clone());
     }
@@ -1049,6 +1053,8 @@ pub async fn run(
     // that is exactly the machine whose user needs `/help` -- and it must not
     // reach for a network endpoint until there is something to send.
     let mut bundle: Option<Bundle> = None;
+    // A `/permissions remember` or `revoke` waiting for its answer.
+    let mut pending_rule: Option<crate::permission::slash::Confirmation> = None;
 
     write!(io::stdout(), "{}", banner(&config, &model))?;
     io::stdout().flush()?;
@@ -1065,6 +1071,13 @@ pub async fn run(
             return Ok(ExitCode::SUCCESS);
         };
         interrupts.line_submitted();
+
+        // A rule change printed by `/permissions remember` or `revoke` is
+        // answered by this line, whatever it says.
+        if let Some(confirmation) = pending_rule.take() {
+            answer_rule_confirmation(&line, &confirmation)?;
+            continue;
+        }
 
         match classify(&line) {
             Submitted::Blank => continue,
@@ -1161,7 +1174,13 @@ pub async fn run(
                     }
                     Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                     Slash::Permissions => {
-                        apply_permissions(&argument, &mut config, conversation.as_mut(), &rules)?;
+                        apply_permissions(
+                            &argument,
+                            &mut config,
+                            conversation.as_mut(),
+                            &rules,
+                            &mut pending_rule,
+                        )?;
                     }
                     Slash::Allowlist => allowlist_on_the_line(
                         &argument,
@@ -1578,14 +1597,58 @@ async fn apply_model(
 /// thing at a time -- so a change is applied at once, to the configuration a
 /// later conversation is opened from and to the conversation in hand, and
 /// recorded in the profile the next launch reads.
+///
+/// `remember` and `revoke` are confirmed on the next line this shell reads
+/// (`pending`): the question, the line under it and the action are printed as
+/// `[permissions]` lines with the two choices, and `1` confirms -- anything
+/// else is the second choice, `Cancel` ([`answer_rule_confirmation`]).
 fn apply_permissions(
     argument: &str,
     config: &mut RuntimeConfig,
     conversation: Option<&mut Conversation>,
     rules: &LiveRules,
+    pending: &mut Option<crate::permission::slash::Confirmation>,
 ) -> io::Result<()> {
-    use crate::permission::slash::{self, Request};
-    let (mode, reset) = match Request::parse(argument) {
+    use crate::permission::slash::{self, Managed, Request};
+    let request = Request::parse(argument);
+    let rules_path = conversation.as_ref().and_then(|conversation| {
+        conversation
+            .tools
+            .permissions()
+            .session_rules_path()
+            .map(std::path::Path::to_path_buf)
+    });
+    let managed = slash::manage(&request, rules_path.as_deref(), false, |tool, arguments| {
+        let scope =
+            AccessScope::primary_only(&config.workspace_root).map_err(|err| err.to_string())?;
+        let context = ToolContext::new(scope).with_permissions(
+            PermissionSession::new(config.permission_mode).with_live_rules(rules.clone()),
+        );
+        crate::tools::prepare_rule_action(tool, arguments, &context)
+    });
+    if let Some(managed) = managed {
+        match managed {
+            Managed::Say { tone, topic, body } => say_permission_line(tone, topic, &body)?,
+            Managed::Confirm(confirmation) => {
+                let mut stdout = io::stdout();
+                writeln!(stdout, "[permissions] {}", confirmation.question)?;
+                writeln!(stdout, "[permissions] {}", confirmation.explanation)?;
+                writeln!(
+                    stdout,
+                    "  $ {}",
+                    safe_one_line(&confirmation.display, usize::MAX)
+                )?;
+                writeln!(stdout, "  1. Confirm")?;
+                writeln!(stdout, "  2. Cancel")?;
+                *pending = Some(confirmation);
+            }
+        }
+        return Ok(());
+    }
+    let (mode, reset) = match request {
+        Request::Remember { .. } | Request::Revoke(_) | Request::ManagementUsage => {
+            unreachable!("`manage` answers every rule-management form")
+        }
         Request::Show => {
             let grants = conversation
                 .map(|conversation| conversation.grant_lines(&config.workspace_root))
@@ -1601,12 +1664,28 @@ fn apply_permissions(
                     None => writeln!(stdout, "[permissions] {row}")?,
                 }
             }
-            writeln!(stdout, "[permissions] {}", slash::SAVED_RULES)?;
-            writeln!(stdout, "[permissions] {}", slash::USAGE)?;
+            match slash::saved_rules_at(rules_path.as_deref()) {
+                Ok(body) => {
+                    for (index, row) in body.lines().enumerate() {
+                        let row = safe_one_line(row, usize::MAX);
+                        if index == 0 {
+                            writeln!(stdout, "[permissions] {row}")?;
+                        } else {
+                            writeln!(stdout, " {row}")?;
+                        }
+                    }
+                }
+                Err(reason) => writeln!(io::stderr(), "xfx: permissions: {reason}")?,
+            }
+            for row in slash::USAGE.lines() {
+                writeln!(stdout, "[permissions] {}", row.trim_start())?;
+            }
             return Ok(());
         }
         Request::Usage => {
-            writeln!(io::stderr(), "xfx: {}", slash::USAGE)?;
+            for row in slash::USAGE.lines() {
+                writeln!(io::stderr(), "xfx: {}", row.trim_start())?;
+            }
             return Ok(());
         }
         Request::Select(mode) => (mode, false),
@@ -1696,6 +1775,45 @@ fn statusline_on_the_line(
         "[shell] {STATUSLINE_TOPIC}: {}",
         statusline_state(item, on)
     )
+}
+
+/// One rule-management answer on this shell: a neutral or warning line on
+/// stdout, an error on stderr, each row made safe.
+fn say_permission_line(
+    tone: crate::permission::allowlist::Tone,
+    topic: &str,
+    body: &str,
+) -> io::Result<()> {
+    use crate::permission::allowlist::Tone;
+    let topic = if topic.is_empty() {
+        String::new()
+    } else {
+        format!("{topic}: ")
+    };
+    for (index, row) in body.lines().enumerate() {
+        let row = safe_one_line(row.trim_start(), usize::MAX);
+        let lead = if index == 0 { topic.as_str() } else { "" };
+        match tone {
+            Tone::Error => writeln!(io::stderr(), "xfx: {lead}{row}")?,
+            Tone::Neutral | Tone::Warning => writeln!(io::stdout(), "[permissions] {row}")?,
+        }
+    }
+    Ok(())
+}
+
+/// The line read while a rule change waits: `1` makes it and says how it went
+/// ([`crate::permission::slash::confirm`]); anything else is `Cancel`.
+fn answer_rule_confirmation(
+    line: &str,
+    confirmation: &crate::permission::slash::Confirmation,
+) -> io::Result<()> {
+    use crate::permission::slash;
+    if line.trim() == "1" {
+        let (tone, body) = slash::confirm(confirmation);
+        say_permission_line(tone, slash::TOPIC, &body)
+    } else {
+        writeln!(io::stdout(), "[permissions] {}", slash::CANCELLED)
+    }
 }
 
 /// `/allowlist` on this shell: upstream's forms and words

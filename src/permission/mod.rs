@@ -12,6 +12,8 @@
 //!   approval channel, and the decision itself.
 //! - [`rules`]: the configured table upstream's settings carry, its pattern
 //!   language, and the verdict it gives one target.
+//! - [`session_rules`]: the exact actions one saved session was told to
+//!   allow or deny (`/permissions remember`), with ids and generations.
 //! - [`slash`]: what `/permissions` means and says, for both shells.
 //!
 //! # Why this shape
@@ -46,6 +48,7 @@ pub mod authority;
 pub mod command;
 pub mod policy;
 pub mod rules;
+pub mod session_rules;
 pub mod slash;
 
 /// The permission mode is a configuration setting, and configuration owns it.

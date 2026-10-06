@@ -165,6 +165,77 @@ impl ProposedAction<'_> {
         }
     }
 
+    /// The key a saved-session rule for exactly this action is kept under
+    /// (`permissionStateKeyForCall`, `tool_admission.zig:2189-2232`, and
+    /// `permissionStateKeyForPreparedFileMutation`, `:2304-2342`), or `None`
+    /// for a change whose executor did not bind one.
+    ///
+    /// A command: its text, the directory it runs in, how and where
+    /// (`commandKeyV2`). A change: the tool, the call's typed input and the
+    /// identity of the directory it is made in (the executor's binding), the
+    /// canonical target, the kind, the preimage -- absent, or its device,
+    /// inode and digest -- the digest of what it would leave, and every path
+    /// a configured rule judges it at. Nothing in it is a pattern: a rule made
+    /// from one action matches that action and no other.
+    pub fn state_key(&self) -> Option<super::session_rules::RuleKey> {
+        use super::session_rules::{field, os_bytes, target_os, KeyKind, RuleKey};
+        match self {
+            Self::Command(plan) => RuleKey::command(plan.command(), plan.cwd(), target_os()),
+            Self::Mutation(plan) => {
+                let binding = plan.state_binding()?;
+                let targets = plan.rule_targets()?;
+                let mut canonical = Vec::new();
+                field(&mut canonical, b"xfx-permission-state-file-v1");
+                field(&mut canonical, plan.kind().tool().as_bytes());
+                field(&mut canonical, binding);
+                field(&mut canonical, &os_bytes(plan.target().as_os_str()));
+                match plan.preimage() {
+                    super::Preimage::Absent => field(&mut canonical, b"preimage-absent"),
+                    super::Preimage::Present { identity, hash } => {
+                        field(&mut canonical, b"preimage-present");
+                        field(&mut canonical, &identity.device.to_be_bytes());
+                        field(&mut canonical, &identity.inode.to_be_bytes());
+                        field(&mut canonical, hash.hex().as_bytes());
+                    }
+                }
+                field(&mut canonical, plan.after_hash().hex().as_bytes());
+                for target in targets {
+                    field(&mut canonical, target);
+                }
+                RuleKey::new(KeyKind::FileMutation, canonical)
+            }
+        }
+    }
+
+    /// How a saved-session rule for this action is shown
+    /// (`filePermissionStateDisplay`, `tool_admission.zig:2344-2369`):
+    /// `write_file a.txt preimage=absent after=2d711642b726b044`, the digests
+    /// cut to their first eight bytes as upstream's are; a command as the
+    /// band's comment names it, with where it runs.
+    pub fn state_display(&self) -> String {
+        match self {
+            Self::Command(plan) => {
+                format!("terminal.exec {} in {}", plan.command(), plan.display_cwd())
+            }
+            Self::Mutation(plan) => {
+                let after = &plan.after_hash().hex()[..16];
+                match plan.preimage() {
+                    super::Preimage::Absent => format!(
+                        "{} {} preimage=absent after={after}",
+                        plan.kind().tool(),
+                        plan.display()
+                    ),
+                    super::Preimage::Present { hash, .. } => format!(
+                        "{} {} preimage={} after={after}",
+                        plan.kind().tool(),
+                        plan.display(),
+                        &hash.hex()[..16]
+                    ),
+                }
+            }
+        }
+    }
+
     /// The exact thing being asked for, and the key a grant matches.
     ///
     /// A command's key includes its working directory. Without it, approving
@@ -331,6 +402,9 @@ pub enum AllowSource {
     ConfiguredRule,
     /// An approval the user already gave this session.
     SessionGrant,
+    /// A saved-session rule (`/permissions remember allow`) for exactly this
+    /// action.
+    SavedSessionRule,
     /// The user said yes, for this call.
     InteractiveOnce,
     /// The user said yes, for the rest of the session.
@@ -346,6 +420,9 @@ pub enum AllowSource {
 pub enum DenyCause {
     /// A configured deny rule matched.
     ConfiguredRule,
+    /// A saved-session rule (`/permissions remember deny`) for exactly this
+    /// action, or a store of them that could not be read.
+    SavedSessionRule,
     /// `ask` mode with nowhere to ask.
     NoApprovalChannel,
     /// The user said no.
@@ -649,6 +726,9 @@ pub struct PermissionSession {
     grants: Vec<Grant>,
     prompter: Option<Box<dyn ApprovalPrompter>>,
     ledger: AuthorityLedger,
+    /// The saved session's `permissions.json`, read at every decision, when
+    /// this session is recorded ([`super::session_rules`]).
+    session_rules: Option<std::path::PathBuf>,
     /// The durable session id an "always" answer will outlive this process in.
     ///
     /// `None` for a turn nothing is recording, where "always" really does mean
@@ -675,6 +755,7 @@ impl PermissionSession {
             grants: Vec::new(),
             prompter: None,
             ledger: AuthorityLedger::new(),
+            session_rules: None,
             durable_session: None,
             live: None,
             grants_epoch: 0,
@@ -728,6 +809,22 @@ impl PermissionSession {
     pub fn with_durable_session(mut self, id: impl Into<String>) -> Self {
         self.durable_session = Some(id.into());
         self
+    }
+
+    /// The same session, deciding with the saved-session rules at `path`
+    /// (`<session>/permissions.json`) as they stand at each decision -- read
+    /// afresh every time, as upstream's snapshot provider is
+    /// (`requestPermissionOutcome`, `tool_admission.zig:1279-1309`), so a rule
+    /// the person confirmed on another thread, or in another process, is in
+    /// force for the next call.
+    pub fn with_session_rules(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.session_rules = Some(path.into());
+        self
+    }
+
+    /// Where this session's saved-session rules are kept, when it has any.
+    pub fn session_rules_path(&self) -> Option<&std::path::Path> {
+        self.session_rules.as_deref()
     }
 
     /// What an "always" answer buys, in this session's terms.
@@ -839,6 +936,21 @@ impl PermissionSession {
     /// session grant, which outranks whatever the mode would have said -- so a
     /// user who wrote a rule is never overruled by a default.
     pub fn evaluate(&self, action: ProposedAction<'_>) -> PolicyDecision {
+        self.evaluate_with(action, None)
+    }
+
+    /// [`Self::evaluate`], with the saved-session rules `saved` holds.
+    ///
+    /// Still pure: the store is read by the caller. A saved rule is consulted
+    /// **after** a configured deny and **before** everything else, as upstream
+    /// consults its session state (`requestPermissionOutcomeResolved`,
+    /// `tool_admission.zig:1386-1428`): a remembered allow cannot beat a deny
+    /// the person configured, and a remembered deny beats any allow.
+    pub fn evaluate_with(
+        &self,
+        action: ProposedAction<'_>,
+        saved: Option<&super::session_rules::State>,
+    ) -> PolicyDecision {
         // Read once, so the two places below cannot see two different modes.
         let mode = self.mode();
         // `yolo` is documented as skipping policy, so it skips policy. Honoring
@@ -856,15 +968,45 @@ impl PermissionSession {
             .iter()
             .any(|grant| grant.matches(tool, &target));
 
-        match self.rule_verdict(action, granted) {
-            RuleVerdict::Denied(candidate) => {
+        let verdict = self.rule_verdict(action, granted);
+        if let RuleVerdict::Denied(candidate) = verdict {
+            return PolicyDecision::Deny {
+                cause: DenyCause::ConfiguredRule,
+                reason: format!("a configured permission rule denies `{tool}` for `{candidate}`"),
+            };
+        }
+        if let Some(saved) = saved.filter(|saved| !saved.rules.is_empty()) {
+            use super::session_rules::Verdict;
+            // Fail closed: a store with rules in it, and an action that
+            // cannot say which of them is its, is not an action to let by.
+            let Some(key) = action.state_key() else {
                 return PolicyDecision::Deny {
-                    cause: DenyCause::ConfiguredRule,
+                    cause: DenyCause::SavedSessionRule,
                     reason: format!(
-                        "a configured permission rule denies `{tool}` for `{candidate}`"
+                        "`{tool}` for `{target}` cannot be matched against this session's saved permission rules"
                     ),
+                };
+            };
+            match saved.decide(&key) {
+                Verdict::Deny => {
+                    return PolicyDecision::Deny {
+                        cause: DenyCause::SavedSessionRule,
+                        reason: format!(
+                            "a saved-session permission rule denies `{}`",
+                            action.state_display()
+                        ),
+                    }
                 }
+                Verdict::Allow => {
+                    return PolicyDecision::Allow {
+                        source: AllowSource::SavedSessionRule,
+                    }
+                }
+                Verdict::Unresolved => {}
             }
+        }
+        match verdict {
+            RuleVerdict::Denied(_) => unreachable!("returned above"),
             // In every mode but yolo, `auto` included: a rule that asks is the
             // person saying they want to be asked, and no structural
             // admission outranks that (`fileMutationTargetsContainConfiguredAsk`,
@@ -993,7 +1135,27 @@ impl PermissionSession {
     /// no sentence to carry and says so with `feedback: None`.
     pub fn decide_with_feedback(&mut self, action: ProposedAction<'_>) -> Decided {
         self.sync_grants();
-        match self.evaluate(action) {
+        // The saved-session rules as they stand now. A store that cannot be
+        // read refuses the call, as upstream's failed snapshot fails it: a
+        // deny the person saved must not lapse because its file broke.
+        let saved = match &self.session_rules {
+            Some(path) if self.mode() != PermissionMode::Yolo => {
+                match super::session_rules::load(path) {
+                    Ok(state) => Some(state),
+                    Err(reason) => {
+                        return Decided {
+                            decision: PolicyDecision::Deny {
+                                cause: DenyCause::SavedSessionRule,
+                                reason,
+                            },
+                            feedback: None,
+                        }
+                    }
+                }
+            }
+            _ => None,
+        };
+        match self.evaluate_with(action, saved.as_ref()) {
             PolicyDecision::Prompt => self.ask(action),
             decision => Decided {
                 decision,

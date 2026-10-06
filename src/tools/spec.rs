@@ -861,6 +861,14 @@ impl ToolSpec {
         envelope
     }
 
+    /// Decodes and validates one call's arguments, and runs nothing: the
+    /// typed input [`Self::run`] would hand the executor.
+    pub fn decode(&self, input: &Value) -> Result<ToolInput, String> {
+        let decoded = (self.decode)(input)?;
+        (self.validate)(&decoded)?;
+        Ok(decoded)
+    }
+
     /// Decodes, validates, and runs one call's arguments.
     ///
     /// The stages are separate so that a refusal names the stage it came from.

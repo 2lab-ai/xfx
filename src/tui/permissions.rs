@@ -72,9 +72,11 @@ pub(crate) fn status(
     )
 }
 
-/// The second notice of a bare `/permissions`.
-pub(crate) fn saved_rules() -> Notice {
-    Notice::neutral(TOPIC, slash::SAVED_RULES)
+/// The second notice of a bare `/permissions`: the session's saved rules as
+/// [`slash::saved_rules_body`] says them, each row made inert -- a rule's
+/// display carries text a person's JSON put there.
+pub(crate) fn saved_rules(body: &str) -> Notice {
+    Notice::neutral(TOPIC, super::bridge::inert(body).into_owned())
 }
 
 /// What setting a mode says: neutral, and a warning for the one that skips
@@ -127,6 +129,31 @@ impl Grants {
     /// The list the runtime last published, and the reset count it was made
     /// under.
     pub(crate) fn read(&self) -> (u64, Vec<String>) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// Where the live conversation keeps its saved-session permission rules, as
+/// the runtime last published it: `None` while no saved session is open.
+///
+/// Published beside [`Grants`] and for the same reason -- the conversation is
+/// the runtime thread's, and the UI may not wait for it. What a `remember` or
+/// `revoke` changes is the **file**, under its own lock, and every decision
+/// reads the file afresh; so the UI writing it while a turn runs is the
+/// change upstream's confirmation makes (`commitPermissionState`), in force
+/// for that turn's next call.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SavedRulesAt(Arc<Mutex<Option<std::path::PathBuf>>>);
+
+impl SavedRulesAt {
+    pub(crate) fn publish(&self, path: Option<std::path::PathBuf>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = path;
+    }
+
+    pub(crate) fn read(&self) -> Option<std::path::PathBuf> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -217,9 +244,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bare_listing_is_upstreams_first_notice_less_the_rules_it_cannot_keep() {
-        // `cap/fx-permissions-40x120-bare.txt`, less the two usage rows that
-        // name `remember` and `revoke`.
+    fn a_bare_listing_is_upstreams_two_notices() {
+        // `cap/fx-permissions-40x120-bare.txt`.
         let notice = status(
             PermissionMode::Auto,
             &crate::permission::RuleSet::default(),
@@ -232,9 +258,11 @@ mod tests {
         assert_eq!(
             notice.body,
             "mode=auto\nconfigured rules: (none)\nsession grants: (none)\n\
-             usage: /permissions [ask|auto|full-access|reset]"
+             usage: /permissions [ask|auto|full-access|reset]\n       \
+             /permissions remember <allow|deny> <tool-name> <arguments-json>\n       \
+             /permissions revoke <rule-id>"
         );
-        let second = saved_rules();
+        let second = saved_rules(slash::SAVED_RULES);
         assert_eq!(
             (second.tone, second.topic.as_str(), second.body.as_str()),
             (
@@ -273,12 +301,11 @@ mod tests {
         let usage = usage();
         assert_eq!(
             (usage.tone, usage.topic.as_str(), usage.body.as_str()),
-            (
-                Tone::Error,
-                "",
-                "usage: /permissions [ask|auto|full-access|reset]"
-            )
+            (Tone::Error, "", slash::USAGE)
         );
+        assert!(usage
+            .body
+            .starts_with("usage: /permissions [ask|auto|full-access|reset]\n"));
         let failed = not_saved("permission-mode", "no home directory");
         assert_eq!(
             (failed.tone, failed.topic.as_str()),

@@ -724,6 +724,7 @@ mod provider_picker;
 mod question;
 mod render_request;
 mod router;
+mod rule_confirm;
 mod session_picker;
 mod shell;
 mod signals;

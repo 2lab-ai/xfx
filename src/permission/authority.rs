@@ -735,6 +735,11 @@ pub struct MutationPlan {
     /// directories exist and how the filesystem spells them. Not part of the
     /// fingerprint: it is a reading of the same target, for policy.
     rule_targets: Option<Vec<Vec<u8>>>,
+    /// What a saved-session rule's key binds besides the plan's own fields:
+    /// the call's typed input and the identity of the directory the change is
+    /// made in ([`super::policy::ProposedAction::state_key`]). Set by the
+    /// executor; a plan without it matches no saved rule.
+    state_binding: Option<Vec<u8>>,
     fingerprint: ContentHash,
 }
 
@@ -774,8 +779,22 @@ impl MutationPlan {
             excerpt: None,
             diff: None,
             rule_targets: None,
+            state_binding: None,
             fingerprint,
         }
+    }
+
+    /// The same plan, bound to `binding` for a saved-session rule's key
+    /// ([`Self::state_binding`]).
+    pub fn with_state_binding(mut self, binding: Vec<u8>) -> Self {
+        self.state_binding = Some(binding);
+        self
+    }
+
+    /// The call's typed input and its directory's identity, as the executor
+    /// bound them, or `None`.
+    pub fn state_binding(&self) -> Option<&[u8]> {
+        self.state_binding.as_deref()
     }
 
     /// The same plan, judged by rules against `targets`

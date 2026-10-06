@@ -440,7 +440,11 @@ async fn run_ask(
     // reused by any later `ask --resume-id <id>`, so the id goes into the
     // question rather than being discovered afterwards.
     if let Some(recorder) = opened.recorder.as_ref() {
-        permissions = permissions.with_durable_session(recorder.id().as_str());
+        permissions = permissions
+            .with_durable_session(recorder.id().as_str())
+            // And its saved-session rules decide this turn's calls, as a
+            // resumed upstream session's do.
+            .with_session_rules(recorder.permission_rules_path());
     }
     for grant in &opened.restored_grants {
         permissions.grant(grant.clone());

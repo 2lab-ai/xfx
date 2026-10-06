@@ -36,6 +36,7 @@ use xfx::agent::{run_turn, TurnError, TurnRequest};
 use xfx::gateway::protocol::{Completion, CompletionRequest, FinishReason, ToolCall, Usage};
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::output::{Event, RecordingSink};
+use xfx::permission::session_rules::{self, Decision};
 use xfx::permission::{
     classify, AllowSource, ApprovalAnswer, ApprovalPrompter, ApprovalRequest, ApprovalResponse,
     AuthorityError, CommandEffect, CommandPlan, CommandRoute, ConfiguredRule, DeniedEffect,
@@ -3960,4 +3961,184 @@ fn a_write_deny_is_not_walked_around_by_a_capital_letter() {
         refused.output
     );
     assert!(tree.entries("secret").is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// saved-session rules at the tools
+// ---------------------------------------------------------------------------
+
+/// A context over `tree` in `mode` whose session keeps its saved-session
+/// rules at `rules`, and nobody to ask.
+fn remembering(tree: &Tree, mode: PermissionMode, rules: &Path) -> ToolContext {
+    ToolContext::new(AccessScope::primary_only(tree.root()).expect("a usable primary root"))
+        .with_permissions(session(mode).with_session_rules(rules))
+}
+
+/// Keeps a rule for exactly `tool(arguments)` in the store at `rules`.
+fn remember(tree: &Tree, rules: &Path, decision: Decision, tool: &str, arguments: Value) {
+    let context = remembering(tree, PermissionMode::Ask, rules);
+    let action = xfx::tools::prepare_rule_action(tool, &arguments, &context).expect("prepared");
+    assert!(matches!(
+        session_rules::update(
+            rules,
+            &session_rules::Event::Set {
+                key: action.key,
+                display: action.display,
+                decision,
+                expected: None,
+            }
+        ),
+        Ok(session_rules::Applied::Applied(_))
+    ));
+}
+
+#[test]
+fn a_remembered_allow_lets_exactly_that_change_through_in_ask_mode_and_nothing_else() {
+    let tree = Tree::new();
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    remember(
+        &tree,
+        &rules,
+        Decision::Allow,
+        "write_file",
+        json!({"path": "a.txt", "content": "x"}),
+    );
+    let context = remembering(&tree, PermissionMode::Ask, &rules);
+    // Other content to the same file is another action.
+    let other = call(
+        &context,
+        "write_file",
+        json!({"path": "a.txt", "content": "y"}),
+    );
+    assert!(!other.ok, "{}", other.output);
+    assert!(!tree.root().join("a.txt").exists());
+    // The remembered one runs without a question.
+    let same = call(
+        &context,
+        "write_file",
+        json!({"path": "a.txt", "content": "x"}),
+    );
+    assert!(same.ok, "{}", same.output);
+    assert_eq!(tree.read("a.txt"), "x");
+    // Now the file is there, the same arguments are a change with another
+    // preimage: not the remembered action.
+    fs::remove_file(tree.root().join("a.txt")).unwrap();
+    tree.write("a.txt", "z");
+    let reread = call(&context, "read_file", json!({"path": "a.txt"}));
+    assert!(reread.ok);
+    let again = call(
+        &context,
+        "write_file",
+        json!({"path": "a.txt", "content": "x"}),
+    );
+    assert!(!again.ok, "{}", again.output);
+}
+
+#[test]
+fn a_remembered_deny_beats_auto_mode_and_a_configured_allow_but_not_a_configured_deny_order() {
+    let tree = Tree::new();
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    remember(
+        &tree,
+        &rules,
+        Decision::Deny,
+        "terminal",
+        json!({"action": "exec", "command": "git status"}),
+    );
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table(&[("bash", "git *", RuleAction::Allow)]))
+                .with_session_rules(&rules),
+        );
+    let refused = call(
+        &context,
+        "terminal",
+        json!({"action": "exec", "command": "git status"}),
+    );
+    assert!(!refused.ok);
+    assert!(
+        refused
+            .output
+            .contains("a saved-session permission rule denies `terminal.exec git status in .`"),
+        "{}",
+        refused.output
+    );
+    // A configured deny is consulted first and says so.
+    let configured = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(
+            session(PermissionMode::Auto)
+                .with_rules(table(&[("bash", "git *", RuleAction::Deny)]))
+                .with_session_rules(&rules),
+        );
+    let refused = call(
+        &configured,
+        "terminal",
+        json!({"action": "exec", "command": "git status"}),
+    );
+    assert!(
+        refused
+            .output
+            .contains("a configured permission rule denies"),
+        "{}",
+        refused.output
+    );
+}
+
+#[test]
+fn a_store_that_cannot_be_read_refuses_the_call_rather_than_letting_a_deny_lapse() {
+    let tree = Tree::new();
+    let store = TempDir::new().unwrap();
+    let rules = store.path().join("permissions.json");
+    fs::write(&rules, "{broken").unwrap();
+    let context = remembering(&tree, PermissionMode::Yolo, &rules);
+    assert!(
+        call(&context, "create_folder", json!({"path": "d"})).ok,
+        "yolo reads no store"
+    );
+    let context = remembering(&tree, PermissionMode::Auto, &rules);
+    let refused = call(&context, "create_folder", json!({"path": "e"}));
+    assert!(!refused.ok);
+    assert!(
+        refused
+            .output
+            .contains("saved-session permission rules are invalid"),
+        "{}",
+        refused.output
+    );
+    assert!(!tree.root().join("e").exists());
+}
+
+#[test]
+fn a_rule_cannot_be_prepared_for_a_change_a_configured_rule_denies_or_a_tool_that_asks_nothing() {
+    let tree = Tree::new();
+    let context = ToolContext::new(AccessScope::primary_only(tree.root()).unwrap())
+        .with_permissions(session(PermissionMode::Ask).with_rules(table(&[(
+            "edit",
+            "secret/*",
+            RuleAction::Deny,
+        )])));
+    let denied = xfx::tools::prepare_rule_action(
+        "write_file",
+        &json!({"path": "secret/a", "content": "x"}),
+        &context,
+    );
+    assert!(denied
+        .unwrap_err()
+        .starts_with("a configured permission rule denies"));
+    for (tool, arguments) in [
+        ("read_file", json!({"path": "a"})),
+        ("bash", json!({"command": "ls"})),
+        ("write_file", json!({"path": "../escape", "content": "x"})),
+        ("terminal", json!({"action": "exec"})),
+    ] {
+        assert!(
+            xfx::tools::prepare_rule_action(tool, &arguments, &context).is_err(),
+            "{tool}"
+        );
+    }
+    // Preparing ran nothing.
+    assert!(tree.entries(".").is_empty());
 }

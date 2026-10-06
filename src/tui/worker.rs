@@ -81,7 +81,7 @@ use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
 };
-use super::permissions::{self, Change, Grants};
+use super::permissions::{self, Change, Grants, SavedRulesAt};
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::clipboard::last_reply;
@@ -242,6 +242,9 @@ pub(crate) struct WorkHandle {
     rules: LiveRules,
     /// What a bare `/permissions` lists, as the runtime last published it.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, as the
+    /// runtime last published it ([`SavedRulesAt`]).
+    saved_rules: SavedRulesAt,
 }
 
 /// What `/status` reads of the runtime thread, as that thread last left it.
@@ -449,6 +452,19 @@ impl WorkHandle {
         }
     }
 
+    /// Where the live conversation keeps its saved-session permission rules,
+    /// or `None` while no saved session is open.
+    pub(crate) fn saved_rules_path(&self) -> Option<std::path::PathBuf> {
+        self.saved_rules.read()
+    }
+
+    /// Stands in for the runtime's publication of where the saved-session
+    /// rules are kept.
+    #[cfg(test)]
+    pub(crate) fn publish_saved_rules(&self, path: Option<std::path::PathBuf>) {
+        self.saved_rules.publish(path);
+    }
+
     /// Whether a reset has happened since the runtime last published, so
     /// every grant that publication counted is out of force.
     pub(crate) fn grants_reset_since_published(&self) -> bool {
@@ -504,6 +520,7 @@ impl WorkHandle {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
             },
             work_rx,
             control_rx,
@@ -769,6 +786,8 @@ pub(crate) fn spawn(
     let loops_reply = reply.clone();
     let grants = Grants::default();
     let publishes_grants = grants.clone();
+    let saved_rules = SavedRulesAt::default();
+    let publishes_saved_rules = saved_rules.clone();
     // One live authority for the session: the handle writes it, every
     // conversation this runtime opens reads it.
     let live = LiveAuthority::new(config.permission_mode);
@@ -798,6 +817,7 @@ pub(crate) fn spawn(
             let mut state = Runtime::new(config, store, prompter, questioner);
             state.reply = loops_reply;
             state.grants = publishes_grants;
+            state.saved_rules = publishes_saved_rules;
             state.live = loops_live;
             state.rules = loops_rules;
             if let Some(resumed) = resumed {
@@ -835,6 +855,7 @@ pub(crate) fn spawn(
                 live,
                 rules,
                 grants,
+                saved_rules,
             },
             resumable: None,
         },
@@ -979,6 +1000,9 @@ struct Runtime {
     /// written by [`Runtime::publish`] beside `/status`'s snapshot so the two
     /// cannot describe different moments.
     grants: Grants,
+    /// Where the live conversation keeps its saved-session rules, published
+    /// with the grants.
+    saved_rules: SavedRulesAt,
     /// The mode and reset count the UI writes and every conversation's
     /// authority reads at each decision ([`WorkHandle::change_permissions`]).
     /// **Read here, never written**: see that field.
@@ -1034,6 +1058,7 @@ impl Runtime {
             reply: LastReply::default(),
             board,
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
             live: LiveAuthority::new(config_mode),
             rules: LiveRules::new(config_rules),
         }
@@ -1064,6 +1089,14 @@ impl Runtime {
         // read as out of force -- the safe way to be wrong.
         let resets = self.live.resets();
         self.grants.publish(resets, self.grant_lines());
+        self.saved_rules
+            .publish(self.conversation.as_ref().and_then(|conversation| {
+                conversation
+                    .tools
+                    .permissions()
+                    .session_rules_path()
+                    .map(std::path::Path::to_path_buf)
+            }));
     }
 
     /// The conversation's grants as `/permissions` lists them, made inert:
@@ -2826,6 +2859,7 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
             },
             resumable: None,
         };
@@ -2886,6 +2920,7 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
             },
             resumable: None,
         };
@@ -2925,6 +2960,7 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
             },
             resumable: None,
         };
@@ -3282,6 +3318,7 @@ mod tests {
             live: LiveAuthority::new(PermissionMode::Auto),
             rules: LiveRules::default(),
             grants: Grants::default(),
+            saved_rules: SavedRulesAt::default(),
         };
         drop(work_rx);
         assert_eq!(
@@ -4770,6 +4807,7 @@ mod tests {
                 live: LiveAuthority::new(PermissionMode::Auto),
                 rules: LiveRules::default(),
                 grants: Grants::default(),
+                saved_rules: SavedRulesAt::default(),
             },
             resumable: None,
         };
