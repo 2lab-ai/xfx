@@ -19,10 +19,16 @@
 //! its read loop, which waits for a line anyway; the TUI hands the copy to a
 //! thread of its own, because its UI thread holds the terminal and a clipboard
 //! tool that does not exit must not be something the screen waits for.
+//!
+//! `/trace` uses the same clipboard for a **file** rather than for text
+//! ([`Clipboard::copy_file`]): upstream's second clipboard operation, which on
+//! macOS is a script for `osascript` rather than bytes for `pbcopy`.
 
 use std::ffi::OsString;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::session::{DurableState, TurnStep};
 
@@ -77,6 +83,41 @@ const TOOL: Option<(&str, &[&str])> = if cfg!(target_os = "macos") {
     None
 };
 
+/// What puts a file on the macOS pasteboard, byte for byte upstream's
+/// (`copy_file_to_clipboard`, `native.zig:177-199`).
+///
+/// The file's URL as `public.file-url` and its path as `NSFilenamesPboardType`,
+/// each read back and compared, so a pasteboard that took neither -- or took
+/// something else -- is a failure rather than a success nobody can paste.
+/// Eager representations, so the pasteboard server owns them once this
+/// short-lived process has gone. The path is the script's one argument.
+const FILE_SCRIPT: &str = r#"function run(argv) {
+  ObjC.import("AppKit");
+  var url = $.NSURL.fileURLWithPath(argv[0]).standardizedURL;
+  var expected = ObjC.unwrap(url.absoluteString);
+  var pb = $.NSPasteboard.generalPasteboard;
+  pb.clearContents;
+  if (!pb.setStringForType(expected, "public.file-url")) {
+    throw new Error("public.file-url materialization failed");
+  }
+  var files = $.NSArray.arrayWithObject(argv[0]);
+  if (!pb.setPropertyListForType(files, "NSFilenamesPboardType")) {
+    throw new Error("NSFilenamesPboardType materialization failed");
+  }
+  var copiedValue = pb.stringForType("public.file-url");
+  if (!copiedValue) throw new Error("public.file-url readback missing");
+  var copied = ObjC.unwrap(copiedValue);
+  if (copied !== expected) throw new Error("public.file-url readback mismatch");
+  var copiedFiles = ObjC.deepUnwrap(pb.propertyListForType("NSFilenamesPboardType"));
+  if (!copiedFiles || copiedFiles.length !== 1 || copiedFiles[0] !== argv[0]) {
+    throw new Error("NSFilenamesPboardType readback mismatch");
+  }
+}"#;
+
+/// How long a file copy may take before its tool is killed and the copy is a
+/// failure (`copy_file_to_clipboard`'s five seconds, `native.zig:201-205`).
+const FILE_DEADLINE: Duration = Duration::from_secs(5);
+
 /// The system clipboard, reached through the tool on `PATH`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Clipboard {
@@ -87,6 +128,9 @@ pub struct Clipboard {
     /// fake `pbcopy` first without touching the environment every other test
     /// in the process is reading.
     search: Option<OsString>,
+    /// How long [`Self::copy_file`] waits, when it is not [`FILE_DEADLINE`]:
+    /// a test of the deadline should not cost five seconds.
+    deadline: Option<Duration>,
 }
 
 impl Clipboard {
@@ -99,6 +143,63 @@ impl Clipboard {
     pub fn searching(search: impl Into<OsString>) -> Self {
         Self {
             search: Some(search.into()),
+            deadline: None,
+        }
+    }
+
+    /// The same clipboard, giving a file copy `deadline` rather than five
+    /// seconds.
+    #[cfg(test)]
+    pub(crate) fn waiting(mut self, deadline: Duration) -> Self {
+        self.deadline = Some(deadline);
+        self
+    }
+
+    /// Puts the **file** at `path` on the clipboard -- what a paste into a
+    /// mail, a chat or an issue attaches -- and says whether it worked
+    /// (`copy_file_to_clipboard`, `native.zig:172-225`).
+    ///
+    /// macOS only, as upstream's is: `osascript -l JavaScript` found on `PATH`
+    /// runs [`FILE_SCRIPT`] with the path as its last argument. Everywhere else
+    /// there is no file clipboard to put it on, nothing is run, and the answer
+    /// is `false` (`:176`).
+    ///
+    /// **Blocks** until the tool exits or [`FILE_DEADLINE`] passes, when it is
+    /// killed and the copy is a failure; the TUI calls it from a thread of its
+    /// own. Its output goes nowhere, for the reason [`Self::copy`]'s does, and
+    /// only an exit status of 0 is a success.
+    pub fn copy_file(&self, path: &Path) -> bool {
+        if !cfg!(target_os = "macos") {
+            return false;
+        }
+        let mut command = Command::new("osascript");
+        command
+            .args(["-l", "JavaScript", "-e", FILE_SCRIPT])
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(search) = &self.search {
+            command.env("PATH", search);
+        }
+        let Ok(mut child) = command.spawn() else {
+            return false;
+        };
+        let deadline = Instant::now() + self.deadline.unwrap_or(FILE_DEADLINE);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                // Past the deadline, or a wait that failed: either way the tool
+                // is not answering, and it is not left running.
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return false;
+                }
+            }
         }
     }
 
@@ -310,6 +411,60 @@ mod tests {
             let text = "x".repeat(4 << 20);
             assert!(!tool.clipboard().copy(&text));
         }
+
+        /// A report's path, as `/trace` would hand one over.
+        const REPORT: &str = "/private/tmp/xfx-trace-2026-10-07-031245-0123456789ab.md";
+
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn a_file_copy_hands_the_tool_the_path_as_its_last_argument() {
+            // Upstream's e2e reads the fixture's last argument and expects the
+            // report's path (`tui-command-permissions.test.ts:1880-1881`).
+            let tool = FakeTool::keeping();
+            assert!(tool.clipboard().copy_file(std::path::Path::new(REPORT)));
+            assert_eq!(tool.copied_file().as_deref(), Some(REPORT));
+            assert_eq!(tool.copied(), None, "a file copy fed the text tool");
+        }
+
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn a_file_copy_whose_tool_fails_or_is_missing_is_a_failure() {
+            let tool = FakeTool::keeping();
+            tool.fail();
+            assert!(!tool.clipboard().copy_file(std::path::Path::new(REPORT)));
+            assert_eq!(tool.copied_file(), None);
+            let empty = tempfile::tempdir().expect("an empty directory");
+            assert!(
+                !super::super::Clipboard::searching(empty.path().as_os_str())
+                    .copy_file(std::path::Path::new(REPORT))
+            );
+        }
+
+        #[test]
+        #[cfg(target_os = "macos")]
+        fn a_file_copy_that_outlives_its_deadline_is_killed_and_a_failure() {
+            let tool = FakeTool::keeping();
+            tool.hang();
+            let started = std::time::Instant::now();
+            assert!(!tool
+                .clipboard()
+                .waiting(std::time::Duration::from_millis(200))
+                .copy_file(std::path::Path::new(REPORT)));
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(10),
+                "the copy waited for a tool that never answered"
+            );
+        }
+
+        #[test]
+        #[cfg(not(target_os = "macos"))]
+        fn a_file_copy_off_macos_runs_nothing_and_is_not_a_success() {
+            // `copy_file_to_clipboard` returns false before it spawns anything
+            // on any other system (`native.zig:176`).
+            let tool = FakeTool::keeping();
+            assert!(!tool.clipboard().copy_file(std::path::Path::new(REPORT)));
+            assert_eq!(tool.copied_file(), None, "a tool was run");
+        }
     }
 }
 
@@ -322,7 +477,9 @@ pub(crate) mod fake {
     use super::Clipboard;
 
     /// One directory holding a `pbcopy` and an `xclip` that are the same
-    /// script, so a case reads the same whichever system runs it.
+    /// script, so a case reads the same whichever system runs it -- and an
+    /// `osascript` for a file copy, which keeps the path it was given
+    /// ([`Self::copied_file`]).
     pub(crate) struct FakeTool {
         dir: tempfile::TempDir,
     }
@@ -346,14 +503,47 @@ pub(crate) mod fake {
                 std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                     .expect("make it executable");
             }
+            // The file copy's tool takes the path as its last argument, as
+            // upstream's own fixture reads it
+            // (`tests/e2e/tui-command-permissions.test.ts:1842-1845`); `exec`
+            // so a deadline's kill reaches the `sleep` and leaves nothing.
+            let osascript = dir.path().join("osascript");
+            std::fs::write(
+                &osascript,
+                concat!(
+                    "#!/bin/sh\n",
+                    "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
+                    "if [ -f \"${0%/*}/hang\" ]; then exec sleep 30; fi\n",
+                    "for arg in \"$@\"; do last=$arg; done\n",
+                    "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
+                ),
+            )
+            .expect("write a fake osascript");
+            std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
+                .expect("make it executable");
+            // Run once now: macOS assesses an executable the first time it
+            // runs, which took 0.5 to 2.4 s for a fresh script on an idle
+            // machine and more under the suite's load -- past a file copy's
+            // deadline, which would fail a case about something else.
+            std::process::Command::new(&osascript)
+                .arg("warm-up")
+                .status()
+                .expect("run the fake osascript once");
+            std::fs::remove_file(dir.path().join("copied-file")).expect("forget the warm-up");
             Self { dir }
         }
 
         /// The clipboard that finds this tool: its directory, then `/bin` for
         /// the `sh` and `cat` it runs -- and not `/usr/bin`, where macOS keeps
         /// the real `pbcopy`.
+        ///
+        /// A file copy gets a minute rather than five seconds: a deadline is
+        /// what a case about the deadline sets ([`Clipboard::waiting`]), and
+        /// every other case is about what the copy did, not how fast a loaded
+        /// machine ran it.
         pub(crate) fn clipboard(&self) -> Clipboard {
             Clipboard::searching(format!("{}:/bin", self.dir.path().display()))
+                .waiting(std::time::Duration::from_secs(60))
         }
 
         /// What the tool was last fed, or `None` when it has kept nothing.
@@ -361,9 +551,20 @@ pub(crate) mod fake {
             std::fs::read(self.path("copied")).ok()
         }
 
+        /// The path the file copy's tool was last given, or `None` when it
+        /// has been given none.
+        pub(crate) fn copied_file(&self) -> Option<String> {
+            std::fs::read_to_string(self.path("copied-file")).ok()
+        }
+
         /// Makes every copy from now on exit 1.
         pub(crate) fn fail(&self) {
             std::fs::write(self.path("fail"), "").expect("arm the failure");
+        }
+
+        /// Makes every file copy from now on wait far past any deadline.
+        pub(crate) fn hang(&self) {
+            std::fs::write(self.path("hang"), "").expect("arm the wait");
         }
 
         fn path(&self, name: &str) -> PathBuf {

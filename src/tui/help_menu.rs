@@ -797,11 +797,15 @@ mod tests {
     #[test]
     fn the_catalog_opens_with_its_header_a_blank_row_and_every_command() {
         let menu = HelpMenu::open("");
-        let count = SLASH_REGISTRY.len();
+        // As many as it lists, up to upstream's twenty at once
+        // (`max_visible_items`, `help_menu_presentation.zig:14`): the registry
+        // passed twenty with `/settings` and `/trace`, and the rest are a
+        // scroll away.
+        let count = SLASH_REGISTRY.len().min(MOST_ITEMS);
         assert_eq!(
             usize::from(menu.height(40, 0)),
             2 + count,
-            "only as tall as what it lists"
+            "only as tall as what it lists, and never more than twenty"
         );
         let rows = menu.rows(120, menu.height(40, 0), PALETTE);
         assert_eq!(rows.len(), 2 + count);
@@ -826,7 +830,7 @@ mod tests {
                 SLASH_REGISTRY[1].summary
             )
         );
-        assert_eq!(shown(&rows), by_category());
+        assert_eq!(shown(&rows), by_category()[..count]);
         for row in &rows[3..] {
             assert!(row.starts_with(&format!("  {DIM}")), "{row:?}");
             assert_eq!(summary_column(row), column, "{row:?}");

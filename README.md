@@ -116,6 +116,12 @@ Read this before using `--auto` or `--yolo` on a repository you care about.
   you have the model read a file holding your own secrets, that secret is on
   disk in the session log. Use `--no-save` for a turn that must leave nothing
   behind.
+- **What you submit at the full-screen shell's composer is kept too.** Every
+  prompt and command line -- a collapsed paste as the text it stands for -- is
+  appended to `~/.xfx/history.jsonl` (owner-only plaintext) for the next
+  session's recall, as upstream keeps `~/.fx/history.jsonl`. `/settings`'
+  `Prompt history` off keeps nothing there from then on; lines already kept
+  stay until you delete the file.
 - **The file tools never write `.git` or `.xfx`.** Refused structurally, before
   any permission check and in every mode including `--yolo`, because a
   `.git/config` entry decides what the commands xfx may then run will execute.

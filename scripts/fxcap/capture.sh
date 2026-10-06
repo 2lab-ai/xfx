@@ -52,8 +52,18 @@
 #   clip <label>           moves the bytes the fake pbcopy was last fed to
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
-#   clipfail on|off        makes the fake pbcopy read its input and exit 1
-#   relaunch <args>...     starts the binary again in the same pane, with the
+#   clipfail on|off        makes the fake pbcopy read its input and exit 1,
+#                          and the fake osascript exit 1
+#   clipfile <label>       moves the paths the fake osascript was handed as its
+#                          last argument -- a file copy, `/trace`'s -- to
+#                          <bin>-<scenario>-<size>-<label>.clipfile, the run's
+#                          directory written as <scratch>, or says none was
+#   reports <label>        copies every `/trace` report the binary wrote into
+#                          its own TMPDIR to
+#                          <bin>-<scenario>-<size>-<label>-<n>.md, oldest
+#                          first, the run's directory written as <scratch>,
+#                          and prints the mode each was written with
+#   relaunch [<args>...]   starts the binary again in the same pane, with the
 #                          same HOME and environment and these arguments --
 #                          after `keep` and an exit, so a second launch sees
 #                          what the first one saved (`fx: relaunch
@@ -76,6 +86,10 @@
 # one of those names is still a directory, and fails loudly if not.
 # (2026-10-06 23:09 and 23:14: a research copy of this script, without the
 # guard, let fx write /tmp/fx-toggle.m4a and /tmp/fx-bloom.m4a and play them.)
+#
+# Each binary gets a TMPDIR inside the run (fx `$run/fxtmp`, xfx
+# `$run/xfxtmp`), so what either writes there -- `/trace`'s report -- stays in
+# the run and is read out with `reports`.
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -164,18 +178,25 @@ main() {
   # own switch keeps it from launching a browser at all.
   mkdir -p "$run/shim"
   local tool
-  for tool in open pbpaste afplay osascript; do
+  for tool in open pbpaste afplay; do
     printf '#!/bin/sh\nexit 0\n' > "$run/shim/$tool"
   done
+  # osascript writes nothing either; it keeps the path a file copy hands it as
+  # its last argument (`/trace`), for `clipfile`, and exits 0 -- or, while
+  # `clipfail on`, exits 1 and keeps nothing.
+  printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then exit 1; fi\nfor arg in "$@"; do last=$arg; done\nprintf "%%s\\n" "$last" >> "%s/clipboard-file"\nexit 0\n' \
+    "$run" "$run" > "$run/shim/osascript"
   # pbcopy is fed through a pipe: drain it, keep a copy for the receipt -- or,
   # while `clipfail on`, drain it and fail.
   printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then cat >/dev/null; exit 1; fi\ncat > "%s/clipboard"\n' \
     "$run" "$run" > "$run/shim/pbcopy"
   chmod +x "$run/shim/"*
   # macOS assesses an executable the first time it runs, which costs a second
-  # or more and would land inside a scenario's `wait`: run pbcopy once now.
+  # or more and would land inside a scenario's `wait`: run pbcopy and osascript
+  # once now.
   : | "$run/shim/pbcopy"
-  rm -f "$run/clipboard"
+  "$run/shim/osascript" warm-up
+  rm -f "$run/clipboard" "$run/clipboard-file"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a
   [[ -n $nomodel ]] && { fx_model=''; xfx_model=''; }
@@ -190,7 +211,8 @@ FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
 $fx_model $extra_env $bin"
   else
-    launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
+    mkdir -p "$run/xfxtmp"
+    launch="env -i $base TMPDIR=$run/xfxtmp XFX_GATEWAY_URL=http://127.0.0.1:$port/v4/ai/language-model \
 $xfx_model $extra_env $bin"
   fi
   # Every bell the pane rings, one line each, for `bells`. The hook is set on a
@@ -204,6 +226,9 @@ $xfx_model $extra_env $bin"
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
+    # A verb with nothing after it has no rest: `relaunch` alone starts the
+    # binary again with no arguments, rather than with the word `relaunch`.
+    [[ $line == *' '* ]] || rest=''
     case $verb in
       ''|'#'*|gateway|env|seed|work|models|credits|nomodel|githead|dir) ;;
       wait) sleep "$rest" ;;
@@ -278,6 +303,28 @@ $xfx_model $extra_env $bin"
         ;;
       relaunch)
         tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
+        ;;
+      clipfile)
+        local name=$out/$which-$scenario-$size-$rest
+        if [[ -f $run/clipboard-file ]]; then
+          LC_ALL=C sed "s#$run#<scratch>#g" "$run/clipboard-file" > "$name.clipfile"
+          rm -f "$run/clipboard-file"
+          echo "$name.clipfile"
+        else
+          echo "clipfile $rest: no file was copied"
+        fi
+        ;;
+      reports)
+        local tmp=$run/${which}tmp n=0 report
+        # Oldest first: the names start with the moment each was written, and
+        # two in one second are told apart by their order on disk.
+        while IFS= read -r report; do
+          n=$((n + 1))
+          LC_ALL=C sed "s#$run#<scratch>#g" "$report" > "$out/$which-$scenario-$size-$rest-$n.md"
+          # The copy is the receipt's; the mode is the report's own.
+          echo "$out/$which-$scenario-$size-$rest-$n.md (written mode $(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report"))"
+        done < <(ls -tr "$tmp"/*-trace-*.md 2>/dev/null)
+        (( n > 0 )) || echo "reports $rest: none was written"
         ;;
       clipfail)
         case $rest in

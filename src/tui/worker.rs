@@ -256,22 +256,66 @@ pub(crate) struct WorkHandle {
 /// **The lock guards a store and a clone and nothing else.** Neither side holds
 /// it across I/O, a channel or an `.await`, so the UI thread's wait on it is
 /// the length of copying one struct.
+///
+/// `/trace` reads the same board, for the same reason and at the same moment:
+/// the snapshot and what only a report needs beside it ([`TraceFacts`]) are
+/// published together, under one lock, so a report never pairs one moment's
+/// model with another moment's session.
 #[derive(Clone)]
-pub(crate) struct StatusBoard(Arc<Mutex<StatusSnapshot>>);
+pub(crate) struct StatusBoard(Arc<Mutex<Board>>);
+
+/// What one publication holds.
+struct Board {
+    status: StatusSnapshot,
+    trace: TraceFacts,
+}
+
+/// What `/trace` reads of the runtime thread beside `/status`'s snapshot.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TraceFacts {
+    /// The profile the session store is in and the conversation's session,
+    /// once a prompt has opened one: where the report reads the session's log
+    /// back from (`super::trace`), on a thread of its own and never this one.
+    pub(crate) session: Option<(std::path::PathBuf, SessionId)>,
+    /// The settings files as the configuration in force resolved them -- the
+    /// runtime's, which a `/provider` re-reads, not the one the UI launched
+    /// with.
+    pub(crate) settings: crate::trace::Settings,
+}
 
 impl StatusBoard {
     fn new(snapshot: StatusSnapshot) -> Self {
-        Self(Arc::new(Mutex::new(snapshot)))
+        Self(Arc::new(Mutex::new(Board {
+            status: snapshot,
+            trace: TraceFacts::default(),
+        })))
     }
 
-    /// Replaces what `/status` will read next.
+    /// Replaces what `/status` will read next, and nothing else: a case's
+    /// stand-in for the runtime ([`WorkHandle::publish_status`]).
+    #[cfg(test)]
     fn publish(&self, snapshot: StatusSnapshot) {
-        *self.lock() = snapshot;
+        self.lock().status = snapshot;
+    }
+
+    /// Replaces what `/status` and `/trace` will read next, together.
+    fn publish_with(&self, snapshot: StatusSnapshot, trace: TraceFacts) {
+        *self.lock() = Board {
+            status: snapshot,
+            trace,
+        };
     }
 
     /// The snapshot the runtime last published.
     pub(crate) fn read(&self) -> StatusSnapshot {
-        self.lock().clone()
+        self.lock().status.clone()
+    }
+
+    /// The snapshot and the trace facts the runtime last published, as one
+    /// publication left them.
+    fn read_with_trace(&self) -> (StatusSnapshot, TraceFacts) {
+        let board = self.lock();
+        (board.status.clone(), board.trace.clone())
     }
 
     /// A board no runtime publishes to, seeded the way `spawn` seeds one:
@@ -292,7 +336,7 @@ impl StatusBoard {
 
     /// Never poisoned in practice -- nothing that holds it can panic -- and a
     /// snapshot is whole either way: it is replaced by one assignment.
-    fn lock(&self) -> MutexGuard<'_, StatusSnapshot> {
+    fn lock(&self) -> MutexGuard<'_, Board> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -408,6 +452,12 @@ impl WorkHandle {
     /// ([`StatusBoard`]). Never waits for the runtime.
     pub(crate) fn status(&self) -> StatusSnapshot {
         self.status.read()
+    }
+
+    /// What `/trace` reads of the runtime: the same snapshot, and the facts
+    /// published beside it ([`TraceFacts`]). Never waits for the runtime.
+    pub(crate) fn trace_facts(&self) -> (StatusSnapshot, TraceFacts) {
+        self.status.read_with_trace()
     }
 
     /// Puts a change to the session's authority in force at once, and hands
@@ -1111,11 +1161,18 @@ impl Runtime {
     /// that tells the UI so, so a `/status` typed the moment a turn is seen to
     /// end already reads that turn in its count.
     fn publish(&self) {
-        self.board.publish(status_snapshot(
-            &self.config,
-            self.model(),
-            self.conversation.as_ref(),
-        ));
+        self.board.publish_with(
+            status_snapshot(&self.config, self.model(), self.conversation.as_ref()),
+            TraceFacts {
+                session: self.conversation.as_ref().map(|conversation| {
+                    (
+                        self.store.profile_dir().to_path_buf(),
+                        conversation.recorder.id().clone(),
+                    )
+                }),
+                settings: crate::trace::Settings::of(&self.config),
+            },
+        );
         // The reset count first: a reset landing between the two reads makes
         // this publication older than it is, never newer, and an older one is
         // read as out of force -- the safe way to be wrong.
@@ -2385,6 +2442,16 @@ async fn change_model(
     control: &ControlChannel,
     queue: &mut Queue<'_>,
 ) -> Ended {
+    // `/settings`' effort row: the effort is the session's from here on, and
+    // that is all -- the band chose it, wrote it and said so
+    // ([`ModelChange::effort_only`]).
+    if change.effort_only {
+        if let Some(effort) = change.effort {
+            state.effort = effort;
+            state.publish();
+        }
+        return Ended::Turn;
+    }
     let mut ended = Ended::Turn;
     if !change.announced {
         state.selector.retry_after_failure();
@@ -5361,6 +5428,7 @@ mod tests {
                 picker: false,
                 announced: false,
                 next_turn,
+                effort_only: false,
             },
         )
     }
@@ -5447,6 +5515,7 @@ mod tests {
                 picker: true,
                 announced: true,
                 next_turn: false,
+                effort_only: false,
             },
         );
         assert_eq!(
@@ -5481,6 +5550,38 @@ mod tests {
         assert_eq!(effort, &low, "a model change dropped the session's effort");
         assert_eq!(settings(home.path())["effort"], "low");
         assert_eq!(settings(home.path())["models"]["gateway"], "acme/one");
+    }
+
+    #[test]
+    fn an_effort_alone_moves_the_sessions_effort_and_selects_writes_and_says_nothing() {
+        // `/settings`' `Reasoning effort` (`selectEffortFromSettings`): the
+        // band wrote `effort` and said so; the runtime only takes it up. The
+        // model stays, and the profile is not touched -- in particular no
+        // `models` entry is written for a model some other layer chose.
+        let (home, _workspace, mut state) = recording();
+        std::fs::create_dir_all(home.path().join(".xfx")).expect("a profile home");
+        std::fs::write(
+            home.path().join(".xfx").join("settings.json"),
+            r#"{"theme":"dark"}"#,
+        )
+        .expect("seed");
+        let model = state.model().to_string();
+        let high = crate::provider::effort::Effort::Named("high".to_string());
+        let said = ran_change(
+            &mut state,
+            ModelChange {
+                name: "something/else".to_string(),
+                effort: Some(high.clone()),
+                picker: false,
+                announced: true,
+                next_turn: false,
+                effort_only: true,
+            },
+        );
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(state.effort, high);
+        assert_eq!(state.model(), model, "the model moved");
+        assert_eq!(settings(home.path()), serde_json::json!({"theme": "dark"}));
     }
 
     #[test]
@@ -5566,6 +5667,7 @@ mod tests {
             picker: false,
             announced: true,
             next_turn: true,
+            effort_only: false,
         };
         control_tx
             .send(TurnControl::Model(asked.clone()))
@@ -5609,6 +5711,7 @@ mod tests {
             picker: true,
             announced: true,
             next_turn: true,
+            effort_only: false,
         });
         control.defer(ModelChange {
             name: "unresolved".to_string(),
@@ -5616,6 +5719,7 @@ mod tests {
             picker: false,
             announced: false,
             next_turn: true,
+            effort_only: false,
         });
         let ended = on_a_runtime(apply_deferred(
             &mut state,

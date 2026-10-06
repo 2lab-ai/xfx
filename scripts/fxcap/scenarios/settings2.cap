@@ -1,0 +1,55 @@
+# /settings' tabs, a change on the first row and on the sound row, Enter on a
+# setting, the search, and Escape (the research `settings2.cap`). Down is
+# counted per binary so both land on the sound row: fx lists four settings xfx
+# has nothing behind (`.prd/tui-phase4/ssot.md` §Tensions). Both start with
+# sound off (fx by the harness's FX_SOUND=0).
+xfx: env XFX_SOUND=off
+wait 2
+type /settings
+key Enter
+wait 1
+key Tab
+wait 0.4
+snap tab1
+key Tab
+wait 0.4
+snap tab2
+key Tab
+wait 0.4
+snap tab3
+key Tab
+wait 0.4
+snap tab4
+key Tab
+wait 0.4
+snap tab5
+key Escape
+wait 0.5
+type /settings
+key Enter
+wait 1
+key Right
+wait 0.5
+snap right-context
+home right-context
+fx: key Down Down Down Down Down Down Down Down Down Down Down
+xfx: key Down Down Down Down Down Down Down Down
+wait 0.4
+snap down-sound
+key Right
+wait 0.5
+snap sound-right
+home sound-right
+key Enter
+wait 0.8
+snap enter
+type sou
+wait 0.5
+snap filter-sou
+type zzz
+wait 0.5
+snap filter-none
+key Escape
+wait 0.5
+snap esc
+home files

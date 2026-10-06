@@ -1,0 +1,40 @@
+[1m[38;5;255mx𝒇x[0m[38;5;245m v0.1.0-b36b41a [38;5;255m[debug][38;5;245m · Run /help for commands[39m
+
+[38;5;255m┃[39m [1mfirst prompt[0m
+
+  one
+
+[38;5;245m  0s (↑4 ↓40)[39m
+
+[38;5;250m* history: saved to user settings (scope=user)[39m
+
+[38;5;255m┃[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;255mSettings 10[0m  [1m[38;5;255m[All][0m  [38;5;245mInterface[39m  [38;5;245mAgent[39m  [38;5;245mNotifications[39m  [38;5;245mAdvanced[39m
+
+  [38;5;245mStatus line context[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mStatus line session[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mStatus line workspace[39m    [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mSlash menu categories[39m    [38;5;245moff[39m  [1m[38;5;255mon[0m
+  [38;5;245mCollapse tool calls[39m      [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [38;5;245mModel[39m                    [1m[38;5;255mfake/model-a[0m
+  [38;5;245mReasoning effort[39m         [1m[38;5;255mdefault[0m
+  [38;5;245mPermission mode[39m          [38;5;245mask[39m  [1m[38;5;255mauto[0m  [38;5;245mfull access[39m
+  [38;5;245mSound level[39m              [1m[38;5;255moff[0m  [38;5;245mon[39m
+  [1m[38;5;255mPrompt history[0m           [1m[38;5;255moff[0m  [38;5;245mon[39m
+[38;5;240m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;245m↑↓ navigate     tab category     ←→ change     esc close[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+! permissions: mode set to full access
+
+* permissions: mode set to ask
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
