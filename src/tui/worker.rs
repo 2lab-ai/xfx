@@ -76,7 +76,7 @@ use futures_util::FutureExt;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use super::approval::{ControlChannel, TuiPrompter};
+use super::approval::{ControlChannel, Deferred, TuiPrompter};
 use super::bridge::{
     self, Cancellation, ModelAnswer, ModelChange, TurnCancel, TurnControl, TurnWork, UiEvent,
     UiEventSink,
@@ -1258,6 +1258,18 @@ impl Runtime {
             .ok_or_else(|| "the conversation could not be opened".to_string())
     }
 
+    /// `/undo` against the conversation as it stands: its newest change taken
+    /// back ([`crate::tools::mutate::undo_last`]), or nothing when there is no
+    /// conversation -- a session that has asked nothing has changed nothing,
+    /// and one `/new` or a provider switch dropped took its changes with it.
+    fn undo(&self) -> crate::tools::undo::Undone {
+        self.conversation
+            .as_ref()
+            .map_or(crate::tools::undo::Undone::Nothing, |conversation| {
+                crate::tools::mutate::undo_last(&conversation.tools)
+            })
+    }
+
     /// `/rename`: the title written into the conversation's session, which is
     /// opened for it when no prompt has opened one.
     ///
@@ -1787,6 +1799,9 @@ async fn turn_loop(
                 // Nothing is running, so the turn after this moment is the next
                 // one: the change is made now.
                 Some(TurnControl::Model(change)) => Taken::Model(change),
+                // Nothing is running, so nothing is changing the files: the
+                // undo is done now, as upstream's always is.
+                Some(TurnControl::Undo) => Taken::Undo,
                 // No question is outstanding between turns, so an answer is
                 // consumed and dropped rather than left to be misread by the
                 // next one: the prompter that could have asked one is only
@@ -1832,6 +1847,10 @@ async fn turn_loop(
                     Ended::Reset(through) => drop_conversation(&mut state, events, through).await,
                     Ended::Turn => {}
                 }
+                continue;
+            }
+            Taken::Undo => {
+                run_undo(&state, events, false).await;
                 continue;
             }
             Taken::Nothing => continue,
@@ -1986,6 +2005,8 @@ enum Taken {
     Reset(usize),
     /// `/model`, between turns: applied now.
     Model(ModelChange),
+    /// `/undo`, between turns: done now.
+    Undo,
     /// A message that means nothing here.
     Nothing,
     /// A change to the session's authority, or the channel that carries them
@@ -2374,11 +2395,21 @@ async fn apply_deferred(
     queue: &mut Queue<'_>,
 ) -> Ended {
     loop {
-        let changes = control.take_deferred();
-        if changes.is_empty() {
+        let deferred = control.take_deferred();
+        if deferred.is_empty() {
             return ended;
         }
-        for change in changes {
+        for item in deferred {
+            let change = match item {
+                // Done whatever ended: an undo needs no socket, and the file
+                // is what the person asked about -- a `/quit` after it does
+                // not take it back.
+                Deferred::Undo { after_reset } => {
+                    run_undo(state, events, after_reset).await;
+                    continue;
+                }
+                Deferred::Model(change) => change,
+            };
             if ended == Ended::Session && !change.announced {
                 continue;
             }
@@ -2393,6 +2424,37 @@ async fn apply_deferred(
             };
         }
     }
+}
+
+/// `/undo`, and what became of it (`commandUndoLast`,
+/// `vercel-labs/fx@c1db9191 src/core/app/app_commands.zig:1242-1290`): the
+/// conversation's newest change taken back ([`Runtime::undo`]) and upstream's
+/// sentence for it, neutral whatever it says, as upstream's is.
+///
+/// `after_reset` is an undo typed after a reset this runtime has not acted on
+/// yet ([`Deferred::Undo`]): it is answered for the conversation that reset
+/// starts, which has nothing to take back, and the one about to be dropped is
+/// not touched.
+///
+/// Nothing is written to the session log and nothing is said to the model:
+/// upstream's tracker is not in its session store and its conversation is not
+/// told (`change_tracker.zig`; `commandUndoLast` writes a notice and nothing
+/// else). Through `send_terminal`, like every answer about something already
+/// done: a file has changed by the time this is sent.
+async fn run_undo(state: &Runtime, events: &Sender<UiEvent>, after_reset: bool) {
+    let undone = if after_reset {
+        crate::tools::undo::Undone::Nothing
+    } else {
+        state.undo()
+    };
+    bridge::send_terminal(
+        events,
+        UiEvent::Undone(super::notice::Notice::neutral(
+            crate::tools::undo::TOPIC,
+            undone.sentence(),
+        )),
+    )
+    .await;
 }
 
 /// `/rename`, and whether it was written down (`handleRenameCommand`,
@@ -2553,6 +2615,14 @@ async fn raced_against_control<F: Future>(
                 // aside until it is over ([`ControlChannel::defer`]). Nothing
                 // here stops.
                 Some(TurnControl::Model(change)) => control.defer(change),
+                // `/undo` while this work runs: put aside the same way
+                // ([`TurnControl::Undo`] says why not at once), and marked when
+                // a reset has already been read here -- that undo was typed in
+                // the conversation the reset starts, which has changed nothing
+                // yet, rather than in the one it drops once this work is over.
+                Some(TurnControl::Undo) => {
+                    control.defer_undo(matches!(ended, Ended::Reset(_)));
+                }
                 // An answer to a question that is no longer being asked: the
                 // prompter takes its own answer off this channel while it is
                 // parked (`super::approval`), so anything reaching here is a
@@ -5435,7 +5505,7 @@ mod tests {
         ));
         assert!(stops.is_empty(), "a model change stopped the work");
         assert_eq!(ended, Ended::Turn);
-        assert_eq!(control.take_deferred(), vec![asked]);
+        assert_eq!(control.take_deferred(), vec![Deferred::Model(asked)]);
         assert!(control.take_deferred().is_empty(), "taken twice");
     }
 
@@ -5491,6 +5561,207 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the unresolved one was applied"
         );
+    }
+
+    /// Runs one tool call through the conversation's own tools, as a turn's
+    /// step would.
+    fn ran(state: &Runtime, name: &str, input: serde_json::Value) -> crate::tools::ToolResult {
+        let conversation = state.conversation.as_ref().expect("a conversation");
+        crate::tools::Registry::builtin()
+            .execute(
+                &ToolCall {
+                    id: format!("call-{name}"),
+                    name: name.to_string(),
+                    input,
+                },
+                &conversation.tools,
+            )
+            .expect("an advertised tool")
+    }
+
+    /// `name` as the conversation's tools locate it.
+    fn in_workspace(state: &Runtime, name: &str) -> std::path::PathBuf {
+        state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .tools
+            .scope()
+            .primary()
+            .join(name)
+    }
+
+    /// The body of the next event, which has to be `/undo`'s answer, neutral.
+    fn undo_said(events: &mut Receiver<UiEvent>) -> String {
+        match events.try_recv() {
+            Ok(UiEvent::Undone(notice)) => {
+                assert_eq!(notice.topic, "undo");
+                assert_eq!(notice.tone, super::super::notice::Tone::Neutral);
+                notice.body
+            }
+            other => panic!("not an undo's answer: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_undo_takes_back_the_conversations_newest_change_and_says_so() {
+        let (_home, _workspace, state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        let made = ran(
+            &state,
+            "write_file",
+            serde_json::json!({"path": "a.txt", "content": "one\n"}),
+        );
+        assert!(made.ok, "{}", made.output);
+
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists(), "the created file is still there");
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_session_that_has_asked_nothing_has_nothing_to_undo() {
+        let (_home, _workspace, state) = a_runtime_that_can_open_one();
+        assert!(state.conversation.is_none());
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+    }
+
+    #[test]
+    fn a_reset_or_a_resume_leaves_the_changes_before_it_behind() {
+        // Upstream clears its tracker on the transition `/new`, `/clear`,
+        // `/reset` and `/resume` share (`app_session_runtime.zig:1922`, `:1999`),
+        // and its own resume test is answered `Nothing to undo.` with the files
+        // as they were (`tests/e2e/tui-resume.test.ts:6029-6037`).
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        let id = state
+            .conversation
+            .as_ref()
+            .expect("a conversation")
+            .recorder
+            .id()
+            .to_string();
+
+        on_a_runtime(drop_conversation(&mut state, &events_tx, 0));
+        assert!(matches!(
+            events_rx.try_recv(),
+            Ok(UiEvent::Fresh { through: 0 })
+        ));
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+
+        state
+            .resume_by_id(&id, &CancelToken::new())
+            .expect("the session resumes");
+        on_a_runtime(run_undo(&state, &events_tx, false));
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("still there"),
+            "made\n"
+        );
+    }
+
+    #[test]
+    fn an_undo_while_work_runs_waits_for_it_and_one_after_a_reset_is_the_fresh_ones() {
+        // Put aside, never a stop. Ahead of a reset it is about the
+        // conversation that reset drops; behind one it is about the
+        // conversation the reset starts.
+        for (messages, after_reset) in [
+            (vec![TurnControl::Undo], false),
+            (
+                vec![TurnControl::Undo, TurnControl::Reset { through: 0 }],
+                false,
+            ),
+            (
+                vec![TurnControl::Reset { through: 0 }, TurnControl::Undo],
+                true,
+            ),
+        ] {
+            let (control_tx, control_rx) = mpsc::unbounded_channel();
+            let control = ControlChannel::new(control_rx);
+            let resets = messages
+                .iter()
+                .filter(|message| matches!(message, TurnControl::Reset { .. }))
+                .count();
+            for message in messages {
+                control_tx.send(message).expect("alive");
+            }
+            let mut stops = Vec::new();
+            let _ = on_a_runtime(raced_against_control(
+                async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                },
+                &control,
+                |through| stops.push(through),
+            ));
+            assert_eq!(stops.len(), resets, "an undo stopped the work");
+            assert_eq!(
+                control.take_deferred(),
+                vec![Deferred::Undo { after_reset }]
+            );
+        }
+    }
+
+    #[test]
+    fn an_undo_put_aside_is_done_once_the_work_is_over_even_when_the_session_is() {
+        let (_home, _workspace, mut state) = recording();
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(0);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+        let path = in_workspace(&state, "a.txt");
+        assert!(
+            ran(
+                &state,
+                "write_file",
+                serde_json::json!({"path": "a.txt", "content": "made\n"})
+            )
+            .ok
+        );
+        // One typed behind a reset: answered for the fresh conversation, and
+        // the change it would have reached is left alone.
+        control.defer_undo(true);
+        // One typed before it, and a `/quit` after both: still done.
+        control.defer_undo(false);
+        let ended = on_a_runtime(apply_deferred(
+            &mut state,
+            Ended::Session,
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+        assert_eq!(ended, Ended::Session);
+        assert_eq!(undo_said(&mut events_rx), "Nothing to undo.");
+        assert_eq!(
+            undo_said(&mut events_rx),
+            format!("Deleted {} (was newly created)", path.display())
+        );
+        assert!(!path.exists());
     }
 
     fn settings(home: &std::path::Path) -> serde_json::Value {

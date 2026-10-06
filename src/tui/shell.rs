@@ -2766,6 +2766,9 @@ impl Shell {
                 ));
             }
             UiEvent::Notice(notice) => self.announce(notice),
+            // Written like any notice; what makes it different is only that
+            // a reset never drops it ([`Self::drained`]).
+            UiEvent::Undone(notice) => self.announce(notice),
             // The full transcript's alone, and taken above
             // ([`Self::full_transcript_sees`]): nothing of it is written into
             // the document.
@@ -7754,6 +7757,21 @@ impl CommandHandlers for Shell {
         }
     }
 
+    /// Upstream's `commandUndoLast` (`app_commands.zig:1242-1290`): the
+    /// newest file change the conversation's tools made, taken back, and one
+    /// neutral `* undo: …` notice saying what became of it.
+    ///
+    /// **Handed to the runtime, as a control message** ([`TurnControl::Undo`]):
+    /// the journal is the conversation's and the conversation is that thread's,
+    /// and the restore is file I/O the thread holding the terminal does not
+    /// do. Never refused and never queued -- upstream never refuses it -- and
+    /// done at once between turns or the moment a running one is over. Nothing
+    /// is said here: the answer is the runtime's ([`UiEvent::Undone`]), because
+    /// only it knows which file, and whether it could be put back.
+    fn undo(&mut self) {
+        self.work.control(TurnControl::Undo);
+    }
+
     /// Upstream's `handleNotificationsCommand` (`app_commands.zig:3974-4029`):
     /// a bare `/sound` toggles, `on` and `off` set, both switches move together
     /// and are saved, and the answer is `* sound: <level>`. Anything else is
@@ -8305,8 +8323,12 @@ impl Shell {
             // The fence itself, the runtime's own state, and a runtime that is
             // gone: shown as usual. A provider switch or a model change that
             // completed before the cancellation reached it really did happen.
+            // An undo the runtime did on the way past a reset: the file did
+            // change, or was refused, and saying nothing would make it a change
+            // nobody was told of.
             UiEvent::Fresh { .. }
             | UiEvent::Credits(_)
+            | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
             | UiEvent::ResumeFailed { .. }
@@ -14805,6 +14827,16 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/undo" {
+                // The runtime's to answer: the journal is the conversation's
+                // and the conversation is on that thread
+                // ([`UiEvent::Undone`]). Nothing is said here first.
+                assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+                assert!(
+                    document.is_empty(),
+                    "/undo answered before the runtime did: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
                 assert!(
                     document
@@ -18593,6 +18625,62 @@ mod tests {
     }
 
     #[test]
+    fn an_undo_is_said_as_upstreams_neutral_notice() {
+        // `* undo: Restored …` (`fx-undo-40x120-undo1`): topic `undo`, the
+        // neutral glyph, whatever the answer was -- `Could not undo` too
+        // (`commandUndoLast`, `app_commands.zig:1285-1289`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/undo\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+        for body in [
+            "Restored /w/a.txt",
+            "Deleted /w/a.txt (was newly created)",
+            "Could not undo /w/a.txt",
+            "Nothing to undo.",
+        ] {
+            shell.apply(UiEvent::Undone(notice::Notice::neutral("undo", body)));
+        }
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* undo: Restored /w/a.txt".to_string(),
+                String::new(),
+                "* undo: Deleted /w/a.txt (was newly created)".to_string(),
+                String::new(),
+                "* undo: Could not undo /w/a.txt".to_string(),
+                String::new(),
+                "* undo: Nothing to undo.".to_string(),
+                String::new(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_undo_the_runtime_did_past_a_reset_is_still_said() {
+        // An `/undo` typed while a turn ran is done once the turn is over, and
+        // a `/new` typed after it drops that turn's notices until the fence.
+        // The undo's answer is not one of them: the file changed, and a change
+        // nobody was told of is the one thing a reset must not hide.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/new\r");
+        assert_eq!(shell.controlled(), Some(TurnControl::Reset { through: 0 }));
+        let _ = shell.document();
+        shell.apply(UiEvent::Notice(notice::Notice::neutral(
+            "tool",
+            "the old turn's",
+        )));
+        shell.apply(UiEvent::Undone(notice::Notice::neutral(
+            "undo",
+            "Restored /w/a.txt",
+        )));
+        shell.shell.flush_paced();
+        assert_eq!(
+            shell.document(),
+            vec!["* undo: Restored /w/a.txt".to_string(), String::new()]
+        );
+    }
+
+    #[test]
     fn a_submitted_line_that_is_only_whitespace_is_consumed_and_sent_nowhere() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"   \r");
@@ -21171,8 +21259,8 @@ mod tests {
         shell.route_bytes(b"ses");
         assert_eq!(
             menu(&shell).len(),
-            2 + 6,
-            "/clear, /new, /reset, /resume, /rename and /copy"
+            2 + 7,
+            "/clear, /new, /reset, /resume, /rename, /undo and /copy"
         );
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);

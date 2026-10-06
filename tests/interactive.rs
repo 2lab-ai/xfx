@@ -356,10 +356,11 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     // may appear. `/setup` left this list when it stopped being deferred, and
     // `/stats`, `/status` and `/permissions` after it, `/provider` when it
     // became the canonical name of the same command with `/setup` as its
-    // alias, `/resume` and `/rename` after those, and `/usage` with its
-    // dashboard; `/models` did not, because the catalog browser is reached by
-    // a bare `/model` rather than by a command of its own.
-    for absent in ["/login", "/models", "/mcp", "/undo", "/image"] {
+    // alias, `/resume` and `/rename` after those, `/undo` after them, and
+    // `/usage` with its dashboard; `/models` did not, because the catalog
+    // browser is reached by a bare `/model` rather than by a command of its
+    // own.
+    for absent in ["/login", "/models", "/mcp", "/image"] {
         assert!(!text.contains(absent), "help advertises {absent}: {text}");
     }
 
@@ -824,6 +825,38 @@ fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
     session.wait_for("xfx: Failed to copy to clipboard.");
 
     assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_undo_puts_the_changed_file_back_and_tells_the_model_nothing() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1242-1290`: nothing to undo
+    // before anything changed, the edit taken back with upstream's sentence,
+    // and nothing left after it. The model is not told: no request follows.
+    let gateway = FakeGateway::start(edit_then_finish());
+    let sandbox = Sandbox::new();
+    let notes = with_notes(&sandbox);
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/undo");
+    session.wait_for("[shell] undo: Nothing to undo.");
+    session.type_line("edit the notes");
+    session.wait_for("the edit is done");
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "beta\n");
+
+    session.type_line("/undo");
+    let canonical = fs::canonicalize(&notes).expect("canonicalize");
+    session.wait_for(&format!("[shell] undo: Restored {}", canonical.display()));
+    assert_eq!(fs::read_to_string(&notes).expect("read back"), "alpha\n");
+    session.type_line("/undo");
+    session.wait_for_count("[shell] undo: Nothing to undo.", 2);
+
+    assert_eq!(session.quit().code(), Some(0));
+    assert_eq!(
+        gateway.request_count(),
+        3,
+        "an undo was sent to the model, or the turn did not run"
+    );
 }
 
 /// Every line xfx wrote that begins with `xfx: `, without the terminal's echo
