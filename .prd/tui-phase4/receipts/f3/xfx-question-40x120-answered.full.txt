@@ -1,0 +1,40 @@
+x𝒇x v0.1.0 · Run /help for commands
+
+┃ pick a database
+
+  1) Which database should I use?
+     SQLite
+  2) Deploy now?
+     Yes
+
+  Got it.
+
+  6s (↑4 ↓40)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

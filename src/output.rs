@@ -26,6 +26,7 @@ use crate::config::{Credential, ProviderRejection, RuntimeConfig};
 use crate::provider::resolve_credential_for;
 use crate::provider::ProviderId;
 use crate::session::{SessionDetail, SessionList, TurnStep};
+use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The help text shown when no credential is configured.
 ///
@@ -1037,13 +1038,32 @@ pub enum Event {
     /// A fragment of assistant text, in arrival order.
     AssistantDelta { text: String },
     /// A tool call was admitted and is about to run.
-    ToolStart { call_id: String, tool: String },
+    ToolStart {
+        call_id: String,
+        tool: String,
+        /// What the terminal's transcript names the call by.
+        ///
+        /// **Not serialized**, and that is a decision about the `--json`
+        /// contract rather than an oversight: the closed set above is what a
+        /// consumer of `ask --json` was promised, and a field added to it is a
+        /// change to that promise. The interactive surface is the one that
+        /// draws rows, and it reads this in-process (`crate::tui::bridge`).
+        #[serde(skip)]
+        shown: Shown,
+    },
     /// A tool call finished, correlated to its start by `call_id`.
     ToolResult {
         call_id: String,
         tool: String,
         ok: bool,
         detail: String,
+        /// How it ended, for a row ([`Outcome`]). Not serialized, for the
+        /// reason `ToolStart`'s `shown` is not.
+        #[serde(skip)]
+        outcome: Outcome,
+        /// The lines a file change added and removed. Not serialized either.
+        #[serde(skip)]
+        changes: Option<LineChanges>,
     },
     /// What the user said when they answered the approval one call needed.
     ///
@@ -1644,12 +1664,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 detail: "12 lines".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::Final {
                 output: "hi".to_string(),
@@ -1710,6 +1733,7 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::AssistantDelta {
                 text: "two".to_string(),
@@ -1736,6 +1760,8 @@ mod tests {
                 tool: "write_file".to_string(),
                 ok: true,
                 detail: "wrote notes.md".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::ToolFeedback {
                 call_id: "c1".to_string(),
@@ -1798,12 +1824,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: true,
                 detail: "12 lines".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
             Event::AssistantDelta {
                 text: " done".to_string(),
@@ -1825,6 +1854,8 @@ mod tests {
             tool: "terminal".to_string(),
             ok: false,
             detail: "denied\n[tool] terminal ok".to_string(),
+            outcome: Outcome::Finished,
+            changes: None,
         }]);
         assert_eq!(
             stderr,
@@ -1841,6 +1872,8 @@ mod tests {
             tool: "grep_files".to_string(),
             ok: false,
             detail,
+            outcome: Outcome::Finished,
+            changes: None,
         }]);
         assert!(
             stderr.len() < MAX_TOOL_NOTICE_DETAIL + 64,
@@ -1856,12 +1889,15 @@ mod tests {
             Event::ToolStart {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
+                shown: crate::tools::read::READ_FILE.shown(&serde_json::json!({})),
             },
             Event::ToolResult {
                 call_id: "c1".to_string(),
                 tool: "read_file".to_string(),
                 ok: false,
                 detail: "no such file".to_string(),
+                outcome: Outcome::Finished,
+                changes: None,
             },
         ]);
         assert_eq!(stdout, "");

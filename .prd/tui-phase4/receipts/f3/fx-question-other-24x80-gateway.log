@@ -1,0 +1,5 @@
+[fakegw] listening 52957
+[fakegw] title /v4/ai/language-model
+[fakegw] completion /v4/ai/language-model -> tool ask_user_question
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> tool ask_user_question

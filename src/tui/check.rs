@@ -897,9 +897,6 @@ pub(crate) enum Intent<'a> {
         cursor_visible: Option<bool>,
         title: Option<&'a str>,
     },
-    /// `/clear`: a blank screen, a caret at its origin, and the scrollback
-    /// erased.
-    Cleared,
     /// The mode set, or the exit's restore of it.
     ///
     /// `cursor_visible` is an `Option` because the mode set says nothing about
@@ -1426,12 +1423,6 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             ..unchanged(*cursor_visible)
         },
         Intent::Alternate { cursor_visible, .. } => unchanged(*cursor_visible),
-        Intent::Cleared => Metadata {
-            // The one emitter in the TUI that erases a terminal's scrollback,
-            // and the only declaration that admits it.
-            scrollback_erased: true,
-            ..unchanged(None)
-        },
         Intent::Modes {
             modes,
             title_stack,
@@ -1501,10 +1492,6 @@ fn check_cells(
         // Its cells were compared as the vector ran, row by row, including the
         // ones that had left the screen before it ended.
         Intent::Document { caret, .. } => expect_declared_caret(model, *caret, at),
-        Intent::Cleared => {
-            expect_blank(model.screen_ref(), 1, at)?;
-            expect_caret(model, (1, 1), at)
-        }
         Intent::Modes { .. } | Intent::Queries(_) => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(

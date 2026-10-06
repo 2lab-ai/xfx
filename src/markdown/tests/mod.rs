@@ -23,6 +23,27 @@ mod inline;
 mod links;
 mod setext_footnotes;
 
+/// CPU time this thread has spent, for the linear-time tests.
+///
+/// Those tests assert that a 64 KiB line renders well inside a limit a
+/// quadratic walk would blow by orders of magnitude. Wall time also counts
+/// every moment another process held the core, so on a loaded machine the
+/// limit failed with the algorithm unchanged; the thread's own CPU time counts
+/// only the work the claim is about.
+fn thread_cpu_time() -> std::time::Duration {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `now` is a valid, writable timespec for the call's duration.
+    let status = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut now) };
+    assert_eq!(status, 0, "the thread CPU clock is readable");
+    std::time::Duration::new(
+        u64::try_from(now.tv_sec).expect("a thread's CPU time is not negative"),
+        u32::try_from(now.tv_nsec).expect("nanoseconds fit"),
+    )
+}
+
 /// The rendered bytes as text; every expected value in these tests is UTF-8.
 fn text(out: &[u8]) -> &str {
     std::str::from_utf8(out).expect("presenter output is UTF-8")

@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-0ce2d17 [debug] · Run /help for commands
+
+┃ edit the files
+
+● 5 tool calls · 2 commands · 1 read · 1 write · 1 edit · 1 denied · 1 cancelled
+├ Read a.txt
+├ Edited a.txt +1 / -1
+├ Denied file
+├ Ran echo hi > out.txt && cat out.txt
+└ Cancelled echo again
+
+■ Cancelled echo again · What can xfx do differently?
+
+[you] use capitals
+
+⊘ turn: interrupted -- stopping the turn; another Ctrl-C before it stops exits.
+
+✗ system: the turn was cancelled
+
+┃
+
+ask · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
