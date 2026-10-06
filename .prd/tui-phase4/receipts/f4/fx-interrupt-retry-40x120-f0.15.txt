@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ try it
+
+  Recovered answer.
+
+  1s (↑2 ↓40)
+
+┃ second try
+
+⚠ Provider unavailable · HTTP 500: unexpected request · retrying request in 1s
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

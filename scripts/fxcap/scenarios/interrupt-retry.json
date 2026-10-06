@@ -1,0 +1,1 @@
+[{"status": 500, "body": "{\"error\":{\"message\":\"upstream exploded\",\"type\":\"server_error\"}}"}, {"status": 500, "body": "{\"error\":{\"message\":\"upstream exploded\",\"type\":\"server_error\"}}"}, {"delayMs": 100, "chunks": ["Recovered ", "answer."]}]

@@ -1,0 +1,14 @@
+# Ctrl-C at a model's question: the question's `■ Cancelled` is the turn's
+# line, and nothing follows it -- no second cancelled line, no exit armed
+# (fx `cancelQuestionPrompt`, input_question_runtime.zig:59-80).
+gateway interrupt-question.json
+wait 3
+type ask me
+key Enter
+wait 2.5
+snap q
+key C-c
+wait 1.5
+snap q-cc
+snapfull end
+gwlog

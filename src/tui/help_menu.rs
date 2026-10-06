@@ -110,6 +110,11 @@ pub(crate) enum HelpAction {
     Up,
     /// The next one, wrapping to the first. Down.
     Down,
+    /// A page of the composer's row cap up or down -- `true` for down --
+    /// wrapping to the other end past either (`routeHelpMenuMove` with a
+    /// page's delta, `input_completion_runtime.zig:209-226`, `:449-467`).
+    /// Page Up and Page Down.
+    Page(bool),
     /// The next tab, wrapping to `All`. Tab.
     NextCategory,
     /// The previous one. Shift-Tab.
@@ -127,8 +132,12 @@ impl HelpAction {
     pub(crate) fn of(action: super::input::Action) -> Option<Self> {
         use super::input::Action;
         match action {
-            Action::Up => Some(Self::Up),
-            Action::Down => Some(Self::Down),
+            // `C-k` and `C-j` walk it too (`routePickerControlByte`,
+            // `app_input_runtime.zig:1220-1235`, through `routeHelpMenuMove`).
+            Action::Up | Action::ControlK => Some(Self::Up),
+            Action::Down | Action::ControlJ => Some(Self::Down),
+            Action::PageUp => Some(Self::Page(false)),
+            Action::PageDown => Some(Self::Page(true)),
             Action::Tab => Some(Self::NextCategory),
             Action::BackTab => Some(Self::PreviousCategory),
             Action::Submit => Some(Self::Open),
@@ -232,17 +241,19 @@ impl HelpMenu {
     /// Moves the mark one command, wrapping at both ends, and scrolls a window
     /// of `visible` commands only as far as keeps it in view (`move`,
     /// `:227-243`). `false`, and nothing moved, when there is nothing listed.
+    #[cfg(test)]
     pub(crate) fn step(&mut self, down: bool, visible: u16) -> bool {
+        self.step_by(if down { 1 } else { -1 }, visible)
+    }
+
+    /// The mark `delta` rows on, wrapping to the other end past either
+    /// (`HelpMenu.move`, `command_specs.zig:232-248`).
+    pub(crate) fn step_by(&mut self, delta: i64, visible: u16) -> bool {
         let count = self.items().len();
         if count == 0 {
             return false;
         }
-        let current = self.selected % count;
-        self.selected = if down {
-            (current + 1) % count
-        } else {
-            (current + count - 1) % count
-        };
+        self.selected = super::picker::advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
         true
     }
@@ -759,13 +770,13 @@ mod tests {
         assert_eq!(found("general"), in_category("General"));
         assert_eq!(
             found("SESSION"),
-            ["/new", "/reset", "/resume", "/rename", "/copy"]
+            ["/new", "/reset", "/resume", "/rename", "/undo", "/copy"]
         );
         // `/clear` by its summary's "processes", as upstream's `ses` finds it
         // (`fx-misc-40x120-help-query-ses.txt`).
         assert_eq!(
             found("ses"),
-            ["/clear", "/new", "/reset", "/resume", "/rename", "/copy"]
+            ["/clear", "/new", "/reset", "/resume", "/rename", "/undo", "/copy"]
         );
         assert_eq!(found("/version"), ["/version"]);
         // An alias finds its command, under its own name.
