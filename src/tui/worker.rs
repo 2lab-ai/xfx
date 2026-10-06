@@ -522,9 +522,9 @@ impl WorkHandle {
         self.status.publish(snapshot);
     }
 
-    /// Stands in for the runtime giving one place back once a piece of work
-    /// is over (`turn_loop`), for the cases that submit more than the queue
-    /// holds at once.
+    /// Stands in for the runtime giving one place back -- a piece of work
+    /// that is over (`turn_loop`), or one a cancellation dropped -- for the
+    /// cases that are about what the UI does once it has.
     #[cfg(test)]
     pub(crate) fn give_back(&self) {
         self.outstanding.fetch_sub(1, Ordering::Release);

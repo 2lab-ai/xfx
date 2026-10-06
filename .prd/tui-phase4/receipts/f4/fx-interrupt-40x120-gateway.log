@@ -1,0 +1,7 @@
+[fakegw] listening 53783
+[fakegw] title /v4/ai/language-model
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] completion /v4/ai/language-model -> text
+[fakegw] stream closed by client: TypeError [ERR_INVALID_STATE]: Invalid state: Controller is already closed
