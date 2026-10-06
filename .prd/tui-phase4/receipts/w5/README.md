@@ -81,4 +81,5 @@ In all 14 snaps, rows 2-40 are byte-identical between fx and xfx, in both
 - An `Unavailable · Saved` row, a saved directory swapped for a symlink, and
   the auto-mode write rules are filesystem states a scenario cannot stage
   between two binaries' launches; each has unit and integration tests
-  (`workspace::access`, `workspace::path`, `tui::worker`, `tests/permissions.rs`).
+  (`workspace::access`, `workspace::path`, `tui::worker`, `tests/permissions.rs`,
+  and `tests/tool_loop.rs` for `ask` reading a saved directory).

@@ -30,7 +30,9 @@
 //! At launch that is narrower than upstream, which resolves a saved spelling
 //! again (`resolveSavedDirectory`, `workspace_access.zig:534-561`); a
 //! hand-written spelling that is not a real path (`/tmp/x` on macOS) is
-//! therefore listed `Unavailable` here where upstream would follow it.
+//! therefore listed `Unavailable` here where upstream would follow it --
+//! until `/workspace add` names that directory, which rewrites the entry to
+//! its real path.
 //!
 //! # What is not upstream's
 //!
@@ -477,8 +479,30 @@ fn apply(
     };
     let changed = match commit {
         Commit::Add(path) => {
-            if list.iter().any(|source| names(source, Path::new(path))) {
-                false
+            // A spelling of the same directory that is not its real path --
+            // written by hand, say -- becomes the real path, which is what a
+            // launch puts in force (`WorkspaceAccess::load`); upstream
+            // rewrites a matched entry to its identity the same way
+            // (`settings_store.zig:1352-1357`). Only the entry this add names:
+            // a saved directory that has become a link elsewhere is never
+            // "repaired" into the link's target by a change about another.
+            let mut found = false;
+            let mut rewritten = false;
+            for source in list.iter_mut() {
+                if !names(source, Path::new(path)) {
+                    continue;
+                }
+                if !found && source != path {
+                    *source = path.clone();
+                    rewritten = true;
+                }
+                found = true;
+            }
+            if found {
+                let mut seen = std::collections::HashSet::new();
+                let before = list.len();
+                list.retain(|source| seen.insert(source.clone()));
+                rewritten || list.len() != before
             } else if list.len() >= MAX_ADDITIONAL_DIRECTORIES {
                 return Err(Refusal::TooManyDirectories);
             } else {
@@ -1043,6 +1067,64 @@ mod tests {
             }]
         );
         assert_eq!(loaded.active_roots().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hand_written_spelling_is_rewritten_to_the_real_path_on_add() {
+        // A spelling a launch lists `Unavailable` because it is not a real
+        // path is made one by adding the directory it names: the entry is
+        // rewritten to the real path, as upstream rewrites a matched entry to
+        // its identity (`settings_store.zig:1352-1357`), so it is in force.
+        let tree = Tree::new();
+        let target = tree.dir("target");
+        std::os::unix::fs::symlink(&target, tree.base.join("link")).expect("link");
+        fs::create_dir_all(tree.settings.parent().unwrap()).expect("profile");
+        fs::write(
+            &tree.settings,
+            serde_json::json!({"workspaces": {path(&tree.primary): {"additional_directories": [path(&tree.base.join("link"))]}}})
+                .to_string(),
+        )
+        .expect("hand-written");
+        let loaded = WorkspaceAccess::load(&tree.primary, &tree.saved());
+        assert_eq!(loaded.active_roots().count(), 0);
+
+        let updated = tree.run(&loaded, "add ../link").expect("added");
+        assert!(updated.mutation.saved_changed, "{:?}", updated.mutation);
+        assert!(updated.mutation.runtime_changed, "{:?}", updated.mutation);
+        assert_eq!(tree.saved(), [path(&target)]);
+        assert_eq!(
+            updated.access.entries(),
+            [Entry {
+                path: target,
+                available: true
+            }]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_change_never_rewrites_a_saved_directory_it_was_not_asked_about() {
+        // A saved directory swapped for a link is unavailable; adding another
+        // one must not "repair" it into the link's target.
+        let tree = Tree::new();
+        let extra = tree.dir("extra");
+        let elsewhere = tree.dir("elsewhere");
+        let other = tree.dir("other");
+        let access = tree
+            .run(&WorkspaceAccess::default(), "add ../extra")
+            .expect("added")
+            .access;
+        fs::remove_dir(&extra).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &extra).expect("swap");
+        let loaded = WorkspaceAccess::load(&tree.primary, &tree.saved());
+        let updated = tree.run(&loaded, "add ../other").expect("added");
+        assert_eq!(tree.saved(), [path(&extra), path(&other)]);
+        assert_eq!(
+            updated.access.active_roots().collect::<Vec<_>>(),
+            [other.as_path()]
+        );
+        let _ = access;
     }
 
     #[test]

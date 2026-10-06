@@ -3192,6 +3192,50 @@ fn ask_reads_a_file_from_an_explicitly_added_directory() {
 }
 
 #[test]
+fn ask_reads_from_a_directory_workspace_add_saved_and_skips_one_that_is_gone() {
+    // One `/workspace add` means the same directory to every surface: `ask`
+    // runs in the saved directories too, as upstream's does
+    // (`cli_ask.zig:1193`). A saved one that is no longer there is not
+    // something this invocation named, so it is skipped, not fatal.
+    let shared = TempDir::new().expect("shared directory");
+    let shared_root = shared.path().canonicalize().expect("canonicalize shared");
+    let note = shared_root.join("shared.md");
+    fs::write(&note, "saved root knowledge\n").expect("write shared file");
+
+    let sandbox = Sandbox::new();
+    let gone = sandbox.home.join("gone");
+    fs::create_dir_all(sandbox.home.join(".xfx")).expect("profile");
+    fs::write(
+        sandbox.home.join(".xfx").join("settings.json"),
+        json!({"workspaces": {sandbox.workspace.to_str().unwrap(): {
+            "additional_directories": [gone.to_str().unwrap(), shared_root.to_str().unwrap()]
+        }}})
+        .to_string(),
+    )
+    .expect("settings");
+
+    let gateway = FakeGateway::start(vec![
+        read_file_reply("c1", note.to_str().unwrap()),
+        Reply::Sse(sse_body(&[text_delta("a0", "read it"), finish("stop")])),
+    ]);
+    let run = sandbox.run(
+        &["ask", "--json", "--no-save", "read", "the", "saved", "note"],
+        &[
+            ("AI_GATEWAY_API_KEY", TEST_KEY),
+            ("XFX_GATEWAY_URL", &gateway.chat_url()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "stderr={:?}", run.stderr);
+    assert_eq!(run.events()[1]["ok"], json!(true), "{:?}", run.events());
+    let second = gateway.requests()[1].json();
+    let value = second["prompt"][2]["content"][0]["output"]["value"]
+        .as_str()
+        .unwrap();
+    assert!(value.contains("saved root knowledge"), "{value}");
+    run.assert_no_secret();
+}
+
+#[test]
 fn add_dir_rejects_a_path_that_is_not_a_usable_directory() {
     let gateway = FakeGateway::start(Vec::new());
     let sandbox = Sandbox::new();
