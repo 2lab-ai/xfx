@@ -71,3 +71,5 @@ type /provider
 key Enter
 wait 1
 snap busy
+wait 8
+snap busy-after

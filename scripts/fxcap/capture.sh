@@ -86,7 +86,9 @@ main() {
     line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
-    [[ $line == seed\ * ]] && { mkdir -p "$run/home/$profile"; cp "$here/scenarios/${line#seed }" "$run/home/$profile/settings.json"; }
+    # Owner-only, as each binary creates its own: xfx refuses a profile
+    # directory the group or others can reach.
+    [[ $line == seed\ * ]] && { mkdir -p -m 700 "$run/home/$profile"; install -m 600 "$here/scenarios/${line#seed }" "$run/home/$profile/settings.json"; }
     [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
   done < "$file"

@@ -1,0 +1,11 @@
+./.xfx/settings.json
+== ./.xfx/settings.json
+{
+  "backend": "gateway",
+  "model": "fake/model-a",
+  "models": {
+    "gateway": "fake/model-a"
+  },
+  "provider": "gateway"
+}
+
