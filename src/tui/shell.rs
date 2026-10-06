@@ -25968,6 +25968,36 @@ mod tests {
     }
 
     #[test]
+    fn an_image_the_composer_has_no_room_for_is_not_attached_and_says_so() {
+        // `writeInputFullNotice` (`image_commands.zig:9-19`): neutral, under
+        // `images`, and nothing in the draft -- reached by a clipboard image
+        // arriving at a draft the badge does not fit beside.
+        let tool = crate::clipboard::fake::FakeTool::holding(Some(crate::image::fixture::SHOT_PNG));
+        let mut shell = attaching();
+        shell.clipboard_reads = ClipboardReads::new(tool.clipboard());
+        let room = "[Image 1]".len() - 1;
+        assert!(shell
+            .editor
+            .insert(&"x".repeat(editor::MAX_COMPOSER_BYTES - room))
+            .is_some());
+        let before = shell.editor.text().len();
+        shell.route_bytes(b"\x16");
+        assert_eq!(
+            read_settled(&mut shell),
+            said(notice::Notice::neutral(
+                "images",
+                "input is full; image not attached"
+            ))
+        );
+        assert!(attached_ids(&shell).is_empty());
+        assert_eq!(shell.editor.text().len(), before, "the draft changed");
+        // The number was not spent: the next image that fits is #1.
+        shell.take_draft();
+        shell.route_bytes(b"/image shot.png\r");
+        assert_eq!(attached_ids(&shell), [1]);
+    }
+
+    #[test]
     fn a_resumed_session_numbers_new_images_past_the_ones_it_holds() {
         let mut shell = attaching();
         let mut saved = replay(Some("pictures"), Vec::new());

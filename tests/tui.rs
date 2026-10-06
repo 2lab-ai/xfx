@@ -8046,6 +8046,64 @@ fn a_model_the_catalog_does_not_vouch_for_is_refused_before_any_request() {
 }
 
 #[test]
+fn a_session_holding_an_image_is_refused_on_a_model_nobody_vouches_for_even_with_a_text_prompt() {
+    // The history is re-sent with every request, its images with it, so the
+    // check covers them as upstream's does (`collect_image_catalog`,
+    // `app_session_runtime.zig:3129`): a session that sent an image on a model
+    // the catalog tags for it, resumed where the catalog does not list the
+    // model, is refused before any request -- a text-only prompt included.
+    let first = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["MARKER-WITH-IMAGE"]),
+    )])
+    .with_catalog(catalog_tagging(&["tool-use", "vision", "file-input"]));
+    let sandbox = Sandbox::new();
+    std::fs::write(sandbox.workspace.join("shot.png"), SHOT_PNG).expect("shot.png");
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut command = tui_with(&sandbox, &first);
+    command.env("XFX_MODEL", "fake/model-a");
+    let mut session = Session::spawn_without_taking_the_terminal(&pty, command);
+    session.wait_for(READY);
+    session.type_bytes(b"/image shot.png\r");
+    session.wait_for("attached image: shot.png");
+    session.type_bytes(b" look\r");
+    session.wait_for("MARKER-WITH-IMAGE");
+    wait_for_conclusions(&sandbox, 1);
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+    let ids = sandbox.session_ids();
+    assert_eq!(ids.len(), 1);
+
+    let second = FakeGateway::start(vec![support::fake_gateway::Reply::Sse(
+        support::fake_gateway::content_only(&["UNREACHABLE"]),
+    )])
+    .with_catalog(serde_json::json!({"object": "list", "data": [
+        {"id": "openai/text-embedding-9", "type": "embedding", "owned_by": "openai"}
+    ]}));
+    let pty = Pty::open();
+    pty.resize(40, 120);
+    let mut resumed = tui_with(&sandbox, &second);
+    resumed.env("XFX_MODEL", "fake/model-a");
+    resumed.arg("--resume").arg(&ids[0]);
+    let mut again = Session::spawn_without_taking_the_terminal(&pty, resumed);
+    again.wait_for(READY);
+    again.wait_for("session resumed:");
+    again.type_bytes(b"just words this time\r");
+    on_screen(
+        &again,
+        (40, 120),
+        &[
+            "\u{2717} system:",
+            "Unable to verify image support for this model",
+        ],
+        &[],
+    );
+    assert_eq!(second.request_count(), 0, "a request was sent");
+    again.type_bytes(&[0x04]);
+    assert_eq!(again.wait_exit().code(), Some(0));
+}
+
+#[test]
 fn llmux_is_sent_anthropics_image_block_and_its_refusal_is_reported_as_it_said_it() {
     let daemon = support::fake_llmux::FakeLlmux::start(vec![
         support::fake_gateway::Reply::Sse(support::fake_llmux::anthropic_answer(&[
