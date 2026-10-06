@@ -1,0 +1,40 @@
+
+┃ first question alpha
+
+  ALPHA answer line one.
+
+  Second paragraph with code.
+
+  0s (↑6 ↓40)
+
+┃ second question beta
+
+  BETA answer.
+
+  0s (↑5 ↓40)
+
+
+Continue session with: fx --resume Ebvot60eZh9P
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Pane is dead (status 0, Wed Oct  7 03:43:00 2026)

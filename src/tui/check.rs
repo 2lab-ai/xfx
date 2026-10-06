@@ -902,6 +902,14 @@ pub(crate) enum Intent<'a> {
         cursor_visible: Option<bool>,
         title: Option<&'a str>,
     },
+    /// A resume's terminal reset: a blank screen, a caret at its origin, and
+    /// the scrollback erased (`super::frame::Band::wipe`).
+    ///
+    /// **The only declaration in this crate that admits a scrollback erase**,
+    /// and it has one emitter: `/resume` replaces the conversation on the
+    /// screen with another one, as upstream's terminal reset does
+    /// (`finishLiveSessionResume`, `app_session_runtime.zig:1926-1929`).
+    Wiped,
     /// The mode set, or the exit's restore of it.
     ///
     /// `cursor_visible` is an `Option` because the mode set says nothing about
@@ -1442,6 +1450,10 @@ fn expected_metadata(seed: &TerminalModel, declared: &Declared<'_>) -> Metadata 
             ..unchanged(*cursor_visible)
         },
         Intent::Alternate { cursor_visible, .. } => unchanged(*cursor_visible),
+        Intent::Wiped => Metadata {
+            scrollback_erased: true,
+            ..unchanged(None)
+        },
         Intent::Modes {
             modes,
             title_stack,
@@ -1515,6 +1527,10 @@ fn check_cells(
         // Its cells were compared as the vector ran, row by row, including the
         // ones that had left the screen before it ended.
         Intent::Document { caret, .. } => expect_declared_caret(model, *caret, at),
+        Intent::Wiped => {
+            expect_blank(model.screen_ref(), 1, at)?;
+            expect_caret(model, (1, 1), at)
+        }
         Intent::Modes { .. } | Intent::Queries(_) | Intent::Bell { .. } => {
             if !model.effects.is_empty() {
                 return Err(Reject::new(

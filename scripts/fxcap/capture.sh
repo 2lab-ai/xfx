@@ -46,9 +46,11 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
-#   home <label>           every settings file under the run's HOME -- each
-#                          binary's own profile and fx's backups of it -- to
-#                          <bin>-<scenario>-<size>-<label>.home
+#   relaunch <args>...     starts the binary again in the same pane, with the
+#                          same HOME and environment and these arguments --
+#                          after `keep` and an exit, so a second launch sees
+#                          what the first one saved (`fx: relaunch
+#                          --resume-last`, `xfx: relaunch --resume last`)
 #   bells <label>          writes how many terminal bells the pane has rung so
 #                          far (tmux's alert-bell hook, one line per bell; an
 #                          OSC's BEL terminator is not one) and the clients
@@ -57,11 +59,16 @@
 #                          <bin>-<scenario>-<size>-<label>.bells
 #
 # fx plays its sound cues through `/usr/bin/afplay`, by absolute path, which
-# the PATH shims below do not reach. Every fx run starts with FX_SOUND=0; a
-# scenario that turns sound on also sets `fx: env TMPDIR=/var/empty`, a
-# directory fx cannot write its chime into, so it rings the terminal bell
-# instead (vercel-labs/fx@c1db9191 src/core/notifications/sound.zig:40-62,
-# :176-181) and nothing plays on the machine running the capture.
+# the PATH shims below do not reach, and FX_SOUND=0 only sets the level at
+# launch: a scenario that types `/sound on` (or moves the /settings sound row)
+# turns it back on. So every fx run gets a TMPDIR of its own in which each
+# chime's file name is already a directory: fx cannot write the chime there,
+# rings the terminal bell instead (vercel-labs/fx@c1db9191
+# src/core/notifications/sound.zig:40-62, :176-181), and the bell reaches no
+# real terminal (no client is attached). The run checks afterwards that every
+# one of those names is still a directory, and fails loudly if not.
+# (2026-10-06 23:09 and 23:14: a research copy of this script, without the
+# guard, let fx write /tmp/fx-toggle.m4a and /tmp/fx-bloom.m4a and play them.)
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -155,7 +162,11 @@ main() {
   local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a
   [[ -n $nomodel ]] && { fx_model=''; xfx_model=''; }
   if [[ $which == fx ]]; then
-    launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 \
+    mkdir -p "$run/fxtmp"
+    local cue
+    for cue in success error bloom press release toggle; do mkdir -p "$run/fxtmp/fx-$cue.m4a"; done
+    mkdir -p "$run/fxtmp/fx-click.caf"
+    launch="env -i $base FX_DISABLE_KEYCHAIN=1 FX_SKIP_ONBOARDING=1 FX_SOUND=0 TMPDIR=$run/fxtmp \
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
@@ -231,11 +242,6 @@ $xfx_model $extra_env $bin"
           echo "clip $rest: nothing was copied"
         fi
         ;;
-      home)
-        local name=$out/$which-$scenario-$size-$rest.home
-        (cd "$run/home" && find . -type f \( -name settings.json -o -path '*/backups/*' \) | sort | while IFS= read -r f; do echo "== $f"; cat "$f"; echo; done) > "$name"
-        echo "$name"
-        ;;
       bells)
         local name=$out/$which-$scenario-$size-$rest.bells
         # The hook runs a shell of its own; give it a moment to append.
@@ -245,6 +251,9 @@ $xfx_model $extra_env $bin"
           echo "clients=$(tmux -f /dev/null -S "$sock" list-clients | wc -l | tr -d ' ')"
         } > "$name"
         echo "$name: $(tr '\n' ' ' < "$name")"
+        ;;
+      relaunch)
+        tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
         ;;
       clipfail)
         case $rest in
@@ -256,6 +265,12 @@ $xfx_model $extra_env $bin"
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"
+  if [[ $which == fx ]]; then
+    local chime
+    for chime in "$run"/fxtmp/fx-*; do
+      [[ -d $chime ]] || { echo "SOUND GUARD BREACHED: fx wrote $chime" >&2; exit 3; }
+    done
+  fi
 }
 
 main "$@"
