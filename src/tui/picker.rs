@@ -826,9 +826,11 @@ mod tests {
             ranks(&live)
         );
         // Deterministic within a rank: registry order, which is `/help`'s.
+        // `/provider` and its alias `/setup` both have an `e`; a tie keeps the
+        // command's own name.
         assert_eq!(
             labels(&live)[1..],
-            ["/help", "/clear", "/new", "/setup", "/model", "/version"]
+            ["/help", "/clear", "/new", "/provider", "/model", "/version"]
         );
         // The slash is not a letter of any name: a second one finds nothing.
         assert!(Picker::open("//").is_none());
@@ -911,7 +913,7 @@ mod tests {
             )
         );
         assert_eq!(rows[1], "", "the blank row under the header");
-        // The names in view are padded to `/status`, the widest of them,
+        // The names in view are padded to `/provider`, the widest of them,
         // plus the three-column gap; the categories share one column that
         // ends a cell short of the edge, each written from its left.
         let body: Vec<String> = rows[2..].iter().map(|row| plain(row)).collect();
@@ -919,7 +921,11 @@ mod tests {
             ("/help", "show available slash commands", "General"),
             ("/clear", SLASH_REGISTRY[1].summary, "General"),
             ("/new", "start a fresh session", "Session"),
-            ("/setup", SLASH_REGISTRY[3].summary, "Account"),
+            (
+                "/provider",
+                "choose the model provider and how it signs in",
+                "Account",
+            ),
             ("/stats", "show token and turn statistics", "Account"),
             ("/status", "show runtime configuration", "General"),
         ];
@@ -927,8 +933,8 @@ mod tests {
             assert_eq!(
                 *row,
                 format!(
-                    "  {name:<10}{summary}{}{category}",
-                    " ".repeat(112 - 12 - summary.len())
+                    "  {name:<12}{summary}{}{category}",
+                    " ".repeat(112 - 14 - summary.len())
                 ),
                 "{row:?}"
             );
@@ -947,8 +953,8 @@ mod tests {
             rows[4],
             format!(
                 "{MARKED}  /new{}{DIM}{summary}{}{DIM}Session{RESET}",
-                " ".repeat(12 - 6),
-                " ".repeat(112 - 12 - summary.len()),
+                " ".repeat(14 - 6),
+                " ".repeat(112 - 14 - summary.len()),
             )
         );
         // Every other row is dim from its first cell to its last.

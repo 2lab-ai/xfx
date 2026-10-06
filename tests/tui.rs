@@ -3583,7 +3583,7 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
 
     // Each command with a needle out of its own answer, none of which the test
     // types: `/help`'s catalog, `/version`'s topic, the model report,
-    // `/setup`'s usage refusal, `/stats`'s first counter, `/status`'s turn
+    // `/provider`'s column, `/stats`'s first counter, `/status`'s turn
     // count, `/new`'s sentence, `/clear`'s promise, and a name the registry
     // does not carry. Each needle sits inside one run of colour: a notice's
     // label and body are separate runs on the wire.
@@ -3602,10 +3602,14 @@ fn every_slash_command_is_answered_by_the_session_rather_than_by_the_model() {
     session.wait_for("version:");
     session.type_bytes(b"/model\r");
     session.wait_for("provider=gateway");
-    // Bare, so it refuses without switching anything -- which still proves the
-    // name is answered by the session, and still costs the provider nothing.
-    session.type_bytes(b"/setup\r");
-    session.wait_for("/setup takes a provider to set up");
+    // Bare, so it opens the provider column without switching anything --
+    // which still proves the name is answered by the session, and still costs
+    // the provider nothing. The column's second row is the needle: no answer
+    // before it names llmux. C-u then empties the reseeded `/provider `, which
+    // closes the column, so the next name is typed into an empty composer.
+    session.type_bytes(b"/provider\r");
+    session.wait_for("llmux");
+    session.type_bytes(b"\x15");
     session.type_bytes(b"/stats\r");
     session.wait_for("ansi_bytes=");
     session.type_bytes(b"/status\r");
@@ -6442,10 +6446,11 @@ fn switching_provider_sends_the_next_prompt_only_to_the_new_fixture() {
     );
 
     session.type_bytes(b"/setup llmux\r");
-    // The line the switch is *finished* on (`* provider: llmux model=…`): it is
-    // sent after the file was written and the configuration re-read from it,
-    // so waiting for it is waiting for the reload rather than for the write.
-    session.wait_for("llmux model=");
+    // The line the switch is *finished* on (`* provider: Switched to llmux
+    // with …`): it is sent after the file was written and the configuration
+    // re-read from it, so waiting for it is waiting for the reload rather than
+    // for the write.
+    session.wait_for("Switched to llmux with");
 
     // The file, read rather than believed. A band that said `llmux`
     // over a profile that still said gateway would be the exact failure the
@@ -6573,7 +6578,7 @@ fn the_catalog_browser_lists_context_and_effort_and_names_what_outranks_the_writ
     // qualification of this switch rather than as news about the next thing.
     restarted.wait_for("XFX_MODEL");
     restarted.wait_for("outranks the profile");
-    restarted.wait_for("llmux model=");
+    restarted.wait_for("Switched to llmux with");
     restarted.type_bytes(&[0x04]);
     assert_eq!(restarted.wait_exit().code(), Some(0));
 

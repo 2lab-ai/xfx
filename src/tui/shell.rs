@@ -93,6 +93,7 @@ use super::notice::{self, unattributed};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
 use super::picker::{self, Dismissed, Picker, PickerAction, PickerOutcome, Trigger};
+use super::provider_picker::{self, ProviderPicker};
 use super::question::{self, QuestionPanel, QuestionRequest};
 use super::render_request::{Reason, RenderRequest};
 use super::router::{self, CommandHandlers};
@@ -101,7 +102,7 @@ use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig};
-use crate::interactive::{self, Submitted};
+use crate::interactive::Submitted;
 use crate::markdown::{self, MarkdownProcessor};
 use crate::output::safe_one_line;
 use crate::permission::{ApprovalAnswer, ApprovalRequest};
@@ -344,6 +345,18 @@ const NEW_SESSION_NOTICE: &str = "new session; the next prompt starts a fresh co
 /// that the command does not take -- is answered with: upstream's own
 /// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
 const UNKNOWN_COMMAND: &str = "Unknown command. Try /help.";
+
+/// What `/provider` says while the runtime has work in hand, under the topic
+/// `provider`: upstream's own sentence (`provider_busy_message`,
+/// `app_auth_runtime.zig:30`, written at `:430-439`).
+///
+/// "Active and queued" is the runtime's whole queue here
+/// ([`super::worker::WorkHandle::outstanding`]), which is upstream's two facts
+/// -- a stream running, a prompt waiting -- counted as one: a provider switch
+/// is itself a piece of that work, and one queued behind a turn would replay
+/// nothing of the conversation the turn was in.
+const PROVIDER_BUSY: &str =
+    "Provider switching is unavailable until active and queued work finishes.";
 
 /// What labels the sentence a user attached to a permission decision.
 ///
@@ -700,6 +713,26 @@ pub(crate) struct Shell {
     /// catalog is back when it has been answered, as upstream's is
     /// (`surface_frame.zig:401`, `!modal_active`).
     help_menu: Option<HelpMenu>,
+    /// The `/provider` picker, while the draft is its argument
+    /// ([`super::provider_picker`]).
+    ///
+    /// The fourth occupant of the slot, and a view of the composer like the
+    /// other two: it opens when the text begins `/provider ` or `/setup `
+    /// and closes when it stops doing so, both in [`Self::reconcile_picker`].
+    /// It cannot be up beside the completion menu -- a draft with a space in
+    /// it is not a slash word ([`Trigger::of`]) -- nor beside the catalog,
+    /// whose search the draft is while it is up.
+    provider_picker: Option<ProviderPicker>,
+    /// Whether Escape closed the `/provider` picker over the text the draft
+    /// still begins with.
+    ///
+    /// [`Self::dismissed`]'s job for this picker: it stays closed while the
+    /// argument is edited, and is forgotten once the draft stops being the
+    /// picker's (upstream's `dismissed_until_trigger_change`,
+    /// `picker_state.zig:36-46`). A flag rather than a [`Trigger`] variant,
+    /// because whether the draft is the picker's is a property of the whole
+    /// text that [`Trigger::of`] -- one slash word -- does not read.
+    provider_dismissed: bool,
     /// What that row says, as of the last settle, or `None` while there is no
     /// work to say anything about.
     ///
@@ -999,6 +1032,9 @@ enum Slot<'a> {
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
+    /// The `/provider` column. Like the menu it owns nothing but rows, and the
+    /// composer's argument is its query.
+    Provider(&'a ProviderPicker),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -1057,8 +1093,7 @@ impl Shell {
             },
             model: config.model.clone(),
             mode: config.permission_mode,
-            missing_credential: crate::provider::resolve_credential_for(config.provider, config)
-                .is_none(),
+            missing_credential: !crate::provider::credential_ready(config.provider, config),
             provider: config.provider,
             catalog: Vec::new(),
             context_used: None,
@@ -1091,6 +1126,8 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             help_menu: None,
+            provider_picker: None,
+            provider_dismissed: false,
             activity_row: None,
             clearing: false,
             markdown: MarkdownProcessor::with_styles(markdown::ansi::Styles::new(
@@ -1195,6 +1232,14 @@ impl Shell {
                 Some(Slot::Menu(picker)) => {
                     picker.rows(self.geometry.cols, self.geometry.rows, self.palette)
                 }
+                // In the rows the geometry gave it, under the argument it is
+                // the column of.
+                Some(Slot::Provider(column)) => column.rows(
+                    self.geometry.cols,
+                    self.provider_anchor(column),
+                    self.geometry.panel,
+                    self.palette,
+                ),
                 None => Vec::new(),
             };
             // Exactly the panel's rows: one that answered with fewer is padded
@@ -1383,7 +1428,31 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
         }
+        if let Some(column) = self.provider_picker.as_ref() {
+            return Some(Slot::Provider(column));
+        }
         self.picker.as_ref().map(Slot::Menu)
+    }
+
+    /// The cell the `/provider` column is anchored at: under the first byte of
+    /// its argument, on the composer row that byte is on
+    /// (`projectedAnchorColumn`, `input_presentation.zig:368-370`).
+    ///
+    /// Measured by the composer's own wrap, so an argument that a wrapped
+    /// draft put at the start of its second row anchors at that row's start
+    /// rather than past the edge of the screen.
+    fn provider_anchor(&self, column: &ProviderPicker) -> u16 {
+        let text = self.editor.text();
+        // The column is rebuilt on every edit, so its offset is into this very
+        // text and after an ASCII prefix; checked anyway, because
+        // `cursor_point` panics on an offset that is not a `char` boundary.
+        let start = column.token_start();
+        if !text.is_char_boundary(start) {
+            return PROMPT_CELLS;
+        }
+        let rows = super::wrap::wrap(text, self.text_cols());
+        let (_, at) = super::wrap::cursor_point(text, &rows, start);
+        PROMPT_CELLS.saturating_add(at)
     }
 
     /// Where the caret goes: the terminal's own row, and the number of cells to
@@ -1677,14 +1746,29 @@ impl Shell {
                 // The conversation went with the bundle, and the session its
                 // title named with it.
                 self.forget_session_title();
+                // Upstream's sentence for a finished switch
+                // (`app_auth_runtime.zig:1383-1386`, topic `provider` at
+                // `:1410-1414`), with xfx's one more fact: the runtime dropped
+                // the conversation with the bundle, so the next prompt is the
+                // first of a new one.
                 self.announce(notice::Notice::neutral(
                     "provider",
                     format!(
-                        "{} model={}; the next prompt starts a fresh conversation",
-                        provider.label(),
+                        "Switched to {} with {}. The next prompt starts a fresh conversation.",
+                        provider.entry().name,
                         self.model
                     ),
                 ));
+                // A column standing open was built against the old provider's
+                // `current`.
+                if let Some(text) = self
+                    .provider_picker
+                    .as_ref()
+                    .map(|open| open.text().to_string())
+                {
+                    self.provider_picker =
+                        ProviderPicker::open(&text, (!missing_credential).then_some(provider));
+                }
                 self.render.request(Reason::Footer);
             }
             // What the selector made of a `/model <id>`, and the model in force
@@ -2383,6 +2467,17 @@ impl Shell {
         if let Some(menu) = self.help_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
+            self.provider_picker = None;
+            return;
+        }
+        // The `/provider` column next: a draft that is its argument has a
+        // space in it, so it is never a slash word as well.
+        if self.reconcile_provider_picker() {
+            self.picker = None;
+            // Still asked, so a completion menu Escape closed over `/provider`
+            // is forgotten once the draft has become the column's: the trigger
+            // changed kind, and that is what a dismissal lasts until.
+            let _ = self.dismissed.admits(Trigger::of(self.editor.text()));
             return;
         }
         if !self.dismissed.admits(Trigger::of(self.editor.text())) {
@@ -2401,6 +2496,149 @@ impl Shell {
         }
         let query = self.editor.text().to_string();
         self.picker = Picker::open(&query);
+    }
+
+    /// Settles the `/provider` column for the draft, and says whether the
+    /// draft is the column's -- open or dismissed.
+    ///
+    /// Rebuilt only when the text changed, so a caret move inside the argument
+    /// leaves the mark where the arrows put it; any change of text puts it back
+    /// on the first row, as upstream's does.
+    fn reconcile_provider_picker(&mut self) -> bool {
+        let text = self.editor.text();
+        if !provider_picker::is_query(text) {
+            self.provider_dismissed = false;
+            self.provider_picker = None;
+            return false;
+        }
+        if self.provider_dismissed {
+            self.provider_picker = None;
+            return true;
+        }
+        if self
+            .provider_picker
+            .as_ref()
+            .is_some_and(|open| open.text() == text)
+        {
+            return true;
+        }
+        let current = (!self.missing_credential).then_some(self.provider);
+        self.provider_picker = ProviderPicker::open(text, current);
+        true
+    }
+
+    /// Offers one keystroke to the `/provider` column, and says whether it was
+    /// taken.
+    ///
+    /// Upstream's keys (`provider_picker_runtime.zig:164-246`,
+    /// `app_input_runtime.zig:264-296`):
+    ///
+    /// * **Up and Down** move the mark and wrap.
+    /// * **Tab** writes the prefix and the chosen row into the composer and
+    ///   commits nothing -- the column then shows that one row, marked.
+    /// * **Enter** commits the chosen row ([`Self::commit_provider`]). With no
+    ///   row it is not taken, so the line goes on to the router and is refused
+    ///   there as upstream's is (`provider_picker_runtime.zig:255-257`).
+    /// * **Right**, from the end of the text, is Enter. That is upstream's
+    ///   binding and it is kept **only because a commit here has no leg outside
+    ///   this machine's settings file and the provider it names**: it writes
+    ///   `~/.xfx/settings.json` and, for llmux, asks the loopback daemon what it
+    ///   serves -- exactly what Enter does, and nothing that opens a browser or
+    ///   starts a sign-in. Upstream's Right on a subscription row starts an
+    ///   OAuth flow in the user's browser (`app_auth_runtime.zig:1060-1118`);
+    ///   a sign-in row here would have to take Right off before it shipped.
+    ///   While the runtime has work Right is only a caret move, as upstream's
+    ///   is while a stream runs (`app_input_runtime.zig:288-293`).
+    /// * **Escape** closes the column and leaves the text.
+    /// * **Left** is not taken: there is no column before this one to step
+    ///   back into, so it moves the caret, as upstream's does in its first
+    ///   column (`stepBack` answers `false` there, `:381-385`).
+    fn offer_to_provider_picker(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(column) = self.provider_picker.as_mut() else {
+            return false;
+        };
+        match action {
+            Action::Up | Action::Down => {
+                if column.step(matches!(action, Action::Down)) {
+                    self.render.request(Reason::Modal);
+                }
+                true
+            }
+            Action::Tab => {
+                if let Some(text) = column.completion() {
+                    self.replace_word(&text);
+                }
+                true
+            }
+            Action::Submit => self.commit_provider(),
+            Action::Right if self.editor.caret_at_end() && self.work.outstanding() == 0 => {
+                self.commit_provider()
+            }
+            Action::Escape => {
+                self.provider_picker = None;
+                self.provider_dismissed = true;
+                // The band just gave the column's rows back to the document.
+                self.refit();
+                self.render.request(Reason::Modal);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Enter (or Right) on the `/provider` column, and whether the keystroke
+    /// was spent.
+    ///
+    /// No row: not spent, and the line goes on to the router. Work in hand:
+    /// spent on upstream's refusal, and the text stays where it is so the same
+    /// Return works once the work is done (`reject_provider_picker_if_busy`,
+    /// `app_input_runtime.zig:1593-1596`). Otherwise the switch.
+    ///
+    /// **Not a submitted line**: the composer is cleared and nothing is written
+    /// into the prompt history, because upstream's column commits before its
+    /// submit path ever sees the text (`app_input_runtime.zig:1593-1596`,
+    /// ahead of `submitInput`).
+    fn commit_provider(&mut self) -> bool {
+        let Some(provider) = self
+            .provider_picker
+            .as_ref()
+            .and_then(ProviderPicker::chosen)
+        else {
+            return false;
+        };
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral("provider", PROVIDER_BUSY));
+            return true;
+        }
+        self.switch_provider(provider);
+        true
+    }
+
+    /// Hands a provider switch to the runtime, and says it is under way.
+    ///
+    /// The one place a switch starts, whether it came from the column or from
+    /// `/setup llmux` typed out with the column dismissed. The composer is
+    /// emptied only once the runtime has taken the work, so a refusal leaves
+    /// the text for the next Return.
+    fn switch_provider(&mut self, provider: ProviderId) {
+        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
+            self.refused(rejected);
+            return;
+        }
+        self.provider_picker = None;
+        self.clear_composer();
+        // Upstream's word for the interval between the choice and the switch
+        // (`beginPreparation`, `app_auth_runtime.zig:1239`): the runtime is
+        // about to read the profile and, for llmux, ask the daemon what it
+        // serves, and what the session became is said when that is done
+        // ([`UiEvent::ProviderSelected`]).
+        self.announce(notice::Notice::neutral(
+            "provider",
+            format!("Preparing {}.", provider.entry().name),
+        ));
     }
 
     /// One keystroke, while a question has the focus.
@@ -3446,6 +3684,9 @@ impl Shell {
             if self.offer_to_picker(&event) {
                 continue;
             }
+            if self.offer_to_provider_picker(&event) {
+                continue;
+            }
             match event {
                 Input::Text(character) => self.type_character(character),
                 Input::Action(action) => self.act(action, now),
@@ -4415,41 +4656,51 @@ impl Shell {
         }
     }
 
-    /// `/setup <provider>`, with the line-oriented shell's meaning.
+    /// `/provider` (or `/setup`) as a submitted line: the column, or a switch.
     ///
-    /// The command hands the whole transaction to the runtime thread and paints
-    /// nothing about its result: it writes a file, opens a socket and re-reads a
-    /// configuration, none of which may happen on the thread holding the
-    /// terminal, and **none of which this side is entitled to predict.** What
-    /// the session becomes arrives as [`UiEvent::ProviderSelected`] *after* the
-    /// reload, so the model and the credential fact this shell shows are the
-    /// ones the configuration really resolved to -- not the ones the write
-    /// intended, which differ exactly when a layer above the profile outranks
-    /// it.
+    /// **Bare**, it is upstream's `commandProvider` (`app_commands.zig:734-745`,
+    /// `app_auth_runtime.zig:441-470`): the composer is reseeded with the
+    /// canonical `/provider ` -- whichever spelling was typed -- and the column
+    /// opens under its argument. Refused, with nothing reseeded, while the
+    /// runtime has work in hand.
     ///
-    /// The name is parsed here only to refuse an argument that names no
-    /// provider, which costs the runtime nothing to be told and would otherwise
-    /// spend a queue place to come back as a failure.
+    /// **With an argument** it reaches here only when the column did not take
+    /// the Return: Escape had closed it, or the argument names no provider.
+    /// The first is xfx's `/setup llmux` and it switches at once, as it always
+    /// has; the second is upstream's router refusing text its column could not
+    /// match (`command_router.zig:212-214`), in upstream's words rather than a
+    /// usage line of xfx's own. Nothing of the argument is quoted back, for the
+    /// reason `/model`'s refusal quotes nothing.
+    ///
+    /// The switch itself is the runtime's to do and to report
+    /// ([`Self::switch_provider`]): it writes a file, may open a socket and
+    /// re-reads the configuration, none of which may happen on the thread
+    /// holding the terminal, and **none of which this side is entitled to
+    /// predict** -- what the session became arrives as
+    /// [`UiEvent::ProviderSelected`] after the reload.
     fn use_provider(&mut self, argument: &str) {
-        let Some(provider) = ProviderId::parse(argument) else {
-            // xfx's own words, derived from the providers this build has
-            // (`interactive::setup_usage`), so a build that grows one does not
-            // grow a sentence that forgets it. Nothing of the argument is quoted
-            // back, for the reason `/model`'s refusal quotes nothing.
-            self.write_notice(&notice::Notice::error(
-                "",
-                unattributed(&interactive::setup_usage()),
-            ));
-            return;
+        let provider = if argument.is_empty() {
+            None
+        } else {
+            let Some(provider) = ProviderId::parse(argument) else {
+                self.write_notice(&notice::Notice::error("command", UNKNOWN_COMMAND));
+                return;
+            };
+            Some(provider)
         };
-        if let Err(rejected) = self.work.submit(TurnWork::Setup(provider)) {
-            self.refused(rejected);
+        if self.work.outstanding() > 0 {
+            self.write_notice(&notice::Notice::neutral("provider", PROVIDER_BUSY));
             return;
         }
-        self.announce(notice::Notice::neutral(
-            "provider",
-            format!("setting up {}", provider.label()),
-        ));
+        match provider {
+            Some(provider) => self.switch_provider(provider),
+            None => {
+                // A fresh column: a dismissal of an earlier one is not about
+                // this command.
+                self.provider_dismissed = false;
+                self.replace_word(provider_picker::PROVIDER_PREFIX);
+            }
+        }
     }
 
     /// `/clear`: the screen, its scrollback, and what the band remembers of
@@ -4745,17 +4996,22 @@ impl Shell {
         //
         // The catalog's is a function of the composer's height as well
         // (`inlinePickerRowBudgetCapped`'s `input_extra`), so it is asked
-        // again for each composer height the search below tries; every other
-        // occupant's is asked once.
+        // again for each composer height the search below tries -- and so is
+        // the `/provider` column's (`activeListPickerReservedRows`), which
+        // also counts the turn's row: upstream has that row above its footer,
+        // xfx has it in the band. Every other occupant's is asked once.
         let slot = self.slot();
         let fixed = match slot {
             Some(Slot::Question(panel)) => panel.height(cols, rows),
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
-            Some(Slot::Catalog(_)) | None => 0,
+            Some(Slot::Catalog(_)) | Some(Slot::Provider(_)) | None => 0,
         };
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Provider(_)) => {
+                ProviderPicker::height(rows, input_rows.saturating_sub(1) + u16::from(activity))
+            }
             _ => fixed,
         };
         // **The composer gives way to the question, one row at a time.** A
@@ -9700,8 +9956,16 @@ mod tests {
             shell.route_bytes(name.as_bytes());
             shell.route_bytes(&[0x0d]);
 
-            assert!(
-                shell.editor.is_empty(),
+            // `/provider`'s answer is its argument's prefix in the composer,
+            // which is the one draft a command leaves behind on purpose.
+            let left = if *name == "/provider" {
+                provider_picker::PROVIDER_PREFIX
+            } else {
+                ""
+            };
+            assert_eq!(
+                shell.editor.text(),
+                left,
                 "{name} left the composer holding it"
             );
             let document = shell.document();
@@ -9712,10 +9976,23 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, and `/help` the one whose answer is the catalog in the
-            // band; every other one says something, as a notice.
+            // a row, and `/help` and `/provider` the ones whose answer is in
+            // the band; every other one says something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
+            } else if *name == "/provider" {
+                // Answered in the band too: the composer reseeded with the
+                // argument's prefix and the provider column under it
+                // (`fx-provider-40x120-open`).
+                assert!(
+                    shell.provider_picker.is_some(),
+                    "/provider opened no picker"
+                );
+                assert!(
+                    document.is_empty(),
+                    "/provider wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/help" {
                 assert!(shell.help_menu.is_some(), "/help opened no catalog");
                 assert!(
@@ -9724,8 +10001,7 @@ mod tests {
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else {
-                // A bare `/setup` is a usage error and every other one a
-                // neutral answer; either way a notice, glyph first.
+                // Every other one a neutral answer: a notice, glyph first.
                 assert!(
                     document
                         .first()
@@ -11874,7 +12150,7 @@ mod tests {
         assert_eq!(
             rows[2],
             format!(
-                "  {bright}/help{reset}       {bright}show available slash commands{reset}",
+                "  {bright}/help{reset}        {bright}show available slash commands{reset}",
                 bright = PALETTE.subtitle(),
                 reset = PALETTE.reset()
             )
@@ -11964,15 +12240,22 @@ mod tests {
 
     #[test]
     fn enter_on_a_command_that_takes_an_argument_leaves_room_for_it_and_runs_nothing() {
-        // Account's one command is `/setup`.
+        // Account's one command is `/provider`. What the space opens is the
+        // command's own argument picker, as upstream's does after `/login `
+        // (`fx-help-40x120-enter-args`): the provider column, not the
+        // completion menu, and nothing run or sent.
         let mut shell = with_catalog(40, 120);
         shell.route_bytes(b"\t\t\t");
-        assert!(visible_text(&menu(&shell)[2]).starts_with("  /setup"));
+        assert!(visible_text(&menu(&shell)[2]).starts_with("  /provider"));
         shell.route_bytes(b"\r");
         assert!(shell.help_menu.is_none());
-        assert_eq!(shell.editor.text(), "/setup ");
+        assert_eq!(shell.editor.text(), "/provider ");
         assert!(shell.picker.is_none(), "a word with a space opened a menu");
-        assert_eq!(shell.geometry.panel, 0);
+        assert!(
+            shell.provider_picker.is_some(),
+            "the argument has no picker"
+        );
+        assert_eq!(shell.geometry.panel, 6);
         assert!(shell.document().is_empty(), "something ran");
         assert!(shell.sent.try_recv().is_err(), "something was sent");
     }
@@ -12114,37 +12397,333 @@ mod tests {
     }
 
     #[test]
-    fn a_setup_argument_that_names_no_provider_never_reaches_the_runtime() {
+    fn an_argument_that_names_no_provider_is_an_unknown_command_and_never_reaches_the_runtime() {
         // Refused here rather than sent, for `/model`'s reason: the far side of
         // this one writes a file, and a queue place spent on a word that cannot
-        // be a provider is a place a real prompt could have had.
+        // be a provider is a place a real prompt could have had. The column
+        // finds no row for it, so the Return goes on to the router, which
+        // answers in upstream's words (`fx-provider-40x120-arg-nomatch-enter`)
+        // -- not a usage line of xfx's own, which this used to be.
         let mut shell = shell(24, 80);
-        for argument in ["", "nonesuch", "  ", "llmux extra"] {
-            shell.route_bytes(format!("/setup {argument}\r").as_bytes());
-            assert!(
-                shell.sent.try_recv().is_err(),
-                "`/setup {argument}` reached the runtime"
-            );
+        for argument in ["nonesuch", "llmux extra", "gateway gateway", "zz"] {
+            for name in ["/provider", "/setup"] {
+                shell.route_bytes(format!("{name} {argument}\r").as_bytes());
+                assert!(
+                    shell.sent.try_recv().is_err(),
+                    "`{name} {argument}` reached the runtime"
+                );
+                assert!(shell.editor.is_empty(), "`{name} {argument}` stayed");
+                assert!(shell.provider_picker.is_none());
+            }
         }
         let document = shell.document();
-        assert!(
-            document
-                .iter()
-                .any(|row| row.contains("gateway") && row.contains("llmux")),
-            "the refusal does not name the providers this build can set up: {document:?}"
-        );
-        // xfx's own words: the refusal quotes nothing of the argument, which
-        // is what keeps a hostile one out of the document -- and the submitted
-        // line is not echoed either, so nothing of it is there at all.
         let refusals: Vec<&String> = document
             .iter()
-            .filter(|row| row.starts_with("\u{2717} /setup takes a provider"))
+            .filter(|row| *row == "\u{2717} command: Unknown command. Try /help.")
             .collect();
-        assert_eq!(refusals.len(), 4, "{document:?}");
+        assert_eq!(refusals.len(), 8, "{document:?}");
+        // Nothing of the argument is quoted back, and the submitted line is
+        // not echoed either, so nothing of it is there at all.
         assert!(
-            !document.iter().any(|row| row.contains("nonesuch")),
+            !document
+                .iter()
+                .any(|row| row.contains("nonesuch") || row.contains("extra")),
             "the refusal quoted the argument back: {document:?}"
         );
+        assert!(
+            !document.iter().any(|row| row.contains("/setup takes")),
+            "the line shell's usage line reached the band: {document:?}"
+        );
+    }
+
+    #[test]
+    fn a_trailing_space_and_a_return_commit_the_marked_row() {
+        // **Changed claim.** `/setup ` and a Return used to be a usage error;
+        // the space is the column's trigger now, so the Return is the column's
+        // and takes its marked row, the first -- as upstream's `/setup ` does
+        // (`fx-provider2-40x120-setup-space`, then Enter).
+        for line in ["/setup \r", "/provider   \r", "  /SETUP \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line.as_bytes());
+            assert_eq!(
+                shell.picks_up(),
+                TurnWork::Setup(ProviderId::Gateway),
+                "{line:?}"
+            );
+            assert!(shell.editor.is_empty(), "{line:?}");
+            assert!(shell.provider_picker.is_none(), "{line:?}");
+        }
+    }
+
+    /// A `/provider` row as the column paints it at `anchor`: the label in
+    /// `style` and closed, then the dim ` · current` when it is current.
+    fn provider_row(anchor: usize, label: &str, marked: bool, current: bool) -> String {
+        let style = if marked {
+            PALETTE.subtitle()
+        } else {
+            PALETTE.dim()
+        };
+        let mut row = format!("{}{style}{label}{}", " ".repeat(anchor), PALETTE.reset());
+        if current {
+            row.push_str(&format!(
+                "{}{} current{}",
+                PALETTE.dim(),
+                " \u{b7}",
+                PALETTE.reset()
+            ));
+        }
+        row
+    }
+
+    /// One Escape, settled past the decoder's wait for a sequence behind it.
+    fn escape(shell: &mut Fixture) {
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+    }
+
+    #[test]
+    fn a_bare_provider_or_setup_reseeds_the_composer_and_opens_the_column_under_it() {
+        // `fx-provider-40x120-open` and `setup-open`: either spelling and a
+        // Return leave the canonical `/provider ` in the composer, and the
+        // column under its argument -- column 12 -- between the two rules,
+        // six rows tall, the first row marked and the credentialed active
+        // provider annotated. The hint row stays the statusline.
+        for typed in ["/provider\r", "/setup\r"] {
+            let mut shell = shell(40, 120);
+            shell.shell.missing_credential = false;
+            shell.route_bytes(typed.as_bytes());
+            assert_eq!(shell.editor.text(), "/provider ", "{typed:?}");
+            assert!(shell.picker.is_none(), "a completion menu is up too");
+            let rows = shell.band_rows();
+            assert_eq!(visible_text(&rows[0]), "\u{2503} /provider ");
+            assert_eq!(rows[1], divider(120));
+            assert_eq!(
+                rows[2..8],
+                [
+                    provider_row(12, "gateway", true, true),
+                    provider_row(12, "llmux", false, false),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ]
+            );
+            assert_eq!(rows[8], divider(120));
+            assert_eq!(rows.len(), 10);
+            assert_eq!(shell.hint(), "auto \u{b7} glm-5.2", "{typed:?}");
+            // The caret stays in the composer, after the space.
+            assert_eq!(
+                shell.cursor(),
+                (shell.geometry.input_first, PROMPT_CELLS + 10)
+            );
+            assert!(shell.document().is_empty(), "{typed:?} wrote a row");
+            assert!(shell.sent.try_recv().is_err(), "{typed:?} sent something");
+        }
+    }
+
+    #[test]
+    fn the_setup_prefix_typed_with_its_space_keeps_its_spelling_and_its_column() {
+        // `fx-provider2-40x120-setup-space`: typed rather than run, `/setup `
+        // stays `/setup ` and the column sits under its argument, column 9.
+        // A session with no credential has no current provider.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/setup ");
+        assert_eq!(shell.editor.text(), "/setup ");
+        assert_eq!(
+            menu(&shell)[..2],
+            [
+                provider_row(9, "gateway", true, false),
+                provider_row(9, "llmux", false, false),
+            ]
+        );
+        // The same column after leading blanks, anchored where the argument
+        // really is.
+        let mut blanks = self::shell(40, 120);
+        blanks.route_bytes(b"  /provider ");
+        assert_eq!(menu(&blanks)[0], provider_row(14, "gateway", true, false));
+    }
+
+    #[test]
+    fn the_arrows_wrap_and_enter_commits_the_marked_row_without_a_history_entry() {
+        // `fx-provider-40x120-down1` .. `down3-wrap`, then Enter: the commit
+        // is the runtime's `TurnWork::Setup`, the composer is cleared, the
+        // column is gone, and upstream's `Preparing …` is said. The command
+        // that opened the column is in the history; the commit is not -- it
+        // never was a submitted line (`app_input_runtime.zig:1593-1596`).
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider\r");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(menu(&shell)[1], provider_row(12, "llmux", true, false));
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(menu(&shell)[0], provider_row(12, "gateway", true, false));
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(menu(&shell)[1], provider_row(12, "llmux", true, false));
+        assert!(shell.sent.try_recv().is_err(), "a move committed");
+
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        assert!(shell.editor.is_empty());
+        assert!(shell.provider_picker.is_none());
+        assert_eq!(shell.geometry.panel, 0, "the column kept its rows");
+        assert_eq!(
+            shell.document(),
+            vec!["* provider: Preparing llmux.".to_string(), String::new()]
+        );
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/provider", "the recall");
+    }
+
+    #[test]
+    fn setup_llmux_typed_whole_still_switches_at_once_with_or_without_the_column() {
+        // Trap 2 of the research: `/setup llmux` and a Return is xfx's
+        // complete command. With the column up it is the one filtered row;
+        // with the column dismissed it is the router's, and it acts the same.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/setup llmux\r");
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+
+        let mut dismissed = self::shell(24, 80);
+        dismissed.route_bytes(b"/setup LLMUX");
+        escape(&mut dismissed);
+        assert!(
+            dismissed.provider_picker.is_none(),
+            "Escape left the column up"
+        );
+        assert_eq!(
+            dismissed.editor.text(),
+            "/setup LLMUX",
+            "Escape took the text"
+        );
+        dismissed.route_bytes(b"\r");
+        assert_eq!(dismissed.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        assert!(dismissed.editor.is_empty());
+        assert_eq!(
+            dismissed.document(),
+            vec!["* provider: Preparing llmux.".to_string(), String::new()]
+        );
+    }
+
+    #[test]
+    fn typing_filters_the_column_and_tab_writes_the_row_without_committing() {
+        // `fx-provider-40x120-arg-co` and `arg-co-tab`.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider LL");
+        assert_eq!(
+            menu(&shell)[..2],
+            [provider_row(12, "llmux", true, false), String::new()]
+        );
+        shell.route_bytes(b"\t");
+        assert_eq!(shell.editor.text(), "/provider llmux");
+        assert_eq!(menu(&shell)[0], provider_row(12, "llmux", true, false));
+        assert!(shell.sent.try_recv().is_err(), "Tab committed");
+        // And a Tab with no row writes nothing.
+        let mut unmatched = self::shell(40, 120);
+        unmatched.route_bytes(b"/provider zz\t");
+        assert_eq!(unmatched.editor.text(), "/provider zz");
+        assert_eq!(
+            visible_text(&menu(&unmatched)[0]),
+            format!("{}no matching providers", " ".repeat(12))
+        );
+    }
+
+    #[test]
+    fn escape_closes_the_column_until_the_draft_stops_being_its() {
+        // `fx-provider-40x120-esc` and `arg-esc`: the text stays and the band
+        // gives the rows back; editing the argument does not bring the column
+        // back, and leaving the command does forget the dismissal.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider ");
+        escape(&mut shell);
+        assert_eq!(shell.editor.text(), "/provider ");
+        assert!(shell.provider_picker.is_none());
+        assert_eq!(shell.geometry.panel, 0);
+        shell.route_bytes(b"ll");
+        assert!(shell.provider_picker.is_none(), "an edit reopened it");
+        shell.route_bytes(&[0x15]);
+        shell.route_bytes(b"/setup ");
+        assert!(shell.provider_picker.is_some(), "the dismissal outlived it");
+    }
+
+    #[test]
+    fn the_completion_menus_dismissal_is_forgotten_once_the_word_becomes_the_column() {
+        // Escape over `/provider` closes the completion menu; the space makes
+        // the draft the column's, which is a change of trigger, so a Backspace
+        // back to the slash word offers the menu again.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider");
+        assert!(shell.picker.is_some());
+        escape(&mut shell);
+        assert!(shell.picker.is_none());
+        shell.route_bytes(b" ");
+        assert!(shell.provider_picker.is_some());
+        shell.route_bytes(&[0x7f]);
+        assert!(shell.provider_picker.is_none());
+        assert!(shell.picker.is_some(), "the menu stayed dismissed");
+    }
+
+    #[test]
+    fn left_moves_the_caret_and_right_from_the_end_is_enter() {
+        // No column before this one, so Left is the editor's; Right commits
+        // only from the end of the text, and is a caret move anywhere else.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/provider ll");
+        shell.route_bytes(b"\x1b[D");
+        assert!(!shell.editor.caret_at_end(), "Left did not move the caret");
+        assert!(shell.provider_picker.is_some(), "Left closed the column");
+        shell.route_bytes(b"\x1b[C");
+        assert!(shell.editor.caret_at_end());
+        assert!(shell.sent.try_recv().is_err(), "Right committed mid-text");
+        shell.route_bytes(b"\x1b[C");
+        assert_eq!(shell.picks_up(), TurnWork::Setup(ProviderId::Llmux));
+        assert!(shell.editor.is_empty());
+        // With no row, Right is only Right.
+        let mut unmatched = self::shell(40, 120);
+        unmatched.route_bytes(b"/provider zz\x1b[C");
+        assert_eq!(unmatched.editor.text(), "/provider zz");
+        assert!(unmatched.sent.try_recv().is_err());
+    }
+
+    #[test]
+    fn while_work_is_in_hand_the_command_is_refused_and_the_column_commits_nothing() {
+        // `fx-provider2-40x120-busy`: upstream's sentence, neutral, and no
+        // column. A column the draft opens anyway (upstream's opens on typed
+        // text too) refuses its Return the same way and keeps the text; Right
+        // is a caret move.
+        let mut shell = shell(40, 120);
+        let _started = turn_running(&mut shell, b"ask something\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"/provider\r");
+        assert!(shell.provider_picker.is_none(), "the column opened");
+        assert!(shell.editor.is_empty(), "the composer was reseeded");
+        let busy = "* provider: Provider switching is unavailable until active and \
+                    queued work finishes.";
+        assert_eq!(shell.document(), vec![busy.to_string(), String::new()]);
+
+        shell.route_bytes(b"/setup llmux");
+        assert!(shell.provider_picker.is_some());
+        shell.route_bytes(b"\x1b[C");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.editor.text(), "/setup llmux", "the text was lost");
+        assert!(shell.provider_picker.is_some());
+        assert!(shell.sent.try_recv().is_err(), "a switch was queued");
+        assert_eq!(shell.document(), vec![busy.to_string(), String::new()]);
+    }
+
+    #[test]
+    fn current_is_the_active_provider_only_while_a_credential_authorizes_it() {
+        let mut shell = shell(40, 120);
+        // The fixture's session has no key: nothing is current.
+        shell.route_bytes(b"/provider ");
+        assert!(menu(&shell).iter().all(|row| !row.contains("current")));
+        // A switch that lands while the column is up moves the annotation
+        // with it.
+        shell.apply(UiEvent::ProviderSelected {
+            provider: ProviderId::Llmux,
+            model: "fable".to_string(),
+            missing_credential: false,
+        });
+        assert_eq!(menu(&shell)[1], provider_row(12, "llmux", false, true));
+        assert_eq!(menu(&shell)[0], provider_row(12, "gateway", true, false));
     }
 
     #[test]
@@ -12152,8 +12731,9 @@ mod tests {
         // Everything the previous provider's session knew that is not this
         // one's. A catalog left standing would put another daemon's context
         // window under this daemon's model, and a stale credential fact would
-        // go on telling a keyless local session to run `xfx setup`.
-        let mut shell = shell(24, 80);
+        // go on telling a keyless local session to run `xfx setup`. Wide
+        // enough that the notice is one row.
+        let mut shell = shell(24, 120);
         shell.shell.missing_credential = true;
         shell.shell.model = "old".to_string();
         shell.shell.apply(UiEvent::CatalogLoaded {
@@ -12184,9 +12764,14 @@ mod tests {
             "the dropped conversation's tokens survived the switch"
         );
         let document = shell.document();
+        // **Changed claim**: upstream's sentence for a finished switch
+        // (`Switched to {route} with {model}.`, `app_auth_runtime.zig:1385`)
+        // and xfx's fact about the conversation, rather than `[shell]`-era
+        // `key=value` words.
         assert!(
             document.iter().any(|row| row
-                == "* provider: llmux model=fable; the next prompt starts a fresh conversation"),
+                == "* provider: Switched to llmux with fable. The next prompt starts a \
+                    fresh conversation."),
             "{document:?}"
         );
     }

@@ -62,7 +62,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/help",
     "/clear",
     "/new",
-    "/setup",
+    "/provider",
     "/stats",
     "/status",
     "/model",
@@ -124,13 +124,15 @@ pub struct SlashSpec {
 /// **Upstream's order, upstream's categories, and upstream's words where the
 /// command is upstream's command** (`vercel-labs/fx@c1db9191
 /// src/builtins/commands.zig:463-499`), because the menu shows all three. The
-/// rows xfx does not have are absent rather than stubbed. Three summaries stay
+/// rows xfx does not have are absent rather than stubbed. Two summaries stay
 /// xfx's own, each because upstream's sentence describes something this
 /// command does not do: `/clear` (upstream starts a fresh conversation,
-/// `:464`; this one clears the screen and keeps it), `/setup` (upstream's
-/// `/provider` picker, `:472`, which also chooses how a provider signs in; this
-/// one takes the provider as an argument and signs nothing in), and `/model`
-/// (upstream chooses a reasoning effort as well, `:478`; xfx sends none).
+/// `:464`; this one clears the screen and keeps it) and `/model` (upstream
+/// chooses a reasoning effort as well, `:478`; xfx sends none). `/provider`
+/// is upstream's row whole -- name, `/setup` alias, sentence and category
+/// (`:472`) -- and is the one whose sentence promises more than xfx's picker
+/// shows: the provider column is there, the sign-in columns after it are
+/// gated (zbrain open-loop #88) and absent, as `docs/parity.md` says.
 /// `/stats` keeps upstream's sentence although what it prints is the
 /// terminal writer's counters rather than tokens: so does upstream's
 /// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
@@ -163,9 +165,12 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
     },
     SlashSpec {
         command: Slash::Setup,
-        name: "/setup",
-        aliases: &[],
-        summary: "`/setup <gateway|llmux>` to switch provider and record the choice",
+        name: "/provider",
+        // Upstream's own alias for the same command
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:472`), and the
+        // name this command had before it was upstream's row.
+        aliases: &["/setup"],
+        summary: "choose the model provider and how it signs in",
         category: "Account",
         has_args: true,
     },
@@ -371,6 +376,11 @@ pub enum Slash {
     /// and the only one that reaches the network, which is why it is a command
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
+    ///
+    /// `/provider`, with `/setup` as its alias. The variant keeps the name the
+    /// command had when `/setup` was canonical: it names what the command does
+    /// (`provider::setup`), and every surface reaches it by parsing the
+    /// registry rather than by spelling it.
     Setup,
     /// Put the last thing the model said on the system clipboard
     /// ([`crate::clipboard`]).
@@ -1326,8 +1336,9 @@ mod tests {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
-        // Ten since `/copy`, `/stats` and `/status`; `/models` and
-        // `/provider` stay deferred.
+        // Ten since `/copy`, `/stats` and `/status`; `/provider` took
+        // `/setup`'s place rather than adding one, and `/models` stays
+        // deferred.
         assert_eq!(SLASH_COMMANDS.len(), 10);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
@@ -1477,7 +1488,6 @@ mod tests {
             "/logout",
             "/permissions",
             "/models",
-            "/provider",
             "/mcp",
             "/undo",
             "/usage",
@@ -1628,25 +1638,52 @@ mod tests {
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
         // The two that mean something by the rest of the line: `/model <id>`
-        // picks among what a provider offers, `/setup <provider>` picks the
-        // provider. Every other name is the whole command.
+        // picks among what a provider offers, `/provider <provider>` (or
+        // `/setup <provider>`) picks the provider -- upstream's row has args
+        // too, which is what puts the space after it when it is completed
+        // (`commands.zig:472`). Every other name is the whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup");
+            let takes_one = matches!(spec.name, "/model" | "/provider");
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }
 
     #[test]
-    fn setup_is_the_seventh_canonical_command() {
-        // Task 4's one new name. It is canonical rather than an alias: it takes
-        // an argument, it has a handler of its own on both surfaces, and it is
-        // the only command in the palette that can change which provider a turn
-        // talks to.
-        assert!(SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+    fn provider_is_canonical_and_setup_is_its_alias() {
+        // Upstream's row (`commands.zig:472`): `/provider`, with `/setup` as
+        // the alias. `/setup` was canonical here before; it is still answered,
+        // by the same command, and the count of canonical names did not move.
+        assert!(SLASH_COMMANDS.contains(&"/provider"), "{SLASH_COMMANDS:?}");
+        assert!(!SLASH_COMMANDS.contains(&"/setup"), "{SLASH_COMMANDS:?}");
+        assert_eq!(Slash::parse("/provider"), Some(Slash::Setup));
         assert_eq!(Slash::parse("/setup"), Some(Slash::Setup));
-        assert_eq!(Slash::Setup.name(), "/setup");
-        assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
-        assert!(help_text().contains("/setup"), "{}", help_text());
+        assert_eq!(Slash::Setup.name(), "/provider");
+        let spec = slash_spec(Slash::Setup);
+        assert_eq!(
+            (spec.aliases, spec.summary, spec.category, spec.has_args),
+            (
+                &["/setup"][..],
+                "choose the model provider and how it signs in",
+                "Account",
+                true
+            )
+        );
+        assert_eq!(
+            classify("/setup llmux"),
+            Submitted::Command {
+                command: Slash::Setup,
+                argument: "llmux".to_string()
+            }
+        );
+        // `/help` says the alias on the command's own line.
+        assert!(
+            help_text()
+                .lines()
+                .any(|line| line.trim_start().starts_with("/provider")
+                    && line.ends_with("(also /setup)")),
+            "{}",
+            help_text()
+        );
     }
 
     #[test]
@@ -1669,11 +1706,11 @@ mod tests {
             ),
             ("/status", "show runtime configuration", "General", false)
         );
-        // Upstream's order: `/provider` (xfx's `/setup`), `/stats`, `/usage`,
-        // `/status`, then `/model` (`commands.zig:472-478`).
+        // Upstream's order: `/provider`, `/stats`, `/usage`, `/status`, then
+        // `/model` (`commands.zig:472-478`).
         let order: Vec<&str> = SLASH_COMMANDS.to_vec();
         let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
-        assert!(at("/setup") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/provider") < at("/stats") && at("/stats") < at("/status"));
         assert!(at("/status") < at("/model"));
         assert!(help_text().contains("/status"), "{}", help_text());
     }
@@ -1718,17 +1755,16 @@ mod tests {
     }
 
     #[test]
-    fn the_standalone_catalog_commands_are_still_deferred() {
-        // `/setup` is the *only* name this task adds. `/models` and `/provider`
-        // are upstream commands xfx does not answer, and the catalog browser
-        // this task builds is reached by bare `/model` rather than by either of
-        // them -- so advertising one would be advertising a surface that is not
-        // there.
-        for absent in ["/models", "/provider"] {
-            assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
-            assert_eq!(Slash::parse(absent), None, "{absent} parses");
-            assert!(!help_text().contains(absent), "help advertises {absent}");
-        }
+    fn the_standalone_catalog_command_is_still_deferred() {
+        // `/models` is an upstream command xfx does not answer: the catalog
+        // browser is reached by a bare `/model`, so advertising it would be
+        // advertising a surface that is not there. (`/provider` used to be
+        // listed here; it is answered now, as upstream's row with `/setup` as
+        // its alias -- `provider_is_canonical_and_setup_is_its_alias`.)
+        let absent = "/models";
+        assert!(!SLASH_COMMANDS.contains(&absent), "{absent} is canonical");
+        assert_eq!(Slash::parse(absent), None, "{absent} parses");
+        assert!(!help_text().contains(absent), "help advertises {absent}");
     }
 
     #[test]

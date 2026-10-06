@@ -13,7 +13,12 @@
 #
 #   gateway <turns.json>   turns for the fake gateway (default: none)
 #   env K=V                extra environment for the binary
-#   seed <settings.json>   copied to ~/.fx/settings.json before launch
+#   seed <settings.json>   copied to the binary's own profile before launch:
+#                          ~/.fx/settings.json for fx, ~/.xfx/settings.json
+#                          for xfx
+#   nomodel                launches without FX_MODEL / XFX_MODEL, so the
+#                          profile's model is the one in force and a settings
+#                          write is not shadowed by a process override
 #   work <dir>             copied into the workspace before launch
 #   wait <seconds>
 #   type <text>            literal keys
@@ -23,6 +28,8 @@
 #   snapfull <label>       the same with the whole tmux history (.full.*)
 #   gwlog                  the gateway's log and every request body it got
 #   workls <label>         the workspace's files after the run
+#   home <label>           every file under HOME, then each JSON/JSONL file's
+#                          contents, to <bin>-<scenario>-<size>-home-<label>.txt
 #   title <label>          writes the pane's window title (OSC 2) to
 #                          <bin>-<scenario>-<size>-<label>.title
 #   keep                   keeps the pane after the program exits, so a title
@@ -71,13 +78,16 @@ main() {
   esac
   [[ -x $bin ]] || { echo "not executable: $bin" >&2; exit 2; }
 
-  local turns='[]' extra_env=''
+  local turns='[]' extra_env='' nomodel=''
+  local profile=.fx
+  [[ $which == xfx ]] && profile=.xfx
   local raw line
   while IFS= read -r raw; do
     line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
-    [[ $line == seed\ * ]] && { mkdir -p "$run/home/.fx"; cp "$here/scenarios/${line#seed }" "$run/home/.fx/settings.json"; }
+    [[ $line == seed\ * ]] && { mkdir -p "$run/home/$profile"; cp "$here/scenarios/${line#seed }" "$run/home/$profile/settings.json"; }
+    [[ $line == nomodel ]] && nomodel=1
     [[ $line == work\ * ]] && cp -R "$here/scenarios/${line#work }/." "$run/work/"
   done < "$file"
   printf '%s' "$turns" > "$run/turns.json"
@@ -121,10 +131,10 @@ main() {
 FX_GATEWAY_BASE_URL=http://127.0.0.1:$port \
 FX_GATEWAY_CHAT_URL=http://127.0.0.1:$port/v4/ai/language-model \
 FX_E2E_GATEWAY_MODELS_URL=http://127.0.0.1:$port/coding-agent/v1/models \
-FX_MODEL=fake/model-a $extra_env $bin"
+$([[ -n $nomodel ]] || echo FX_MODEL=fake/model-a) $extra_env $bin"
   else
     launch="env -i $base XFX_GATEWAY_URL=http://127.0.0.1:$port/v3/ai/language-model \
-XFX_MODEL=fake/model-a $extra_env $bin"
+$([[ -n $nomodel ]] || echo XFX_MODEL=fake/model-a) $extra_env $bin"
   fi
   tmux -f /dev/null -S "$sock" new-session -d -s cap -x "$cols" -y "$rows" \
     "cd $run/work && exec $launch"
@@ -133,7 +143,7 @@ XFX_MODEL=fake/model-a $extra_env $bin"
     line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
-      ''|'#'*|gateway|env|seed|work) ;;
+      ''|'#'*|gateway|env|seed|work|nomodel) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
       paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
@@ -153,6 +163,19 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         ;;
       gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
       workls) (cd "$run/work" && for f in $(find . -type f | sort); do echo "== $f"; head -c 2000 "$f"; echo; done) > "$out/$which-$scenario-$size-work-$rest.txt" ;;
+      home)
+        local name=$out/$which-$scenario-$size-home-$rest.txt
+        (
+          cd "$run/home"
+          find . -type f | sort
+          for f in $(find . -type f \( -name '*.json' -o -name '*.jsonl' \) | sort); do
+            echo "== $f"
+            head -c 4000 "$f"
+            echo
+          done
+        ) > "$name"
+        echo "$name"
+        ;;
       title)
         local name=$out/$which-$scenario-$size-$rest
         tmux -f /dev/null -S "$sock" display-message -p -t cap '#{pane_title}' > "$name.title"

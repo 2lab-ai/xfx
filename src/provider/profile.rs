@@ -153,6 +153,46 @@ pub fn write_document(path: &Path, document: &[u8]) -> io::Result<()> {
     replace_private_file(dir, path, document)
 }
 
+/// Sets one preference in the settings file at `path`, keeping every other key.
+///
+/// The file is read the way a setup reads it ([`read_existing`]: a file that
+/// cannot be read is an error, never an empty object to overwrite), the key at
+/// `key_path` is set -- `["models", "llmux"]` is `models.llmux` -- and the
+/// document goes back through the same serializer and the same staged,
+/// owner-only replacement every other write here takes ([`write_document`]).
+///
+/// An intermediate key that is missing is created as an object, and one that
+/// holds something other than an object is **replaced** by one: the caller
+/// asked for a nested value, and a scalar standing where its parent belongs is
+/// a document the reader would reject anyway. An empty `key_path` names no key
+/// and is refused rather than read as "the whole document".
+pub fn write_preference(path: &Path, key_path: &[&str], value: Value) -> io::Result<()> {
+    let Some((last, parents)) = key_path.split_last() else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a preference needs a key to be written under",
+        ));
+    };
+    let mut document = read_existing(path)?;
+    let mut object = &mut document;
+    for key in parents {
+        let slot = object
+            .entry(key.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        object = slot
+            .as_object_mut()
+            .expect("the slot was made an object just above");
+    }
+    object.insert(last.to_string(), value);
+    let mut body = serde_json::to_string_pretty(&Value::Object(document))
+        .expect("a settings object is always serializable");
+    body.push('\n');
+    write_document(path, body.as_bytes())
+}
+
 /// The settings file as it stood before a transaction touched it.
 ///
 /// Two states rather than one, and the difference is the whole point:
@@ -734,5 +774,76 @@ mod tests {
             ProviderId::Gateway.legacy_backend(),
         );
         assert_eq!(merged["llmux_url"], "http://127.0.0.1:3456");
+    }
+
+    #[test]
+    fn a_preference_round_trips_through_the_configuration_and_keeps_every_other_key() {
+        // Written into a temp HOME's profile and read back by the one thing
+        // that decides what a settings file means, rather than by this module.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let path = home.path().join(".xfx").join("settings.json");
+        fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
+        // `models` holds a scalar where an object belongs: replaced, not
+        // merged into and not refused.
+        fs::write(&path, r#"{"permission_mode":"ask","models":"stray"}"#).expect("seed");
+
+        write_preference(&path, &["provider"], json!("llmux")).expect("write provider");
+        write_preference(&path, &["models", "llmux"], json!("fable")).expect("write model");
+        write_preference(&path, &["llmux_url"], json!("http://127.0.0.1:3456")).expect("url");
+
+        let written = fs::read_to_string(&path).expect("read");
+        assert!(
+            written.ends_with("}\n"),
+            "pretty JSON and a newline: {written:?}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&written).expect("json"),
+            json!({
+                "permission_mode": "ask",
+                "models": {"llmux": "fable"},
+                "provider": "llmux",
+                "llmux_url": "http://127.0.0.1:3456"
+            })
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).expect("stat").permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        let config = crate::config::RuntimeConfig::load_with(
+            &crate::config::Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("the written profile loads");
+        assert_eq!(config.provider, ProviderId::Llmux);
+        assert_eq!(config.model, "fable");
+        assert_eq!(
+            config.permission_mode,
+            crate::config::PermissionMode::Ask,
+            "a key the write did not name was lost"
+        );
+    }
+
+    #[test]
+    fn a_preference_is_never_written_over_a_file_that_could_not_be_read() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        fs::write(&path, "{ not json").expect("seed");
+        assert!(write_preference(&path, &["provider"], json!("llmux")).is_err());
+        assert_eq!(fs::read_to_string(&path).expect("read"), "{ not json");
+        // And a path of no keys names nothing to set.
+        let empty = dir.path().join("empty.json");
+        assert_eq!(
+            write_preference(&empty, &[], json!(1))
+                .expect_err("no key")
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert!(!empty.exists(), "a refused write left a file behind");
     }
 }
