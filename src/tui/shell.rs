@@ -3066,6 +3066,8 @@ impl Shell {
             SessionAction::Up | SessionAction::Down => {
                 let visible = sessions.visible_items(self.geometry.panel);
                 if sessions.step(request == SessionAction::Down, visible) {
+                    // A page it loaded on the way can change its height.
+                    self.refit();
                     self.render.request(Reason::Modal);
                 }
             }
@@ -3075,6 +3077,14 @@ impl Shell {
                 self.render.request(Reason::Modal);
             }
             SessionAction::Close => self.close_sessions(true),
+            // On `↓ Load more`, Enter loads the page rather than resuming
+            // (`loadMoreSessionPicker`, `app_input_runtime.zig:1792`).
+            SessionAction::Resume if sessions.on_load_more() => {
+                let visible = sessions.visible_items(self.geometry.panel);
+                sessions.load_more(visible);
+                self.refit();
+                self.render.request(Reason::Modal);
+            }
             SessionAction::Resume => self.resume_selected(),
         }
         true
@@ -5896,7 +5906,10 @@ impl CommandHandlers for Shell {
         self.help_menu = None;
         self.model_menu = None;
         self.provider_picker = None;
-        self.sessions = Some(SessionPicker::open(self.editor.text()));
+        self.sessions = Some(SessionPicker::open(
+            self.editor.text(),
+            session_picker::page_for(self.geometry.rows),
+        ));
         self.refit();
         self.render.request(Reason::Modal);
     }
@@ -14425,6 +14438,63 @@ mod tests {
     /// prompts wait behind it (`:783-805`) -- the busy rule a provider switch
     /// is under too ([`Shell::provider_work_busy`]). A `/model` the runtime
     /// has not answered yet is no response, and the picker opens.
+    /// More sessions than a page: the band ends on `↓ Load more`, walking to
+    /// the last loaded session loads the next page and the band grows by the
+    /// row it gave up (`fx-resume-paging-24x80`).
+    #[test]
+    fn a_picker_with_more_sessions_than_a_page_loads_the_next_as_the_mark_reaches_it() {
+        use super::super::session_picker::{ListedSession, Listing};
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/resume\r");
+        assert_eq!(shell.picks_up(), TurnWork::Sessions);
+        let current: Vec<ListedSession> = (1..=18)
+            .map(|i| ListedSession {
+                id: format!("s{i}"),
+                title: Some(format!("question {i}")),
+                workspace: "/x/work".to_string(),
+                updated_at_ms: 0,
+                turns: 1,
+            })
+            .collect();
+        shell.apply(UiEvent::Sessions(Some(Listing {
+            all: current.clone(),
+            current,
+            now_ms: 0,
+        })));
+        let band = |shell: &Fixture| -> Vec<String> {
+            shell
+                .band_rows()
+                .iter()
+                .map(|row| visible_text(row))
+                .collect()
+        };
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 17 ")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.contains(&"  \u{2193} Load more".to_string()),
+            "{rows:?}"
+        );
+        let panel = shell.geometry.panel;
+        for _ in 0..16 {
+            shell.route_bytes(b"\x1b[B");
+        }
+        let rows = band(&shell);
+        assert!(
+            rows.iter().any(|row| row.starts_with("Sessions 18 ")),
+            "{rows:?}"
+        );
+        assert!(
+            !rows.iter().any(|row| row.contains("Load more")),
+            "{rows:?}"
+        );
+        assert_eq!(shell.geometry.panel, panel, "{rows:?}");
+        shell.route_bytes(b"\r");
+        assert_eq!(shell.picks_up(), TurnWork::Resume("s17".to_string()));
+    }
+
     #[test]
     fn resume_waits_for_a_response_or_a_prompt_and_not_for_other_work() {
         let mut shell = shell(40, 120);
