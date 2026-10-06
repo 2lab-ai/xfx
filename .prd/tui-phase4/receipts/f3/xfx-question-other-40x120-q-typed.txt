@@ -2,9 +2,6 @@ x𝒇x v0.1.0 · Run /help for commands
 
 ┃ ask me
 
-[tool] ask_user_question running
-• Running (0s) (↑2 ↓0)
-
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   Which database should I use?
 
@@ -14,6 +11,9 @@ x𝒇x v0.1.0 · Run /help for commands
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 type answer    ←→ cursor    ↑↓ options    tab questions    enter answer    esc cancel
+
+
+
 
 
 

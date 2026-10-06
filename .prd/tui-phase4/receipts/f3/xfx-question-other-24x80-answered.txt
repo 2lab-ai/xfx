@@ -2,12 +2,9 @@ x𝒇x v0.1.0 · Run /help for commands
 
 ┃ ask me
 
-[tool] ask_user_question running
-
   1) Which database should I use?
      MariaDB please
 
-[tool] ask_user_question ok
   Got it.
 
   3s (↑2 ↓40)
@@ -15,6 +12,9 @@ x𝒇x v0.1.0 · Run /help for commands
 ┃
 
 auto · model-a
+
+
+
 
 
 
