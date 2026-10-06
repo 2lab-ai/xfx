@@ -54,3 +54,8 @@ key Enter
 wait 3
 snap resumed
 snapfull resumed
+key C-o
+wait 1.5
+snap ctrl-o
+key Escape
+wait 1

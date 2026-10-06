@@ -855,6 +855,17 @@ impl ControlChannel {
         }
     }
 
+    /// Whether a parked reader has handed back a stop the loop has not read
+    /// yet -- so the refusal it answered with was the stop's, not the user's.
+    pub(crate) fn stopping(&self) -> bool {
+        self.put_back.guarded().iter().any(|message| {
+            matches!(
+                message,
+                TurnControl::Cancel { .. } | TurnControl::Reset { .. } | TurnControl::Shutdown
+            )
+        })
+    }
+
     /// What is waiting, for a test that asks rather than awaits.
     #[cfg(test)]
     pub(crate) fn waiting(&self) -> Option<TurnControl> {

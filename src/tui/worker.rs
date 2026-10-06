@@ -82,7 +82,7 @@ use super::bridge::{
 };
 use super::permissions::{self, Change, Grants};
 use super::question::TuiQuestioner;
-use crate::agent::{run_turn_saved, TurnRequest};
+use crate::agent::{run_turn_saved, TurnJournal, TurnRequest};
 use crate::clipboard::last_reply;
 use crate::config::PermissionMode;
 use crate::config::{Environment, RuntimeConfig};
@@ -1951,7 +1951,7 @@ async fn run_turn(
     // event either way.
     let _ = bridge::send_ui(events, &turn.token, UiEvent::TurnStarted).await;
     let body = AssertUnwindSafe(ReportedByTheCatcher::around(one_turn(
-        state, prompt, events, &turn,
+        state, prompt, events, &turn, control,
     )))
     .catch_unwind();
     // Both halves of one keystroke, and they have to happen **together, at the
@@ -2172,6 +2172,37 @@ async fn run_model(
     ended
 }
 
+/// The turn's journal, with a call the stop refused at its approval recorded
+/// as stopped rather than as refused.
+///
+/// A prompter parked at an approval answers a stop -- Escape at the panel, a
+/// Ctrl-C, a reset -- with a refusal, and hands the stop back for the loop
+/// (`super::approval::ControlChannel::give_back`): the call ends `Denied`
+/// before the loop has read the stop. The screen shows it `Cancelled`, and
+/// upstream keeps no result for it at all (`buildNormalExecutionMemory`,
+/// `execution_memory.zig:449-452`), so a resumed session must not replay the
+/// user's own refusal of a call they never decided. What the model was told
+/// is unchanged: only the row's half of the result is rewritten.
+struct StoppedAtApproval<'a> {
+    inner: &'a mut dyn TurnJournal,
+    control: &'a ControlChannel,
+}
+
+impl TurnJournal for StoppedAtApproval<'_> {
+    fn record(&mut self, mut event: SessionEvent) {
+        if let SessionEvent::ToolResult { ending, .. } = &mut event {
+            if *ending == Some(crate::session::ToolEnding::Denied) && self.control.stopping() {
+                *ending = Some(crate::session::ToolEnding::Cancelled);
+            }
+        }
+        self.inner.record(event);
+    }
+
+    fn change_made(&mut self, call_id: &str, change: &crate::permission::ApprovalDiff) {
+        self.inner.change_made(call_id, change);
+    }
+}
+
 /// Writes `/rename`'s title into the conversation's session
 /// (`handleRenameCommand`, `app_commands.zig:3815-3858`). The shell has
 /// already called the session that and said so, as upstream does at once
@@ -2346,6 +2377,7 @@ async fn one_turn(
     prompt: String,
     events: &Sender<UiEvent>,
     turn: &TurnCancel,
+    control: &ControlChannel,
 ) -> Option<String> {
     // The matrix row for a panic on the thread that owns nothing. It is taken
     // here, inside the caught body, because what is being measured is that a
@@ -2422,11 +2454,17 @@ async fn one_turn(
     // arguments, its whole result -- handed to the UI as it is written down
     // (`super::full_transcript::Teed`). The log is written first and either
     // way: the view is best effort and the record is not.
-    let mut journal = super::full_transcript::Teed::new(
+    let mut teed = super::full_transcript::Teed::new(
         &mut conversation.recorder,
         events.clone(),
         turn.token.clone(),
     );
+    // And a refusal the stop answered is recorded as the stop
+    // ([`StoppedAtApproval`]).
+    let mut journal = StoppedAtApproval {
+        inner: &mut teed,
+        control,
+    };
     // And each request the turn settles, as the full transcript's `* network:`
     // record (`super::full_transcript::Networked`).
     let provider = super::full_transcript::Networked::new(
@@ -4613,6 +4651,71 @@ mod tests {
             events_rx.try_recv().is_err(),
             "the reset sent more than its fence"
         );
+    }
+
+    /// A refusal recorded while a parked prompter's stop waits for the loop
+    /// is the stop's: the row's half says `Cancelled`, the model's half is
+    /// what the model was told. Any other refusal is the user's.
+    #[test]
+    fn a_call_refused_by_a_stop_at_its_approval_is_recorded_as_stopped() {
+        #[derive(Default)]
+        struct Kept(Vec<SessionEvent>);
+        impl TurnJournal for Kept {
+            fn record(&mut self, event: SessionEvent) {
+                self.0.push(event);
+            }
+        }
+        let refused = || SessionEvent::ToolResult {
+            call_id: "w".to_string(),
+            tool: "write_file".to_string(),
+            ok: false,
+            output: "write_file was not permitted: you declined".to_string(),
+            ending: Some(crate::session::ToolEnding::Denied),
+            lines: None,
+            change: None,
+        };
+        let (_tx, rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(rx);
+        let mut kept = Kept::default();
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        control.give_back(TurnControl::Cancel { through: 1 });
+        StoppedAtApproval {
+            inner: &mut kept,
+            control: &control,
+        }
+        .record(refused());
+        let endings: Vec<_> = kept
+            .0
+            .iter()
+            .map(|event| match event {
+                SessionEvent::ToolResult { ending, output, .. } => (*ending, output.as_str()),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            endings,
+            [
+                (
+                    Some(crate::session::ToolEnding::Denied),
+                    "write_file was not permitted: you declined"
+                ),
+                (
+                    Some(crate::session::ToolEnding::Cancelled),
+                    "write_file was not permitted: you declined"
+                ),
+            ]
+        );
+        // And the loop reads its stop as before.
+        assert!(control.stopping());
+        assert_eq!(
+            on_a_runtime(control.recv()),
+            Some(TurnControl::Cancel { through: 1 })
+        );
+        assert!(!control.stopping());
     }
 
     /// A `/rename` typed before a `/new` is the conversation the reset drops:
