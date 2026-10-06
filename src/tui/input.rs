@@ -1081,7 +1081,7 @@ fn keypad_navigation(code: u32) -> Option<u8> {
 ///   `delete_to_line_start`/`delete_to_line_end`, `delete_next` and the page
 ///   keys are [`Action::Escape`], [`Action::InsertNewline`],
 ///   [`Action::Undo`]/[`Action::Redo`], [`Action::WordLeft`]/[`Action::WordRight`],
-///   [`Action::DeleteWordLeft`], [`Action::DeleteWordRight`],
+///   [`Action::DeleteWordBackward`], [`Action::DeleteWordRight`],
 ///   [`Action::KillToStart`]/[`Action::KillToEnd`], [`Action::Delete`] and
 ///   [`Action::PageUp`]/[`Action::PageDown`], a page key with a modifier
 ///   included -- upstream's `composerMove` to a page (:171), whose selection
