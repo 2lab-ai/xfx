@@ -1,0 +1,24 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ stream a long answer please
+
+  Opening line of the answer.
+
+✗ command: Unknown command. Try /help.
+
+• Generating (3s) (↑8 ↓69)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+

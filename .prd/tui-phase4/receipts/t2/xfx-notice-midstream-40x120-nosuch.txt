@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-8a85323 [debug] · Run /help for commands
+
+┃ stream a long answer please
+
+  Opening line of the answer.
+
+✗ command: Unknown command. Try /help.
+
+  Generating (3s) (↑8 ↓67)
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
