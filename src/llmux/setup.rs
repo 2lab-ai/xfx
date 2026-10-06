@@ -280,7 +280,10 @@ async fn probe(base: &str) -> Result<Vec<model::CatalogEntry>, SetupError> {
             model::CatalogError::Malformed { detail } => {
                 format!("`GET /models` did not answer a model catalog: {detail}")
             }
-            model::CatalogError::Unavailable { detail } => detail,
+            // `fetch_catalog` reads a daemon, never the Gateway; answered
+            // rather than assumed away, in the words it carries.
+            model::CatalogError::Unavailable { detail }
+            | model::CatalogError::Gateway { detail } => detail,
         })
     })
 }
@@ -384,6 +387,7 @@ mod tests {
                 name: None,
                 efforts: Vec::new(),
                 max_context: None,
+                facts: model::ModelFacts::default(),
             })
             .collect()
     }

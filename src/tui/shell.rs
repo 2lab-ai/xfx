@@ -89,6 +89,7 @@ use super::hint::{self, Hint, Notice};
 use super::history::{History, HistoryEntry, HistoryStep};
 use super::input::{Action, Decoder, Input};
 use super::layout::{self, Geometry};
+use super::model_menu::{self, ModelAction, ModelMenu};
 use super::notice::{self, unattributed};
 use super::pacer::Pacer;
 use super::paste::{self, Paste, Pasted, Refusal};
@@ -332,6 +333,11 @@ const YANK_UNNUMBERED: &str = "no paste numbers left; the yanked blocks are word
 /// that the command does not take -- is answered with: upstream's own
 /// sentence, an error under the topic `command` (`app_commands.zig:2162-2169`).
 const UNKNOWN_COMMAND: &str = "Unknown command. Try /help.";
+
+/// What a `/model` with more than one word after it is answered with:
+/// upstream's usage line, an error with no topic (`model_usage`,
+/// `app_input_runtime.zig:133-187`; `fx-model3-40x120-paste-bad-effort`).
+const MODEL_USAGE: &str = "usage: /model <id> <effort> [normal|fast|ultrafast]";
 
 /// What labels the sentence a user attached to a permission decision.
 ///
@@ -689,6 +695,19 @@ pub(crate) struct Shell {
     /// catalog is back when it has been answered, as upstream's is
     /// (`surface_frame.zig:401`, `!modal_active`).
     help_menu: Option<HelpMenu>,
+    /// `/model`'s menu, while it is up ([`super::model_menu`]).
+    ///
+    /// The fourth occupant of the slot, and the same kind as the catalog: a
+    /// view of the composer, which is its search, opened by a bare `/model`
+    /// with the composer emptied. It and the catalog cannot both be up --
+    /// `/model` reached from the catalog closes the catalog on the way -- and
+    /// no completion menu opens while it is ([`Self::reconcile_picker`]).
+    model_menu: Option<ModelMenu>,
+    /// What `/model`'s menu says about a Gateway catalog under its rows
+    /// ([`crate::provider::model::gateway_catalog_note`]), asked once of the
+    /// credential this session launched with: a provider switch re-reads the
+    /// file, not the environment the credential comes from.
+    gateway_note: Option<&'static str>,
     /// Which of the footer's optional segments are shown: the profile's
     /// `statusLine` at launch, and every `/statusline` change since.
     statusline: StatusLine,
@@ -1124,6 +1143,9 @@ enum Slot<'a> {
     /// The `/help` catalog. Like the menu it owns nothing but rows, and the
     /// composer is its search.
     Catalog(&'a HelpMenu),
+    /// `/model`'s menu, the catalog's kind: rows, and the composer as its
+    /// search.
+    Models(&'a ModelMenu),
     /// A completion menu for what the composer holds. It owns nothing but rows.
     Menu(&'a Picker),
 }
@@ -1226,6 +1248,8 @@ impl Shell {
             picker: None,
             dismissed: Dismissed::default(),
             help_menu: None,
+            model_menu: None,
+            gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
             statusline: config.statusline,
             statusline_menu: None,
             workspace_identity: {
@@ -1346,6 +1370,11 @@ impl Shell {
                 Some(Slot::Catalog(menu)) => {
                     menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
                 }
+                // The same: one layout answers its height and its rows
+                // (`composeModelMenuRow` is handed `menuRowCount`'s answer).
+                Some(Slot::Models(menu)) => {
+                    menu.rows(self.geometry.cols, self.geometry.panel, self.palette)
+                }
                 // In the rows the geometry gave it, with the values in force.
                 Some(Slot::Statusline(menu)) => menu.rows(
                     self.geometry.cols,
@@ -1405,6 +1434,13 @@ impl Shell {
             Some(Slot::Catalog(_)) => self.painted(
                 self.palette.dim(),
                 help_menu::key_help(self.geometry.cols).to_string(),
+            ),
+            // `/model`'s own, `tab provider` where the catalog's says
+            // `tab category` (`composeCatalogMenuHintRow`,
+            // `input_presentation.zig:810-857`).
+            Some(Slot::Models(_)) => self.painted(
+                self.palette.dim(),
+                model_menu::key_help(self.geometry.cols).to_string(),
             ),
             // And the `/statusline` picker's, in the same grey
             // (`composeCompactCommandMenuHintRow`, `input_presentation.zig:766-790`).
@@ -1601,6 +1637,9 @@ impl Shell {
         }
         if let Some(menu) = self.help_menu.as_ref() {
             return Some(Slot::Catalog(menu));
+        }
+        if let Some(menu) = self.model_menu.as_ref() {
+            return Some(Slot::Models(menu));
         }
         self.picker.as_ref().map(Slot::Menu)
     }
@@ -1931,41 +1970,42 @@ impl Shell {
                 ));
                 self.render.request(Reason::Footer);
             }
-            // What the selector made of a `/model <id>`, and the model in force
-            // afterwards. **Taken rather than predicted**: the catalog decides,
-            // the catalog is on the runtime thread, and a band that adopted the
-            // id it submitted would show a model the provider does not publish
-            // and report it to the next bare `/model`.
-            UiEvent::ModelAnswered { model, outcome } => {
+            // What the selector made of a `/model <query>`, and the model in
+            // force afterwards. **Taken rather than predicted**: the query is
+            // resolved against the catalog, the catalog is on the runtime
+            // thread, and a band that adopted the query it submitted would show
+            // `opus` while the next turn was held in the id it resolved to.
+            UiEvent::ModelAnswered {
+                model,
+                outcome,
+                next_turn,
+            } => {
                 self.model = model;
                 match outcome {
-                    ModelAnswer::Applied { unverified } => {
-                        // Upstream's announcement, with no topic
-                        // (`announceModelSelection`,
-                        // `session_commands.zig:1266-1279`) -- without the
-                        // `(effort: …, speed: …)` it ends with, which are
-                        // two settings xfx does not send.
+                    // Upstream's announcement, with no topic
+                    // (`announceModelSelection`,
+                    // `session_commands.zig:1266-1279`), and said for a model
+                    // that was already in force too, as upstream says it.
+                    // The effort is upstream's label for none chosen and the
+                    // speed is `normal` unless the id itself is a fast one
+                    // (`intrinsic_fast`, `model_capabilities.zig:117-119`):
+                    // xfx sends neither setting. No caveat follows for an id
+                    // the catalog does not list, or for a catalog that could
+                    // not be read, because upstream adds none.
+                    ModelAnswer::Applied { .. } | ModelAnswer::Unchanged => {
+                        let lead = if next_turn {
+                            "Next turn will use "
+                        } else {
+                            "Switched to "
+                        };
+                        let speed = if self.model.ends_with("-fast") {
+                            "fast"
+                        } else {
+                            "normal"
+                        };
                         self.announce(notice::Notice::neutral(
                             "",
-                            format!("Switched to {}", self.model),
-                        ));
-                        // The caveat *after* the change, because it is a caveat
-                        // on it: the selection stands, and what could not be
-                        // done is check it. One sentence for both front ends
-                        // (`provider::model::unverified_notice`), so a daemon
-                        // that is down reads the same wherever `/model` was
-                        // typed.
-                        if let Some(reason) = unverified {
-                            self.announce(notice::Notice::warning(
-                                "model",
-                                unattributed(&crate::provider::model::unverified_notice(&reason)),
-                            ));
-                        }
-                    }
-                    ModelAnswer::Unchanged => {
-                        self.announce(notice::Notice::neutral(
-                            "model",
-                            format!("{} unchanged", self.model),
+                            format!("{lead}{} (effort: default, speed: {speed})", self.model),
                         ));
                     }
                     // xfx's own words, from the selector. Nothing of the id is
@@ -1980,23 +2020,29 @@ impl Shell {
                 // whichever way the answer went.
                 self.render.request(Reason::Footer);
             }
-            // The browser. Rendered as document rows rather than into the band's
-            // elastic slot: a catalog is a list the user reads and scrolls back
-            // to, and the slot is for the two things a keystroke is *about*.
+            // The catalog's rows, for `/model`'s menu if it is waiting for
+            // them and for the context meter's denominator either way.
             UiEvent::CatalogLoaded { provider, entries } => {
                 self.catalog = entries;
                 self.provider = provider;
-                // One notice, its rows under the head: a catalog is one thing
-                // said, and a notice per row would put a blank row between
-                // every model.
-                let mut body = format!("{} shown", self.catalog.len());
-                for line in self.catalog_rows() {
-                    body.push('\n');
-                    body.push_str(&line);
+                let note = (provider == ProviderId::Gateway)
+                    .then_some(self.gateway_note)
+                    .flatten();
+                if let Some(menu) = self.model_menu.as_mut() {
+                    menu.loaded(&self.catalog, note);
+                    self.refit();
+                    self.render.request(Reason::Modal);
                 }
-                self.announce(notice::Notice::neutral("catalog", body));
                 // The denominator may have arrived with it.
                 self.render.request(Reason::Footer);
+            }
+            // Nothing to list, and the menu says so.
+            UiEvent::CatalogUnread { .. } => {
+                if let Some(menu) = self.model_menu.as_mut() {
+                    menu.failed();
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
             }
             // The numerator, and only the numerator: see [`Self::context_used`]
             // for why the output half is deliberately dropped here rather than
@@ -2090,35 +2136,6 @@ impl Shell {
                 self.leave();
             }
         }
-    }
-
-    /// One document row per catalog entry, in the order the provider published
-    /// them.
-    ///
-    /// The line shell's own row for the same fact
-    /// (`interactive`'s `print_catalog`), so a model looks the same whichever
-    /// surface you browse it from. `unknown` and `none` are said rather than
-    /// left blank: a provider really may publish neither a window nor a set of
-    /// effort levels, and an empty column would read as a rendering fault.
-    fn catalog_rows(&self) -> Vec<String> {
-        self.catalog
-            .iter()
-            .map(|entry| {
-                let context = entry
-                    .max_context
-                    .map(|window| window.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-                let efforts = if entry.efforts.is_empty() {
-                    "none".to_string()
-                } else {
-                    entry.efforts.join(",")
-                };
-                format!(
-                    "{} context={context} efforts={efforts}",
-                    entry.preferred_name()
-                )
-            })
-            .collect()
     }
 
     /// Puts a question in front of the user, or refuses it on their behalf.
@@ -2527,6 +2544,80 @@ impl Shell {
         self.render.request(Reason::Modal);
     }
 
+    /// Offers one keystroke to `/model`'s menu, and says whether it was taken.
+    ///
+    /// The six keys [`ModelAction::of`] names, and nothing else, as the
+    /// catalog's: a letter, a Backspace or a C-u edits the search and goes on to
+    /// the composer with the menu still up. Up and Down wrap; Tab and Shift-Tab
+    /// change the vendor tab, and with it the menu's height, so the band is
+    /// re-solved; Enter uses the marked model and Escape closes the menu and
+    /// empties its search (`fx-model2-40x120-menu-esc`).
+    fn offer_to_models(&mut self, event: &Input) -> bool {
+        let Input::Action(action) = event else {
+            return false;
+        };
+        let Some(request) = ModelAction::of(*action) else {
+            return false;
+        };
+        let Some(menu) = self.model_menu.as_mut() else {
+            return false;
+        };
+        match request {
+            ModelAction::Up | ModelAction::Down => {
+                let visible = menu.visible_items(self.geometry.panel);
+                if menu.step(request == ModelAction::Down, visible) {
+                    self.render.request(Reason::Modal);
+                }
+            }
+            ModelAction::NextVendor | ModelAction::PreviousVendor => {
+                if menu.cycle(request == ModelAction::NextVendor) {
+                    self.refit();
+                    self.render.request(Reason::Modal);
+                }
+            }
+            ModelAction::Close => self.close_models(),
+            ModelAction::Use => self.use_marked_model(),
+        }
+        true
+    }
+
+    /// Enter, while `/model`'s menu is up (`submitModelMenuSelection`,
+    /// `app_input_runtime.zig:2766-2785`).
+    ///
+    /// The marked model, exactly as the row names it, goes to the runtime as a
+    /// `/model` would; the menu closes and the search goes with it. Upstream
+    /// goes on from here into an effort and a speed column for a model that
+    /// has them; xfx sends neither, so every row is what upstream does for a
+    /// model with neither (`beginModelPickerOptions`,
+    /// `input_completion_runtime.zig:1227-1240`): applied at once. With nothing
+    /// listed -- still loading, nothing found -- the Return is spent and
+    /// nothing happens.
+    fn use_marked_model(&mut self) {
+        let Some(id) = self.model_menu.as_ref().and_then(ModelMenu::selected) else {
+            return;
+        };
+        let id = id.to_string();
+        self.close_models();
+        self.request_model(&id);
+    }
+
+    /// Takes `/model`'s menu down and empties its search
+    /// (`closeModelMenu(app, true)`, `app_input_runtime.zig:2334-2344`).
+    fn close_models(&mut self) {
+        if self.model_menu.take().is_none() {
+            return;
+        }
+        if !self.editor.is_empty() {
+            // Through the one funnel every whole-draft disposal takes, which
+            // re-solves the band for the rows the menu gave back.
+            self.take_draft();
+            self.amended(None);
+            return;
+        }
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
     /// One keystroke, while the `/statusline` picker has the focus.
     ///
     /// The arrows and Ctrl-J/Ctrl-K move the mark, wrapping; Enter, Left and
@@ -2726,6 +2817,13 @@ impl Shell {
         // (`app_input_runtime.zig:2935-2938`, `syncHelpMenu`) -- and the
         // dismissal is left exactly as it was for when the catalog closes.
         if let Some(menu) = self.help_menu.as_mut() {
+            menu.set_query(self.editor.text());
+            self.picker = None;
+            return;
+        }
+        // The same for `/model`'s menu (`syncModelMenu`,
+        // `app_input_runtime.zig:2961-2965`): `gro` typed into it is a search.
+        if let Some(menu) = self.model_menu.as_mut() {
             menu.set_query(self.editor.text());
             self.picker = None;
             return;
@@ -4028,6 +4126,9 @@ impl Shell {
             if self.offer_to_catalog(&event) {
                 continue;
             }
+            if self.offer_to_models(&event) {
+                continue;
+            }
             if self.offer_to_picker(&event) {
                 continue;
             }
@@ -4553,6 +4654,11 @@ impl Shell {
                 self.take_draft();
                 self.edited(None);
             }
+            // Refused with the draft kept, for the user to fix rather than to
+            // type again (`fx-model3-40x120-paste-bad-effort`).
+            Submitted::Command { .. } if Self::wants_model_usage(&submitted) => {
+                self.write_notice(&notice::Notice::error("", MODEL_USAGE));
+            }
             Submitted::Command { .. } => self.run_command(&submitted),
             // A line that begins with `/` and names nothing -- or names a
             // command that takes nothing, with something after it -- is a
@@ -5067,47 +5173,24 @@ impl Shell {
         }
     }
 
-    /// `/model`, with the line-oriented shell's meaning.
+    /// `/model`, as upstream answers it.
     ///
-    /// With no argument it **reports** and asks for the catalog; with one it
-    /// hands the id to the thread that owns the rule and paints nothing about
-    /// the result. [`TurnWork::Model`] is answered by
-    /// `crate::provider::model::ModelSelector::apply` on the runtime thread
-    /// (`super::worker`'s `run_model`), which is where the whole catalog is --
-    /// so whether an id is applied, refused as one the provider does not
-    /// publish, or applied unverified is **not a question this side can
-    /// answer**. What it does answer is the one question that is about the
-    /// argument rather than about the catalog: what a model id may be
-    /// ([`model_id_problem`], the first thing `apply` asks), refused here so
-    /// that an id carrying a control character never reaches the log the far
-    /// side writes it into.
+    /// **Bare, it opens the menu** (`openModelBrowseCatalog`,
+    /// `app_input_runtime.zig:2346-2355`), with the composer -- emptied by the
+    /// submit that got here -- as its search. The rows are the ones this shell
+    /// already holds when it holds any for the provider in force; otherwise the
+    /// menu says `Loading models…` and the load is handed to the runtime
+    /// thread, which owns the socket, as [`TurnWork::Catalog`] -- the one
+    /// network call a bare `/model` makes, and never one this thread waits on.
+    /// The rows arrive as [`UiEvent::CatalogLoaded`].
     ///
-    /// The result comes back as [`UiEvent::ModelAnswered`], which is what moves
-    /// this shell's own model and paints the line.
-    ///
-    /// **Narrower than the line shell in one way, and it is a boundary rather
-    /// than an omission**: that shell loads the provider's catalog to report
-    /// with, and prints it inline. The load is asynchronous on a thread that
-    /// must not wait for anything, so the TUI reports the model in force at
-    /// once and the rows arrive afterwards as their own event.
+    /// **With one word, it asks the runtime for that model**
+    /// ([`Self::request_model`]): upstream's router form, resolved there
+    /// against the catalog. More words than one never get here --
+    /// [`Self::wants_model_usage`] refuses them with the composer kept.
     fn use_model(&mut self, argument: &str) {
         if argument.is_empty() {
-            // Upstream's bare `/model` report is `* model: <id>`
-            // (`handleModel`); the provider rides beside it because on this
-            // surface it is the one other thing a model id is relative to.
-            self.announce(notice::Notice::neutral(
-                "model",
-                format!("{} provider={}", self.model, self.provider.label()),
-            ));
-            // **The one network call `/model` makes**, and it is made on the
-            // runtime thread rather than here: the UI thread sits in
-            // `pselect(2)` holding the terminal, and a daemon that is not
-            // answering must not be something it waits for. The rows arrive
-            // later as [`UiEvent::CatalogLoaded`], which is why this method
-            // returns having painted only the report.
-            if let Err(rejected) = self.work.submit(TurnWork::Catalog) {
-                self.refused(rejected);
-            }
+            self.open_models();
             return;
         }
         // Before anything else, and in the order
@@ -5125,15 +5208,69 @@ impl Shell {
             self.write_notice(&notice::Notice::error("model", problem));
             return;
         }
-        // **And nothing else is decided here.** Whether the id is the one
-        // already in force, one the provider publishes, or one it does not, is
-        // the selector's to say -- and it says all three from the same catalog
-        // (`ModelSelector::apply`). A short-circuit for "the same model again"
-        // on this side would be a second reading of a fact this side keeps a
-        // copy of rather than owns.
-        if let Err(rejected) = self.work.submit(TurnWork::Model(argument.to_string())) {
+        self.request_model(argument);
+    }
+
+    /// Opens `/model`'s menu over the rows in hand, or asks for them.
+    fn open_models(&mut self) {
+        // The completion menu shares the slot, and the menu is what the user
+        // asked for.
+        self.picker = None;
+        let note = (self.provider == ProviderId::Gateway)
+            .then_some(self.gateway_note)
+            .flatten();
+        let menu = if self.catalog.is_empty() {
+            if let Err(rejected) = self.work.submit(TurnWork::Catalog) {
+                self.refused(rejected);
+                return;
+            }
+            ModelMenu::loading(self.editor.text())
+        } else {
+            ModelMenu::ready(&self.catalog, note, self.editor.text())
+        };
+        self.model_menu = Some(menu);
+        self.refit();
+        self.render.request(Reason::Modal);
+    }
+
+    /// Hands `name` to the runtime as a model to use.
+    ///
+    /// Whether it is applied as typed, resolved to a catalog id, or refused is
+    /// **not a question this side can answer**: the catalog it is resolved
+    /// against is on the runtime thread
+    /// (`crate::provider::model::ModelSelector::apply`, reached through
+    /// `super::worker`'s `run_model`). What this side does know is whether a
+    /// turn is running or waiting to -- a change asked for now takes effect
+    /// after it, which is upstream's `Next turn will use` -- and it says so in
+    /// the request. The answer comes back as [`UiEvent::ModelAnswered`], which
+    /// is what moves this shell's own model and paints the line.
+    fn request_model(&mut self, name: &str) {
+        let next_turn = self.tally.started.is_some() || !self.prompts.is_empty();
+        if let Err(rejected) = self.work.submit(TurnWork::Model {
+            name: name.to_string(),
+            next_turn,
+        }) {
             self.refused(rejected);
         }
+    }
+
+    /// Whether `submitted` is a `/model` upstream answers with its usage line
+    /// ([`MODEL_USAGE`]).
+    ///
+    /// Upstream's `/model` takes one query or an explicit `<id> <effort>
+    /// [normal|fast|ultrafast]` (`submitExplicitModelSelection`,
+    /// `app_input_runtime.zig:133-187`); xfx sends no effort and no speed, so
+    /// two words or more is always the form upstream refuses
+    /// (`fx-model3-40x120-paste-bad-effort`), and it is refused here before
+    /// the composer is touched -- upstream keeps the text for the user to fix.
+    fn wants_model_usage(submitted: &Submitted) -> bool {
+        matches!(
+            submitted,
+            Submitted::Command {
+                command: interactive::Slash::Model,
+                argument,
+            } if argument.split_whitespace().count() > 1
+        )
     }
 
     /// `/setup <provider>`, with the line-oriented shell's meaning.
@@ -5309,6 +5446,7 @@ impl Shell {
             | UiEvent::ProviderSelected { .. }
             | UiEvent::ModelAnswered { .. }
             | UiEvent::CatalogLoaded { .. }
+            | UiEvent::CatalogUnread { .. }
             | UiEvent::Fatal(_) => false,
         }
     }
@@ -5575,10 +5713,11 @@ impl Shell {
             Some(Slot::Ask(ask)) => ask.height(cols, rows),
             Some(Slot::Menu(picker)) => picker.height(rows),
             Some(Slot::Statusline(_)) => statusline::Menu::height(rows),
-            Some(Slot::Catalog(_)) | None => 0,
+            Some(Slot::Catalog(_)) | Some(Slot::Models(_)) | None => 0,
         };
         let panel = |input_rows: u16| match slot {
             Some(Slot::Catalog(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
+            Some(Slot::Models(menu)) => menu.height(rows, input_rows.saturating_sub(1)),
             _ => fixed,
         };
         // **The composer gives way to the question, one row at a time.** A
@@ -10816,12 +10955,19 @@ mod tests {
                 "{name} was echoed into the document: {document:?}"
             );
             // `/quit` is the one whose answer is the session ending rather than
-            // a row, `/help` and a bare `/statusline` the ones whose answer is
-            // a menu in the band, and the reset's three names answer with a
-            // fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
+            // a row, `/help`, `/model` and a bare `/statusline` the ones whose
+            // answer is a menu in the band, and the reset's three names answer
+            // with a fresh screen and say nothing (`fx-sessions-40x120-new.txt`);
             // every other one says something, as a notice.
             if *name == "/quit" {
                 assert!(shell.leaving(), "/quit did not end the session");
+            } else if *name == "/model" {
+                assert!(shell.model_menu.is_some(), "/model opened no menu");
+                assert!(
+                    document.is_empty(),
+                    "/model wrote to the document: {document:?}"
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/help" {
                 assert!(shell.help_menu.is_some(), "/help opened no catalog");
                 assert!(
@@ -12068,12 +12214,15 @@ mod tests {
     }
 
     #[test]
-    fn model_with_an_argument_reaches_the_runtime_and_model_without_one_reports() {
+    fn model_with_one_word_asks_the_runtime_and_bare_model_opens_the_menu() {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/model second-model\r");
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Model("second-model".to_string()),
+            TurnWork::Model {
+                name: "second-model".to_string(),
+                next_turn: false,
+            },
             "the model change never reached the thread that owns the session log"
         );
         // The thread that owns the rule answers, and that answer -- not the
@@ -12081,22 +12230,33 @@ mod tests {
         shell.apply(UiEvent::ModelAnswered {
             model: "second-model".to_string(),
             outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
         });
-
-        shell.route_bytes(b"/model\r");
-        let document = shell.document();
-        assert!(
-            document
-                .iter()
-                .any(|row| row.starts_with("* model: second-model")),
-            "a bare /model did not report the model in force: {document:?}"
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to second-model (effort: default, speed: normal)"
+            ))
         );
-        // And it asks the runtime for the catalog -- **the one network call
+
+        // Bare, it opens the menu and writes nothing: the answer is in the
+        // band (`fx-model-40x120-open`). With no rows in hand yet, it says so
+        // and asks the runtime for them -- **the one network call a bare
         // `/model` makes**, and the reason it is a piece of work rather than
-        // something answered on this thread: the UI thread owns the terminal and
-        // may not wait for a daemon. The report above is painted first and
-        // without waiting for it, so a provider that is down still answers
-        // `/model`.
+        // something answered on this thread.
+        shell.route_bytes(b"/model\r");
+        assert!(
+            shell.document().is_empty(),
+            "a bare /model wrote to the document"
+        );
+        assert_eq!(
+            menu(&shell)
+                .iter()
+                .map(|row| visible_text(row))
+                .collect::<Vec<_>>(),
+            ["Models 0  [All]", "", "Loading models\u{2026}"]
+        );
         assert_eq!(
             shell.picks_up(),
             TurnWork::Catalog,
@@ -12110,90 +12270,344 @@ mod tests {
 
     #[test]
     fn the_model_the_band_shows_is_the_one_the_runtime_applied_and_never_a_prediction() {
-        // The **catalog-membership** refusal lives where the catalog is
+        // A query is resolved where the catalog is
         // (`provider::model::ModelSelector::apply`, on the runtime thread), so
-        // this side cannot know whether an id will be taken. A band that
-        // adopted the id it submitted would put a model the provider does not
-        // publish on the hint row, report it to a bare `/model`, and disagree
-        // with the model the next turn is actually held in.
+        // this side cannot know which id it becomes. A band that adopted the
+        // query it submitted would put `opus` on the hint row while the next
+        // turn was held in `anthropic/claude-opus-5`.
         let mut shell = shell(24, 80);
         let in_force = shell.shell.model.clone();
 
-        shell.route_bytes(b"/model second-model\r");
+        shell.route_bytes(b"/model opus\r");
 
         assert_eq!(
             shell.picks_up(),
-            TurnWork::Model("second-model".to_string()),
+            TurnWork::Model {
+                name: "opus".to_string(),
+                next_turn: false,
+            },
             "the model change never reached the thread that owns the rule"
         );
         assert_eq!(
             shell.shell.model, in_force,
-            "the band adopted a model nothing has accepted yet"
+            "the band adopted a model nothing has applied yet"
         );
-        let document = shell.document();
         assert!(
-            !document.iter().any(|row| row.contains("second-model")),
-            "the band reported a model change the runtime has not made: {document:?}"
+            shell.document().is_empty(),
+            "the band reported a model change the runtime has not made"
         );
 
-        // The answer is what moves it, and the answer carries the model in
-        // force -- so a refusal leaves the band showing the model the session
-        // is really in rather than the one it asked for.
+        // A refusal -- only an unusable id gets one now -- leaves the band on
+        // the model the session is really in.
         shell.apply(UiEvent::ModelAnswered {
             model: in_force.clone(),
             outcome: ModelAnswer::Refused {
-                reason: "gateway does not publish second-model in its catalog".to_string(),
+                reason: "a model id cannot contain control characters".to_string(),
             },
+            next_turn: false,
         });
         assert_eq!(shell.shell.model, in_force);
         assert_eq!(
             shell.document(),
             said(notice::Notice::error(
                 "model",
-                "gateway does not publish second-model in its catalog"
-            )),
-            "the refusal is not the line shell's words"
+                "a model id cannot contain control characters"
+            ))
         );
 
-        // And a selection moves it, with the caveat both surfaces say when the
-        // catalog could not confirm it.
+        // And the answer moves it, to what the runtime resolved. **No caveat**
+        // follows a selection the catalog could not confirm: upstream applies
+        // an id nothing lists without a word (`fx-model-fuzzy-40x120-unknown`),
+        // so the line xfx used to add here is gone.
         shell.apply(UiEvent::ModelAnswered {
-            model: "second-model".to_string(),
+            model: "anthropic/claude-opus-5".to_string(),
             outcome: ModelAnswer::Applied {
                 unverified: Some("nothing answered".to_string()),
             },
+            next_turn: false,
         });
-        assert_eq!(shell.shell.model, "second-model");
-        // Joined, because the document wraps to the screen: what is being
-        // pinned is the two lines' text, not where an 80-column band broke the
-        // second one.
-        // Upstream's announcement (`announceModelSelection`), no topic.
-        let document = shell.document();
+        assert_eq!(shell.shell.model, "anthropic/claude-opus-5");
         assert_eq!(
-            document.first().map(String::as_str),
-            Some("* Switched to second-model"),
-            "{document:?}"
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to anthropic/claude-opus-5 (effort: default, speed: normal)"
+            ))
         );
-        // Joined as the words they are, because the document wraps to the
-        // screen and the caveat is longer than 80 columns.
-        let document = joined(&document);
-        // The literal, not the function that produces it: a test that asked
-        // `unverified_notice` what it says would agree with any answer it gave.
         assert!(
-            document.contains(
-                "! model: nothing answered, so this model was not checked against \
-                 the provider's catalog"
-            ),
-            "the caveat is not the sentence the line shell gives: {document:?}"
+            shell.hint().ends_with("auto \u{b7} opus 5"),
+            "the footer does not follow it: {}",
+            shell.hint()
         );
-        // And it really is the sentence both front ends say, which is the half
-        // a literal alone cannot pin.
+        // An unchanged model is announced the same way, as upstream's is.
+        shell.apply(UiEvent::ModelAnswered {
+            model: "anthropic/claude-opus-5".to_string(),
+            outcome: ModelAnswer::Unchanged,
+            next_turn: false,
+        });
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to anthropic/claude-opus-5 (effort: default, speed: normal)"
+            ))
+        );
+        // A `-fast` id is fast by its name (`intrinsic_fast`).
+        shell.apply(UiEvent::ModelAnswered {
+            model: "zai/glm-5-fast".to_string(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: false,
+        });
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Switched to zai/glm-5-fast (effort: default, speed: fast)"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_model_asked_for_while_a_turn_runs_is_for_the_next_turn() {
+        // Upstream's `Next turn will use` (`announceModelSelection`). The
+        // runtime applies a change only between turns, so the UI says in the
+        // request that one is running, and the answer is worded by it.
+        let mut shell = shell(24, 80);
+        let _started = turn_running(&mut shell, b"ask something\r");
+        let _turn = shell.picks_up();
+        shell.route_bytes(b"/model second-model\r");
+        let _ = shell.document();
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Model {
+                name: "second-model".to_string(),
+                next_turn: true,
+            }
+        );
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        let _ = shell.document();
+        shell.apply(UiEvent::ModelAnswered {
+            model: "second-model".to_string(),
+            outcome: ModelAnswer::Applied { unverified: None },
+            next_turn: true,
+        });
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "",
+                "Next turn will use second-model (effort: default, speed: normal)"
+            ))
+        );
+
+        // A prompt that is waiting to start counts too: the change lands after
+        // it.
+        let mut queued = fixture_with_no_catalog();
+        queued.route_bytes(b"first\r");
+        let _ = queued.document();
+        queued.route_bytes(b"/model other\r");
+        let _first = queued.picks_up();
+        assert_eq!(
+            queued.picks_up(),
+            TurnWork::Model {
+                name: "other".to_string(),
+                next_turn: true,
+            }
+        );
+    }
+
+    #[test]
+    fn more_than_one_word_is_upstreams_usage_line_and_the_composer_keeps_it() {
+        // `fx-model3-40x120-paste-bad-effort`: `✗ usage: …`, no topic, and the
+        // text stays for the user to fix. Nothing reaches the runtime.
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/model fake/model-a high\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "",
+                "usage: /model <id> <effort> [normal|fast|ultrafast]"
+            ))
+        );
+        assert_eq!(shell.editor.text(), "/model fake/model-a high");
+        assert!(shell.sent.try_recv().is_err(), "a refused /model was sent");
+        assert!(shell.model_menu.is_none());
+    }
+
+    #[test]
+    fn the_menu_lists_the_rows_in_hand_and_walks_them_with_upstreams_keys() {
+        let mut shell = shell(40, 120);
+        shell.shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![
+                entry("one", Some(400_000), &[]),
+                CatalogEntry {
+                    id: "anthropic/claude-opus-5".to_string(),
+                    ..entry("two", Some(1_000_000), &[])
+                },
+            ],
+        });
+        let _ = shell.document();
+        // With rows in hand the menu opens on them, and asks for nothing.
+        shell.route_bytes(b"/model\r");
         assert!(
-            document.contains(unattributed(&crate::provider::model::unverified_notice(
-                "nothing answered"
-            ))),
-            "the two front ends say an unchecked selection differently: {document:?}"
+            shell.sent.try_recv().is_err(),
+            "rows in hand were asked for"
         );
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 2  [All]  Anthropic  Others",
+                "",
+                "  vendor/one               400K context",
+                "  anthropic/claude-opus-5  1M context",
+            ]
+        );
+        assert_eq!(
+            shell
+                .band_rows()
+                .last()
+                .map(|row| visible_text(row))
+                .as_deref(),
+            Some("\u{2191}\u{2193} navigate     tab provider     enter use     esc close")
+        );
+        // The caret stays in the composer: the menu is a view of it.
+        assert_eq!(
+            shell.cursor(),
+            (shell.geometry.input_first, PROMPT_CELLS),
+            "the menu took the caret"
+        );
+
+        // Down marks the second; Up wraps back past the first to it again.
+        shell.route_bytes(b"\x1b[B");
+        assert!(
+            menu(&shell)[3].contains(PALETTE.subtitle()),
+            "{:?}",
+            menu(&shell)
+        );
+        shell.route_bytes(b"\x1b[A\x1b[A");
+        assert!(
+            menu(&shell)[3].contains(PALETTE.subtitle()),
+            "{:?}",
+            menu(&shell)
+        );
+
+        // Tab is the next vendor and re-solves the band for one row.
+        shell.route_bytes(b"\t");
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[0], "Models 1  All  [Anthropic]  Others");
+        assert_eq!(rows.len(), 3);
+        // Shift-Tab goes back.
+        shell.route_bytes(b"\x1b[Z");
+        assert_eq!(
+            visible_text(&menu(&shell)[0]),
+            "Models 2  [All]  Anthropic  Others"
+        );
+
+        // Typing is the search, and opens no completion menu.
+        shell.route_bytes(b"opus");
+        assert!(shell.picker.is_none());
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows[0], "Models 1  [All]  Anthropic  Others");
+
+        // Enter uses the marked row, by its exact id, and the menu and its
+        // search go.
+        shell.route_bytes(b"\r");
+        assert_eq!(
+            shell.picks_up(),
+            TurnWork::Model {
+                name: "anthropic/claude-opus-5".to_string(),
+                next_turn: false,
+            }
+        );
+        assert!(shell.model_menu.is_none());
+        assert!(shell.editor.is_empty(), "the search outlived the menu");
+        assert!(menu(&shell).is_empty(), "the band kept the menu's rows");
+    }
+
+    #[test]
+    fn escape_closes_the_menu_empties_the_search_and_brings_the_hint_row_back() {
+        // `fx-model2-40x120-menu-esc`.
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model\r");
+        let _ = shell.picks_up();
+        shell.route_bytes(b"gro");
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.model_menu.is_none(), "Escape left the menu up");
+        assert!(shell.editor.is_empty(), "the search outlived the menu");
+        assert_eq!(shell.geometry.panel, 0, "the band kept the menu's rows");
+        assert_eq!(shell.hint(), IDLE_HINT, "the clear gesture was armed");
+    }
+
+    #[test]
+    fn a_catalog_that_arrives_or_fails_is_what_the_open_menu_shows() {
+        let mut shell = shell(40, 120);
+        shell.route_bytes(b"/model\r");
+        assert_eq!(shell.picks_up(), TurnWork::Catalog);
+        // Enter on a menu still loading has nothing to use, and is spent.
+        shell.route_bytes(b"\r");
+        assert!(shell.sent.try_recv().is_err());
+        assert!(shell.model_menu.is_some());
+
+        shell.apply(UiEvent::CatalogUnread {
+            provider: ProviderId::Gateway,
+        });
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows, ["Models 0  [All]", "", "Unable to load models."]);
+
+        // A catalog that arrives fills it, the note under it -- the fixture's
+        // environment has no key, so there is none to name.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("one", None, &[])],
+        });
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows, ["Models 1  [All]", "", "  vendor/one"]);
+
+        // An empty one says so.
+        shell.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: Vec::new(),
+        });
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(rows, ["Models 0  [All]", "", "No models available."]);
+        assert!(
+            shell.document().is_empty(),
+            "the menu's answers went to the document"
+        );
+    }
+
+    #[test]
+    fn the_note_under_a_gateway_menu_names_the_key_it_was_asked_with() {
+        let mut llmux = shell(40, 120);
+        let mut gateway = shell(40, 120);
+        gateway.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
+        gateway.route_bytes(b"/model\r");
+        let _ = gateway.picks_up();
+        gateway.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Gateway,
+            entries: vec![entry("one", None, &[])],
+        });
+        let rows: Vec<String> = menu(&gateway).iter().map(|row| visible_text(row)).collect();
+        assert_eq!(
+            rows,
+            [
+                "Models 1  [All]",
+                "",
+                "  vendor/one",
+                "",
+                "Note: Gateway catalog is authenticated with an API key",
+            ]
+        );
+        // A llmux catalog has no note.
+        llmux.shell.gateway_note = Some("Note: Gateway catalog is authenticated with an API key");
+        llmux.apply(UiEvent::CatalogLoaded {
+            provider: ProviderId::Llmux,
+            entries: vec![entry("one", None, &[])],
+        });
+        llmux.route_bytes(b"/model\r");
+        assert_eq!(menu(&llmux).len(), 3, "{:?}", menu(&llmux));
     }
 
     #[test]
@@ -14526,6 +14940,7 @@ mod tests {
             name: None,
             efforts: efforts.iter().map(|effort| effort.to_string()).collect(),
             max_context: window,
+            facts: Default::default(),
         }
     }
 
@@ -14629,7 +15044,11 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_browser_renders_a_context_and_an_effort_column_per_row() {
+    fn a_catalog_that_arrives_with_no_menu_up_writes_nothing_and_is_kept() {
+        // The catalog used to be a document notice, a row per model. It is
+        // `/model`'s menu now, as upstream's is, so rows that arrive with no
+        // menu up are kept -- for the next `/model` and for the context meter
+        // -- and the document gets nothing.
         let mut shell = shell(24, 80);
         shell.shell.apply(UiEvent::CatalogLoaded {
             provider: ProviderId::Llmux,
@@ -14638,20 +15057,21 @@ mod tests {
                 entry("plain", None, &[]),
             ],
         });
-        // One notice, a row per model under its head.
-        let document = shell.document();
+        assert!(shell.document().is_empty(), "{:?}", shell.document());
+        assert_eq!(shell.shell.catalog.len(), 2);
+        // And the next `/model` lists them without asking again: the window
+        // where it was published, nothing where it was not.
+        shell.route_bytes(b"/model\r");
+        assert!(shell.sent.try_recv().is_err());
+        let rows: Vec<String> = menu(&shell).iter().map(|row| visible_text(row)).collect();
         assert_eq!(
-            document,
-            vec![
-                "* catalog: 2 shown",
-                "  fable context=1000000 efforts=low,high",
-                // A provider really may publish neither, and an empty column
-                // would read as a rendering fault rather than as an absent
-                // fact.
-                "  plain context=unknown efforts=none",
+            rows,
+            [
+                "Models 2  [All]",
                 "",
-            ],
-            "{document:?}"
+                "  vendor/fable  1M context",
+                "  vendor/plain",
+            ]
         );
     }
 

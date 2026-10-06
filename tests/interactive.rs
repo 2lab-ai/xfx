@@ -479,25 +479,29 @@ fn slash_model_browses_the_catalog_the_daemon_publishes() {
 }
 
 #[test]
-fn slash_model_refuses_an_id_the_daemon_does_not_publish() {
+fn slash_model_applies_an_id_the_daemon_does_not_list_and_resolves_one_it_does() {
+    // Upstream's rule (`fx-model-fuzzy-40x120-unknown`): an id the catalog does
+    // not list is applied as typed, not refused -- a catalog is what a provider
+    // lists, not everything it will run. A query that names a listed id is
+    // resolved to it (`resolveModelQuery`).
     let daemon = FakeLlmux::start(Vec::new())
         .with_catalog(json!({"models": [{"id": "m-1", "aliases": ["fable"]}]}));
     let sandbox = Sandbox::new();
     let pty = Pty::open();
     let mut session = start(&sandbox, &pty, sandbox.command_with_llmux(&daemon));
 
-    // Load the catalog first, the way a user does: the refusal is only possible
-    // against a catalog xfx actually read.
+    // Load the catalog first, the way a user does: resolution is against a
+    // catalog xfx actually read.
     session.type_line("/model");
     session.wait_for("catalog=1 models");
-    session.type_line("/model not-published");
-    let text = session.wait_for("does not publish");
-    assert!(text.contains("not-published"), "{text}");
-    assert!(text.contains("llmux"), "{text}");
+    session.type_line("/model unlisted-xyz");
+    let text = session.wait_for("[shell] model=unlisted-xyz");
+    assert!(!text.contains("does not publish"), "{text}");
+    // Checked against a catalog that was read, so no caveat.
+    assert!(!text.contains("not checked"), "{text}");
 
-    session.type_line("/model");
-    let text = session.wait_for("model=");
-    assert!(text.contains("m-1"), "a refusal changes nothing: {text}");
+    session.type_line("/model m");
+    session.wait_for("[shell] model=m-1");
 
     assert_eq!(session.quit().code(), Some(0));
 }
