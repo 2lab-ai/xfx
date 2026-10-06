@@ -8474,8 +8474,15 @@ impl CommandHandlers for Shell {
     /// done at once between turns or the moment a running one is over. Nothing
     /// is said here: the answer is the runtime's ([`UiEvent::Undone`]), because
     /// only it knows which file, and whether it could be put back.
+    ///
+    /// **Which change it is, is decided here**: the journal's position now,
+    /// at the keystroke ([`crate::tools::undo::Mark::now`] -- one atomic read,
+    /// no lock and no file), so an undo the runtime does once a turn is over
+    /// takes back what was newest when it was typed, as upstream's does.
     fn undo(&mut self) {
-        self.work.control(TurnControl::Undo);
+        self.work.control(TurnControl::Undo {
+            through: crate::tools::undo::Mark::now(),
+        });
     }
 
     /// Upstream's `handleTraceReport` (`app_commands.zig:624-660`): a private
@@ -15604,7 +15611,7 @@ mod tests {
                 // The runtime's to answer: the journal is the conversation's
                 // and the conversation is on that thread
                 // ([`UiEvent::Undone`]). Nothing is said here first.
-                assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+                assert!(matches!(shell.controlled(), Some(TurnControl::Undo { .. })));
                 assert!(
                     document.is_empty(),
                     "/undo answered before the runtime did: {document:?}"
@@ -19604,10 +19611,17 @@ mod tests {
     fn an_undo_is_said_as_upstreams_neutral_notice() {
         // `* undo: Restored …` (`fx-undo-40x120-undo1`): topic `undo`, the
         // neutral glyph, whatever the answer was -- `Could not undo` too
-        // (`commandUndoLast`, `app_commands.zig:1285-1289`).
+        // (`commandUndoLast`, `app_commands.zig:1286-1290`).
         let mut shell = shell(24, 80);
+        let before = crate::tools::undo::Mark::now();
         shell.route_bytes(b"/undo\r");
-        assert_eq!(shell.controlled(), Some(TurnControl::Undo));
+        // Pinned at the keystroke: the journal's position then, never a bound
+        // that would reach a change made after it.
+        assert!(matches!(
+            shell.controlled(),
+            Some(TurnControl::Undo { through })
+                if through >= before && through <= crate::tools::undo::Mark::now()
+        ));
         for body in [
             "Restored /w/a.txt",
             "Deleted /w/a.txt (was newly created)",
@@ -22045,10 +22059,11 @@ mod tests {
         shell.help();
         assert!(shell.document().is_empty(), "/help wrote to the document");
         let rows = menu(&shell);
-        // Every command up to upstream's twenty at once (`max_visible_items`,
-        // `help_menu_presentation.zig:14`); the rest are a scroll away.
-        let shown = crate::interactive::SLASH_REGISTRY.len().min(20);
-        assert_eq!(rows.len(), 2 + shown);
+        // Every command, up to upstream's twenty at once.
+        let visible = crate::interactive::SLASH_REGISTRY
+            .len()
+            .min(super::help_menu::MOST_ITEMS);
+        assert_eq!(rows.len(), 2 + visible);
         assert_eq!(usize::from(shell.geometry.panel), rows.len());
         assert!(
             visible_text(&rows[0]).starts_with(&format!(
@@ -22088,7 +22103,7 @@ mod tests {
                     .iter()
                     .filter(move |spec| spec.category == *category))
                 .map(|spec| Some(spec.name.to_string()))
-                .take(shown)
+                .take(visible)
                 .collect::<Vec<_>>()
         );
         assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
@@ -22229,7 +22244,10 @@ mod tests {
         // Shift-Tab, as a terminal spells it, is back to `All`.
         shell.route_bytes(b"\x1b[Z");
         let count = crate::interactive::SLASH_REGISTRY.len();
-        assert_eq!(usize::from(shell.geometry.panel), 2 + count.min(20));
+        assert_eq!(
+            usize::from(shell.geometry.panel),
+            2 + count.min(super::help_menu::MOST_ITEMS)
+        );
         assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
     }
 
