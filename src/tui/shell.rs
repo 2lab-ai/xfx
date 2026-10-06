@@ -6898,15 +6898,14 @@ impl Shell {
                 self.compaction
                     .get_or_insert_with(|| Compaction::began(automatic))
                     .settle(feedback, Instant::now());
-                if feedback == compaction::Feedback::Succeeded {
-                    // The meter's number measured a request no request will
-                    // carry again: the next one carries the compacted
-                    // conversation. It goes until a turn measures that one,
-                    // because a number no provider said is not one this row
-                    // puts up ([`Self::context_used`]).
-                    self.context_used = None;
-                    self.render.request(Reason::Footer);
-                } else if automatic {
+                // The meter is left as it is, success or not: it is the last
+                // number a turn's provider said, and upstream's moves only on
+                // that (`agentReportUsage`, `app_callbacks.zig:1447-1451`) --
+                // a compaction's notes request is billed to the session's
+                // usage and never reported to it (`CompactorCaller.send`,
+                // `text_completion.zig:225-284`). The next turn's request,
+                // which carries the compacted conversation, moves it.
+                if feedback != compaction::Feedback::Succeeded && automatic {
                     // The turn it ran in did not run, and the row says why: its
                     // conclusion adds nothing (`compactionErrorHandled`,
                     // `app_process_runtime.zig:10-17`, `:55-56`).
@@ -28058,7 +28057,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compaction_clears_the_context_meter_until_a_turn_measures_again() {
+    fn a_compaction_leaves_the_context_meter_until_a_turn_measures_again() {
         let mut shell = with_a_turn();
         shell.apply(UiEvent::Usage {
             input: Some(90_000),
@@ -28074,7 +28073,16 @@ mod tests {
         shell.apply(UiEvent::Compaction(compaction::Update::Settled(
             compaction::Feedback::Succeeded,
         )));
-        assert_eq!(shell.shell.context_used, None);
+        assert_eq!(
+            shell.shell.context_used,
+            Some(90_000),
+            "upstream's meter moves only on a turn's usage"
+        );
+        shell.apply(UiEvent::Usage {
+            input: Some(4_000),
+            output: Some(10),
+        });
+        assert_eq!(shell.shell.context_used, Some(4_000));
     }
 
     #[test]
