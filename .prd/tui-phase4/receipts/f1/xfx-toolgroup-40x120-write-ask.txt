@@ -12,22 +12,22 @@ x𝒇x v0.1.0-0ce2d17 [debug] · Run /help for commands
 ├ Ran sleep 3; echo hello from shell; ls
 └ Edited a.txt +1 / -1
 
-┃
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Permission needed
+      1 + new file
+      2 + second line
+┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+  Permission needed · Review change                                                                     Write · +2  -0
 
-  write 21 bytes to `c.txt` (which does not exist yet), sha256 20ecc96b3396: "new file\nsecond line\n"
+  c.txt  ·  Apply this change?
 
-> 1. Yes
-  2. Yes, and don't ask again for this request
-  3. No (esc)
+  ❯ 1  Apply once
+    2  Apply + allow future writes to this file for this session
+    3  Don't apply
   2 = allow every future write_file to `c.txt` for the rest of this session, whatever its contents, and in every later
-  `xfx ask --resume-id 1791304493587-4a515a592eda971d` of this saved session
+  `xfx ask --resume-id 1791305888133-ebcd657036a8bb84` of this saved session
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-ask · model-a
-
-
-
+  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel
 
 
 

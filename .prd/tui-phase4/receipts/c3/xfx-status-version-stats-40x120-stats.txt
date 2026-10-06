@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-ea484d5 [debug] · Run /help for commands
+
+* status: model=fake/model-a
+  provider=gateway
+  build_channel=debug
+  build_revision=ea484d5bbb71
+  auth=AI_GATEWAY_API_KEY
+  auth_refreshable=false
+  permission_mode=auto
+  sandbox=none
+  workspace=<scratch>/work
+  history_turns=0
+  session_permission_grants=0
+  agent_step_limit=25
+
+* version: 0.1.0
+
+* stats: ansi_bytes=4648, redraws=0, debounced_resizes=0, footer_updates=0, stream_chunks=0
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

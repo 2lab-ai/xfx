@@ -900,7 +900,7 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert_eq!(rows.len(), 8);
         // The header: dim, the range in an en dash against the last column but
-        // one, because seven commands do not fit in six rows.
+        // one, because ten commands do not fit in six rows.
         let left = format!("Commands {} \u{b7} type to filter", SLASH_REGISTRY.len());
         let range = "1\u{2013}6";
         assert_eq!(
@@ -911,7 +911,7 @@ mod tests {
             )
         );
         assert_eq!(rows[1], "", "the blank row under the header");
-        // The names in view are padded to `/version`, the widest of them,
+        // The names in view are padded to `/status`, the widest of them,
         // plus the three-column gap; the categories share one column that
         // ends a cell short of the edge, each written from its left.
         let body: Vec<String> = rows[2..].iter().map(|row| plain(row)).collect();
@@ -920,15 +920,15 @@ mod tests {
             ("/clear", SLASH_REGISTRY[1].summary, "General"),
             ("/new", "start a fresh session", "Session"),
             ("/setup", SLASH_REGISTRY[3].summary, "Account"),
-            ("/model", SLASH_REGISTRY[4].summary, "Model"),
-            ("/version", "show the xfx version", "General"),
+            ("/stats", "show token and turn statistics", "Account"),
+            ("/status", "show runtime configuration", "General"),
         ];
         for (row, (name, summary, category)) in body.iter().zip(expected) {
             assert_eq!(
                 *row,
                 format!(
-                    "  {name:<11}{summary}{}{category}",
-                    " ".repeat(112 - 13 - summary.len())
+                    "  {name:<10}{summary}{}{category}",
+                    " ".repeat(112 - 12 - summary.len())
                 ),
                 "{row:?}"
             );
@@ -947,8 +947,8 @@ mod tests {
             rows[4],
             format!(
                 "{MARKED}  /new{}{DIM}{summary}{}{DIM}Session{RESET}",
-                " ".repeat(13 - 6),
-                " ".repeat(112 - 13 - summary.len()),
+                " ".repeat(12 - 6),
+                " ".repeat(112 - 12 - summary.len()),
             )
         );
         // Every other row is dim from its first cell to its last.
@@ -973,13 +973,25 @@ mod tests {
         let rows = picker.rows(120, 40, PALETTE);
         assert!(plain(&rows[0]).ends_with("2\u{2013}7"), "{:?}", rows[0]);
         assert!(rows[7].starts_with(MARKED), "{:?}", rows[7]);
-        assert!(plain(&rows[7]).starts_with("  /quit"), "{:?}", rows[7]);
+        assert!(plain(&rows[7]).starts_with("  /model"), "{:?}", rows[7]);
         // Back up one: the mark moves and the window stays.
         assert_eq!(picker.apply(PickerAction::Up), PickerOutcome::Changed);
         assert_eq!(picker.layout(40).window, Window { start: 1, end: 7 });
         assert!(picker.rows(120, 40, PALETTE)[6].starts_with(MARKED));
+        // Down to the last command, the window following it a row at a time.
+        let last = SLASH_REGISTRY.len() - 1;
+        while picker.selected < last {
+            assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
+        }
+        assert_eq!(
+            picker.layout(40).window,
+            Window {
+                start: last - 5,
+                end: last + 1
+            }
+        );
+        assert!(plain(&picker.rows(120, 40, PALETTE)[7]).starts_with("  /quit"));
         // And past the bottom it wraps to the top, taking the window with it.
-        assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         assert_eq!(picker.apply(PickerAction::Down), PickerOutcome::Changed);
         assert_eq!(picker.selected, 0);
         assert_eq!(picker.layout(40).window, Window { start: 0, end: 6 });
@@ -1040,7 +1052,10 @@ mod tests {
         // With three rows the header is back, over one command.
         let rows = picker.rows(80, 13, PALETTE);
         assert_eq!(rows.len(), 3);
-        assert!(plain(&rows[0]).starts_with("Commands 7"), "{rows:?}");
+        assert!(
+            plain(&rows[0]).starts_with(&format!("Commands {}", SLASH_REGISTRY.len())),
+            "{rows:?}"
+        );
         assert!(plain(&rows[0]).ends_with("1\u{2013}1"), "{rows:?}");
         assert_eq!(rows[1], "");
     }

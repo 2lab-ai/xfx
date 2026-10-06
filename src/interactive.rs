@@ -25,13 +25,19 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent::{run_turn_saved, TurnRequest};
 use crate::app::{spawn_interrupt_thread, AppError, INTERRUPT_NOTICE};
+use crate::clipboard::{last_reply, Clipboard, COPIED, COPY_FAILED, NO_REPLY};
 use crate::config::{Environment, PermissionMode, RuntimeConfig};
 use crate::gateway::{CancelToken, Provider, DEFAULT_MAX_ATTEMPTS};
-use crate::output::{safe_one_line, Event, EventSink, OutputFormat, TextSink, SANDBOX_LABEL};
+use crate::output::{
+    safe_one_line, Event, EventSink, OutputFormat, SessionFacts, StatusSnapshot, TextSink,
+    SANDBOX_LABEL,
+};
 use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore};
+use crate::session::{
+    NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, WritableSession,
+};
 use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
 
@@ -57,7 +63,10 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/clear",
     "/new",
     "/setup",
+    "/stats",
+    "/status",
     "/model",
+    "/copy",
     "/version",
     "/quit",
 ];
@@ -122,6 +131,10 @@ pub struct SlashSpec {
 /// `/provider` picker, `:472`, which also chooses how a provider signs in; this
 /// one takes the provider as an argument and signs nothing in), and `/model`
 /// (upstream chooses a reasoning effort as well, `:478`; xfx sends none).
+/// `/stats` keeps upstream's sentence although what it prints is the
+/// terminal writer's counters rather than tokens: so does upstream's
+/// (`commandShowStats`, `app_commands.zig:1009-1022`), and the description is
+/// the one the menu shows beside the name.
 #[rustfmt::skip]
 pub const SLASH_REGISTRY: &[SlashSpec] = &[
     SlashSpec {
@@ -157,12 +170,36 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         has_args: true,
     },
     SlashSpec {
+        command: Slash::Stats,
+        name: "/stats",
+        aliases: &[],
+        summary: "show token and turn statistics",
+        category: "Account",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Status,
+        name: "/status",
+        aliases: &[],
+        summary: "show runtime configuration",
+        category: "General",
+        has_args: false,
+    },
+    SlashSpec {
         command: Slash::Model,
         name: "/model",
         aliases: &[],
         summary: "show the model, or `/model <id>` to use another one from now on",
         category: "Model",
         has_args: true,
+    },
+    SlashSpec {
+        command: Slash::Copy,
+        name: "/copy",
+        aliases: &[],
+        summary: "copy the last assistant response",
+        category: "Session",
+        has_args: false,
     },
     SlashSpec {
         command: Slash::Version,
@@ -279,6 +316,16 @@ const fn same(left: &str, right: &str) -> bool {
 /// What the shell prints before reading a line.
 pub const PROMPT: &str = "> ";
 
+/// What `/stats` says on this surface.
+///
+/// The counters are the terminal writer's -- bytes delivered, whole repaints,
+/// coalesced resizes (`crate::tui`'s `shell::Metrics`) -- and this shell has none of
+/// the three: it prints lines and lets the terminal scroll them. A row of
+/// zeros here would be a report about frames that were never drawn, so it
+/// says where the numbers are instead.
+pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
+     draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -325,6 +372,15 @@ pub enum Slash {
     /// of its own rather than an argument of `/model`: `/model` chooses among
     /// what the *current* provider offers, and this chooses the provider.
     Setup,
+    /// Put the last thing the model said on the system clipboard
+    /// ([`crate::clipboard`]).
+    Copy,
+    /// What the terminal writer has done this session: upstream's five render
+    /// counters.
+    Stats,
+    /// The configuration a turn would run under, and the live conversation's
+    /// own two counts.
+    Status,
     Version,
     Quit,
 }
@@ -551,6 +607,46 @@ pub(crate) struct Conversation {
     pub(crate) tools: ToolContext,
 }
 
+impl Conversation {
+    /// What `/status` says about this conversation: the turns it holds and the
+    /// "always" answers its authority has been given.
+    ///
+    /// **The live conversation's, not the store's.** `xfx status` reports the
+    /// last session on disk because it has no other; a shell has the one it is
+    /// talking in, and upstream's report is that one's (`session.historyLen()`
+    /// and the live session grants, `session_commands.zig:304-305`). The grants
+    /// are the authority's own list rather than the recorder's, because an
+    /// answer is held there from the moment it is given and only written down
+    /// once its turn is over.
+    pub(crate) fn facts(&self) -> SessionFacts {
+        SessionFacts {
+            history_turns: self.recorder.state().turns.len() as u64,
+            permission_grants: self.tools.permissions().grants().len() as u64,
+        }
+    }
+}
+
+/// What `/status` reports on either surface: the configuration a turn here
+/// would run under, the model it would be held in, and the conversation it
+/// would continue.
+///
+/// `model` is a parameter rather than `config.model` because `/model` changes
+/// the one and not the other: the selector holds the model in force
+/// (`crate::provider::model::ModelSelector`), and a report that read the
+/// configuration would name the model the session started in. No conversation
+/// is zero turns and zero grants, which is what the next prompt would start
+/// with.
+pub(crate) fn status_snapshot(
+    config: &RuntimeConfig,
+    model: &str,
+    conversation: Option<&Conversation>,
+) -> StatusSnapshot {
+    let facts = conversation.map(Conversation::facts).unwrap_or_default();
+    let mut snapshot = StatusSnapshot::new(config, crate::build_info(), facts);
+    snapshot.model = model.to_string();
+    snapshot
+}
+
 /// Creates the session this shell records into, and the authority its tools run
 /// under.
 ///
@@ -588,7 +684,40 @@ pub(crate) fn open_conversation(
             },
         )
         .map_err(|err| err.to_string())?;
-    let permissions = permissions.with_durable_session(session.id().as_str());
+    Ok(bind_conversation(
+        store,
+        session,
+        scope,
+        permissions,
+        questioner,
+        cancel,
+    ))
+}
+
+/// Binds an open session to the authority its tools run under.
+///
+/// [`open_conversation`]'s second half, and the whole of what continuing a
+/// saved session needs once `SessionStore::resume` has handed it back (the
+/// TUI's `xfx --resume`, `crate::tui::worker`): the grants the session's log
+/// already holds go back into the authority, as `xfx ask --resume` restores
+/// them, so an "always" answered last time is not asked again. A session this
+/// shell just created has none, so for it the loop adds nothing.
+///
+/// Infallible on purpose: the two things that can fail -- the scope and the
+/// session -- are the caller's to have in hand already, which is what lets a
+/// resumed session be refused before the terminal is taken.
+pub(crate) fn bind_conversation(
+    store: &SessionStore,
+    session: WritableSession,
+    scope: AccessScope,
+    permissions: PermissionSession,
+    questioner: Option<Arc<dyn QuestionRequester>>,
+    cancel: &CancelToken,
+) -> Conversation {
+    let mut permissions = permissions.with_durable_session(session.id().as_str());
+    for grant in &session.state().grants {
+        permissions.grant(grant.clone());
+    }
     let recorder = SessionRecorder::new(store.clone(), session);
     let mut tools = ToolContext::new(scope)
         .with_permissions(permissions)
@@ -596,7 +725,7 @@ pub(crate) fn open_conversation(
     if let Some(questioner) = questioner {
         tools = tools.with_questioner(questioner);
     }
-    Ok(Conversation { recorder, tools })
+    Conversation { recorder, tools }
 }
 
 // ---------------------------------------------------------------------------
@@ -690,6 +819,15 @@ pub async fn run(
                     Slash::Version => {
                         writeln!(io::stdout(), "{}", version_line())?;
                     }
+                    // The `xfx status` report, about this shell's own model and
+                    // conversation rather than the last session on disk.
+                    Slash::Status => {
+                        let snapshot = status_snapshot(&config, &model, conversation.as_ref());
+                        write!(io::stdout(), "{}", snapshot.render_text())?;
+                    }
+                    Slash::Stats => {
+                        writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
+                    }
                     Slash::Model => {
                         model =
                             apply_model(&argument, &mut selector, conversation.as_mut()).await?;
@@ -721,6 +859,7 @@ pub async fn run(
                             "[shell] new session; the next prompt starts a fresh conversation"
                         )?;
                     }
+                    Slash::Copy => copy_last_reply(conversation.as_ref(), &Clipboard::system())?,
                 }
                 io::stdout().flush()?;
             }
@@ -1118,6 +1257,21 @@ fn kept_line(conversation: Option<&Conversation>) -> String {
     }
 }
 
+/// `/copy` on this shell: the conversation's last reply onto the clipboard,
+/// and one line saying how that went ([`crate::clipboard`]).
+///
+/// The copy waits for the clipboard tool to exit, as upstream's does. This
+/// loop is waiting for the next line anyway; it is the TUI, whose thread holds
+/// a terminal that has to keep being painted, that hands the wait to a thread.
+fn copy_last_reply(conversation: Option<&Conversation>, clipboard: &Clipboard) -> io::Result<()> {
+    let reply = conversation.and_then(|conversation| last_reply(conversation.recorder.state()));
+    match reply {
+        None => writeln!(io::stdout(), "[shell] {NO_REPLY}"),
+        Some(reply) if clipboard.copy(reply) => writeln!(io::stdout(), "[shell] {COPIED}"),
+        Some(_) => writeln!(io::stderr(), "xfx: {COPY_FAILED}"),
+    }
+}
+
 /// The version line `/version` prints.
 ///
 /// Visible to the crate because the TUI answers the same commands from the
@@ -1168,12 +1322,13 @@ mod tests {
     }
 
     #[test]
-    fn the_shell_advertises_exactly_seven_commands() {
+    fn the_shell_advertises_exactly_the_registrys_commands() {
         // The count is a product decision, not an accident: the shell is
         // deliberately smaller than upstream's ~40-command palette
-        // (`vercel-labs/fx@580a0c5d src/builtins/commands.zig:414-457`).
-        // Seven since `/setup`; `/models` and `/provider` stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 7);
+        // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
+        // Ten since `/copy`, `/stats` and `/status`; `/models` and
+        // `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 10);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1318,7 +1473,6 @@ mod tests {
         let help = help_text();
         for deferred in [
             "/resume",
-            "/status",
             "/login",
             "/logout",
             "/permissions",
@@ -1326,7 +1480,6 @@ mod tests {
             "/provider",
             "/mcp",
             "/undo",
-            "/stats",
             "/usage",
             "/image",
             "/reset",
@@ -1494,6 +1647,74 @@ mod tests {
         assert_eq!(Slash::Setup.name(), "/setup");
         assert!(slash_spec(Slash::Setup).has_args, "`/setup <provider>`");
         assert!(help_text().contains("/setup"), "{}", help_text());
+    }
+
+    #[test]
+    fn stats_and_status_are_upstreams_rows_and_take_nothing() {
+        // `commands.zig:473,475`: the category and the description the menu
+        // shows, and neither row `accepts_payload` -- so the TUI refuses
+        // `/stats extra` as an unknown command (`super::tui`'s router).
+        let stats = slash_spec(Slash::Stats);
+        assert_eq!(
+            (stats.name, stats.summary, stats.category, stats.has_args),
+            ("/stats", "show token and turn statistics", "Account", false)
+        );
+        let status = slash_spec(Slash::Status);
+        assert_eq!(
+            (
+                status.name,
+                status.summary,
+                status.category,
+                status.has_args
+            ),
+            ("/status", "show runtime configuration", "General", false)
+        );
+        // Upstream's order: `/provider` (xfx's `/setup`), `/stats`, `/usage`,
+        // `/status`, then `/model` (`commands.zig:472-478`).
+        let order: Vec<&str> = SLASH_COMMANDS.to_vec();
+        let at = |name: &str| order.iter().position(|n| *n == name).expect(name);
+        assert!(at("/setup") < at("/stats") && at("/stats") < at("/status"));
+        assert!(at("/status") < at("/model"));
+        assert!(help_text().contains("/status"), "{}", help_text());
+    }
+
+    #[test]
+    fn status_reports_the_model_in_force_and_the_conversation_it_is_given() {
+        // The `xfx status` facts, about this shell rather than the store's last
+        // session: the model the selector holds, and no conversation as none.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        let snapshot = status_snapshot(&config, "acme/model-9", None);
+        assert_eq!(snapshot.model, "acme/model-9");
+        assert_ne!(config.model, "acme/model-9", "the case proves nothing");
+        assert_eq!(snapshot.history_turns, 0);
+        assert_eq!(snapshot.session_permission_grants, 0);
+        assert_eq!(
+            snapshot.workspace,
+            config.workspace_root.display().to_string()
+        );
+        assert!(
+            snapshot
+                .render_text()
+                .starts_with("[status] model=acme/model-9\n"),
+            "{}",
+            snapshot.render_text()
+        );
+    }
+
+    #[test]
+    fn stats_on_the_line_shell_points_at_the_counters_rather_than_inventing_them() {
+        // This shell writes lines and draws no frames, so the honest answer is
+        // where the counters are -- not a row of zeros about frames that never
+        // existed.
+        assert!(!STATS_ON_THE_LINE_SHELL.contains("ansi_bytes="));
+        assert!(STATS_ON_THE_LINE_SHELL.contains("XFX_TUI=0"));
+        assert!(STATS_ON_THE_LINE_SHELL.starts_with("xfx: /stats"));
     }
 
     #[test]

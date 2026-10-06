@@ -34,6 +34,11 @@ use crate::workspace::{AccessScope, ProjectContext};
 /// xfx should not have to learn a second convention.
 const REJECTED_EXIT_CODE: u8 = 1;
 
+/// Why `xfx --resume` did not open anything.
+const RESUME_NEEDS_THE_TUI: &str = "xfx: `--resume` continues a session in the TUI, which \
+     needs a terminal on both ends and `XFX_TUI` not set to 0; without one, \
+     `xfx ask --resume <last|ID> <prompt>` continues it";
+
 /// The exit code for a turn that did not complete.
 ///
 /// The same value as a rejection: from a script's point of view both mean "xfx
@@ -147,9 +152,17 @@ pub async fn run_with(
         // defined by the terminal the process was given, and it refuses to run
         // when there is not one. Its startup diagnostics still go through the
         // caller's stderr, so the refusal is testable without a terminal.
-        Command::Interactive => {
+        Command::Interactive { resume: None } => {
             let config = load_config()?;
             crate::interactive::run(&config, stderr).await
+        }
+        // Reached only when the TUI was not: a pipe on either end, or
+        // `XFX_TUI=0`. The line shell continues no saved session, so the flag
+        // is refused here rather than quietly opening a fresh conversation
+        // under a command line that asked for an old one.
+        Command::Interactive { resume: Some(_) } => {
+            writeln!(stderr, "{RESUME_NEEDS_THE_TUI}")?;
+            Ok(ExitCode::from(REJECTED_EXIT_CODE))
         }
         Command::Help { page } => {
             write!(stdout, "{page}")?;
@@ -1162,7 +1175,7 @@ mod tests {
         // Under `cargo test` there is no terminal, so this exercises the arm
         // and the refusal at once -- and proves the refusal goes to the stderr
         // it was handed rather than to the process's own.
-        let (code, stdout, stderr) = run_capture(Command::Interactive).await;
+        let (code, stdout, stderr) = run_capture(Command::Interactive { resume: None }).await;
         assert_eq!(
             format!("{code:?}"),
             format!("{:?}", ExitCode::from(REJECTED_EXIT_CODE))
@@ -1170,6 +1183,24 @@ mod tests {
         assert_eq!(stdout, "");
         assert!(stderr.contains("interactive terminal"), "{stderr}");
         assert!(stderr.contains("xfx ask"), "{stderr}");
+    }
+
+    #[tokio::test]
+    async fn a_resume_the_line_shell_cannot_honour_is_refused_rather_than_ignored() {
+        // The line shell opens a fresh conversation on its first prompt, so
+        // running it here would answer `--resume <id>` with a session that is
+        // not the one named.
+        let (code, stdout, stderr) = run_capture(Command::Interactive {
+            resume: Some(crate::session::Selector::Last),
+        })
+        .await;
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(REJECTED_EXIT_CODE))
+        );
+        assert_eq!(stdout, "");
+        assert_eq!(stderr, format!("{RESUME_NEEDS_THE_TUI}\n"));
+        assert!(stderr.contains("xfx ask --resume"), "{stderr}");
     }
 
     #[test]

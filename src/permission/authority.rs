@@ -617,9 +617,12 @@ pub fn non_text_summary(len: usize) -> String {
 ///
 /// Beside [`MutationExcerpt`] rather than in place of it, because they answer
 /// two different questions. The excerpt is a sentence's worth of each side, and
-/// it is what the band's one-line summary quotes; this is the whole of each
-/// side up to [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and it exists because the risk
-/// of an edit lives in bytes the sentence had to leave out.
+/// it is what the one-line summary quotes (the line shell's prompt); this is the
+/// part of the file the change touches -- for both an edit and a write, the
+/// changed lines and up to [`APPROVAL_DIFF_CONTEXT_LINES`] unchanged ones either
+/// side, and where they sit in the file ([`Self::around_change`]) -- up to
+/// [`MAX_APPROVAL_DIFF_SIDE_BYTES`] a side, and it exists because the risk of an
+/// edit lives in bytes the sentence had to leave out.
 ///
 /// Both fields are already escaped and already bounded: the payload is made
 /// inert at the permission boundary, where the change is known, rather than at
@@ -635,30 +638,70 @@ pub fn non_text_summary(len: usize) -> String {
 pub struct ApprovalDiff {
     pub before: String,
     pub after: String,
+    /// The file's line number, one-based, of the first line of both sides.
+    pub first_line: usize,
+    /// How many unchanged lines of the file follow the last line of both sides.
+    pub lines_below: usize,
 }
 
+/// How many unchanged lines a review carries on either side of a change
+/// (`vercel-labs/fx@c1db919 src/core/output/diff.zig:497`,
+/// `review_context_lines`).
+pub const APPROVAL_DIFF_CONTEXT_LINES: usize = 5;
+
 impl ApprovalDiff {
-    /// The two sides, each escaped and bounded.
+    /// The two sides whole, each escaped and bounded, starting at the file's
+    /// first line.
     pub fn of(before: &str, after: &str) -> Self {
         Self {
             before: bounded_diff_side(before),
             after: bounded_diff_side(after),
+            first_line: 1,
+            lines_below: 0,
         }
     }
 
-    /// Whether this change is bigger than the band's own summary can show.
+    /// The part of a file a change touches: the lines that differ, up to
+    /// [`APPROVAL_DIFF_CONTEXT_LINES`] unchanged ones either side, and where
+    /// that window sits in the file.
     ///
-    /// The comparison is against [`MAX_EXCERPT_BYTES`] because that is exactly
-    /// how much of each side the summary quotes: a change whose sides both fit
-    /// in it has already been shown whole, and a second surface would repeat
-    /// the band to hide the document behind it.
+    /// **A window rather than the file**, and the bound is why. A review numbers
+    /// its lines, so it needs the text around a change and not only the change;
+    /// but a side is cut at [`MAX_APPROVAL_DIFF_SIDE_BYTES`], and a file bigger
+    /// than that cut at its end would put the change -- anywhere past the first
+    /// 64 KiB -- out of the review altogether, and make the two cut ends read as
+    /// a change that is not being made. The lines the window leaves out are
+    /// unchanged by construction and counted ([`Self::first_line`],
+    /// [`Self::lines_below`]), so a review can say how many there are.
     ///
-    /// Deliberately **not** a function of the terminal's height. A rule keyed on
-    /// rows would review a one-word edit on a full screen the moment somebody
-    /// made their window short, and leave a hundred-kilobyte replacement in two
-    /// rows of summary on a tall one.
-    pub fn wants_screen(&self) -> bool {
-        self.before.len() > MAX_EXCERPT_BYTES || self.after.len() > MAX_EXCERPT_BYTES
+    /// The changed region is the span between the longest common run of lines
+    /// at the start and at the end, which is exactly the change for an edit --
+    /// it replaces the one place its `old_string` matched -- and the smallest
+    /// span holding every change for a write.
+    pub fn around_change(before: &str, after: &str) -> Self {
+        let old: Vec<&str> = before.split_inclusive('\n').collect();
+        let new: Vec<&str> = after.split_inclusive('\n').collect();
+        let prefix = old
+            .iter()
+            .zip(&new)
+            .take_while(|(was, is)| was == is)
+            .count();
+        let room = old.len().min(new.len()) - prefix;
+        let suffix = old
+            .iter()
+            .rev()
+            .zip(new.iter().rev())
+            .take(room)
+            .take_while(|(was, is)| was == is)
+            .count();
+        let start = prefix.saturating_sub(APPROVAL_DIFF_CONTEXT_LINES);
+        let kept = suffix.min(APPROVAL_DIFF_CONTEXT_LINES);
+        Self {
+            before: bounded_diff_side(&old[start..old.len() - suffix + kept].concat()),
+            after: bounded_diff_side(&new[start..new.len() - suffix + kept].concat()),
+            first_line: start + 1,
+            lines_below: suffix - kept,
+        }
     }
 }
 
@@ -1657,10 +1700,6 @@ mod tests {
                 diff.before, diff.after,
                 "{before:?} replaced by {after:?} rendered as a change of nothing"
             );
-            assert!(
-                diff.wants_screen(),
-                "a change this size is not one the band's summary can show"
-            );
         }
     }
 
@@ -1770,23 +1809,36 @@ mod tests {
     }
 
     #[test]
+    fn a_change_is_sent_as_its_window_and_a_small_file_as_itself() {
+        // Five unchanged lines either side of the change, and where the window
+        // sits: the rest of the file is unchanged by construction, so it is
+        // counted rather than carried.
+        let before: String = (1..=100).map(|line| format!("{line}\n")).collect();
+        let after = before.replacen("50\n", "fifty\n", 1);
+        let diff = ApprovalDiff::around_change(&before, &after);
+        let window = |side: &[usize]| {
+            side.iter()
+                .map(|line| format!("{line}\n"))
+                .collect::<String>()
+        };
+        assert_eq!(
+            diff.before,
+            window(&[45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55])
+        );
+        assert_eq!(diff.after, diff.before.replacen("50\n", "fifty\n", 1));
+        assert_eq!((diff.first_line, diff.lines_below), (45, 45));
+
+        // A file no longer than its own context is sent whole, from line one.
+        let small = ApprovalDiff::around_change("a\nb\n", "a\nB\n");
+        assert_eq!(small, ApprovalDiff::of("a\nb\n", "a\nB\n"));
+    }
+
+    #[test]
     fn both_sides_of_a_diff_are_bounded_so_one_question_carries_at_most_128_kib() {
         let diff = ApprovalDiff::of(&"a".repeat(200_000), &"b".repeat(200_000));
         assert_eq!(diff.before.len(), 65_536);
         assert_eq!(diff.after.len(), 65_536);
         assert!(diff.before.len() + diff.after.len() <= 131_072);
-    }
-
-    #[test]
-    fn a_change_the_bands_own_summary_could_not_have_shown_asks_for_a_screen() {
-        // 160 bytes is what the inline summary quotes of each side, and the
-        // literal is written here rather than imported: the rule this pins is
-        // "bigger than what the band already shows", and a test that imported
-        // the number would follow it wherever it went instead of noticing.
-        assert!(!ApprovalDiff::of(&"a".repeat(160), &"b".repeat(160)).wants_screen());
-        assert!(ApprovalDiff::of(&"a".repeat(161), "b").wants_screen());
-        assert!(ApprovalDiff::of("a", &"b".repeat(161)).wants_screen());
-        assert!(!ApprovalDiff::of("", "").wants_screen());
     }
 
     #[test]

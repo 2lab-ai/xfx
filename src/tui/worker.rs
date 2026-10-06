@@ -68,7 +68,7 @@ use std::future::Future;
 use std::io;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -82,17 +82,19 @@ use super::bridge::{
 };
 use super::question::TuiQuestioner;
 use crate::agent::{run_turn_saved, TurnRequest};
+use crate::clipboard::last_reply;
 use crate::config::{Environment, RuntimeConfig};
 use crate::gateway::{CancelToken, DEFAULT_MAX_ATTEMPTS};
-use crate::interactive::{open_conversation, Conversation};
+use crate::interactive::{bind_conversation, open_conversation, status_snapshot, Conversation};
+use crate::output::StatusSnapshot;
 use crate::permission::PermissionSession;
 use crate::provider::model::{
     CatalogEntry, CatalogState, ModelOutcome, ModelRequest, ModelSelector, MAX_RENDERED_MODELS,
 };
 use crate::provider::setup::{setup_transaction, SetupProblem};
 use crate::provider::{Bundle, ProviderId};
-use crate::session::{SessionEvent, SessionStore};
-use crate::workspace::ProjectContext;
+use crate::session::{SessionEvent, SessionId, SessionStore, WritableSession};
+use crate::workspace::{AccessScope, ProjectContext};
 
 /// How long the UI keeps painting what the worker has already produced before
 /// it stops waiting for the rest.
@@ -194,6 +196,68 @@ pub(crate) struct WorkHandle {
     /// user was interrupting from the work they typed after deciding to
     /// interrupt it ([`TurnControl::Cancel`]).
     accepted: Arc<AtomicUsize>,
+    /// What `/copy` copies: the conversation's last reply, as the runtime
+    /// last published it ([`LastReply`]).
+    reply: LastReply,
+    /// What `/status` reads, as the runtime last published it.
+    status: StatusBoard,
+}
+
+/// What `/status` reads of the runtime thread, as that thread last left it.
+///
+/// The configuration, the model in force and the conversation all live on the
+/// runtime thread, and `/status` is typed on the UI thread -- which may not
+/// wait for that one: mid-turn it is busy for as long as the turn is, and at an
+/// approval it is parked. Asking it through the work queue would also put the
+/// question behind the turn and on the band as `queued 1`. So the runtime
+/// **publishes** a snapshot wherever one of those facts changes
+/// ([`Runtime::publish`]) -- when a turn, a `/new`, a provider switch or a
+/// model change is over -- and the UI reads the latest one. Mid-turn that is
+/// the snapshot the last of those left, so the counts are the conversation's
+/// as of the turn before.
+///
+/// **The lock guards a store and a clone and nothing else.** Neither side holds
+/// it across I/O, a channel or an `.await`, so the UI thread's wait on it is
+/// the length of copying one struct.
+#[derive(Clone)]
+pub(crate) struct StatusBoard(Arc<Mutex<StatusSnapshot>>);
+
+impl StatusBoard {
+    fn new(snapshot: StatusSnapshot) -> Self {
+        Self(Arc::new(Mutex::new(snapshot)))
+    }
+
+    /// Replaces what `/status` will read next.
+    fn publish(&self, snapshot: StatusSnapshot) {
+        *self.lock() = snapshot;
+    }
+
+    /// The snapshot the runtime last published.
+    pub(crate) fn read(&self) -> StatusSnapshot {
+        self.lock().clone()
+    }
+
+    /// A board no runtime publishes to, seeded the way `spawn` seeds one:
+    /// from a configuration the real loader resolved, over an empty home and
+    /// an empty workspace. A case that is about what `/status` shows
+    /// publishes what it needs ([`WorkHandle::publish_status`]).
+    #[cfg(test)]
+    fn unpublished() -> Self {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &Environment::new(Some(home.path().to_path_buf()), Default::default()),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        Self::new(status_snapshot(&config, &config.model, None))
+    }
+
+    /// Never poisoned in practice -- nothing that holds it can panic -- and a
+    /// snapshot is whole either way: it is replaced by one assignment.
+    fn lock(&self) -> MutexGuard<'_, StatusSnapshot> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl WorkHandle {
@@ -279,6 +343,29 @@ impl WorkHandle {
         let _ = self.control.send(message);
     }
 
+    /// The conversation's last reply, exactly as the model wrote it, or `None`
+    /// when it has none.
+    ///
+    /// Answered at once, whatever the runtime is doing: it is a copy the
+    /// runtime keeps current ([`LastReply`]), not a question put to a thread
+    /// that may be in the middle of a turn.
+    pub(crate) fn last_reply(&self) -> Option<Arc<str>> {
+        self.reply.get()
+    }
+
+    /// Makes `reply` the conversation's last reply, as the runtime would after
+    /// a turn that said it.
+    #[cfg(test)]
+    pub(crate) fn replied(&self, reply: &str) {
+        self.reply.publish(Some(reply));
+    }
+
+    /// What `/status` reports: the runtime's last published snapshot
+    /// ([`StatusBoard`]). Never waits for the runtime.
+    pub(crate) fn status(&self) -> StatusSnapshot {
+        self.status.read()
+    }
+
     /// A handle onto channels with no runtime behind them, and both receiving
     /// ends handed back.
     ///
@@ -302,10 +389,53 @@ impl WorkHandle {
                 control,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
             work_rx,
             control_rx,
         )
+    }
+
+    /// Stands in for the runtime's own publication, for the cases that are
+    /// about what the UI does with a snapshot.
+    #[cfg(test)]
+    pub(crate) fn publish_status(&self, snapshot: StatusSnapshot) {
+        self.status.publish(snapshot);
+    }
+}
+
+/// The conversation's last reply, kept where the UI can read it without
+/// asking the runtime.
+///
+/// Upstream's `/copy` reads the session's history on its UI thread
+/// (`commandCopyLast`, `app_commands.zig:1974-2001`). Here the history is the
+/// runtime thread's, and asking that thread would mean waiting behind whatever
+/// turn it is running -- or spending a place in the queue ([`WORK_LIMIT`]) and
+/// being dropped with the queue by the next Ctrl-C. So the runtime **publishes**
+/// it instead: once just before a turn's conclusion is sent, and once after
+/// every piece of work (`turn_loop`). The UI reads the newest one.
+///
+/// An `Arc<str>` behind the lock, so a read is a reference count rather than a
+/// copy of the reply -- the copy that matters is the one the clipboard gets.
+#[derive(Debug, Clone, Default)]
+struct LastReply(Arc<Mutex<Option<Arc<str>>>>);
+
+impl LastReply {
+    fn publish(&self, reply: Option<&str>) {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        // The same reply published again -- every `/model`, every catalog --
+        // is not worth a second allocation of it.
+        if held.as_deref() != reply {
+            *held = reply.map(Arc::from);
+        }
+    }
+
+    fn get(&self) -> Option<Arc<str>> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -313,7 +443,11 @@ impl WorkHandle {
 pub(crate) struct Worker {
     /// `None` once the thread has been joined, or once it has been left
     /// detached because the join grace ran out.
-    thread: Option<JoinHandle<()>>,
+    ///
+    /// What the thread hands back is the session its conversation was in when
+    /// it stopped, if that one is worth coming back to
+    /// ([`Runtime::resumable`]).
+    thread: Option<JoinHandle<Option<SessionId>>>,
     /// Set by the thread as the last thing it does, which is what makes the
     /// join *bounded*: `JoinHandle::join` has no timeout, so the wait is on
     /// this and the join is what follows a wait that succeeded.
@@ -323,9 +457,26 @@ pub(crate) struct Worker {
     /// protocol and a caller that could forget it would deadlock instead.
     cancel: Cancellation,
     handle: WorkHandle,
+    /// The session to name on the way out, once the thread has said which
+    /// ([`Worker::resumable`]).
+    resumable: Option<SessionId>,
 }
 
 impl Worker {
+    /// The session the runtime ended in, if it had a conversation -- read
+    /// **after** [`Worker::shutdown`], which is what joins the thread that
+    /// knows.
+    ///
+    /// `None` for a session that asked nothing, which upstream does not keep
+    /// either (`shouldCreateResumeHandoff`, `app_session_runtime.zig:350-354`):
+    /// xfx creates a session at its first prompt, so a session with no turn was
+    /// never written. `None` too for a thread the join grace gave up on, which
+    /// is the conservative side: no line is better than a line about a session
+    /// whose last state nobody saw.
+    pub(crate) fn resumable(&self) -> Option<&SessionId> {
+        self.resumable.as_ref()
+    }
+
     /// See [`WorkHandle::control`].
     ///
     /// There is deliberately no `Worker::submit` beside it: submitting is the
@@ -403,7 +554,8 @@ impl Worker {
         }
         if self.finished.load(Ordering::Acquire) {
             if let Some(thread) = self.thread.take() {
-                let _ = thread.join();
+                // A thread that panicked past its catcher names nothing.
+                self.resumable = thread.join().ok().flatten();
             }
         }
     }
@@ -433,9 +585,13 @@ impl Drop for Finished {
 /// machine, and the moment to say it is before the user has typed a paragraph
 /// they are about to lose. It is the same reason `interactive::run` opens it
 /// before its first prompt.
+///
+/// A `resumed` session is the conversation from the first turn on, rather than
+/// one opened at the first prompt ([`Runtime::resume`]).
 pub(crate) fn spawn(
     config: RuntimeConfig,
     cancel: Cancellation,
+    resumed: Option<Resumption>,
 ) -> io::Result<(Worker, Receiver<UiEvent>)> {
     let store = open_store(&config)?;
     let (events_tx, events_rx) = mpsc::channel(bridge::UI_EVENTS);
@@ -458,8 +614,16 @@ pub(crate) fn spawn(
     ));
     let finished = Arc::new(AtomicBool::new(false));
     let done = Arc::clone(&finished);
+    // Seeded here, on the calling thread and from the configuration the
+    // runtime is about to be built from, so a `/status` typed before that
+    // thread has constructed anything still reads the session it will be:
+    // the configured model and no conversation yet.
+    let status = StatusBoard::new(status_snapshot(&config, &config.model, None));
+    let publishes = status.clone();
     let outstanding = Arc::new(AtomicUsize::new(0));
     let loops_outstanding = Arc::clone(&outstanding);
+    let reply = LastReply::default();
+    let loops_reply = reply.clone();
     let session_cancel = cancel.clone();
     let thread = std::thread::Builder::new()
         .name(THREAD_NAME.to_string())
@@ -476,16 +640,27 @@ pub(crate) fn spawn(
             else {
                 // Nothing can run. Say so through the one channel the UI reads.
                 fatal_before_the_runtime(&events_tx, NO_RUNTIME);
-                return;
+                return None;
             };
+            let mut state = Runtime::new(config, store, prompter, questioner);
+            state.reply = loops_reply;
+            if let Some(resumed) = resumed {
+                state.resume(resumed, &session_cancel.mirror());
+                // A resumed conversation's last reply is `/copy`'s from the
+                // start, as fx's hydrated history is (`session.zig:2067-2079`).
+                state.publish_reply();
+            }
+            // `/status` reads the resumed conversation's counts from the start
+            // too: `publishing_to` publishes what the runtime is now.
+            let state = state.publishing_to(publishes);
             runtime.block_on(turn_loop(
-                Runtime::new(config, store, prompter, questioner),
+                state,
                 &events_tx,
                 &mut work_rx,
                 control,
                 session_cancel,
                 &loops_outstanding,
-            ));
+            ))
         })?;
     Ok((
         Worker {
@@ -497,10 +672,56 @@ pub(crate) fn spawn(
                 control: control_tx,
                 outstanding,
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply,
+                status,
             },
+            resumable: None,
         },
         events_rx,
     ))
+}
+
+/// A saved session the TUI continues, taken before the terminal is.
+///
+/// Both halves are the ones that can fail, which is why they are in hand
+/// before the session starts: an id that names nothing, a session another xfx
+/// holds, a workspace that is not a directory. Each is reported on a terminal
+/// xfx never touched, and what reaches the runtime thread is bound without a
+/// failure path ([`bind_conversation`]).
+pub(crate) struct Resumption {
+    session: WritableSession,
+    scope: AccessScope,
+}
+
+impl Resumption {
+    /// Opens the session `selector` names for writing -- its lock held from
+    /// here until the runtime lets the conversation go -- under the scope a
+    /// fresh conversation would get.
+    pub(crate) fn open(
+        config: &RuntimeConfig,
+        selector: &crate::session::Selector,
+    ) -> io::Result<Self> {
+        let scope = AccessScope::primary_only(&config.workspace_root).map_err(io::Error::other)?;
+        let store = open_store(config)?;
+        let resumed = store
+            .resume(selector, &config.workspace_root)
+            .map_err(io::Error::other)?;
+        Ok(Self {
+            session: resumed.session,
+            scope,
+        })
+    }
+
+    /// What the session's log says it is called: the store's own title of its
+    /// first prompt, which `xfx sessions` lists it under.
+    pub(crate) fn title(&self) -> Option<String> {
+        self.session.state().title()
+    }
+
+    /// The model the session last ran under.
+    pub(crate) fn model(&self) -> &str {
+        &self.session.state().model
+    }
 }
 
 /// Opens the session store this session records into.
@@ -580,6 +801,12 @@ struct Runtime {
     /// because its fetcher is that provider's endpoint and its model is that
     /// provider's model.
     selector: ModelSelector,
+    /// Where the conversation's last reply is published for `/copy`
+    /// ([`Runtime::publish_reply`]).
+    reply: LastReply,
+    /// Where `/status` reads this runtime from ([`StatusBoard`]), written by
+    /// [`Runtime::publish`] and by nothing else.
+    board: StatusBoard,
 }
 
 impl Runtime {
@@ -611,6 +838,7 @@ impl Runtime {
         questioner: Arc<TuiQuestioner>,
     ) -> Self {
         let selector = ModelSelector::new(&config);
+        let board = StatusBoard::new(status_snapshot(&config, selector.model(), None));
         Self {
             config,
             env,
@@ -620,7 +848,45 @@ impl Runtime {
             prompter,
             questioner,
             selector,
+            reply: LastReply::default(),
+            board,
         }
+    }
+
+    /// Publishes to `board` from here on -- the one the UI reads -- starting
+    /// with what this runtime is now.
+    fn publishing_to(mut self, board: StatusBoard) -> Self {
+        self.board = board;
+        self.publish();
+        self
+    }
+
+    /// Tells `/status` what this runtime is now: its configuration, the model
+    /// in force, and the conversation a turn would continue.
+    ///
+    /// Called where one of those has just changed and **before** the event
+    /// that tells the UI so, so a `/status` typed the moment a turn is seen to
+    /// end already reads that turn in its count.
+    fn publish(&self) {
+        self.board.publish(status_snapshot(
+            &self.config,
+            self.model(),
+            self.conversation.as_ref(),
+        ));
+    }
+
+    /// Publishes what `/copy` would copy from the conversation as it stands.
+    ///
+    /// Read out of the session log's own state ([`last_reply`]) rather than
+    /// out of the stream the UI was shown, because that stream has been made
+    /// inert on its way over (`bridge::inert`): a tab in a code block reached
+    /// the screen as a space, and the clipboard is owed the tab.
+    fn publish_reply(&self) {
+        self.reply.publish(
+            self.conversation
+                .as_ref()
+                .and_then(|conversation| last_reply(conversation.recorder.state())),
+        );
     }
 
     /// Builds whatever this turn needs and does not have yet.
@@ -679,6 +945,60 @@ impl Runtime {
             .with_prompter(Box::new(self.prompter.clone()))
     }
 
+    /// Makes a saved session this runtime's conversation, before any work.
+    ///
+    /// Bound the way [`Runtime::ready`] binds a new one -- this thread's
+    /// authority, the session's requester, the session's cancellation -- so a
+    /// resumed conversation differs from a fresh one only in what its log
+    /// already holds: its history, which every turn replays from the log
+    /// (`one_turn`), and its grants ([`bind_conversation`]).
+    ///
+    /// The model and the permission mode this session runs under are written
+    /// down when they differ from the ones the log last recorded, which is
+    /// `xfx ask --resume`'s step (`app::run_ask`): the mode is never restored
+    /// from a log, and the model is the configuration's, so a later resume
+    /// reads what this one really used.
+    fn resume(&mut self, resumed: Resumption, mirror: &CancelToken) {
+        let mut conversation = bind_conversation(
+            &self.store,
+            resumed.session,
+            resumed.scope,
+            self.authority(),
+            Some(Arc::clone(&self.questioner) as Arc<dyn crate::tools::QuestionRequester>),
+            mirror,
+        );
+        let model = self.model().to_string();
+        let mode = self.config.permission_mode;
+        let recorded = conversation.recorder.state();
+        let model_changed = recorded.model != model;
+        let mode_changed = recorded.permission_mode != mode;
+        if model_changed || mode_changed {
+            conversation
+                .recorder
+                .commit(SessionEvent::PreferencesChanged {
+                    model: model_changed.then_some(model),
+                    permission_mode: mode_changed.then(|| mode.label().to_string()),
+                });
+        }
+        self.conversation = Some(conversation);
+    }
+
+    /// The session this runtime's conversation is recorded in, when it holds
+    /// one with at least one turn in it.
+    ///
+    /// Upstream's test for a resume handoff is "not pristine"
+    /// (`shouldCreateResumeHandoff`, `app_session_runtime.zig:350-354`;
+    /// pristine is no history, `session_store.zig:4498-4509`), and a turn is
+    /// the history a log holds. A conversation `/new` dropped is not this
+    /// runtime's any more, so its session is not named either: what is named
+    /// is the one the next prompt would have gone to.
+    fn resumable(&self) -> Option<SessionId> {
+        self.conversation
+            .as_ref()
+            .filter(|conversation| !conversation.recorder.state().turns.is_empty())
+            .map(|conversation| conversation.recorder.id().clone())
+    }
+
     /// Switches the provider a turn talks to, and records the choice.
     ///
     /// Runs [`setup_transaction`] and, only on a reload that succeeded, performs
@@ -722,6 +1042,7 @@ impl Runtime {
         self.selector = ModelSelector::new(&self.config);
         self.provider = None;
         self.conversation = None;
+        self.publish();
         // Asked of the **new** provider, here, where the reloaded configuration
         // is: the UI holds a bool rather than a configuration, so this is the
         // only place the question can be answered after a switch.
@@ -846,7 +1167,8 @@ fn bounded(entries: &[CatalogEntry]) -> Vec<CatalogEntry> {
     entries.iter().take(MAX_RENDERED_MODELS).cloned().collect()
 }
 
-/// Runs work until the UI says to stop, or until it is gone.
+/// Runs work until the UI says to stop, or until it is gone, and says which
+/// session it ended in ([`Runtime::resumable`]).
 ///
 /// **Control first, then at most one piece of work**, which is what `biased`
 /// buys: a shutdown that arrived while this was waiting for a prompt is
@@ -858,7 +1180,7 @@ async fn turn_loop(
     control: Arc<ControlChannel>,
     cancel: Cancellation,
     outstanding: &AtomicUsize,
-) {
+) -> Option<SessionId> {
     let mut queue = Queue {
         work,
         outstanding,
@@ -872,7 +1194,7 @@ async fn turn_loop(
             biased;
             message = control.recv() => match message {
                 // The session is over, or the UI is gone with its sender.
-                Some(TurnControl::Shutdown) | None => return,
+                Some(TurnControl::Shutdown) | None => return state.resumable(),
                 // Between turns there is nothing *running* to cancel -- but
                 // there may be work waiting that nobody has started, and after
                 // an interrupt nothing may start.
@@ -901,7 +1223,7 @@ async fn turn_loop(
             // The UI dropped its side of the work channel without saying
             // anything, which is the same fact as a shutdown and is treated as
             // one.
-            Taken::Work(None) => return,
+            Taken::Work(None) => return state.resumable(),
             Taken::Work(Some(item)) => queue.took(item),
         };
         let ended = match item {
@@ -917,6 +1239,7 @@ async fn turn_loop(
             // edited are sold as being about *this* conversation.
             TurnWork::New => {
                 state.conversation = None;
+                state.publish();
                 Ended::Turn
             }
             TurnWork::Submit(prompt) => {
@@ -933,6 +1256,11 @@ async fn turn_loop(
                 run_catalog(&mut state, events, &cancel, &control, &mut queue).await
             }
         };
+        // After **every** piece of work rather than in the arms that change
+        // the conversation: `/new` drops it, a provider switch replaces it, and
+        // a piece of work added later that does either is covered without
+        // remembering to be.
+        state.publish_reply();
         // **After the terminal event, not before it.** The place `submit`
         // claimed covers the whole of one piece of work, so the moment it is
         // given back is the moment the queue really has room -- and by then the
@@ -942,7 +1270,7 @@ async fn turn_loop(
         // to avoid.
         queue.outstanding.fetch_sub(1, Ordering::Release);
         if ended == Ended::Session {
-            return;
+            return state.resumable();
         }
     }
 }
@@ -1094,8 +1422,17 @@ async fn run_turn(
         queue.abandon(through);
     })
     .await;
+    // **Before the conclusion goes**, so that a `/copy` typed once the UI has
+    // shown this turn ending copies this turn's reply. Published again after
+    // the work is over ([`turn_loop`]), which is the copy that covers every
+    // other kind of work; this is the one that is ordered against the event.
+    state.publish_reply();
     match caught {
         Ok(failure) => {
+            // The turn is in the conversation's count now, and so is any
+            // "always" it was answered -- both are written down by the time the
+            // body returns ([`record_grants`]).
+            state.publish();
             bridge::send_terminal(events, UiEvent::TurnEnded { failure }).await;
             ended
         }
@@ -1225,6 +1562,7 @@ async fn run_setup(
 /// no longer in.
 async fn run_model(state: &mut Runtime, name: &str, events: &Sender<UiEvent>) {
     let outcome = state.use_model(name);
+    state.publish();
     let answered = match outcome {
         ModelOutcome::Selected { unverified, .. } => ModelAnswer::Applied { unverified },
         ModelOutcome::Unchanged { .. } => ModelAnswer::Unchanged,
@@ -1670,6 +2008,8 @@ mod tests {
             events_tx
                 .blocking_send(UiEvent::TurnEnded { failure: None })
                 .expect("the ui is still receiving");
+            // A runtime with no conversation names nothing on its way out.
+            None
         });
         let mut worker = Worker {
             thread: Some(thread),
@@ -1680,7 +2020,10 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
+            resumable: None,
         };
 
         let mut seen = Vec::new();
@@ -1733,7 +2076,10 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
+            resumable: None,
         };
         let mut seen = Vec::new();
         worker.shutdown(&mut events_rx, Instant::now() + TEST_DRAIN, |event| {
@@ -1765,7 +2111,10 @@ mod tests {
                 control: control_tx,
                 outstanding: Arc::new(AtomicUsize::new(0)),
                 accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
             },
+            resumable: None,
         };
         let started = Instant::now();
         let mut seen = 0usize;
@@ -2115,6 +2464,8 @@ mod tests {
             control,
             outstanding: Arc::new(AtomicUsize::new(0)),
             accepted: Arc::new(AtomicUsize::new(0)),
+            reply: LastReply::default(),
+            status: StatusBoard::unpublished(),
         };
         drop(work_rx);
         assert_eq!(
@@ -2210,6 +2561,130 @@ mod tests {
 
         assert_eq!(output, STOPPED, "a shutdown left the turn running");
         assert_eq!(ended, Ended::Session);
+    }
+
+    // -----------------------------------------------------------------------
+    // what `/status` reads
+    // -----------------------------------------------------------------------
+
+    /// A runtime holding an open conversation, publishing to a board the case
+    /// can read -- the arrangement `spawn` makes between this thread and the
+    /// UI's `WorkHandle`.
+    fn published_runtime() -> (tempfile::TempDir, tempfile::TempDir, Runtime, StatusBoard) {
+        let (home, workspace, state) = recording();
+        let board = StatusBoard::unpublished();
+        let state = state.publishing_to(board.clone());
+        (home, workspace, state, board)
+    }
+
+    #[test]
+    fn the_runtime_publishes_what_it_is_the_moment_it_starts_publishing() {
+        let (_home, _workspace, state, board) = published_runtime();
+        let seen = board.read();
+        assert_eq!(seen.model, state.model());
+        assert_eq!(seen.provider, state.config.provider.label());
+        assert_eq!(
+            seen.workspace,
+            state.config.workspace_root.display().to_string()
+        );
+        assert_eq!(seen.history_turns, 0);
+        assert_eq!(seen.session_permission_grants, 0);
+        // And in the shape the notice body is, which is the shape `xfx status`
+        // prints less its `[status] ` prefix.
+        assert_eq!(
+            seen.notice_body(),
+            seen.render_text().replace("[status] ", "")
+        );
+    }
+
+    #[test]
+    fn a_turn_is_in_the_published_count_before_the_ui_is_told_it_ended() {
+        // `history_turns` is the live conversation's (`session.historyLen()`
+        // upstream), so a `/status` typed the moment the band sees the turn end
+        // must already count it: the publication is ahead of `TurnEnded` on
+        // this thread, and the UI reads the board only after it has the event.
+        let (_home, _workspace, mut state, board) = published_runtime();
+        state.provider = Some(Bundle {
+            id: ProviderId::Gateway,
+            stream: Box::new(ScriptedProvider::new(vec![answers("hello back")])),
+        });
+        let (events_tx, mut events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel();
+        let control = ControlChannel::new(control_rx);
+        let cancel = Cancellation::new(CancelToken::new());
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let outstanding = AtomicUsize::new(1);
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 0,
+        };
+
+        let ended = on_a_runtime(run_turn(
+            &mut state,
+            "hello".to_string(),
+            &events_tx,
+            &cancel,
+            &control,
+            &mut queue,
+        ));
+
+        assert_eq!(ended, Ended::Turn);
+        let mut last = None;
+        while let Ok(event) = events_rx.try_recv() {
+            last = Some(event);
+        }
+        assert_eq!(last, Some(UiEvent::TurnEnded { failure: None }));
+        assert_eq!(board.read().history_turns, 1);
+    }
+
+    #[test]
+    fn a_grant_a_model_and_a_new_conversation_each_reach_what_status_reads() {
+        let (_home, _workspace, mut state, board) = published_runtime();
+
+        // An "always" is held by the authority from the moment it is given.
+        state
+            .conversation
+            .as_ref()
+            .expect("open")
+            .tools
+            .permissions()
+            .grant(Grant::new("edit_file", "/w/notes.txt"));
+        state.publish();
+        assert_eq!(board.read().session_permission_grants, 1);
+
+        // `/model`: the selector's model, not the configuration's.
+        state
+            .selector
+            .set_catalog_for_test(CatalogState::Loaded(vec![published("second-model")]));
+        let (events_tx, _events_rx) = mpsc::channel(bridge::UI_EVENTS);
+        on_a_runtime(run_model(&mut state, "second-model", &events_tx));
+        assert_eq!(board.read().model, "second-model");
+        assert_ne!(
+            state.config.model, "second-model",
+            "the case proves nothing"
+        );
+
+        // `/new`, through the loop that answers it: the conversation goes, and
+        // with it both counts.
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let outstanding = AtomicUsize::new(1);
+        work_tx.try_send(TurnWork::New).expect("room for one");
+        drop(work_tx);
+        on_a_runtime(turn_loop(
+            state,
+            &events_tx,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        drop(control_tx);
+        let after = board.read();
+        assert_eq!(after.history_turns, 0);
+        assert_eq!(after.session_permission_grants, 0);
+        assert_eq!(after.model, "second-model", "/new changed the model");
     }
 
     #[test]
@@ -2381,6 +2856,124 @@ mod tests {
         );
     }
 
+    /// A turn that answered `text`, written into `state`'s conversation the
+    /// way a real one is: the user's message, then the assistant step.
+    fn answered(state: &mut Runtime, text: &str) {
+        let recorder = &mut state
+            .conversation
+            .as_mut()
+            .expect("the fixture opened a conversation")
+            .recorder;
+        recorder.commit(SessionEvent::UserMessage {
+            text: "asked".to_string(),
+        });
+        recorder.commit(SessionEvent::AssistantMessage {
+            text: text.to_string(),
+            tool_calls: Vec::new(),
+            raw_content: Vec::new(),
+            responses_state: Vec::new(),
+            wire: None,
+        });
+        assert_eq!(recorder.failure(), None, "the log refused the turn");
+    }
+
+    #[test]
+    fn a_turn_publishes_the_reply_before_its_conclusion_is_sent() {
+        // A `/copy` typed the moment the UI shows a turn ending must copy that
+        // turn's reply. So the reply is published before `TurnEnded` can
+        // enter the channel -- observed here with the conclusion parked on a
+        // full channel, which is a moment the UI has not yet been told.
+        let (_home, _workspace, mut state) = recording();
+        assert!(
+            Bundle::select(&state.config, &CancelToken::new()).is_err(),
+            "the fixture would reach a real endpoint"
+        );
+        let reply = LastReply::default();
+        state.reply = reply.clone();
+        answered(&mut state, "the reply,\twith its tab");
+        assert_eq!(reply.get(), None, "published before any work ran");
+
+        let (events, mut seen) = mpsc::channel::<UiEvent>(1);
+        let (_work_tx, mut work_rx) = mpsc::channel::<TurnWork>(1);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let control = ControlChannel::new(control_rx);
+        let outstanding = AtomicUsize::new(1);
+        let cancel = Cancellation::new(CancelToken::new());
+        let mut queue = Queue {
+            work: &mut work_rx,
+            outstanding: &outstanding,
+            taken: 1,
+        };
+        let (published, concluded) = on_a_runtime(async {
+            let mut turn = std::pin::pin!(run_turn(
+                &mut state,
+                "anything".to_string(),
+                &events,
+                &cancel,
+                &control,
+                &mut queue,
+            ));
+            for poll in 0..PARKED_POLLS {
+                let pending = std::future::poll_fn(|context| {
+                    std::task::Poll::Ready(turn.as_mut().poll(context).is_pending())
+                })
+                .await;
+                assert!(pending, "poll {poll}: the conclusion was not parked");
+            }
+            // `TurnStarted` holds the one permit: the conclusion is not sent.
+            let published = reply.get();
+            assert_eq!(seen.recv().await, Some(UiEvent::TurnStarted));
+            turn.await;
+            (published, seen.try_recv())
+        });
+        assert_eq!(published.as_deref(), Some("the reply,\twith its tab"));
+        assert!(
+            matches!(concluded, Ok(UiEvent::TurnEnded { .. })),
+            "{concluded:?}"
+        );
+    }
+
+    #[test]
+    fn work_that_drops_the_conversation_takes_its_reply_with_it() {
+        // `/new` drops the conversation (the `TurnWork::New` arm), and the
+        // publish after every piece of work is what tells `/copy` so -- the
+        // arm itself says nothing about replies.
+        let (_home, _workspace, mut state) = recording();
+        let reply = LastReply::default();
+        state.reply = reply.clone();
+        answered(&mut state, "an answer");
+        state.publish_reply();
+        assert_eq!(reply.get().as_deref(), Some("an answer"));
+
+        let (work_tx, mut work_rx) = mpsc::channel::<TurnWork>(WORK_LIMIT);
+        work_tx.try_send(TurnWork::New).expect("room for the work");
+        // Closed behind it, which ends the loop once `/new` is done.
+        drop(work_tx);
+        let (events, _seen) = mpsc::channel::<UiEvent>(bridge::UI_EVENTS);
+        let (_control_tx, control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let outstanding = AtomicUsize::new(1);
+        on_a_runtime(turn_loop(
+            state,
+            &events,
+            &mut work_rx,
+            ControlChannel::new(control_rx),
+            Cancellation::new(CancelToken::new()),
+            &outstanding,
+        ));
+        assert_eq!(reply.get(), None, "/new left the old conversation's reply");
+    }
+
+    #[test]
+    fn the_handle_reads_the_reply_the_runtime_published() {
+        let (handle, _work, _control) = WorkHandle::detached();
+        assert_eq!(handle.last_reply(), None);
+        handle.reply.publish(Some("first"));
+        handle.reply.publish(Some("second"));
+        assert_eq!(handle.last_reply().as_deref(), Some("second"));
+        handle.reply.publish(None);
+        assert_eq!(handle.last_reply(), None);
+    }
+
     #[test]
     fn the_fatal_sent_before_the_runtime_exists_cannot_command_the_terminal() {
         // The one send that does not go through `bridge::send_ui` or
@@ -2433,6 +3026,207 @@ mod tests {
             err.to_string().contains("cannot record"),
             "the refusal does not say why: {err}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // the session `/quit` names, and the one `--resume` continues
+    // -----------------------------------------------------------------------
+
+    /// The sessions a store holds, by directory.
+    fn sessions_in(home: &std::path::Path) -> Vec<String> {
+        let dir = home.join(".xfx").join("sessions");
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_runtime_that_was_asked_nothing_names_no_session_and_wrote_none() {
+        // Upstream keeps no pristine session and hands off none
+        // (`app_session_runtime.zig:350-354`, `:5702-5720`). xfx creates its
+        // session at the first prompt (`Runtime::ready`), so the rule holds
+        // by there being nothing to delete -- which is what this pins.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let store = open_store(&config).expect("a store");
+        let state = Runtime::new(config, store, a_prompter(), a_questioner());
+        assert_eq!(state.resumable(), None);
+        assert_eq!(sessions_in(home.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_session_named_is_the_conversations_once_it_holds_a_turn() {
+        let (home, _workspace, mut state) = recording();
+        // Open, but asked nothing yet: no history, nothing to come back to.
+        assert_eq!(state.resumable(), None);
+        let conversation = state.conversation.as_mut().expect("open");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "first question".to_string(),
+        });
+        let id = conversation.recorder.id().clone();
+        assert_eq!(state.resumable(), Some(id.clone()));
+        assert_eq!(sessions_in(home.path()), vec![id.to_string()]);
+        // A conversation `/new` dropped (`turn_loop`'s `TurnWork::New` arm) is
+        // not the one the next prompt goes to, so it is not named.
+        state.conversation = None;
+        assert_eq!(state.resumable(), None);
+    }
+
+    /// A session with one turn and one grant in its log, closed again, in the
+    /// store `config` records into.
+    fn a_saved_session(config: &RuntimeConfig, grant: &Grant) -> SessionId {
+        let store = open_store(config).expect("a store");
+        let mut conversation = open_conversation(
+            &store,
+            config,
+            &config.model,
+            PermissionSession::new(config.permission_mode),
+            None,
+            &CancelToken::new(),
+        )
+        .expect("open a conversation");
+        conversation.recorder.commit(SessionEvent::UserMessage {
+            text: "first question alpha".to_string(),
+        });
+        conversation
+            .recorder
+            .record_new_grants(std::slice::from_ref(grant));
+        conversation.recorder.id().clone()
+        // Dropped here, which closes the log and releases its lock.
+    }
+
+    #[test]
+    fn a_resumed_session_is_the_conversation_from_the_start_with_its_grants() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        let grant = Grant::new(
+            "edit_file",
+            workspace
+                .path()
+                .join("notes.txt")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let id = a_saved_session(&config, &grant);
+
+        let resumed = Resumption::open(&config, &crate::session::Selector::Id(id.clone()))
+            .expect("the saved session opens");
+        assert_eq!(resumed.title().as_deref(), Some("first question alpha"));
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.resume(resumed, &CancelToken::new());
+
+        // The conversation before any prompt, and it is the saved one: the
+        // next turn replays its history from this log (`one_turn`).
+        let conversation = state.conversation.as_ref().expect("bound at once");
+        assert_eq!(conversation.recorder.id(), &id);
+        assert_eq!(
+            conversation.recorder.state().turns.len(),
+            1,
+            "the saved turn is not in the conversation the next prompt continues"
+        );
+        // An "always" answered last time is not asked again
+        // (`app::run_ask` restores the same list).
+        assert!(
+            conversation.tools.permissions().grants().contains(&grant),
+            "the saved grant was not restored"
+        );
+        // A quit before any prompt still names it: it is not pristine.
+        assert_eq!(state.resumable(), Some(id.clone()));
+        // And no second session was made for it.
+        assert_eq!(sessions_in(home.path()), vec![id.to_string()]);
+    }
+
+    #[test]
+    fn a_resume_under_another_model_writes_down_the_one_it_runs_under() {
+        // `app::run_ask`'s step: a later resume reads what this one used.
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let saved_under = config(home.path(), workspace.path());
+        let grant = Grant::new("edit_file", "notes.txt".to_string());
+        let id = a_saved_session(&saved_under, &grant);
+
+        let mut config = saved_under.clone();
+        config.model = "another-model".to_string();
+        let resumed = Resumption::open(&config, &crate::session::Selector::Id(id))
+            .expect("the saved session opens");
+        assert_eq!(resumed.model(), saved_under.model);
+        let store = open_store(&config).expect("a store");
+        let mut state = Runtime::new(config, store, a_prompter(), a_questioner());
+        state.resume(resumed, &CancelToken::new());
+        assert_eq!(
+            state
+                .conversation
+                .as_ref()
+                .expect("bound")
+                .recorder
+                .state()
+                .model,
+            "another-model"
+        );
+    }
+
+    #[test]
+    fn a_resume_that_names_nothing_is_refused_before_anything_is_taken() {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = config(home.path(), workspace.path());
+        for selector in [
+            crate::session::Selector::Last,
+            crate::session::Selector::Id(SessionId::parse("no-such-session").expect("an id")),
+        ] {
+            let Err(err) = Resumption::open(&config, &selector) else {
+                panic!("{selector:?} opened a session that does not exist");
+            };
+            assert!(!err.to_string().is_empty(), "{selector:?}");
+        }
+        assert_eq!(sessions_in(home.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_join_hands_back_the_session_the_runtime_ended_in() {
+        // The thread is the only thing that knows which conversation it held
+        // when it stopped, so the answer travels back through the join.
+        let (events_tx, mut events_rx) = mpsc::channel::<UiEvent>(1);
+        let (work_tx, _work_rx) = mpsc::channel::<TurnWork>(1);
+        let (control_tx, _control_rx) = mpsc::unbounded_channel::<TurnControl>();
+        let finished = Arc::new(AtomicBool::new(false));
+        let done = Arc::clone(&finished);
+        let id = SessionId::parse("1759800000000-0123456789abcdef").expect("an id");
+        let named = id.clone();
+        let thread = std::thread::spawn(move || {
+            let _done = Finished(done);
+            drop(events_tx);
+            Some(named)
+        });
+        let mut worker = Worker {
+            thread: Some(thread),
+            finished,
+            cancel: Cancellation::new(CancelToken::new()),
+            handle: WorkHandle {
+                work: work_tx,
+                control: control_tx,
+                outstanding: Arc::new(AtomicUsize::new(0)),
+                accepted: Arc::new(AtomicUsize::new(0)),
+                reply: LastReply::default(),
+                status: StatusBoard::unpublished(),
+            },
+            resumable: None,
+        };
+        assert_eq!(
+            worker.resumable(),
+            None,
+            "named before the thread was joined"
+        );
+        worker.shutdown(&mut events_rx, Instant::now() + TEST_DRAIN, |_| {});
+        assert!(worker.thread.is_none(), "the thread was not joined");
+        assert_eq!(worker.resumable(), Some(&id));
     }
 
     /// A `Runtime` with a real store and a real conversation open in it, which

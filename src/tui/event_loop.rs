@@ -69,7 +69,7 @@ use tokio::sync::mpsc::Receiver;
 
 use super::approval_readiness::Outcome;
 use super::bridge::{self, UiEvent};
-use super::deliver::{Emit, RawTty, Sink};
+use super::deliver::{Counted, Emit, RawTty, Sink};
 use super::frame::{Band, Commit, Retint};
 use super::render_request::Reason;
 use super::shell::{Resize, Shell};
@@ -289,7 +289,7 @@ fn session(
         // was spent on the read, so this reconcile is not optional -- it is the
         // only way to have one.
         let reconciled = collect_facts(shell, band, launch, Instant::now())?;
-        commit_frame(
+        commit_counted(
             shell,
             band,
             &mut RawTty::stdout(),
@@ -743,7 +743,14 @@ fn resolve_resize_on_exit(shell: &mut Shell, band: &mut Band, size: impl FnOnce(
 /// Measures the screen and re-solves the band from it.
 fn adopt_resize(shell: &mut Shell, band: &mut Band, size: impl FnOnce() -> (u16, u16)) {
     let (rows, cols) = size();
-    if let Resize::Repaint(geometry) = shell.resize(rows, cols) {
+    let resized = shell.resize(rows, cols);
+    // `/stats`'s `debounced_resizes`: one burst, answered once, at a size that
+    // is really new -- whether or not a band fits on it, because the screen
+    // the session knows about changed either way.
+    if !matches!(resized, Resize::Unchanged) {
+        shell.metrics.debounced_resizes += 1;
+    }
+    if let Resize::Repaint(geometry) = resized {
         // A terminal that changed size re-wrapped its own document by rules xfx
         // does not model, so every cell the shadow describes is a claim about a
         // screen that no longer exists.
@@ -971,6 +978,29 @@ fn commit_frame(
     Ok(())
 }
 
+/// [`commit_frame`], with what the terminal took added to `/stats`'s
+/// `ansi_bytes` (`super::shell::Metrics`).
+///
+/// The session's one way to commit, so every byte the loop writes while the
+/// session runs -- appends, the band, a clear, a theme query, the other plane
+/// -- passes the one counter. Credited **before** a failure leaves, because the
+/// prefix of a torn frame is on the terminal whatever became of the frame.
+/// The exit's last frames (`shut_down`) are not counted: nothing can ask
+/// `/stats` after them.
+fn commit_counted(
+    shell: &mut Shell,
+    band: &mut Band,
+    out: &mut impl Sink,
+    failures: &mut FrameFailures,
+    now: Instant,
+    reconciled: Reconciled,
+) -> io::Result<()> {
+    let mut counted = Counted::new(out);
+    let committed = commit_frame(shell, band, &mut counted, failures, now, reconciled);
+    shell.metrics.ansi_bytes += counted.delivered();
+    committed
+}
+
 /// What the theme query says it does: **nothing at all** except ask.
 ///
 /// One query, no cell, no caret and no mode. The screen is one cell because a
@@ -1049,6 +1079,9 @@ fn commit_band(
     let Some(attempt) = shell.render.begin() else {
         return Ok(true);
     };
+    // Read before the attempt can be handed back: a refused frame restores it,
+    // and the tick that lands it is the one `/stats` counts.
+    let damaged = attempt.damaged();
     // The matrix row for a terminal that takes part of a frame and then stops.
     // Armed here, where the first frame of the session is about to be built,
     // and performed by the sink against the real descriptor.
@@ -1095,6 +1128,13 @@ fn commit_band(
                 Commit::Painted => Outcome::Painted,
                 Commit::NoChange => Outcome::Unchanged,
             });
+            // `/stats`'s `redraws`: a whole repaint that **landed**. A damaged
+            // attempt that was refused is restored and counted by the tick that
+            // finally lands it, so a screen that refused three times is still
+            // one repaint.
+            if damaged {
+                shell.metrics.redraws += 1;
+            }
             // Only a frame that actually went out re-verifies the screen.
             // `Commit::NoChange` wrote nothing -- on an ordinary tick that is
             // fine, the screen already held this, but on the tick
@@ -4317,6 +4357,153 @@ mod tests {
         }
     }
 
+    /// One tick through the session's own counted commit
+    /// ([`commit_counted`]), on a clock that does not move.
+    fn counted_tick(
+        shell: &mut Shell,
+        band: &mut Band,
+        out: &mut FlakyScreen,
+        failures: &mut FrameFailures,
+    ) -> io::Result<()> {
+        commit_counted(shell, band, out, failures, Instant::now(), Reconciled)
+    }
+
+    #[test]
+    fn stats_counts_the_bytes_the_session_delivered_and_none_it_was_refused() {
+        // `ansi_bytes` is the wire: after any run of ticks it is the length of
+        // what the terminal took, refused frames contributing nothing until
+        // the tick that lands them.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = FlakyScreen {
+            refusals: 0,
+            kind: io::ErrorKind::BrokenPipe,
+            written: Vec::new(),
+        };
+        assert_eq!(shell.metrics.ansi_bytes, 0, "a session that wrote nothing");
+
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the first frame");
+        let first = out.written.len() as u64;
+        assert!(
+            first > 0,
+            "the first frame wrote nothing, so this proves nothing"
+        );
+        assert_eq!(shell.metrics.ansi_bytes, first);
+
+        // A frame the terminal refuses: owed again, and nothing counted.
+        shell.route_bytes(b"x");
+        out.refusals = 1;
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures)
+            .expect("a refusal inside the budget");
+        assert_eq!(
+            out.written.len() as u64,
+            first,
+            "the refusal wrote something"
+        );
+        assert_eq!(
+            shell.metrics.ansi_bytes, first,
+            "a refused frame was counted"
+        );
+
+        // And the tick that lands it counts exactly what it put on the wire.
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the frame owed");
+        assert!(
+            out.written.len() as u64 > first,
+            "the owed frame never landed"
+        );
+        assert_eq!(shell.metrics.ansi_bytes, out.written.len() as u64);
+    }
+
+    #[test]
+    fn stats_counts_a_whole_repaint_once_when_it_lands() {
+        // `redraws`: a frame whose screen somebody else wrote on. The launch's
+        // whole first frame is not one, an ordinary difference is not one, and
+        // a damaged frame the terminal refused is counted by the tick that
+        // finally lands it -- once.
+        let mut shell = shell();
+        let mut band = Band::new();
+        let mut failures = FrameFailures::default();
+        let mut out = screen();
+
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the first frame");
+        shell.route_bytes(b"x");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("an ordinary frame");
+        assert_eq!(shell.metrics.redraws, 0, "nothing damaged the screen yet");
+
+        shell.external_damage();
+        out.refusals = 2;
+        for _ in 0..2 {
+            counted_tick(&mut shell, &mut band, &mut out, &mut failures)
+                .expect("a refusal inside the budget");
+        }
+        assert_eq!(
+            shell.metrics.redraws, 0,
+            "a repaint nobody received was counted"
+        );
+
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures).expect("the whole repaint");
+        assert_eq!(shell.metrics.redraws, 1);
+        assert!(
+            String::from_utf8_lossy(&out.written).contains(COMPOSER_MARKER),
+            "the band was never repainted"
+        );
+
+        shell.route_bytes(b"y");
+        counted_tick(&mut shell, &mut band, &mut out, &mut failures)
+            .expect("an ordinary frame after it");
+        assert_eq!(
+            shell.metrics.redraws, 1,
+            "a difference was counted as a repaint"
+        );
+    }
+
+    #[test]
+    fn stats_counts_a_burst_of_winches_as_one_resize_and_a_no_change_as_none() {
+        let mut shell = shell();
+        let mut band = Band::new();
+        let asked = std::cell::Cell::new(0usize);
+        let start = Instant::now();
+
+        // A size that is not news: asked, and nothing counted.
+        shell.render.mark_resize(start);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            start + RESIZE_DEBOUNCE,
+            sized((24, 80), &asked),
+        );
+        assert_eq!(asked.get(), 1);
+        assert_eq!(shell.metrics.debounced_resizes, 0);
+
+        // A drag: four signals, one re-solve, one count.
+        let later = start + Duration::from_secs(1);
+        for at in [0, 10, 20, 30] {
+            shell.render.mark_resize(later + Duration::from_millis(at));
+        }
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            later + RESIZE_DEBOUNCE,
+            sized((30, 100), &asked),
+        );
+        assert_eq!(asked.get(), 2);
+        assert_eq!(shell.metrics.debounced_resizes, 1);
+
+        // A screen no band fits on is still a size the session now knows.
+        let after = later + Duration::from_secs(1);
+        shell.render.mark_resize(after);
+        resolve_resize(
+            &mut shell,
+            &mut band,
+            after + RESIZE_DEBOUNCE,
+            sized((3, 10), &asked),
+        );
+        assert_eq!(shell.metrics.debounced_resizes, 2);
+        // And a resize is not a damaged repaint: that is the other counter.
+        assert_eq!(shell.metrics.redraws, 0);
+    }
+
     #[test]
     fn a_burst_of_winches_costs_one_resolve() {
         // A person dragging a window edge produces a `SIGWINCH` per row it
@@ -5577,6 +5764,7 @@ mod tests {
                 "allow every future edit_file to `notes.txt` for the rest of this session"
                     .to_string(),
             diff: None,
+            subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
         }
     }
 
@@ -5603,11 +5791,13 @@ mod tests {
                 summary: "edit `readme.md`: replace \"old\" with \"new\"".to_string(),
                 always_scope: "allow every future edit_file to `readme.md`".to_string(),
                 diff: None,
+                subject: crate::permission::ApprovalSubject::Path("readme.md".to_string()),
             },
         })
     }
 
-    /// A question about a change no band summary could show.
+    /// A question about a change no band review could show: forty lines
+    /// replaced, eighty rows of review (`super::approval::BAND_REVIEW_LINES`).
     fn a_change_too_big_for_the_band() -> UiEvent {
         UiEvent::Approval(crate::tui::approval::ApprovalAsked {
             id: crate::tui::approval_readiness::ApprovalId(1),
@@ -5617,9 +5807,12 @@ mod tests {
                 summary: "edit `notes.txt`: replace \"alpha\" with \"beta\"".to_string(),
                 always_scope: "allow every future edit_file to `notes.txt`".to_string(),
                 diff: Some(crate::permission::ApprovalDiff {
-                    before: "a".repeat(4_000),
-                    after: "b".repeat(4_000),
+                    before: "alpha\n".repeat(40),
+                    after: "beta\n".repeat(40),
+                    first_line: 1,
+                    lines_below: 0,
                 }),
+                subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
             },
         })
     }

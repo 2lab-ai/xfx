@@ -304,6 +304,15 @@ impl Drafts {
         self.active == Some(choice)
     }
 
+    /// The choice whose draft has the keys, while one does.
+    ///
+    /// What an editing key needs to know the **width** it is applied at: each
+    /// draft sits on its own choice's row, after words of a different length
+    /// (`super::approval_view::draft_cols`).
+    pub(crate) fn active(&self) -> Option<usize> {
+        self.active
+    }
+
     /// Opens `choice`'s draft, or reports that it has none.
     ///
     /// `None` is the answer for `Always`, and the caller's cue to do what Tab
@@ -421,13 +430,15 @@ impl Drafts {
         self.notice.take()
     }
 
-    /// The rows both drafts would paint at `cols`, in choice order.
+    /// The rows both drafts would paint, each at its own choice's width, in
+    /// choice order.
     ///
     /// A draft is shown while it has the keys **or** while it holds text: a
     /// sentence the user typed and then navigated away from still travels if
     /// they submit that choice, so hiding it would be sending something they
-    /// cannot read back.
-    pub(crate) fn blocks(&self, cols: u16) -> Vec<Block> {
+    /// cannot read back. (Upstream shows only the draft being typed; this is
+    /// the one place xfx shows more, for that reason.)
+    pub(crate) fn blocks(&self, width: impl Fn(usize) -> u16) -> Vec<Block> {
         let mut blocks = Vec::new();
         for choice in 0..super::approval::CHOICE_COUNT {
             let Some(side) = side(choice) else {
@@ -438,7 +449,7 @@ impl Drafts {
             if !open && draft.empty() {
                 continue;
             }
-            let (rows, caret) = draft.viewport(cols);
+            let (rows, caret) = draft.viewport(width(choice));
             blocks.push(Block {
                 choice,
                 rows,
@@ -463,8 +474,8 @@ mod tests {
     const ALLOW: usize = 0;
     /// The deny side, which is choice 2.
     const DENY: usize = 2;
-    /// The width every case drives at, which is an eighty-column panel's inner
-    /// width (`super::approval::draft_cols`).
+    /// The width every case drives at (`super::approval_view::draft_cols`
+    /// gives each choice its own; these cases need only one).
     const COLS: u16 = 78;
 
     /// A `Drafts` with `text` typed into `choice`'s draft.
@@ -481,7 +492,7 @@ mod tests {
     /// it.
     fn caret(drafts: &Drafts) -> (usize, u16) {
         drafts
-            .blocks(COLS)
+            .blocks(|_| COLS)
             .into_iter()
             .find_map(|block| block.caret)
             .expect("a draft has the keys")
@@ -562,7 +573,7 @@ mod tests {
 
         assert_eq!(drafts.text(ALLOW), pasted, "the paste is not the draft");
         assert_eq!(
-            drafts.blocks(COLS)[0].caret,
+            drafts.blocks(|_| COLS)[0].caret,
             Some((1, 33)),
             "the caret is not past the pasted text"
         );
@@ -676,7 +687,7 @@ mod tests {
         // sentence about it. What a long draft gets instead is a window on the
         // row the caret is on ([`MAX_DRAFT_ROWS`]).
         let mut drafts = typed_into(ALLOW, &"x".repeat(usize::from(COLS) * 6));
-        let blocks = drafts.blocks(COLS);
+        let blocks = drafts.blocks(|_| COLS);
         assert_eq!(blocks.len(), 1, "{blocks:?}", blocks = blocks.len());
         assert_eq!(
             blocks[0].rows.len(),
@@ -695,7 +706,7 @@ mod tests {
         for _ in 0..6 {
             drafts.edit(Action::Left, COLS);
         }
-        let blocks = drafts.blocks(COLS);
+        let blocks = drafts.blocks(|_| COLS);
         assert_eq!(blocks[0].caret.expect("the keys").0, 0);
     }
 
@@ -740,6 +751,6 @@ mod tests {
         drafts.edit(Action::PasteEnd, COLS);
         assert_eq!(drafts.text(ALLOW), "");
         assert_eq!(drafts.text(DENY), "");
-        assert!(drafts.blocks(COLS).is_empty());
+        assert!(drafts.blocks(|_| COLS).is_empty());
     }
 }

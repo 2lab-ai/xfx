@@ -24,6 +24,7 @@ use rustix::process::{Pid, Signal};
 use rustix::termios::{ControlModes, InputModes, LocalModes, OutputModes};
 use serde_json::{json, Value};
 
+use support::fake_clipboard::FakeClipboard;
 use support::fake_gateway::{content_only, sse_body, text_delta, FakeGateway, Reply};
 use support::fake_llmux::FakeLlmux;
 use support::pty::{modes, try_modes, wait_state, Pty, Session, TerminalState, Wait};
@@ -276,19 +277,18 @@ fn slash_help_lists_exactly_the_canonical_commands() {
         "the seventh canonical command is not advertised: {text}"
     );
     // Advertisement is a promise here too: no deferred upstream slash command
-    // may appear. `/setup` left this list when it stopped being deferred;
-    // `/models` and `/provider` did not, because the catalog browser is reached
-    // by a bare `/model` rather than by a command of its own.
+    // may appear. `/setup` left this list when it stopped being deferred, and
+    // `/stats` and `/status` after it; `/models` and `/provider` did not,
+    // because the catalog browser is reached by a bare `/model` rather than by
+    // a command of its own.
     for absent in [
         "/resume",
-        "/status",
         "/login",
         "/permissions",
         "/models",
         "/provider",
         "/mcp",
         "/undo",
-        "/stats",
         "/usage",
         "/image",
     ] {
@@ -307,6 +307,45 @@ fn slash_version_prints_the_same_version_the_command_line_does() {
     session.type_line("/version");
     let text = session.wait_for_count(PROMPT, 2);
     assert!(text.contains(env!("CARGO_PKG_VERSION")), "{text}");
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_status_reports_this_shells_own_model_and_conversation() {
+    // The `status` command's lines, about the model `/model` chose and the
+    // conversation this shell is holding rather than the store's last session.
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["ok"]))]);
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command_with(&gateway));
+
+    session.type_line("/status");
+    let text = session.wait_for("agent_step_limit=");
+    assert!(text.contains("[status] history_turns=0"), "{text}");
+    assert!(text.contains("[status] model=zai/glm-5.2"), "{text}");
+
+    session.type_line("/model acme/model-9");
+    session.wait_for("model=acme/model-9");
+    session.type_line("hello");
+    session.wait_for("ok");
+    session.type_line("/status");
+    let text = session.wait_for("[status] history_turns=1");
+    assert!(text.contains("[status] model=acme/model-9"), "{text}");
+
+    session.type_bytes(&[0x04]);
+    assert_eq!(session.wait_exit().code(), Some(0));
+}
+
+#[test]
+fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/stats");
+    let text = session.wait_for("draws none");
+    assert!(!text.contains("ansi_bytes="), "{text}");
 
     assert_eq!(session.quit().code(), Some(0));
 }
@@ -525,6 +564,43 @@ fn slash_new_starts_a_second_session_that_remembers_nothing() {
         vec!["two".to_string()],
         "the new session inherited history"
     );
+
+    assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
+    // `vercel-labs/fx@c1db9191 app_commands.zig:1974-2001`: nothing to copy,
+    // the reply's exact bytes, and a tool that refused -- each said once.
+    let answer = "ALPHA answer line one.\n\nSecond paragraph with `code`.";
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&[
+        "ALPHA answer line one.\n\n",
+        "Second paragraph with `code`.",
+    ]))]);
+    let clipboard = FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    clipboard.first_on_path(&mut command);
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("/copy");
+    session.wait_for("[shell] No assistant reply to copy.");
+    assert_eq!(clipboard.copied(), None, "a copy ran with nothing to copy");
+
+    session.type_line("one");
+    session.wait_for("`code`.");
+    session.type_line("/copy");
+    session.wait_for("[shell] Copied to clipboard.");
+    assert_eq!(
+        clipboard.copied().expect("the clipboard was written"),
+        answer.as_bytes(),
+        "not the reply as the model wrote it"
+    );
+
+    clipboard.fail();
+    session.type_line("/copy");
+    session.wait_for("xfx: Failed to copy to clipboard.");
 
     assert_eq!(session.quit().code(), Some(0));
 }

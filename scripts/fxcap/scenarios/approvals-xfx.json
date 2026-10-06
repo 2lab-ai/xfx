@@ -1,0 +1,8 @@
+[
+ {"tool":{"name":"read_file","input":{"path":"a.txt"}}},
+ {"tool":{"name":"edit_file","input":{"path":"a.txt","old_string":"alpha line 2","new_string":"ALPHA LINE TWO"}}},
+ {"tool":{"name":"write_file","input":{"path":"c.txt","content":"new file\nsecond line\n"}}},
+ {"tool":{"name":"terminal","input":{"action":"exec","command":"echo hi > out.txt && cat out.txt"}}},
+ {"tool":{"name":"terminal","input":{"action":"exec","command":"echo again"}}},
+ {"delayMs":100,"chunks":["Done ","with approvals."]}
+]

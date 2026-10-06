@@ -78,7 +78,8 @@ use super::approval::{self, Panel};
 use super::approval_readiness::{ApprovalId, Intent, Outcome, Readiness, Surface};
 use super::approval_screen::ApprovalScreen;
 use super::blocks;
-use super::bridge::{ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::bridge::{self, ModelAnswer, TurnControl, TurnWork, UiEvent};
+use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
 use super::editor::{self, Editor};
 use super::entity::{Entities, EntityKind};
@@ -99,6 +100,7 @@ use super::theme::{Mode, Palette};
 use super::toolgroup::ToolGroup;
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
+use crate::clipboard::{self, Clipboard};
 use crate::config::{PermissionMode, RuntimeConfig};
 use crate::interactive::{self, Submitted};
 use crate::markdown::{self, MarkdownProcessor};
@@ -138,6 +140,40 @@ pub(crate) fn welcome_line(palette: Palette) -> String {
         palette.reset()
     )
 }
+
+/// Upstream's way back into a session, written to standard output once the
+/// terminal has been given back (`formatResumeHandoff`, `render.zig:795-810`,
+/// `c1db919`; written at `app_entry_runtime.zig:424-438`).
+///
+/// The label, then the command: on the same row when the whole line fits the
+/// screen, and on the next one, two columns in, when it does not -- all of it
+/// in the dim grey, ended by a reset and a line feed. `xfx` where upstream says
+/// `fx`, because the command has to be one this binary answers: a bare
+/// `xfx --resume <id>` is the TUI on that session (`crate::cli`).
+pub(crate) fn resume_handoff(id: &str, columns: u16, palette: Palette) -> String {
+    let command = format!("{RESUME_COMMAND} {id}");
+    let one_row = RESUME_LABEL.len() + 1 + command.len();
+    let separator = if one_row <= usize::from(columns) {
+        " "
+    } else {
+        "\n  "
+    };
+    format!(
+        "{}{RESUME_LABEL}{separator}{command}{}\n",
+        palette.dim(),
+        palette.reset()
+    )
+}
+
+/// Upstream's label for that line (`render.zig:801`).
+const RESUME_LABEL: &str = "Continue session with:";
+
+/// The command it names, without the id.
+const RESUME_COMMAND: &str = "xfx --resume";
+
+/// What a resumed session with no title of its own is called
+/// (`session_display_metadata.zig:14`).
+const UNTITLED_SESSION: &str = "Untitled session";
 
 /// The divider's rule, one cell wide, repeated across the screen.
 const RULE: char = '\u{2500}';
@@ -196,7 +232,7 @@ pub(crate) const ESCAPE_ARMED: &str = "esc again to clear";
 /// What the user is told when the screen cannot hold the question.
 ///
 /// A refusal rather than a squeezed panel, and it is the same rule the panel's
-/// own Esc is: **a decision xfx was never given is a refusal**. A question
+/// own Ctrl-C is: **a decision xfx was never given is a refusal**. A question
 /// whose three choices were off the bottom of the screen would leave the
 /// session waiting for an answer the user has no way to give, which is worse
 /// than a change that did not happen. In the document rather than on the hint
@@ -226,7 +262,7 @@ pub(crate) const APPROVAL_NOT_READY: &str =
 /// be granted must still be refusable.
 pub(crate) const APPROVAL_NOT_DISCLOSED: &str =
     "this screen cannot show the whole request, so it cannot be approved here; \
-     make the window larger, or press 3 or esc to refuse";
+     make the window larger, or press 3 or ctrl+c to refuse";
 
 /// What the user is told when the screen cannot hold a question the **model**
 /// asked ([`super::question`]).
@@ -633,7 +669,7 @@ pub(crate) struct Shell {
     ask: Option<QuestionPanel>,
     /// Which plane the session is composing frames for.
     ///
-    /// Taken when a question arrives that the band's summary cannot show, and
+    /// Taken when a question arrives that the band's review cannot show, and
     /// given back the instant that question is answered -- by a choice, by a
     /// refusal, or by the interrupt that refuses it on the user's behalf. Held
     /// beside [`Self::panel`] rather than derived from it because the two are
@@ -749,6 +785,64 @@ pub(crate) struct Shell {
     fatal: Option<String>,
     /// How the session is ending, once it is.
     leaving: Option<Leaving>,
+    /// The `/copy`s still running on their own threads, and how each went
+    /// ([`super::copy`]).
+    copies: Copies,
+    /// What the terminal writer has done this session, for `/stats`.
+    ///
+    /// Counted by the loop that does the writing (`super::event_loop`), which
+    /// is the only place a byte reaching the terminal or a repaint landing is
+    /// known; held here because `/stats` is answered here.
+    pub(crate) metrics: Metrics,
+}
+
+/// What `/stats` reports: the terminal writer's counters.
+///
+/// Upstream's `Metrics` (`vercel-labs/fx@c1db9191
+/// src/core/shared/types.zig:15-21`), less the two it never increments
+/// ([`Metrics::body`]). Each counter is one named event and nothing else, so
+/// the three cannot count the same thing twice.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Metrics {
+    /// Bytes the terminal took, as the kernel counted them
+    /// (`super::deliver::Sink::emit`): every frame, append, clear and query the
+    /// loop wrote, and the delivered prefix of one that failed part way.
+    /// Upstream counts the same thing at its frame sink
+    /// (`src/ui/transcript/io.zig:58,67`).
+    pub(crate) ansi_bytes: u64,
+    /// Whole repaints that **landed** because something other than the band
+    /// wrote on the screen -- a resume, a `/clear`, a Ctrl-L: a frame whose
+    /// attempt was damaged (`super::render_request::Attempt::damaged`) and
+    /// that the terminal took. The launch's first frame is whole too and is not
+    /// one of these, since nothing damaged it; nor is the repaint after a
+    /// resize, which is [`Self::debounced_resizes`]'s. Upstream's own counter
+    /// is reached only from its tests at `c1db919` (`.reanchor_top`,
+    /// `src/ui/resize_runtime.zig:167`), so its `/stats` prints `redraws=0`
+    /// where xfx's can print more.
+    pub(crate) redraws: u64,
+    /// Bursts of `SIGWINCH` answered with one re-solve at a size that really
+    /// changed (`super::render_request::RESIZE_DEBOUNCE`), whether or not a
+    /// band fits on it; a burst that ended where it began costs nothing and
+    /// counts nothing, as upstream's returns before counting
+    /// (`src/ui/resize_runtime.zig:275-283`).
+    pub(crate) debounced_resizes: u64,
+}
+
+impl Metrics {
+    /// The `/stats` body, in upstream's words and order
+    /// (`commandShowStats`, `src/core/app/app_commands.zig:1009-1022`).
+    ///
+    /// `footer_updates` and `stream_chunks` are written as `0` because that is
+    /// what upstream prints for them, always: nothing in it increments either
+    /// (their only assignment outside the formatter is a test fixture,
+    /// `app_input_runtime.zig:7775-7776`). Kept so the line reads the same on
+    /// both, and literal so nobody mistakes them for something xfx measures.
+    pub(crate) fn body(&self) -> String {
+        format!(
+            "ansi_bytes={}, redraws={}, debounced_resizes={}, footer_updates=0, stream_chunks=0",
+            self.ansi_bytes, self.redraws, self.debounced_resizes
+        )
+    }
 }
 
 /// Which plane the session is composing frames for.
@@ -787,7 +881,7 @@ pub(crate) enum ScreenOwner {
 enum Asked {
     /// The band's own panel, with the document still above it.
     Inline(Panel),
-    /// A screen of its own, for a change the band's summary cannot show.
+    /// A screen of its own, for a change the band's review cannot show.
     Alternate(ApprovalScreen),
 }
 
@@ -1015,6 +1109,14 @@ impl Shell {
         theme_locked: bool,
         work: WorkHandle,
     ) -> Self {
+        // The user's clipboard -- except in a shell a test built, which
+        // reaches none unless the test hands it a fake one: typing `/copy`
+        // in a case about something else must not be able to write the
+        // clipboard of whoever is running the suite.
+        #[cfg(not(test))]
+        let clipboard = Clipboard::system();
+        #[cfg(test)]
+        let clipboard = Clipboard::searching(super::copy::NOWHERE);
         Self {
             // Under a document of no rows: the launch pushed the shell's output
             // into scrollback, so the screen this session opens on is empty.
@@ -1093,6 +1195,8 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            copies: Copies::new(clipboard),
+            metrics: Metrics::default(),
         }
     }
 
@@ -1122,8 +1226,17 @@ impl Shell {
         // behind upstream's rail: `┃` in the hint colour and a space, or `┃↑`
         // on the first row shown when rows above it are scrolled out of view
         // (`input_presentation.zig:977-992`).
+        //
+        // **None while a permission question is up**: the question replaces
+        // the composer, as upstream's replaces its footer
+        // ([`layout::fits_approval`]), and the draft waits in the editor,
+        // unpainted, for the answer to give the band back.
         let composer = self.editor.rows(self.text_cols());
-        let window = self.window(composer.len());
+        let window = if self.geometry.input_rows() == 0 {
+            0..0
+        } else {
+            self.window(composer.len())
+        };
         let first_shown = window.start;
         let mut shown = 0;
         for index in window {
@@ -1158,7 +1271,9 @@ impl Shell {
         if self.geometry.panel > 0 {
             rows.push(self.rule());
             let mut panel = match self.slot() {
-                Some(Slot::Question(panel)) => panel.rows(self.geometry.cols, self.geometry.rows),
+                Some(Slot::Question(panel)) => {
+                    panel.painted(self.geometry.cols, self.geometry.rows, &self.palette)
+                }
                 Some(Slot::Ask(ask)) => ask.rows(self.geometry.cols, self.geometry.rows),
                 // In the rows the geometry gave it, which are the rows its own
                 // height asked for: one layout answers both
@@ -1181,7 +1296,8 @@ impl Shell {
         }
         // The hint row: what a turn will be run with, in upstream's order and
         // budgeted to the screen ([`super::hint`]) -- or, while the menu is
-        // up, the keys it binds.
+        // up, the keys it binds; or, while a permission question is up, what
+        // its keys do.
         rows.push(self.hint_or_key_help());
         rows
     }
@@ -1191,10 +1307,16 @@ impl Shell {
     /// **Replaced, not annotated, while the menu is up**: upstream paints the
     /// slash menu's key help in that row instead of the hint, in the dim grey
     /// rather than the statusline's (`paint_plan.zig:970-971`), and with no
-    /// notice or armed gesture beside it. A question does not get this row --
-    /// the slot is the question's then ([`Self::slot`]), and so is the hint.
+    /// notice or armed gesture beside it. A menu does not get this row while a
+    /// question is up -- the slot is the question's then ([`Self::slot`]), and
+    /// so is the row: what the question's keys do (`approval_ui.zig:20-25`).
+    /// A notice the question owes the user still wins the row for as long as
+    /// it stands, because it is about the keystroke just pressed.
     fn hint_or_key_help(&self) -> String {
         match self.slot() {
+            Some(Slot::Question(panel)) if self.notice.is_none() => {
+                panel.hint(self.geometry.cols, &self.palette)
+            }
             Some(Slot::Menu(_)) => self.painted(
                 self.palette.dim(),
                 picker::key_help(self.geometry.cols).to_string(),
@@ -1461,6 +1583,34 @@ impl Shell {
         self.write_transcript_as(&line, Role::Plain);
         self.end_transcript_line();
         self.end_transcript_line();
+    }
+
+    /// Says that this session continues a saved one, as upstream's resume does
+    /// (`writeResumeNotice`, `app_session_runtime.zig:4657-4672`): a neutral
+    /// notice under `session resumed` whose body is the session's title, and
+    /// the title is the window's from here on, as a title the first turn had
+    /// given it would be.
+    ///
+    /// `title` is the store's title of the session's first prompt, read off a
+    /// log on disk, so it is made inert before it is written anywhere. A
+    /// session with none is called what upstream calls one, and the window
+    /// keeps the workspace's fallback.
+    ///
+    /// Upstream replays the session's turns into the document under this line;
+    /// xfx does not yet, so the notice is what says the conversation the next
+    /// prompt continues is the saved one.
+    pub(crate) fn resumed(&mut self, title: Option<String>) {
+        let title = title
+            .map(|title| super::bridge::inert(&title).trim().to_string())
+            .filter(|title| !title.is_empty());
+        let body = title
+            .clone()
+            .unwrap_or_else(|| UNTITLED_SESSION.to_string());
+        self.announce(notice::Notice::neutral("session resumed", body));
+        if title.is_some() {
+            self.session_title = title;
+            self.retitle();
+        }
     }
 
     /// Ends the transcript's current line, leaving it in the document.
@@ -1824,28 +1974,43 @@ impl Shell {
     /// **Each surface answers the fit question for itself**, because they are
     /// two different questions. The band's panel takes rows *from the band*,
     /// so whether it fits depends on everything else the band is costing
-    /// ([`layout::fits_panel`]); the review plane takes a screen of its own, so
-    /// what it needs is that the screen can carry its three answers
+    /// ([`layout::fits_approval`]); the review plane takes a screen of its own,
+    /// so what it needs is that the screen can carry its three answers
     /// ([`ApprovalScreen::presents_choices`]). Asking the band's question about
     /// a question the band was never going to show is how a short window came
     /// to deny a change the plane can display whole.
+    ///
+    /// **A change the band cannot hold on this screen is reviewed on the
+    /// plane** rather than refused: upstream moves a question too tall for its
+    /// footer onto its review screen (`approval_screen.zig:208-223`,
+    /// `needsScreen`), and a review is what the plane is for. A question with
+    /// no change to review -- a command, a directory -- has nothing the plane
+    /// would show better, so it is refused as before.
     fn ask(&mut self, id: ApprovalId, request: ApprovalRequest) {
+        let (cols, rows) = (self.geometry.cols, self.geometry.rows);
         // Which plane the question belongs on, settled from the change itself
         // before anything is installed ([`approval::ApprovalSurface`]).
         let surface = approval::ApprovalSurface::for_request(&request);
+        let reviewable = request.diff.is_some();
+        let on_the_plane = |request: ApprovalRequest| {
+            let screen = ApprovalScreen::new(request);
+            screen
+                .presents_choices(cols, rows)
+                .then_some(Asked::Alternate(screen))
+        };
         let composed = match surface {
             approval::ApprovalSurface::Inline => {
-                let panel = Panel::new(request);
-                let rows = panel.height(self.geometry.cols, self.geometry.rows);
-                layout::fits_panel(self.geometry.rows, self.geometry.cols, rows)
-                    .then_some(Asked::Inline(panel))
+                let panel = Panel::new(request.clone());
+                let height = panel.height(cols, rows);
+                if layout::fits_approval(rows, cols, height) {
+                    Some(Asked::Inline(panel))
+                } else if reviewable {
+                    on_the_plane(request)
+                } else {
+                    None
+                }
             }
-            approval::ApprovalSurface::Alternate => {
-                let screen = ApprovalScreen::new(request);
-                screen
-                    .presents_choices(self.geometry.cols, self.geometry.rows)
-                    .then_some(Asked::Alternate(screen))
-            }
+            approval::ApprovalSurface::Alternate => on_the_plane(request),
         };
         let Some(composed) = composed else {
             // **Before the owner moves.** A question that was never asked has
@@ -1890,6 +2055,10 @@ impl Shell {
             Asked::Inline(panel) => {
                 self.panel = Some(panel);
                 self.owner = ScreenOwner::Primary;
+                // The hint row is the question's now ([`Self::band_rows`]), and
+                // a refusal left on it from some earlier keystroke would stand
+                // in front of the keys the question is waiting for.
+                self.notice = None;
             }
             // The band keeps none of its rows for this one: the question is
             // painted on the other plane, and the band underneath stays exactly
@@ -1957,7 +2126,7 @@ impl Shell {
     pub(crate) fn screen_rows(&self) -> Vec<String> {
         self.alternate
             .as_ref()
-            .map(|screen| screen.rows(self.geometry.cols, self.geometry.rows))
+            .map(|screen| screen.painted(self.geometry.cols, self.geometry.rows, &self.palette))
             .unwrap_or_default()
     }
 
@@ -2348,17 +2517,32 @@ impl Shell {
     /// a Ctrl-D at one does not end a session that is holding a turn open
     /// waiting to be told what to do.
     ///
-    /// **Ctrl-C is the exception to "the panel answers it", and it is the whole
-    /// of why this takes a clock.** A question does not stop being a turn: the
-    /// key means what it means everywhere else on this surface -- stop the work
-    /// and drop what is queued behind it ([`Self::interrupt`]) -- and the
-    /// refusal of the question comes back *with* it rather than instead of it,
-    /// because the prompter is the thing parked on that channel and it turns a
-    /// cancellation into a `Deny` and hands the cancellation on to the loop that
-    /// can act on it (`super::approval::TuiPrompter`). Answering `Deny` here and
-    /// stopping there would leave the user watching the turn they interrupted
-    /// carry on, with the prompt they had queued behind it running next.
+    /// **The two bail-out keys are upstream's** (`vercel-labs/fx@c1db919`,
+    /// pinned by its e2e `tests/e2e/tui-permissions.test.ts:1099`):
+    ///
+    /// * **Ctrl-C refuses this call and nothing else** (`src/ui/input/runtime.zig:61`,
+    ///   `3 => .deny`). The turn goes on, told no, exactly as if `3` had been
+    ///   pressed -- minus whatever the deny draft held, because a key that says
+    ///   nothing sends nothing (`approval_decision.zig:132-135`).
+    /// * **Escape cancels the turn** (`app_input_runtime.zig:3139-3143`,
+    ///   `cancelApprovalOperation`), and it is the whole of why this takes a
+    ///   clock: the question is refused *with* the interrupt rather than
+    ///   instead of it ([`Self::interrupt`]), because the prompter is the thing
+    ///   parked on that channel and it turns a cancellation into a `Deny` and
+    ///   hands the cancellation on to the loop that can act on it
+    ///   (`super::approval::TuiPrompter`). Answering `Deny` and stopping there
+    ///   would leave the user watching the turn they cancelled carry on, with
+    ///   the prompt they had queued behind it running next.
+    ///
+    /// Both are the reverse of what xfx's panel did before (Escape refused the
+    /// call, Ctrl-C stopped the turn): divergence 7 of `.prd/tui-phase4/ssot.md`.
     fn decide(&mut self, event: Input, now: Instant) {
+        // A notice on the hint row is about the keystroke before this one; the
+        // question's own hint takes the row back unless this one earns another
+        // ([`Self::notice_at_the_question`]).
+        if self.notice.take().is_some() {
+            self.render.request(Reason::Footer);
+        }
         // The two keys that walk a change too long for one screen, and they are
         // bound **only** where there is one to walk: a bounded diff is up to
         // 128 KiB (`crate::permission::ApprovalDiff`) and a screen is a few
@@ -2552,13 +2736,13 @@ impl Shell {
         self.invalidate_approval();
         self.owner = ScreenOwner::Primary;
         match action {
-            // One message, both meanings. `Deny` is what the prompter answers a
-            // cancellation with on the far side, so sending `Answer(Deny)` here
-            // as well would be the *only* thing the runtime heard -- and the
-            // turn this question belongs to, and whatever was queued behind it,
-            // would go on running after the user asked everything to stop.
-            // **One message still**, and it carries no sentence: the drafts
-            // were dropped above, so an interrupt at a filled draft says
+            // Escape: one message, both meanings. `Deny` is what the prompter
+            // answers a cancellation with on the far side, so sending
+            // `Answer(Deny)` here as well would be the *only* thing the runtime
+            // heard -- and the turn this question belongs to, and whatever was
+            // queued behind it, would go on running after the user asked for it
+            // to stop. **One message still**, and it carries no sentence: the
+            // drafts were dropped above, so a cancel at a filled draft says
             // nothing on either channel.
             // **The call this panel was asking about is stopped by this key**:
             // the prompter answers the stop by refusing it and handing the
@@ -2568,11 +2752,11 @@ impl Shell {
             // (`fx-approvals-cc-40x120-after-esc`); the refusal the runtime
             // reports for it next is the same stop in the tool's words, and is
             // dropped ([`Self::abandoned`]).
-            approval::Action::Cancel => {
+            approval::Action::Escape => {
                 self.settle_group();
                 self.interrupt(now);
             }
-            // Esc and the rest are an answer about *this call* and nothing
+            // Ctrl-C and the rest are an answer about *this call* and nothing
             // more: the turn goes on, and is told no -- with whatever the user
             // said about it, which is context and never authority.
             _ => {
@@ -3153,6 +3337,14 @@ impl Shell {
         self.leave_by(Leaving::Quit);
     }
 
+    /// The line that names `id` as the session to come back to
+    /// ([`resume_handoff`]), in this session's palette and at the width the
+    /// terminal last reported -- upstream measures it against its own layout's
+    /// columns (`resumeHandoffColumns`, `main.zig:918-920`).
+    pub(crate) fn resume_handoff(&self, id: &crate::session::SessionId) -> String {
+        resume_handoff(id.as_str(), self.screen.1, self.palette)
+    }
+
     /// Ends the session, keeping the first reason it was given.
     ///
     /// First rather than last: an interrupted session that then reaches a
@@ -3200,6 +3392,8 @@ impl Shell {
     /// keystroke, and a row painted from a fresher read than the one that
     /// triggered it would show a number no frame was owed for.
     pub(crate) fn settle_band(&mut self, now: Instant) {
+        // A copy finishing is another answer only the other thread produces.
+        self.settle_copies();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -3218,6 +3412,22 @@ impl Shell {
         // turn of the loop is what releases it. Last, so the rows it adds are
         // measured against a band this turn has already settled.
         self.pace(now);
+    }
+
+    /// Says how each `/copy` that has finished went, in the order they
+    /// finished.
+    ///
+    /// Once a turn, from [`Self::settle_band`]: a copy runs on its own thread
+    /// ([`super::copy`]), so its outcome is a fact that arrives rather than one
+    /// this thread waits for.
+    fn settle_copies(&mut self) {
+        while let Some(copied) = self.copies.finished() {
+            self.announce(if copied {
+                notice::Notice::neutral(clipboard::TOPIC, clipboard::COPIED)
+            } else {
+                notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
+            });
+        }
     }
 
     /// Settles the row that says what the turn is doing.
@@ -4324,6 +4534,37 @@ impl CommandHandlers for Shell {
         self.use_model(argument);
     }
 
+    /// Upstream's `* stats: ansi_bytes=…, redraws=…, debounced_resizes=…,
+    /// footer_updates=0, stream_chunks=0` (`app_commands.zig:1009-1022`): the
+    /// counters as they stand **before** this notice is written, as upstream's
+    /// are -- its own bytes are counted by the frame that delivers them.
+    fn stats(&mut self) {
+        self.announce(notice::Notice::neutral("stats", self.metrics.body()));
+    }
+
+    /// Upstream's `* status: model=…` with one `key=value` row per fact under
+    /// it (`showStatus`, `session_commands.zig:278-310`), from the snapshot
+    /// the runtime last published ([`super::worker::StatusBoard`]) -- so the
+    /// model is the one the selector holds, the configuration is the one a
+    /// provider switch reloaded, and the turn and grant counts are the live
+    /// conversation's rather than the store's last session. Read, never asked
+    /// for: the runtime may be a minute into a turn.
+    ///
+    /// xfx's own facts stay (`provider`, `provider_url`, `sandbox`); upstream's
+    /// `update_channel` and `ultrafast_requested` are about an updater and an
+    /// Ultra mode xfx does not have, so they are not printed as if it did.
+    ///
+    /// Made inert here rather than at the channel, because this text never
+    /// crosses it: the workspace path and a settings value quoted by
+    /// `provider_rejected` are not xfx's to trust on a terminal.
+    fn status(&mut self) {
+        let body = self.work.status().notice_body();
+        self.announce(notice::Notice::neutral(
+            "status",
+            bridge::inert(&body).into_owned(),
+        ));
+    }
+
     /// Upstream's `* version: 0.0.13` (`app_commands.zig:2153-2160`): the
     /// bare version, no `v` and no build. The build is the welcome line's to
     /// say, and the channel and revision are `xfx status`'s.
@@ -4331,12 +4572,44 @@ impl CommandHandlers for Shell {
         self.announce(notice::Notice::neutral("version", crate::VERSION));
     }
 
+    /// Upstream's `commandQuit` (`app_commands.zig:662-665`): the session
+    /// ends with status 0, and on the way out names itself as the one to
+    /// resume when it had a conversation (`requestResumeExit`, `:344-348`).
+    /// The naming is the exit's, not this handler's -- `super::worker`'s
+    /// `Worker::resumable` once the runtime has stopped, written by `super`'s
+    /// `session` after the restore -- so Ctrl-D and the second Ctrl-C, which
+    /// request the same handoff upstream (`app_input_runtime.zig:1691`,
+    /// `:1752`), name it too.
     fn quit(&mut self) {
         self.leave();
     }
 
     fn setup(&mut self, argument: &str) {
         self.use_provider(argument);
+    }
+
+    /// Upstream's `commandCopyLast` (`app_commands.zig:1974-2001`): the
+    /// conversation's last reply onto the clipboard, raw.
+    ///
+    /// The reply is the one the runtime last published
+    /// ([`WorkHandle::last_reply`]) -- read at once, so a `/copy` typed while a
+    /// turn is running copies the reply before it, as upstream's does, rather
+    /// than waiting for that turn. "Nothing to copy" is said here; how the
+    /// copy went is said when its thread says so ([`Self::settle_copies`]).
+    fn copy(&mut self) {
+        let Some(reply) = self.work.last_reply() else {
+            self.announce(notice::Notice::neutral(
+                clipboard::TOPIC,
+                clipboard::NO_REPLY,
+            ));
+            return;
+        };
+        if !self.copies.start(reply) {
+            self.announce(notice::Notice::error(
+                clipboard::TOPIC,
+                clipboard::COPY_FAILED,
+            ));
+        }
     }
 }
 
@@ -4766,6 +5039,14 @@ impl Shell {
         // search is bounded by the cap and always finds an answer for a panel
         // that [`layout::fits_panel`] admitted, because that is the same
         // question asked of a one-row composer.
+        //
+        // **A permission question takes them all**: upstream's question
+        // replaces the composer rather than sitting under it
+        // ([`layout::fits_approval`]), so the band is solved with none.
+        if self.panel.is_some() {
+            return layout::solve_band(rows, cols, 0, activity, fixed)
+                .map(|geometry| geometry.floated(self.document_rows));
+        }
         (1..=wanted)
             .rev()
             .find_map(|input_rows| {
@@ -5092,7 +5373,7 @@ mod tests {
                     .shell
                     .screen_rows()
                     .get(row - 1)
-                    .cloned()
+                    .map(|row| uncoloured(row))
                     .unwrap_or_else(|| panic!("the caret is not on a row of the approval screen"));
             }
             let offset = usize::from(
@@ -5101,12 +5382,48 @@ mod tests {
                     .0
                     .saturating_sub(self.shell.geometry.band_top()),
             );
+            // A permission question's rows carry upstream's sequences, and
+            // what a question case reads is the words; every other row is
+            // compared colour and all, as it always was.
+            let painted = self.shell.panel.is_some();
             self.shell
                 .band_rows()
                 .get(offset)
-                .cloned()
+                .map(|row| {
+                    if painted {
+                        uncoloured(row)
+                    } else {
+                        row.clone()
+                    }
+                })
                 .unwrap_or_else(|| panic!("the caret is not on a row of the band"))
         }
+    }
+
+    /// `row` with every escape sequence taken out: the text a reader sees.
+    ///
+    /// A permission question's rows are painted in upstream's sequences
+    /// (`super::super::approval_view`), and a case about *what the question
+    /// says* would otherwise be asserting on where a colour run happens to
+    /// start.
+    fn uncoloured(row: &str) -> String {
+        let mut out = String::with_capacity(row.len());
+        let mut rest = row;
+        while !rest.is_empty() {
+            if let Some(len) = super::super::pacer::escape_at(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            let mut characters = rest.chars();
+            out.extend(characters.next());
+            rest = characters.as_str();
+        }
+        out
+    }
+
+    /// Every row of `rows`, [`uncoloured`].
+    fn uncoloured_rows(rows: &[String]) -> Vec<String> {
+        rows.iter().map(|row| uncoloured(row)).collect()
     }
 
     /// A composer row holding `text`, rail and all, as the band paints it.
@@ -7687,22 +8004,21 @@ mod tests {
                 "allow every future edit_file to `notes.txt` for the rest of this session"
                     .to_string(),
             diff: None,
+            subject: crate::permission::ApprovalSubject::Path("notes.txt".to_string()),
         }
     }
 
     /// How many rows [`asked`] really needs on an eighty-column screen.
     ///
-    /// **A changed coordinate, and this is why.** It used to be eight, which
-    /// was the compact entry of a three-row table the panel no longer has: its
-    /// heights are measured from the request now
-    /// (`super::super::approval`'s `Shape::for_request`), because every
-    /// always-scope `crate::permission` builds is three wrapped rows at eighty
-    /// columns and a fixed two cut it. This fixture carries the short
-    /// hand-written scope, so what it demands is a title, one row of summary,
-    /// the three answers and one row of scope. Named once rather than spelled
-    /// at each of its seven uses, so that the next change to the wording moves
-    /// one number.
-    const PANEL_ROWS: u16 = 6;
+    /// **A changed coordinate, and this is why.** The panel is upstream's file
+    /// question now (`super::super::approval_view`): the review of the change
+    /// -- one notice row, because this fixture carries no diff -- the dotted
+    /// rule, the header, the path and its question, the three answers and one
+    /// row of this fixture's short hand-written scope. Below
+    /// `approval::SPACIOUS_AT` rows there are no blank rows between the parts.
+    /// Named once rather than spelled at each of its uses, so that the next
+    /// change to the wording moves one number.
+    const PANEL_ROWS: u16 = 8;
 
     /// The envelope a question reaches the shell in.
     ///
@@ -7717,12 +8033,15 @@ mod tests {
         }
     }
 
-    /// The same question about a change too big for the band's own summary.
+    /// The same question about a change too big for the band's review: forty
+    /// lines replaced, eighty rows (`approval::BAND_REVIEW_LINES`).
     fn asked_about_a_large_change() -> ApprovalRequest {
         let mut request = asked();
         request.diff = Some(crate::permission::ApprovalDiff {
-            before: "a".repeat(4_000),
-            after: "b".repeat(4_000),
+            before: "alpha\n".repeat(40),
+            after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         request
     }
@@ -7918,7 +8237,7 @@ mod tests {
                 );
                 // The whole sentence is on the band, tail included: what
                 // "always" buys is half the question.
-                let painted = shell.band_rows().join(" ");
+                let painted = uncoloured_rows(&shell.band_rows()).join(" ");
                 let tail = if durable {
                     "of this saved session"
                 } else {
@@ -7952,8 +8271,10 @@ mod tests {
         let mut shell = shell(24, 30);
         let mut request = as_the_session_builds_it(true);
         request.diff = Some(crate::permission::ApprovalDiff {
-            before: "a".repeat(4_000),
-            after: "b".repeat(4_000),
+            before: "alpha\n".repeat(40),
+            after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         shell.apply(UiEvent::Approval(question(request)));
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
@@ -7969,7 +8290,7 @@ mod tests {
             shell.released().is_empty(),
             "the refusal went to the document, which is behind this plane"
         );
-        let notice = unwrapped(&shell.screen_rows());
+        let notice = unwrapped(&uncoloured_rows(&shell.screen_rows()));
         // The **leading clause**, not the whole sentence: the status line is
         // bounded to `STATUS_ROWS` on purpose, and thirty cells is narrow
         // enough that two rows do not hold all of it. A notice allowed to grow
@@ -7981,7 +8302,7 @@ mod tests {
             "the plane that owns the screen never said why: {notice:?}"
         );
         assert!(
-            notice.contains("3. No (esc)"),
+            notice.contains("3 Don't apply"),
             "the refusal took an answer off the screen: {notice:?}"
         );
 
@@ -8007,8 +8328,10 @@ mod tests {
         let mut wide = self::shell(40, 120);
         let mut request = as_the_session_builds_it(true);
         request.diff = Some(crate::permission::ApprovalDiff {
-            before: "a".repeat(4_000),
-            after: "b".repeat(4_000),
+            before: "alpha\n".repeat(40),
+            after: "beta\n".repeat(40),
+            first_line: 1,
+            lines_below: 0,
         });
         wide.apply(UiEvent::Approval(question(request)));
         assert_eq!(wide.screen_owner(), ScreenOwner::Approval);
@@ -8091,7 +8414,7 @@ mod tests {
         // A gate that held the refusals as well would leave a user who cannot
         // read the question with no way to say no to it either -- which turns a
         // safety check into a session that cannot be got out of.
-        for key in [Input::Text('3'), Input::Action(Action::Escape)] {
+        for key in [Input::Text('3'), Input::Action(Action::Cancel)] {
             let mut shell = shell(24, 80);
             shell.apply(UiEvent::Approval(question(asked())));
             shell.decide(key.clone(), Instant::now());
@@ -8105,12 +8428,13 @@ mod tests {
                 "{key:?} was gated"
             );
         }
-        // Ctrl-C needs a turn to be about ([`Shell::interrupt`] reads
-        // `WorkHandle::outstanding`), so this half is driven with one running.
+        // Escape cancels the turn, and a cancel needs a turn to be about
+        // ([`Shell::interrupt`] reads `WorkHandle::outstanding`), so this half
+        // is driven with one running.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked())));
-        shell.decide(Input::Action(Action::Cancel), started);
+        shell.decide(Input::Action(Action::Escape), started);
         assert!(matches!(
             shell.controlled(),
             Some(TurnControl::Cancel { .. })
@@ -8161,11 +8485,14 @@ mod tests {
     }
 
     #[test]
-    fn a_question_takes_rows_between_the_composer_and_the_rule() {
-        // Upstream's picker slot (`footer_layout.zig:85-96`): the question sits
-        // under the composer between two rules, so the bottom rule and the hint
-        // row stay put and the composer moves up by the panel and the rule that
-        // heads it. Those rows come off the bottom of the document.
+    fn a_question_takes_the_composers_rows_and_sits_between_two_rules() {
+        // Upstream's question replaces the footer -- the composer, its blank
+        // and the statusline -- with its own rules, rows and hint
+        // (`render_input.zig:705`; `fx-approvals-40x120-edit-ask` rows 5-20).
+        // So the bottom rule and the hint row stay put, the composer's row
+        // becomes the rule that heads the question, and the panel's rows come
+        // off the bottom of the document. (Renamed and re-coordinated: the
+        // question sat *under* a still-painted composer before.)
         let mut shell = shell(24, 80);
         let working = {
             let started = turn_running(&mut shell, b"edit the notes\r");
@@ -8181,14 +8508,12 @@ mod tests {
             "the band did not give the question the rows it measured"
         );
         assert_eq!(shell.geometry.divider, working.divider);
-        assert_eq!(
-            shell.geometry.input_first,
-            working.input_first - PANEL_ROWS - 1
-        );
+        assert_eq!(shell.geometry.input_rows(), 0, "the composer kept a row");
+        assert_eq!(shell.geometry.input_first, working.input_first - PANEL_ROWS);
         assert_eq!(shell.geometry.hint, working.hint);
         assert_eq!(
             shell.geometry.content_bottom,
-            working.content_bottom - PANEL_ROWS - 1
+            working.content_bottom - PANEL_ROWS
         );
 
         let rows = shell.band_rows();
@@ -8197,20 +8522,80 @@ mod tests {
             usize::from(shell.geometry.band_rows()),
             "the band painted a different number of rows than it solved for"
         );
-        let painted = rows.join("\n");
-        assert!(painted.contains("Permission needed"), "{painted}");
+        let painted = uncoloured_rows(&rows).join("\n");
         assert!(
-            painted.contains("replace \"alpha\" with \"beta\""),
+            painted.contains("Permission needed · Review change"),
             "{painted}"
         );
         assert!(
-            painted.contains("don't ask again for this request"),
+            painted.contains("notes.txt  ·  Apply this change?"),
+            "{painted}"
+        );
+        assert!(
+            painted.contains("Apply + allow future edits to this file for this session"),
             "{painted}"
         );
         assert!(
             painted.contains("for the rest of this session"),
             "the panel never said what \"always\" would grant: {painted}"
         );
+        assert!(
+            !painted.contains(RAIL),
+            "the composer was painted under the question: {painted}"
+        );
+        // And the hint row is the question's: what its keys do.
+        assert_eq!(
+            uncoloured(rows.last().expect("a hint row")),
+            "  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel"
+        );
+    }
+
+    #[test]
+    fn a_question_over_the_catalog_takes_its_slot_and_its_hint_row_until_it_is_answered() {
+        // The catalog and a question share the slot and the hint row, and the
+        // question outranks it in both ([`Shell::slot`]): a hint row still
+        // naming the catalog's keys would describe keys the question is
+        // swallowing. Answered, the catalog -- which the question did not
+        // close -- has both back.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.route_bytes(b"/help\r");
+        assert!(shell.help_menu.is_some(), "/help did not open the catalog");
+        let catalog_help = format!(
+            "{}{}{}",
+            PALETTE.dim(),
+            help_menu::key_help(80),
+            PALETTE.reset()
+        );
+        assert_eq!(shell.band_rows().last(), Some(&catalog_help));
+
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        let rows = shell.band_rows();
+        let painted = uncoloured_rows(&rows).join("\n");
+        assert!(
+            painted.contains("Permission needed · Review change"),
+            "{painted}"
+        );
+        assert_eq!(
+            uncoloured(rows.last().expect("a hint row")),
+            "  1–3 choose now    ↑↓ options    tab amend    enter confirm    esc cancel"
+        );
+        // And its keys: the ones both bind go to the question, not to the
+        // catalog standing behind it.
+        let catalog = shell.help_menu.clone();
+        shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
+        shell.route_bytes(&[0x1b, 0x5b, 0x5a]); // Shift-Tab
+        assert!(shell.marked().starts_with("  ❯ 2"), "{}", shell.marked());
+        assert_eq!(
+            shell.help_menu, catalog,
+            "the catalog took a question's key"
+        );
+
+        delivered(&mut shell);
+        shell.route_bytes(b"3");
+        assert!(shell.panel.is_none(), "the answer left the question up");
+        assert_eq!(shell.band_rows().last(), Some(&catalog_help));
     }
 
     #[test]
@@ -8223,10 +8608,10 @@ mod tests {
         shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
 
-        assert_eq!(shell.marked(), "> 1. Yes");
+        assert_eq!(shell.marked(), "  ❯ 1  Apply once");
         shell.route_bytes(&[0x1b, 0x5b, 0x42]); // Down
         assert!(
-            shell.marked().starts_with("> 2. Yes, and"),
+            shell.marked().starts_with("  ❯ 2  Apply + allow"),
             "the caret did not follow the marker: {:?}",
             shell.marked()
         );
@@ -8307,26 +8692,25 @@ mod tests {
     }
 
     #[test]
-    fn escape_at_a_question_refuses_it_rather_than_arming_the_clear() {
+    fn escape_at_a_question_cancels_the_turn_rather_than_arming_the_clear() {
         // The double-Escape gesture is the composer's, and the composer does
         // not have the focus. A first Escape that armed it would leave a
         // question up and a warning about a draft the user is not editing.
+        // (Claim changed: Escape refused the call; it cancels the turn now, as
+        // upstream's does -- divergence 7.)
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.route_bytes(b"a draft");
         shell.apply(UiEvent::Approval(question(asked())));
         shell.settle_band(started);
+        let accepted = shell.work.accepted();
 
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Duration::from_millis(100));
 
         assert_eq!(
             shell.controlled(),
-            Some(TurnControl::Answer {
-                id: ApprovalId(1),
-                answer: ApprovalAnswer::Deny,
-                feedback: None,
-            })
+            Some(TurnControl::Cancel { through: accepted })
         );
         assert!(!shell.hint().contains(ESCAPE_ARMED), "the clear was armed");
         assert_eq!(
@@ -8337,7 +8721,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_at_a_question_is_the_interrupt_it_is_everywhere_else() {
+    fn escape_at_a_question_is_the_interrupt_that_cancels_the_turn() {
         // **The message on the wire is a cancellation, not an answer**, and the
         // difference is the whole of this case. The refusal of the question
         // comes back with it: the prompter is what is parked on this channel,
@@ -8345,15 +8729,18 @@ mod tests {
         // on to the loop that stops the turn and drops the queue
         // (`super::approval::TuiPrompter`, and the composed proof in
         // `tests/tui.rs`). An `Answer(Deny)` sent from here would be the only
-        // thing the runtime ever heard, and the interrupted turn would carry on.
+        // thing the runtime ever heard, and the cancelled turn would carry on.
+        // (Renamed: this was Ctrl-C's; upstream gives it to Escape,
+        // `app_input_runtime.zig:3139-3143`.)
         let mut shell = shell(24, 80);
-        // A prompt is waiting behind the interrupted turn, so the message this
+        // A prompt is waiting behind the cancelled turn, so the message this
         // sends has to carry the watermark that says which waiting work the
         // keystroke was about.
         asking_with_one_waiting(&mut shell);
         let accepted = shell.work.accepted();
 
-        shell.route_bytes(&[0x03]);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
 
         assert_eq!(
             shell.controlled(),
@@ -8366,8 +8753,8 @@ mod tests {
             "a second message went with it; the prompter answers the question \
              from the cancellation itself"
         );
-        // And the user was told, in the two sentences a Ctrl-C is answered with
-        // wherever it is typed.
+        // And the user was told, in the two sentences the interrupt is answered
+        // with wherever it is asked for.
         let said = shell.released();
         assert!(
             said.contains(
@@ -8383,20 +8770,20 @@ mod tests {
         assert_eq!(shell.geometry.panel, 0, "the question stayed on the screen");
         assert!(
             !shell.leaving(),
-            "one Ctrl-C at a question left the session"
+            "one Escape at a question left the session"
         );
     }
 
     #[test]
-    fn escape_at_a_question_answers_only_the_question_it_is_about() {
-        // The other half of the pair: Esc is an answer about *this call* and
-        // nothing more. A turn stopped by it would make the two refusals mean
-        // different things, and the panel says `3. No (esc)` about only one.
+    fn ctrl_c_at_a_question_answers_only_the_question_it_is_about() {
+        // The other half of the pair: Ctrl-C is an answer about *this call*
+        // and nothing more (`src/ui/input/runtime.zig:61`, `3 => .deny`;
+        // upstream's e2e `tui-permissions.test.ts:1099`). A turn stopped by it
+        // would make it the same key as Escape. (Renamed: this was Escape's.)
         let mut shell = shell(24, 80);
         asking_with_one_waiting(&mut shell);
 
-        shell.route_bytes(&[0x1b]);
-        shell.settle_input(Instant::now() + Duration::from_millis(100));
+        shell.route_bytes(&[0x03]);
 
         assert_eq!(
             shell.controlled(),
@@ -8406,11 +8793,19 @@ mod tests {
                 feedback: None,
             })
         );
-        assert_eq!(shell.controlled(), None, "Esc cancelled the turn as well");
+        assert_eq!(
+            shell.controlled(),
+            None,
+            "Ctrl-C cancelled the turn as well"
+        );
         assert_eq!(
             shell.hint(),
             queued_hint(1),
-            "Esc dropped the prompt that was waiting"
+            "Ctrl-C dropped the prompt that was waiting"
+        );
+        assert!(
+            !shell.leaving(),
+            "one Ctrl-C at a question left the session"
         );
     }
 
@@ -8534,13 +8929,16 @@ mod tests {
     fn a_question_the_approval_plane_owns_still_takes_the_focus_and_every_choice() {
         // Routing is settled by the question having the focus, not by which
         // plane is painting it. Every one of the three answers, the marker
-        // walk, and the refusal keys -- because a surface that changed which
+        // walk, and the refusal key -- because a surface that changed which
         // keystroke means what would be a second input model to get wrong.
+        // (Ctrl-C rather than Escape for the refusal key: Escape cancels the
+        // turn now, which `an_escape_at_a_question_the_approval_plane_owns_gives_the_screen_back_as_well`
+        // pins on this plane.)
         for (typed, answer) in [
             (&b"1"[..], ApprovalAnswer::Once),
             (&b"2"[..], ApprovalAnswer::Always),
             (&b"3"[..], ApprovalAnswer::Deny),
-            (&[0x1b][..], ApprovalAnswer::Deny),
+            (&[0x03][..], ApprovalAnswer::Deny),
         ] {
             let mut shell = shell(24, 80);
             let started = turn_running(&mut shell, b"edit the notes\r");
@@ -8548,7 +8946,11 @@ mod tests {
             shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
             shell.settle_band(started);
             assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
-            assert_eq!(shell.marked(), "> 1. Yes", "the caret left the question");
+            assert_eq!(
+                shell.marked(),
+                "  ❯ 1  Apply once",
+                "the caret left the question"
+            );
             delivered(&mut shell);
 
             shell.route_bytes(typed);
@@ -8573,18 +8975,20 @@ mod tests {
     }
 
     #[test]
-    fn an_interrupt_at_a_question_the_approval_plane_owns_gives_the_screen_back_as_well() {
-        // Ctrl-C is the one key that is not an answer on this surface -- it
-        // stops the turn and the prompter turns that into the refusal. The
-        // screen has to come back on that path too, or an interrupt would leave
-        // the session composing frames for a plane with no question on it.
+    fn an_escape_at_a_question_the_approval_plane_owns_gives_the_screen_back_as_well() {
+        // Escape is the one key that is not an answer on this surface -- it
+        // cancels the turn and the prompter turns that into the refusal. The
+        // screen has to come back on that path too, or a cancel would leave the
+        // session composing frames for a plane with no question on it.
+        // (Renamed: this was Ctrl-C's before divergence 7.)
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(UiEvent::Approval(question(asked_about_a_large_change())));
         shell.settle_band(started);
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
 
-        shell.route_bytes(&[0x03]);
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
 
         assert_eq!(shell.screen_owner(), ScreenOwner::Primary);
         assert!(
@@ -8596,7 +9000,7 @@ mod tests {
     #[test]
     fn a_short_screen_reviews_a_large_change_on_the_plane_that_can_show_it() {
         // **The band's fit is the band's question.** A change too big for the
-        // summary is never asked in the band at all -- it takes a plane of its
+        // band's review is never asked in the band at all -- it takes a plane of its
         // own, and every row of that plane is the question -- so measuring it
         // against the rows the band's panel would have needed is refusing on
         // behalf of a surface that was never going to be used. Ten rows is
@@ -8616,8 +9020,8 @@ mod tests {
             None,
             "a question the plane can show was answered on the user's behalf"
         );
-        let painted = shell.screen_rows().join("\n");
-        for choice in ["1. Yes", "2. Yes, and", "3. No (esc)"] {
+        let painted = uncoloured_rows(&shell.screen_rows()).join("\n");
+        for choice in ["1  Apply once", "2  Apply + allow", "3  Don't apply"] {
             assert!(
                 painted.contains(choice),
                 "the plane dropped {choice:?} on a {}-row screen: {painted:?}",
@@ -8698,12 +9102,17 @@ mod tests {
             usize::from(shell.geometry.rows),
             "the alternate screen is not the whole terminal"
         );
-        let screen = screen.join("\n");
-        for needle in ["Permission needed", "notes.txt", "1. Yes", "3. No (esc)"] {
+        let screen = uncoloured_rows(&screen).join("\n");
+        for needle in [
+            "Permission needed",
+            "notes.txt",
+            "1  Apply once",
+            "3  Don't apply",
+        ] {
             assert!(screen.contains(needle), "{needle:?} is missing: {screen:?}");
         }
         assert!(
-            screen.contains("aaaa"),
+            screen.contains("+ beta"),
             "the change the screen exists to show is not on it: {screen:?}"
         );
 
@@ -8786,9 +9195,11 @@ mod tests {
         shell.settle_band(started);
         let first = shell.screen_rows().join("\n");
 
-        // `C-n`, which is "the line after this one" everywhere else on this
-        // surface and was bound to nothing at a question.
-        shell.route_bytes(&[0x0e]);
+        // `C-p`, which is "the line before this one" everywhere else on this
+        // surface and was bound to nothing at a question. (Order changed: the
+        // review opens at its tail now, against the controls, so the first
+        // walk is back toward the head.)
+        shell.route_bytes(&[0x10]);
         let moved = shell.screen_rows().join("\n");
         assert_ne!(first, moved, "the change could not be walked");
         assert_eq!(
@@ -8797,11 +9208,11 @@ mod tests {
             "walking the change answered the question"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x0e]);
         assert_eq!(
             shell.screen_rows().join("\n"),
             first,
-            "`C-p` did not walk back"
+            "`C-n` did not walk back"
         );
         assert_eq!(shell.screen_owner(), ScreenOwner::Approval);
     }
@@ -8867,7 +9278,7 @@ mod tests {
         );
         // And the caret is still on the panel rather than on a composer row
         // that no longer exists.
-        assert_eq!(shell.marked(), "> 1. Yes");
+        assert_eq!(shell.marked(), "  ❯ 1  Apply once");
     }
 
     #[test]
@@ -9718,6 +10129,148 @@ mod tests {
         );
     }
 
+    /// Turns the loop until a `/copy` that is running on its own thread has
+    /// said how it went, and hands back what the document gained.
+    fn copy_settled(shell: &mut Fixture) -> Vec<String> {
+        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            shell.settle_band(Instant::now());
+            let document = shell.document();
+            if !document.is_empty() {
+                return document;
+            }
+            assert!(Instant::now() < deadline, "the copy never said how it went");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn copy_with_no_reply_says_so_and_copies_nothing() {
+        // `fx-basic-40x120-copy-empty.txt`: `* clipboard: No assistant reply
+        // to copy.`, and no echo of `/copy` above it.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "clipboard",
+                "No assistant reply to copy."
+            ))
+        );
+        assert_eq!(tool.copied(), None, "a copy ran with nothing to copy");
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_puts_the_raw_reply_on_the_clipboard_and_then_says_so() {
+        // `fx-sessions-40x120-copy.txt` and its `od -c`: the markdown exactly
+        // as the model wrote it, backticks kept, no line break added -- and a
+        // tab the screen showed as a space (`bridge::inert`) is a tab here.
+        let reply = "ALPHA answer line one.\n\nSecond paragraph with `code`.\tTAB";
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied(reply);
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().expect("the clipboard tool was fed"),
+            reply.as_bytes()
+        );
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    #[test]
+    fn copy_that_the_clipboard_refused_is_an_error_notice() {
+        // `fx-sessions-40x120-copy-fail.txt`: the fake `pbcopy` exited 1.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_with_nowhere_to_copy_to_is_an_error_notice() {
+        // A test's shell reaches no clipboard at all (`super::copy::NOWHERE`),
+        // which is also what a machine without the tool looks like.
+        let mut shell = shell(24, 80);
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::error(
+                "clipboard",
+                "Failed to copy to clipboard."
+            ))
+        );
+    }
+
+    #[test]
+    fn copy_takes_no_argument() {
+        // `registry.zig:59-68`: `/copy` matches exactly, so `/copy now` is a
+        // command nobody has -- and nothing is copied.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.work.replied("reply");
+        shell.route_bytes(b"/copy now\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        shell.settle_band(Instant::now());
+        assert_eq!(tool.copied(), None, "`/copy now` copied");
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "`/copy now` reached the runtime"
+        );
+    }
+
+    #[test]
+    fn copy_does_not_wait_behind_the_work_the_runtime_has_in_hand() {
+        // Upstream answers `/copy` at once, mid-turn included, from the
+        // history it already has. Here every place in the queue is taken, and
+        // the copy still runs: it is not work, so it neither queues behind a
+        // turn nor is refused for want of a place.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.copies = Copies::new(tool.clipboard());
+        shell.route_bytes(b"first\r");
+        shell.route_bytes(b"second\r");
+        assert_eq!(shell.work.outstanding(), super::super::worker::WORK_LIMIT);
+        let _ = shell.document();
+        shell.work.replied("the answer before these two");
+        shell.route_bytes(b"/copy\r");
+        assert_eq!(
+            copy_settled(&mut shell),
+            said(notice::Notice::neutral("clipboard", "Copied to clipboard."))
+        );
+        assert_eq!(
+            tool.copied().as_deref(),
+            Some("the answer before these two".as_bytes())
+        );
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
     #[test]
     fn a_command_that_takes_nothing_runs_only_when_nothing_follows_it() {
         // `fx-basic-40x120-version-trailing-space.txt`, in its order: the two
@@ -9744,6 +10297,174 @@ mod tests {
         assert!(
             shell.editor.is_empty(),
             "the refused line stayed in the composer"
+        );
+    }
+
+    /// A snapshot every field of which this file spells, so the case that
+    /// reads it back can say the whole notice literally.
+    fn a_status(history_turns: u64, grants: u64) -> crate::output::StatusSnapshot {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let mut snapshot = crate::output::StatusSnapshot::new(
+            &config(home.path(), workspace.path()),
+            crate::build_info(),
+            crate::output::SessionFacts::default(),
+        );
+        snapshot.model = "acme/model-9".to_string();
+        snapshot.provider = "gateway".to_string();
+        snapshot.provider_url = None;
+        snapshot.provider_rejected = None;
+        snapshot.build_channel = "debug".to_string();
+        snapshot.build_revision = Some("0123456789ab".to_string());
+        snapshot.auth = "AI_GATEWAY_API_KEY".to_string();
+        snapshot.auth_refreshable = false;
+        snapshot.auth_help = None;
+        snapshot.permission_mode = "auto".to_string();
+        snapshot.workspace = "/w/work".to_string();
+        snapshot.history_turns = history_turns;
+        snapshot.session_permission_grants = grants;
+        snapshot.agent_step_limit = 0;
+        snapshot
+    }
+
+    #[test]
+    fn status_is_one_neutral_notice_of_what_the_runtime_last_published() {
+        // `fx-basic-40x120-status.txt`: `* status: model=…` and one `k=v` row
+        // per fact under it, two columns in, no `[status]` prefix. xfx keeps
+        // its own `provider` and `sandbox` rows and has no `update_channel` or
+        // `ultrafast_requested` to print.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(2, 1));
+        shell.route_bytes(b"/status\r");
+
+        assert_eq!(
+            shell.document(),
+            vec![
+                "* status: model=acme/model-9".to_string(),
+                "  provider=gateway".to_string(),
+                "  build_channel=debug".to_string(),
+                "  build_revision=0123456789ab".to_string(),
+                "  auth=AI_GATEWAY_API_KEY".to_string(),
+                "  auth_refreshable=false".to_string(),
+                "  permission_mode=auto".to_string(),
+                format!("  sandbox={}", crate::output::SANDBOX_LABEL),
+                "  workspace=/w/work".to_string(),
+                "  history_turns=2".to_string(),
+                "  session_permission_grants=1".to_string(),
+                "  agent_step_limit=0".to_string(),
+                String::new(),
+            ]
+        );
+        // Read, never asked for: nothing went to the runtime, so a `/status`
+        // typed mid-turn neither waits behind the turn nor shows as queued.
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "/status was handed to the runtime"
+        );
+        assert_eq!(
+            shell.work.outstanding(),
+            0,
+            "/status took a place in the queue"
+        );
+    }
+
+    #[test]
+    fn status_reads_the_live_conversation_each_time_it_is_asked() {
+        // The counts are the conversation the runtime is holding, as it last
+        // said -- not the store's last session, and not what the band was told
+        // at launch.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/status\r");
+        let before = shell.document();
+        assert!(
+            before.contains(&"  history_turns=0".to_string()),
+            "{before:?}"
+        );
+
+        shell.work.publish_status(a_status(3, 2));
+        shell.route_bytes(b"/status\r");
+        let after = shell.document();
+        assert!(
+            after.contains(&"  history_turns=3".to_string()),
+            "{after:?}"
+        );
+        assert!(
+            after.contains(&"  session_permission_grants=2".to_string()),
+            "{after:?}"
+        );
+    }
+
+    #[test]
+    fn status_makes_a_quoted_path_inert_before_it_reaches_the_terminal() {
+        // The workspace is a directory name and a rejected provider quotes a
+        // settings value; neither is xfx's text, and this one never crosses
+        // the channel that would have cleaned it.
+        let mut shell = shell(40, 120);
+        let mut snapshot = a_status(0, 0);
+        snapshot.workspace = "/w/\u{1b}]2;owned\u{7}x".to_string();
+        shell.work.publish_status(snapshot);
+        shell.route_bytes(b"/status\r");
+        let document = shell.document();
+        assert!(
+            !document
+                .iter()
+                .any(|row| row.contains('\u{1b}') || row.contains('\u{7}')),
+            "{document:?}"
+        );
+        assert!(
+            document.contains(&"  workspace=/w/ ]2;owned x".to_string()),
+            "{document:?}"
+        );
+    }
+
+    #[test]
+    fn stats_is_upstreams_five_counters_as_they_stand_before_it_is_written() {
+        // `fx-stats-40x120-after.txt`: one neutral row, upstream's five keys in
+        // upstream's order, the last two always nought.
+        let mut shell = shell(40, 120);
+        shell.metrics = Metrics {
+            ansi_bytes: 1732,
+            redraws: 2,
+            debounced_resizes: 1,
+        };
+        shell.route_bytes(b"/stats\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "stats",
+                "ansi_bytes=1732, redraws=2, debounced_resizes=1, footer_updates=0, \
+                 stream_chunks=0"
+            ))
+        );
+        assert!(shell.sent.try_recv().is_err(), "/stats reached the runtime");
+        // Reporting is not writing: the counters are the loop's to move.
+        assert_eq!(shell.metrics.ansi_bytes, 1732);
+    }
+
+    #[test]
+    fn status_and_stats_take_nothing_after_their_names() {
+        // `fx-stats-40x120-extra.txt`: `/stats extra` is an unknown command,
+        // and neither row accepts a payload upstream (`commands.zig:473,475`).
+        // A trailing space is still the command.
+        let mut shell = shell(40, 120);
+        shell.work.publish_status(a_status(0, 0));
+        shell.route_bytes(b"/stats extra\r");
+        shell.route_bytes(b"/status now\r");
+        let unknown = notice::Notice::error("command", "Unknown command. Try /help.");
+        assert_eq!(
+            shell.document(),
+            [said(unknown.clone()), said(unknown)].concat()
+        );
+        shell.route_bytes(b"/stats \r");
+        let document = shell.document();
+        assert!(
+            document[0].starts_with("* stats: ansi_bytes="),
+            "{document:?}"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "a refused command reached the runtime"
         );
     }
 
@@ -9973,6 +10694,156 @@ mod tests {
         let _ = shell.picks_up();
         shell.apply(UiEvent::TurnEnded { failure: None });
         assert_eq!(shell.take_title().as_deref(), Some("second try"));
+    }
+
+    // -----------------------------------------------------------------------
+    // /quit, /exit, and the way back in
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn quit_and_exit_end_the_session_with_status_zero_and_say_nothing() {
+        // `commandQuit` (`app_commands.zig:662-665`) writes no notice: what
+        // the session says on the way out is the handoff, after the restore,
+        // and that is not a document row.
+        for line in [&b"/quit\r"[..], b"/exit\r", b"/quit \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(shell.leaving(), "{line:?} did not end the session");
+            assert_eq!(
+                format!("{:?}", shell.exit_code()),
+                format!("{:?}", ExitCode::SUCCESS),
+                "{line:?}"
+            );
+            assert_eq!(shell.document(), Vec::<String>::new(), "{line:?}");
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn quit_or_exit_with_an_argument_is_an_unknown_command_and_leaves_nothing() {
+        // `/quit` takes nothing (`commands.zig:498`), so with a word after it
+        // the line names no command (`command_router.zig:121-133`) and is
+        // refused in upstream's words -- the session goes on.
+        for line in [&b"/quit now\r"[..], b"/exit please\r", b"/exit  now \r"] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(line);
+            assert!(!shell.leaving(), "{line:?} ended the session");
+            assert_eq!(
+                shell.document(),
+                said(notice::Notice::error("command", UNKNOWN_COMMAND)),
+                "{line:?}"
+            );
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{line:?} reached the runtime"
+            );
+            assert!(shell.editor.is_empty(), "{line:?} stayed in the composer");
+        }
+    }
+
+    #[test]
+    fn the_handoff_is_upstreams_dim_line_naming_the_xfx_command() {
+        // `fx-sessions-40x120-quit.ansi` row 10:
+        // `ESC[38;5;245mContinue session with: fx --resume PWuUVCd_N1-Z`, and
+        // upstream's own reset and line feed (`render.zig:806-809`).
+        let id = "1759800000000-0123456789abcdef";
+        assert_eq!(
+            resume_handoff(id, 120, PALETTE),
+            format!("\u{1b}[38;5;245mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+        // The light theme's dim grey (`theme.zig:128`).
+        let light = Palette {
+            mode: super::super::theme::Mode::Light,
+            ..PALETTE
+        };
+        assert_eq!(
+            resume_handoff(id, 120, light),
+            format!("\u{1b}[38;5;247mContinue session with: xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn the_handoff_breaks_before_the_command_when_one_row_cannot_hold_it() {
+        // `render.zig:803-804`: one row when label, space and command fit the
+        // screen exactly, and otherwise the command on the next row, two in.
+        let id = "abc";
+        let whole = "Continue session with: xfx --resume abc".len();
+        let width = u16::try_from(whole).expect("short");
+        assert_eq!(
+            resume_handoff(id, width, PALETTE),
+            "\u{1b}[38;5;245mContinue session with: xfx --resume abc\u{1b}[0m\n"
+        );
+        assert_eq!(
+            resume_handoff(id, width - 1, PALETTE),
+            "\u{1b}[38;5;245mContinue session with:\n  xfx --resume abc\u{1b}[0m\n"
+        );
+        // Measured against the screen the session is on.
+        let shell = shell(24, 40);
+        let id = crate::session::SessionId::parse("1759800000000-0123456789abcdef").expect("an id");
+        assert_eq!(
+            shell.resume_handoff(&id),
+            format!("\u{1b}[38;5;245mContinue session with:\n  xfx --resume {id}\u{1b}[0m\n")
+        );
+    }
+
+    #[test]
+    fn a_resumed_session_says_so_and_its_title_is_the_windows() {
+        // `writeResumeNotice` (`app_session_runtime.zig:4657-4672`):
+        // `* session resumed: <title>`, and the cached title -- the window's --
+        // is the session's.
+        let mut shell = shell(24, 80);
+        let _ = shell.take_title();
+        shell.resumed(Some("first question alpha".to_string()));
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "first question alpha"
+            ))
+        );
+        assert_eq!(shell.take_title().as_deref(), Some("first question alpha"));
+        // Its first turn here does not retitle it: the title is the saved
+        // session's first prompt, not this launch's.
+        turn_running(&mut shell, b"a follow-up\r");
+        let _ = shell.picks_up();
+        shell.apply(UiEvent::TurnEnded { failure: None });
+        assert_eq!(shell.take_title(), None);
+    }
+
+    #[test]
+    fn a_resumed_session_with_no_title_is_untitled_and_keeps_the_fallback() {
+        // `session_display_metadata.zig:14`; and only a real title is cached,
+        // so the window stays on the workspace.
+        let mut shell = shell(24, 80);
+        let fallback = shell.take_title().expect("the launch owes a title");
+        shell.resumed(None);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::neutral(
+                "session resumed",
+                "Untitled session"
+            ))
+        );
+        assert_eq!(shell.take_title(), None, "{fallback:?} was owed again");
+        // A title read off a log is foreign text: what a terminal would obey
+        // in it is a space by the time it is written.
+        let mut hostile = self::shell(24, 80);
+        let _ = hostile.take_title();
+        hostile.resumed(Some("evil\u{1b}]2;owned\u{7} title".to_string()));
+        let document = hostile.document();
+        assert!(
+            document.iter().all(|row| !row.contains('\u{1b}')),
+            "{document:?}"
+        );
+        assert!(
+            hostile
+                .take_title()
+                .is_some_and(|title| !title.contains('\u{1b}') && !title.contains('\u{7}')),
+            "the window title carried a control"
+        );
     }
 
     #[test]
@@ -10580,10 +11451,11 @@ mod tests {
 
     #[test]
     fn stopping_the_turn_at_an_approval_cancels_the_call_it_was_asking_about() {
-        // `fx-approvals-cc-40x120-after-esc`: the call the panel was asking
-        // about never runs, so the row says `Cancelled`, the header counts it,
-        // and the call gets its own line under the group -- at the keystroke,
-        // above the sentence that answers it.
+        // `fx-approvals-cc-40x120-after-esc`: Esc at a question stops the
+        // turn (`app_input_runtime.zig:3139-3143`), and the call the panel was
+        // asking about never runs, so the row says `Cancelled`, the header
+        // counts it, and the call gets its own line under the group -- at the
+        // keystroke, above the sentence that answers it.
         let mut shell = shell(24, 80);
         let started = turn_running(&mut shell, b"edit the notes\r");
         shell.apply(tool_start(
@@ -10596,7 +11468,9 @@ mod tests {
         delivered(&mut shell);
         let _ = shell.written();
 
-        shell.route_bytes(&[0x03]);
+        // A lone Escape is a key only once nothing follows it.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Duration::from_millis(100));
         let written = shell.written();
         assert_eq!(
             written[..5],
@@ -10633,6 +11507,57 @@ mod tests {
         assert!(
             !after.iter().any(|row| row.contains("Denied")),
             "{after:#?}"
+        );
+    }
+
+    #[test]
+    fn ctrl_c_at_an_approval_leaves_the_calls_row_to_its_refusal() {
+        // Ctrl-C at a question refuses this call and the turn goes on
+        // (`src/ui/input/runtime.zig:61`, `3 => .deny`), so nothing is stopped
+        // at the keystroke: no `Cancelled` row and no `■` line. The refusal
+        // the runtime reports is what settles the row, as `Denied`, in the
+        // same group the turn's next call is counted in.
+        let mut shell = shell(24, 80);
+        let started = turn_running(&mut shell, b"edit the notes\r");
+        shell.apply(tool_start(
+            "1",
+            "edit_file",
+            serde_json::json!({"path": "notes.txt", "old_string": "a", "new_string": "b"}),
+        ));
+        shell.apply(UiEvent::Approval(question(asked())));
+        shell.settle_band(started);
+        delivered(&mut shell);
+        let _ = shell.written();
+
+        shell.route_bytes(&[0x03]);
+        let written = shell.written();
+        assert!(
+            !written
+                .iter()
+                .any(|row| row.contains("Cancelled") || row.starts_with('\u{25a0}')),
+            "{written:#?}"
+        );
+
+        shell.apply(tool_ended(
+            "1",
+            "edit_file",
+            false,
+            "edit_file was not permitted: the user declined",
+            CallOutcome::Denied,
+        ));
+        shell.apply(tool_start(
+            "2",
+            "terminal",
+            serde_json::json!({"action": "exec", "command": "echo next"}),
+        ));
+        assert_eq!(
+            shell.written(),
+            [
+                "\u{25cf} 2 tool calls \u{b7} 1 edit \u{b7} 1 command \u{b7} 1 denied",
+                "\u{251c} Denied file",
+                "\u{2514} Running echo next",
+                "",
+            ]
         );
     }
 
@@ -11708,6 +12633,19 @@ mod tests {
 
     /// A session with the catalog up, the way a user gets one: `/help` typed,
     /// the completion menu running it on the Return.
+    /// `All`'s order: every category's commands, in the categories' order.
+    fn catalog_order() -> Vec<&'static str> {
+        crate::interactive::SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| {
+                crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category)
+                    .map(|spec| spec.name)
+            })
+            .collect()
+    }
+
     fn with_catalog(rows: u16, cols: u16) -> Fixture {
         let mut shell = shell(rows, cols);
         shell.route_bytes(b"/help\r");
@@ -11752,7 +12690,10 @@ mod tests {
         assert_eq!(rows.len(), 2 + crate::interactive::SLASH_REGISTRY.len());
         assert_eq!(usize::from(shell.geometry.panel), rows.len());
         assert!(
-            visible_text(&rows[0]).starts_with("Commands 7  [All]  General  Session"),
+            visible_text(&rows[0]).starts_with(&format!(
+                "Commands {}  [All]  General  Session",
+                crate::interactive::SLASH_REGISTRY.len()
+            )),
             "{rows:?}"
         );
         assert_eq!(rows[1], "", "the blank row under the header");
@@ -11772,8 +12713,13 @@ mod tests {
                     .next()
                     .map(str::to_string))
                 .collect::<Vec<_>>(),
-            ["/help", "/clear", "/version", "/quit", "/new", "/setup", "/model"]
-                .map(|name| Some(name.to_string()))
+            crate::interactive::SLASH_CATEGORIES
+                .iter()
+                .flat_map(|category| crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category))
+                .map(|spec| Some(spec.name.to_string()))
+                .collect::<Vec<_>>()
         );
         assert_eq!(shell.band_rows().last(), Some(&catalog_key_help()));
         // The caret stays in the composer: the catalog is a view of it.
@@ -11822,11 +12768,17 @@ mod tests {
 
     #[test]
     fn enter_on_a_row_runs_its_command_in_one_return() {
-        // `/quit` is the fourth row of `All`: three Downs and a Return.
+        // `/quit`'s row of `All`: that many Downs and a Return.
         let mut shell = with_catalog(40, 120);
-        shell.route_bytes(b"\x1b[B\x1b[B\x1b[B");
+        let at = catalog_order()
+            .iter()
+            .position(|name| *name == "/quit")
+            .expect("/quit is listed");
+        for _ in 0..at {
+            shell.route_bytes(b"\x1b[B");
+        }
         assert!(
-            menu(&shell)[5].starts_with(&format!("  {}/quit", PALETTE.subtitle())),
+            menu(&shell)[2 + at].starts_with(&format!("  {}/quit", PALETTE.subtitle())),
             "{:?}",
             menu(&shell)
         );
@@ -11871,27 +12823,33 @@ mod tests {
         let mut shell = with_catalog(40, 120);
         shell.route_bytes(b"\x1b[A");
         let rows = menu(&shell);
+        let last = rows.len() - 1;
         assert!(
-            rows[8].starts_with(&format!("  {}/model", PALETTE.subtitle())),
+            rows[last].starts_with(&format!("  {}/model", PALETTE.subtitle())),
             "Up from the first row is the last: {rows:?}"
         );
         shell.route_bytes(b"\x1b[B");
         assert!(menu(&shell)[2].starts_with(&format!("  {}/help", PALETTE.subtitle())));
-        // General is four commands, and the band gives the rows back.
+        // General's commands, and the band gives the rows back.
+        let general = crate::interactive::SLASH_REGISTRY
+            .iter()
+            .filter(|spec| spec.category == "General")
+            .count();
         shell.route_bytes(b"\t");
-        assert_eq!(shell.geometry.panel, 2 + 4);
-        assert_eq!(menu(&shell).len(), 6);
+        assert_eq!(usize::from(shell.geometry.panel), 2 + general);
+        assert_eq!(menu(&shell).len(), 2 + general);
         // Shift-Tab, as a terminal spells it, is back to `All`.
         shell.route_bytes(b"\x1b[Z");
-        assert_eq!(shell.geometry.panel, 2 + 7);
-        assert!(visible_text(&menu(&shell)[0]).starts_with("Commands 7  [All]"));
+        let count = crate::interactive::SLASH_REGISTRY.len();
+        assert_eq!(usize::from(shell.geometry.panel), 2 + count);
+        assert!(visible_text(&menu(&shell)[0]).starts_with(&format!("Commands {count}  [All]")));
     }
 
     #[test]
     fn escape_closes_the_catalog_and_its_search_without_arming_the_clear() {
         let mut shell = with_catalog(40, 120);
         shell.route_bytes(b"ses");
-        assert_eq!(menu(&shell).len(), 2 + 2, "/clear and /new");
+        assert_eq!(menu(&shell).len(), 2 + 3, "/clear, /new and /copy");
         shell.route_bytes(&[0x1b]);
         shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         assert!(shell.help_menu.is_none());
@@ -11907,7 +12865,10 @@ mod tests {
         shell.route_bytes(&[0x15]);
         assert_eq!(shell.editor.text(), "");
         assert!(shell.help_menu.is_some(), "C-u closed the catalog");
-        assert!(visible_text(&menu(&shell)[0]).starts_with("Commands 7"));
+        assert!(visible_text(&menu(&shell)[0]).starts_with(&format!(
+            "Commands {}",
+            crate::interactive::SLASH_REGISTRY.len()
+        )));
     }
 
     #[test]
@@ -11921,11 +12882,17 @@ mod tests {
         }
         let rows = menu(&shell);
         assert_eq!(rows.len(), 5);
+        // Four Downs mark the fifth command, on the window's last row, with
+        // the two before it above it.
+        let order = catalog_order();
         assert!(
-            rows[4].starts_with(&format!("  {}/new", PALETTE.subtitle())),
+            rows[4].starts_with(&format!("  {}{}", PALETTE.subtitle(), order[4])),
             "{rows:?}"
         );
-        assert!(visible_text(&rows[2]).starts_with("  /version"), "{rows:?}");
+        assert!(
+            visible_text(&rows[2]).starts_with(&format!("  {}", order[2])),
+            "{rows:?}"
+        );
         // The key help is the one that fits 80 columns.
         assert!(visible_text(shell.band_rows().last().expect("a hint row"))
             .starts_with("\u{2191}\u{2193} navigate     tab category"));
@@ -12831,7 +13798,7 @@ mod tests {
 
     /// The rows of the band with the palette taken off, joined.
     fn band(shell: &Fixture) -> String {
-        unwrapped(&shell.shell.band_rows())
+        unwrapped(&uncoloured_rows(&shell.shell.band_rows()))
     }
 
     #[test]
@@ -12855,13 +13822,13 @@ mod tests {
                 }
                 shell.decide(Input::Action(down), Instant::now());
                 assert!(
-                    shell.marked().contains("2. Yes, and"),
+                    shell.marked().contains("❯ 2  Apply + allow"),
                     "open={open} {down:?}: the marker did not move: {:?}",
                     shell.marked()
                 );
                 shell.decide(Input::Action(up), Instant::now());
                 assert!(
-                    shell.marked().contains("1. Yes"),
+                    shell.marked().contains("❯ 1  Apply once"),
                     "open={open} {up:?}: the marker did not come back: {:?}",
                     shell.marked()
                 );
@@ -12869,7 +13836,7 @@ mod tests {
                 // is still exactly what was typed.
                 if open {
                     assert!(
-                        band(&shell).contains(" y "),
+                        band(&shell).contains("Apply once, y "),
                         "an arrow was routed into the editor: {:?}",
                         band(&shell)
                     );
@@ -12933,12 +13900,13 @@ mod tests {
     }
 
     #[test]
-    fn escape_at_a_filled_deny_draft_refuses_without_the_sentence_but_enter_sends_it() {
+    fn ctrl_c_at_a_filled_deny_draft_refuses_without_the_sentence_but_enter_sends_it() {
         // The pair, on the wire, in one case so it cannot drift. Same draft
-        // text, two exits.
+        // text, two exits. (Renamed: the refusal that says nothing is Ctrl-C's
+        // now, `approval_decision.zig:132-135`; Escape cancels the turn.)
         let mut escaped = shell(24, 80);
         a_filled_deny_draft(&mut escaped, "never touch the fixtures");
-        escaped.decide(Input::Action(Action::Escape), Instant::now());
+        escaped.decide(Input::Action(Action::Cancel), Instant::now());
         assert_eq!(
             escaped.controlled(),
             Some(TurnControl::Answer {
@@ -12964,15 +13932,16 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_at_a_draft_stops_the_turn_and_sends_no_feedback() {
+    fn escape_at_a_draft_cancels_the_turn_and_sends_no_feedback() {
         // One message, both meanings, and the sentence in neither. The prompter
         // turns the cancellation into the refusal on the far side
         // (`super::super::approval::TuiPrompter`), so an `Answer` sent here as
         // well would be the only thing the runtime heard -- and the turn would
-        // go on running after the user asked everything to stop.
+        // go on running after the user asked for it to stop. (Renamed: this
+        // was Ctrl-C's before divergence 7.)
         let mut shell = shell(24, 80);
         a_filled_deny_draft(&mut shell, "stop, this is wrong");
-        shell.decide(Input::Action(Action::Cancel), Instant::now());
+        shell.decide(Input::Action(Action::Escape), Instant::now());
 
         let mut said = Vec::new();
         while let Some(control) = shell.controlled() {

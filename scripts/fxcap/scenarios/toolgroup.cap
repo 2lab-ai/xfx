@@ -32,10 +32,9 @@ type and once more
 key Enter
 wait 2.5
 snap again-ask
-# Stopping the turn at its approval is Escape on fx and Ctrl-C on xfx: the two
-# keys are swapped between them (`.prd/tui-phase4/ssot.md` divergence 7, F2's).
-fx: key Escape
-xfx: key C-c
+# Stopping the turn at its approval is Escape on both (upstream's keys,
+# `app_input_runtime.zig:3139-3143`; xfx's since F2).
+key Escape
 wait 1.5
 snap again-stopped
 type run the long one

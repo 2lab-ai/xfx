@@ -66,7 +66,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::gateway::CancelToken;
 use crate::output::{Event, EventSink};
-use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest};
+use crate::permission::{ApprovalAnswer, ApprovalDiff, ApprovalRequest, ApprovalSubject};
 use crate::tools::{LineChanges, Outcome, Shown};
 
 /// The most answer text one `UiEvent` may carry.
@@ -402,10 +402,24 @@ impl UiEvent {
                     target: inert_owned(asked.request.target),
                     summary: inert_owned(asked.request.summary),
                     always_scope: inert_owned(asked.request.always_scope),
+                    // Where the window sits is two numbers this crate counted,
+                    // so it crosses as it was.
                     diff: asked.request.diff.map(|diff| ApprovalDiff {
                         before: inert_owned(diff.before),
                         after: inert_owned(diff.after),
+                        first_line: diff.first_line,
+                        lines_below: diff.lines_below,
                     }),
+                    // The path and the command a review lays out on rows of
+                    // their own: the same quotation as the summary, so the same
+                    // policy.
+                    subject: match asked.request.subject {
+                        ApprovalSubject::Path(path) => ApprovalSubject::Path(inert_owned(path)),
+                        ApprovalSubject::Command { command, cwd } => ApprovalSubject::Command {
+                            command: inert_owned(command),
+                            cwd: inert_owned(cwd),
+                        },
+                    },
                 },
             }),
             // **A belt on an encoded payload.** `crate::tools::question`'s
@@ -568,6 +582,15 @@ impl Cancellation {
     /// A handle on the session's root, for a producer that has to await it.
     pub(crate) fn token(&self) -> CancellationToken {
         self.root.clone()
+    }
+
+    /// `gateway`'s flag, for a conversation bound before any turn has begun.
+    ///
+    /// The same flag every [`Cancellation::turn`] hands its turn, so a tool
+    /// context made from it is stopped by the same keystroke as one
+    /// `worker`'s `ready` made from a turn's.
+    pub(crate) fn mirror(&self) -> CancelToken {
+        self.mirror.clone()
     }
 
     /// Ends the session's work: the mirror first, then the token.
@@ -1517,7 +1540,13 @@ mod tests {
                     diff: Some(ApprovalDiff {
                         before: "\x1b[2Jold".into(),
                         after: "\x1b]0;new\x07".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
+                    subject: ApprovalSubject::Command {
+                        command: "\x1b[2Jrm".into(),
+                        cwd: "\x1b]0;.\x07".into(),
+                    },
                 },
             }),
         ] {
@@ -1570,7 +1599,13 @@ mod tests {
                     diff: Some(ApprovalDiff {
                         before: " [2Jold".into(),
                         after: " ]0;new ".into(),
+                        first_line: 1,
+                        lines_below: 0,
                     }),
+                    subject: ApprovalSubject::Command {
+                        command: " [2Jrm".into(),
+                        cwd: " ]0;. ".into(),
+                    },
                 },
             })),
             "an approval quotes a file, which is where an escape would be"

@@ -29,21 +29,28 @@
 #                          or a screen can still be read once it has
 #   gwlog                  the gateway log and every request body it received
 #   workls <label>         the workspace's files after the run
+#   clip <label>           moves the bytes the fake pbcopy was last fed to
+#                          <bin>-<scenario>-<size>-<label>.clip, or says that
+#                          nothing was copied since the last clip
+#   clipfail on|off        makes the fake pbcopy read its input and exit 1
 #
-# A line that starts `fx: ` or `xfx: ` is read only on that binary's run, so one
-# scenario can give the two the tool names and arguments each speaks (fx's
-# `shell` with `request.action: run`, xfx's `terminal` with `action: exec`) and
-# the switch each reads its permission mode from, and stay one script.
+# A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
+# products name their tools and settings differently (fx's `shell` with
+# `request.action: run` is xfx's `terminal` with `action: exec`,
+# `FX_PERMISSION_MODE` is `XFX_PERMISSION_MODE`), so one keystroke script can
+# drive both with a turns file and an environment of each's own.
 set -euo pipefail
 
-# The line as `which` reads it, or nothing when it belongs to the other binary.
-for_binary() {
+# The line, if it is for this binary, with its prefix taken off; nothing if it
+# is for the other one.
+for_this() {
   local which=$1 line=$2
   case $line in
-    'fx: '*) if [[ $which == fx ]]; then printf '%s' "${line#fx: }"; fi ;;
-    'xfx: '*) if [[ $which == xfx ]]; then printf '%s' "${line#xfx: }"; fi ;;
+    'fx: '*) [[ $which == fx ]] && printf '%s' "${line#fx: }" ;;
+    'xfx: '*) [[ $which == xfx ]] && printf '%s' "${line#xfx: }" ;;
     *) printf '%s' "$line" ;;
   esac
+  return 0
 }
 
 main() {
@@ -70,7 +77,7 @@ main() {
   local turns='[]' extra_env=''
   local raw line
   while IFS= read -r raw; do
-    line=$(for_binary "$which" "$raw")
+    line=$(for_this "$which" "$raw")
     [[ $line == gateway\ * ]] && turns=$(cat "$here/scenarios/${line#gateway }")
     [[ $line == env\ * ]] && extra_env="$extra_env ${line#env }"
     [[ $line == seed\ * ]] && { mkdir -p "$run/home/.fx"; cp "$here/scenarios/${line#seed }" "$run/home/.fx/settings.json"; }
@@ -101,9 +108,15 @@ main() {
   for tool in open pbpaste afplay osascript; do
     printf '#!/bin/sh\nexit 0\n' > "$run/shim/$tool"
   done
-  # pbcopy is fed through a pipe: drain it, keep a copy for the receipt.
-  printf '#!/bin/sh\ncat > "%s/clipboard"\n' "$run" > "$run/shim/pbcopy"
+  # pbcopy is fed through a pipe: drain it, keep a copy for the receipt -- or,
+  # while `clipfail on`, drain it and fail.
+  printf '#!/bin/sh\nif [ -f "%s/clipboard-fail" ]; then cat >/dev/null; exit 1; fi\ncat > "%s/clipboard"\n' \
+    "$run" "$run" > "$run/shim/pbcopy"
   chmod +x "$run/shim/"*
+  # macOS assesses an executable the first time it runs, which costs a second
+  # or more and would land inside a scenario's `wait`: run pbcopy once now.
+  : | "$run/shim/pbcopy"
+  rm -f "$run/clipboard"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch
   if [[ $which == fx ]]; then
@@ -120,16 +133,13 @@ XFX_MODEL=fake/model-a $extra_env $bin"
     "cd $run/work && exec $launch"
 
   while IFS= read -r raw; do
-    line=$(for_binary "$which" "$raw")
+    line=$(for_this "$which" "$raw")
     local verb=${line%% *} rest=${line#* }
     case $verb in
       ''|'#'*|gateway|env|seed|work) ;;
       wait) sleep "$rest" ;;
       type) tmux -f /dev/null -S "$sock" send-keys -t cap -l "$rest" ;;
-      paste)
-        tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"
-        tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap
-        ;;
+      paste) tmux -f /dev/null -S "$sock" set-buffer -b capbuf -- "$(printf '%b' "$rest")"; tmux -f /dev/null -S "$sock" paste-buffer -p -b capbuf -t cap ;;
       key) # shellcheck disable=SC2086
         tmux -f /dev/null -S "$sock" send-keys -t cap $rest ;;
       snap)
@@ -144,11 +154,9 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         tmux -f /dev/null -S "$sock" capture-pane -e -p -S - -t cap > "$name.ansi"
         echo "$name.txt"
         ;;
-      gwlog)
-        cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"
-        rm -rf "$out/$which-$scenario-$size-bodies"
-        cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies"
-        ;;
+      gwlog) cp "$run/gateway.log" "$out/$which-$scenario-$size-gateway.log"; rm -rf "$out/$which-$scenario-$size-bodies"; cp -R "$run/bodies" "$out/$which-$scenario-$size-bodies" ;;
+      # One name per line rather than a word-split `$(find)`, so a file
+      # with a space in its name is listed whole.
       workls)
         (cd "$run/work" && find . -type f | sort | while IFS= read -r f; do
           echo "== $f"; head -c 2000 "$f"; echo
@@ -160,6 +168,22 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         echo "$name.title"
         ;;
       keep) tmux -f /dev/null -S "$sock" set-option -w -t cap remain-on-exit on > /dev/null ;;
+      clip)
+        local name=$out/$which-$scenario-$size-$rest
+        if [[ -f $run/clipboard ]]; then
+          mv "$run/clipboard" "$name.clip"
+          echo "$name.clip"
+        else
+          echo "clip $rest: nothing was copied"
+        fi
+        ;;
+      clipfail)
+        case $rest in
+          on) : > "$run/clipboard-fail" ;;
+          off) rm -f "$run/clipboard-fail" ;;
+          *) echo "clipfail on|off, not $rest" >&2; exit 2 ;;
+        esac
+        ;;
       *) echo "unknown verb $verb in $file" >&2; exit 2 ;;
     esac
   done < "$file"

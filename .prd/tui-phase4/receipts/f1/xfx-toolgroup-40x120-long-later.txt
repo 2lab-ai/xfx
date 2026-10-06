@@ -1,6 +1,3 @@
-├ Searched alpha
-├ Ran sleep 3; echo hello from shell; ls
-├ Edited a.txt +1 / -1
 ├ Denied file
 ├ Failed missing.txt: read_file refused the path: no such path: `missing.txt`
 └ Exited 3 echo boom; echo err >&2; exit 3
@@ -35,6 +32,9 @@
 ┃
 
 ask · model-a
+
+
+
 
 
 

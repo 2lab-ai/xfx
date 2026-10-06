@@ -215,24 +215,31 @@ const RESET: &str = "\u{1b}[0m";
 /// reason [`BODY`] is not [`HINT`]: the activity row is the band's, and this
 /// one is written into the document, where a theme report has to find it.
 ///
-/// The ninth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
+/// The ninth is upstream's `diff_added_style` / `diff_removed_style`, which a
+/// permission question's review paints the changed lines and the `+N  -N`
+/// counts in. Both are the same grey in either theme: the diff is monochrome
+/// until a theme is explicitly pinned (`render.zig:93-105`), and xfx pins
+/// none. Band and review-plane rows only -- never the document -- so a theme
+/// report has nothing of it to retint ([`Palette::document_retint`]).
+///
+/// The tenth is upstream's `warning_style` (`core/shared/theme.zig:86,129`,
 /// `c1db919`) in the tool group: the `■` a cancelled tool call is marked with
 /// in the transcript. The same grey as the eighth in both modes, and a role
 /// of its own for the reason the fifth is one -- the two are the same colour
 /// and not the same decision.
 ///
-/// The tenth is upstream's `tool_stdout_style` (`theme.zig:103` dark, `:147`
+/// The eleventh is upstream's `tool_stdout_style` (`theme.zig:103` dark, `:147`
 /// light): what a cancelled call's own line names it by, after `■ Cancelled`.
 /// The **same grey in both themes** -- 245 -- which is why it is a role and not
 /// the statusline's: on a light screen the two part ways (241 and 245).
 ///
-/// The eleventh is the shell highlighter's word grey -- a command's words in a
+/// The twelfth is the shell highlighter's word grey -- a command's words in a
 /// tool group's row, keywords, functions, variables and operators
 /// (`markdown::theme` `FX_DARK`/`FX_LIGHT` syntax, `252`/`238`). The
 /// highlighter paints them, not this table; the role is here so a theme report
 /// can find them ([`Self::document_retint_in`]).
-const DARK: [u8; 11] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 245, 252];
-const LIGHT: [u8; 11] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 245, 238];
+const DARK: [u8; 12] = [240, 255, 250, 252, 255, 245, 245, 252, 252, 252, 245, 252];
+const LIGHT: [u8; 12] = [250, 235, 241, 238, 235, 241, 247, 238, 238, 238, 245, 238];
 
 /// Where in one of those tuples each role sits.
 const DIVIDER: usize = 0;
@@ -243,9 +250,10 @@ const BODY: usize = 4;
 const STATUSLINE: usize = 5;
 const DIM: usize = 6;
 const LABEL: usize = 7;
-const WARNING: usize = 8;
-const TOOL: usize = 9;
-const COMMAND: usize = 10;
+const DIFF: usize = 8;
+const WARNING: usize = 9;
+const TOOL: usize = 10;
+const COMMAND: usize = 11;
 
 /// What kind of document row a theme report is repainting, read off the row's
 /// first cell ([`Palette::document_row`]).
@@ -336,6 +344,27 @@ impl Palette {
             (Mode::Dark, Depth::TrueColor) => "\u{1b}[1;38;2;208;208;208m",
             (Mode::Light, Depth::TrueColor) => "\u{1b}[1;38;2;68;68;68m",
         }
+    }
+
+    /// A changed line of a permission question's review, and the counts that
+    /// sum it up (`diff_added_style`, `diff_removed_style`).
+    pub(crate) fn diff(&self) -> &'static str {
+        self.paint(DIFF)
+    }
+
+    /// What a permission question emphasises: the marked choice and the
+    /// command it would run (`tag_style`). Upstream's `tag_style` and
+    /// `subtitle_style` are one sequence in both themes, so this is
+    /// [`Self::subtitle`]'s by value and a role of its own by meaning.
+    pub(crate) fn strong(&self) -> &'static str {
+        self.subtitle()
+    }
+
+    /// Bold and nothing else: a question's title and the path it is about
+    /// (`bold_style`). The same in every mode and at every depth, because it
+    /// names no colour.
+    pub(crate) fn bold(&self) -> &'static str {
+        "\u{1b}[1m"
     }
 
     /// The welcome line's brand: the hint grey, bold (`subtitle_style`).
