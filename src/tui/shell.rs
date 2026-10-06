@@ -3076,9 +3076,10 @@ impl Shell {
                 Some(act) => act,
                 None => return,
             },
-            // Content rather than keys, and there is nothing here for it to be
-            // content of: the composer is not what has the focus.
-            Input::PasteByte(_) => return,
+            // Content, to the question's own answer while it is open -- the
+            // panel drops it whole while a choice is marked -- and never to the
+            // composer, which is not what has the focus.
+            Input::PasteByte(byte) => question::Act::PasteByte(byte),
             // Not a key at all, and never routed here: [`Self::consume`]
             // answers a theme report before the focus is consulted, precisely
             // so that a question having the keyboard cannot swallow one. The
@@ -3963,6 +3964,9 @@ impl Shell {
                 self.answer(event, now);
                 continue;
             }
+            // Shift on Up and Down means something only to a question's
+            // field; to every surface below it is the arrow it always was.
+            let event = unshifted(event);
             if self.asking() {
                 self.decide(event, now);
                 continue;
@@ -4145,6 +4149,12 @@ impl Shell {
             // wrap, so a row that did not change is the first row for an `Up`
             // and the last one for a `Down` -- the same fact, measured by the
             // module that owns the wrap instead of restated by this one.
+            // Never reaches here (`unshifted` folds them back before the
+            // composer sees an event); kept as the arrows they are, so a route
+            // that skipped the fold would still move the caret rather than drop
+            // the key.
+            Action::SelectUp => self.act(Action::Up, now),
+            Action::SelectDown => self.act(Action::Down, now),
             Action::Up | Action::Down => {
                 let cols = self.text_cols();
                 let from = self.editor.point(cols).0;
@@ -4756,6 +4766,22 @@ impl Shell {
         self.edited(None);
         self.gestures.submitted();
         router::route(submitted, self);
+    }
+}
+
+/// `event` with Shift taken off Up and Down.
+///
+/// The decoder keeps Shift on the vertical arrows because a question's
+/// freeform field binds it -- the plain arrows walk the field's rows and the
+/// shifted ones choose (`super::input::Action::SelectUp`) -- and that is the
+/// only surface that does. Folded back here, once, before any other surface
+/// reads the event, so the composer, the approvals and the menus see exactly
+/// the keys they saw before Shift was kept.
+fn unshifted(event: Input) -> Input {
+    match event {
+        Input::Action(Action::SelectUp) => Input::Action(Action::Up),
+        Input::Action(Action::SelectDown) => Input::Action(Action::Down),
+        other => other,
     }
 }
 
@@ -10009,7 +10035,7 @@ mod tests {
         fixture.route_bytes(&[0x1b]);
         fixture.settle_input(now + Duration::from_millis(120));
         assert_eq!(fixture.controlled(), None, "the second Escape cancelled");
-        assert_eq!(fixture.marked(), "    3) ", "the draft was not emptied");
+        assert_eq!(fixture.marked(), "    3)  ", "the draft was not emptied");
 
         // Past the window, at an empty draft: the turn is cancelled.
         let accepted = fixture.work.accepted();
@@ -10019,6 +10045,46 @@ mod tests {
             fixture.controlled(),
             Some(TurnControl::Cancel { through: accepted })
         );
+    }
+
+    #[test]
+    fn a_bracketed_paste_at_an_open_answer_goes_into_it_and_shift_arrows_choose() {
+        // Through the real decoder: `ESC[200~ … ESC[201~` into the field (e2e
+        // `tui-decision-prompts.test.ts:2785`), the plain Up walks the answer
+        // and `ESC[1;2A` -- Shift+Up -- chooses (`:2825`).
+        let mut fixture = shell(40, 120);
+        asking_question(&mut fixture, a_batch());
+        fixture.route_bytes(b"3");
+        fixture.route_bytes(b"\x1b[200~line-one\nxy\nline-three\x1b[201~");
+        fixture.route_bytes(b"\x1b[A");
+        fixture.route_bytes(b"!");
+        fixture.route_bytes(b"\x1b[1;2A");
+        assert_eq!(fixture.marked(), "    2) Quick");
+        fixture.route_bytes(b"\x1b[1;2B");
+        fixture.route_bytes(&[0x0d]);
+        fixture.route_bytes(b"1");
+        assert_eq!(
+            fixture.controlled(),
+            Some(TurnControl::QuestionAnswer {
+                id: QuestionId(1),
+                answers: vec!["line-one\nxy!\nline-three".to_string(), "Yes".to_string()],
+            })
+        );
+        assert!(
+            fixture.editor.is_empty(),
+            "the paste or the keys reached the composer"
+        );
+    }
+
+    #[test]
+    fn shift_on_the_arrows_is_the_arrow_everywhere_but_a_question() {
+        // The decoder keeps Shift on Up and Down for a question's field only;
+        // the composer's recall still answers `ESC[1;2A` as Up.
+        let mut fixture = shell(24, 80);
+        fixture.route_bytes(b"first\r");
+        let _ = fixture.picks_up();
+        fixture.route_bytes(b"\x1b[1;2A");
+        assert_eq!(fixture.editor.text(), "first", "Shift+Up did not recall");
     }
 
     #[test]
