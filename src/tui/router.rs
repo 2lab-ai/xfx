@@ -38,6 +38,11 @@ pub(crate) trait CommandHandlers {
     fn help(&mut self);
     fn new_session(&mut self);
     fn clear(&mut self);
+    /// `/reset`. The same operation as [`Self::new_session`] and
+    /// [`Self::clear`] on this surface, as upstream's three are
+    /// (`app_commands.zig:667-680`); a method of its own because the trait is
+    /// named after what the user asked for.
+    fn reset(&mut self);
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
@@ -137,6 +142,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Help => handlers.help(),
         Slash::New => handlers.new_session(),
         Slash::Clear => handlers.clear(),
+        Slash::Reset => handlers.reset(),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Copy => handlers.copy(),
@@ -189,6 +195,9 @@ mod tests {
         fn clear(&mut self) {
             self.calls.push("clear".to_string());
         }
+        fn reset(&mut self) {
+            self.calls.push("reset".to_string());
+        }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
         }
@@ -227,6 +236,7 @@ mod tests {
             ("/help", "help"),
             ("/new", "new"),
             ("/clear", "clear"),
+            ("/reset", "reset"),
             ("/model", "model "),
             ("/copy", "copy"),
             ("/stats", "stats"),

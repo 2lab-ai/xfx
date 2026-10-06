@@ -31,8 +31,8 @@ use crate::workspace::{is_ignored_directory, PathError};
 
 use super::spec::{
     clip, nonblank, object, optional_bool, optional_enum, optional_integer, optional_string,
-    required_string, InputSchema, PermissionKind, Property, PropertyKind, ToolContext, ToolInput,
-    ToolLimits, ToolResult, ToolSpec,
+    required_string, Activity, InputSchema, PermissionKind, Presentation, Property, PropertyKind,
+    ToolContext, ToolInput, ToolLimits, ToolResult, ToolSpec,
 };
 
 /// Appended to a line that was clipped by `read_file`
@@ -68,6 +68,7 @@ pub const LIST_FILES: ToolSpec = ToolSpec::new(
     "list_files",
     LIST_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::List, "Listing", "Listed", "."),
     InputSchema {
         properties: &[Property {
             name: "path",
@@ -87,6 +88,7 @@ pub const GLOB_FILES: ToolSpec = ToolSpec::new(
     "glob_files",
     GLOB_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::List, "Matching", "Matched", "pattern"),
     InputSchema {
         properties: &[
             Property {
@@ -123,6 +125,7 @@ pub const GREP_FILES: ToolSpec = ToolSpec::new(
     "grep_files",
     GREP_FILES_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::Read, "Searching", "Searched", "pattern"),
     InputSchema {
         properties: &[
             Property {
@@ -194,6 +197,7 @@ pub const READ_FILE: ToolSpec = ToolSpec::new(
     "read_file",
     READ_FILE_DESCRIPTION,
     PermissionKind::ReadOnly,
+    Presentation::new(Activity::Read, "Reading", "Read", "file"),
     InputSchema {
         properties: &[
             Property {

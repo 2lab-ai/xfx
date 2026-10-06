@@ -1,0 +1,5 @@
+[
+ {"tool": {"name": "read_file", "input": {"path": "b.txt"}}},
+ {"tool": {"name": "write_file", "input": {"path": "b.txt", "content": "beta one\nbeta two\n"}}},
+ {"chunks": ["It was already right."]}
+]
