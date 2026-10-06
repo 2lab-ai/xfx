@@ -28,6 +28,8 @@ The three scenarios are added in this unit. `filepicker` and `filepicker-keys` w
 | `filepicker-narrow` | 24x80 | `at-alpha`, `at-alpha-down`, `at-deep` | 10/10 each |
 | `filepicker-narrow` | 40x120 | the same three | 10/10 each |
 
+**Re-run after merging `plan/tui-phase4` (835f389) into this branch** (merge `26fd238`, `target/debug/xfx` rebuilt from it): the same 33 snaps, again identical beyond row 1. The first 40x120 `filepicker` attempt at load average ~95 typed its `@` before the xfx session had taken the terminal, so the keystrokes were lost and three snaps came out empty; it was retaken. The files in this directory are the pre-merge captures.
+
 ## What each snap shows (the same on both sides)
 
 - `at` -- `@` in an empty composer: six rows two columns in (`Cargo.toml` marked, `README.md`, `docs/`, `docs/guide.md`, `src/`, `src/deep/`) between two rules, the index's own byte order, directories with their `/`. The statusline stays on the hint row: fx's hint switch has no file-picker arm (`paint_plan.zig:946-978`), so there is no key help to show.
