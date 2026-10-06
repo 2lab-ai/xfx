@@ -437,17 +437,8 @@ impl Picker {
     /// `advanceSelection` does with any delta (`list_window.zig:40-48`).
     pub(crate) fn page(&mut self, down: bool, rows: u16) {
         let count = self.matches.len();
-        let rows = usize::from(rows.max(1));
-        self.selected = if down {
-            let next = self.selected + rows;
-            if next >= count {
-                0
-            } else {
-                next
-            }
-        } else {
-            self.selected.checked_sub(rows).unwrap_or(count - 1)
-        };
+        let rows = i64::from(rows.max(1));
+        self.selected = advanced(self.selected, count, if down { rows } else { -rows });
         self.window_start = edge_start(self.window_start, count, self.selected, MOST_COMMAND_ROWS);
     }
 
@@ -581,6 +572,27 @@ fn row_budget(terminal_rows: u16) -> u16 {
         .saturating_sub(FIXED_ROWS)
         .saturating_sub(MINIMUM_TRANSCRIPT_ROWS)
         .clamp(1, MOST_COMMAND_ROWS + HEADER_ROWS)
+}
+
+/// Where a mark at `current` lands after a move of `delta` over `count` rows
+/// (`advanceSelection`, `list_window.zig:40-48`): past either end it goes to
+/// the **other** end, however far past it was asked to go -- so a page from
+/// the last row is the first one, not a page into the list.
+pub(super) fn advanced(current: usize, count: usize, delta: i64) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    let count = i64::try_from(count).unwrap_or(i64::MAX);
+    let current = i64::try_from(current).unwrap_or(0) % count;
+    let next = current.saturating_add(delta);
+    let next = if next < 0 {
+        count - 1
+    } else if next >= count {
+        0
+    } else {
+        next
+    };
+    usize::try_from(next).unwrap_or(0)
 }
 
 /// Where a window of `rows` over `count` matches starts once `selected` is
@@ -729,6 +741,17 @@ pub(crate) fn completed(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_move_past_either_end_lands_on_the_other_end() {
+        // `advanceSelection` (`list_window.zig:40-48`): however far past.
+        assert_eq!(advanced(0, 9, -1), 8);
+        assert_eq!(advanced(0, 9, -11), 8);
+        assert_eq!(advanced(8, 9, 1), 0);
+        assert_eq!(advanced(3, 9, 11), 0);
+        assert_eq!(advanced(3, 9, 2), 5);
+        assert_eq!(advanced(0, 0, 1), 0);
+    }
 
     use crate::interactive::{Slash, SlashSpec, SLASH_REGISTRY};
 

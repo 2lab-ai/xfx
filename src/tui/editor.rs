@@ -369,6 +369,14 @@ impl Editor {
                 self.word_right_delete_end(),
                 DeltaKind::Ordinary,
             ),
+            // Alt-Backspace: a deletion by word characters, not `C-w`'s kill
+            // (`delete_word_left` through `deletionState`,
+            // `app_input_runtime.zig:454-465`).
+            Action::DeleteWordBackward => self.delete(
+                self.word_left_delete_start(),
+                self.cursor,
+                DeltaKind::Ordinary,
+            ),
             // `C-k` is the kill everywhere a menu is not up, and a menu is the
             // session's to know about (`super::shell`).
             Action::KillToEnd | Action::ControlK => {
@@ -412,7 +420,7 @@ impl Editor {
             // inserted -- neither is a keystroke the composer can answer out of
             // its own buffer (`super::shell::Shell::act`).
             Action::Submit
-            | Action::HistoryPrevious
+            | Action::ControlP
             | Action::HistoryNext
             | Action::Escape
             | Action::Cancel
@@ -486,6 +494,33 @@ impl Editor {
         for span in entities {
             self.entities.register(span.clone());
         }
+    }
+
+    /// Lends the whole composer out -- its text, its blocks and its caret --
+    /// and leaves it empty, for [`Self::give_back`] to restore verbatim.
+    ///
+    /// What `C-p` does to a draft before the model catalog borrows the
+    /// composer for its search (`composer_stash.State.capture`,
+    /// `app_input_runtime.zig:2356-2375`). Not [`Self::take`]: that one ends
+    /// the blocks, and a stashed draft's blocks are still its own.
+    pub(crate) fn lend(&mut self) -> Lent {
+        let lent = Lent {
+            text: std::mem::take(&mut self.text),
+            entities: std::mem::take(&mut self.entities),
+            caret: self.cursor,
+        };
+        self.cursor = 0;
+        self.sticky = None;
+        lent
+    }
+
+    /// Puts a lent draft back exactly as it was, whatever the composer held
+    /// meanwhile (`restoreModelPickerDraft`, `app_input_runtime.zig:2377-2386`).
+    pub(crate) fn give_back(&mut self, lent: Lent) {
+        self.text = lent.text;
+        self.entities = lent.entities;
+        self.cursor = lent.caret.min(self.text.len());
+        self.sticky = None;
     }
 
     /// Takes the composer's text, leaving it empty.
@@ -846,6 +881,40 @@ impl Editor {
         at
     }
 
+    /// Where Alt-Backspace starts deleting (`wordLeftRange`,
+    /// `composer_deletion.zig:103-136`): a block the caret is at the end of is
+    /// taken whole; otherwise back over what is not a word character, then
+    /// over the word characters before it -- and a block met on the way is
+    /// taken whole and ends the walk.
+    fn word_left_delete_start(&self) -> usize {
+        if let Some(start) = self.entities.step_over(self.cursor, Direction::Backward) {
+            return start;
+        }
+        let ends_block = |at: usize| self.entities.spans().iter().find(|span| span.end == at);
+        let mut at = self.cursor;
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        while at > 0 {
+            if let Some(span) = ends_block(at) {
+                return span.start;
+            }
+            let previous = before(&self.text, at);
+            if !is_word(&self.text[previous..at]) {
+                break;
+            }
+            at = previous;
+        }
+        at
+    }
+
     /// Where a word move to the right lands (`moveWordRight`,
     /// `horizontal_navigation.zig:116-141`): over what is not a word character,
     /// then to the end of the word after it -- the far side of a block met on
@@ -914,6 +983,15 @@ impl Editor {
         }
         at
     }
+}
+
+/// A draft lent out of the composer ([`Editor::lend`]): every byte, every
+/// block under its own number, and where the caret was.
+#[derive(Debug)]
+pub(crate) struct Lent {
+    text: String,
+    entities: Entities,
+    caret: usize,
 }
 
 /// Which way [`Editor::move_by_row`] is going.
@@ -1259,6 +1337,30 @@ mod tests {
         // At the end there is nothing to do, and nothing is recorded.
         let mut end = editor("x");
         assert!(end.apply(Action::DeleteWordRight, 80).is_none());
+    }
+
+    #[test]
+    fn alt_backspace_deletes_by_word_characters_and_a_block_whole() {
+        // `wordLeftRange` (`composer_deletion.zig:103-136`).
+        let mut words = editor("see foo.bar  ");
+        let delta = words
+            .apply(Action::DeleteWordBackward, 80)
+            .expect("an edit");
+        assert_eq!(words.text(), "see foo.");
+        assert_eq!(delta.kind(), DeltaKind::Ordinary, "a deletion, not a kill");
+        words.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(words.text(), "see ");
+        assert!(Editor::new()
+            .apply(Action::DeleteWordBackward, 80)
+            .is_none());
+        // A block the caret is after goes whole, and so does one the walk meets.
+        let (mut blocked, _span) = with_block("ab ", "x\ny", "");
+        blocked.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(blocked.text(), "ab ");
+        assert!(blocked.entities().is_empty());
+        let (mut met, _span) = with_block("ab ", "x\ny", "  ");
+        met.apply(Action::DeleteWordBackward, 80);
+        assert_eq!(met.text(), "ab ");
     }
 
     #[test]

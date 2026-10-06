@@ -23,8 +23,9 @@
 //!   after it is its own keystroke; swallowing either loses a keystroke the
 //!   user really typed. **`ESC 0x7f`, `ESC CR` and `ESC LF` are the
 //!   exceptions**: they are how a terminal spells Alt-Backspace and Alt-Enter,
-//!   and they decode as the single [`Action::DeleteWordLeft`] the same key has
-//!   as Ctrl-W and the single [`Action::InsertNewline`] Alt-Enter has in its
+//!   and they decode as the single [`Action::DeleteWordBackward`] the same key
+//!   has in its `CSI u` spelling and the single [`Action::InsertNewline`]
+//!   Alt-Enter has in its
 //!   `CSI u` spelling (`escape_parser.zig` at `c1db919`, :515-519). Replayed,
 //!   either key would be an `Escape` as well -- so two of them would be two
 //!   Escapes inside the double-Esc window and would clear the whole composer
@@ -135,6 +136,13 @@ pub(crate) enum Action {
     Backspace,
     Delete,
     DeleteWordLeft,
+    /// Alt-Backspace: the word to the left by **word characters** -- letters,
+    /// digits, `_` and everything from `U+00C0` up -- and what separates it
+    /// from the caret (`delete_word_left`, `wordLeftRange`,
+    /// `composer_deletion.zig:103-136`). A deletion, not a kill. Not
+    /// [`Action::DeleteWordLeft`], which is `C-w`'s whitespace word and goes
+    /// to the kill slot (`delete_whitespace_word_left`, `shortcuts.zig:23`).
+    DeleteWordBackward,
     /// The word to the right of the caret and the gap after it: Alt-d, and
     /// Delete with Alt or Ctrl (`escape_parser.zig` at `c1db919`, :175-180,
     /// :251, :549). A deletion, not a kill (`composer_deletion.zig:138-164`).
@@ -182,15 +190,15 @@ pub(crate) enum Action {
     /// key rather than for that fallback because xfx has no permission-mode
     /// toggle -- with no catalog up it does nothing, as [`Action::Tab`] does.
     BackTab,
-    /// The line before this one, out of what the session has submitted.
+    /// `C-p` (`0x10`, and kitty's Ctrl+P): the model catalog at the composer
+    /// (`open_model_catalog`, `escape_parser.zig` at `c1db919`, :271), and
+    /// the choice above / a review walked back at a permission question.
     ///
-    /// `C-p`, and the `Up` arrow when the caret has no row above it -- but the
-    /// two are **different actions** on purpose: the arrow is the composer's
-    /// first and the recall's only at the edge of the draft
-    /// (`super::shell::Shell::act`), and this one is the recall wherever the
-    /// caret is. A decoder that folded them together would put the edge rule on
-    /// a key whose whole purpose is not to have one.
-    HistoryPrevious,
+    /// Named for the key, as [`Action::ControlJ`] is, because what it does is
+    /// the surface's to say. It is **not** the recall any more (ssot
+    /// divergence 8): the line before this one is the `Up` arrow's, at the
+    /// first row of the draft.
+    ControlP,
     /// The line after it, and the draft the walk began from once there are no
     /// more. `C-n`, and `Down` at the last row.
     HistoryNext,
@@ -479,11 +487,11 @@ impl Decoder {
             // Escapes inside the double-Esc window and the gesture that throws
             // the whole draft away would fire on a keystroke that means delete
             // *one word* and keep the rest (`super::gesture`). One keystroke,
-            // one action, and it is the action the same key already has as
-            // Ctrl-W.
+            // one action: upstream's `delete_word_left` (:547-552), which
+            // is not Ctrl-W's whitespace kill.
             0x7f | 0x08 => {
                 self.stage = Stage::Ground;
-                out.push(Input::Action(Action::DeleteWordLeft));
+                out.push(Input::Action(Action::DeleteWordBackward));
             }
             // Alt-Enter, in the spelling a terminal without a key protocol
             // uses (`escape_parser.zig` at `c1db919`, :515-519), and the second
@@ -767,7 +775,7 @@ fn control(byte: u8) -> Action {
         0x0e => Action::HistoryNext,
         // `controlByteFeatureAction` (`escape_parser.zig` at `c1db919`, :270).
         0x0f => Action::ToggleTranscript,
-        0x10 => Action::HistoryPrevious,
+        0x10 => Action::ControlP,
         0x15 => Action::KillToStart,
         0x17 => Action::DeleteWordLeft,
         0x19 => Action::Yank,
@@ -1197,7 +1205,7 @@ fn kitty_key(code: u32, modifiers: u8) -> Input {
         return Input::Action(Action::KillToStart);
     }
     if code == 127 && mods & ALT != 0 {
-        return Input::Action(Action::DeleteWordLeft);
+        return Input::Action(Action::DeleteWordBackward);
     }
     match code {
         13 => replayed(b'\r'),
@@ -1523,7 +1531,7 @@ mod tests {
         ("ctrl+k", b"\x1b[107;5u", Action::ControlK),
         ("ctrl+w", b"\x1b[119;5u", Action::DeleteWordLeft),
         ("ctrl+y", b"\x1b[121;5u", Action::Yank),
-        ("ctrl+p", b"\x1b[112;5u", Action::HistoryPrevious),
+        ("ctrl+p", b"\x1b[112;5u", Action::ControlP),
         ("ctrl+n", b"\x1b[110;5u", Action::HistoryNext),
         ("up", b"\x1b[A", Action::Up),
         ("down", b"\x1b[B", Action::Down),
@@ -1545,7 +1553,7 @@ mod tests {
         // these two fall through to its final `.ignore` (:265).
         ("ctrl+/", b"\x1b[47;5u", Action::Ignore),
         ("ctrl+-", b"\x1b[45;5u", Action::Ignore),
-        ("alt+backspace", b"\x1b[127;3u", Action::DeleteWordLeft),
+        ("alt+backspace", b"\x1b[127;3u", Action::DeleteWordBackward),
         ("alt+left", b"\x1b[1;3D", Action::WordLeft),
         ("alt+right", b"\x1b[1;3C", Action::WordRight),
         ("ctrl+left", b"\x1b[1;5D", Action::WordLeft),
@@ -1868,7 +1876,7 @@ mod tests {
         // Alt-Backspace keeps its own carve-out.
         assert_eq!(
             decode(&[0x1b, 0x7f]),
-            vec![Input::Action(Action::DeleteWordLeft)]
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
     }
 
@@ -2209,13 +2217,13 @@ mod tests {
         // one word and keep the rest.
         assert_eq!(
             decode(&[0x1b, 0x7f]),
-            vec![Input::Action(Action::DeleteWordLeft)]
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
         assert_eq!(
             decode(&[0x1b, 0x7f, 0x1b, 0x7f]),
             vec![
-                Input::Action(Action::DeleteWordLeft),
-                Input::Action(Action::DeleteWordLeft)
+                Input::Action(Action::DeleteWordBackward),
+                Input::Action(Action::DeleteWordBackward)
             ],
             "two Alt-Backspaces armed the composer-clearing gesture"
         );
@@ -2223,7 +2231,7 @@ mod tests {
         // `C-h` (`escape_parser.zig` at `c1db919`, :549).
         assert_eq!(
             decode(&[0x1b, 0x08]),
-            vec![Input::Action(Action::DeleteWordLeft)]
+            vec![Input::Action(Action::DeleteWordBackward)]
         );
         // And the replay itself is untouched for every other byte in that
         // position, which is what keeps this a carve-out rather than a repeal.
@@ -2345,7 +2353,7 @@ mod tests {
             (0x0d, Action::Submit),
             (0x0e, Action::HistoryNext),
             (0x0f, Action::ToggleTranscript),
-            (0x10, Action::HistoryPrevious),
+            (0x10, Action::ControlP),
             (0x15, Action::KillToStart),
             (0x17, Action::DeleteWordLeft),
             (0x19, Action::Yank),
@@ -2382,10 +2390,7 @@ mod tests {
         // `Down` would make the recall unreachable from the middle of a
         // multi-row draft -- which is exactly the draft a user reaches for it
         // from.
-        assert_eq!(
-            decode(&[0x10]),
-            vec![Input::Action(Action::HistoryPrevious)]
-        );
+        assert_eq!(decode(&[0x10]), vec![Input::Action(Action::ControlP)]);
         assert_eq!(decode(&[0x0e]), vec![Input::Action(Action::HistoryNext)]);
         assert_ne!(
             decode(&[0x10]),

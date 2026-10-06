@@ -81,7 +81,7 @@ use super::blocks;
 use super::bridge::{self, ModelAnswer, TurnControl, TurnWork, UiEvent};
 use super::copy::Copies;
 use super::edit_history::{Delta, EditHistory};
-use super::editor::{self, Editor, Step as EditorStep};
+use super::editor::{self, Editor, Lent, Step as EditorStep};
 use super::entity::{Entities, EntityKind};
 use super::file_index::Files;
 use super::file_picker::{self, FilePicker};
@@ -695,6 +695,17 @@ pub(crate) struct Shell {
     /// directory browsed, each read on a worker thread
     /// ([`super::file_index::Files`]). Nothing is read until a picker opens.
     files: Files,
+    /// The draft `C-p` lent out of the composer while the model catalog
+    /// borrows it for its search (`model_picker_draft`,
+    /// `app_input_runtime.zig:2356-2404`), given back verbatim when the
+    /// catalog closes -- by a choice, by Escape, by a second `C-p` or by
+    /// `C-c`.
+    model_draft: Option<Lent>,
+    /// Whether the draft is a slash line the history walk handed back, which
+    /// opens no completion menu until it is edited
+    /// (`history_slash_recall_until_edit`, `picker_state.zig:451-466`) -- so
+    /// the next `Up` goes on walking rather than moving a menu's mark.
+    recalled_slash: bool,
     /// The space the last file completion put after its path, while the caret
     /// is still right after it: a space typed then is that one rather than a
     /// second (`markFileCompletionSeparator`, `input_completion_runtime.zig:940-946`;
@@ -1302,6 +1313,8 @@ impl Shell {
                 std::env::var_os("HOME").map(std::path::PathBuf::from),
             ),
             separator: None,
+            model_draft: None,
+            recalled_slash: false,
             help_menu: None,
             model_menu: None,
             gateway_note: crate::provider::model::gateway_catalog_note(config.credential.as_ref()),
@@ -2706,11 +2719,26 @@ impl Shell {
             return false;
         };
         match request {
-            HelpAction::Up | HelpAction::Down => {
+            HelpAction::Up | HelpAction::Down | HelpAction::Page(_) => {
                 // The window a move scrolls against is the one on the screen:
-                // the rows the geometry gave the catalog.
+                // the rows the geometry gave the catalog. A page is the
+                // composer's row cap, as it is for the caret
+                // (`routeComposerVertical`'s `row_count`).
                 let visible = menu.visible_items(self.geometry.panel);
-                if menu.step(request == HelpAction::Down, visible) {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match request {
+                    HelpAction::Up => -1,
+                    HelpAction::Down => 1,
+                    HelpAction::Page(down) => {
+                        if down {
+                            page
+                        } else {
+                            -page
+                        }
+                    }
+                    _ => 0,
+                };
+                if menu.step_by(delta, visible) {
                     self.render.request(Reason::Modal);
                 }
                 true
@@ -2872,9 +2900,22 @@ impl Shell {
             return false;
         };
         match request {
-            ModelAction::Up | ModelAction::Down => {
+            ModelAction::Up | ModelAction::Down | ModelAction::Page(_) => {
                 let visible = menu.visible_items(self.geometry.panel);
-                if menu.step(request == ModelAction::Down, visible) {
+                let page = i64::from(layout::input_row_limit(self.geometry.rows));
+                let delta = match request {
+                    ModelAction::Up => -1,
+                    ModelAction::Down => 1,
+                    ModelAction::Page(down) => {
+                        if down {
+                            page
+                        } else {
+                            -page
+                        }
+                    }
+                    _ => 0,
+                };
+                if menu.step_by(delta, visible) {
                     self.render.request(Reason::Modal);
                 }
             }
@@ -2965,6 +3006,14 @@ impl Shell {
         if self.model_menu.take().is_none() {
             return;
         }
+        // A catalog `C-p` opened gives the draft it borrowed the composer
+        // from back, whatever its search held.
+        if let Some(lent) = self.model_draft.take() {
+            self.take_draft();
+            self.editor.give_back(lent);
+            self.amended(None);
+            return;
+        }
         if !self.editor.is_empty() {
             // Through the one funnel every whole-draft disposal takes, which
             // re-solves the band for the rows the menu gave back.
@@ -2974,6 +3023,37 @@ impl Shell {
         }
         self.refit();
         self.render.request(Reason::Modal);
+    }
+
+    /// `C-p` (`app_input_runtime.zig:1197-1210`): the catalog `/model` opens,
+    /// with the composer only **lent** to it -- the draft goes into a stash
+    /// and comes back verbatim when the catalog closes, a model chosen or not
+    /// (`openModelPickerShortcut`, `:2356-2375`). A second `C-p` backs out,
+    /// as does closing a catalog `/model` opened; a surface that owns the
+    /// keyboard already makes it nothing (`modelPickerShortcutBlocked`,
+    /// `:2406-2418`) -- here, the `/help` catalog and the `/statusline`
+    /// picker. A catalog that cannot open (the runtime refused to load one)
+    /// gives the draft straight back.
+    fn model_catalog_shortcut(&mut self) {
+        if self.model_menu.is_some() {
+            self.close_models();
+            return;
+        }
+        if self.help_menu.is_some() || self.statusline_menu.is_some() {
+            return;
+        }
+        // The draft's deltas name offsets into a text that is about to leave
+        // the composer, so the history takes a boundary here as at every
+        // whole-draft replacement ([`Self::take_draft`]).
+        self.edit_history.boundary();
+        self.model_draft = Some(self.editor.lend());
+        self.open_models();
+        if self.model_menu.is_none() {
+            if let Some(lent) = self.model_draft.take() {
+                self.editor.give_back(lent);
+            }
+        }
+        self.edited(None);
     }
 
     /// One keystroke, while the `/statusline` picker has the focus.
@@ -3270,6 +3350,10 @@ impl Shell {
             return;
         }
         self.file_picker = None;
+        if self.recalled_slash {
+            self.picker = None;
+            return;
+        }
         // Rebuilt only when the query really changed: an arrow key that moved
         // the caret inside the same word must not put the mark back on the
         // first row.
@@ -3346,13 +3430,23 @@ impl Shell {
         let Some(column) = self.provider_picker.as_mut() else {
             return false;
         };
-        match action {
-            Action::Up | Action::Down => {
-                if column.step(matches!(action, Action::Down)) {
-                    self.render.request(Reason::Modal);
-                }
-                true
+        let page = i64::from(layout::input_row_limit(self.geometry.rows));
+        let delta = match action {
+            Action::Up | Action::ControlK => Some(-1),
+            Action::Down | Action::ControlJ => Some(1),
+            Action::PageUp => Some(-page),
+            Action::PageDown => Some(page),
+            _ => None,
+        };
+        if let Some(delta) = delta {
+            // The arrows, `C-j`/`C-k` and a page (`routeNonSlashPickerMove`,
+            // `input_completion_runtime.zig:389-413`).
+            if column.step_by(delta) {
+                self.render.request(Reason::Modal);
             }
+            return true;
+        }
+        match action {
             Action::Tab => {
                 if let Some(text) = column.completion() {
                     self.replace_word(&text);
@@ -3507,10 +3601,10 @@ impl Shell {
         // question until now. The arrows are deliberately not reused: they walk
         // the choices, and a key that scrolled *and* chose would be a key that
         // answers by accident.
-        if let Input::Action(Action::HistoryPrevious | Action::HistoryNext) = event {
+        if let Input::Action(Action::ControlP | Action::HistoryNext) = event {
             let (cols, rows) = (self.geometry.cols, self.geometry.rows);
             if let Some(screen) = self.alternate.as_mut() {
-                let delta = if matches!(event, Input::Action(Action::HistoryPrevious)) {
+                let delta = if matches!(event, Input::Action(Action::ControlP)) {
                     -1
                 } else {
                     1
@@ -3547,7 +3641,7 @@ impl Shell {
             // `up_and_down_move_the_choice_whether_or_not_a_draft_is_open`
             // asserts in all four spellings. Upstream has no second surface to
             // scroll, so this is a retention rather than a divergence.
-            Input::Action(Action::HistoryPrevious) => approval::Action::Up,
+            Input::Action(Action::ControlP) => approval::Action::Up,
             Input::Action(Action::HistoryNext) => approval::Action::Down,
             Input::Action(Action::Tab) => approval::Action::Tab,
             Input::Action(Action::Submit) => approval::Action::Submit,
@@ -4921,6 +5015,7 @@ impl Shell {
             Action::Backspace
             | Action::Delete
             | Action::DeleteWordLeft
+            | Action::DeleteWordBackward
             | Action::DeleteWordRight
             | Action::KillToEnd
             | Action::ControlK
@@ -4997,6 +5092,10 @@ impl Shell {
             // so this byte is the only Ctrl-C a TUI session sees -- and what it
             // means is the line-oriented shell's rule, decided in
             // [`super::gesture`].
+            // While `C-p` has the composer lent to the catalog, the first
+            // Ctrl-C backs out of that and gives the draft back
+            // (`exitModelPickerShortcutIfActive`, `app_input_runtime.zig:1666-1676`).
+            Action::Cancel if self.model_draft.is_some() => self.close_models(),
             Action::Cancel => self.interrupt(now),
             // A lone Escape does nothing here; the second one inside the window
             // clears the composer, and the hint row says so in between.
@@ -5032,15 +5131,14 @@ impl Shell {
             // `Ignore` is a keystroke this session has no binding for at all:
             // an event rather than silence, precisely so that it accounts for
             // the bytes it was decoded from.
-            // `C-p` and `C-n`, which are the recall **wherever the caret
-            // is**: the arrows above cannot reach it from the middle of a
-            // multi-row draft, which is the draft a user reaches for a recall
-            // from. A step that recalls nothing changes nothing and asks for
-            // no frame -- a keystroke that did not move the band must not
-            // repaint it.
-            Action::HistoryPrevious => {
-                self.recall(HistoryStep::Previous);
-            }
+            // `C-p` is the model catalog (`open_model_catalog`,
+            // `escape_parser.zig:271`; ssot divergence 8), and the line before
+            // this one is the `Up` arrow's.
+            Action::ControlP => self.model_catalog_shortcut(),
+            // `C-n`, which is the recall **wherever the caret is**: the arrows
+            // above cannot reach it from the middle of a multi-row draft. A
+            // step that recalls nothing changes nothing and asks for no frame
+            // -- a keystroke that did not move the band must not repaint it.
             Action::HistoryNext => {
                 self.recall(HistoryStep::Next);
             }
@@ -6173,6 +6271,7 @@ impl Shell {
         // `set_text` is the one whole-draft disposal that does not go through
         // [`Self::take_draft`], which is why the boundary is named here.
         self.edit_history.boundary();
+        self.recalled_slash = Trigger::of(self.editor.text()) == Some(Trigger::Slash);
         // Not `amended`: an edit ends the walk, and this *is* the walk.
         self.edited(None);
         true
@@ -6192,6 +6291,7 @@ impl Shell {
     /// impossible.
     fn amended(&mut self, delta: Option<Delta>) {
         self.history.leave();
+        self.recalled_slash = false;
         self.edited(delta);
     }
 
@@ -7936,13 +8036,13 @@ mod tests {
         shell.route_bytes(&[0x0d]);
         assert_eq!(shell.picks_up(), TurnWork::Submit(second.clone()));
 
-        shell.route_bytes(&[0x10]); // C-p: the newest line
+        shell.route_bytes(b"\x1b[A"); // Up: the newest line
         assert_eq!(
             shell.editor.expanded(),
             second,
             "the newest line came back without the block its summary named"
         );
-        shell.route_bytes(&[0x10]); // C-p: the one before it
+        shell.route_bytes(b"\x1b[A"); // Up: the one before it
         assert_eq!(
             shell.editor.expanded(),
             first,
@@ -8221,24 +8321,28 @@ mod tests {
         submitted(&mut shell, "first line");
         submitted(&mut shell, "second line");
         submitted(&mut shell, "/help");
+        // The catalog `/help` opened takes the arrows, so it is closed first:
+        // the walk is the composer's.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
         shell.route_bytes(b"half typed");
         assert_eq!(shell.edit_depths(), (10, 0));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.editor.text(), "/help");
         assert_eq!(
             shell.edit_depths(),
             (0, 0),
             "the recall left deltas naming a draft that is gone"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
             "second line",
             "the second step back handed the newest line over again: the \
              recall ended its own walk"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.editor.text(),
             "first line",
@@ -8594,7 +8698,7 @@ mod tests {
         shell.route_bytes(&[0x0d]);
         assert_eq!(shell.picks_up(), TurnWork::Submit(block.clone()));
 
-        shell.route_bytes(&[0x10]); // C-p: one step back
+        shell.route_bytes(b"\x1b[A"); // Up: one step back
         assert_eq!(
             shell.editor.text(),
             "[Pasted text #2, 1 lines]",
@@ -8621,7 +8725,7 @@ mod tests {
         assert_eq!(shell.picks_up(), TurnWork::Submit(block));
 
         *shell.paste.ids() = u32::MAX;
-        shell.route_bytes(&[0x10]); // C-p
+        shell.route_bytes(b"\x1b[A"); // Up
         assert_eq!(
             shell.editor.text(),
             "[Pasted text #1, 1 lines]",
@@ -15298,6 +15402,152 @@ mod tests {
         assert_eq!(shell.picker.as_ref().expect("a menu").marked().0, count - 1);
     }
 
+    #[test]
+    fn a_page_key_moves_the_help_catalog_a_page_and_wraps_past_its_end() {
+        // `routeHelpMenuMove` with a page's delta (`input_completion_runtime.zig`
+        // :209-226, :449-467): the composer's row cap, wrapping to the other
+        // end past either (`HelpMenu.move`, `command_specs.zig:232-248`).
+        let mut shell = with_catalog(24, 80);
+        let first = shell
+            .help_menu
+            .as_ref()
+            .and_then(HelpMenu::selected)
+            .map(|spec| spec.name);
+        shell.route_bytes(b"\x1b[5~");
+        let last = crate::interactive::SLASH_CATEGORIES
+            .iter()
+            .flat_map(|category| {
+                crate::interactive::SLASH_REGISTRY
+                    .iter()
+                    .filter(move |spec| spec.category == *category)
+            })
+            .last()
+            .map(|spec| spec.name);
+        assert_eq!(
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name),
+            last,
+            "a page up from the first command did not wrap to the last"
+        );
+        shell.route_bytes(b"\x1b[6~");
+        assert_eq!(
+            shell
+                .help_menu
+                .as_ref()
+                .and_then(HelpMenu::selected)
+                .map(|spec| spec.name),
+            first,
+            "a page down past the end did not wrap to the first"
+        );
+        assert!(shell.help_menu.is_some(), "a page key closed the catalog");
+    }
+
+    #[test]
+    fn ctrl_p_lends_the_draft_to_the_model_catalog_and_every_way_out_gives_it_back() {
+        // `openModelPickerShortcut` and `restoreModelPickerDraft`
+        // (`app_input_runtime.zig:2356-2386`): the catalog's search starts
+        // empty, and the draft comes back verbatim -- its caret and its blocks
+        // too -- by Escape, by a second `C-p` and by `C-c`
+        // (`exitModelPickerShortcutIfActive`, `:1666-1676`).
+        let draft = "x".repeat(1200);
+        for (way_out, bytes) in [
+            ("Escape", &b"\x1b"[..]),
+            ("a second C-p", &b"\x10"[..]),
+            ("C-c", &b"\x03"[..]),
+        ] {
+            let mut shell = shell(24, 80);
+            shell.route_bytes(b"before ");
+            shell.route_bytes(&[b"\x1b[200~", draft.as_bytes(), b"\x1b[201~"].concat());
+            shell.route_bytes(b" after");
+            shell.route_bytes(b"\x1b[D\x1b[D");
+            let held = shell.editor.text().to_string();
+            let caret = shell.editor.caret();
+            assert_eq!(
+                shell.editor.entities().len(),
+                1,
+                "the paste did not collapse"
+            );
+            shell.route_bytes(&[0x10]);
+            assert!(
+                shell.model_menu.is_some(),
+                "{way_out}: C-p opened no catalog"
+            );
+            assert_eq!(
+                shell.editor.text(),
+                "",
+                "{way_out}: the search was not empty"
+            );
+            shell.route_bytes(b"gro");
+            shell.route_bytes(bytes);
+            shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+            assert!(shell.model_menu.is_none(), "{way_out} left the catalog up");
+            assert_eq!(shell.editor.text(), held, "{way_out} lost the draft");
+            assert_eq!(shell.editor.caret(), caret, "{way_out} moved the caret");
+            assert_eq!(shell.editor.entities().len(), 1, "{way_out} lost the block");
+            assert!(shell
+                .sent
+                .try_recv()
+                .is_ok_and(|work| matches!(work, TurnWork::Catalog)));
+            assert!(
+                shell.sent.try_recv().is_err(),
+                "{way_out} sent something besides the catalog request"
+            );
+        }
+    }
+
+    #[test]
+    fn ctrl_p_closes_a_catalog_slash_model_opened_and_does_nothing_over_help() {
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"/model\r");
+        assert!(shell.model_menu.is_some(), "/model opened no catalog");
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none());
+        assert_eq!(shell.editor.text(), "");
+        // A surface that owns the keyboard makes it nothing
+        // (`modelPickerShortcutBlocked`, `app_input_runtime.zig:2406-2418`).
+        let mut shell = with_catalog(24, 80);
+        shell.route_bytes(&[0x10]);
+        assert!(shell.model_menu.is_none());
+        assert!(shell.help_menu.is_some());
+    }
+
+    #[test]
+    fn a_recalled_slash_line_opens_no_menu_until_it_is_edited() {
+        // `history_slash_recall_until_edit` (`picker_state.zig:451-466`): the
+        // next `Up` goes on walking rather than moving a menu's mark.
+        let mut shell = shell(24, 80);
+        submitted(&mut shell, "older");
+        submitted(&mut shell, "/version");
+        let _ = shell.document();
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "/version");
+        assert!(shell.picker.is_none(), "a recalled command opened the menu");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "older");
+        shell.route_bytes(b"\x1b[B");
+        assert_eq!(shell.editor.text(), "/version");
+        shell.route_bytes(&[0x7f]);
+        assert!(shell.picker.is_some(), "an edit did not give the menu back");
+    }
+
+    #[test]
+    fn alt_backspace_deletes_by_word_characters_and_c_w_by_whitespace() {
+        // `delete_word_left` (`composer_deletion.zig:103-136`) against
+        // `delete_whitespace_word_left` (`composer_kill_ring.zig:14-18`).
+        let mut shell = shell(24, 80);
+        shell.route_bytes(b"see foo.bar");
+        shell.route_bytes(b"\x1b\x7f");
+        assert_eq!(shell.editor.text(), "see foo.");
+        shell.route_bytes(&[0x17]);
+        assert_eq!(shell.editor.text(), "see ");
+        // Alt-Backspace is a deletion, so `C-y` yanks what `C-w` killed.
+        shell.route_bytes(&[0x19]);
+        assert_eq!(shell.editor.text(), "see foo.");
+    }
+
     // -----------------------------------------------------------------------
     // the /help catalog
     // -----------------------------------------------------------------------
@@ -16751,7 +17001,7 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_p_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
+    fn up_walks_back_through_the_submitted_lines_and_ctrl_n_returns_the_draft() {
         // The whole of item 15 on this surface: what was sent comes back,
         // newest first, and the half-typed line the walk began from is what it
         // comes back to.
@@ -16760,16 +17010,16 @@ mod tests {
         submitted(&mut shell, "second line");
         shell.route_bytes(b"half typed");
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second line"));
         assert_eq!(
             shell.cursor(),
             (22, 13),
             "the caret is not at the end of the recalled line"
         );
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first line"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first line"),
@@ -16789,18 +17039,20 @@ mod tests {
     fn a_recall_asks_for_the_frame_that_shows_it_and_a_recall_of_nothing_asks_for_none() {
         // The band is repainted whole, so a recall that did not ask for a frame
         // would leave the terminal showing a draft the composer no longer
-        // holds; and a `C-p` at a session with nothing to recall must not
-        // repaint the band on a link that may be a serial line.
+        // holds; and a `C-n` at a session with nothing to recall must not
+        // repaint the band on a link that may be a serial line. (`C-n`, not
+        // the arrow: an arrow at the edge is still a vertical move, and owes
+        // its frame for the column it recorded.)
         let mut shell = shell(24, 80);
         let _first = shell.render.begin().expect("the first frame");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(&[0x0e]);
         assert!(
             shell.render.begin().is_none(),
             "a recall that recalled nothing repainted the whole band"
         );
         submitted(&mut shell, "sent");
         let _submission = shell.render.begin();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert!(
             shell.render.begin().is_some(),
             "a recall asked for no frame, so the band would go on showing the \
@@ -16816,7 +17068,7 @@ mod tests {
         let mut shell = shell(24, 80);
         shell.route_bytes(b"/version\r");
         let _echo = shell.document();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         // Asked through the caret rather than through a band row: the recalled
         // draft is a slash word, so the completion menu opens over the rows
         // above the rule -- and the caret staying in the composer is the same
@@ -16850,7 +17102,7 @@ mod tests {
         // this case without a single line having been recorded.
         shell.route_bytes(b"\x15");
         assert_eq!(shell.band_rows()[0], composer_row(""));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("third"));
     }
 
@@ -16862,7 +17114,7 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "real");
         submitted(&mut shell, "   ");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("real"));
     }
 
@@ -16946,19 +17198,30 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_p_walks_back_from_a_row_the_arrow_would_only_move_in() {
-        // The difference between the two keys, and the reason there are two:
-        // the caret is on the last of two rows, so `Up` there is a movement --
-        // and `C-p` is the recall wherever the caret is.
+    fn ctrl_p_is_the_model_catalog_and_the_recall_is_the_arrows() {
+        // Ssot divergence 8: `C-p` opens the catalog `/model` opens
+        // (`escape_parser.zig:271`), with the draft lent out of the composer,
+        // and the line before this one is the `Up` arrow's -- from the first
+        // row, as the arrow always was.
         let mut shell = shell(24, 80);
         submitted(&mut shell, "sent");
         shell.route_bytes(b"top\x0abottom");
         shell.route_bytes(&[0x10]);
-        assert_eq!(
-            shell.band_rows()[0],
-            composer_row("sent"),
-            "C-p from the last row of a two-row draft only moved the caret"
+        assert!(
+            shell.model_menu.is_some(),
+            "C-p did not open the model catalog"
         );
+        assert_eq!(shell.editor.text(), "", "the catalog's search is not empty");
+        // The draft comes back verbatim when the catalog closes.
+        shell.route_bytes(&[0x1b]);
+        shell.settle_input(Instant::now() + Decoder::ESC_TIMEOUT);
+        assert!(shell.model_menu.is_none());
+        assert_eq!(shell.editor.text(), "top\nbottom");
+        // From the last row `Up` moves; from the first it recalls.
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.editor.text(), "top\nbottom");
+        shell.route_bytes(b"\x1b[A");
+        assert_eq!(shell.band_rows()[0], composer_row("sent"));
     }
 
     #[test]
@@ -16969,13 +17232,13 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"!");
         assert_eq!(shell.band_rows()[0], composer_row("first!"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -16998,12 +17261,12 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
         shell.route_bytes(&[0x7f]);
         assert_eq!(shell.band_rows()[0], composer_row("firs"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -17020,10 +17283,10 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("second"));
         shell.route_bytes(b"\x1b[D");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("first"),
@@ -17041,8 +17304,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(&[0x1b]);
@@ -17054,7 +17317,7 @@ mod tests {
             "the second Escape did not clear the recalled line"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -17069,8 +17332,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -17078,7 +17341,7 @@ mod tests {
         shell.route_bytes(b"\x1b[201~");
         assert_eq!(shell.band_rows()[0], composer_row("first and more"));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -17094,8 +17357,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         // Home first, which is a caret move and must leave the walk open --
@@ -17104,7 +17367,7 @@ mod tests {
         shell.route_bytes(&[0x04]);
         assert_eq!(shell.band_rows()[0], composer_row("irst"));
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -17120,8 +17383,8 @@ mod tests {
         let mut shell = shell(24, 80);
         submitted(&mut shell, "first");
         submitted(&mut shell, "second");
-        shell.route_bytes(&[0x10]);
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("first"));
 
         shell.route_bytes(b"\x1b[200~");
@@ -17132,7 +17395,7 @@ mod tests {
             composer_row("first[Pasted text #1, 1 lines]")
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("second"),
@@ -17181,7 +17444,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("earlier"));
         shell.route_bytes(&[0x0e]);
         assert_eq!(
@@ -17219,7 +17482,7 @@ mod tests {
             "the paste was not collapsed, so this case proves nothing"
         );
 
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("[Pasted text #1, 1 lines]"),
@@ -17240,16 +17503,16 @@ mod tests {
         // it records it once rather than twice.
         let mut shell = shell(24, 80);
         submitted(&mut shell, "ask me again");
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         shell.route_bytes(&[0x0d]);
         assert_eq!(
             shell.picks_up(),
             TurnWork::Submit("ask me again".to_string())
         );
         let _echo = shell.document();
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(shell.band_rows()[0], composer_row("ask me again"));
-        shell.route_bytes(&[0x10]);
+        shell.route_bytes(b"\x1b[A");
         assert_eq!(
             shell.band_rows()[0],
             composer_row("ask me again"),
@@ -17297,7 +17560,7 @@ mod tests {
         for open in [false, true] {
             for (up, down) in [
                 (Action::Up, Action::Down),
-                (Action::HistoryPrevious, Action::HistoryNext),
+                (Action::ControlP, Action::HistoryNext),
             ] {
                 let mut shell = shell(24, 80);
                 asking(&mut shell);
@@ -17721,7 +17984,7 @@ mod tests {
 
         // `C-p` scrolls the change and leaves the draft open: it is not a
         // choice key here.
-        shell.decide(Input::Action(Action::HistoryPrevious), Instant::now());
+        shell.decide(Input::Action(Action::ControlP), Instant::now());
         shell.decide(Input::Action(Action::HistoryNext), Instant::now());
         assert!(
             shell.drafting(),

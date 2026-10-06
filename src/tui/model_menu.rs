@@ -102,6 +102,11 @@ pub(crate) enum ModelAction {
     Up,
     /// The next one, wrapping to the first. Down.
     Down,
+    /// A page of the composer's row cap, `true` for down, wrapping past
+    /// either end (`routeModelMenuMove` with a page's delta,
+    /// `input_completion_runtime.zig:209-226`, `:469-480`). Page Up and Page
+    /// Down.
+    Page(bool),
     /// The next vendor tab, wrapping to `All`. Tab.
     NextVendor,
     /// The previous one. Shift-Tab.
@@ -124,6 +129,8 @@ impl ModelAction {
             // `app_input_runtime.zig:1220-1235`, through `routeModelMenuMove`).
             Action::Up | Action::ControlK => Some(Self::Up),
             Action::Down | Action::ControlJ => Some(Self::Down),
+            Action::PageUp => Some(Self::Page(false)),
+            Action::PageDown => Some(Self::Page(true)),
             Action::Tab => Some(Self::NextVendor),
             Action::BackTab => Some(Self::PreviousVendor),
             Action::Submit => Some(Self::Use),
@@ -393,17 +400,19 @@ impl ModelMenu {
     /// `visible` models only as far as keeps it in view
     /// (`moveVisibleItems`, `:166-180`). `false`, and nothing moved, when
     /// there is nothing listed.
+    #[cfg(test)]
     pub(crate) fn step(&mut self, down: bool, visible: u16) -> bool {
+        self.step_by(if down { 1 } else { -1 }, visible)
+    }
+
+    /// The mark `delta` rows on, wrapping to the other end past either
+    /// (`moveVisibleItems`, `model_cache_runtime.zig:168-184`).
+    pub(crate) fn step_by(&mut self, delta: i64, visible: u16) -> bool {
         let count = self.items().len();
         if self.load != Load::Ready || count == 0 {
             return false;
         }
-        let current = self.selected % count;
-        self.selected = if down {
-            (current + 1) % count
-        } else {
-            (current + count - 1) % count
-        };
+        self.selected = super::picker::advanced(self.selected, count, delta);
         self.window_start = edge_start(self.window_start, count, self.selected, visible.max(1));
         true
     }

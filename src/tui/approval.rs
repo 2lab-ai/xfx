@@ -727,7 +727,7 @@ fn keyed(
 /// `Submit`, `Escape`, `Cancel` and `Tab` are absent for the opposite reason:
 /// they are the panel's own keys and mean the same thing whether or not a draft
 /// is open, so a draft that took them would change what answering a question
-/// means. `InsertNewline`, `Eof`, `HistoryPrevious`, `HistoryNext`, `Redraw`
+/// means. `InsertNewline`, `Eof`, `ControlP`, `HistoryNext`, `Redraw`
 /// and `Ignore` are the session's or the panel's and are not a draft's at all.
 pub(crate) fn edits(action: super::input::Action) -> bool {
     use super::input::Action as Key;
@@ -742,6 +742,8 @@ pub(crate) fn edits(action: super::input::Action) -> bool {
             | Key::Backspace
             | Key::Delete
             | Key::DeleteWordLeft
+            | Key::DeleteWordBackward
+            | Key::DeleteWordRight
             | Key::KillToEnd
             | Key::ControlK
             | Key::KillToStart
