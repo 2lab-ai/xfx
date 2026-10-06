@@ -36,7 +36,8 @@ use crate::permission::{PermissionSession, YOLO_WARNING};
 use crate::provider::model::{ModelOutcome, ModelRequest, ModelSelector};
 use crate::provider::{Bundle, ProviderId};
 use crate::session::{
-    NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, WritableSession,
+    validate_title, NewSession, SessionEvent, SessionId, SessionRecorder, SessionStore, TitleError,
+    WritableSession,
 };
 use crate::tools::{QuestionRequester, ToolContext};
 use crate::workspace::{AccessScope, ProjectContext};
@@ -63,6 +64,8 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/clear",
     "/new",
     "/reset",
+    "/resume",
+    "/rename",
     "/setup",
     "/stats",
     "/status",
@@ -170,6 +173,22 @@ pub const SLASH_REGISTRY: &[SlashSpec] = &[
         summary: "reset the current session context",
         category: "Session",
         has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Resume,
+        name: "/resume",
+        aliases: &[],
+        summary: "resume a saved session",
+        category: "Session",
+        has_args: false,
+    },
+    SlashSpec {
+        command: Slash::Rename,
+        name: "/rename",
+        aliases: &[],
+        summary: "rename the current session",
+        category: "Session",
+        has_args: true,
     },
     SlashSpec {
         command: Slash::Setup,
@@ -336,6 +355,48 @@ pub const PROMPT: &str = "> ";
 pub const STATS_ON_THE_LINE_SHELL: &str = "xfx: /stats counts the frames the full-screen shell \
      draws, and this line-oriented shell draws none; without XFX_TUI=0, xfx opens the full-screen one";
 
+/// What `/resume` says on this surface.
+///
+/// Upstream's `/resume` is a picker in its footer
+/// (`commandResumeSession`, `app_commands.zig:682-693`), and this shell has no
+/// footer to put one in: it reads a line at a time. It says where the picker
+/// is, as `/stats` says where the counters are, rather than resuming something
+/// the user did not pick.
+pub const RESUME_ON_THE_LINE_SHELL: &str = "xfx: /resume picks a saved session in the full-screen \
+     shell, and this line-oriented shell has no picker; without XFX_TUI=0, xfx opens the \
+     full-screen one, and `xfx --resume <last|ID>` opens it on a session";
+
+/// What `/rename` says when there is no title to give the session, or one it
+/// cannot have (`handleRenameCommand`, `app_commands.zig:3815-3858`): the
+/// words both shells use.
+pub(crate) fn title_refusal(problem: TitleError) -> &'static str {
+    match problem {
+        TitleError::Empty => "usage: /rename <title>",
+        TitleError::TooLong => "title is too long",
+        TitleError::NotPrintable => "title must be printable text",
+    }
+}
+
+/// Gives `conversation`'s session the title `title`, already validated
+/// ([`crate::session::validate_title`]), and says whether it was written down.
+///
+/// The recorder's first failure is the answer when there is one, this write's
+/// or an earlier one's: a recorder that has failed writes nothing more
+/// (`SessionRecorder::commit`), so a title it was handed afterwards is a title
+/// the log does not have.
+pub(crate) fn rename_conversation(
+    conversation: &mut Conversation,
+    title: &str,
+) -> Result<(), String> {
+    conversation.recorder.commit(SessionEvent::SessionRenamed {
+        title: title.to_string(),
+    });
+    match conversation.recorder.failure() {
+        Some(problem) => Err(problem.to_string()),
+        None => Ok(()),
+    }
+}
+
 /// Why xfx will not open a shell here.
 pub const NO_TERMINAL: &str = "xfx requires an interactive terminal (TTY); \
      run `xfx ask <prompt>` when there is not one";
@@ -373,6 +434,13 @@ pub enum Slash {
     /// away before anything reads it (`app_session_runtime.zig:2001`), so it
     /// opens a new session exactly as the other two do.
     Reset,
+    /// Pick a saved session and continue it: the TUI's session picker
+    /// (`commandResumeSession`, `app_commands.zig:682-693`).
+    Resume,
+    /// Give the session a title of the user's own, which outranks the one its
+    /// first prompt would give it (`handleRenameCommand`,
+    /// `app_commands.zig:3815-3858`).
+    Rename,
     Model,
     /// Switch the provider a turn talks to, and record the choice.
     ///
@@ -837,6 +905,43 @@ pub async fn run(
                     Slash::Stats => {
                         writeln!(io::stderr(), "{STATS_ON_THE_LINE_SHELL}")?;
                     }
+                    Slash::Resume => {
+                        writeln!(io::stderr(), "{RESUME_ON_THE_LINE_SHELL}")?;
+                    }
+                    // The session is opened for it when no prompt has opened
+                    // one yet, as upstream's exists from launch: a title is
+                    // something to keep, and a session renamed before anything
+                    // was asked in it is kept (`discardableOnClose`,
+                    // `app_session_runtime.zig:5702-5720`).
+                    Slash::Rename => match validate_title(&argument) {
+                        Err(problem) => {
+                            writeln!(io::stderr(), "xfx: {}", title_refusal(problem))?;
+                        }
+                        Ok(title) => {
+                            let opened = match &mut conversation {
+                                Some(existing) => Ok(existing),
+                                slot @ None => open_conversation(
+                                    &store,
+                                    &config,
+                                    &model,
+                                    crate::app::permission_session(mode),
+                                    None,
+                                    &cancel,
+                                )
+                                .map(|opened| slot.insert(opened)),
+                            };
+                            match opened.and_then(|open| rename_conversation(open, title)) {
+                                Ok(()) => writeln!(
+                                    io::stdout(),
+                                    "[shell] session renamed to \"{title}\""
+                                )?,
+                                Err(problem) => writeln!(
+                                    io::stderr(),
+                                    "xfx: the session was not renamed: {problem}"
+                                )?,
+                            }
+                        }
+                    },
                     Slash::Model => {
                         model =
                             apply_model(&argument, &mut selector, conversation.as_mut()).await?;
@@ -1323,9 +1428,9 @@ mod tests {
         // deliberately smaller than upstream's ~40-command palette
         // (`vercel-labs/fx@c1db9191 src/builtins/commands.zig:463-499`).
         // Ten since `/copy`, `/stats` and `/status`, eleven since `/reset` --
-        // upstream's third name for the one reset; `/models` and `/provider`
-        // stay deferred.
-        assert_eq!(SLASH_COMMANDS.len(), 11);
+        // upstream's third name for the one reset -- and thirteen since
+        // `/resume` and `/rename`; `/models` and `/provider` stay deferred.
+        assert_eq!(SLASH_COMMANDS.len(), 13);
         let mut sorted = SLASH_COMMANDS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1469,7 +1574,6 @@ mod tests {
     fn help_advertises_no_deferred_upstream_command() {
         let help = help_text();
         for deferred in [
-            "/resume",
             "/login",
             "/logout",
             "/permissions",
@@ -1479,7 +1583,6 @@ mod tests {
             "/undo",
             "/usage",
             "/image",
-            "/rename",
             "/background",
         ] {
             assert!(!help.contains(deferred), "help advertises {deferred}");
@@ -1614,11 +1717,12 @@ mod tests {
 
     #[test]
     fn only_a_command_that_takes_one_is_declared_to_have_an_argument() {
-        // The two that mean something by the rest of the line: `/model <id>`
+        // The three that mean something by the rest of the line: `/model <id>`
         // picks among what a provider offers, `/setup <provider>` picks the
-        // provider. Every other name is the whole command.
+        // provider, `/rename <title>` names the session. Every other name is
+        // the whole command.
         for spec in SLASH_REGISTRY {
-            let takes_one = matches!(spec.name, "/model" | "/setup");
+            let takes_one = matches!(spec.name, "/model" | "/setup" | "/rename");
             assert_eq!(spec.has_args, takes_one, "{}", spec.name);
         }
     }

@@ -731,6 +731,18 @@ fn quit_after_a_conversation_names_the_session_and_resume_continues_it() {
     let mut second = Session::spawn_without_taking_the_terminal(&pty, resumed);
     second.wait_for(READY);
     second.wait_for("session resumed:");
+    // And the saved turn is on the screen under it, as upstream replays one
+    // (`replayHistoryToSinkIncremental`, `app_session_runtime.zig:4753-4810`):
+    // its card and its answer, with no welcome line above them.
+    let replayed = second.wait_for("MARKER-FIRST");
+    assert!(
+        replayed.contains("first question alpha"),
+        "the saved prompt was not replayed: {replayed:?}"
+    );
+    assert!(
+        !replayed.contains("Run /help for commands"),
+        "a resumed launch wrote the welcome line: {replayed:?}"
+    );
     second.type_bytes(b"second question beta\r");
     second.wait_for("MARKER-SECOND");
     let sent = user_messages(&gateway.requests()[1].json());

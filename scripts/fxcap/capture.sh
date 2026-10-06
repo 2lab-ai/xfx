@@ -33,6 +33,11 @@
 #                          <bin>-<scenario>-<size>-<label>.clip, or says that
 #                          nothing was copied since the last clip
 #   clipfail on|off        makes the fake pbcopy read its input and exit 1
+#   relaunch <args>...     starts the binary again in the same pane, with the
+#                          same HOME and environment and these arguments --
+#                          after `keep` and an exit, so a second launch sees
+#                          what the first one saved (`fx: relaunch
+#                          --resume-last`, `xfx: relaunch --resume last`)
 #
 # A line prefixed `fx: ` or `xfx: ` applies to that binary only. The two
 # products name their tools and settings differently (fx's `shell` with
@@ -176,6 +181,9 @@ XFX_MODEL=fake/model-a $extra_env $bin"
         else
           echo "clip $rest: nothing was copied"
         fi
+        ;;
+      relaunch)
+        tmux -f /dev/null -S "$sock" respawn-pane -k -t cap "cd $run/work && exec $launch $rest"
         ;;
       clipfail)
         case $rest in

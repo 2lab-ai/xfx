@@ -43,6 +43,12 @@ pub(crate) trait CommandHandlers {
     /// (`app_commands.zig:667-680`); a method of its own because the trait is
     /// named after what the user asked for.
     fn reset(&mut self);
+    /// `/resume`: the session picker. It takes nothing.
+    fn resume(&mut self);
+    /// `/rename`, with the rest of the line -- already trimmed, and empty when
+    /// there was none, which is the one refusal that names the command's own
+    /// grammar (`usage: /rename <title>`).
+    fn rename(&mut self, argument: &str);
     /// `/model`, with the rest of the line -- already trimmed, and empty when
     /// there was none.
     fn model(&mut self, argument: &str);
@@ -138,6 +144,8 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::New => handlers.new_session(),
         Slash::Clear => handlers.clear(),
         Slash::Reset => handlers.reset(),
+        Slash::Resume => handlers.resume(),
+        Slash::Rename => handlers.rename(argument),
         Slash::Model => handlers.model(argument),
         Slash::Setup => handlers.setup(argument),
         Slash::Copy => handlers.copy(),
@@ -192,6 +200,12 @@ mod tests {
         fn reset(&mut self) {
             self.calls.push("reset".to_string());
         }
+        fn resume(&mut self) {
+            self.calls.push("resume".to_string());
+        }
+        fn rename(&mut self, argument: &str) {
+            self.calls.push(format!("rename {argument}"));
+        }
         fn model(&mut self, argument: &str) {
             self.calls.push(format!("model {argument}"));
         }
@@ -228,6 +242,8 @@ mod tests {
             ("/new", "new"),
             ("/clear", "clear"),
             ("/reset", "reset"),
+            ("/resume", "resume"),
+            ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
             ("/stats", "stats"),
@@ -262,6 +278,12 @@ mod tests {
             vec!["model acme/model-9".to_string()]
         );
         assert_eq!(routed("/setup llmux"), vec!["setup llmux".to_string()]);
+        // Trimmed, as upstream's payload is (`command_router.zig:121-133`):
+        // `/rename   My Title  ` names `My Title`.
+        assert_eq!(
+            routed("/rename   My Title  "),
+            vec!["rename My Title".to_string()]
+        );
     }
 
     /// Advertising without a handler is what this module exists to make

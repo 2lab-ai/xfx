@@ -65,6 +65,12 @@ const ERASE_LINE: &str = "\x1b[K";
 /// this band is about to place are the only ones it knows about.
 const ERASE_SCREEN: &str = "\x1b[2J";
 
+/// A resume's terminal reset: the caret home, the screen erased, and the
+/// scrollback with it ([`Band::wipe`]). The one vector in this crate that
+/// erases a scrollback, which is why the output check admits `3J` for exactly
+/// one declaration (`check::Intent::Wiped`).
+pub(crate) const WIPE: &str = "\x1b[H\x1b[2J\x1b[3J";
+
 /// Take the terminal's alternate screen buffer, saving the cursor.
 ///
 /// The one sequence the main surface never writes ([`super::term::RESTORE`]
@@ -1733,6 +1739,58 @@ impl Band {
         self.damaged = false;
         // The vector left the caret where its last step put it, which is not
         // where any frame left it: the next frame owes a `CUP`.
+        self.caret = None;
+        Ok(())
+    }
+
+    /// Resets the screen **and its scrollback**, in one write and one flush:
+    /// the screen half of a `/resume`.
+    ///
+    /// Upstream's terminal reset (`finishLiveSessionResume` →
+    /// `requestTerminalReset`, `app_session_runtime.zig:1926-1929`), whose bytes
+    /// are `ESC[0m ESC[2J ESC[3J ESC[H` (`appendFrameReset`,
+    /// `render_engine/terminal_diff.zig:1311-1325`): a resumed session replaces
+    /// the conversation on the screen, and the one it replaced does not stay
+    /// in the scrollback above it (`fx-sessions-40x120-resumed.full.txt` is the
+    /// screen and nothing more). The opposite of [`Self::hand_off`], which is
+    /// what a fresh session does and keeps every row.
+    ///
+    /// The SGR reset is left out: this band closes every colour it opens, so
+    /// there is none for it to close.
+    ///
+    /// **Nothing is recorded until the write lands.** Once it has, the band's
+    /// bookkeeping is a blank screen's, as after a handoff.
+    pub(crate) fn wipe(&mut self, out: &mut impl Sink, geometry: &Geometry) -> Result<(), Emit> {
+        let seed = self
+            .seed(check::PlaneKind::Primary, geometry)
+            .map_err(Emit::rejected)?;
+        self.buffer.clear();
+        self.buffer.extend_from_slice(WIPE.as_bytes());
+        #[cfg(test)]
+        if let Some(tamper) = self.tamper {
+            tamper(&mut self.buffer);
+        }
+        check::preflight(
+            &seed,
+            &self.buffer,
+            &check::Declared::new(
+                check::Intent::Wiped,
+                check::Footprint::new(
+                    check::PlaneKind::Primary,
+                    vec![check::Seg::Erase(1..=geometry.rows)],
+                ),
+            ),
+        )
+        .map_err(Emit::rejected)?;
+        out.emit(&self.buffer)?;
+        self.shadow.resize(geometry.rows, geometry.cols);
+        self.target.resize(geometry.rows, geometry.cols);
+        self.painted = None;
+        self.painted_on = None;
+        self.document_bottom = None;
+        self.damaged = false;
+        // `ESC[H` left it at the origin, which is still not where any frame
+        // left it.
         self.caret = None;
         Ok(())
     }

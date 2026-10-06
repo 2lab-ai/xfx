@@ -278,11 +278,10 @@ fn slash_help_lists_exactly_the_canonical_commands() {
     );
     // Advertisement is a promise here too: no deferred upstream slash command
     // may appear. `/setup` left this list when it stopped being deferred, and
-    // `/stats` and `/status` after it; `/models` and `/provider` did not,
-    // because the catalog browser is reached by a bare `/model` rather than by
-    // a command of its own.
+    // `/stats` and `/status` after it, and `/resume` and `/rename` after
+    // those; `/models` and `/provider` did not, because the catalog browser is
+    // reached by a bare `/model` rather than by a command of its own.
     for absent in [
-        "/resume",
         "/login",
         "/permissions",
         "/models",
@@ -348,6 +347,37 @@ fn slash_stats_says_where_the_counters_are_rather_than_printing_zeros() {
     assert!(!text.contains("ansi_bytes="), "{text}");
 
     assert_eq!(session.quit().code(), Some(0));
+}
+
+#[test]
+fn slash_rename_titles_a_session_before_any_prompt_and_slash_resume_says_where_the_picker_is() {
+    // The line shell has no picker; it says where one is rather than resuming
+    // something nobody picked.
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut session = start(&sandbox, &pty, sandbox.command());
+
+    session.type_line("/resume");
+    session.wait_for("has no picker");
+    session.type_line("/rename");
+    session.wait_for("usage: /rename <title>");
+    session.type_line("/rename   My Title  ");
+    session.wait_for("[shell] session renamed to \"My Title\"");
+    assert_eq!(session.quit().code(), Some(0));
+
+    // Opened for the rename, and kept with it though nothing was asked.
+    let sessions: Vec<_> = std::fs::read_dir(sandbox.sessions_dir())
+        .expect("the store was created")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    let manifest = std::fs::read_to_string(sessions[0].join("session.json")).expect("a manifest");
+    assert!(manifest.contains("\"title\":\"My Title\""), "{manifest}");
+    let log = std::fs::read_to_string(sessions[0].join("events.jsonl")).expect("a log");
+    assert!(
+        log.contains(r#""event":{"kind":"session_renamed","title":"My Title"}"#),
+        "{log}"
+    );
 }
 
 #[test]
