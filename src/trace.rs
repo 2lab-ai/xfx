@@ -782,6 +782,7 @@ impl Report<'_> {
                         tool,
                         ok,
                         output,
+                        ..
                     } => {
                         let _ = writeln!(
                             out,
@@ -2053,12 +2054,18 @@ mod tests {
                     tool: "read_file".to_string(),
                     ok: true,
                     output: "\n1: first line\n2: second line\n".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 SessionEvent::ToolResult {
                     call_id: "call-2".to_string(),
                     tool: "terminal".to_string(),
                     ok: false,
                     output: "exit code 1".to_string(),
+                    ending: None,
+                    lines: None,
+                    change: None,
                 },
                 SessionEvent::PermissionGrantRecorded {
                     tool: "terminal".to_string(),
