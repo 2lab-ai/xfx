@@ -220,6 +220,8 @@ fn evidence_events() -> Vec<SessionEvent> {
             unaccounted: false,
             lines_added: 0,
             lines_removed: 0,
+            settled: Vec::new(),
+            rejected: Vec::new(),
         },
         SessionEvent::PermissionGrantRecorded {
             tool: "edit_file".to_string(),

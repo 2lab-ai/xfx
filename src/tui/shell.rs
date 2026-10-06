@@ -1218,6 +1218,9 @@ pub(crate) struct Shell {
     /// to and for the next `/usage` to open on (`usage_dashboard`'s cache):
     /// when it was read, and what. A newer read replaces it.
     usage_read: Option<(i64, crate::usage::Ledger)>,
+    /// The `/credits` questions in flight, each on a thread of its own, and
+    /// the answers that have come back ([`super::credits_ask::Asks`]).
+    credit_asks: super::credits_ask::Asks,
 }
 
 /// What `/stats` reports: the terminal writer's counters.
@@ -1798,6 +1801,12 @@ impl Shell {
             usage_menu: None,
             usage_reader: usage_menu::Reader::new(profile),
             usage_read: None,
+            // A shell a test built asks nobody: a question published to it is
+            // kept for the case to answer ([`super::credits_ask::Asks::by_hand`]).
+            #[cfg(not(test))]
+            credit_asks: super::credits_ask::Asks::new(),
+            #[cfg(test)]
+            credit_asks: super::credits_ask::Asks::by_hand(),
         };
         shell.recall_saved_lines();
         shell
@@ -3207,17 +3216,6 @@ impl Shell {
                     self.refit();
                     self.render.request(Reason::Modal);
                 }
-            }
-            // What `/credits` found, under its topic: neutral for the fields
-            // or the word that there were none, an error for a failure
-            // (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
-            UiEvent::Credits(answer) => {
-                let body = answer.body();
-                self.announce(if answer.is_error() {
-                    notice::Notice::error(crate::credits::TOPIC, body)
-                } else {
-                    notice::Notice::neutral(crate::credits::TOPIC, body)
-                });
             }
             // Not a row. The band is about to come down, and the message is for
             // a cooked terminal.
@@ -5033,6 +5031,25 @@ impl Shell {
         }
     }
 
+    /// Shows every `/credits` answer that has come back.
+    fn settle_credits(&mut self) {
+        while let Some(answer) = self.credit_asks.finished() {
+            self.say_credits(answer);
+        }
+    }
+
+    /// What `/credits` found, under its topic: neutral for the fields or the
+    /// word that there were none, an error for a failure
+    /// (`commandShowCredits`'s tone, `app_commands.zig:2075-2081`).
+    fn say_credits(&mut self, answer: crate::credits::Answer) {
+        let body = answer.body();
+        self.announce(if answer.is_error() {
+            notice::Notice::error(crate::credits::TOPIC, body)
+        } else {
+            notice::Notice::neutral(crate::credits::TOPIC, body)
+        });
+    }
+
     /// Gives `/usage` a reader that reads nothing and answers only what the
     /// case delivers ([`usage_menu::Reader::by_hand`]).
     #[cfg(test)]
@@ -6544,6 +6561,8 @@ impl Shell {
         self.settle_history();
         // And a read of the session logs for `/usage`.
         self.settle_usage();
+        // And what the Gateway said to a `/credits`.
+        self.settle_credits();
         let queued = self.work.queued();
         if queued != self.queued {
             self.queued = queued;
@@ -8586,12 +8605,19 @@ impl CommandHandlers for Shell {
     }
 
     /// Upstream's `commandShowCredits` (`app_commands.zig:2052-2082`), asked
-    /// on the runtime thread: the question opens a socket, and the thread that
-    /// holds the terminal waits on none. The answer is a notice when it comes
-    /// ([`UiEvent::Credits`]).
+    /// the moment it is typed: on a thread of its own, because the question
+    /// opens a socket and the thread that holds the terminal waits on none --
+    /// and not through the work queue, so a turn that is running does not
+    /// hold it, a full queue does not refuse it, and a Ctrl-C does not drop it
+    /// ([`super::credits_ask`]). What to ask is the runtime's last
+    /// publication; a provider with nothing to ask answers at once.
     fn credits(&mut self) {
-        if let Err(rejected) = self.work.submit(TurnWork::Credits) {
-            self.refused(rejected);
+        let started = match self.work.credits_question() {
+            Ok(question) => self.credit_asks.start(question),
+            Err(answer) => Err(answer),
+        };
+        if let Err(answer) = started {
+            self.say_credits(answer);
         }
     }
 
@@ -9547,7 +9573,6 @@ impl Shell {
             // change, or was refused, and saying nothing would make it a change
             // nobody was told of.
             UiEvent::Fresh { .. }
-            | UiEvent::Credits(_)
             | UiEvent::Undone(_)
             | UiEvent::Sessions(_)
             | UiEvent::Resumed(_)
@@ -10099,6 +10124,8 @@ mod tests {
     use super::*;
 
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::sync::mpsc::{Receiver, UnboundedReceiver};
@@ -15500,7 +15527,7 @@ mod tests {
                 "! recovery: \u{26a0} Provider unavailable \u{b7} HTTP 500 \u{b7} server_error: \
                  upstream exploded \u{b7} retrying request in 1s",
                 "  kind: auto_retry \u{b7} cause: provider_unavailable \u{b7} attempt: 1/3 \u{b7} \
-                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error: ",
+                 retry delay: 1s \u{b7} diagnostic: HTTP 500 \u{b7} server_error:",
                 "  upstream exploded",
             ],
             "{screen:#?}"
@@ -16050,12 +16077,15 @@ mod tests {
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/credits" {
-                // Asked of the runtime, which answers with the notice; the
-                // UI thread waits on no socket.
-                assert_eq!(shell.picks_up(), TurnWork::Credits);
-                assert!(
-                    document.is_empty(),
-                    "/credits answered before it was asked: {document:?}"
+                // Off the work queue: a provider with nothing to ask -- this
+                // fixture's -- answers at once, as a notice.
+                assert!(shell.sent.try_recv().is_err(), "/credits was queued");
+                assert_eq!(
+                    document,
+                    said(notice::Notice::error(
+                        "credits",
+                        crate::credits::UNAVAILABLE
+                    ))
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
             } else if *name == "/statusline" {
@@ -16203,8 +16233,12 @@ mod tests {
 
     /// Turns the loop until a `/copy` or a `/trace` that is running on its own
     /// thread has said how it went, and hands back what the document gained.
+    ///
+    /// A minute, because the fake tools are fresh scripts and macOS assesses
+    /// one the first time it runs -- 8 to 12 s on a machine at load 35 -- and
+    /// no case here is about how fast a tool starts.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         loop {
             shell.settle_band(Instant::now());
             let document = shell.document();
@@ -16477,6 +16511,32 @@ mod tests {
             traced(&path)
         };
         assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn a_notice_naming_a_path_wraps_where_upstreams_does() {
+        // `fx-trace-40x120-copy-fail.txt` rows 15-16, the path as fx's run
+        // had it: the notice breaks after `fxtmp/` and drops nothing but the
+        // space it would otherwise have hung (`scanNoticeLine`,
+        // `transcript_blocks.zig:1651-1702`).
+        let mut shell = shell(40, 120);
+        shell.announce(notice::Notice::error(
+            "",
+            crate::trace::Disposition::CopyFailed(std::path::PathBuf::from(
+                "/private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/\
+                 fx-trace-2026-10-06-213606-c51761bbc7ce.md",
+            ))
+            .sentence(),
+        ));
+        assert_eq!(
+            shell.document(),
+            [
+                "\u{2717} Clipboard copy failed. Trace saved at \
+                 /private/tmp/claude-501/fxcap.oJd3Kr/fxtmp/",
+                "  fx-trace-2026-10-06-213606-c51761bbc7ce.md. Review and redact it before sharing.",
+                "",
+            ]
+        );
     }
 
     #[test]
@@ -17885,9 +17945,12 @@ mod tests {
                 "* status: model=a",
                 "  history_turns=0",
                 "",
-                "\u{2717} command: Unknown ",
-                "  command. Try ",
-                "  /help.",
+                // `scanNoticeLine` (`transcript_blocks.zig:1674-1702`): the
+                // space a row breaks at is on neither row, and `/help` breaks
+                // after its `/`.
+                "\u{2717} command: Unknown",
+                "  command. Try /",
+                "  help.",
                 "",
             ]
         );
@@ -23056,8 +23119,12 @@ mod tests {
     }
 
     /// Turns of the loop until the selection copies have answered.
+    ///
+    /// A minute, as `copy_settled` waits: the fake tool is a fresh script,
+    /// which macOS assesses on its first run -- past ten seconds at load 60,
+    /// where this failed in a fault-injection run.
     fn copies_settled(shell: &mut Fixture, done: impl Fn(&Fixture) -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             shell.settle_band(Instant::now());
             if done(shell) {
@@ -26219,7 +26286,7 @@ mod tests {
             screen[at + 1..at + 4],
             [
                 format!(
-                    "  tools: {} advertised ({}, +1 ",
+                    "  tools: {} advertised ({}, +1",
                     crate::tools::ADVERTISED_TOOLS.len(),
                     crate::tools::ADVERTISED_TOOLS[..8].join(", ")
                 ),
@@ -26991,8 +27058,10 @@ mod tests {
 
     /// Settles the band until the clipboard read has answered: the document
     /// rows it wrote, or none when it put a badge in the draft instead.
+    ///
+    /// A minute, for the reason `copies_settled` gives.
     fn read_settled(shell: &mut Fixture) -> Vec<String> {
-        let deadline = Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + std::time::Duration::from_secs(60);
         let before = shell.editor.text().to_string();
         loop {
             shell.settle_band(Instant::now());
@@ -27141,6 +27210,7 @@ mod tests {
                 reasoning_tokens: Some(reasoning),
                 cost: Some(cost),
                 generation_id: None,
+                origin: None,
             };
         let usage = crate::session::RecordedUsage {
             requests: vec![
@@ -27282,6 +27352,7 @@ mod tests {
             reasoning_tokens: None,
             cost: None,
             generation_id: None,
+            origin: None,
         });
         usage.lines_added = 2;
         shell.work.publish_spent(super::super::worker::Spent {
@@ -27306,6 +27377,54 @@ mod tests {
             usage_band(&shell)[1],
             "Usage  30 days  7 days  24 hours  [Session]"
         );
+    }
+
+    /// Quitting does not wait out a read of the session logs: the reader is
+    /// cancelled and stops at the next session it would open
+    /// (`usage_dashboard_runtime.zig:96-103`), so a slow one -- a long history
+    /// -- costs the exit the one log it is in.
+    #[test]
+    fn quit_returns_promptly_with_a_slow_usage_read_in_flight() {
+        let mut fixture = shell(40, 120);
+        let started = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (reading, saw_cancel) = (Arc::clone(&started), Arc::clone(&stopped));
+        fixture.usage_reader = usage_menu::Reader::reading_with(
+            std::path::PathBuf::from("/nowhere"),
+            move |_, _, cancel| {
+                reading.store(true, Ordering::SeqCst);
+                // A history that takes half a minute to read, a session at a
+                // time.
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while Instant::now() < deadline {
+                    if cancel.load(Ordering::Acquire) {
+                        saw_cancel.store(true, Ordering::SeqCst);
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Some(Err("never cancelled".to_string()))
+            },
+        );
+        fixture.route_bytes(b"/usage\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !started.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the read never started");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // The dashboard takes every key while it is up; closed, `/quit`.
+        escape(&mut fixture);
+        assert!(fixture.usage_menu.is_none());
+        fixture.route_bytes(b"/quit\r");
+        assert!(fixture.leaving());
+        let quitting = Instant::now();
+        drop(fixture);
+        assert!(
+            quitting.elapsed() < Duration::from_secs(1),
+            "the exit waited {:?} for the read",
+            quitting.elapsed()
+        );
+        assert!(stopped.load(Ordering::SeqCst), "the read was not cancelled");
     }
 
     #[test]
@@ -27349,30 +27468,50 @@ mod tests {
         }
     }
 
+    /// What `/credits` asks with a Gateway key: the question a runtime
+    /// publishes for this configuration.
+    fn a_credits_question() -> crate::credits::Question {
+        let home = tempfile::tempdir().expect("a home");
+        let workspace = tempfile::tempdir().expect("a workspace");
+        let config = RuntimeConfig::load_with(
+            &crate::config::Environment::new(
+                Some(home.path().to_path_buf()),
+                BTreeMap::from([("AI_GATEWAY_API_KEY".to_string(), "key".to_string())]),
+            ),
+            workspace.path(),
+        )
+        .expect("load a configuration");
+        crate::credits::question(&config).expect("a Gateway with a key asks")
+    }
+
     #[test]
-    fn credits_is_asked_of_the_runtime_and_answered_as_upstreams_notice() {
+    fn credits_is_asked_at_once_and_answered_as_upstreams_notice() {
         let mut shell = shell(40, 120);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"/balance\r");
-        assert_eq!(shell.picks_up(), TurnWork::Credits);
+        assert_eq!(shell.credit_asks.asked(), 1);
+        assert!(shell.sent.try_recv().is_err(), "/credits was queued");
         assert!(shell.document().is_empty(), "answered before it was asked");
 
         // `fx-credits-ok-40x120-after`: three fields, one per row, the later
         // two under the first's gutter.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: Some("42.17".to_string()),
             used: Some("7.83".to_string()),
             plan: Some("pro".to_string()),
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             ["* credits: balance=42.17", "  used=7.83", "  plan=pro", ""]
         );
         // `credits-empty`: neutral, and says there was nothing.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Credits {
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
             balance: None,
             used: None,
             plan: None,
-        }));
+        });
+        shell.settle_band(Instant::now());
         assert_eq!(
             shell.document(),
             said(notice::Notice::neutral(
@@ -27381,9 +27520,10 @@ mod tests {
             ))
         );
         // `credits-404`: an error, in the error tone.
-        shell.apply(UiEvent::Credits(crate::credits::Answer::Failed(
+        shell.credit_asks.deliver(crate::credits::Answer::Failed(
             "HTTP 404: not found".to_string(),
-        )));
+        ));
+        shell.settle_band(Instant::now());
         let rows = shell.take_pending();
         let row = &rows[0].rows[0];
         assert_eq!(colourless(row), "\u{2717} credits: HTTP 404: not found");
@@ -27396,20 +27536,63 @@ mod tests {
         );
     }
 
+    /// Upstream answers `/credits` on the spot (`commandShowCredits`,
+    /// `app_commands.zig:2052-2082`): a turn that is running does not hold it,
+    /// a full queue does not refuse it, and a Ctrl-C meant for the turn does
+    /// not take it away.
     #[test]
-    fn credits_with_the_queue_full_is_refused_where_the_user_reads_it() {
+    fn credits_with_a_turn_running_and_the_queue_full_is_asked_and_survives_a_ctrl_c() {
         let mut shell = shell(24, 80);
+        shell.work.publish_credits(Ok(a_credits_question()));
         shell.route_bytes(b"first\r");
         shell.route_bytes(b"second\r");
+        shell.apply(UiEvent::TurnStarted);
         shell.document();
         shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 1, "/credits waited");
+        assert!(!shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/credits joined the queue");
+
+        // The interrupt is the turn's, and the question is not.
+        shell.route_bytes(&[0x03]);
         assert!(
-            shell.sent.try_recv().is_err(),
-            "/credits joined a full queue"
+            matches!(shell.control.try_recv(), Ok(TurnControl::Cancel { .. })),
+            "the Ctrl-C did not interrupt the turn"
         );
-        assert!(shell.hint().contains(QUEUE_REJECTED), "{}", shell.hint());
+        shell.credit_asks.deliver(crate::credits::Answer::Credits {
+            balance: Some("42.17".to_string()),
+            used: None,
+            plan: None,
+        });
+        shell.settle_band(Instant::now());
+        assert!(
+            shell
+                .document()
+                .iter()
+                .any(|row| row == "* credits: balance=42.17"),
+            "the answer was dropped"
+        );
+    }
+
+    #[test]
+    fn credits_with_nothing_to_ask_answers_at_once_and_asks_nobody() {
+        let mut shell = shell(40, 120);
+        shell
+            .work
+            .publish_credits(Err(crate::credits::Answer::Failed(
+                crate::output::MISSING_AUTH_HELP.to_string(),
+            )));
+        shell.route_bytes(b"/credits\r");
+        assert_eq!(shell.credit_asks.asked(), 0);
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "credits",
+                crate::output::MISSING_AUTH_HELP
+            ))
+        );
     }
 
     // -----------------------------------------------------------------------

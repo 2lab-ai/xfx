@@ -26,8 +26,10 @@
 //! does nothing (`fx-usage-40x120-left`, `right1`). Tab and Shift-Tab walk the
 //! header itself, wrapping. Copied as upstream ships it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crate::usage::{
@@ -86,6 +88,11 @@ pub(crate) struct Read {
     pub(crate) ledger: Result<Ledger, String>,
 }
 
+/// How a read is done: the session logs in the binary, a script in a test.
+/// `None` is a read that was cancelled part way.
+type ReadLedger =
+    Arc<dyn Fn(&Path, i64, &AtomicBool) -> Option<Result<Ledger, String>> + Send + Sync>;
+
 /// Reads the ledger **off the thread that holds the terminal**.
 ///
 /// Upstream refreshes its rolling windows on a background thread and reads only
@@ -96,9 +103,19 @@ pub(crate) struct Read {
 /// So it goes to one thread of its own, started on the first `/usage`, and
 /// what it read comes back on a channel the UI reads once a turn of its loop,
 /// the way [`super::sound`]'s saves do.
-#[derive(Debug)]
+///
+/// **And it is abandoned, not waited out, when the session ends**: upstream's
+/// dashboard sets its cancel flag and joins (`Runtime.deinit`,
+/// `usage_dashboard_runtime.zig:96-103`), and its read looks at the flag
+/// between sessions (`usage_recovery.zig:43-47`). So does this one
+/// ([`crate::usage::read_ledger`]), so a quit in the middle of a long read
+/// waits for one session log at most.
 pub(crate) struct Reader {
     profile: Option<PathBuf>,
+    read: ReadLedger,
+    /// Set when the reader is dropped; the read in flight looks at it before
+    /// each session it opens.
+    cancel: Arc<AtomicBool>,
     thread: Option<(Sender<i64>, JoinHandle<()>)>,
     done: Sender<Read>,
     results: Receiver<Read>,
@@ -108,17 +125,47 @@ pub(crate) struct Reader {
     asked: Option<usize>,
 }
 
+impl std::fmt::Debug for Reader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reader")
+            .field("profile", &self.profile)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Reader {
     pub(crate) fn new(profile: Option<PathBuf>) -> Self {
+        Self::reading(
+            profile,
+            Arc::new(|profile: &Path, at_ms: i64, cancel: &AtomicBool| {
+                crate::usage::read_ledger(profile, at_ms, cancel)
+                    .map_err(|err| err.to_string())
+                    .transpose()
+            }),
+        )
+    }
+
+    fn reading(profile: Option<PathBuf>, read: ReadLedger) -> Self {
         let (done, results) = mpsc::channel();
         Self {
             profile,
+            read,
+            cancel: Arc::new(AtomicBool::new(false)),
             thread: None,
             done,
             results,
             #[cfg(test)]
             asked: None,
         }
+    }
+
+    /// A reader of `profile` whose reads `read` does, on a thread of its own.
+    #[cfg(test)]
+    pub(crate) fn reading_with(
+        profile: PathBuf,
+        read: impl Fn(&Path, i64, &AtomicBool) -> Option<Result<Ledger, String>> + Send + Sync + 'static,
+    ) -> Self {
+        Self::reading(Some(profile), Arc::new(read))
     }
 
     /// A reader that reads nothing: asked, it counts the ask, and answers
@@ -150,12 +197,17 @@ impl Reader {
         if self.thread.is_none() {
             let (asks, asked) = mpsc::channel::<i64>();
             let done = self.done.clone();
+            let read = Arc::clone(&self.read);
+            let cancel = Arc::clone(&self.cancel);
             let thread = std::thread::Builder::new()
                 .name(THREAD_NAME.to_string())
                 .spawn(move || {
                     for at_ms in asked {
-                        let ledger = crate::usage::read_ledger(&profile, at_ms)
-                            .map_err(|err| err.to_string());
+                        // Cancelled part way: the session is ending, and
+                        // nobody is left to show a partial read to.
+                        let Some(ledger) = read(&profile, at_ms, &cancel) else {
+                            return;
+                        };
                         // Nobody left to tell is a session that has ended.
                         let _ = done.send(Read { at_ms, ledger });
                     }
@@ -184,13 +236,16 @@ impl Reader {
 }
 
 impl Drop for Reader {
-    /// Lets a read in flight finish before the session is gone, and the
+    /// Stops a read in flight at the next session it would open, and lets the
     /// thread end before the signal handlers do: the shell is dropped ahead of
     /// `super::signals::release`, whose safety argument is that no handler can
     /// be running on a thread other than the UI's when the dispositions go
     /// back -- and a thread spawned from the UI thread outside a wait can be
     /// handed one ([`super::sound`]'s writer is joined for the same reason).
+    /// The join is short because the cancel came first: at most the one
+    /// session log the read is in the middle of.
     fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Release);
         if let Some((asks, thread)) = self.thread.take() {
             drop(asks);
             let _ = thread.join();
@@ -1173,6 +1228,24 @@ mod tests {
     use crate::session::{RecordedUsage, RequestUsage};
     use crate::usage::session_snapshot;
 
+    /// A real read of a profile with sessions in it, cancelled before it
+    /// began, opens none of them and says it was cancelled.
+    #[test]
+    fn a_cancelled_read_opens_no_session() {
+        let home = tempfile::tempdir().expect("a home");
+        let cancel = AtomicBool::new(true);
+        assert!(matches!(
+            crate::usage::read_ledger(home.path(), NOW, &cancel),
+            Ok(None)
+        ));
+        // Not cancelled, it is not said to be.
+        cancel.store(false, Ordering::Release);
+        assert!(!matches!(
+            crate::usage::read_ledger(home.path(), NOW, &cancel),
+            Ok(None)
+        ));
+    }
+
     const NOW: i64 = 40 * 24 * 60 * 60 * 1000;
 
     fn request(
@@ -1194,6 +1267,7 @@ mod tests {
             reasoning_tokens: Some(reasoning),
             cost: Some(cost),
             generation_id: None,
+            origin: None,
         }
     }
 

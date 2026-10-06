@@ -481,6 +481,47 @@ pub(crate) fn release() {
     POKE.store(-1, Ordering::Release);
 }
 
+/// Starts a thread on which no owned signal can ever be delivered.
+///
+/// A thread is born with its creator's mask, so the whole owned set is blocked
+/// on the calling thread for the length of the spawn and put back after: the
+/// new thread -- and every thread it starts in turn, a resolver's included --
+/// never runs a handler. That is what lets it be **left to finish on its own**
+/// rather than waited for before [`release`], whose argument is that no handler
+/// can be executing on a thread other than the UI's: a socket a user stopped
+/// caring about is not a reason to hold the terminal.
+///
+/// A signal that arrives during the spawn stays pending on this thread and is
+/// delivered into its handler the moment the mask is put back.
+pub(crate) fn spawn_unsignalled<F>(name: &str, body: F) -> io::Result<std::thread::JoinHandle<()>>
+where
+    F: FnOnce() + Send + 'static,
+{
+    // SAFETY: every argument is a valid, initialized `sigset_t` this function
+    // owns for the whole call, and the signal numbers are the platform's own.
+    let previous = unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for signal in OWNED {
+            libc::sigaddset(&mut set, signal);
+        }
+        let mut previous: libc::sigset_t = std::mem::zeroed();
+        let code = libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut previous);
+        if code != 0 {
+            return Err(io::Error::from_raw_os_error(code));
+        }
+        previous
+    };
+    let spawned = std::thread::Builder::new()
+        .name(name.to_string())
+        .spawn(body);
+    // SAFETY: `previous` is the set this thread's own `pthread_sigmask` wrote.
+    unsafe {
+        libc::pthread_sigmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+    }
+    spawned
+}
+
 /// # Safety
 ///
 /// `func` must be async-signal-safe for every context `signal` can be delivered
@@ -643,6 +684,26 @@ mod tests {
             assert_eq!(libc::sigwait(&set, &mut taken), 0, "sigwait");
             assert_eq!(taken, signal, "sigwait took the wrong signal");
         }
+    }
+
+    #[test]
+    fn a_thread_started_unsignalled_can_take_no_owned_signal_and_its_creator_is_unchanged() {
+        let before: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        let (tx, rx) = std::sync::mpsc::channel();
+        spawn_unsignalled("xfx-test", move || {
+            let _ = tx.send(
+                OWNED
+                    .iter()
+                    .map(|signal| masked(*signal))
+                    .collect::<Vec<_>>(),
+            );
+        })
+        .expect("a thread")
+        .join()
+        .expect("joined");
+        assert_eq!(rx.recv().expect("its mask"), vec![true; OWNED.len()]);
+        let after: Vec<bool> = OWNED.iter().map(|signal| masked(*signal)).collect();
+        assert_eq!(after, before);
     }
 
     #[test]

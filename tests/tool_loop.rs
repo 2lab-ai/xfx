@@ -28,8 +28,8 @@ use tempfile::TempDir;
 use xfx::agent::{run_turn, run_turn_saved, TurnError, TurnJournal, TurnRequest};
 use xfx::config::PermissionMode;
 use xfx::gateway::protocol::{
-    Completion, CompletionRequest, ContentPart, FinishReason, Message, Role, ToolCall, ToolChoice,
-    Usage,
+    Bill, Completion, CompletionRequest, ContentPart, Deferred, FinishReason, Message, Role,
+    ToolCall, ToolChoice, Usage,
 };
 use xfx::gateway::{CancelToken, DeltaSink, Provider, ProviderError};
 use xfx::llmux;
@@ -3405,21 +3405,21 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     let tree = Tree::new();
     let tools = context(&tree).with_permissions(PermissionSession::new(PermissionMode::Yolo));
     let mut first = calls_step(vec![write_call("c1", "new.md", "one\ntwo\n")]);
-    first.completion.billing = Some(bill(
+    first.completion.billing = Some(Bill::Exact(bill(
         "fake/model-a",
         0.0125,
         12000,
         800,
         "gen_01JABCDEFGHJKMNPQRSTVWXYZ0",
-    ));
+    )));
     let mut second = final_step("done");
-    second.completion.billing = Some(bill(
+    second.completion.billing = Some(Bill::Exact(bill(
         "anthropic/claude-opus-5",
         0.421,
         52000,
         3100,
         "gen_01JABCDEFGHJKMNPQRSTVWXYZ1",
-    ));
+    )));
     second.completion.usage = Usage {
         input_tokens: Some(52000),
         output_tokens: Some(3100),
@@ -3443,6 +3443,8 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
         unaccounted,
         lines_added,
         lines_removed,
+        settled,
+        rejected,
     } = usage_frame(&journal)
     else {
         unreachable!()
@@ -3478,6 +3480,8 @@ async fn every_request_of_a_turn_is_recorded_with_what_it_cost_and_what_it_chang
     assert_eq!(requests[0].at_ms, 1_700_000_000_000);
     assert!(!unaccounted);
     assert_eq!((*lines_added, *lines_removed), (2, 0));
+    // A turn's own frame settles nothing: that is the runtime's, later.
+    assert!(settled.is_empty() && rejected.is_empty());
     assert_eq!(
         journal.kinds()[journal.kinds().len() - 2..],
         ["usage_recorded", "turn_concluded"]
@@ -3515,6 +3519,46 @@ async fn a_request_nobody_billed_is_recorded_as_asked_with_no_cost() {
         (None, None)
     );
     assert!(request.at_ms > 0);
+}
+
+/// Upstream's `.deferred` (`gatewayUsageOutcome`, `gateway.zig:650-660`): a
+/// request whose stream named its generation and not its bill is recorded
+/// pending -- no cost yet, and the id and the origin to ask it of.
+#[tokio::test]
+async fn a_request_whose_bill_comes_later_is_recorded_pending_with_where_to_ask() {
+    let tree = Tree::new();
+    let mut answer = final_step("hi");
+    answer.completion.usage = Usage {
+        input_tokens: Some(1200),
+        output_tokens: Some(40),
+    };
+    answer.completion.billing = Some(Bill::Deferred(Deferred {
+        generation_id: "gen_01JABCDEFGHJKMNPQRSTVWXYZ2".to_string(),
+        origin: "http://127.0.0.1:4100".to_string(),
+    }));
+    let provider = ScriptedProvider::new(vec![answer]);
+    let mut journal = RecordingJournal::default();
+    run_turn_saved(
+        turn("hi", context(&tree)),
+        ProjectContext::none(),
+        &provider,
+        &mut RecordingSink::new(),
+        &mut journal,
+    )
+    .await
+    .expect("the turn completes");
+    let SessionEvent::UsageRecorded { requests, .. } = usage_frame(&journal) else {
+        unreachable!()
+    };
+    let request = &requests[0];
+    assert!(request.pending());
+    assert_eq!(request.cost, None);
+    assert_eq!(
+        request.generation_id.as_deref(),
+        Some("gen_01JABCDEFGHJKMNPQRSTVWXYZ2")
+    );
+    assert_eq!(request.origin.as_deref(), Some("http://127.0.0.1:4100"));
+    assert_eq!((request.input_tokens, request.output_tokens), (1200, 40));
 }
 
 #[tokio::test]

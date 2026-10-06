@@ -1,0 +1,40 @@
+𝒇x v0.0.13 · Run /help for commands
+
+┃ explain the plan please
+
+  An answer billed later.
+
+  0s (↑6 ↓800)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Usage  30 days  7 days  24 hours  [Session]
+Local fx activity
+
+  12.8K tokens     $0.01 spent      1 request
+  12K input        800 output       0 reasoning
+  4K cache read    0 cache write
+
+Session activity
+API 0s · Wall 12s
+Code +0 · -0
+
+Models 1
+  Model           Tokens    Share     Spend
+❯ fake/model-a    12.8K     100.0%    $0.01
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+tab scope     ↑↓ model     enter expand     r refresh     esc close
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
