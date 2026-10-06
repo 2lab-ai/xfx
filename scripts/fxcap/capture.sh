@@ -190,8 +190,10 @@ SHIM
     "$run" "$run" > "$run/shim/pbcopy"
   chmod +x "$run/shim/"*
   # macOS assesses an executable the first time it runs, which costs a second
-  # or more and would land inside a scenario's `wait`: run pbcopy once now.
+  # or more and would land inside a scenario's `wait`: run pbcopy once now --
+  # and osascript, which fx runs on its UI thread for `/paste` and Ctrl-V.
   : | "$run/shim/pbcopy"
+  "$run/shim/osascript" -e '' < /dev/null
   rm -f "$run/clipboard"
   local base="HOME=$run/home TERM=xterm-256color PATH=$run/shim:/usr/bin:/bin LANG=en_US.UTF-8 AI_GATEWAY_API_KEY=fake-key-not-real FX_NO_OPEN_BROWSER=1"
   local launch fx_model=FX_MODEL=fake/model-a xfx_model=XFX_MODEL=fake/model-a

@@ -5,7 +5,7 @@
 models models-image.json
 gateway image-turns.json
 work image-ws
-wait 5
+wait 3
 type /paste
 key Enter
 wait 1.5
