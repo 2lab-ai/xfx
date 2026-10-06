@@ -54,6 +54,9 @@ pub(crate) trait CommandHandlers {
     fn model(&mut self, argument: &str);
     /// `/copy`. It takes nothing: `/copy now` never reaches it ([`classify`]).
     fn copy(&mut self);
+    /// `/trace`. It takes nothing either: `/trace now` is a line that names
+    /// no command, as upstream's is (`commands.zig:486` has no `has_args`).
+    fn trace(&mut self);
     /// `/sound`, with the rest of the line -- already trimmed, and empty for
     /// the bare toggle. Read by `crate::sound::Request::parse`, which is also
     /// what refuses a word that is not a level.
@@ -164,6 +167,7 @@ pub(crate) fn route(submitted: &Submitted, handlers: &mut impl CommandHandlers) 
         Slash::Setup => handlers.setup(argument),
         Slash::Permissions => handlers.permissions(argument),
         Slash::Copy => handlers.copy(),
+        Slash::Trace => handlers.trace(),
         Slash::Sound => handlers.sound(argument),
         Slash::Stats => handlers.stats(),
         Slash::Status => handlers.status(),
@@ -229,6 +233,9 @@ mod tests {
         fn copy(&mut self) {
             self.calls.push("copy".to_string());
         }
+        fn trace(&mut self) {
+            self.calls.push("trace".to_string());
+        }
         fn sound(&mut self, argument: &str) {
             self.calls.push(format!("sound {argument}"));
         }
@@ -272,6 +279,7 @@ mod tests {
             ("/rename", "rename "),
             ("/model", "model "),
             ("/copy", "copy"),
+            ("/trace", "trace"),
             ("/sound", "sound "),
             ("/stats", "stats"),
             ("/status", "status"),

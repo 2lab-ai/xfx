@@ -753,6 +753,59 @@ fn slash_copy_puts_the_last_answer_on_the_clipboard_as_the_model_wrote_it() {
     assert_eq!(session.quit().code(), Some(0));
 }
 
+#[test]
+fn slash_trace_writes_a_private_report_about_this_shells_conversation() {
+    // `/trace` on the line shell: the same report, built from this shell's own
+    // conversation, written under `$TMPDIR` and copied as a file, and one line
+    // saying so (`app_commands.zig:75-90`).
+    let gateway = FakeGateway::start(vec![Reply::Sse(content_only(&["TRACE_LINE_DONE"]))]);
+    let clipboard = FakeClipboard::new();
+    let sandbox = Sandbox::new();
+    let pty = Pty::open();
+    let mut command = sandbox.command_with(&gateway);
+    clipboard.first_on_path(&mut command);
+    clipboard.reports_into(&mut command);
+    let mut session = start(&sandbox, &pty, command);
+
+    session.type_line("one");
+    session.wait_for("TRACE_LINE_DONE");
+    session.type_line("/trace");
+    session.wait_for(if cfg!(target_os = "macos") {
+        "[shell] Trace copied to clipboard. Review and redact it before sharing."
+    } else {
+        "[shell] Trace saved at"
+    });
+    let reports = clipboard.reports();
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&reports[0]).unwrap().permissions().mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "the report is readable by others: {mode:o}"
+        );
+    }
+    if cfg!(target_os = "macos") {
+        assert_eq!(clipboard.copied_file().as_deref(), reports[0].to_str());
+    }
+    let report = fs::read_to_string(&reports[0]).expect("the report");
+    for needle in [
+        "\n    one\n",
+        "\n    TRACE_LINE_DONE\n",
+        "\nhistory_turns: 1\n",
+    ] {
+        assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+    }
+    assert!(
+        !report.contains(support::sandbox::TEST_KEY),
+        "the credential reached the report"
+    );
+
+    assert_eq!(session.quit().code(), Some(0));
+    assert_eq!(gateway.request_count(), 1, "/trace sent a request");
+}
+
 /// Every line xfx wrote that begins with `xfx: `, without the terminal's echo
 /// of what was typed.
 ///

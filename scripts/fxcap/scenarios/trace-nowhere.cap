@@ -1,0 +1,10 @@
+# /trace with a TMPDIR that is not there: the report cannot be written.
+env TMPDIR=/nonexistent/fxcap-trace-dir
+wait 2
+type /trace
+wait 0.5
+key Enter
+wait 2
+snap unwritable
+clipfile unwritable
+reports report

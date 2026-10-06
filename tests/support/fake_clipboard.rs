@@ -6,6 +6,13 @@
 //! this directory first on the child's `PATH`: both tools are the same script,
 //! which keeps what it was fed, or reads it and exits 1 once [`FakeClipboard::fail`]
 //! has been called.
+//!
+//! `/trace` copies a **file** on macOS, through `osascript`, and the directory
+//! has one of those too: it keeps the path it was given as its last argument
+//! ([`FakeClipboard::copied_file`]), or exits 1 once [`FakeClipboard::fail`]
+//! has been called. A case that types `/trace` also gives the child a
+//! `TMPDIR` of its own ([`FakeClipboard::reports_into`]), so no report lands
+//! in the suite runner's temporary directory.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -29,6 +36,20 @@ impl FakeClipboard {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
                 .expect("make it executable");
         }
+        let osascript = dir.path().join("osascript");
+        std::fs::write(
+            &osascript,
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"${0%/*}/fail\" ]; then exit 1; fi\n",
+                "for arg in \"$@\"; do last=$arg; done\n",
+                "printf '%s' \"$last\" > \"${0%/*}/copied-file\"\n",
+            ),
+        )
+        .expect("write a fake osascript");
+        std::fs::set_permissions(&osascript, std::fs::Permissions::from_mode(0o755))
+            .expect("make it executable");
+        std::fs::create_dir(dir.path().join("reports")).expect("a report directory");
         Self { dir }
     }
 
@@ -39,6 +60,27 @@ impl FakeClipboard {
         path.push(":");
         path.push(inherited);
         command.env("PATH", path);
+    }
+
+    /// Gives `command` a `TMPDIR` of this fake's own, which is where `/trace`
+    /// writes its report ([`Self::reports`]).
+    pub fn reports_into(&self, command: &mut Command) {
+        command.env("TMPDIR", self.path("reports"));
+    }
+
+    /// Every report written into [`Self::reports_into`]'s directory.
+    pub fn reports(&self) -> Vec<PathBuf> {
+        let mut reports: Vec<PathBuf> = std::fs::read_dir(self.path("reports"))
+            .expect("the report directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        reports.sort();
+        reports
+    }
+
+    /// The path the file copy's tool was last given, or `None`.
+    pub fn copied_file(&self) -> Option<String> {
+        std::fs::read_to_string(self.path("copied-file")).ok()
     }
 
     /// What the clipboard was last given, or `None` when nothing was copied.

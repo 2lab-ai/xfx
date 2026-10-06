@@ -1,0 +1,40 @@
+x𝒇x v0.1.0-cafab50 [debug] · Run /help for commands
+
+✗ Could not create trace.
+
+┃
+
+auto · model-a
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

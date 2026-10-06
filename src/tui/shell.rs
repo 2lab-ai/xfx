@@ -108,6 +108,7 @@ use super::sound::Sound;
 use super::statusline::{self, MenuAction as StatuslineAction};
 use super::theme::{DocumentRow, Mode, Palette};
 use super::toolgroup::ToolGroup;
+use super::trace::{Job, Traces};
 use super::transcript::{Append, Gutter, Landed, Role, Transcript};
 use super::worker::{Rejected, WorkHandle};
 use crate::clipboard::{self, Clipboard};
@@ -214,6 +215,12 @@ const PROMPT_CELLS: u16 = 2;
 /// reason: what a tool says about why it refused is for whoever needs it in
 /// full, and never for a row of the terminal's document.
 const TOOL_DETAIL_BYTES: usize = 120;
+
+/// The width `/trace`'s timeline is laid out at: the same for every report,
+/// whatever the screen's, and wide enough that a sentence is a line rather
+/// than a column -- upstream's timeline is the entries' text, unwrapped
+/// (`writeTranscriptTimeline`, `app_commands.zig:3475-3549`).
+const TRACE_COLS: u16 = 200;
 
 /// What the user is told when a submission arrives with the queue already full.
 ///
@@ -947,6 +954,9 @@ pub(crate) struct Shell {
     /// The `/copy`s still running on their own threads, and how each went
     /// ([`super::copy`]).
     copies: Copies,
+    /// The `/trace` reports still being built, written and copied on their own
+    /// threads, and how each went ([`super::trace`]).
+    traces: Traces,
     /// `/sound`'s two switches, the bells they owe the loop, and the saves
     /// that keep them ([`super::sound`]).
     sound: Sound,
@@ -1350,6 +1360,14 @@ impl Shell {
         let clipboard = Clipboard::system();
         #[cfg(test)]
         let clipboard = Clipboard::searching(super::copy::NOWHERE);
+        // Where `/trace` writes its report: `$TMPDIR`, as upstream's does --
+        // except in a shell a test built, which writes nowhere unless the test
+        // hands it a directory, so a case that types `/trace` cannot leave a
+        // report in the suite runner's own temporary directory.
+        #[cfg(not(test))]
+        let trace_dir = crate::trace::report_dir(std::env::var_os("TMPDIR").as_deref());
+        #[cfg(test)]
+        let trace_dir = std::path::PathBuf::from(super::copy::NOWHERE);
         // The profile `/sound` saves into -- except in a shell a test built,
         // which saves nowhere unless the test hands it a file: the fixtures'
         // homes are gone by the time a case runs, and a save would create one
@@ -1470,6 +1488,7 @@ impl Shell {
             document_rows: 0,
             fatal: None,
             leaving: None,
+            traces: Traces::new(clipboard.clone(), trace_dir),
             copies: Copies::new(clipboard),
             sound: Sound::new(config.notifications, settings),
             metrics: Metrics::default(),
@@ -5008,6 +5027,8 @@ impl Shell {
     pub(crate) fn settle_band(&mut self, now: Instant) {
         // A copy finishing is another answer only the other thread produces.
         self.settle_copies();
+        // And so is a report.
+        self.settle_traces();
         // And so is a `/sound` save.
         self.settle_saves();
         let queued = self.work.queued();
@@ -5077,6 +5098,20 @@ impl Shell {
             } else {
                 notice::Notice::error(clipboard::TOPIC, clipboard::COPY_FAILED)
             });
+        }
+    }
+
+    /// Says how each `/trace` that has finished went, in upstream's one
+    /// sentence and with no topic (`finish_trace_notice`,
+    /// `app_commands.zig:55-65`): an error when the copy or the write failed.
+    fn settle_traces(&mut self) {
+        while let Some(done) = self.traces.finished() {
+            let tone = if done.failed() {
+                notice::Tone::Error
+            } else {
+                notice::Tone::Neutral
+            };
+            self.announce(notice::Notice::new(tone, "", done.sentence()));
         }
     }
 
@@ -6507,6 +6542,39 @@ impl CommandHandlers for Shell {
                 clipboard::TOPIC,
                 clipboard::COPY_FAILED,
             ));
+        }
+    }
+
+    /// Upstream's `handleTraceReport` (`app_commands.zig:624-660`): a private
+    /// report about this session, written to a file and the file put on the
+    /// clipboard ([`crate::trace`]).
+    ///
+    /// What only this thread knows is taken **now**, at the keystroke -- the
+    /// runtime's last publication, the screen, the writer's counters, the work
+    /// in hand and the full transcript -- and everything that waits is the
+    /// report's own thread's ([`super::trace`]). Like `/copy`, it is answered
+    /// at once mid-turn too, and the report says the turn was running.
+    ///
+    /// **No `Preparing trace...` first.** Upstream writes that notice and
+    /// replaces it in place with the outcome; this document is append-only,
+    /// so the outcome is the one notice written, when it is known -- the
+    /// screen upstream ends on.
+    fn trace(&mut self) {
+        let (status, facts) = self.work.trace_facts();
+        let (timeline, network) = self.full.traced(TRACE_COLS, self.palette);
+        let job = Job {
+            status,
+            facts,
+            effort: self.effort.label().to_string(),
+            cols: self.screen.1,
+            rows: self.screen.0,
+            metrics: self.metrics.body(),
+            outstanding: self.work.outstanding(),
+            timeline,
+            network,
+        };
+        if !self.traces.start(job) {
+            self.announce(notice::Notice::error("", crate::trace::UNAVAILABLE));
         }
     }
 
@@ -12692,6 +12760,16 @@ mod tests {
                     "/statusline wrote to the document: {document:?}"
                 );
                 assert!(!shell.leaving(), "{name} ended the session");
+            } else if *name == "/trace" {
+                // Answered when its own thread is done (`super::trace`), and a
+                // case's shell has nowhere to write a report: upstream's
+                // sentence for that, with no topic.
+                assert!(document.is_empty(), "/trace answered before it ran");
+                assert_eq!(
+                    copy_settled(&mut shell),
+                    said(notice::Notice::error("", crate::trace::UNAVAILABLE))
+                );
+                assert!(!shell.leaving(), "{name} ended the session");
             } else if ["/clear", "/new", "/reset"].contains(name) {
                 assert!(
                     document
@@ -12761,8 +12839,8 @@ mod tests {
         );
     }
 
-    /// Turns the loop until a `/copy` that is running on its own thread has
-    /// said how it went, and hands back what the document gained.
+    /// Turns the loop until a `/copy` or a `/trace` that is running on its own
+    /// thread has said how it went, and hands back what the document gained.
     fn copy_settled(shell: &mut Fixture) -> Vec<String> {
         let deadline = Instant::now() + std::time::Duration::from_secs(10);
         loop {
@@ -12901,6 +12979,195 @@ mod tests {
         assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
         assert_eq!(shell.picks_up(), TurnWork::Submit("second".to_string()));
         assert!(shell.sent.try_recv().is_err(), "/copy reached the runtime");
+    }
+
+    // -----------------------------------------------------------------------
+    // /trace
+    // -----------------------------------------------------------------------
+
+    /// The one report written under `dir`, its path and what it says.
+    fn the_report(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+        let written: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+            .expect("the report directory")
+            .map(|entry| entry.expect("an entry").path())
+            .collect();
+        assert_eq!(written.len(), 1, "not one report: {written:?}");
+        let report = std::fs::read_to_string(&written[0]).expect("the report");
+        (written[0].clone(), report)
+    }
+
+    /// What `/trace` says once its report is written: copied on macOS, where
+    /// the fake `osascript` took it, and saved everywhere else.
+    fn traced(path: &std::path::Path) -> Vec<String> {
+        let done = if cfg!(target_os = "macos") {
+            crate::trace::Disposition::Copied(path.to_path_buf())
+        } else {
+            crate::trace::Disposition::Saved(path.to_path_buf())
+        };
+        said(notice::Notice::neutral("", done.sentence()))
+    }
+
+    #[test]
+    fn trace_writes_what_the_screen_was_given_into_a_private_file_and_says_so() {
+        // `fx-trace-40x120-after-turn`: `* Trace copied to clipboard. Review
+        // and redact it before sharing.` -- no topic, no echo of `/trace` --
+        // and a report under `$TMPDIR` holding the conversation as the screen
+        // showed it (`writeTranscriptTimeline`, `app_commands.zig:3475`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(40, 120);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        a_turn_that_ran_a_command(&mut shell);
+        // The runtime gives the turn's place back once it is over.
+        shell.work.give_back();
+        shell.route_bytes(b"/notacommand\r");
+        shell.apply(UiEvent::FullDetail(notice::Notice::warning(
+            "network",
+            "provider: gateway \u{b7} model: fake/model-a \u{b7} 9ms\nfailed: unauthorized",
+        )));
+        let _ = shell.document();
+
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, report) = the_report(dir.path());
+        assert_eq!(document, traced(&path));
+        assert!(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("xfx-trace-") && name.ends_with(".md")),
+            "{path:?}"
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "the report is readable by others: {mode:o}"
+            );
+        }
+        if cfg!(target_os = "macos") {
+            assert_eq!(tool.copied_file().as_deref(), path.to_str());
+        }
+        assert_eq!(tool.copied(), None, "the report was copied as text");
+        for needle in [
+            "\n## Transcript Timeline\nansi stripped; only obvious secrets masked\n",
+            "] user\n  run the loop\n",
+            "] tool\n",
+            "boom",
+            "] assistant\n  All done.\n",
+            "] semantic notice\n  \u{2717} command: Unknown command. Try /help.\n",
+            "- notice [",
+            "] \u{2717} command: Unknown command. Try /help.\n",
+            "\n## Network Calls\ncalls=1 ok=0 refused=1\n",
+            "- network [",
+            "failed: unauthorized\n",
+            "terminal: 120 cols x 40 rows\n",
+            "work: outstanding=0 queued=0\n",
+            "\nmetrics: ansi_bytes=",
+        ] {
+            assert!(report.contains(needle), "{needle:?} is not in:\n{report}");
+        }
+        assert!(shell.sent.try_recv().is_err(), "/trace reached the runtime");
+    }
+
+    #[test]
+    fn trace_masks_what_looks_like_a_secret_in_what_the_screen_was_given() {
+        let dir = tempfile::tempdir().expect("a report directory");
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"deploy it with PASSWORD=hunter2-not-for-the-report\r");
+        let _ = shell.picks_up();
+        shell.work.give_back();
+        let _ = shell.document();
+        shell.route_bytes(b"/trace\r");
+        let _ = copy_settled(&mut shell);
+        let (_, report) = the_report(dir.path());
+        assert!(
+            report.contains("deploy it with PASSWORD=[redacted]"),
+            "{report}"
+        );
+        assert!(!report.contains("hunter2"), "{report}");
+    }
+
+    #[test]
+    fn trace_that_the_clipboard_refused_says_where_the_file_is_as_an_error() {
+        // `format_trace_notice`'s `copy_failed` (`app_commands.zig:85`) on
+        // macOS, where a file copy was tried; everywhere else nothing is tried
+        // and the report is `saved`, as upstream's e2e splits it
+        // (`tui-command-permissions.test.ts:1722-1726`).
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        tool.fail();
+        let dir = tempfile::tempdir().expect("a report directory");
+        // Wide enough that the sentence and the path it names are one row.
+        let mut shell = shell(24, 250);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, _) = the_report(dir.path());
+        let expected = if cfg!(target_os = "macos") {
+            said(notice::Notice::error(
+                "",
+                crate::trace::Disposition::CopyFailed(path).sentence(),
+            ))
+        } else {
+            traced(&path)
+        };
+        assert_eq!(document, expected);
+    }
+
+    #[test]
+    fn trace_takes_no_argument() {
+        // `commands.zig:486` has no `has_args`: `/trace now` names no command.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"/trace now\r");
+        assert_eq!(
+            shell.document(),
+            said(notice::Notice::error(
+                "command",
+                "Unknown command. Try /help."
+            ))
+        );
+        shell.settle_band(Instant::now());
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "`/trace now` wrote a report"
+        );
+        assert!(
+            shell.sent.try_recv().is_err(),
+            "`/trace now` reached the runtime"
+        );
+    }
+
+    #[test]
+    fn trace_mid_turn_is_answered_at_once_and_says_the_turn_was_running() {
+        // Upstream's report notes a turn it was taken during
+        // (`writeProblemsSummary`, `app_commands.zig:2580-2585`), and the
+        // report is not work: it neither waits behind the turn nor queues.
+        let tool = crate::clipboard::fake::FakeTool::keeping();
+        let dir = tempfile::tempdir().expect("a report directory");
+        let mut shell = shell(24, 80);
+        shell.traces = Traces::new(tool.clipboard(), dir.path().to_path_buf());
+        shell.route_bytes(b"first\r");
+        let _ = shell.document();
+        shell.route_bytes(b"/trace\r");
+        let document = copy_settled(&mut shell);
+        let (path, report) = the_report(dir.path());
+        assert_eq!(document, traced(&path));
+        assert!(
+            report.contains(
+                "- report captured an active turn; the session log may end mid-turn \
+                 outstanding=1 queued=0\n"
+            ),
+            "{report}"
+        );
+        assert_eq!(shell.picks_up(), TurnWork::Submit("first".to_string()));
+        assert!(shell.sent.try_recv().is_err(), "/trace reached the runtime");
     }
 
     // -----------------------------------------------------------------------
